@@ -412,12 +412,21 @@ def test_timeout_and_marker_reach_the_launch_through_params_json(monkeypatch, tm
     assert result.exit_code == 0, result.stdout + result.stderr
     (_binary, _args, _cwd, timeout, _label, watch) = calls[0]
     assert timeout == 9.5
-    # The marker reached the watch the streaming capture consults — asserted through
-    # the watch's BEHAVIOUR rather than its internals: an error followed by silence
-    # now asks for the run to end, which an undeclared marker never would.
+    # The marker reached the watch the streaming capture consults.
     assert watch is not None
-    assert not watch.observe(stdout="", stderr="SCRIPT ERROR: boom\n", elapsed=0.1)
-    assert watch.observe(stdout="", stderr="", elapsed=99.0)
+    # Asserted through the watch's BEHAVIOUR rather than its internals: an error
+    # attributable to the entry, followed by silence and a CPU clock that does not
+    # move, now asks for the run to end — which an undeclared marker never would.
+    entry_error = (
+        "SCRIPT ERROR: Invalid call. Nonexistent function 'boom' in base 'Nil'.\n"
+        "          at: _initialize (res://logic.gd:3)\n"
+    )
+    idle = lambda: 1.0  # noqa: E731 - a constant clock: two samples differ by zero
+    assert not watch.observe(
+        stdout="", stderr=entry_error, elapsed=0.1, cpu_seconds=idle
+    )
+    assert not watch.observe(stdout="", stderr="", elapsed=99.0, cpu_seconds=idle)
+    assert watch.observe(stdout="", stderr="", elapsed=199.0, cpu_seconds=idle)
 
 
 @pytest.mark.parametrize("timeout", ["0", "-1"])
@@ -502,4 +511,117 @@ def test_an_empty_completion_marker_is_refused(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
+    assert not calls
+
+
+@pytest.mark.parametrize("value", ["inf", "Infinity", "-inf", "nan", "1e400"])
+def test_a_non_finite_timeout_is_refused_on_argv(monkeypatch, tmp_path, value):
+    # A ceiling of `inf` passes a bare `> 0` test and then makes `elapsed >= timeout`
+    # unsatisfiable, so the run gda promised to BOUND would never be bounded — the
+    # exact opposite of what the option is for, and reached by an ordinary CLI string
+    # because Click parses these through float(). `nan` fails the same way, comparing
+    # false against everything. `1e400` overflows to inf without ever spelling it.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        # fmt: off
+        [
+            "script",
+            "run",
+            "res://logic.gd",
+            "--timeout",
+            value,
+            "--project",
+            str(project),
+            "--json",
+        ],
+        # fmt: on
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert not calls, "a non-finite --timeout must never reach the launch"
+
+
+@pytest.mark.parametrize("literal", ["Infinity", "-Infinity", "NaN", "1e400"])
+def test_a_non_finite_timeout_is_refused_through_params_json(
+    monkeypatch, tmp_path, literal
+):
+    # The same rule on the JSON route, where it is even easier to reach: Python's JSON
+    # decoder accepts the `Infinity`/`NaN` extensions, and a plain overflowing literal
+    # needs no extension at all. Enforced by the shared params model, so it surfaces as
+    # the structured `invalid_params` envelope (ADR-0015).
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        # fmt: off
+        [
+            "script",
+            "run",
+            "--params-json",
+            '{"path": "res://logic.gd", "timeout": ' + literal + "}",
+            "--project",
+            str(project),
+            "--json",
+        ],
+        # fmt: on
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert not calls, "a non-finite timeout must never reach the launch"
+
+
+@pytest.mark.parametrize("marker", ["", " ", "\t", "\n"])
+def test_a_blank_completion_marker_is_refused_on_argv(monkeypatch, tmp_path, marker):
+    # The marker is compared as a stripped whole LINE, so a blank one would equal every
+    # blank line the run prints and arm the abort on nothing. Refused rather than
+    # silently ignored — the same treatment an empty --godot gets.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        # fmt: off
+        [
+            "script",
+            "run",
+            "res://logic.gd",
+            "--completion-marker",
+            marker,
+            "--project",
+            str(project),
+            "--json",
+        ],
+        # fmt: on
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert not calls
+
+
+def test_a_blank_completion_marker_is_refused_through_params_json(
+    monkeypatch, tmp_path
+):
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        # fmt: off
+        [
+            "script",
+            "run",
+            "--params-json",
+            '{"path": "res://logic.gd", "completion_marker": "  "}',
+            "--project",
+            str(project),
+            "--json",
+        ],
+        # fmt: on
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
     assert not calls

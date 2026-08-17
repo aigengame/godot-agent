@@ -592,12 +592,29 @@ def script_exit_status_failure(
 # than an option: one more knob to reason about buys nothing an agent wants, and a
 # stated constant is something a caller can rely on. The TAIL is kept, not the
 # head: the interesting part of a run that did not finish is where it got to.
-SCRIPT_OUTPUT_TAIL_CAP_CHARS = 16 * 1024
+#
+# The bound is in **UTF-8 bytes**, not characters, because bytes are what actually
+# costs: a character cap of the same number let non-ASCII output through at up to
+# 3-4x the intended size (16Ki CJK characters encode to ~48KiB), so a bound meant to
+# keep a result payload small silently did not. Bytes also make the stated figure
+# mean one thing to a reader measuring the JSON.
+SCRIPT_OUTPUT_TAIL_CAP_BYTES = 16 * 1024
 
 
 def _tail(stream: str) -> str:
-    """The last :data:`SCRIPT_OUTPUT_TAIL_CAP_CHARS` characters of a stream."""
-    return stream[-SCRIPT_OUTPUT_TAIL_CAP_CHARS:]
+    """The last :data:`SCRIPT_OUTPUT_TAIL_CAP_BYTES` UTF-8 bytes of a stream.
+
+    Slicing bytes can land inside a multi-byte sequence, so the decode uses
+    ``errors="ignore"`` to drop a leading partial character rather than emit a
+    replacement character for it: the truncation is gda's own doing, and inventing a
+    ``U+FFFD`` would misreport the engine's output as malformed. Only that boundary
+    is affected — anything genuinely malformed was already replaced when the capture
+    was decoded, and survives here as the replacement character it became.
+    """
+    encoded = stream.encode("utf-8")
+    if len(encoded) <= SCRIPT_OUTPUT_TAIL_CAP_BYTES:
+        return stream
+    return encoded[-SCRIPT_OUTPUT_TAIL_CAP_BYTES:].decode("utf-8", errors="ignore")
 
 
 def _ended_run_diagnostics(
@@ -661,7 +678,7 @@ def script_run_timeout_failure(
         f"script run: {script} did not return before the --timeout of {timeout}s "
         f"(elapsed {elapsed:.2f}s, termination phase '{phase}'). The captured "
         f"output is in diagnostics, truncated to the last "
-        f"{SCRIPT_OUTPUT_TAIL_CAP_CHARS} characters of each stream; raise "
+        f"{SCRIPT_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; raise "
         f"--timeout for a run that is merely slow, or declare "
         f"--completion-marker to end an aborted run early.",
         _ended_run_diagnostics("the timeout", script_errors, stdout, stderr),
@@ -713,12 +730,14 @@ def script_run_aborted_failure(
     )
     return make_failure(
         "script_aborted",
-        f"script run: {script} was ended after {elapsed:.2f}s — a script error "
-        f"appeared, {declared} did not, and neither stream produced output for "
-        f"{silence}s. The --timeout of {timeout}s was not reached. The captured "
+        f"script run: {script} was ended after {elapsed:.2f}s — an error naming the "
+        f"entry script appeared, {declared} did not, neither stream produced output "
+        f"for {silence}s, and the process then consumed no measurable CPU over a "
+        f"further {silence}s (so it was idle, not working quietly). "
+        f"The --timeout of {timeout}s was not reached. The captured "
         f"output is in diagnostics, truncated to the last "
-        f"{SCRIPT_OUTPUT_TAIL_CAP_CHARS} characters of each stream; termination "
-        f"phase '{phase}'.",
+        f"{SCRIPT_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; "
+        f"termination phase '{phase}'.",
         _ended_run_diagnostics("the abort", script_errors, stdout, stderr),
     )
 

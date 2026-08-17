@@ -315,8 +315,10 @@ added incrementally under ADR-0025 if a concrete need appears.
 > **3. The timeout envelope carries the run's evidence.** Still `launch_timeout`: the
 > condition is exactly the one that code names, and this ADR already recorded this path
 > under it, so the code is reused and the message discriminates (ADR-0002). What it now
-> carries is the captured partial output — tail-capped at a fixed 16384 characters per
-> stream, stated in the message — under the same `--- script stdout ---` /
+> carries is the captured partial output — tail-capped at a fixed **16 KiB of UTF-8 bytes**
+> per stream, stated in the message (a character cap of the same number let non-ASCII output
+> through at 3-4x the intended size, so a bound meant to keep the payload small did not) —
+> under the same `--- script stdout ---` /
 > `--- script stderr ---` labels `--strict` uses, plus the elapsed wall clock, one
 > **termination phase** from a closed set (`launched` / `output_seen` /
 > `aborted_on_error`), and the recognized script errors. Those errors are read with the
@@ -332,18 +334,39 @@ added incrementally under ADR-0025 if a concrete need appears.
 > never reached its own startup output.
 >
 > **4. A caller-declared `Completion marker` ends an aborted run early** — the new
-> registered `script_aborted` code (operation, exit 4). gda ends the run when a recognized
-> script error has appeared on stderr, the declared marker has **not**, and neither stream
-> has produced output for a fixed 3s. Each clause is load-bearing. The marker is the
-> opt-in: this ADR rejected imposing a gda-owned sentinel wrapper on a user-authored entry
-> script, so gda cannot know a run "should" have finished — only the caller can say what
-> finishing looks like. With no marker declared the watch never aborts and the ceiling is
-> waited out as before. **This is not the ADR-0002 op-dispatch sentinel**: that is gda's
-> contract with its own `operations.gd` payload; a marker is an arbitrary caller string
-> read for one boolean. And the **silence** is what makes the abort safe rather than
-> merely fast: a GDScript runtime error aborts only the function that raised it, so a
-> script can survive one and still reach its `quit()` — a run this repo's e2e suite pins
-> as a success — and a run that keeps working keeps printing, which resets the window.
+> registered `script_aborted` code (operation, exit 4). Killing a run is destructive and
+> unrecoverable, so the bar is **evidence that this run cannot finish**, and all four of
+> these must hold:
+>
+> 1. a recognized error **attributable to the entry script** has appeared on stderr —
+>    decided by reusing `entry_load_failure` plus a `RUNTIME_ERROR` naming the entry's
+>    canonical `res://` path, so an error about some *other* resource (a `load()` the
+>    running script survived) says nothing and arms nothing;
+> 2. the declared marker has **not** appeared. This is the opt-in: this ADR rejected
+>    imposing a gda-owned sentinel wrapper on a user-authored entry script, so gda cannot
+>    know a run "should" have finished — only the caller can say what finishing looks like.
+>    With no marker declared the watch never aborts and the ceiling is waited out as
+>    before. **This is not the ADR-0002 op-dispatch sentinel**: that is gda's contract with
+>    its own `operations.gd` payload; a marker is an arbitrary caller *line*, compared by
+>    whole-line equality (substring matching let `NOT DONE YET` count as the marker `DONE`
+>    and silently disarm the abort) and read for one boolean;
+> 3. neither stream has produced output for a fixed 3s;
+> 4. the process then consumed **no measurable CPU** across a further 3s window.
+>
+> Condition 4 is what makes the rule sound, and it was added because 1-3 are not enough.
+> A GDScript runtime error aborts only the function that raised it, so a script can survive
+> one — *in the entry script itself*, which defeats attribution — and then compute
+> **quietly** for a long time before reaching its `quit()`. Review reproduced exactly that:
+> the same script was killed at 3.5s with a marker declared and completed without one.
+> Silence is not death. CPU time is the evidence that separates them: measured against
+> 4.6.3, an entry that aborted leaves Godot idling at ~0.01s of CPU per wall second, while a
+> script still computing burns ~1.0s — two orders of magnitude, so the discrimination
+> survives even the whole-second granularity POSIX `ps` guarantees. Where CPU time cannot be
+> read at all, gda does **not** abort: an unmeasurable host forfeits the optimisation rather
+> than gaining a wrong kill. The cost is latency — the abort lands after about two windows
+> instead of one — which is still seconds against a two-minute default, and is stated in the
+> failure message. The probe is read at the two ends of one window rather than per poll, and
+> only once 1-3 already hold, so the overwhelming majority of runs never pay for it.
 >
 > `script_aborted` is minted rather than reused because no registered code names the
 > condition. `launch_timeout` would be untrue (gda did not wait, it decided not to);

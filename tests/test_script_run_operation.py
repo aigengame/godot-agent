@@ -46,7 +46,7 @@ from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023
 from gda.errors import (
     SCRIPT_OUTPUT_STDERR_HEADER,
     SCRIPT_OUTPUT_STDOUT_HEADER,
-    SCRIPT_OUTPUT_TAIL_CAP_CHARS,
+    SCRIPT_OUTPUT_TAIL_CAP_BYTES,
     Failure,
 )
 from gda.execution import ExecutionKind
@@ -54,6 +54,8 @@ from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
 from gda.runner import LaunchFailure, LaunchWatch, RunResult
 
 PROJECT = Path("/tmp/project")
+# The canonical entry the ABORTED_STDERR fixture names, so attribution matches.
+ENTRY = "res://tests/logic.gd"
 
 
 class FakeLaunch:
@@ -698,7 +700,7 @@ def test_a_timeout_reflects_the_timeout_elapsed_and_phase_in_the_message():
     assert "elapsed 30.25s" in outcome.error.message
     assert TerminationPhase.OUTPUT_SEEN.value in outcome.error.message
     # The cap is STATED, so a reader knows the output was truncated and by how much.
-    assert str(SCRIPT_OUTPUT_TAIL_CAP_CHARS) in outcome.error.message
+    assert str(SCRIPT_OUTPUT_TAIL_CAP_BYTES) in outcome.error.message
 
 
 def test_a_timeout_carries_the_captured_partial_output_as_diagnostics():
@@ -747,8 +749,8 @@ def test_a_timeout_truncates_each_stream_to_the_stated_tail():
     assert isinstance(outcome, Failure)
     diagnostics = outcome.error.diagnostics
     assert "LAST LINE" in diagnostics
-    assert diagnostics.count("x") == SCRIPT_OUTPUT_TAIL_CAP_CHARS - len("LAST LINE\n")
-    assert diagnostics.count("y") == SCRIPT_OUTPUT_TAIL_CAP_CHARS
+    assert diagnostics.count("x") == SCRIPT_OUTPUT_TAIL_CAP_BYTES - len("LAST LINE\n")
+    assert diagnostics.count("y") == SCRIPT_OUTPUT_TAIL_CAP_BYTES
 
 
 def test_an_aborted_run_is_the_registered_early_termination_verdict():
@@ -783,86 +785,342 @@ def test_an_aborted_run_is_the_registered_early_termination_verdict():
     assert "SUITE START" in outcome.error.diagnostics
 
 
+def _idle():
+    """A CPU probe standing in for a process that is doing NOTHING.
+
+    Returns a constant, so any two samples differ by zero — the reading an aborted
+    entry really produces (Godot's idle main loop accrues ~0.01s of CPU per wall
+    second, measured against 4.6.3).
+    """
+
+    def probe() -> float | None:
+        return 1.0
+
+    return probe
+
+
+def _burning(rate: float = 1.0):
+    """A CPU probe standing in for a process still COMPUTING at ``rate`` s/s.
+
+    Each call advances, so the watch's two samples differ — the reading a script that
+    survived a recoverable error and went on working quietly really produces (~1.0s
+    of CPU per wall second, two orders of magnitude above idle).
+    """
+    state = {"t": 0.0}
+
+    def probe() -> float | None:
+        state["t"] += rate * SCRIPT_RUN_ABORT_SILENCE_SECONDS
+        return state["t"]
+
+    return probe
+
+
+def _unmeasurable():
+    """A CPU probe for a platform gda cannot read (no /proc, no usable ps)."""
+
+    def probe() -> float | None:
+        return None
+
+    return probe
+
+
+def _drive(watch, steps, cpu):
+    """Feed ``(stdout, stderr, elapsed)`` steps to a watch; return each verdict."""
+    return [
+        watch.observe(stdout=out, stderr=err, elapsed=at, cpu_seconds=cpu)
+        for out, err, at in steps
+    ]
+
+
 def test_the_declared_marker_reaches_the_watch_and_absence_leaves_it_inert():
     # The marker is CALLER-DECLARED (ADR-0031 rejected imposing a gda-owned sentinel
     # on a user script), so with none declared the watch must never abort — the launch
     # gains its captured output and nothing else.
-    inert = _CompletionMarkerWatch(None)
-    assert not inert.observe(stdout="", stderr=ABORTED_STDERR, elapsed=0.5)
-    assert not inert.observe(stdout="", stderr="", elapsed=600.0)
+    inert = _CompletionMarkerWatch(None, entry=ENTRY)
+    verdicts = _drive(
+        inert,
+        [("", ABORTED_STDERR, 0.5), ("", "", 600.0), ("", "", 900.0)],
+        _idle(),
+    )
+    assert verdicts == [False, False, False]
 
 
-def test_the_watch_aborts_only_after_the_error_and_the_silence():
-    # The three-part rule, each part load-bearing: a recognized script error, the
-    # declared marker absent, and the run gone silent for the stated window.
-    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+def test_a_blank_marker_is_treated_as_undeclared():
+    # Whole-line equality means a whitespace-only marker would equal every blank line
+    # the run prints and arm the abort on nothing. The params model and the argv guard
+    # both refuse one; the watch refuses it too so no third call site can reintroduce
+    # the hazard.
+    watch = _CompletionMarkerWatch("   ", entry=ENTRY, silence=3.0)
+    verdicts = _drive(
+        watch,
+        [("\n", ABORTED_STDERR, 0.5), ("", "", 3.6), ("", "", 7.0)],
+        _idle(),
+    )
+    assert verdicts == [False, False, False]
 
-    # An error alone is not enough — the run may still be working.
-    assert not watch.observe(stdout="SUITE START\n", stderr=ABORTED_STDERR, elapsed=0.5)
-    # Nor is a short silence.
-    assert not watch.observe(stdout="", stderr="", elapsed=2.9)
-    # The window elapses with no further output: the run is dead.
-    assert watch.observe(stdout="", stderr="", elapsed=3.6)
+
+def test_the_watch_aborts_only_after_the_error_the_silence_and_the_idleness():
+    # The four-part rule. Each step below is a part that must NOT be enough on its own.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+
+    # (1) an entry error, but the run may still be working.
+    assert not watch.observe(
+        stdout="SUITE START\n", stderr=ABORTED_STDERR, elapsed=0.5, cpu_seconds=_idle()
+    )
+    # (3) a short silence is not the window.
+    assert not watch.observe(stdout="", stderr="", elapsed=2.9, cpu_seconds=_idle())
+    # The silence window elapses: gda takes a CPU BASELINE and still does not kill —
+    # silence alone was the old, wrong trigger.
+    assert not watch.observe(stdout="", stderr="", elapsed=3.6, cpu_seconds=_idle())
+    # Only after a further window of measured idleness is the kill authorised.
+    assert not watch.observe(stdout="", stderr="", elapsed=5.0, cpu_seconds=_idle())
+    assert watch.observe(stdout="", stderr="", elapsed=6.7, cpu_seconds=_idle())
 
 
-def test_output_after_the_error_resets_the_silence_window():
-    # Why the trigger is silence rather than the error itself: a GDScript runtime
-    # error aborts only the function that raised it, so a script can survive one and
-    # still reach its own quit() — a run pinned as a SUCCESS elsewhere in this suite.
-    # A run that keeps working keeps printing, which must keep resetting the window.
-    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+def test_a_quiet_but_still_working_run_is_never_aborted():
+    # THE REVIEWED DEFECT (real paired repro: the same script aborted with a marker
+    # declared and completed without one). "An entry error was printed and nothing has
+    # been printed since" is equally true of a script that survived a RECOVERABLE
+    # error and went on computing without printing — a GDScript runtime error aborts
+    # only the function that raised it. Silence is not death, so the CPU evidence is
+    # what decides, and here it says the process is busy: no abort, ever, however long
+    # the quiet lasts.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+    burning = _burning()
 
-    assert not watch.observe(stdout="", stderr=ABORTED_STDERR, elapsed=0.5)
-    assert not watch.observe(stdout="test 8 ok\n", stderr="", elapsed=3.0)
-    # 3.5s after the ERROR, but only 0.5s after the last output — still working.
-    assert not watch.observe(stdout="", stderr="", elapsed=3.5)
-    assert watch.observe(stdout="", stderr="", elapsed=6.1)
+    verdicts = _drive(
+        watch,
+        [
+            ("SUITE START\n", ABORTED_STDERR, 0.5),
+            ("", "", 3.6),
+            ("", "", 6.7),
+            ("", "", 9.9),
+            ("", "", 30.0),
+            ("", "", 90.0),
+        ],
+        burning,
+    )
+
+    assert verdicts == [False] * 6
+
+
+def test_an_unmeasurable_cpu_clock_never_authorises_the_kill():
+    # Where CPU time cannot be read (no /proc, no usable ps), gda cannot claim the
+    # process is idle — so it must not kill it. The host loses the early abort and the
+    # run proceeds to its --timeout, which is the safe direction to fail.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+
+    verdicts = _drive(
+        watch,
+        [
+            ("SUITE START\n", ABORTED_STDERR, 0.5),
+            ("", "", 3.6),
+            ("", "", 6.7),
+            ("", "", 20.0),
+            ("", "", 40.0),
+        ],
+        _unmeasurable(),
+    )
+
+    assert verdicts == [False] * 5
+
+
+def test_an_error_about_another_resource_never_arms_the_abort():
+    # Attribution (1): a RUNNING script that merely load()s a missing .tres — or whose
+    # helper script fails — produces the same engine sentences for a DIFFERENT path.
+    # The e2e suite pins such runs as SUCCESSES, so they must not arm the abort even
+    # when the run then goes idle and quiet.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+    other = (
+        "ERROR: Cannot open file 'res://missing.tres'.\n"
+        "   at: _load (core/io/resource_loader.cpp:343)\n"
+        "ERROR: Failed loading resource: res://missing.tres.\n"
+        "   at: _load (core/io/resource_loader.cpp:343)\n"
+    )
+
+    verdicts = _drive(
+        watch,
+        [("", other, 0.5), ("", "", 3.6), ("", "", 6.7), ("", "", 60.0)],
+        _idle(),
+    )
+
+    assert verdicts == [False] * 4
+
+
+def test_a_runtime_error_in_a_helper_script_never_arms_the_abort():
+    # The same attribution rule for the runtime kind: an error raised inside a helper
+    # the entry called is reported against the HELPER's res:// path, and says nothing
+    # about whether the entry can finish.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+    helper = (
+        "SCRIPT ERROR: Invalid call. Nonexistent function 'x' in base 'Nil'.\n"
+        "          at: run (res://tests/helper.gd:12)\n"
+    )
+
+    verdicts = _drive(
+        watch,
+        [("", helper, 0.5), ("", "", 3.6), ("", "", 6.7), ("", "", 60.0)],
+        _idle(),
+    )
+
+    assert verdicts == [False] * 4
+
+
+def test_an_entry_load_failure_arms_the_abort_too():
+    # Attribution reuses the EXISTING classification, so every kind that proves the
+    # entry never ran arms the abort as well — not just the runtime kind. This is the
+    # shape ADR-0031 records as otherwise reaching a failure only "by another route"
+    # (the engine idles instead of exiting), and the marker now cuts that short.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+    not_a_main_loop = (
+        "ERROR: Can't load the script \"res://tests/logic.gd\" as it doesn't "
+        "inherit from SceneTree or MainLoop.\n"
+        "   at: start (main/main.cpp:4286)\n"
+    )
+
+    verdicts = _drive(
+        watch,
+        [("", not_a_main_loop, 0.5), ("", "", 3.6), ("", "", 6.7)],
+        _idle(),
+    )
+
+    assert verdicts == [False, False, True]
+
+
+def test_output_after_the_error_resets_both_windows():
+    # A run that keeps working keeps printing, and any output must restart the wait
+    # from scratch — including a CPU measurement already in flight, since output is
+    # itself proof the run is alive.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+
+    assert not watch.observe(
+        stdout="", stderr=ABORTED_STDERR, elapsed=0.5, cpu_seconds=_idle()
+    )
+    # Silence elapses, so a baseline is taken...
+    assert not watch.observe(stdout="", stderr="", elapsed=3.6, cpu_seconds=_idle())
+    # ...then output arrives, discarding it.
+    assert not watch.observe(
+        stdout="test 8 ok\n", stderr="", elapsed=4.0, cpu_seconds=_idle()
+    )
+    # 4.5s after the error but only 0.5s after the output: nothing may fire yet.
+    assert not watch.observe(stdout="", stderr="", elapsed=4.5, cpu_seconds=_idle())
+    # Both windows must pass again from the new output.
+    assert not watch.observe(stdout="", stderr="", elapsed=7.1, cpu_seconds=_idle())
+    assert watch.observe(stdout="", stderr="", elapsed=10.2, cpu_seconds=_idle())
 
 
 def test_the_marker_appearing_disarms_the_abort_for_good():
     # Once the caller's own definition of "finished" has been printed, the run is not
     # an aborted one, whatever else its stderr says — so gda waits out --timeout
     # rather than reporting a failure the caller did not ask for.
-    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
 
-    assert not watch.observe(stdout="SUITE DONE\n", stderr=ABORTED_STDERR, elapsed=0.5)
-    assert not watch.observe(stdout="", stderr="", elapsed=60.0)
+    verdicts = _drive(
+        watch,
+        [("SUITE DONE\n", ABORTED_STDERR, 0.5), ("", "", 60.0), ("", "", 120.0)],
+        _idle(),
+    )
+
+    assert verdicts == [False, False, False]
+
+
+def test_a_line_merely_containing_the_marker_does_not_disarm_the_abort():
+    # THE REVIEWED DEFECT: substring matching made "NOT DONE YET" count as the marker
+    # "DONE", silently disarming the abort for a run that had in fact died. The marker
+    # is defined as a LINE the script prints, so the comparison is whole-line equality
+    # and this run is still correctly ended.
+    watch = _CompletionMarkerWatch("DONE", entry=ENTRY, silence=3.0)
+
+    verdicts = _drive(
+        watch,
+        [("NOT DONE YET\n", ABORTED_STDERR, 0.5), ("", "", 3.6), ("", "", 6.7)],
+        _idle(),
+    )
+
+    assert verdicts == [False, False, True]
+
+
+def test_the_marker_matches_its_line_ignoring_surrounding_whitespace():
+    # print() output can carry indentation; the marker names the line's CONTENT, so
+    # both sides are stripped before comparison.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+
+    verdicts = _drive(
+        watch,
+        [("  SUITE DONE  \n", ABORTED_STDERR, 0.5), ("", "", 3.6), ("", "", 6.7)],
+        _idle(),
+    )
+
+    assert verdicts == [False, False, False]
 
 
 def test_the_marker_is_matched_across_a_chunk_boundary():
-    # The capture hands over whatever a read syscall returned, so a marker — or an
-    # error record — can arrive split. Buffering to complete lines is what makes the
-    # match whole while still seeing every byte exactly once.
-    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+    # The capture hands over whatever a read syscall returned, so a marker can arrive
+    # split. Buffering to complete lines is what makes the match whole while still
+    # seeing every byte exactly once.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
 
-    watch.observe(stdout="SUITE ", stderr="SCRIPT ERROR: boom\n", elapsed=0.1)
-    watch.observe(stdout="DONE\n", stderr="", elapsed=0.2)
+    verdicts = _drive(
+        watch,
+        [("SUITE ", ABORTED_STDERR, 0.1), ("DONE\n", "", 0.2), ("", "", 6.7)],
+        _idle(),
+    )
 
-    assert not watch.observe(stdout="", stderr="", elapsed=30.0)
+    assert verdicts == [False, False, False]
+
+
+def test_an_error_record_split_across_reads_is_still_attributed():
+    # The mirror case for stderr, and why the watch re-parses a bounded WINDOW of
+    # trailing lines rather than each batch alone: Godot writes an error as a header
+    # then an `at:` frame, and only the frame carries the res:// path the attribution
+    # needs. Parsing the batches independently dropped it, so a genuinely dead run
+    # would never arm.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+
+    verdicts = _drive(
+        watch,
+        [
+            ("", "SCRIPT ERROR: Invalid call. Nonexistent function 'q'.\n", 0.1),
+            ("", "          at: _initialize (res://tests/logic.gd:6)\n", 0.2),
+            ("", "", 3.6),
+            ("", "", 6.7),
+        ],
+        _idle(),
+    )
+
+    assert verdicts == [False, False, False, True]
 
 
 def test_a_warning_is_not_a_script_error_for_the_abort():
     # Recognition is the shared parser's, which skips warnings — so a chatty run that
     # only warns is never ended early, however long it then goes quiet.
-    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
 
-    watch.observe(
-        stdout="",
-        stderr="WARNING: something odd\n   at: f (res://x.gd:2)\n",
-        elapsed=0.1,
+    verdicts = _drive(
+        watch,
+        [
+            ("", "WARNING: odd\n   at: f (res://tests/logic.gd:2)\n", 0.1),
+            ("", "", 3.6),
+            ("", "", 6.7),
+        ],
+        _idle(),
     )
 
-    assert not watch.observe(stdout="", stderr="", elapsed=30.0)
+    assert verdicts == [False, False, False]
 
 
 def test_an_error_on_stdout_alone_does_not_arm_the_abort():
     # Godot reports errors on stderr; a script that PRINTS the words "SCRIPT ERROR"
     # to stdout (a test runner echoing a failure) has not failed the run.
-    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
 
-    watch.observe(stdout="SCRIPT ERROR: expected\n", stderr="", elapsed=0.1)
+    verdicts = _drive(
+        watch,
+        [(ABORTED_STDERR, "", 0.1), ("", "", 3.6), ("", "", 6.7)],
+        _idle(),
+    )
 
-    assert not watch.observe(stdout="", stderr="", elapsed=30.0)
+    assert verdicts == [False, False, False]
 
 
 def test_a_completed_run_is_unaffected_by_a_declared_marker():
@@ -923,8 +1181,11 @@ def test_an_unmeasured_run_falls_back_to_its_rule_s_lower_bound():
         completion_marker="SUITE DONE",
     )
     assert isinstance(aborted, Failure)
+    # The abort's guaranteed lower bound is TWO windows: one to establish silence and
+    # one to measure CPU across it, so it cannot have fired sooner than that.
     assert (
-        f"ended after {SCRIPT_RUN_ABORT_SILENCE_SECONDS:.2f}s" in aborted.error.message
+        f"ended after {2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS:.2f}s"
+        in aborted.error.message
     )
 
 
@@ -950,3 +1211,36 @@ def test_the_abort_envelope_names_the_condition_without_a_marker_string():
     assert failure.error.code == "script_aborted"
     assert "the declared completion marker did not" in failure.error.message
     assert "None" not in failure.error.message
+
+
+def test_the_output_cap_bounds_utf8_BYTES_not_characters():
+    # The cap exists to keep an inline JSON payload small, and a CHARACTER cap of the
+    # same number did not: non-ASCII output encodes to up to 3-4 bytes each, so 16Ki
+    # characters of CJK text was ~48KiB — three times the intended bound. Counting
+    # bytes makes the stated figure mean one thing to a reader measuring the result.
+    wide = "界" * 20_000  # 3 bytes each => 60 KiB, well past the cap
+
+    outcome, _ = _run(_timed_out(stdout=wide, stderr=wide), timeout=30.0)
+
+    assert isinstance(outcome, Failure)
+    diagnostics = outcome.error.diagnostics
+    # 16384 bytes / 3 bytes per character = 5461 whole characters, and the byte slice
+    # lands mid-character: the leading partial byte is DROPPED rather than becoming a
+    # replacement character, since the truncation is gda's own and inventing a U+FFFD
+    # would misreport the engine's output as malformed.
+    per_stream = SCRIPT_OUTPUT_TAIL_CAP_BYTES // len("界".encode())
+    assert diagnostics.count("界") == per_stream * 2
+    assert "�" not in diagnostics
+    # And the payload really is bounded in the unit the message names.
+    assert len(diagnostics.encode("utf-8")) <= 2 * SCRIPT_OUTPUT_TAIL_CAP_BYTES + 512
+    assert "UTF-8 bytes (16 KiB)" in outcome.error.message
+
+
+def test_output_within_the_cap_is_never_re_encoded():
+    # The common case must pass through untouched: a stream under the cap is returned
+    # as-is, so nothing can be lost to a boundary trim that was not needed.
+    outcome, _ = _run(_timed_out(stdout="界 ok\n", stderr="Ω done\n"), timeout=30.0)
+
+    assert isinstance(outcome, Failure)
+    assert "界 ok" in outcome.error.diagnostics
+    assert "Ω done" in outcome.error.diagnostics

@@ -16,7 +16,10 @@ C# (.cs) is out of scope for now — it needs the .NET build of Godot (ADR-0003
 targets the standard build) and a dedicated decision.
 """
 
+import math
 import re
+from collections import deque
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
@@ -600,7 +603,27 @@ DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = 120.0
 # Fixed, not an option: it is the abort's stated bound, and a caller who wants to
 # wait longer already has ``--timeout`` (omit the marker). It is stated in the
 # failure message so the bound is legible rather than folklore.
+#
+# The window is used TWICE — once to establish silence, once more to measure CPU
+# across it — so the abort lands after roughly 2x this value.
 SCRIPT_RUN_ABORT_SILENCE_SECONDS = 3.0
+
+# How much CPU time the process may consume across the idleness window and still
+# count as idle (#655). Measured against Godot 4.6.3: a headless main loop left
+# idle by an aborted entry accrues ~0.01s of CPU per wall second (~0.03s across
+# this window), while a script still computing accrues ~1.0s (~3s across it). The
+# threshold sits an order of magnitude above the idle rate and an order below the
+# working rate, so neither a slightly busy idle loop nor a coarse whole-second CPU
+# clock (all POSIX ``ps`` guarantees) can flip the verdict. Erring high would kill
+# working runs; erring low only forfeits the early abort, so the margin is
+# deliberately generous on the safe side.
+SCRIPT_RUN_IDLE_CPU_SECONDS = 0.25
+
+# How many trailing stderr lines the watch re-parses to attribute an error. Godot
+# writes one error as a header, an ``at:`` frame and possibly a backtrace, and a
+# read syscall can split them across batches, so the window must span a whole
+# record; it is bounded so the parse stays linear in the total output.
+_STDERR_WINDOW_LINES = 64
 
 
 class ScriptRunParams(BaseModel):
@@ -646,9 +669,14 @@ class ScriptRunParams(BaseModel):
     timeout: float = Field(
         default=DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
         gt=0,
+        allow_inf_nan=False,
         description=(
             "How many seconds to let the run take before gda ends it and reports "
-            "'launch_timeout'. Raise it for a suite that outgrew the default of "
+            "'launch_timeout'. Must be a FINITE positive number: JSON Schema cannot "
+            "express finiteness, so a non-finite value is refused by validation "
+            "rather than by the schema below — an infinite ceiling would never be "
+            "reached and so would not bound the run at all. Raise it for a suite "
+            "that outgrew the default of "
             f"{DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS}s; lower it to fail fast. The "
             "envelope reports the value that was reached, the elapsed wall clock, "
             "the captured output (tail-capped, cap stated), and one termination "
@@ -662,21 +690,29 @@ class ScriptRunParams(BaseModel):
     completion_marker: str | None = Field(
         default=None,
         min_length=1,
+        # A blank marker is compared as a stripped whole line, so it would equal
+        # every blank line the run prints; `min_length` alone lets " " through.
+        pattern=r"\S",
         description=(
             "Opt-in early termination: a string the script prints on its own line "
             "when it has finished its work. When it is declared and a script error "
-            "appears on stderr while the marker has NOT, and NEITHER STREAM then "
-            f"produces output for {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, gda ends the "
-            "run and reports 'script_aborted' with the captured error — in seconds "
-            "rather than at the timeout. Omit it and gda waits out 'timeout' as "
-            "before. Caller-declared, never imposed: gda does not require or inject "
-            "anything in the script (ADR-0031), and this is not the ADR-0002 "
-            "op-dispatch sentinel. Two consequences of the silence rule, both "
-            "deliberate: a run that keeps printing after a fatal error never goes "
-            "silent, so it waits out 'timeout' instead (this is what keeps a script "
-            "that survives an error and still reaches its own quit() a success); "
-            f"and a 'timeout' at or below {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s "
-            "leaves the marker inert, because the ceiling arrives first (#655)."
+            "appears on stderr, gda ends the run and reports 'script_aborted' with "
+            "the captured error — in seconds rather than at the timeout. Matched by "
+            "WHOLE-LINE equality (both sides stripped), not as a substring. All four "
+            "conditions must hold: a recognized error ATTRIBUTABLE TO THE ENTRY "
+            "script (one about another resource arms nothing), this marker absent, "
+            f"neither stream producing output for {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, "
+            "and then NO MEASURABLE CPU consumed over a further "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s — so the abort lands after about "
+            f"{2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS}s. The CPU condition is what "
+            "keeps a script that survives a recoverable error and then computes "
+            "QUIETLY from being killed: silence alone is not evidence a run is dead. "
+            "Where CPU time cannot be measured, gda does not abort at all. Omit the "
+            "marker and gda waits out 'timeout' as before. Caller-declared, never "
+            "imposed: gda does not require or inject anything in the script "
+            "(ADR-0031), and this is not the ADR-0002 op-dispatch sentinel. Note a "
+            f"'timeout' at or below {2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves "
+            "the marker inert, because the ceiling arrives first (#655)."
         ),
     )
 
@@ -931,6 +967,40 @@ class TerminationPhase(str, Enum):
     ABORTED_ON_ERROR = "aborted_on_error"
 
 
+def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
+    """Does any recognized error say the ENTRY script itself is in trouble (#655)?
+
+    The arming condition of :class:`_CompletionMarkerWatch`, and it reuses the
+    classification that already exists rather than inventing a second reading of the
+    same stderr:
+
+    - :func:`gda.script_errors.entry_load_failure` covers every kind that proves the
+      entry never ran — missing, uncompilable, not a ``SceneTree``/``MainLoop``, or
+      the resource-layer cascade behind those — already matched on the canonical
+      ``res://`` identity, on both sides;
+    - plus a ``RUNTIME_ERROR`` naming the entry, which that function excludes **by
+      construction** (it is the one kind proving the script DID run) and which is
+      exactly the dogfooded case: an error raised inside the entry's own
+      ``_initialize`` aborts it before its ``quit()``.
+
+    Attribution is what keeps a *survivable* failure from arming the abort at all. A
+    running script that merely ``load()``s a missing ``.tres``, or whose helper
+    script fails, produces the same engine sentences for a DIFFERENT path — and the
+    e2e suite pins such runs as successes. Only the entry's own trouble is evidence
+    about the entry's fate, and even then only evidence, not proof: a runtime error
+    aborts one function, not necessarily the run, which is why the idleness check
+    downstream is what actually authorises the kill.
+    """
+    if entry_load_failure(errors, entry) is not None:
+        return True
+    return any(
+        error.kind is ScriptErrorKind.RUNTIME_ERROR
+        and error.path is not None
+        and canonical_res_path(error.path) == entry
+        for error in errors
+    )
+
+
 class _CompletionMarkerWatch:
     """``script run``'s :class:`~gda.runner.LaunchWatch`: end a run that died (#655).
 
@@ -939,63 +1009,145 @@ class _CompletionMarkerWatch:
     here, in the ``script`` group, because that meaning is this command's domain
     knowledge and no other channel's.
 
-    The rule, and every part of it is load-bearing:
+    Killing a run is destructive and unrecoverable, so the bar is **evidence that
+    this run cannot finish**, not merely a plausible sign of trouble. An earlier
+    version armed on any parsed diagnostic plus silence, and review showed that
+    wrong on a real paired run: the same script aborted with a marker declared and
+    completed without one, because "an error was printed and nothing has been
+    printed since" is equally true of a script computing QUIETLY after surviving a
+    recoverable error. All four conditions below must hold:
 
-    1. a recognized script error appeared on **stderr** — read with the shared
-       :func:`gda.script_errors.parse_script_errors`, so the abort recognizes
-       exactly the sentences the rest of ``script run`` does and nothing is parsed
-       twice in two ways. Warnings are not errors and are already skipped there;
+    1. a recognized error attributable to the **entry script** appeared on stderr —
+       see :func:`_entry_attributable`, which reuses
+       :func:`gda.script_errors.entry_load_failure` and the canonical ``res://``
+       identity, so the abort recognizes exactly the sentences the rest of
+       ``script run`` does and nothing is parsed twice in two ways. An error about
+       some *other* resource says nothing about the entry's fate; warnings are not
+       errors and are already skipped by the shared parser;
     2. the caller's **declared marker** has not appeared. This is the opt-in:
        ADR-0031 rejected imposing a gda-owned sentinel wrapper on a user-authored
        entry script, so gda cannot know a run "should" have finished — only the
        caller can say what finishing looks like. With no marker declared, this
        watch NEVER aborts and the launch simply gains its captured output;
     3. neither stream has produced output for
-       :data:`SCRIPT_RUN_ABORT_SILENCE_SECONDS`. A GDScript runtime error aborts
-       only the function that raised it, so a script can survive one and still
-       reach its ``quit()``; the silence is what tells a dead run from a working
-       one, and it is why (1) alone is not the trigger.
+       :data:`SCRIPT_RUN_ABORT_SILENCE_SECONDS`;
+    4. the process then consumed **no measurable CPU** across a further window of
+       the same length. This is the condition that makes (1)–(3) safe rather than
+       merely suggestive: an aborted entry leaves Godot idling in its main loop at
+       roughly 0.01s of CPU per wall second, while a script still computing burns
+       about 1.0s — measured against 4.6.3, two orders of magnitude apart. A quiet
+       worker is therefore no longer mistaken for a corpse. Where CPU time cannot be
+       read at all (see :func:`gda.runner.cpu_seconds`), gda does **not** abort: an
+       unmeasurable host loses the optimisation instead of gaining a wrong kill.
 
-    The marker is matched on COMPLETE LINES: GDScript's ``print()`` always ends
-    with a newline, so a line boundary is the honest unit, and buffering to it also
-    means the partial line at a chunk boundary is never re-scanned. Both the marker
-    scan and the error parse therefore see every byte exactly once, so the watch
-    stays linear in the output no matter how chatty the run.
+    The cost of (4) is bounded: the CPU probe can be a subprocess, so it is read at
+    the two ends of one window rather than on every poll, and only once conditions
+    (1)–(3) already hold. The price of the added certainty is latency — the abort
+    lands after about two silence windows rather than one — which is still seconds
+    against a default ceiling of two minutes, and is stated in the failure message.
+
+    Marker matching is **whole-line equality** (both sides stripped), not a
+    substring test. Substring matching made ``NOT DONE YET`` count as the marker
+    ``DONE``, silently disarming the abort for a run that had in fact died — and the
+    marker is defined as a LINE the script prints, so the line is the unit to
+    compare. GDScript's ``print()`` always ends with a newline, so buffering to a
+    line boundary is also what lets each byte be seen exactly once, keeping the
+    watch linear in the output however chatty the run.
 
     Note this is NOT the ADR-0002 op-dispatch sentinel: that is gda's own contract
     with its own ``operations.gd`` payload, emitted on stdout and parsed for a
-    structured result. This is a caller's arbitrary string, used for one boolean.
+    structured result. This is a caller's arbitrary line, used for one boolean.
     """
 
     def __init__(
         self,
         completion_marker: str | None,
         *,
+        entry: str,
         silence: float = SCRIPT_RUN_ABORT_SILENCE_SECONDS,
+        max_idle_cpu: float = SCRIPT_RUN_IDLE_CPU_SECONDS,
     ) -> None:
-        self._marker = completion_marker
+        # A marker that is blank once stripped would equal every blank line the run
+        # prints and arm the abort on nothing, so it is treated as UNDECLARED. The
+        # params model and the argv guard both refuse one, making this unreachable;
+        # it is here so the hazard cannot be reintroduced from a third call site.
+        stripped = completion_marker.strip() if completion_marker is not None else ""
+        self._marker = stripped or None
+        self._entry = canonical_res_path(entry)
         self._silence = silence
+        self._max_idle_cpu = max_idle_cpu
         self._partial: dict[str, str] = {"stdout": "", "stderr": ""}
+        # A bounded tail of stderr lines, re-parsed as new ones arrive. A window,
+        # not the whole stream, because the parse must stay linear overall; but a
+        # window rather than only the newest batch because Godot writes an error as
+        # SEVERAL lines (``ERROR:`` then ``at:`` then a backtrace) and a read syscall
+        # can split them — parsing each batch alone would drop the ``at:`` frame that
+        # carries the res:// path, and with it the attribution in (1).
+        self._stderr_window: deque[str] = deque(maxlen=_STDERR_WINDOW_LINES)
         self._marker_seen = False
         self._error_seen = False
         self._last_output_at = 0.0
+        # The CPU baseline for condition (4), and when it was taken. Both cleared by
+        # any new output: output means the run is alive, which restarts the silence.
+        self._idle_probe_at: float | None = None
+        self._idle_baseline: float | None = None
 
-    def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
+    def observe(
+        self,
+        *,
+        stdout: str,
+        stderr: str,
+        elapsed: float,
+        cpu_seconds: Callable[[], float | None],
+    ) -> bool:
         if stdout or stderr:
             self._last_output_at = elapsed
+            # Any output restarts the wait from scratch, including a pending CPU
+            # measurement: a run that is still talking is not a run to kill.
+            self._idle_probe_at = None
+            self._idle_baseline = None
         for stream, text in (("stdout", stdout), ("stderr", stderr)):
             if not text:
                 continue
             lines = self._complete_lines(stream, text)
             if not lines:
                 continue
-            if self._marker is not None and any(self._marker in ln for ln in lines):
+            if self._marker is not None and any(
+                line.strip() == self._marker for line in lines
+            ):
                 self._marker_seen = True
-            if stream == "stderr" and parse_script_errors("\n".join(lines)):
-                self._error_seen = True
+            if stream == "stderr" and not self._error_seen:
+                self._stderr_window.extend(lines)
+                errors = parse_script_errors("\n".join(self._stderr_window))
+                self._error_seen = _entry_attributable(errors, self._entry)
+        return self._should_abort(elapsed, cpu_seconds)
+
+    def _should_abort(
+        self, elapsed: float, cpu_seconds: Callable[[], float | None]
+    ) -> bool:
+        """Conditions (2)–(4) — see the class docstring for why each is required."""
         if self._marker is None or self._marker_seen or not self._error_seen:
             return False
-        return elapsed - self._last_output_at >= self._silence
+        if elapsed - self._last_output_at < self._silence:
+            return False
+        # Silent long enough to be worth measuring. Take the CPU baseline now — not
+        # when the output stopped — so the probe costs nothing on the overwhelming
+        # majority of runs, which never reach this point at all.
+        if self._idle_probe_at is None:
+            self._idle_baseline = cpu_seconds()
+            self._idle_probe_at = elapsed
+            return False
+        if elapsed - self._idle_probe_at < self._silence:
+            return False
+        before, after = self._idle_baseline, cpu_seconds()
+        if before is None or after is None:
+            # Unmeasurable: gda cannot claim the process is idle, so it must not
+            # kill it. Clearing the probe lets a later window try again, in case the
+            # failure was transient, while the run continues toward its --timeout.
+            self._idle_probe_at = None
+            self._idle_baseline = None
+            return False
+        return after - before <= self._max_idle_cpu
 
     def _complete_lines(self, stream: str, text: str) -> list[str]:
         """The newly-completed lines of one stream; the trailing partial is held.
@@ -1129,7 +1281,7 @@ def run_script_run_operation(
         cwd=None,
         timeout=timeout,
         timeout_label="Godot script",
-        watch=_CompletionMarkerWatch(completion_marker),
+        watch=_CompletionMarkerWatch(completion_marker, entry=script),
     )
 
     # A run gda ENDED is classified here rather than by the shared
@@ -1230,7 +1382,7 @@ def _classify_ended_run(
             script,
             marker=completion_marker,
             timeout=timeout,
-            elapsed=_elapsed(raw, at_least=SCRIPT_RUN_ABORT_SILENCE_SECONDS),
+            elapsed=_elapsed(raw, at_least=2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS),
             silence=SCRIPT_RUN_ABORT_SILENCE_SECONDS,
             phase=TerminationPhase.ABORTED_ON_ERROR.value,
             script_errors=_render_captured_errors(raw.stderr),
@@ -1955,15 +2107,19 @@ def run_script(
         "--completion-marker",
         help=(
             "Opt-in early termination: a line the script prints when its work is "
-            "done. gda ends the run and reports 'script_aborted' with the captured "
-            "error when a script error appears, this marker has not, and NEITHER "
-            f"STREAM then produces output for {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s — "
-            "seconds instead of the whole --timeout. Caller-declared: gda requires "
-            "nothing in your script and injects nothing (it is NOT the op-dispatch "
-            "sentinel). Omit it and gda waits out --timeout. By design a run that "
-            "keeps printing after a fatal error never goes silent and so waits out "
-            f"--timeout, and a --timeout at or below "
-            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves the marker inert."
+            "done, matched by WHOLE-LINE equality. gda reports 'script_aborted' with "
+            "the captured error only when all four hold: a recognized error "
+            "attributable to the ENTRY script appears, this marker does not, neither "
+            f"stream produces output for {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, and no "
+            f"measurable CPU is consumed over a further "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s — so it lands in about "
+            f"{2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, not the whole --timeout. The "
+            "CPU check is what spares a script that survives a recoverable error and "
+            "then computes quietly; where CPU cannot be measured gda does not abort. "
+            "Caller-declared: gda requires nothing in your script and injects nothing "
+            "(it is NOT the op-dispatch sentinel). Omit it and gda waits out "
+            f"--timeout; a --timeout at or below "
+            f"{2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves the marker inert."
         ),
     ),
     json_output: bool = json_option(),
@@ -2018,11 +2174,24 @@ def run_script(
     gda ends that run within seconds and reports ``script_aborted`` with the error
     the engine had already printed, instead of waiting out the full ceiling. The
     marker is yours, not gda's: nothing is required of or injected into the script.
+    Ending a run needs evidence it cannot finish, so gda also requires the error to
+    name the ENTRY script and the process to consume no measurable CPU while silent —
+    a script that survives a recoverable error and then computes quietly is left
+    alone, and an unmeasurable host never aborts at all.
     """
-    if timeout <= 0:
-        raise typer.BadParameter("--timeout must be greater than 0.")
-    if completion_marker is not None and not completion_marker:
-        raise typer.BadParameter("--completion-marker must not be empty.")
+    # A FINITE positive ceiling, checked on both input paths (ADR-0015): the model
+    # below enforces it for --params-json, this for argv. `inf` passes a bare `> 0`
+    # test on both routes and then makes `elapsed >= timeout` unsatisfiable, so the
+    # run gda promised to bound would never be bounded at all — the opposite of what
+    # this option is for. `math.isfinite` rejects `nan` too, which compares false
+    # against everything and fails the same way.
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise typer.BadParameter("--timeout must be a finite number greater than 0.")
+    # Blank (not merely empty) is refused: the marker is compared as a stripped
+    # whole line, so a whitespace-only one would equal every blank line the run
+    # prints and arm the abort on nothing.
+    if completion_marker is not None and not completion_marker.strip():
+        raise typer.BadParameter("--completion-marker must not be blank.")
     dispatch_recipe(
         SCRIPT_RUN_COMMAND,
         ScriptRunParams(

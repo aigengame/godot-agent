@@ -767,7 +767,7 @@ def test_script_run_timeout_returns_partial_output_elapsed_and_a_phase(godot_pro
     assert "--timeout of 4.0s" in err["message"]
     assert "elapsed 4." in err["message"]
     assert "termination phase 'output_seen'" in err["message"]
-    assert "16384 characters" in err["message"]
+    assert "16384 UTF-8 bytes (16 KiB)" in err["message"]
     # The partial output the engine had already written, which the buffered capture
     # used to discard. It got as far as SUITE START and no further.
     assert "SUITE START" in err["diagnostics"]
@@ -809,3 +809,92 @@ def test_script_run_without_a_marker_waits_out_the_timeout_but_still_captures(
     # And the error Godot printed at ~0.5s is in the envelope regardless.
     assert "runtime_error: res://aborts.gd:6" in err["diagnostics"]
     assert "SUITE START" in err["diagnostics"]
+
+
+# A script that survives a RECOVERABLE runtime error and then works QUIETLY before
+# printing its marker. The error aborts only `_recoverable`, so `_initialize` carries
+# on — and it prints nothing for well over the abort's silence window, which is
+# exactly the shape that made an earlier silence-only rule kill a healthy run.
+QUIET_SURVIVOR_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tprint("SUITE START")
+\t_recoverable()
+\tvar acc := 0.0
+\tvar t := Time.get_ticks_msec()
+\twhile Time.get_ticks_msec() - t < 10000:
+\t\tacc += sqrt(float(Time.get_ticks_usec() % 977))
+\tprint("SUITE DONE acc=", acc)
+\tquit(0)
+
+func _recoverable() -> void:
+\tvar d = null
+\td.missing_method()
+"""
+
+
+@pytest.mark.e2e
+def test_script_run_never_aborts_a_quiet_but_still_working_run(godot_project):
+    # THE REVIEWED DEFECT, against the real engine. An earlier rule armed on any parsed
+    # diagnostic plus silence, which killed this run at ~3s even though it goes on to
+    # finish: a GDScript runtime error aborts only the function that raised it, and a
+    # surviving script may then compute for a long time WITHOUT printing. Only the
+    # engine can prove that the error really is survivable here and that the process
+    # really does keep burning CPU while quiet, which is what now spares it.
+    (godot_project / "survivor.gd").write_text(QUIET_SURVIVOR_GD, encoding="utf-8")
+
+    run = _run_gda(
+        "script",
+        "run",
+        "res://survivor.gd",
+        "--completion-marker",
+        "SUITE DONE",
+        "--timeout",
+        "60",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    # A SUCCESS: the marker was reached, so there was never an abort to report.
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert "error" not in data
+    assert data["exit_status"] == 0
+    assert "SUITE DONE" in data["stdout"]
+    # The survived error is still surfaced — as a classified diagnostic on a
+    # successful run, which is where a recoverable failure belongs (#651).
+    assert any(d["kind"] == "runtime_error" for d in data["diagnostics"])
+
+
+@pytest.mark.e2e
+def test_script_run_abort_still_lands_within_its_stated_bound(godot_project):
+    # The other side of the same trade: buying that safety with a CPU-idleness check
+    # must not cost the GDA-DF-012 case its speed. The engine really does go idle when
+    # the entry dies, so the abort must still land in seconds — around two silence
+    # windows plus startup — nowhere near the ceiling it was given.
+    (godot_project / "aborts.gd").write_text(ABORTS_BEFORE_QUIT_GD, encoding="utf-8")
+
+    started = time.monotonic()
+    run = _run_gda(
+        "script",
+        "run",
+        "res://aborts.gd",
+        "--completion-marker",
+        "SUITE DONE",
+        "--timeout",
+        "120",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+    elapsed = time.monotonic() - started
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    assert json.loads(run.stdout)["error"]["code"] == "script_aborted"
+    assert elapsed < 20.0, f"the abort took {elapsed:.1f}s against a 120s ceiling"

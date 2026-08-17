@@ -12,10 +12,12 @@ suite.
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
+from gda import runner
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
 from gda.runner import LaunchFailure, launch
 
@@ -257,12 +259,16 @@ class _RecordingWatch:
         self.stderr = ""
         self.polls = 0
         self.max_elapsed = 0.0
+        self.cpu_readings: list = []
 
-    def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
+    def observe(self, *, stdout: str, stderr: str, elapsed: float, cpu_seconds) -> bool:
         self.polls += 1
         self.stdout += stdout
         self.stderr += stderr
         self.max_elapsed = max(self.max_elapsed, elapsed)
+        # The runner supplies the child's CPU clock lazily; record what it reads so a
+        # test can assert the probe really is bound to the spawned process.
+        self.cpu_readings.append(cpu_seconds())
         return bool(self.abort_when and self.abort_when(self.stderr))
 
 
@@ -482,7 +488,9 @@ def test_streaming_reaps_the_child_when_the_poll_loop_is_interrupted(
     spawned = _capture_popen(monkeypatch)
 
     class _RaisingWatch:
-        def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
+        def observe(
+            self, *, stdout: str, stderr: str, elapsed: float, cpu_seconds
+        ) -> bool:
             raise interruption("interrupted mid-run")
 
     with pytest.raises(interruption):
@@ -496,3 +504,83 @@ def test_streaming_reaps_the_child_when_the_poll_loop_is_interrupted(
         proc.kill()
         proc.wait()
     assert reaped, "the engine outlived the interrupted launch"
+
+
+@pytest.mark.parametrize("fail_on", [1, 2])
+def test_streaming_reaps_the_child_when_capture_setup_fails(
+    tmp_path, monkeypatch, fail_on
+):
+    # The no-outliving guarantee has to cover SETUP, not just the loop. Each capture
+    # starts a reader thread, so constructing them is fallible; done outside the
+    # lifecycle boundary, a failure there left the child running with nothing left to
+    # stop it — the same orphan, reached through setup instead of through the loop.
+    #
+    # Both positions are covered because they fail differently: the FIRST leaves
+    # nothing to join, while the SECOND leaves a live reader thread on stdout that the
+    # teardown must still drain before closing the pipes.
+    engine = _fake_engine(tmp_path, "print('alive', flush=True)\ntime.sleep(120)\n")
+    spawned = _capture_popen(monkeypatch)
+    real_capture = runner._StreamCapture
+    built = {"n": 0}
+
+    def exploding(pipe):
+        built["n"] += 1
+        if built["n"] == fail_on:
+            raise RuntimeError(f"capture setup failed on #{fail_on}")
+        return real_capture(pipe)
+
+    monkeypatch.setattr(runner, "_StreamCapture", exploding)
+
+    with pytest.raises(RuntimeError, match="capture setup failed"):
+        launch(engine, [], cwd=None, timeout=120.0, watch=_RecordingWatch())
+
+    assert len(spawned) == 1
+    proc = spawned[0]
+    reaped = proc.poll() is not None
+    if not reaped:
+        proc.kill()
+        proc.wait()
+    assert reaped, f"the engine outlived a capture-setup failure on #{fail_on}"
+
+
+def test_cpu_seconds_separates_an_idle_child_from_a_busy_one():
+    # The empirical claim the whole early-abort rule rests on, asserted against real
+    # processes on the real platform rather than trusted: cumulative CPU time
+    # distinguishes a process that has stopped working from one that is merely quiet.
+    # Measured against Godot 4.6.3, an idle headless main loop accrues ~0.01s of CPU
+    # per wall second and a computing script ~1.0s; the two children below stand in for
+    # those regimes so the probe itself is covered without spawning an engine.
+    idle = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    busy = subprocess.Popen([sys.executable, "-c", "\nwhile True: pass\n"])
+    try:
+        first_idle = runner.cpu_seconds(idle.pid)
+        first_busy = runner.cpu_seconds(busy.pid)
+        assert first_idle is not None, "this platform must be measurable in CI"
+        assert first_busy is not None
+        time.sleep(1.5)
+        idle_delta = (runner.cpu_seconds(idle.pid) or 0.0) - first_idle
+        busy_delta = (runner.cpu_seconds(busy.pid) or 0.0) - first_busy
+    finally:
+        for proc in (idle, busy):
+            proc.kill()
+            proc.wait()
+
+    # A sleeping process burns essentially nothing; the threshold the watch uses sits
+    # an order of magnitude above this.
+    assert idle_delta <= 0.25
+    # A spinning one burns close to the wall clock, and must land clear of it.
+    assert busy_delta > 0.5
+    assert busy_delta > idle_delta
+
+
+def test_cpu_seconds_is_unmeasurable_rather_than_raising_for_a_dead_process():
+    # "Cannot measure" is a first-class answer, because the caller must translate it
+    # into "cannot claim idle". A reaped pid is the ordinary way to reach it, and it
+    # must not raise: this is called from a poll loop where an escaping traceback
+    # would replace the CLI's own error reporting.
+    proc = subprocess.Popen([sys.executable, "-c", ""])
+    proc.wait()
+
+    # Either None (the pid is gone) or a final reading; never an exception.
+    reading = runner.cpu_seconds(proc.pid)
+    assert reading is None or reading >= 0.0
