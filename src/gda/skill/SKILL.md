@@ -39,9 +39,15 @@ debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
 - **User data** — each headless run's engine log goes to a private temporary file,
   so a read-only Godot application-data directory is not fatal and concurrent runs
   never contend. If a script needs a writable `user://`, pass
+- **User data (headless runs)** — each headless run's engine log goes to a private
+  temporary file, so a read-only Godot application-data directory is not fatal and
+  concurrent runs never contend. If a script needs a writable `user://`, pass
   `gda --user-data-root DIR <group> <command>` (or set `$GDA_USER_DATA_ROOT`) to
   place the log and `user://` under `DIR`; a target `gda` cannot create is refused
-  as `user_data_unwritable` before the engine starts.
+  as `user_data_unwritable` before the engine starts. Two limits: Godot reads the
+  **export templates** from that same directory, so do not combine it with
+  `export run` (the export reports no installed templates); and live sessions are
+  unaffected either way — the daemon owns their log.
 
 ## Structured output & errors
 
@@ -56,7 +62,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | Exit | Meaning |
 | ---- | ------- |
 | `0`   | success |
-| `127` | environment unusable: Godot binary not found, or its user data is unwritable |
+| `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable` |
 | `124` | engine timed out |
 | `3`   | engine version too old |
 | `4`   | operation-reported failure |

@@ -17,6 +17,9 @@ from pathlib import Path
 
 import pytest
 
+from typer.testing import CliRunner
+
+from gda.cli import app
 from gda.errors import Failure, classify_launch_or_crash
 from gda.exit_codes import EXIT_NOT_FOUND
 from gda.models import ErrorCategory
@@ -30,6 +33,7 @@ from gda.runner import (
     set_user_data_root,
     user_data_placement,
 )
+from tests.support import VERSION_INFO, sentinel
 
 
 @pytest.fixture(autouse=True)
@@ -41,18 +45,25 @@ def _no_root_override():
 
 
 class _RecordingRun:
-    """A ``subprocess.run`` double recording the call and returning a clean exit."""
+    """A ``subprocess.run`` double recording the call and returning a clean exit.
 
-    def __init__(self) -> None:
+    ``payload`` is the raw stdout the fake engine writes; the CLI-seam tests pass a
+    real ADR-0002 sentinel so the command SUCCEEDS, and the argv assertion is then
+    made on a working invocation rather than on one that happened to fail late.
+    """
+
+    def __init__(self, payload: str = "") -> None:
         self.cmd: list[str] | None = None
         self.kwargs: dict | None = None
+        self._payload = payload.encode()
 
     def __call__(self, cmd, **kwargs):
         self.cmd = cmd
         self.kwargs = kwargs
+        payload = self._payload
 
         class _Proc:
-            stdout = b""
+            stdout = payload
             stderr = b""
             returncode = 0
 
@@ -267,6 +278,46 @@ def test_root_redirects_both_the_log_and_the_platform_data_variable(
     assert root.is_dir()
 
 
+def test_a_relative_root_is_absolutized_against_gda_cwd(monkeypatch, tmp_path):
+    # gda and the engine do NOT share a working directory, so a relative root names
+    # two different places: gda creates the log relative to its own cwd while the
+    # engine resolves the relative --log-file against --path (and the export channel
+    # spawns with cwd=<project>). The preflight would then pass for a file the engine
+    # never opens, and the engine would die in rotate_file() on the one it did —
+    # reintroducing the crash. Same bug class as the export channel's --path (#344).
+    rec = _RecordingRun()
+    monkeypatch.setattr(subprocess, "run", rec)
+    monkeypatch.chdir(tmp_path)
+    set_user_data_root("./rel")
+
+    launch(Path("/x/Godot"), ["--path", "/some/project"], cwd=None, timeout=60.0)
+
+    assert rec.cmd is not None
+    log_file = _log_file_arg(rec.cmd)
+    assert log_file.is_absolute()
+    assert log_file == tmp_path / "rel" / "logs" / "godot.log"
+
+
+def test_a_relative_root_absolutizes_the_platform_override_too(monkeypatch, tmp_path):
+    # The env half must be absolutized as well, and for an extra reason: the Linux
+    # engine IGNORES a relative XDG_DATA_HOME outright (OS_LinuxBSD::get_data_path),
+    # so a relative root would silently not redirect `user://` at all while the docs
+    # promise it does.
+    rec = _RecordingRun()
+    monkeypatch.setattr(subprocess, "run", rec)
+    monkeypatch.chdir(tmp_path)
+    set_user_data_root("./rel")
+
+    launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
+
+    assert rec.kwargs is not None
+    env = rec.kwargs["env"]
+    assert env is not None
+    for value in data_path_env(tmp_path / "rel").values():
+        assert Path(value).is_absolute()
+    assert set(data_path_env(tmp_path / "rel").items()) <= set(env.items())
+
+
 def test_root_precedence_is_flag_then_env_then_engine_default(monkeypatch):
     monkeypatch.setenv(USER_DATA_ROOT_ENV, "/from/env")
     assert resolve_user_data_root() == Path("/from/env")
@@ -333,3 +384,44 @@ def test_placement_reports_the_redirected_data_path(tmp_path):
     with user_data_placement(root, env={"HOME": "/h"}) as placement:
         assert placement.data_path is not None
         assert str(root) in str(placement.data_path)
+
+
+# --------------------------------------------------------------------------
+# The CLI seam: the OPTION, not just the environment variable
+# --------------------------------------------------------------------------
+
+
+def test_the_root_option_reaches_the_launch(monkeypatch, tmp_path):
+    # The option travels CLI → root callback → set_user_data_root → the runner, a
+    # hand-over seam with no other test on it: every other arm here drives the env
+    # twin, which bypasses the CLI entirely. Without this, deleting the root
+    # callback's `set_user_data_root(...)` line leaves the whole suite green and the
+    # flag silently inert — a live risk, since a sibling change rewrites exactly
+    # those lines in `gda.cli`.
+    rec = _RecordingRun(sentinel(VERSION_INFO))
+    monkeypatch.setattr(subprocess, "run", rec)
+    monkeypatch.delenv(USER_DATA_ROOT_ENV, raising=False)
+    root = tmp_path / "from-the-flag"
+
+    result = CliRunner().invoke(app, ["--user-data-root", str(root), "info", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert rec.cmd is not None
+    assert _log_file_arg(rec.cmd) == root / "logs" / "godot.log"
+    assert rec.kwargs is not None and rec.kwargs["env"] is not None
+
+
+def test_without_the_root_option_the_launch_keeps_the_engine_default(
+    monkeypatch, tmp_path
+):
+    # The negative half: absent the flag (and the env twin), nothing is redirected
+    # but the log — so this pair fails if the option is wired to always-on as well
+    # as if it is wired to nothing.
+    rec = _RecordingRun(sentinel(VERSION_INFO))
+    monkeypatch.setattr(subprocess, "run", rec)
+    monkeypatch.delenv(USER_DATA_ROOT_ENV, raising=False)
+
+    result = CliRunner().invoke(app, ["info", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert rec.kwargs is not None and rec.kwargs["env"] is None

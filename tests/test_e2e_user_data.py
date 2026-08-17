@@ -22,6 +22,17 @@ is safe here because every gda launch now writes to its OWN private log target, 
 the shared-``user://logs`` contention #180 worked around project-side cannot occur;
 and the single raw-engine control run is confined to its own fake HOME.
 
+**A PROJECT is required to reproduce the crash — ``gda info`` cannot.** The issue
+lists ``info`` among the commands that died, but that does not reproduce on Godot
+4.6.3 and there is no arm for it here. ``info`` is projectless, and ``Main::setup``
+builds the file logger only when ``!project_manager && !editor && …``; a projectless
+run takes the project-manager branch, so no ``RotatedFileLogger`` is ever
+constructed and there is nothing to crash. Verified directly: the projectless
+sentinel op under the restriction emits its result with zero ``handle_crash`` lines,
+with and without the fix. ``info`` is still covered here for the *refusal* path,
+which does apply to it: gda creates a log target for every launch, projectless
+included.
+
 Permissions are restored in fixture teardown, including on failure.
 """
 
@@ -50,6 +61,25 @@ config/name="gda-user-data-e2e"
 """
 
 MARKER = "USER-DATA-E2E-OK"
+
+# A pack-mode preset: `--mode pack` produces project data only, so the export-channel
+# arm below needs no installed export templates and runs on any machine.
+EXPORT_PRESETS_CFG = """\
+[preset.0]
+
+name="Linux/X11"
+platform="Linux/X11"
+runnable=true
+custom_features=""
+export_filter="all_resources"
+include_filter=""
+exclude_filter=""
+export_path="build/game.x86_64"
+
+[preset.0.options]
+
+binary_format/embed_pck=false
+"""
 
 HELLO_GD = f"""\
 extends SceneTree
@@ -95,6 +125,21 @@ def restricted_home(tmp_path):
         yield home, data_path
     finally:
         data_path.chmod(0o755)
+
+
+@pytest.fixture
+def writable_home(tmp_path):
+    """A WRITABLE fake HOME, so a run's resolved ``user://`` can be inspected.
+
+    The normal-profile twin of :func:`restricted_home`: it isolates the assertion
+    from the developer's real application-data directory without restricting
+    anything, so a test can assert what the engine did and did not create there.
+    """
+    home = tmp_path / "writable-home"
+    data_path = engine_data_path({"HOME": str(home)}, platform=sys.platform)
+    assert data_path is not None, f"no data path for platform {sys.platform}"
+    data_path.mkdir(parents=True)
+    return home, data_path
 
 
 @pytest.fixture
@@ -149,26 +194,25 @@ def test_control_unprotected_launch_really_does_die_on_the_restriction(
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("command", ["info", "script-validate"])
-def test_commands_complete_under_a_read_only_app_data_dir(
-    restricted_home, logging_project, command
+def test_script_validate_completes_under_a_read_only_app_data_dir(
+    restricted_home, logging_project
 ):
-    # AC: the default isolated log target lets a headless command complete where it
-    # previously died in the engine's logger. `info` is projectless; `script
-    # validate` runs against the project — both go through the same primitive.
+    # AC: the default isolated log target lets a project-backed headless command
+    # complete where it previously died in the engine's logger. Project-backed is
+    # the load-bearing word — see the module docstring on why `info` cannot be an
+    # arm here. Red-proof: the control arm above pins that this same project and
+    # restriction really do kill an unprotected launch.
     home, _ = restricted_home
-    if command == "info":
-        args = ["info"]
-    else:
-        args = [
-            "script",
-            "validate",
-            str(logging_project / "hello.gd"),
-            "--project",
-            str(logging_project),
-        ]
 
-    run = _run_gda(*args, "--json", env=_env(home))
+    run = _run_gda(
+        "script",
+        "validate",
+        str(logging_project / "hello.gd"),
+        "--project",
+        str(logging_project),
+        "--json",
+        env=_env(home),
+    )
 
     assert run.returncode == 0, run.stdout + run.stderr
     assert "handle_crash" not in run.stderr
@@ -232,17 +276,23 @@ def test_unwritable_log_target_is_a_typed_environment_error(
 def test_user_data_root_makes_user_writable_again(restricted_home, logging_project):
     # The persistence half: user:// is redirectable per invocation, so a script that
     # persists works under the restricted profile too.
+    #
+    # Driven through the FLAG rather than the env twin (review finding F2), so the
+    # real-engine tier exercises the CLI hand-over too, not only the env path that
+    # bypasses it.
     home, _ = restricted_home
     root = logging_project.parent / "udr"
 
     run = _run_gda(
+        "--user-data-root",
+        str(root),
         "script",
         "run",
         "res://persist.gd",
         "--project",
         str(logging_project),
         "--json",
-        env=_env(home, GDA_USER_DATA_ROOT=str(root)),
+        env=_env(home),
     )
 
     assert run.returncode == 0, run.stdout + run.stderr
@@ -255,11 +305,22 @@ def test_user_data_root_makes_user_writable_again(restricted_home, logging_proje
 
 
 @pytest.mark.e2e
-def test_concurrent_invocations_do_not_share_a_log_target(logging_project):
+def test_concurrent_invocations_never_touch_the_shared_rotated_log(
+    writable_home, logging_project
+):
     # AC: independent concurrent invocations must not contend over one
-    # rotation-sensitive log file. Run unrestricted (the normal profile) so the only
-    # thing under test is contention, and use a project with file logging ENABLED —
-    # the shape that used to race in rotate_file().
+    # rotation-sensitive log file. The assertion that carries the weight is the
+    # NEGATIVE one: the engine's shared `user://logs/` for this project is never
+    # created at all, so there is no shared target left to rotate or race on. Six
+    # successes alone would prove nothing — they pass just as well while every run
+    # writes the same file.
+    #
+    # A writable fake HOME (not the restricted one) so the run is the NORMAL
+    # profile and the resolved user:// dir can be inspected deterministically
+    # without touching the developer's real one. File logging is at the engine
+    # default here — the exact shape that used to race in rotate_file().
+    home, data_path = writable_home
+
     procs = [
         subprocess.Popen(
             [
@@ -274,7 +335,7 @@ def test_concurrent_invocations_do_not_share_a_log_target(logging_project):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env={**os.environ, "GDA_GODOT": str(GODOT)},
+            env=_env(home),
         )
         for _ in range(6)
     ]
@@ -286,3 +347,101 @@ def test_concurrent_invocations_do_not_share_a_log_target(logging_project):
         assert code == 0, out + err
         assert "handle_crash" not in err
         assert "error" not in json.loads(out)
+
+    # The engine DID resolve user:// (it creates app_userdata eagerly), but no
+    # rotated log directory may appear anywhere beneath the data path. Globbed
+    # rather than spelled out, because the layout below the data path differs per
+    # platform (`Godot/app_userdata/…` vs `godot/app_userdata/…`).
+    shared_logs = list(data_path.rglob("logs"))
+    assert not shared_logs, (
+        f"a shared user://logs was created, so concurrent runs still contend: "
+        f"{shared_logs}"
+    )
+
+
+# --------------------------------------------------------------------------
+# A relative --user-data-root (review finding F1)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.e2e
+def test_relative_root_on_the_sentinel_channel_lands_under_gda_cwd(
+    tmp_path, logging_project
+):
+    # gda and the engine do not share a working directory: gda would create the log
+    # relative to its own cwd while the engine resolved the relative --log-file
+    # against --path. The preflight then passed for a file the engine never opened
+    # and the engine died in rotate_file() on the one it did — the very crash this
+    # change removes, reintroduced by a relative path.
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+
+    run = subprocess.run(
+        [
+            *GDA_CMD,
+            "--user-data-root",
+            "./rel",
+            "script",
+            "validate",
+            str(logging_project / "hello.gd"),
+            "--project",
+            str(logging_project),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(workdir),
+        env={**os.environ, "GDA_GODOT": str(GODOT)},
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "handle_crash" not in run.stderr
+    assert json.loads(run.stdout)["valid"] is True
+    # Resolved against gda's cwd, exactly once...
+    assert (workdir / "rel" / "logs" / "godot.log").exists()
+    # ...and NOT leaked into the project the engine was pointed at.
+    assert not (logging_project / "rel").exists()
+
+
+@pytest.mark.e2e
+def test_relative_root_on_the_export_channel_lands_under_gda_cwd(
+    tmp_path, logging_project
+):
+    # The export channel is the sharper case: it spawns with cwd = <project>, so a
+    # relative --log-file resolves there for certain. `--mode pack` needs no export
+    # templates, so this runs on any machine.
+    (logging_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    workdir = tmp_path / "workdir-export"
+    workdir.mkdir()
+    artifact = logging_project / "dist" / "packed.pck"
+
+    run = subprocess.run(
+        [
+            *GDA_CMD,
+            "--user-data-root",
+            "./rel",
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--mode",
+            "pack",
+            "--output",
+            str(artifact),
+            "--project",
+            str(logging_project),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(workdir),
+        env={**os.environ, "GDA_GODOT": str(GODOT)},
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "handle_crash" not in run.stderr
+    assert artifact.exists()
+    assert (workdir / "rel" / "logs" / "godot.log").exists()
+    assert not (logging_project / "rel").exists()

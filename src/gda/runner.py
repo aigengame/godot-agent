@@ -97,11 +97,25 @@ def resolve_user_data_root(
     which it always owns (see :func:`user_data_placement`). Mirrors
     :func:`gda.binary.resolve_godot_binary`'s precedence so the two environment
     knobs read the same way.
+
+    The root is ABSOLUTIZED, and it must be: gda and the engine do not share a
+    working directory, so a relative root would name two different places. gda
+    creates the log target relative to its OWN cwd, while the engine resolves the
+    relative ``--log-file`` against ``--path`` (and the export channel spawns with
+    ``cwd = <project>`` outright). The preflight would then pass for a file the
+    engine never opens, and the engine would die in ``rotate_file()`` on the file
+    it actually tried — reintroducing the very crash this machinery removes, plus
+    leaking an ``app_userdata`` tree into the project. A relative
+    ``XDG_DATA_HOME`` is ignored by the Linux engine outright
+    (``OS_LinuxBSD::get_data_path``), which would silently not redirect ``user://``
+    at all. Same bug class, and the same fix, as the export channel's ``--path``
+    (see ``gda.export_runner``, #344): ``absolute()`` rather than ``resolve()``, to
+    keep the codebase's symlink-agnostic path handling.
     """
     if env is None:
         env = os.environ
     raw = explicit or _user_data_root_override or env.get(USER_DATA_ROOT_ENV)
-    return Path(raw).expanduser() if raw else None
+    return Path(raw).expanduser().absolute() if raw else None
 
 
 def engine_data_path(
