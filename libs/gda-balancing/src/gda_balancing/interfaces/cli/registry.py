@@ -18,6 +18,7 @@ from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.interfaces.cli.experiment_check import EXPERIMENT_CHECK
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
 from gda_balancing.interfaces.cli.schema import SCHEMA_GET
+from gda_balancing.interfaces.cli.serve import SERVE
 from gda_balancing.interfaces.cli.template_catalog import TEMPLATE_GET, TEMPLATE_LIST
 from gda_balancing.interfaces.cli.template_instantiation import TEMPLATE_INSTANTIATE
 from gda_balancing.interfaces.cli.version import VERSION
@@ -31,6 +32,7 @@ MANIFEST = manifest_descriptor(_live_registry)
 
 REGISTRY: tuple[CommandDescriptor, ...] = build_registry(
     VERSION,
+    SERVE,
     SCHEMA_GET,
     MANIFEST,
     EXPERIMENT_CHECK,

@@ -30,11 +30,17 @@ structured-params adapter part of the first vertical tracer.
 > expression, and publish no semantic artifact. Their live Command descriptors remain the only CLI,
 > structured-input, outcome, schema, manifest, and help authority.
 
+> **Amendment (2026-08-15, bADR-0026):** `serve` is an ungrouped operational meta command with one
+> live Command descriptor. Its `foreground-service` execution marking selects the Interface-owned
+> foreground runner defined by bADR-0026. The descriptor remains the single source for input,
+> readiness, errors, help, `--schema`, manifest projection, and conformance. `serve` is not a
+> standalone Runtime group or another Experiment authority.
+
 ## Decision
 
 - **The binary remains `gda-balancing` with noun-group commands.** Registered domain commands use
   `gda-balancing <group> <command>`. Tokens are kebab-case; delivery phase never appears in the
-  tree. `version`, `manifest`, and human-facing `help` remain ungrouped meta commands.
+  tree. `version`, `manifest`, `serve`, and human-facing `help` remain ungrouped meta commands.
 
 - **The Standard Schema 2.x command taxonomy is:**
 
@@ -123,6 +129,11 @@ structured-params adapter part of the first vertical tracer.
   descriptor, and the descriptor cannot advertise an input or outcome the handler cannot reach.
   Parallel argument maps, command lists, error schemas, artifact lists, or manifest rows are
   prohibited.
+
+  A `foreground-service` descriptor uses the same registry and projections but has a lifecycle
+  runner instead of the normal one-shot handler tail. The runner emits the descriptor's typed
+  readiness result only after the service accepts requests, then waits for shutdown. It cannot
+  introduce a parallel registration, schema, error, help, or manifest path.
 
 - **Artifact output uses one invocation-level publication transaction.** Results always remain on
   stdout. A descriptor declares the complete success artifact set: primary and companion artifacts,

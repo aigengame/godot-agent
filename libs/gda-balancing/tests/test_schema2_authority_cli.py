@@ -25,7 +25,8 @@ import gda_balancing.infrastructure.package_resources as package_resources_modul
 import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.schema2.authorities as authority_resources
 import gda_balancing.interfaces.cli.schema as schema_command_module
-from gda_balancing.interfaces.cli.registry import MANIFEST
+from gda_balancing.interfaces.cli.registry import MANIFEST, REGISTRY
+from gda_balancing.interfaces.cli.serve import SERVE
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
 from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
@@ -1883,6 +1884,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
     }
     assert set(commands) == {
         "schema get",
+        "serve",
         "version",
         "manifest",
         "experiment check",
@@ -1901,6 +1903,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
     }
 
     for path, row in commands.items():
+        registry = None
         schema_exit, schema_stdout, schema_stderr = run_cli([*path.split(), "--schema"])
         assert (schema_exit, schema_stderr) == (0, "")
         assert json.loads(schema_stdout) == row["schema"]
@@ -1923,6 +1926,19 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             argv = ["version"]
         elif path == "manifest":
             argv = ["manifest"]
+        elif path == "serve":
+            readiness = SERVE.fixtures.foreground_readiness
+            assert readiness is not None
+
+            def emit_fixture(_input, emit_ready, _stderr):
+                emit_ready(SERVE.output_model.model_validate(readiness))
+                return 0
+
+            registry = tuple(
+                replace(item, foreground_runner=emit_fixture) if item is SERVE else item
+                for item in REGISTRY
+            )
+            argv = ["serve"]
         elif path == "experiment check":
             argv = invocation(EXPERIMENT_CHECK)
         elif path == "experiment run":
@@ -1997,7 +2013,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                         ("a" if path == "model build" else "c") * 64,
                     ]
                 )
-        result_exit, result_stdout, result_stderr = run_cli(argv)
+        result_exit, result_stdout, result_stderr = run_cli(argv, registry)
         assert (result_exit, result_stderr) == (0, ""), (
             path,
             result_stdout,

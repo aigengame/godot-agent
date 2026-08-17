@@ -104,8 +104,10 @@ an explicit boundary for lowering equivalence.
   lowering-rule applications, and diagnostic locations. The map is a build companion for tooling,
   not part of RIR, execution authority, semantic equivalence, or the Resolved Model identity. A
   source-only change may therefore change the Debug Map while leaving byte-identical RIR. A
-  separately identified Build receipt binds source, compiler/tool, Resolved Model, Debug Map, and
-  publication facts without entering either RIR or Resolved Model identity.
+  separately identified Build receipt binds source, compiler/tool, the exact authority and Model
+  artifacts, Resolution receipt, Debug Map, and Model explanation without entering either RIR or
+  Resolved Model identity. The compiler produces this build-provenance artifact before publication.
+  A separate Artifact-set receipt binds publication facts, member locators, and the invocation key.
 
 - **EIR is evaluator-specific and non-normative.** An evaluator may lower RIR into specialized
   layouts, schedules, kernels, bytecode, or other plans. EIR is not a stable Standard Schema
@@ -161,8 +163,9 @@ an explicit boundary for lowering equivalence.
   vectors. These are public Standard Schema surfaces.
 - Debug Map needs its own closed schema and identity law; build receipts may bind it without making
   its provenance fields semantic or changing the Resolved Model identity.
-- Build receipt needs a closed non-semantic provenance schema and must never participate in the
-  Resolved Model content-identity function.
+- Build receipt needs a closed non-semantic, publication-independent provenance schema and must
+  never participate in the Resolved Model content-identity function. Artifact-set publication
+  receipts remain separate artifacts.
 - EIR may evolve with an evaluator without a Schema version bump, provided its behavior remains
   conforming and its cache identity prevents stale reuse.
 - CLI and evidence artifacts report the Resolved Model identity and evaluator/numeric profile; they

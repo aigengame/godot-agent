@@ -88,6 +88,10 @@ class ConformanceFixtures:
     # declared public prerequisites inside the isolated conformance store.
     prepare_valid_document: Callable[[Path, int], str] | None = None
     prepare_verdict_document: Callable[[Path, int], str] | None = None
+    # A foreground descriptor supplies one valid readiness value for the
+    # registry-walking lifecycle row. The real process/server path remains an
+    # end-to-end test; this fixture proves descriptor dispatch and projection.
+    foreground_readiness: dict[str, object] | None = None
 
     @property
     def has_valid_document(self) -> bool:
@@ -172,7 +176,7 @@ class CommandDescriptor:
     # exits, never sees a usage error. An unexpected exception here is the
     # sole path to `internal` / exit 4. Typed `...` because each command's
     # handler takes its own concrete input model (contravariance).
-    handler: Callable[..., BaseModel | Schema2RefusalReport]
+    handler: Callable[..., BaseModel | Schema2RefusalReport] | None
     fixtures: ConformanceFixtures
     # A completed negative judgment is a third typed handler result. It is
     # emitted on stdout with exit 1 and remains distinct from refusal.
@@ -184,6 +188,13 @@ class CommandDescriptor:
     # Execution markings (bADR-0010/0011); the harness's per-marking rows key
     # off them.
     stochastic: bool = field(default=False)
+    execution_lifecycle: Literal["one-shot", "foreground-service"] = field(
+        default="one-shot"
+    )
+    # A foreground runner receives the bound input, a dispatch-owned readiness
+    # emitter, and stderr for operational logs. The emitter validates and flushes
+    # the descriptor's exact output model; the runner returns only after shutdown.
+    foreground_runner: Callable[..., int] | None = field(default=None)
     # `artifact_sink` marks a command that emits a canonical artifact and so
     # accepts `--out <path>` (bADR-0009): the artifact body goes to the sink and
     # stdout carries an `ArtifactReceipt` instead. Only such commands accept
@@ -231,6 +242,19 @@ class CommandDescriptor:
             raise ValueError(f"reserved name: {self.group or self.command!r}")
         if self.schema_major != 2:
             raise ValueError("the active descriptor surface is Standard Schema 2.x")
+        if self.execution_lifecycle == "one-shot":
+            if self.handler is None or self.foreground_runner is not None:
+                raise ValueError("one-shot descriptor requires only its handler")
+        elif self.handler is not None or self.foreground_runner is None:
+            raise ValueError(
+                "foreground-service descriptor requires only its foreground runner"
+            )
+        if (self.fixtures.foreground_readiness is not None) != (
+            self.execution_lifecycle == "foreground-service"
+        ):
+            raise ValueError(
+                "foreground readiness fixture must match the descriptor lifecycle"
+            )
         if (self.artifact_set or self.verdict_artifact_set) and self.artifact_sink:
             raise ValueError(
                 "one descriptor cannot use both artifact publication paths"

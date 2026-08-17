@@ -195,6 +195,13 @@ specification is versioned and hashed independently so evidence identifies both 
 experiment (bADR-0012/0018).
 _Avoid_: experiment config, model overrides, scenario package
 
+**Experiment revision**:
+An immutable `Execution session` binding to one complete admitted Experiment Specification and its
+exact content identity. Its revision identifier is the Experiment Specification content identity,
+not a new identity family. It is not an in-place patch, session override, or separate authority kind
+(bADR-0026).
+_Avoid_: Experiment patch, mutable Experiment, session configuration
+
 **Executable Event plan**:
 The closed, bounded Experiment-owned plan for one scenario. Its authored root members are exactly
 `external-input` or `transition-invocation`; its `observation` members are derived from the exact
@@ -253,8 +260,8 @@ _Avoid_: decompiled model, executable explanation, generated source
 **Build receipt**:
 A separately identified, non-semantic provenance artifact binding the Model Source Package,
 Schema-major Kernel Specification, Language Definition Bundle, Package Lock, Resolved Model,
-compiler/tool identity, Resolution receipt, Debug Map, Model explanation, and publication facts for
-one build.
+compiler/tool identity, Resolution receipt, Debug Map, and Model explanation for one build. The
+compiler produces it before publication. A separate Artifact-set receipt owns publication facts.
 Compiler and resolver implementation identities belong in provenance receipts and never
 participate in RIR or Resolved Model content identity, so independent conforming tools can produce
 the same semantic artifacts (bADR-0013).
@@ -1013,6 +1020,12 @@ platform, Numeric, RNG, scheduler, effect, and budget choices.
 _Avoid_: random seed (ambiguous), default seed
 
 ### Runtime
+
+**Execution session**:
+A host-scoped coordination handle that binds one exact Resolved Model and admitted immutable
+Experiment revisions for later execution. It is not a Standard Schema authority, Runtime instance,
+gameplay `Run scope`, or HTTP transport session (bADR-0026).
+_Avoid_: Runtime session, playtest session, HTTP session, Experiment session
 
 **Runtime lifecycle**:
 The explicit state machine for one RIR execution instance: `instantiated`, `initializing`, `event`,

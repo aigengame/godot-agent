@@ -5,9 +5,14 @@ from typing import Any
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.evidence import (
-    runtime_terminal_audit_members,
     validate_experiment_artifact_set,
     validate_experiment_member,
+)
+from gda_balancing.application.experiment_execution import (
+    ExperimentExecutionRefusal,
+    ExperimentExecutionSuccess,
+    ExperimentExecutionVerdict,
+    execute_checked_experiment,
 )
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
@@ -18,10 +23,6 @@ from gda_balancing.domain.publication import (
     publication_authentication_key,
     publish_artifact_set,
     recover_committed_artifact_set,
-)
-from gda_balancing.domain.runtime.execution import (
-    RuntimeRefusalOutcome,
-    evaluate_experiment,
 )
 from gda_balancing.domain.diagnostics import (
     Schema2Diagnostic,
@@ -104,11 +105,12 @@ def run_experiment(
             terminal_audit=recovered.receipt,
         )
 
-    evaluation = evaluate_experiment(checked)
-    if isinstance(evaluation, RuntimeRefusalOutcome):
-        members = runtime_terminal_audit_members(checked, evaluation)
+    execution = execute_checked_experiment(checked)
+    if isinstance(execution, ExperimentExecutionRefusal):
+        if not execution.members:
+            return execution.report
         receipt = publish_artifact_set(
-            members,
+            execution.members,
             out,
             invocation_key,
             descriptor_identity,
@@ -124,13 +126,15 @@ def run_experiment(
             ),
             authentication_key=authentication_key,
         )
-        return evaluation.report.model_copy(update={"terminal_audit": receipt})
-    if isinstance(evaluation, Schema2RefusalReport):
-        return evaluation
+        return execution.report.model_copy(update={"terminal_audit": receipt})
 
-    artifact_set = success_artifact_set if evaluation.accepted else verdict_artifact_set
+    artifact_set = (
+        success_artifact_set
+        if isinstance(execution, ExperimentExecutionSuccess)
+        else verdict_artifact_set
+    )
     receipt = publish_artifact_set(
-        evaluation.members,
+        execution.members,
         out,
         invocation_key,
         descriptor_identity,
@@ -146,9 +150,10 @@ def run_experiment(
         ),
         authentication_key=authentication_key,
     )
-    if evaluation.accepted:
+    if isinstance(execution, ExperimentExecutionSuccess):
         return ExperimentRunPublication(receipt=receipt)
+    assert isinstance(execution, ExperimentExecutionVerdict)
     return ExperimentVerdictPublication(
-        failed_metrics=evaluation.failed_metrics,
+        failed_metrics=execution.failed_metrics,
         receipt=receipt,
     )
