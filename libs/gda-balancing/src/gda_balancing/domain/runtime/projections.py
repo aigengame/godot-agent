@@ -7,7 +7,6 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import cache
-from pathlib import Path
 from typing import Any, cast
 
 from gda_balancing.domain.artifacts import identified_artifact, wire_schema_identity
@@ -28,6 +27,10 @@ from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.structured_values import (
     StructuredValueIndex,
     typed_envelope_members,
+)
+from gda_balancing.infrastructure.package_resources import (
+    list_package_resources,
+    read_package_resource,
 )
 
 
@@ -635,17 +638,27 @@ def formula_programs_reachable_from_entrypoints(
 
 
 @cache
-def evaluator_build_identity(root: Path | None = None) -> str:
+def evaluator_build_identity() -> str:
     """Bind evaluator provenance to the installed Python source build."""
-    package_root = root or Path(__file__).parents[1]
-    sources: list[JsonValue] = []
-    for source in sorted(package_root.rglob("*.py")):
-        sources.append(
-            {
-                "path": source.relative_to(package_root).as_posix(),
-                "sha256": "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest(),
-            }
+    source_names = sorted(
+        name
+        for name in list_package_resources("gda_balancing")
+        if name.startswith("domain/") and name.endswith(".py")
+    )
+    source_bytes = [
+        (
+            name.removeprefix("domain/"),
+            read_package_resource("gda_balancing", name),
         )
+        for name in source_names
+    ]
+    sources: list[JsonValue] = [
+        {
+            "path": path,
+            "sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
+        }
+        for path, data in source_bytes
+    ]
     if not sources:
         raise RuntimeError("evaluator build contains no Python source")
     return content_identity("evaluator-build-v1", sources)

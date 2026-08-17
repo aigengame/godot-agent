@@ -200,6 +200,17 @@ def _raise_injected_fault(_input: object) -> object:
     raise RuntimeError("injected fault (conformance harness)")
 
 
+def _raise_injected_foreground_fault(
+    _input: object, _emit_ready: object, _stderr: object
+) -> int:
+    raise RuntimeError("injected fault (conformance harness)")
+
+
 @pytest.fixture
 def fault_registry() -> tuple[CommandDescriptor, ...]:
-    return tuple(replace(d, handler=_raise_injected_fault) for d in REGISTRY)
+    return tuple(
+        replace(d, foreground_runner=_raise_injected_foreground_fault)
+        if d.execution_lifecycle == "foreground-service"
+        else replace(d, handler=_raise_injected_fault)
+        for d in REGISTRY
+    )

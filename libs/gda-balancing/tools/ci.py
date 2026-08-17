@@ -29,6 +29,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_formula_seam.py",
         "test_isolation.py",
         "test_layer_dependencies.py",
+        "test_schema2_playtest.py",
         "test_schema2_authority_lifecycle.py",
         "test_schema2_bootstrap_authority.py",
         "test_schema2_bootstrap_resources.py",
@@ -53,6 +54,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "experiment": ("test_schema2_experiment_cli.py",),
     "composition": (
         "test_cli_conformance.py",
+        "test_http_service.py",
         "test_schema2_bootstrap_composition.py",
         "test_schema2_template_cli.py",
     ),

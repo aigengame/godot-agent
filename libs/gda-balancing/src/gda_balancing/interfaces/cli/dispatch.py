@@ -78,7 +78,7 @@ def dispatch(
     (bADR-0011's fault-injection seam — production has no fault path).
     """
     try:
-        return _dispatch(list(argv), stdout, registry, stdin)
+        return _dispatch(list(argv), stdout, stderr, registry, stdin)
     except UsageError as err:
         stderr.write(canonical_json(usage_envelope(err.code, err.message)))
         return EXIT_USAGE
@@ -126,6 +126,7 @@ def _descriptor_for_invocation(
 def _dispatch(
     argv: list[str],
     stdout: TextIO,
+    stderr: TextIO,
     registry: tuple[CommandDescriptor, ...],
     stdin: TextIO | None,
 ) -> int:
@@ -171,7 +172,7 @@ def _dispatch(
         return EXIT_SUCCESS
 
     try:
-        return _invoke_descriptor(descriptor, tail, stdout, stdin)
+        return _invoke_descriptor(descriptor, tail, stdout, stderr, stdin)
     except PublicationError as err:
         usage = publication_usage_error(err)
         if usage.code not in descriptor.usage_codes:
@@ -197,6 +198,7 @@ def _invoke_descriptor(
     descriptor: CommandDescriptor,
     tail: list[str],
     stdout: TextIO,
+    stderr: TextIO,
     stdin: TextIO | None,
 ) -> int:
     """Invoke a resolved descriptor inside its declared usage boundary."""
@@ -206,6 +208,10 @@ def _invoke_descriptor(
     except ValidationError as err:
         raise _UsageError("invalid_argument", _summarize(err)) from err
 
+    if descriptor.execution_lifecycle == "foreground-service":
+        return _invoke_foreground_descriptor(descriptor, input_obj, stdout, stderr)
+    if descriptor.handler is None:
+        raise TypeError("one-shot descriptor has no handler")
     outcome = descriptor.handler(input_obj)
     if isinstance(outcome, Schema2RefusalReport):
         observed = {(item.code, outcome.stage) for item in outcome.diagnostics}
@@ -297,6 +303,42 @@ def _invoke_descriptor(
         stdout.write(canonical_json(model_payload(receipt)))
         return EXIT_SUCCESS
     stdout.write(body)
+    return EXIT_SUCCESS
+
+
+def _invoke_foreground_descriptor(
+    descriptor: CommandDescriptor,
+    input_obj: BaseModel,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    """Run one descriptor-owned foreground lifecycle and emit readiness once."""
+    runner = descriptor.foreground_runner
+    if runner is None:
+        raise TypeError("foreground-service descriptor has no runner")
+    emitted = False
+
+    def emit_ready(outcome: BaseModel) -> None:
+        nonlocal emitted
+        if emitted:
+            raise TypeError("foreground service emitted readiness more than once")
+        if type(outcome) is not descriptor.output_model:
+            raise TypeError(
+                f"foreground runner returned {type(outcome).__name__}, not the declared "
+                f"output model {descriptor.output_model.__name__}"
+            )
+        payload = model_payload(outcome)
+        if descriptor.success_schema is not None:
+            jsonschema.validate(payload, descriptor.success_schema())
+        stdout.write(canonical_json(payload))
+        stdout.flush()
+        emitted = True
+
+    exit_code = runner(input_obj, emit_ready, stderr)
+    if not emitted:
+        raise TypeError("foreground service exited before readiness")
+    if exit_code != EXIT_SUCCESS:
+        raise TypeError("foreground service returned a non-success exit code")
     return EXIT_SUCCESS
 
 

@@ -19,14 +19,21 @@ Event trace + committed Snapshots + reward/build Metrics
 The `game.generation@1.0.0` Package Release owns the seeded reward policy. The
 `game.build@1.0.0` Package Release owns the atomic build replacement. The Model Source owns the
 `rare-threshold` Formula and its exact Operation-slot binding. The Experiment owns the seed,
-ordered reward options, an explicit empty-pool fallback, authored policy state, build plans,
-initial state, and Metrics.
+ordered reward options, no declared empty-pool fallback, authored policy state, build plans, initial
+state, and Metrics.
 The two Operations validate the relationships among those authored values before they commit
 state or publish a result.
 
 Host code does not select rewards, resolve conflicts, supply a fallback, or dispatch by genre.
 This example closes no Tracer, RPG, Roguelike, Variant, Extension, Replay, Evidence,
 template-support, Core Extension Invariance, or cross-genre claim.
+
+## Player-facing playtest
+
+This CLI tutorial remains the exact maintainer workflow and provenance source. Players use the
+[Reward Run Godot product](../playtest/README.md) instead. The playable product presents the same
+baseline and tuned reward/build outcomes as two short trials without exposing Standard Schema or
+CLI concepts.
 
 ## 1. Prepare an isolated run
 
@@ -52,8 +59,8 @@ The checked-in artifacts are:
 
 - `model-source.json` — exact package requirements, Symbols, two entrypoints, and the Formula
   binding;
-- `experiment.json` — seed `20260812`, stream `reward`, ordered reward options, an optional
-  empty-pool fallback, build plans, initial state, Event plan, and Metrics.
+- `experiment.json` — seed `20260812`, stream `reward`, ordered reward options, an empty
+  `no_reward_on_empty` declaration, build plans, initial state, Event plan, and Metrics.
 
 Inspect the Formula, binding, and entrypoints:
 
@@ -75,8 +82,8 @@ The reward pool has two eligible options in this order:
 2. `volatile_crown`, which has rarity `rare`.
 
 `RewardPool` can carry up to 16 `RewardOption` values. Each option pairs one candidate with its
-authored selection data. This Operation version is a binary selector: it considers only indexes
-`0` and `1`. Later options do not participate.
+authored selection data. `game.generation.select-reward-v1` uses a binary selector in this release:
+it considers only indexes `0` and `1`. Later options do not participate.
 
 The Runtime node vocabulary does not construct `RewardSelection` or `BuildDecision` Record values.
 The Experiment therefore authors each paired selection, the build decisions, and the next states.
@@ -364,8 +371,12 @@ This maintained example preserves the stable facts that a reader needs to unders
   `core.quantity` exact-integer value rule;
 - Runtime cannot construct the result Records, so the Experiment authors mirrored results and the
   Operations validate them before they commit;
-- empty-pool and build-conflict paths are declared gameplay outcomes; and
+- empty selection without a fallback is a typed Runtime refusal;
+- declared fallback and build-conflict paths are gameplay outcomes; and
 - contradictory option and plan data are typed runtime refusals with terminal rollback evidence.
+
+The replacement-baseline rerun confirms the `operation-execution`, `is-empty`, `require`, and
+`guard-block` additions as adopted contract refinements.
 
 Issue #585 owns the detailed observations, their four feedback classifications, the narrowest
 owner and action for each observation, and the human accept, condition, or reopen decision. An
