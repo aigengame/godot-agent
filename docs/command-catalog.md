@@ -732,8 +732,9 @@ headless is unaffected (4.4+, cross-platform).
   restriction is what settles it. Conversely a sandbox that hides the window server rather
   than refusing the lookup is indistinguishable from an absent session. A refusal that
   originates in `daemon start --windowed` carries the deciding host call as the envelope's
-  `probe` `{name, platform}` (ADR-0004 amendment); the daemon-relayed form carries the code
-  and prose only, since the daemon→CLI wire envelope has no `probe` key.
+  `probe` `{name, platform}` (ADR-0004 amendment); a refusal relayed from an already-running
+  daemon carries it too — the live wire's error payload gained an optional `probe` key, and
+  `classify_live` preserves it into the public envelope.
 
 Out of scope (editor context, ADR-0017): UndoRedo-aware mutation, the editor's
 open-scene tree, saving the open scene, editor errors/screenshots, run-editor-script,

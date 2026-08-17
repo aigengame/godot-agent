@@ -229,3 +229,70 @@ def test_control_root_guard_catches_a_reversed_conditional():
         _assert_control_root_semantics(
             _normalize_prose(mutated), "mutated SKILL.md paragraph"
         )
+
+
+def test_skill_exit_127_row_names_every_registered_127_code():
+    # PR #702 review: the 127 row drifted twice — #696 wrote a four-code list, #694
+    # added a fifth to the registry, and preserving both patches did not reconcile
+    # the combined artifact. Pin the row to the registry so the next 127 code
+    # cannot land without its skill mention.
+    from gda.error_codes import ERROR_CODES
+
+    registered = {spec.code for spec in ERROR_CODES if spec.exit_code == 127}
+    row = next(line for line in BUNDLED.splitlines() if line.startswith("| `127` |"))
+    listed = set(_BACKTICKED.findall(row)) - {"127"}
+    assert listed == registered, (
+        f"SKILL.md's exit-127 row lists {sorted(listed)} but the registry has "
+        f"{sorted(registered)} — keep the enumeration complete"
+    )
+
+
+def test_display_gate_policy_parity_across_the_two_pytest_roots():
+    # PR #702 review: the reaction policy is deliberately duplicated (the game's
+    # pytest root cannot import the toolkit's test package) and both copies say
+    # "stay in step" — this is the executable version of that sentence. Compares
+    # the code classifications AND the observable reactions, so drift in either
+    # copy goes red instead of silently reintroducing the false-green (#667).
+    import importlib.util
+    from pathlib import Path as _P
+
+    import pytest as _pytest
+
+    from tests import support as toolkit
+
+    game_path = (
+        _P(__file__).resolve().parent.parent
+        / "examples/platformer/panda-adventure/tests/display_gate.py"
+    )
+    spec = importlib.util.spec_from_file_location("panda_display_gate", game_path)
+    assert spec is not None and spec.loader is not None, game_path
+    game = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(game)
+
+    assert game.WINDOWED_CAPABILITY_CODES == toolkit.WINDOWED_CAPABILITY_CODES
+    assert (
+        game.WINDOWED_PERMISSION_DENIED_CODE == toolkit.WINDOWED_PERMISSION_DENIED_CODE
+    )
+
+    def reaction(handler, code):
+        try:
+            handler(code, "parity probe")
+        except _pytest.skip.Exception:
+            return "skip"
+        except BaseException as exc:  # pytest.fail raises Failed (BaseException)
+            if type(exc).__name__ == "Failed":
+                return "fail"
+            raise
+        return "pass-through"
+
+    probes = [
+        "live_windowed_unavailable",
+        "live_display_unavailable",
+        "live_windowed_permission_denied",
+        "operation_failed",
+        "daemon_not_running",
+    ]
+    for code in probes:
+        assert reaction(game.handle_no_display_code, code) == reaction(
+            toolkit.handle_no_display_code, code
+        ), f"the two display-gate copies disagree on {code!r}"

@@ -44,7 +44,7 @@ debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
   as `user_data_unwritable` before the engine starts. Two limits: Godot reads the
   **export templates** from that same directory, so a `release`/`debug`
   `export run` under it reports none installed unless you put templates there —
-  `--mode pack` needs no templates and works normally; and live sessions are
+  `--mode pack` needs no templates and works normally; and Engine sessions are
   unaffected either way — the daemon owns their log.
 
 ## Structured output & errors
@@ -60,7 +60,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | Exit | Meaning |
 | ---- | ------- |
 | `0`   | success |
-| `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable` |
+| `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied` |
 | `124` | engine timed out |
 | `3`   | engine version too old |
 | `4`   | operation-reported failure |
@@ -129,8 +129,9 @@ spawning Godot. Branch on the code, not the sentence:
   code alone.
 
 A refusal from `gda daemon start --windowed` carries `error.probe` `{name, platform}`
-naming the OS call that decided. The same codes relayed from an already-running daemon
-carry the code and message only.
+naming the OS call that decided — including when the refusal is relayed from an
+already-running daemon's lazy Engine-session launch; only the outer
+`{stdout, stderr, exit_code}` transport shape is probe-less.
 
 | Group | Commands |
 | ----- | -------- |

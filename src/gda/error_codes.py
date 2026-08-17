@@ -786,7 +786,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.ENVIRONMENT,
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
-        "A windowed live session was requested (`gda daemon start --windowed`) but"
+        "A windowed Engine session was requested (`gda daemon start --windowed`) but"
         " the host has no usable DisplayServer (no on-console GUI session / no"
         " $DISPLAY), so the session cannot come up; refused before spawning Godot.",
     ),
@@ -807,7 +807,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.ENVIRONMENT,
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
-        "A windowed live session was requested (`gda daemon start --windowed`) but"
+        "A windowed Engine session was requested (`gda daemon start --windowed`) but"
         " this process is denied the window-server lookup (e.g. a sandbox), so gda"
         " cannot tell whether the host has one; re-run outside the restriction to"
         " find out rather than recording the host as display-less.",
