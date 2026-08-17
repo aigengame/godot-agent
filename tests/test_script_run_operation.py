@@ -18,7 +18,13 @@ bifurcation is asserted without a real engine and without CliRunner:
   failures decided BEFORE any launch;
 - both accepted path forms — project-relative and ``res://`` (#675) — reach the
   SAME canonical address, so the argv, the entry-load verdict and the reported
-  ``path`` cannot diverge by input spelling.
+  ``path`` cannot diverge by input spelling;
+- a run GDA ENDED — at the caller's ``--timeout``, or early because a declared
+  ``--completion-marker`` never appeared — is an Error envelope carrying the run's
+  EVIDENCE (#655): the captured partial output under fixed labels, the elapsed
+  clock, an enumerated termination phase, and the recognized script errors. The
+  capture MECHANISM that produces those results is asserted against real pipes in
+  ``tests/test_launch.py``; what is asserted here is the classification.
 
 They are the recipe's own test surface, complementary to the e2e round-trip in
 ``tests/test_e2e_script_run.py`` (real Godot).
@@ -29,14 +35,23 @@ from pathlib import Path
 import pytest
 
 from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023)
+    DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
+    SCRIPT_RUN_ABORT_SILENCE_SECONDS,
     SCRIPT_RUN_COMMAND,
     ScriptRunResult,
+    TerminationPhase,
+    _CompletionMarkerWatch,
     run_script_run_operation,
 )
-from gda.errors import Failure
+from gda.errors import (
+    SCRIPT_OUTPUT_STDERR_HEADER,
+    SCRIPT_OUTPUT_STDOUT_HEADER,
+    SCRIPT_OUTPUT_TAIL_CAP_CHARS,
+    Failure,
+)
 from gda.execution import ExecutionKind
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
-from gda.runner import LaunchFailure, RunResult
+from gda.runner import LaunchFailure, LaunchWatch, RunResult
 
 PROJECT = Path("/tmp/project")
 
@@ -46,8 +61,11 @@ class FakeLaunch:
 
     Satisfies the ``LaunchFn`` seam so the operation's launch/crash bifurcation is
     exercised without a real engine — the ``script run`` twin of ``FakeRunner`` /
-    ``FakeExportRunner``. Records the ``(binary, args, cwd, timeout, timeout_label)``
-    it was called with so argv-tail construction (and ``cwd=None``) can be asserted.
+    ``FakeExportRunner``. Records the
+    ``(binary, args, cwd, timeout, timeout_label, watch)`` it was called with so
+    argv-tail construction (and ``cwd=None``) can be asserted — and, since #655, so
+    can the ``timeout`` the caller chose and the ``watch`` that selects the
+    streaming capture.
     """
 
     def __init__(self, result: RunResult) -> None:
@@ -62,8 +80,9 @@ class FakeLaunch:
         cwd: Path | None,
         timeout: float,
         timeout_label: str = "Godot",
+        watch: LaunchWatch | None = None,
     ) -> RunResult:
-        self.calls.append((binary, args, cwd, timeout, timeout_label))
+        self.calls.append((binary, args, cwd, timeout, timeout_label, watch))
         return self.result
 
 
@@ -74,6 +93,8 @@ def _run(
     project: Path | None = PROJECT,
     godot: str | None = "/tmp/Godot",
     strict: bool = False,
+    timeout: float = DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
+    completion_marker: str | None = None,
 ) -> tuple[ScriptRunResult | Failure, FakeLaunch]:
     """Invoke the operation with the launch seam pinned to a ``FakeLaunch``."""
     launch = FakeLaunch(result)
@@ -83,6 +104,8 @@ def _run(
         project=project,
         strict=strict,
         make_launch=launch,
+        timeout=timeout,
+        completion_marker=completion_marker,
     )
     return outcome, launch
 
@@ -106,10 +129,14 @@ def test_clean_zero_exit_passes_the_run_through():
     assert outcome.stderr == "warn\n"
     # The argv tail is `--path <project> --script <res path>`, launched with cwd=None
     # (mirroring the sentinel runner, NOT the export channel's cwd=project).
-    (binary, args, cwd, _timeout, label) = launch.calls[0]
+    (binary, args, cwd, _timeout, label, watch) = launch.calls[0]
     assert args == ["--path", str(PROJECT), "--script", "res://tests/logic.gd"]
     assert cwd is None
     assert label == "Godot script"
+    # A watch is ALWAYS passed (#655): it is what selects the shared primitive's
+    # streaming capture, so partial output survives a timeout even for a caller who
+    # declared no completion marker.
+    assert watch is not None
 
 
 def test_non_zero_script_exit_is_a_success_not_a_failure():
@@ -140,8 +167,11 @@ def test_binary_not_found_is_the_shared_classifier_failure():
     assert outcome.exit_code == EXIT_NOT_FOUND
 
 
-def test_launch_timeout_is_the_shared_classifier_failure():
-    # A synthesized TIMEOUT launch failure → launch_timeout.
+def test_launch_timeout_keeps_its_registered_code_and_exit():
+    # A synthesized TIMEOUT launch failure → launch_timeout. Since #655 this channel
+    # classifies it ITSELF (to attach the captured evidence) rather than through the
+    # shared classify_launch_or_crash prefix, so the code and exit are pinned here:
+    # the richer envelope must not have quietly become a different failure.
     outcome, _ = _run(
         RunResult(
             stdout="",
@@ -190,7 +220,7 @@ def test_both_path_forms_reach_one_canonical_address(script):
     )
 
     assert isinstance(outcome, ScriptRunResult), getattr(outcome, "error", None)
-    (_binary, args, _cwd, _timeout, _label) = launch.calls[0]
+    (_binary, args, _cwd, _timeout, _label, _watch) = launch.calls[0]
     assert args == ["--path", str(PROJECT), "--script", "res://tests/logic.gd"]
     assert outcome.path == "res://tests/logic.gd"
 
@@ -395,7 +425,7 @@ def test_a_non_canonical_entry_spelling_still_reaches_the_verdict():
     assert outcome.error.code == "script_compile_failed"
     # The canonical identity is what the engine is asked to run, too, so both sides
     # of every later comparison agree.
-    (_binary, args, _cwd, _timeout, _label) = launch.calls[0]
+    (_binary, args, _cwd, _timeout, _label, _watch) = launch.calls[0]
     assert args[-1] == "res://tests/logic.gd"
     # ...and what the failure message names, so the agent sees one spelling.
     assert "res://tests/logic.gd" in outcome.error.message
@@ -441,7 +471,7 @@ def test_a_project_relative_entry_still_reaches_the_verdict(script, stderr, code
     assert outcome.error.code == code
     assert outcome.exit_code == EXIT_OPERATION
     # One spelling on every side: the argv, and the message the agent reads.
-    (_binary, args, _cwd, _timeout, _label) = launch.calls[0]
+    (_binary, args, _cwd, _timeout, _label, _watch) = launch.calls[0]
     assert args[-1] == "res://tests/logic.gd"
     assert "res://tests/logic.gd" in outcome.error.message
 
@@ -603,3 +633,261 @@ def test_strict_does_not_shadow_the_never_ran_verdict():
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "script_not_found"
+
+
+# --- #655: the two envelopes for a run GDA ENDED, and the watch rule behind the abort.
+#
+# The launch seam is fed a hand-built RunResult in the shape the streaming capture
+# really produces (partial output preserved, launch_failure set, elapsed measured),
+# so the CLASSIFICATION is asserted here while the capture MECHANISM that produces
+# that shape is asserted against real pipes in ``tests/test_launch.py``.
+
+# The verbatim stderr of a run whose entry script died before its own quit() —
+# captured from Godot 4.6.3 during this issue. The engine stays alive afterwards,
+# which is the whole defect (GDA-DF-012).
+ABORTED_STDERR = (
+    "SCRIPT ERROR: Invalid call. Nonexistent function 'missing_method' in base 'Nil'.\n"
+    "          at: _initialize (res://tests/logic.gd:6)\n"
+    "          GDScript backtrace (most recent call first):\n"
+    "              [0] _initialize (res://tests/logic.gd:6)\n"
+)
+
+
+def _timed_out(stdout: str = "", stderr: str = "", elapsed: float = 120.4) -> RunResult:
+    """The RunResult shape the STREAMING capture returns for a timed-out run."""
+    return RunResult(
+        stdout=stdout,
+        stderr=stderr,
+        exit_code=EXIT_TIMEOUT,
+        launch_failure=LaunchFailure.TIMEOUT,
+        elapsed_seconds=elapsed,
+    )
+
+
+def test_the_caller_timeout_is_what_reaches_the_launch():
+    # AC: --timeout is HONORED. The value the caller chose is the one the shared
+    # primitive is given, not the default the module happens to define.
+    _outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), timeout=7.5)
+
+    (_binary, _args, _cwd, timeout, _label, _watch) = launch.calls[0]
+    assert timeout == 7.5
+
+
+def test_the_default_timeout_is_still_the_documented_ceiling():
+    # The knob is a DEFAULT now, not a replacement: an invocation that states nothing
+    # keeps the ceiling that bounds a hung engine (ADR-0031).
+    _outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0))
+
+    (_binary, _args, _cwd, timeout, _label, _watch) = launch.calls[0]
+    assert timeout == DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS == 120.0
+
+
+def test_a_timeout_reflects_the_timeout_elapsed_and_phase_in_the_message():
+    # AC: a run exceeding --timeout reports the ceiling it reached, the elapsed wall
+    # clock, and ONE enumerated termination phase. All prose — promoting them to
+    # envelope fields would change ADR-0004's failure ABI, which #687 owns.
+    outcome, _ = _run(
+        _timed_out(stdout="Godot Engine v4.6.3\nSUITE START\n", elapsed=30.25),
+        timeout=30.0,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "launch_timeout"
+    assert outcome.exit_code == EXIT_TIMEOUT
+    assert "--timeout of 30.0s" in outcome.error.message
+    assert "elapsed 30.25s" in outcome.error.message
+    assert TerminationPhase.OUTPUT_SEEN.value in outcome.error.message
+    # The cap is STATED, so a reader knows the output was truncated and by how much.
+    assert str(SCRIPT_OUTPUT_TAIL_CAP_CHARS) in outcome.error.message
+
+
+def test_a_timeout_carries_the_captured_partial_output_as_diagnostics():
+    # THE #655 DEFECT (GDA-DF-012): the timeout envelope used to hold only the timeout
+    # message, discarding the output the engine had already written. Both streams now
+    # come back under the SAME fixed labels --strict uses, so one consumer split reads
+    # every script run failure.
+    outcome, _ = _run(
+        _timed_out(stdout="SUITE START\n7 of 40 tests\n", stderr=ABORTED_STDERR),
+        timeout=30.0,
+    )
+
+    assert isinstance(outcome, Failure)
+    diagnostics = outcome.error.diagnostics
+    assert SCRIPT_OUTPUT_STDOUT_HEADER in diagnostics
+    assert SCRIPT_OUTPUT_STDERR_HEADER in diagnostics
+    assert "7 of 40 tests" in diagnostics
+    # And the script error the engine had ALREADY printed is surfaced as a classified
+    # line, read by the SAME parser stack a completed run's diagnostics use (#651).
+    assert "runtime_error: res://tests/logic.gd:6" in diagnostics
+    assert "Nonexistent function 'missing_method'" in diagnostics
+
+
+def test_a_timeout_with_no_output_reports_the_narrower_phase():
+    # The distinction the phase exists for: an engine that never wrote a byte did not
+    # even reach its own startup banner, which is a different problem from a run that
+    # was alive and did not finish.
+    outcome, _ = _run(_timed_out(), timeout=30.0)
+
+    assert isinstance(outcome, Failure)
+    assert TerminationPhase.LAUNCHED.value in outcome.error.message
+    # A clean error stream is itself the diagnosis — an unfinished run, not a broken
+    # script — so the absence is stated rather than left as an empty section.
+    assert "no recognized script errors" in outcome.error.diagnostics
+
+
+def test_a_timeout_truncates_each_stream_to_the_stated_tail():
+    # The cap is fixed and bounds what a two-minute run can put into an inline JSON
+    # result. The TAIL is kept, not the head: where a run that did not finish got to
+    # is the interesting part.
+    outcome, _ = _run(
+        _timed_out(stdout="x" * 50_000 + "LAST LINE\n", stderr="y" * 50_000),
+        timeout=30.0,
+    )
+
+    assert isinstance(outcome, Failure)
+    diagnostics = outcome.error.diagnostics
+    assert "LAST LINE" in diagnostics
+    assert diagnostics.count("x") == SCRIPT_OUTPUT_TAIL_CAP_CHARS - len("LAST LINE\n")
+    assert diagnostics.count("y") == SCRIPT_OUTPUT_TAIL_CAP_CHARS
+
+
+def test_an_aborted_run_is_the_registered_early_termination_verdict():
+    # AC: a script whose runtime error prevents quit() returns the captured error
+    # within a STATED bound in seconds, not the full timeout, when a marker is
+    # declared. It is its own registered code: gda did not wait out the timeout, it
+    # decided not to — reporting launch_timeout would be untrue.
+    outcome, _ = _run(
+        RunResult(
+            stdout="SUITE START\n",
+            stderr=ABORTED_STDERR,
+            exit_code=EXIT_OPERATION,
+            launch_failure=LaunchFailure.ABORTED,
+            elapsed_seconds=3.4,
+        ),
+        timeout=120.0,
+        completion_marker="SUITE DONE",
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_aborted"
+    assert outcome.exit_code == EXIT_OPERATION
+    # The message names WHY gda stopped: the declared marker, the silence window, and
+    # the ceiling that was NOT reached — so the bound reads as a bound.
+    assert "'SUITE DONE'" in outcome.error.message
+    assert f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s" in outcome.error.message
+    assert "3.40s" in outcome.error.message
+    assert "120.0s was not reached" in outcome.error.message
+    assert TerminationPhase.ABORTED_ON_ERROR.value in outcome.error.message
+    # And it carries the same evidence a timeout does.
+    assert "runtime_error: res://tests/logic.gd:6" in outcome.error.diagnostics
+    assert "SUITE START" in outcome.error.diagnostics
+
+
+def test_the_declared_marker_reaches_the_watch_and_absence_leaves_it_inert():
+    # The marker is CALLER-DECLARED (ADR-0031 rejected imposing a gda-owned sentinel
+    # on a user script), so with none declared the watch must never abort — the launch
+    # gains its captured output and nothing else.
+    inert = _CompletionMarkerWatch(None)
+    assert not inert.observe(stdout="", stderr=ABORTED_STDERR, elapsed=0.5)
+    assert not inert.observe(stdout="", stderr="", elapsed=600.0)
+
+
+def test_the_watch_aborts_only_after_the_error_and_the_silence():
+    # The three-part rule, each part load-bearing: a recognized script error, the
+    # declared marker absent, and the run gone silent for the stated window.
+    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+
+    # An error alone is not enough — the run may still be working.
+    assert not watch.observe(stdout="SUITE START\n", stderr=ABORTED_STDERR, elapsed=0.5)
+    # Nor is a short silence.
+    assert not watch.observe(stdout="", stderr="", elapsed=2.9)
+    # The window elapses with no further output: the run is dead.
+    assert watch.observe(stdout="", stderr="", elapsed=3.6)
+
+
+def test_output_after_the_error_resets_the_silence_window():
+    # Why the trigger is silence rather than the error itself: a GDScript runtime
+    # error aborts only the function that raised it, so a script can survive one and
+    # still reach its own quit() — a run pinned as a SUCCESS elsewhere in this suite.
+    # A run that keeps working keeps printing, which must keep resetting the window.
+    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+
+    assert not watch.observe(stdout="", stderr=ABORTED_STDERR, elapsed=0.5)
+    assert not watch.observe(stdout="test 8 ok\n", stderr="", elapsed=3.0)
+    # 3.5s after the ERROR, but only 0.5s after the last output — still working.
+    assert not watch.observe(stdout="", stderr="", elapsed=3.5)
+    assert watch.observe(stdout="", stderr="", elapsed=6.1)
+
+
+def test_the_marker_appearing_disarms_the_abort_for_good():
+    # Once the caller's own definition of "finished" has been printed, the run is not
+    # an aborted one, whatever else its stderr says — so gda waits out --timeout
+    # rather than reporting a failure the caller did not ask for.
+    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+
+    assert not watch.observe(stdout="SUITE DONE\n", stderr=ABORTED_STDERR, elapsed=0.5)
+    assert not watch.observe(stdout="", stderr="", elapsed=60.0)
+
+
+def test_the_marker_is_matched_across_a_chunk_boundary():
+    # The capture hands over whatever a read syscall returned, so a marker — or an
+    # error record — can arrive split. Buffering to complete lines is what makes the
+    # match whole while still seeing every byte exactly once.
+    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+
+    watch.observe(stdout="SUITE ", stderr="SCRIPT ERROR: boom\n", elapsed=0.1)
+    watch.observe(stdout="DONE\n", stderr="", elapsed=0.2)
+
+    assert not watch.observe(stdout="", stderr="", elapsed=30.0)
+
+
+def test_a_warning_is_not_a_script_error_for_the_abort():
+    # Recognition is the shared parser's, which skips warnings — so a chatty run that
+    # only warns is never ended early, however long it then goes quiet.
+    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+
+    watch.observe(
+        stdout="",
+        stderr="WARNING: something odd\n   at: f (res://x.gd:2)\n",
+        elapsed=0.1,
+    )
+
+    assert not watch.observe(stdout="", stderr="", elapsed=30.0)
+
+
+def test_an_error_on_stdout_alone_does_not_arm_the_abort():
+    # Godot reports errors on stderr; a script that PRINTS the words "SCRIPT ERROR"
+    # to stdout (a test runner echoing a failure) has not failed the run.
+    watch = _CompletionMarkerWatch("SUITE DONE", silence=3.0)
+
+    watch.observe(stdout="SCRIPT ERROR: expected\n", stderr="", elapsed=0.1)
+
+    assert not watch.observe(stdout="", stderr="", elapsed=30.0)
+
+
+def test_a_completed_run_is_unaffected_by_a_declared_marker():
+    # The marker changes nothing about a run that finished: gda still passes the
+    # script's own status through (the ADR-0031 crux), marker or no marker.
+    outcome, _ = _run(
+        RunResult(stdout="SUITE DONE\n", stderr="", exit_code=1, elapsed_seconds=0.4),
+        completion_marker="SUITE DONE",
+    )
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.exit_status == 1
+
+
+def test_a_timeout_does_not_shadow_the_shared_env_and_crash_classifier():
+    # The channel classifies only the runs GDA ended; everything else still goes
+    # through the SAME shared prefix the export channel uses, so the two stay
+    # identical on a missing binary, an unusable placement and a signal death.
+    for failure, code in (
+        (LaunchFailure.NOT_FOUND, "binary_not_found"),
+        (LaunchFailure.USER_DATA_UNWRITABLE, "user_data_unwritable"),
+    ):
+        outcome, _ = _run(
+            RunResult(stdout="", stderr="why\n", exit_code=127, launch_failure=failure),
+            completion_marker="SUITE DONE",
+        )
+        assert isinstance(outcome, Failure)
+        assert outcome.error.code == code

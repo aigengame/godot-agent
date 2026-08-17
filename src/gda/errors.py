@@ -585,6 +585,134 @@ def script_exit_status_failure(
     )
 
 
+# How much of each stream a gda-ENDED ``script run`` carries into its
+# ``diagnostics`` (#655). A run gda cut short can have produced arbitrarily much
+# output — a test suite that looped for two minutes — and ``diagnostics`` is
+# serialized inline in the JSON result, so it is bounded. The cap is FIXED rather
+# than an option: one more knob to reason about buys nothing an agent wants, and a
+# stated constant is something a caller can rely on. The TAIL is kept, not the
+# head: the interesting part of a run that did not finish is where it got to.
+SCRIPT_OUTPUT_TAIL_CAP_CHARS = 16 * 1024
+
+
+def _tail(stream: str) -> str:
+    """The last :data:`SCRIPT_OUTPUT_TAIL_CAP_CHARS` characters of a stream."""
+    return stream[-SCRIPT_OUTPUT_TAIL_CAP_CHARS:]
+
+
+def _ended_run_diagnostics(
+    what: str, script_errors: str, stdout: str, stderr: str
+) -> str:
+    """The ``diagnostics`` prose shared by the two gda-ended ``script run`` verdicts.
+
+    ADR-0004's ``GdaError.diagnostics`` is a free-form ``str``, so everything a
+    failure reports about a run gda ended is PROSE: the recognized script errors,
+    then both streams under the same fixed labels ``--- script stdout ---`` /
+    ``--- script stderr ---`` that ``--strict`` already uses, so one consumer split
+    reads every ``script run`` failure. Promoting the elapsed time, the termination
+    phase and these error lines to structured envelope FIELDS would change the
+    uniform failure ABI; **#687 owns that decision** and ADR-0031's amendment
+    already records that this issue's envelope adopts its outcome. String
+    diagnostics are the deliberate first step, not an oversight — do not add
+    envelope fields here.
+
+    ``what`` names the moment ("the timeout", "the abort") so the error block reads
+    as a statement about this run. A run with no recognized errors says so
+    explicitly: the ABSENCE is itself the diagnosis — a hang with a clean error
+    stream is an unfinished run, not a broken script.
+    """
+    header = (
+        f"gda: recognized script errors seen before {what}:\n{script_errors}"
+        if script_errors
+        else f"gda: no recognized script errors appeared before {what}\n"
+    )
+    return header + _labelled_script_output(_tail(stdout), _tail(stderr))
+
+
+def script_run_timeout_failure(
+    script: str,
+    *,
+    timeout: float,
+    elapsed: float,
+    phase: str,
+    script_errors: str,
+    stdout: str,
+    stderr: str,
+) -> Failure:
+    """The ``launch_timeout`` verdict for a ``script run`` gda stopped waiting for (#655).
+
+    The code is REUSED, not minted: the condition is exactly the one
+    ``launch_timeout`` names — Godot launched and did not return before the timeout
+    — and ADR-0031 already records this path under it. What changes is that the
+    envelope now carries evidence instead of only announcing the wait. Dogfooding
+    (GDA-DF-012) hit a run whose script error Godot had already PRINTED, discarded
+    by a one-shot capture that kept nothing; and (GDA-DF-032) a healthy suite that
+    grew past the fixed ceiling, indistinguishable from a hang because the envelope
+    reported neither how long it ran nor how far it got.
+
+    So the message carries the three numbers a caller acts on — the ``--timeout``
+    that was reached, the elapsed wall clock, and the termination ``phase`` — plus
+    the stated output cap, and the diagnostics carry the captured tail. An agent
+    reading only ``message`` can already tell "raise ``--timeout``" from "this run
+    is stuck".
+    """
+    return make_failure(
+        "launch_timeout",
+        f"script run: {script} did not return before the --timeout of {timeout}s "
+        f"(elapsed {elapsed:.2f}s, termination phase '{phase}'). The captured "
+        f"output is in diagnostics, truncated to the last "
+        f"{SCRIPT_OUTPUT_TAIL_CAP_CHARS} characters of each stream; raise "
+        f"--timeout for a run that is merely slow, or declare "
+        f"--completion-marker to end an aborted run early.",
+        _ended_run_diagnostics("the timeout", script_errors, stdout, stderr),
+    )
+
+
+def script_run_aborted_failure(
+    script: str,
+    *,
+    marker: str,
+    timeout: float,
+    elapsed: float,
+    silence: float,
+    phase: str,
+    script_errors: str,
+    stdout: str,
+    stderr: str,
+) -> Failure:
+    """The ``script_aborted`` verdict for a run gda ended early (#655).
+
+    The failure GDA-DF-012 actually describes: a script error aborted the run
+    before its ``quit()``, the engine stayed alive, and gda waited out the full
+    ceiling to report a timeout with nothing in it. The error was on stderr within
+    a second. This verdict returns it in seconds instead.
+
+    It is a DISTINCT registered code rather than a reused one, because none of the
+    candidates names this condition. ``launch_timeout`` would be untrue — gda did
+    not wait for the timeout, it decided not to. ``script_failed`` means "your
+    script ran to completion and chose a non-zero status", is documented as never
+    reported without ``--strict``, and an agent branches on it differently: there
+    the remedy is to read an exit status, here it is to read an error the script
+    never survived. ADR-0002 reuses a code when the CONDITION matches; this one
+    does not.
+
+    The message names why gda stopped rather than merely that it did: the marker
+    the caller declared, the silence window that elapsed after the error, and the
+    ``--timeout`` that was NOT reached — so the bound is legible as a bound and not
+    mistaken for the ceiling.
+    """
+    return make_failure(
+        "script_aborted",
+        f"script run: {script} was ended after {elapsed:.2f}s — a script error "
+        f"appeared, the --completion-marker {marker!r} did not, and neither stream "
+        f"produced output for {silence}s. The --timeout of {timeout}s was not "
+        f"reached. The captured output is in diagnostics, truncated to the last "
+        f"{SCRIPT_OUTPUT_TAIL_CAP_CHARS} characters of each stream; termination "
+        f"phase '{phase}'.",
+        _ended_run_diagnostics("the abort", script_errors, stdout, stderr),
+    )
+
+
 def invalid_project_failure(reason: str) -> Failure:
     """The ``project_not_found`` failure for an explicit ``--project``/``$GDA_PROJECT``
     that is empty or is not a Godot project (#353).

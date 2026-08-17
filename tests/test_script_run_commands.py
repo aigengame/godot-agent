@@ -25,11 +25,16 @@ from gda.runner import RunResult
 
 
 def _patch_launch(monkeypatch, result: RunResult) -> list:
-    """Replace the deep-module launch with one returning ``result``; record calls."""
+    """Replace the deep-module launch with one returning ``result``; record calls.
+
+    ``watch`` is recorded like the rest of the call: ``script run`` always passes one
+    (that is what selects the streaming capture, #655), so a test can assert the
+    caller's ``--completion-marker`` reached it without spawning an engine.
+    """
     calls: list = []
 
-    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot"):
-        calls.append((binary, args, cwd, timeout, timeout_label))
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        calls.append((binary, args, cwd, timeout, timeout_label, watch))
         return result
 
     monkeypatch.setattr("gda.commands.script.launch", fake_launch)
@@ -64,7 +69,7 @@ def test_clean_run_emits_the_passthrough_result(monkeypatch, tmp_path):
         "diagnostics": [],
     }
     # The recipe launched `--path <project> --script <res path>` with cwd=None.
-    (_binary, args, cwd, _timeout, _label) = calls[0]
+    (_binary, args, cwd, _timeout, _label, _watch) = calls[0]
     assert args == ["--path", str(project), "--script", "res://logic.gd"]
     assert cwd is None
 
@@ -179,7 +184,7 @@ def test_both_path_forms_are_accepted_at_the_cli(monkeypatch, tmp_path, form):
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["path"] == "res://logic.gd"
-    (_binary, args, _cwd, _timeout, _label) = calls[0]
+    (_binary, args, _cwd, _timeout, _label, _watch) = calls[0]
     assert args == ["--path", str(project), "--script", "res://logic.gd"]
 
 
@@ -205,7 +210,7 @@ def test_params_json_accepts_the_project_relative_form_too(monkeypatch, tmp_path
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["path"] == "res://logic.gd"
-    (_binary, args, _cwd, _timeout, _label) = calls[0]
+    (_binary, args, _cwd, _timeout, _label, _watch) = calls[0]
     assert args[-1] == "res://logic.gd"
 
 
@@ -349,3 +354,152 @@ def test_an_unexpandable_tilde_keeps_the_structured_refusal(
     # The message names the path the caller gave, tilde intact.
     assert tilde in err["message"]
     assert not calls, "no engine launch on an invalid path"
+
+
+# --- #655: the two new options at the CLI boundary. The classification behind them
+# lives in ``tests/test_script_run_operation.py``; what only shows here is that argv
+# and ``--params-json`` reach the same place (ADR-0015) and that a nonsensical value
+# is a usage error rather than a launch.
+
+
+def test_timeout_reaches_the_launch_from_argv(monkeypatch, tmp_path):
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        # fmt: off
+        [
+            "script",
+            "run",
+            "res://logic.gd",
+            "--timeout",
+            "9.5",
+            "--project",
+            str(project),
+            "--json",
+        ],
+        # fmt: on
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    (_binary, _args, _cwd, timeout, _label, _watch) = calls[0]
+    assert timeout == 9.5
+
+
+def test_timeout_and_marker_reach_the_launch_through_params_json(monkeypatch, tmp_path):
+    # ADR-0015: both are params fields, so a JSON/MCP caller opts in exactly as argv
+    # does — a fixed ceiling with no JSON route would leave gda-mcp on the old defect.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        # fmt: off
+        [
+            "script",
+            "run",
+            "--params-json",
+            '{"path": "res://logic.gd", "timeout": 9.5, '
+            '"completion_marker": "SUITE DONE"}',
+            "--project",
+            str(project),
+            "--json",
+        ],
+        # fmt: on
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    (_binary, _args, _cwd, timeout, _label, watch) = calls[0]
+    assert timeout == 9.5
+    # The marker reached the watch the streaming capture consults — asserted through
+    # the watch's BEHAVIOUR rather than its internals: an error followed by silence
+    # now asks for the run to end, which an undeclared marker never would.
+    assert watch is not None
+    assert not watch.observe(stdout="", stderr="SCRIPT ERROR: boom\n", elapsed=0.1)
+    assert watch.observe(stdout="", stderr="", elapsed=99.0)
+
+
+@pytest.mark.parametrize("timeout", ["0", "-1"])
+def test_a_non_positive_timeout_is_a_usage_error_not_a_launch(
+    monkeypatch, tmp_path, timeout
+):
+    # A zero or negative ceiling would end every run instantly. It is refused before
+    # any spawn — as a usage error on argv, where Click's exit 2 is the ergonomic
+    # answer, mirroring how `script set` handles a contradictory edit.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        # fmt: off
+        [
+            "script",
+            "run",
+            "res://logic.gd",
+            "--timeout",
+            timeout,
+            "--project",
+            str(project),
+            "--json",
+        ],
+        # fmt: on
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert not calls, "a rejected --timeout must never reach the launch"
+
+
+def test_a_non_positive_timeout_is_structured_through_params_json(
+    monkeypatch, tmp_path
+):
+    # The same rule on the JSON path surfaces as the structured `invalid_params`
+    # envelope rather than a Click usage error, because the model enforces it
+    # (ADR-0015) — one rule, two idiomatic reports.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        # fmt: off
+        [
+            "script",
+            "run",
+            "--params-json",
+            '{"path": "res://logic.gd", "timeout": 0}',
+            "--project",
+            str(project),
+            "--json",
+        ],
+        # fmt: on
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert not calls
+
+
+def test_an_empty_completion_marker_is_refused(monkeypatch, tmp_path):
+    # An empty marker would match every line, disarming the abort while looking
+    # declared — the same class of mistake as an empty --godot, so it is refused
+    # rather than silently ignored.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        # fmt: off
+        [
+            "script",
+            "run",
+            "res://logic.gd",
+            "--completion-marker",
+            "",
+            "--project",
+            str(project),
+            "--json",
+        ],
+        # fmt: on
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert not calls

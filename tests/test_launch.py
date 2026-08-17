@@ -11,6 +11,7 @@ suite.
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
@@ -210,3 +211,232 @@ def test_cwd_none_passes_no_working_directory(monkeypatch):
     launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
 
     assert captured["cwd"] is None
+
+
+# --- The STREAMING capture path (#655). Selected by passing a ``watch``; without one
+# the one-shot behaviour asserted above is unchanged, which the pair of
+# ``test_the_one_shot_path_still_*`` guards below pins for the sentinel and export
+# channels that rely on it.
+#
+# These drive a REAL child process — a small shebang script standing in for the
+# engine — rather than a fake ``Popen``. The whole point of the streaming path is
+# what real pipes and a real process lifetime do (a one-shot capture threw away the
+# output that a real Godot had already written), so faking the spawn would only
+# assert the fake. The stand-in ignores the ``--headless --log-file <path>`` head
+# that ``launch`` injects, exactly as it ignores every other argv tail.
+
+
+def _fake_engine(tmp_path: Path, body: str) -> Path:
+    """An executable stand-in for the Godot binary that runs ``body``.
+
+    ``sys.executable`` cannot be used directly: ``launch`` builds
+    ``[binary, --headless, --log-file <path>, *args]`` and Python rejects
+    ``--headless``. A shebang script takes the same argv and ignores it.
+    """
+    script = tmp_path / "fake-engine"
+    script.write_text(
+        f"#!{sys.executable}\nimport sys, time\n{body}\n", encoding="utf-8"
+    )
+    script.chmod(0o755)
+    return script
+
+
+class _RecordingWatch:
+    """A ``LaunchWatch`` that records what it was fed and can ask for an abort.
+
+    ``abort_when`` is called with the accumulated stderr, so a test states its
+    trigger as a plain predicate instead of reimplementing the real watch's rule
+    (which is tested against the real parser in the script-run suite).
+    """
+
+    def __init__(self, abort_when=None) -> None:
+        self.abort_when = abort_when
+        self.stdout = ""
+        self.stderr = ""
+        self.polls = 0
+        self.max_elapsed = 0.0
+
+    def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
+        self.polls += 1
+        self.stdout += stdout
+        self.stderr += stderr
+        self.max_elapsed = max(self.max_elapsed, elapsed)
+        return bool(self.abort_when and self.abort_when(self.stderr))
+
+
+def test_streaming_timeout_preserves_the_output_the_child_already_wrote(tmp_path):
+    # THE #655 DEFECT: a one-shot capture discards everything on a timeout, so a
+    # script error Godot had ALREADY printed was lost (GDA-DF-012). With a watch the
+    # capture survives, on BOTH streams, and no gda prose is mixed into either — the
+    # watching channel composes its own diagnostics from this.
+    engine = _fake_engine(
+        tmp_path,
+        "print('SUITE START', flush=True)\n"
+        "print('boom', file=sys.stderr, flush=True)\n"
+        "time.sleep(30)\n",
+    )
+
+    result = launch(
+        engine, [], cwd=None, timeout=1.5, watch=_RecordingWatch(), timeout_label="X"
+    )
+
+    assert result.launch_failure is LaunchFailure.TIMEOUT
+    assert result.exit_code == EXIT_TIMEOUT
+    assert result.stdout == "SUITE START\n"
+    assert result.stderr == "boom\n"
+    assert "timed out" not in result.stderr
+
+
+def test_streaming_measures_the_elapsed_wall_clock(tmp_path):
+    # The other half of GDA-DF-032: a healthy suite that outgrew its ceiling was
+    # indistinguishable from a hang because nothing reported how long it ran. The
+    # clock stops when gda decides to end the run, NOT after the SIGTERM grace and
+    # the reader join — those are gda's own shutdown, and charging them to the run
+    # would report a 1.0s ceiling as several seconds.
+    engine = _fake_engine(tmp_path, "time.sleep(30)")
+
+    result = launch(engine, [], cwd=None, timeout=1.0, watch=_RecordingWatch())
+
+    assert result.elapsed_seconds is not None
+    assert 1.0 <= result.elapsed_seconds < 2.0
+
+
+def test_streaming_lets_the_watch_end_the_run_before_the_timeout(tmp_path):
+    # The early-abort mechanism: the watch sees the error as it arrives and asks for
+    # the run to end, so the failure is reported in a fraction of the ceiling rather
+    # than at it. The captured output still comes back — the abort exists to RETURN
+    # the evidence, not merely to stop waiting.
+    engine = _fake_engine(
+        tmp_path,
+        "print('working', flush=True)\n"
+        "print('SCRIPT ERROR: boom', file=sys.stderr, flush=True)\n"
+        "time.sleep(60)\n",
+    )
+    watch = _RecordingWatch(abort_when=lambda stderr: "SCRIPT ERROR" in stderr)
+
+    result = launch(engine, [], cwd=None, timeout=60.0, watch=watch)
+
+    assert result.launch_failure is LaunchFailure.ABORTED
+    # A NON-NEGATIVE exit code, deliberately: gda caused the signal death, and a
+    # negative exit_code is how a genuine engine crash is recognized.
+    assert result.exit_code >= 0
+    assert result.stdout == "working\n"
+    assert "SCRIPT ERROR: boom" in result.stderr
+    assert result.elapsed_seconds is not None and result.elapsed_seconds < 10.0
+
+
+def test_streaming_passes_a_completed_run_through_with_its_own_exit_code(tmp_path):
+    # A child that finishes inside the ceiling is NOT a launch failure: the engine's
+    # own exit code is the result, launch_failure stays None, and the clock is still
+    # measured. The streaming path must not turn a completed run into a synthesized one.
+    engine = _fake_engine(
+        tmp_path,
+        "print('done', flush=True)\nprint('warn', file=sys.stderr, flush=True)\n"
+        "sys.exit(3)\n",
+    )
+
+    result = launch(engine, [], cwd=None, timeout=30.0, watch=_RecordingWatch())
+
+    assert result.launch_failure is None
+    assert result.exit_code == 3
+    assert result.stdout == "done\n"
+    assert result.stderr == "warn\n"
+    assert result.elapsed_seconds is not None
+
+
+def test_streaming_feeds_the_watch_each_byte_exactly_once(tmp_path):
+    # The seam's contract: ``observe`` receives the NEWLY-arrived text, never the
+    # accumulated capture, so an implementation cannot become quadratic in the output
+    # size. Reassembling the increments must therefore reproduce the capture — as a
+    # PREFIX of it, not all of it: the watch is polled only while the run is alive,
+    # so whatever the child writes in its final moments arrives after the loop has
+    # ended. That is harmless by construction (there is no longer a run to abort) and
+    # it is why the final capture, not the watch's view, is what the result carries.
+    engine = _fake_engine(
+        tmp_path,
+        "for i in range(20):\n"
+        "    print(f'line {i}', flush=True)\n"
+        "    time.sleep(0.05)\n",
+    )
+    watch = _RecordingWatch()
+
+    result = launch(engine, [], cwd=None, timeout=30.0, watch=watch)
+
+    assert result.stdout.count("line ") == 20
+    assert result.stdout.startswith(watch.stdout)
+    # Genuinely incremental, not one dump at the end: several lines reached the watch
+    # while the child was still running.
+    assert watch.stdout.count("line ") >= 2
+    # And the watch is polled repeatedly, including on polls with no new output —
+    # that is what lets a silence-based policy fire at all.
+    assert watch.polls >= 2
+
+
+def test_streaming_decodes_utf8_split_across_a_read_boundary(tmp_path):
+    # The incremental decode is not a detail: a chunk boundary can fall inside a
+    # multi-byte sequence, and decoding each chunk independently would turn one
+    # character into two replacement characters. Writing the two halves of a 3-byte
+    # character with a pause between them forces that boundary.
+    engine = _fake_engine(
+        tmp_path,
+        "sys.stdout.buffer.write('你'.encode()[:1])\n"
+        "sys.stdout.buffer.flush()\n"
+        "time.sleep(0.3)\n"
+        "sys.stdout.buffer.write('你'.encode()[1:])\n"
+        "sys.stdout.buffer.flush()\n",
+    )
+
+    result = launch(engine, [], cwd=None, timeout=30.0, watch=_RecordingWatch())
+
+    assert result.stdout == "你"
+
+
+def test_streaming_captures_more_than_one_pipe_buffer_without_deadlocking(tmp_path):
+    # Why the reads happen on threads rather than in the polling loop: a child that
+    # writes more than the OS pipe buffer holds (64 KiB on Linux) blocks until
+    # someone drains it, and a loop that only watches the deadline never would. The
+    # run below would hang forever on a single-threaded capture.
+    engine = _fake_engine(
+        tmp_path,
+        "sys.stdout.write('o' * 300_000)\n"
+        "sys.stderr.write('e' * 300_000)\n"
+        "sys.stdout.flush()\nsys.stderr.flush()\n",
+    )
+
+    result = launch(engine, [], cwd=None, timeout=30.0, watch=_RecordingWatch())
+
+    assert result.exit_code == 0
+    assert len(result.stdout) == 300_000
+    assert len(result.stderr) == 300_000
+
+
+def test_streaming_maps_a_missing_binary_to_the_same_not_found_result():
+    # The two capture strategies share ONE failure mapping: an unlaunchable binary is
+    # the identical synthesized result whichever way gda meant to read the output.
+    one_shot = launch(Path("/nonexistent/Godot"), [], cwd=None, timeout=1.0)
+    streamed = launch(
+        Path("/nonexistent/Godot"), [], cwd=None, timeout=1.0, watch=_RecordingWatch()
+    )
+
+    assert streamed.launch_failure is one_shot.launch_failure is LaunchFailure.NOT_FOUND
+    assert streamed.exit_code == one_shot.exit_code == EXIT_NOT_FOUND
+    assert streamed.stderr == one_shot.stderr
+
+
+def test_the_one_shot_path_still_discards_output_and_keeps_its_diagnostic(tmp_path):
+    # The byte-identity guard for the sentinel and export channels (#655): they pass
+    # NO watch, so their timeout result must stay exactly what it was — the output
+    # discarded and the ``gda: <label> timed out after <n>s`` diagnostic standing in
+    # for it, which is published prose in their error envelopes. Moving them onto the
+    # preserving path is named follow-up work, not this change.
+    engine = _fake_engine(
+        tmp_path, "print('written but discarded', flush=True)\ntime.sleep(30)\n"
+    )
+
+    result = launch(engine, [], cwd=None, timeout=1.0, timeout_label="Godot export")
+
+    assert result.launch_failure is LaunchFailure.TIMEOUT
+    assert result.stdout == ""
+    assert result.stderr == "gda: Godot export timed out after 1.0s\n"
+    # And it does not time itself — the clock is the streaming path's addition.
+    assert result.elapsed_seconds is None

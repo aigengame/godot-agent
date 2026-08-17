@@ -1212,7 +1212,15 @@ def test_script_run_command_schema_is_model_derived():
         "diagnostics",
     }
     # `--strict` is a params field, so the JSON/MCP callers can opt in like argv (#651).
-    assert set(doc["input"]["properties"]) == {"path", "strict"}
+    # `timeout` / `completion_marker` are params for the same reason (#655): the
+    # per-invocation ceiling and the opt-in early-termination marker have to be
+    # reachable from a JSON/MCP caller, not only from argv (ADR-0015).
+    assert set(doc["input"]["properties"]) == {
+        "path",
+        "strict",
+        "timeout",
+        "completion_marker",
+    }
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
