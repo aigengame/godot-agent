@@ -59,7 +59,12 @@ func admit_run_result(
 	var player_after := _integer_state(player.get("state_after", []))
 	var enemy_before := _integer_state(enemy.get("state_before", []))
 	var enemy_after := _integer_state(enemy.get("state_after", []))
-	if player_before != expected_initial or enemy_before != player_after:
+	if (
+		player_before != expected_initial
+		or not _has_combat_state(player_after)
+		or enemy_before != player_after
+		or not _has_combat_state(enemy_after)
+	):
 		return _failure("combat_state_discontinuity")
 	var committed: Array = snapshots.get("snapshots", [])
 	if committed.is_empty():
@@ -151,6 +156,13 @@ func _integer_state(rows: Array) -> Dictionary:
 			return {}
 		state[str(row.get("name", ""))] = int(row["value"])
 	return state
+
+
+func _has_combat_state(state: Dictionary) -> bool:
+	for name in TERMINAL_METRICS:
+		if not state.has(name):
+			return false
+	return true
 
 
 func _integer_fact(event: Dictionary, name: String):

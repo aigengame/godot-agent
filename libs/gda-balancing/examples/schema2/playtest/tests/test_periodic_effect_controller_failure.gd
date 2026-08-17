@@ -9,6 +9,7 @@ const PeriodicEffectTimeline = preload(
 
 class RefusingClient extends Node:
 	var sessions_created := 0
+	var return_invalid_artifacts := false
 
 	func start(_executable: String) -> Dictionary:
 		return {"ok": true}
@@ -25,6 +26,8 @@ class RefusingClient extends Node:
 		return {"ok": true, "revision": "later"}
 
 	func run_revision(_session: String, _revision: String) -> Dictionary:
+		if return_invalid_artifacts:
+			return {"ok": true, "value": {"artifacts": {}}}
 		return {"ok": false, "kind": "execution_refused", "detail": "sentinel"}
 
 	func delete_session(_session: String) -> Dictionary:
@@ -55,6 +58,17 @@ func _run() -> void:
 	var retried: Dictionary = await controller.retry()
 	_expect(retried.get("ok", false), "explicit retry recreates the Effect session")
 	_expect(client.sessions_created == 2, "retry creates a new isolated session")
+	client.return_invalid_artifacts = true
+	controller.primary_action()
+	await process_frame
+	_expect(
+		controller.current_state().get("phase") == "retry",
+		"projection failure also presents retry",
+	)
+	_expect(
+		not controller.current_state().has("health"),
+		"projection failure publishes no Effect result",
+	)
 	await controller.shutdown()
 	controller.queue_free()
 	client.queue_free()
