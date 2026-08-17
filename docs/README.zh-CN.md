@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bb3fb3e81210910899b8cfd05144fa9f969d9d214a0436f5e002a1f496c37f0e -->
+<!-- gda-readme-i18n: source=README.md sha256=4690a415ebcff975162adcdeb87ea78a23afdcd40a7f80c578a11fad3570559a -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -546,6 +546,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
 | `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |
+| `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，改为输出结构化的安装溯源信息——版本，可执行文件、解释器与实际导入的包所在路径，安装类型（`wheel`、`editable`，或在安装元数据无法读取时为 `unknown`），以及 editable 安装所对应的源码检出目录、Git 版本号和是否有未提交改动（不会启动 Godot）。适合在长时间运行前作为预检：editable 安装的代码可能在运行过程中变更版本。 |
 | `--help`    | 显示 `gda` 或任意命令的用法。                                |
 
 ---

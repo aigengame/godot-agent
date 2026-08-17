@@ -88,12 +88,23 @@ ROOT_JSON_META_KEY = "gda.root_json"
 def set_root_json(ctx: typer.Context, value: bool) -> None:
     """Record a root ``--json`` for the command the root is about to invoke.
 
-    The write half of the root-flag contract, owned HERE next to the option that
-    reads it (:func:`_inherit_root_json`), so the knowledge runs downward: the CLI
-    composition root CALLS this to hand the flag over, instead of this module
-    reaching up into that module's private parameter names.
+    The write half of the root-flag contract, owned HERE next to the options that
+    read it (:func:`_inherit_root_json`, :func:`root_json`), so the knowledge runs
+    downward: the CLI composition root CALLS this to hand the flag over, instead of
+    this module reaching up into that module's private parameter names.
     """
     ctx.meta[ROOT_JSON_META_KEY] = bool(value)
+
+
+def root_json(ctx: typer.Context) -> bool:
+    """Whether a root ``--json`` was recorded for this invocation (#659).
+
+    The read half of the same contract, for the ONE reader that is not a command:
+    the root's own ``--version``, which renders either a human line or the
+    structured provenance payload and so must ask the same question a command's
+    inherited flag asks — without re-deriving where the answer is kept.
+    """
+    return bool(ctx.meta.get(ROOT_JSON_META_KEY, False))
 
 
 def _inherit_root_json(
@@ -115,7 +126,7 @@ def _inherit_root_json(
     wiring, including the ``--params-json`` dispatch path, which reads
     ``ctx.params`` after this callback has run.
     """
-    return bool(value) or bool(ctx.meta.get(ROOT_JSON_META_KEY, False))
+    return bool(value) or root_json(ctx)
 
 
 def json_option() -> bool:
