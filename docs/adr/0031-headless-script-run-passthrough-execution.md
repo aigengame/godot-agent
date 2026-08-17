@@ -267,3 +267,84 @@ added incrementally under ADR-0025 if a concrete need appears.
 > (`user_data_unwritable`). The per-invocation `--user-data-root` also makes `user://` writable for
 > a `script run` under a restricted profile. See CONTEXT.md's `User-data placement` entry for the
 > shared-language definition.
+
+> **Amendment 2026-08-17 (#655) — a run `gda` ends reports what it captured, and a
+> caller may declare when a run is not worth waiting out.** Two dogfooding defects, one
+> cause. A script error aborted a test before its `quit()`; the engine stayed alive, and
+> after the fixed 120s ceiling the `launch_timeout` envelope contained only the timeout
+> message — although Godot had printed the error within a second (GDA-DF-012). And a
+> healthy suite that grew past the same ceiling was indistinguishable from a hang: no
+> partial output, no elapsed data, and no way to raise the limit (GDA-DF-032). The
+> passthrough decision below is unchanged for every run that COMPLETES; this note covers
+> only the runs gda itself ends.
+>
+> **1. The `Headless launch` gains a second capture strategy.** The discard was in the
+> shared primitive: it captured with one `subprocess.run` call, which throws the child's
+> output away when the timeout expires. It now also offers a **streaming** strategy,
+> selected by the channel passing a watch — both pipes read as they arrive, decoded with
+> one incremental UTF-8 decoder so a chunk boundary inside a multi-byte sequence does not
+> corrupt a character. Verified against Godot 4.6.3 while building this: the engine's
+> stdout and stderr *do* arrive incrementally (the banner at ~0.1s, a script error at
+> ~0.2s), gda's own `--log-file` does not divert stderr, and a `SIGTERM` makes the engine
+> exit through its normal shutdown and flush. What made an earlier attempt look
+> block-buffered was reading with `BufferedReader.read(n)`, which blocks until it has *n*
+> bytes; the read is on the raw descriptor for that reason.
+>
+> `script run` uses the streaming strategy; the **sentinel and export channels keep the
+> one-shot strategy, with their defaults and their published timeout diagnostics
+> byte-identical**. Moving them across is named follow-up work, deliberately not folded
+> in: their timeout results are part of their own error envelopes. Both strategies return
+> through one shared timeout / launch-failure mapping, so the taxonomy still has one home.
+> `Raw run` consequently gains `elapsed_seconds` (streaming only) and `launch_failure`
+> gains a fourth value, `ABORTED`.
+>
+> **2. `--timeout` replaces the fixed ceiling.** Per-invocation, defaulting to the
+> previous 120s, honored and reflected in the failure. It is a params field, not an argv
+> flag, so a JSON/MCP caller reaches it too (ADR-0015) — a knob only argv could turn would
+> have left gda-mcp on the defect.
+>
+> **3. The timeout envelope carries the run's evidence.** Still `launch_timeout`: the
+> condition is exactly the one that code names, and this ADR already recorded this path
+> under it, so the code is reused and the message discriminates (ADR-0002). What it now
+> carries is the captured partial output — tail-capped at a fixed 16384 characters per
+> stream, stated in the message — under the same `--- script stdout ---` /
+> `--- script stderr ---` labels `--strict` uses, plus the elapsed wall clock, one
+> **termination phase** from a closed set (`launched` / `output_seen` /
+> `aborted_on_error`), and the recognized script errors. Those errors are read with the
+> **existing** parser stack (`gda.engine_log` through `gda.script_errors`), so the lines
+> an agent sees on a timeout are the lines it sees on a completed run; nothing is parsed
+> twice in two ways. A capture whose errors would satisfy the point-1 never-ran verdict is
+> deliberately **not** re-verdicted — the shape this decision records as failing "by
+> another route" keeps doing so, and narrowing it is a separate decision.
+>
+> The phases are keyed on whether the engine wrote anything at all, which is the only
+> honest signal the capture carries: the version banner means output arriving does not
+> prove the *script* started, so `launched` marks the narrower case of an engine that
+> never reached its own startup output.
+>
+> **4. A caller-declared `Completion marker` ends an aborted run early** — the new
+> registered `script_aborted` code (operation, exit 4). gda ends the run when a recognized
+> script error has appeared on stderr, the declared marker has **not**, and neither stream
+> has produced output for a fixed 3s. Each clause is load-bearing. The marker is the
+> opt-in: this ADR rejected imposing a gda-owned sentinel wrapper on a user-authored entry
+> script, so gda cannot know a run "should" have finished — only the caller can say what
+> finishing looks like. With no marker declared the watch never aborts and the ceiling is
+> waited out as before. **This is not the ADR-0002 op-dispatch sentinel**: that is gda's
+> contract with its own `operations.gd` payload; a marker is an arbitrary caller string
+> read for one boolean. And the **silence** is what makes the abort safe rather than
+> merely fast: a GDScript runtime error aborts only the function that raised it, so a
+> script can survive one and still reach its `quit()` — a run this repo's e2e suite pins
+> as a success — and a run that keeps working keeps printing, which resets the window.
+>
+> `script_aborted` is minted rather than reused because no registered code names the
+> condition. `launch_timeout` would be untrue (gda did not wait, it decided not to);
+> `script_failed` means "ran to completion and chose a non-zero status", is recorded as
+> never reported without `--strict`, and sends an agent to read a status that does not
+> exist here; the point-1 verdicts say the entry never loaded, and here it loaded and ran.
+>
+> **5. All of it is prose.** The elapsed time, the phase and the error lines live in the
+> failure's `message` and `diagnostics`, not in structured envelope fields — the same
+> constraint the #651 amendment records above, and the same deferral: **#687 owns** the
+> ADR-0004 envelope decision, and this change adopts its outcome rather than pre-empting
+> it. The gap named at the end of that amendment is therefore unchanged in kind, only
+> narrowed in content: a failure path now carries far more evidence, still untyped.
