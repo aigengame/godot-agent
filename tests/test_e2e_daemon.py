@@ -971,7 +971,10 @@ def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runti
         from tests.support import require_windowed_host
 
         require_windowed_host()
-        assert run("daemon", "start", "--windowed").returncode == 0
+        # Two separate observations: the precheck above and the CLI's own guard.
+        # A capability verdict slipping in between must SKIP (permission-denied
+        # must fail loudly) — the shared policy, not a bare returncode assertion.
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
         windowed = json.loads(run("daemon", "status").stdout)
         assert windowed["running"] is True
         assert windowed["windowed"] is True
