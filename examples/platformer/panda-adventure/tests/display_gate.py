@@ -47,6 +47,9 @@ def require_windowed_host() -> None:
     verdict = windowed_unavailable()
     if verdict is None:
         return
-    if verdict.code == WINDOWED_PERMISSION_DENIED_CODE:
-        pytest.fail(_CONFINED_REMEDIATION.format(detail=verdict.reason))
+    # ONE cascade owner per root: delegate to handle_no_display_code so the
+    # cross-root parity test covers the preflight too (PR #702 recheck). The
+    # trailing skip is the conservative fallback for a verdict code the handler
+    # does not classify — a non-None verdict must never proceed to a spawn.
+    handle_no_display_code(verdict.code, verdict.reason)
     pytest.skip(verdict.reason)
