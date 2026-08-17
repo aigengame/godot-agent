@@ -415,6 +415,34 @@ def script_run_project_not_found_failure() -> Failure:
     )
 
 
+def script_outside_project_failure(location: Path, project: Path) -> Failure:
+    """The ``project_not_found`` refusal for a target outside the resolved project (#658).
+
+    ADR-0006 resolves ONE project per call (``--project`` > ``$GDA_PROJECT`` >
+    cwd) and deliberately does not derive it from the target path. A target that
+    lies outside that project would still be compiled against it, so every
+    ``res://`` dependency it names resolves against the wrong root: the engine
+    reports a cascade of missing-file and derived type errors for a file that is
+    perfectly valid in its own project, and the single project-context mistake is
+    buried under them. gda therefore refuses *before* the target is parsed and
+    reports the mismatch itself, naming both sides so the reader can see which
+    one is wrong.
+
+    It reuses ``project_not_found`` rather than minting a code: the failure is
+    that no project usable for this target was resolved, and the remedy is the
+    project context (``--project``) — the same class of mistake, and the same
+    branch an agent takes, as ``script run``'s projectless edge (ADR-0031).
+    """
+    return make_failure(
+        "project_not_found",
+        f"{location} is outside the resolved Godot project {project}: its res:// "
+        "dependencies would resolve against the wrong root, so nothing was "
+        "parsed. Pass --project for the project that owns this file, or name a "
+        "file inside the resolved one.",
+        "",
+    )
+
+
 def script_did_not_run_failure(
     code: str, script: str, detail: str, stderr: str
 ) -> Failure:

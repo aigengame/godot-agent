@@ -459,6 +459,21 @@ parsed Python-side and may carry only the **first** error. **`column` is always 
 standard Godot build (the engine exposes no column for a parse error). `validate` reuses existing
 codes only (no new ones).
 
+**Project context** (#658): the result carries `project_root` — the project the script was
+compiled against, i.e. the root its `res://` dependencies resolved to, absolute, and `null` when
+gda ran projectless. It is **required and nullable**, so every verdict carries the key. It exists
+because a script compiled against the wrong project reports every `res://` dependency as missing
+plus the type errors derived from them, which reads as a broken script; `project_root` is what
+tells the two apart. A target **outside** the resolved project is **refused before parsing** with
+`project_not_found` naming both the file and the project, rather than emitting that false cascade.
+Containment follows the engine's own addressing: a relative path is anchored at the resolved
+project (not gda's cwd), an engine-virtual path (`res://`, `user://`, `uid://`) is inside by
+construction, and a file reached through a symlink into the project counts as inside — except when
+a `..` traversal could cross that symlink, where only the fully resolved location decides. gda
+never derives the project from the target path (ADR-0006), so a script under a project **nested
+inside** the resolved one is contained and not refused; `project_root` is what surfaces that
+mismatch, pending the ADR-0006 amendment tracked in #697.
+
 | Command | Description |
 | --- | --- |
 | `gda script create` | Create a `.gd` script (template or content) |

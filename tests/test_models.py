@@ -544,7 +544,15 @@ def test_script_validate_result_round_trips_a_valid_script():
     assert validated.valid is True
     assert validated.error_string is None
     assert validated.diagnostics == []
-    assert json.loads(validated.model_dump_json()) == payload
+    # `project_root` is NOT in the sentinel payload: the engine is told the
+    # project through --path and never reports it back, so the CLI stamps the
+    # ADR-0006-resolved root onto the result after classification (#658). The
+    # model therefore defaults it to null and the emitted object always carries
+    # the key.
+    assert json.loads(validated.model_dump_json()) == {
+        **payload,
+        "project_root": None,
+    }
 
 
 def test_script_validate_result_round_trips_an_invalid_script_with_diagnostics():
@@ -566,7 +574,11 @@ def test_script_validate_result_round_trips_an_invalid_script_with_diagnostics()
     assert validated.diagnostics[0].line == 3
     assert validated.diagnostics[0].column is None
     assert validated.diagnostics[0].message == "Parse Error: bad token."
-    assert json.loads(validated.model_dump_json()) == payload
+    # Sentinel-absent, CLI-stamped — see the valid-script round-trip above.
+    assert json.loads(validated.model_dump_json()) == {
+        **payload,
+        "project_root": None,
+    }
 
 
 def test_export_list_result_round_trips_enumerated_presets():

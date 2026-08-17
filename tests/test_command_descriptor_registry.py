@@ -153,6 +153,12 @@ _RECIPE_OPERATIONS = {
     # run, fulfilled by a CLI-side recipe (it emits no ADR-0002 sentinel) like export
     # run, so it carries a recipe rather than routing to `cmd.emit`.
     "script-run",
+    # `script validate` is the one recipe that still RUNS the sentinel op (via
+    # `cmd.execute`, as the export recipe does for its preflight): it carries a
+    # recipe because the outside-the-project refusal and the `project_root` on its
+    # result are decided from ADR-0006's CLI-resolved project, which `cmd.emit`
+    # does not expose to a command (#658).
+    "script-validate",
     "daemon-start",
     "daemon-stop",
     "daemon-status",
