@@ -33,11 +33,17 @@ The model:
   when a future slice adds a player-visible feature, it adds a checkpoint (a
   capture and/or a check) to this scenario — never a new windowed session.
 - **Display-gated: a desktop tier, not a CI gate.** Gated exactly like
-  `test_e2e_screenshot.py`: `gda.display.windowed_unavailable_reason()`
-  pre-checks the window server, and the daemon's typed no-display refusals
-  (`live_windowed_unavailable` / `live_display_unavailable`, #345) are
-  honored as skips — visible under `-rs`, never silent. CI keeps the headless
-  seams; the visual-smoke seam runs pre-merge on a real desktop.
+  `test_e2e_screenshot.py`, through the one shared policy in `tests/display_gate.py`
+  (pre-check and post-start race path alike, #345, #667). The reaction depends on
+  WHICH refusal, because they are not the same fact:
+  - **capability** (`live_windowed_unavailable` / `live_display_unavailable`) — the
+    host cannot show a window, so the tier **skips**, visibly under `-rs`, never
+    silent. CI keeps the headless seams; the visual-smoke seam runs pre-merge on a
+    real desktop.
+  - **permission** (`live_windowed_permission_denied`) — the host may well be able
+    to; this RUN is confined. The tier **fails loudly** with the re-run remediation,
+    like the engine gate does for a missing binary: skipping would report a green
+    visual tier whose rendered acceptance never executed.
 - **Engine-side pixel decode.** Captures are analyzed by the engine's own
   `Image` API through `gda script run` (`tests/gdscript/check_pixels.gd`),
   preserving the repo's no-image-decode-dependency convention (no Pillow).

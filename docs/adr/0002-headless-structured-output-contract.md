@@ -64,6 +64,17 @@ The GDScript payload owns only `code` and `message`. `gda` owns the public
 `GdaError` wrapper: it validates that the code is registered, assigns the
 `operation` category, preserves the message, and copies stderr into diagnostics.
 
+> **Scope note (2026-08-17, #667) — the shape above is the GDScript-emitted
+> *headless* payload, and stays exactly that.** The Phase-2 **live** channel reuses
+> this envelope but is emitted by Python (the daemon and the daemon IPC client), and
+> it carries one OPTIONAL extra key: `probe`, the host-probe context behind a windowed
+> refusal (ADR-0004 amendment). The two channels validate against **different models**
+> — `OperationErrorEnvelope` (headless) stays `extra="forbid"` and probe-less, because
+> a GDScript operation has no host probe to report; `LiveErrorEnvelope` accepts the
+> optional key. The key is omitted when absent, so every payload either language
+> emitted before is byte-identical. This widens no cross-language contract: GDScript
+> neither emits nor reads `probe`.
+
 ### stderr as advisory diagnostics
 
 stderr is still **never** parsed for the success/failure *outcome* or for stable
@@ -223,6 +234,7 @@ operation, and parse codes the CLI assigns).
 | `live_display_unavailable` | `live` | `classifier` | `6` | A live `screen` capture ran on a headless engine session (the dummy DisplayServer cannot read pixels); start the daemon windowed with `gda daemon start --windowed` (Phase 2, #222). |
 | `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
 | `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed live session (`gda daemon start --windowed`) was requested but the host has no usable DisplayServer (no on-console GUI session / no `$DISPLAY`), so the session cannot come up; refused before spawning Godot (Phase 2, #345). |
+| `live_windowed_permission_denied` | `environment` | `classifier` | `127` | A windowed live session (`gda daemon start --windowed`) was requested but this process is denied the window-server lookup (e.g. a sandbox), so gda cannot tell whether the host has one; re-run outside the restriction to find out rather than recording the host as display-less (Phase 2, #667). |
 
 ## Considered options
 

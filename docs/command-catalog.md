@@ -719,7 +719,21 @@ headless is unaffected (4.4+, cross-platform).
   and crash-survivable like `diag` (ADR-0022). The opt-in rich `gda_log()` protocol layers on in a
   follow-up slice (#282).
 - **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status`, and `gda daemon
-  install` / `uninstall` for the `gda harness` (ADR-0018).
+  install` / `uninstall` for the `gda harness` (ADR-0018). `daemon start --windowed` additionally
+  requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
+  `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
+  registration without one; it is checked pre-launch (#345) and refused with one of two
+  ENVIRONMENT codes (#667): `live_windowed_unavailable` when nothing refused the probe and no
+  session is reachable (skip rendered QA here) and `live_windowed_permission_denied` when the
+  window-server lookup itself was refused, e.g. a sandbox (re-run outside the restriction).
+  The second code does NOT mean the host has a window server — macOS refuses the lookup
+  before resolving the name, so a broadly-confined process is refused whether or not one
+  exists; it means only that gda was not allowed to ask, and re-running outside the
+  restriction is what settles it. Conversely a sandbox that hides the window server rather
+  than refusing the lookup is indistinguishable from an absent session. A refusal that
+  originates in `daemon start --windowed` carries the deciding host call as the envelope's
+  `probe` `{name, platform}` (ADR-0004 amendment); the daemon-relayed form carries the code
+  and prose only, since the daemon→CLI wire envelope has no `probe` key.
 
 Out of scope (editor context, ADR-0017): UndoRedo-aware mutation, the editor's
 open-scene tree, saving the open scene, editor errors/screenshots, run-editor-script,

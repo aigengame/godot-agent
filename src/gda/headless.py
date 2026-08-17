@@ -329,8 +329,16 @@ def emit_failure(failure: Failure) -> NoReturn:
     exit code. Shared by the sentinel-pipeline commands (via :meth:`HeadlessCommand.run`)
     and the native-export command (``export run``), which classifies its own
     subprocess outcome but emits failures through this same channel.
+
+    ``exclude_none`` keeps the envelope's OPTIONAL context keys (``probe``, the
+    ADR-0004 amendment of #667) out of the JSON entirely when a failure has none,
+    rather than emitting them as ``null``. So adding such a key leaves every
+    failure that does not set it byte-identical — the property that makes the
+    optional-context axis additive for existing consumers. The required keys
+    (``category`` / ``code`` / ``message`` / ``diagnostics``) are never ``None``,
+    so none of them can be dropped by this.
     """
-    typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json())
+    typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json(exclude_none=True))
     raise typer.Exit(code=failure.exit_code)
 
 

@@ -23,7 +23,7 @@ from gda.daemon.session import (
     WindowedDisplayUnavailable,
     launch_session,
 )
-from gda.display import windowed_unavailable_reason
+from gda.display import WindowedUnavailable, windowed_unavailable
 
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
@@ -48,7 +48,7 @@ class DaemonServer:
         godot: str = "",
         windowed: bool = False,
         scene: str | None = None,
-        display_check: Optional[Callable[[], Optional[str]]] = None,
+        display_check: Optional[Callable[[], Optional[WindowedUnavailable]]] = None,
     ) -> None:
         self.paths = paths
         self.godot = godot
@@ -66,7 +66,7 @@ class DaemonServer:
         # windowed session cannot come up on this host, or None when it can. Injectable
         # so tests drive the guard without a real display; defaults to the shared
         # gda.display probe. Consulted only for a windowed session.
-        self._display_check = display_check or windowed_unavailable_reason
+        self._display_check = display_check or windowed_unavailable
         self._token = secrets.token_hex(16)
         self._stopping = False
         self._listener: socket.socket | None = None
@@ -180,14 +180,23 @@ class DaemonServer:
             )
         except WindowedDisplayUnavailable as unavailable:
             # The authoritative no-display guard fired at the launch boundary (#345):
-            # no windowed engine was spawned. Surface the typed
-            # live_windowed_unavailable, carrying the probe's reason as diagnostics.
+            # no windowed engine was spawned. Surface the code the PROBE decided —
+            # live_windowed_unavailable, or live_windowed_permission_denied when this
+            # process is denied the window-server lookup (which proves nothing about
+            # whether the host has one, #667) — carrying
+            # the probe's reason as diagnostics. The remediation differs per code, so
+            # the message is the verdict's own rather than one shared sentence.
+            #
+            # This is the AUTHORITATIVE refusal — the one that fires on the lazy
+            # launch every live op goes through — so it carries the same
+            # machine-readable `probe` context the CLI fail-fast does, via the live
+            # envelope's optional key (#667 review). Reporting less here than at the
+            # optional fail-fast would make the authoritative path the poorer one.
             return error_reply(
-                "live_windowed_unavailable",
-                "a windowed engine session cannot launch: the host has no usable "
-                f"DisplayServer ({unavailable.reason}). Run the daemon headless, or "
-                "start it on a host with an on-console GUI session / $DISPLAY",
+                unavailable.verdict.code,
+                f"a windowed engine session cannot launch: {unavailable.reason}",
                 diagnostics=unavailable.reason,
+                probe=unavailable.verdict.probe,
             )
         if session is None:
             return error_reply(
@@ -264,9 +273,9 @@ class DaemonServer:
         # the same check as an OPTIONAL fail-fast, but this is the one that guarantees a
         # doomed windowed engine is never spawned even when start slipped through.
         if self.windowed:
-            reason = self._display_check()
-            if reason is not None:
-                raise WindowedDisplayUnavailable(reason)
+            verdict = self._display_check()
+            if verdict is not None:
+                raise WindowedDisplayUnavailable(verdict)
         # A res:// / filesystem scene selector that names no file is rejected HERE,
         # at the launch boundary (NOT per-request — finding 1), as a typed
         # SceneMismatch. Godot does not fall-back-and-run for a missing res:// path:

@@ -43,7 +43,7 @@ from gda.daemon.discovery import (
     daemon_pid,
     within_uds_limit,
 )
-from gda.display import windowed_unavailable_reason
+from gda.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import STATUS_OP, STOP_OP
 from gda.dispatch import dispatch_recipe
@@ -252,10 +252,12 @@ _VERSION_RE = re.compile(r"(\d+)\.(\d+)")
 # Seams tests override to avoid launching a real process / running the engine.
 SpawnDaemon = Callable[[Path, str, bool, Optional[str]], None]
 VersionCheck = Callable[[str], Optional[tuple]]
-# The pre-launch host-display precondition seam (#345): returns the reason a
-# windowed session cannot come up here, or None when it can. Injected in unit tests
-# so a display-less CI host does not spuriously refuse a windowed start.
-DisplayCheck = Callable[[], Optional[str]]
+# The pre-launch host-display precondition seam (#345, #667): returns the verdict
+# for why a windowed session cannot come up here — which registered code, the prose,
+# and the probe that decided it — or None when it can. Injected in unit tests so a
+# display-less CI host does not spuriously refuse a windowed start, and so the
+# capability/permission split is exercised without needing a real sandbox.
+DisplayCheck = Callable[[], Optional[WindowedUnavailable]]
 
 
 def _is_unix() -> bool:
@@ -522,9 +524,22 @@ def run_daemon_start_operation(
         # pre-launch, pre-harness-install, WITHOUT spawning — with the typed
         # live_windowed_unavailable (ENVIRONMENT / 127), mirroring the platform
         # precondition above. `daemon start` is where `windowed` already flows in.
-        reason = (display_check or windowed_unavailable_reason)()
-        if reason is not None:
-            return make_failure("live_windowed_unavailable", reason, "")
+        #
+        # The probe decides WHICH refusal (#667): no detected window-server session
+        # is live_windowed_unavailable; a DENIED window-server lookup — which proves
+        # nothing about whether the host has one — is live_windowed_permission_denied,
+        # i.e. "skip rendered QA here" versus "re-run outside the restriction to find
+        # out". Both carry
+        # the deciding probe as machine-readable envelope context (ADR-0004
+        # amendment) so an agent branches without parsing the sentence.
+        unavailable = (display_check or windowed_unavailable)()
+        if unavailable is not None:
+            return make_failure(
+                unavailable.code,
+                unavailable.reason,
+                "",
+                probe=unavailable.probe,
+            )
 
     # The harness install happens BEFORE the daemon exists, so everything from the
     # install onward runs against a project gda has already mutated. The snapshot is

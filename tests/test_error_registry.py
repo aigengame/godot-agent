@@ -175,6 +175,80 @@ def test_live_windowed_unavailable_flows_through_classify_live():
     assert outcome.error.diagnostics == "why-here"
 
 
+def test_live_windowed_permission_denied_flows_through_classify_live():
+    # #667: the sandbox-denial sibling is raised at the same daemon launch boundary
+    # and relayed the same way, so it needs the same whitelist entry — without it
+    # classify_run would misroute an ENVIRONMENT code to operation_failed. It
+    # resolves to its own registered environment/127 shape, distinct from
+    # live_windowed_unavailable, so an agent can tell "retry outside the sandbox"
+    # from "this host cannot show a window".
+    from gda.daemon.protocol import error_reply
+    from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
+    from gda.commands.game import GameTreeResult
+    from gda.runner import RunResult
+
+    assert "live_windowed_permission_denied" in _LIVE_CLIENT_CODES
+
+    reply = error_reply(
+        "live_windowed_permission_denied",
+        "denied the window-server lookup",
+        diagnostics="why-here",
+    )
+    outcome = classify_live(RunResult(**reply), None, GameTreeResult)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "live_windowed_permission_denied"
+    assert outcome.error.category is ErrorCategory.ENVIRONMENT
+    assert outcome.exit_code == 127
+    assert outcome.error.diagnostics == "why-here"
+    # No probe was put on this reply, so none comes out — the key is optional.
+    assert outcome.error.probe is None
+
+
+def test_a_relayed_windowed_refusal_carries_probe_to_the_public_json():
+    # #667 review: the AUTHORITATIVE refusal is the daemon's lazy-launch guard, so the
+    # probe context must survive the whole daemon-reply -> live-classifier -> public
+    # envelope path, not just the CLI fail-fast. Walks that path end to end with the
+    # REAL builders and the REAL emit serialization at both ends.
+    import json
+
+    from gda.daemon.protocol import error_reply
+    from gda.errors import Failure, classify_live
+    from gda.commands.game import GameTreeResult
+    from gda.models import EnvironmentProbe, GdaErrorEnvelope
+    from gda.runner import RunResult
+
+    probe = EnvironmentProbe(
+        name="bootstrap_look_up(com.apple.windowserver.active)", platform="darwin"
+    )
+    reply = error_reply(
+        "live_windowed_permission_denied",
+        "a windowed engine session cannot launch: denied",
+        diagnostics="why-here",
+        probe=probe,
+    )
+
+    outcome = classify_live(RunResult(**reply), None, GameTreeResult)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "live_windowed_permission_denied"
+    assert outcome.error.category is ErrorCategory.ENVIRONMENT
+    assert outcome.exit_code == 127
+    assert outcome.error.probe is not None
+    assert outcome.error.probe.name == (
+        "bootstrap_look_up(com.apple.windowserver.active)"
+    )
+    assert outcome.error.probe.platform == "darwin"
+    # And it survives to the public JSON an agent actually reads.
+    emitted = json.loads(
+        GdaErrorEnvelope(error=outcome.error).model_dump_json(exclude_none=True)
+    )
+    assert emitted["error"]["probe"] == {
+        "name": "bootstrap_look_up(com.apple.windowserver.active)",
+        "platform": "darwin",
+    }
+
+
 def test_harness_live_error_codes_are_registered_live_codes():
     # The per-op LIVE failures the gda harness reports (#220) are registered
     # LIVE-category classifier-source codes: because their category is LIVE,

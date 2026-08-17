@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from gda.daemon.protocol import error_reply, read_frame, write_message
+from gda.display import WindowedUnavailable
 
 LAUNCH_MARKER = "gda-daemon"
 # Engine boot + autoload + harness connect; a windowed/cold start can be slow.
@@ -61,14 +62,19 @@ class WindowedDisplayUnavailable(Exception):
     windowed daemon's pre-launch host-display check fails — a windowed Godot would
     abort during ``DisplayServer`` registration otherwise (#345). Mirrors
     :class:`SceneMismatch`: a typed launch-boundary signal the daemon maps to the
-    ``live_windowed_unavailable`` error code, distinct from a generic launch failure
-    (``launch_session`` returns ``None``). ``reason`` is the host-display probe's
-    human-readable explanation.
+    probe's own error code — ``live_windowed_unavailable`` when no window-server
+    session is detected, ``live_windowed_permission_denied`` when this process is
+    denied the window-server lookup (which proves nothing about whether the host
+    has one, #667) — distinct from a generic launch failure
+    (``launch_session`` returns ``None``). It carries the whole ``verdict`` rather
+    than only its prose, so the daemon relays the code the probe decided instead of
+    re-deciding it here.
     """
 
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
+    def __init__(self, verdict: WindowedUnavailable) -> None:
+        super().__init__(verdict.reason)
+        self.verdict = verdict
+        self.reason = verdict.reason
 
 
 class EngineSession:

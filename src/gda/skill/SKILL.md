@@ -114,6 +114,24 @@ specific scene instead of the project's main scene); the engine session launches
 the first live op. `screen capture` needs a windowed session
 (`gda daemon start --windowed`).
 
+A windowed session needs the host's real desktop session — an on-console GUI login on
+macOS, `$DISPLAY` / `$WAYLAND_DISPLAY` on Linux. Over SSH, on a headless CI box, or from
+a sandbox that blocks the window server, `daemon start --windowed` refuses before
+spawning Godot. Branch on the code, not the sentence:
+
+- `live_windowed_unavailable` — nothing refused the probe and no session is reachable, so
+  this host cannot show a window. Skip the rendered check; headless live ops (`game`,
+  `perf`, `input`, `diag`, `logger`) still work.
+- `live_windowed_permission_denied` — this process is not allowed to even look up the
+  window server (e.g. a sandbox). It does NOT mean the host has one: macOS refuses the
+  lookup before resolving it, so a broadly-confined process is refused either way. Re-run
+  outside the restriction to find out; do not record the machine as display-less on this
+  code alone.
+
+A refusal from `gda daemon start --windowed` carries `error.probe` `{name, platform}`
+naming the OS call that decided. The same codes relayed from an already-running daemon
+carry the code and message only.
+
 | Group | Commands |
 | ----- | -------- |
 | `daemon` | `start`, `stop`, `status`, `uninstall` (lifecycle; installs the in-game harness) |

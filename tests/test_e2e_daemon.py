@@ -31,7 +31,7 @@ from gda.harness.install import (
     installed_harness_version,
 )
 
-from tests.support import GDA_CMD
+from tests.support import GDA_CMD, assert_windowed_ok
 
 from .conftest import project_godot
 
@@ -968,12 +968,13 @@ def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runti
         # --windowed` now refuses PRE-LAUNCH with live_windowed_unavailable on a host
         # with no usable DisplayServer (#345), so gate this half on the shared display
         # helper — the headless portions above already ran.
-        from gda.display import windowed_unavailable_reason
+        from tests.support import require_windowed_host
 
-        reason = windowed_unavailable_reason()
-        if reason is not None:
-            pytest.skip(reason)
-        assert run("daemon", "start", "--windowed").returncode == 0
+        require_windowed_host()
+        # Two separate observations: the precheck above and the CLI's own guard.
+        # A capability verdict slipping in between must SKIP (permission-denied
+        # must fail loudly) — the shared policy, not a bare returncode assertion.
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
         windowed = json.loads(run("daemon", "status").stdout)
         assert windowed["running"] is True
         assert windowed["windowed"] is True
@@ -1262,11 +1263,9 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
     # a resume `input sequence` injection, and a responsiveness proof — the same
     # read/resume/responsiveness shape the headless test proves without a display,
     # here proven end-to-end alongside the capture that needs one.
-    from gda.display import windowed_unavailable_reason
+    from tests.support import require_windowed_host
 
-    reason = windowed_unavailable_reason()
-    if reason is not None:
-        pytest.skip(reason)
+    require_windowed_host()
 
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
@@ -1284,8 +1283,10 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
         return json.loads(got.stdout)["properties"][0]["value"]
 
     try:
-        started = run("daemon", "start", "--windowed")
-        assert started.returncode == 0, started.stdout + started.stderr
+        # Display refusals on the windowed start / capture branches go through the
+        # shared policy first (capability -> skip, permission -> loud fail); anything
+        # else still falls through to the ordinary assertion.
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
 
         # Pause the game the way a real pause menu does: a live `game set` flips
         # SceneTree.paused through the Resumer's forwarding property.
@@ -1303,8 +1304,7 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
         assert tree_is_paused() is True
 
         capture_path = tmp_path / "paused.png"
-        captured = run("screen", "capture", "--output", str(capture_path))
-        assert captured.returncode == 0, captured.stdout + captured.stderr
+        assert_windowed_ok(run("screen", "capture", "--output", str(capture_path)))
         assert capture_path.exists()
         assert capture_path.stat().st_size > 0
 
