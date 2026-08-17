@@ -42,6 +42,42 @@ The files are:
 This example demonstrates one bounded reciprocal exchange. It does not define a complete RPG,
 Action, turn, interruption, defeat, Replay, Evidence, or general same-logical-time combat contract.
 
+## Player-facing playtest
+
+This document remains the exact maintainer workflow. Players can experience the same reciprocal
+combat through the [Arcane Duel Godot application](../playtest/README.md#arcane-duel). From
+`libs/gda-balancing`, run:
+
+```bash
+GDA_GODOT=/absolute/path/to/godot \
+  examples/schema2/playtest/scripts/run_combat_cast.sh
+```
+
+The player casts a spell, observes the counterattack, and continues through a second exchange. The
+second exchange starts from the first exchange's validated terminal health and mana. The UI shows
+only combat terms and gameplay values.
+
+Combat Content reads this directory's `model-source.json` and `experiment.json` directly. It sends
+complete Experiment values to the local service and validates returned order, damage, health, and
+mana before it publishes an exchange to Godot. The System does not calculate combat. Technical
+artifact identities remain in Content and appear only as opaque maintainer provenance in the saved
+feedback payload.
+
+Run the real player path with an isolated writable `user://` root:
+
+```bash
+export PLAYTEST_USER_DATA_ROOT="$(mktemp -d /tmp/gda-playtest-combat.XXXXXX)"
+PATH="$PWD/.venv/bin:$PATH" \
+  uv run --directory ../.. --frozen gda \
+  --user-data-root "$PLAYTEST_USER_DATA_ROOT" \
+  script run res://tests/test_combat_cast_main_live.gd \
+  --project "$PWD/examples/schema2/playtest" --json
+```
+
+The consecutive-revision tracer is
+`res://tests/test_combat_consecutive_revisions_live.gd`. It proves the exact state handoff before
+the UI path consumes it.
+
 ## 1. Prepare an isolated run
 
 Prerequisites:

@@ -9,17 +9,19 @@ _PLAYTEST = Path(__file__).parents[1] / "examples" / "schema2" / "playtest"
 def test_playtest_runtime_dependencies_point_downward():
     allowed_dependencies = {
         "addons": {"addons"},
-        "apps": {"addons", "content"},
+        "apps": {"addons", "apps", "content", "ui"},
         "systems": {"systems"},
         "content": {"addons", "content", "systems"},
         "ui": {"content", "ui"},
     }
-    dependency_pattern = re.compile(r"res://(addons|systems|content|ui)/")
+    dependency_pattern = re.compile(r"res://(addons|apps|systems|content|ui|tests)/")
 
     for owner, allowed in allowed_dependencies.items():
-        for script in (_PLAYTEST / owner).rglob("*.gd"):
-            dependencies = set(dependency_pattern.findall(script.read_text()))
-            assert dependencies <= allowed, (script, dependencies - allowed)
+        for artifact in (_PLAYTEST / owner).rglob("*"):
+            if artifact.suffix not in {".gd", ".tscn", ".tres"}:
+                continue
+            dependencies = set(dependency_pattern.findall(artifact.read_text()))
+            assert dependencies <= allowed, (artifact, dependencies - allowed)
 
     assert not (_PLAYTEST / "addons" / "gda_balancing_client" / "plugin.cfg").exists()
     project_settings = list(_PLAYTEST.glob("project.*"))
@@ -202,6 +204,45 @@ def test_playtest_common_modules_have_multiple_real_app_consumers():
         )
         == 3
     )
+    client = (
+        _PLAYTEST / "addons/gda_balancing_client/gda_execution_client.gd"
+    ).read_text()
+    assert re.search(r"\b(reward|combat|effect)\b", client, re.IGNORECASE) is None
+    shell = (_PLAYTEST / "ui/playtest_shell.gd").read_text()
+    assert 'DisplayServer.clipboard_set(JSON.stringify(payload, "\\t"))' in shell
+    assert "ProjectSettings.globalize_path(path)" in shell
+
+
+def test_playtest_documentation_covers_each_player_and_maintainer_path():
+    overview = (_PLAYTEST / "README.md").read_text(encoding="utf-8")
+    maintained_examples = {
+        "roguelike-reward-build": (
+            "run_reward_run.sh",
+            "test_reward_run_main_live.gd",
+            "model-source.json",
+            "experiment.json",
+        ),
+        "rpg-combat-cast": (
+            "run_combat_cast.sh",
+            "test_combat_cast_main_live.gd",
+            "model-source.json",
+            "experiment.json",
+        ),
+        "rpg-periodic-effect": (
+            "run_periodic_effect.sh",
+            "test_periodic_effect_main_live.gd",
+            "model-source.json",
+            "same-time-experiment.json",
+        ),
+    }
+    for example, required_terms in maintained_examples.items():
+        tutorial = (_PLAYTEST.parent / example / "README.md").read_text(
+            encoding="utf-8"
+        )
+        for required in required_terms:
+            assert required in overview, ("overview", required)
+            assert required in tutorial, (example, required)
+        assert "opaque maintainer provenance" in " ".join(tutorial.split())
 
 
 def test_playtest_keeps_focused_runtime_behavior_proofs():

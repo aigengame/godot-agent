@@ -30,6 +30,42 @@ Experiment cannot change these package-owned values.
 This example does not define immunity, stacking, dispel, buildup, multiple contributors, same-Event
 request precedence, complete buff/debuff coverage, Replay, or Evidence.
 
+## Player-facing playtest
+
+This document remains the exact maintainer workflow. Players can compare the two timing policies
+through the [Curse Timing Godot application](../playtest/README.md#curse-timing). From
+`libs/gda-balancing`, run:
+
+```bash
+GDA_GODOT=/absolute/path/to/godot \
+  examples/schema2/playtest/scripts/run_periodic_effect.sh
+```
+
+The player applies two curses and observes apply, pulse, an intervening strike, another pulse, and
+expiry. The UI uses spell and status language. It does not expose logical time, Event queues, or
+Snapshot policy.
+
+Periodic Effect Content reads this directory's `model-source.json` and
+`same-time-experiment.json` directly. It derives two complete Experiment values with the same
+visible pulse-before-strike order. The live or snapshot Effect entrypoint is the only comparison
+variable. Content validates the returned lifecycle, damage, and terminal values before it
+publishes a timeline to Godot. The System does not calculate magnitude, damage, timing, or
+scheduling. Technical artifact identities remain in Content and appear only as opaque maintainer
+provenance in the saved feedback payload.
+
+Run the real player path with an isolated writable `user://` root:
+
+```bash
+export PLAYTEST_USER_DATA_ROOT="$(mktemp -d /tmp/gda-playtest-effect.XXXXXX)"
+PATH="$PWD/.venv/bin:$PATH" \
+  uv run --directory ../.. --frozen gda \
+  --user-data-root "$PLAYTEST_USER_DATA_ROOT" \
+  script run res://tests/test_periodic_effect_main_live.gd \
+  --project "$PWD/examples/schema2/playtest" --json
+```
+
+The focused two-revision tracer is `res://tests/test_periodic_effect_live_trials.gd`.
+
 ## 1. Prepare an isolated run
 
 Prerequisites are `uv`, `jq`, and `openssl`. Run from `libs/gda-balancing`:
