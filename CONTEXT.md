@@ -84,7 +84,7 @@ path>, *args]`, captures bytes with the timeout, and normalizes the outcome into
 handling). Each channel contributes only its argv tail and the export-only cwd. It
 also owns the launch's `User-data placement` — resolved and preflighted here, once,
 so no channel plumbs it (#653). It offers two **capture strategies**, differing only
-in how the child is read: **one-shot** (the sentinel and export channels), which
+in how the child is read: **buffered** (the sentinel and export channels), which
 discards the child's output when the timeout expires and reports the wait instead;
 and **streaming** (`gda script run`), which reads both pipes as they arrive, so the
 output survives a timeout, times the launch, and lets the channel end the run early
@@ -116,12 +116,11 @@ missing, timed out, the `User-data placement` was refused, or a watch ended the 
 rather than the engine returning one, so the classifier keys environment failures on
 that typed reason, not on the overloaded exit code. Under the streaming capture
 strategy the streams hold **what the run had already produced** rather than a gda
-notice, and `elapsed_seconds` carries the wall clock; under the one-shot strategy
-they are empty on a timeout and `elapsed_seconds` is absent (#655). Those
-launch-backed channels
-all return the one `RunResult` shape. Normally internal, it is **promoted to a
-public result by `gda script run`** — the one operation whose success result *is*
-a Raw run (minus `launch_failure`, `elapsed_seconds`, and the streams' timeout
+notice, and `elapsed_seconds` carries the wall clock; under the buffered strategy they
+are empty on a timeout and `elapsed_seconds` is `None` (#655). Those launch-backed
+channels all return the one `RunResult` shape. Normally internal, it is **promoted to
+a public result by `gda script run`** — the one operation whose success result *is* a
+Raw run (minus `launch_failure`, `elapsed_seconds`, and the streams' timeout
 semantics, all of which are lifted out into an `Error envelope`), so its
 `exit_status` can be non-zero on success (ADR-0031).
 _Avoid_: run output, export output

@@ -651,8 +651,12 @@ class ScriptRunParams(BaseModel):
             "'launch_timeout'. Raise it for a suite that outgrew the default of "
             f"{DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS}s; lower it to fail fast. The "
             "envelope reports the value that was reached, the elapsed wall clock, "
-            "and the captured output, so a slow-but-live run is distinguishable "
-            "from a hang (#655)."
+            "the captured output (tail-capped, cap stated), and one termination "
+            "phase from the closed set 'launched' (the engine wrote nothing at "
+            "all), 'output_seen' (it was alive and did not finish) and "
+            "'aborted_on_error' (ended early by the rule below) — so a "
+            "slow-but-live run is distinguishable from a hang. Reported as prose "
+            "in the message, not as envelope fields (#655)."
         ),
     )
     completion_marker: str | None = Field(
@@ -661,12 +665,18 @@ class ScriptRunParams(BaseModel):
         description=(
             "Opt-in early termination: a string the script prints on its own line "
             "when it has finished its work. When it is declared and a script error "
-            "appears on stderr while the marker has NOT, and the run then goes "
-            "silent, gda ends the run and reports 'script_aborted' with the "
-            "captured error — in seconds rather than at the timeout. Omit it and "
-            "gda waits out '--timeout' as before. Caller-declared, never imposed: "
-            "gda does not require or inject anything in the script (ADR-0031), and "
-            "this is not the ADR-0002 op-dispatch sentinel (#655)."
+            "appears on stderr while the marker has NOT, and NEITHER STREAM then "
+            f"produces output for {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, gda ends the "
+            "run and reports 'script_aborted' with the captured error — in seconds "
+            "rather than at the timeout. Omit it and gda waits out 'timeout' as "
+            "before. Caller-declared, never imposed: gda does not require or inject "
+            "anything in the script (ADR-0031), and this is not the ADR-0002 "
+            "op-dispatch sentinel. Two consequences of the silence rule, both "
+            "deliberate: a run that keeps printing after a fatal error never goes "
+            "silent, so it waits out 'timeout' instead (this is what keeps a script "
+            "that survives an error and still reaches its own quit() a success); "
+            f"and a 'timeout' at or below {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s "
+            "leaves the marker inert, because the ceiling arrives first (#655)."
         ),
     )
 
@@ -990,10 +1000,15 @@ class _CompletionMarkerWatch:
     def _complete_lines(self, stream: str, text: str) -> list[str]:
         """The newly-completed lines of one stream; the trailing partial is held.
 
-        Splitting on ``"\\n"`` rather than ``str.splitlines`` on purpose: the parse
-        below re-joins with ``"\\n"``, and ``splitlines`` also breaks on characters
-        (``\\v``, ``\\x1c``, ``\\u2028``) that the engine's line-oriented format does
-        not use, which would split one error record into two.
+        Splitting on ``"\\n"`` rather than using ``str.splitlines`` because only the
+        split can tell a COMPLETE final line from a partial one: ``"a\\nb"`` and
+        ``"a\\nb\\n"`` both give ``["a", "b"]`` from ``splitlines``, so a fragment a
+        read syscall stopped mid-line would be consumed as though it were whole — and
+        the marker or error record continuing on the next feed would never match.
+        ``split("\\n")`` puts that fragment last, which is exactly what ``parts.pop()``
+        holds back for the next feed. (It also leaves ``\\v`` / ``\\x1c`` /
+        ``\\u2028`` alone, which ``splitlines`` breaks on and the engine's
+        line-oriented format never uses.)
         """
         buffered = self._partial[stream] + text
         parts = buffered.split("\n")
@@ -1102,7 +1117,7 @@ def run_script_run_operation(
     # via --path, so no working directory is needed (unlike the export channel,
     # whose relative output path needs cwd=project).
     args = ["--path", str(project), "--script", script]
-    # Pass a watch, which is what switches the shared primitive from one-shot
+    # Pass a watch, which is what switches the shared primitive from buffered
     # capture to STREAMING capture (#655): whatever the run produced survives a
     # timeout, the wall clock is measured, and — only when the caller declared a
     # completion marker — a run whose script died can be ended in seconds instead
@@ -1205,15 +1220,17 @@ def _classify_ended_run(
     decision.
     """
     if raw.launch_failure is LaunchFailure.ABORTED:
-        # Only the watch produces this, and only with a marker declared — so the
-        # message can quote the marker without a fallback. The assertion states that
-        # invariant rather than papering over a violation of it.
-        assert completion_marker is not None
+        # Only the watch produces this, and it can only abort with a marker declared,
+        # so ``completion_marker`` is set in every reachable case. It is still passed
+        # as OPTIONAL rather than asserted: an assert here would be a crash on a
+        # boundary value (and would vanish under ``-O``), and the builder can name the
+        # condition truthfully without the string — so an unreachable state degrades
+        # to slightly vaguer prose instead of killing the command.
         return script_run_aborted_failure(
             script,
             marker=completion_marker,
             timeout=timeout,
-            elapsed=_elapsed(raw),
+            elapsed=_elapsed(raw, at_least=SCRIPT_RUN_ABORT_SILENCE_SECONDS),
             silence=SCRIPT_RUN_ABORT_SILENCE_SECONDS,
             phase=TerminationPhase.ABORTED_ON_ERROR.value,
             script_errors=_render_captured_errors(raw.stderr),
@@ -1224,7 +1241,7 @@ def _classify_ended_run(
         return script_run_timeout_failure(
             script,
             timeout=timeout,
-            elapsed=_elapsed(raw),
+            elapsed=_elapsed(raw, at_least=timeout),
             phase=_timeout_phase(raw).value,
             script_errors=_render_captured_errors(raw.stderr),
             stdout=raw.stdout,
@@ -1233,14 +1250,21 @@ def _classify_ended_run(
     return None
 
 
-def _elapsed(raw: RunResult) -> float:
-    """The run's wall clock, falling back to the ceiling it was ended at.
+def _elapsed(raw: RunResult, *, at_least: float) -> float:
+    """The run's MEASURED wall clock, or ``at_least`` when it was not measured.
 
-    The streaming path always measures it; the fallback covers a caller that
-    injected a hand-built :class:`~gda.runner.RunResult` (the test seam) rather than
-    signalling an unmeasured run as ``0.0``, which would read as "ended instantly".
+    The streaming capture — the only strategy that produces these two envelopes —
+    always measures the clock, so the fallback is for a hand-built
+    :class:`~gda.runner.RunResult` (the injected test seam). It exists so an
+    unmeasured run is never reported as ``0.00s``, which would read as "ended
+    instantly" rather than "not measured".
+
+    Each call site passes the truthful LOWER BOUND its own rule guarantees, which is
+    why the value is the caller's rather than a constant here: a timeout ran at least
+    as long as the ceiling it reached, and an abort waited out at least the silence
+    window that triggered it.
     """
-    return raw.elapsed_seconds if raw.elapsed_seconds is not None else 0.0
+    return raw.elapsed_seconds if raw.elapsed_seconds is not None else at_least
 
 
 def _timeout_phase(raw: RunResult) -> TerminationPhase:
@@ -1919,8 +1943,10 @@ def run_script(
         "--timeout",
         help=(
             "Seconds to let the run take before gda ends it and reports "
-            "'launch_timeout' with the captured output, the elapsed time and the "
-            "termination phase. Raise it for a suite that outgrew the default; "
+            "'launch_timeout' with the captured output, the elapsed time and one "
+            "termination phase: 'launched' (the engine wrote nothing), "
+            "'output_seen' (alive but unfinished) or 'aborted_on_error' (ended by "
+            "--completion-marker). Raise it for a suite that outgrew the default; "
             "lower it to fail fast."
         ),
     ),
@@ -1930,11 +1956,14 @@ def run_script(
         help=(
             "Opt-in early termination: a line the script prints when its work is "
             "done. gda ends the run and reports 'script_aborted' with the captured "
-            "error when a script error appears, this marker has not, and the run "
-            f"then goes silent for {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s — seconds "
-            "instead of the whole --timeout. Caller-declared: gda requires nothing "
-            "in your script and injects nothing (it is NOT the op-dispatch "
-            "sentinel). Omit it and gda waits out --timeout."
+            "error when a script error appears, this marker has not, and NEITHER "
+            f"STREAM then produces output for {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s — "
+            "seconds instead of the whole --timeout. Caller-declared: gda requires "
+            "nothing in your script and injects nothing (it is NOT the op-dispatch "
+            "sentinel). Omit it and gda waits out --timeout. By design a run that "
+            "keeps printing after a fatal error never goes silent and so waits out "
+            f"--timeout, and a --timeout at or below "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves the marker inert."
         ),
     ),
     json_output: bool = json_option(),

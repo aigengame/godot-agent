@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
 from gda.runner import LaunchFailure, launch
 
@@ -214,13 +216,13 @@ def test_cwd_none_passes_no_working_directory(monkeypatch):
 
 
 # --- The STREAMING capture path (#655). Selected by passing a ``watch``; without one
-# the one-shot behaviour asserted above is unchanged, which the pair of
-# ``test_the_one_shot_path_still_*`` guards below pins for the sentinel and export
+# the BUFFERED behaviour asserted above is unchanged, which the
+# ``test_the_buffered_path_still_*`` guard below pins for the sentinel and export
 # channels that rely on it.
 #
 # These drive a REAL child process — a small shebang script standing in for the
 # engine — rather than a fake ``Popen``. The whole point of the streaming path is
-# what real pipes and a real process lifetime do (a one-shot capture threw away the
+# what real pipes and a real process lifetime do (a buffered capture threw away the
 # output that a real Godot had already written), so faking the spawn would only
 # assert the fake. The stand-in ignores the ``--headless --log-file <path>`` head
 # that ``launch`` injects, exactly as it ignores every other argv tail.
@@ -265,7 +267,7 @@ class _RecordingWatch:
 
 
 def test_streaming_timeout_preserves_the_output_the_child_already_wrote(tmp_path):
-    # THE #655 DEFECT: a one-shot capture discards everything on a timeout, so a
+    # THE #655 DEFECT: a buffered capture discards everything on a timeout, so a
     # script error Godot had ALREADY printed was lost (GDA-DF-012). With a watch the
     # capture survives, on BOTH streams, and no gda prose is mixed into either — the
     # watching channel composes its own diagnostics from this.
@@ -413,17 +415,17 @@ def test_streaming_captures_more_than_one_pipe_buffer_without_deadlocking(tmp_pa
 def test_streaming_maps_a_missing_binary_to_the_same_not_found_result():
     # The two capture strategies share ONE failure mapping: an unlaunchable binary is
     # the identical synthesized result whichever way gda meant to read the output.
-    one_shot = launch(Path("/nonexistent/Godot"), [], cwd=None, timeout=1.0)
+    buffered = launch(Path("/nonexistent/Godot"), [], cwd=None, timeout=1.0)
     streamed = launch(
         Path("/nonexistent/Godot"), [], cwd=None, timeout=1.0, watch=_RecordingWatch()
     )
 
-    assert streamed.launch_failure is one_shot.launch_failure is LaunchFailure.NOT_FOUND
-    assert streamed.exit_code == one_shot.exit_code == EXIT_NOT_FOUND
-    assert streamed.stderr == one_shot.stderr
+    assert streamed.launch_failure is buffered.launch_failure is LaunchFailure.NOT_FOUND
+    assert streamed.exit_code == buffered.exit_code == EXIT_NOT_FOUND
+    assert streamed.stderr == buffered.stderr
 
 
-def test_the_one_shot_path_still_discards_output_and_keeps_its_diagnostic(tmp_path):
+def test_the_buffered_path_still_discards_output_and_keeps_its_diagnostic(tmp_path):
     # The byte-identity guard for the sentinel and export channels (#655): they pass
     # NO watch, so their timeout result must stay exactly what it was — the output
     # discarded and the ``gda: <label> timed out after <n>s`` diagnostic standing in
@@ -440,3 +442,57 @@ def test_the_one_shot_path_still_discards_output_and_keeps_its_diagnostic(tmp_pa
     assert result.stderr == "gda: Godot export timed out after 1.0s\n"
     # And it does not time itself — the clock is the streaming path's addition.
     assert result.elapsed_seconds is None
+
+
+def _capture_popen(monkeypatch) -> list:
+    """Record every child the streaming path spawns, so a test can prove it was reaped.
+
+    ``launch`` deliberately does not expose the process — a ``Raw run`` is the whole
+    outcome — so the assertion needs the ``Popen`` itself. Wrapping the real spawn is
+    honest about what is being asserted: the CHILD's fate, not a stand-in's.
+    """
+    spawned: list = []
+    real = subprocess.Popen
+
+    def recording(*args, **kwargs):
+        proc = real(*args, **kwargs)
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", recording)
+    return spawned
+
+
+@pytest.mark.parametrize("interruption", [RuntimeError, KeyboardInterrupt])
+def test_streaming_reaps_the_child_when_the_poll_loop_is_interrupted(
+    tmp_path, monkeypatch, interruption
+):
+    # A streaming launch must never OUTLIVE its gda process. The buffered strategy
+    # gets this free — ``subprocess.run`` kills the child when an exception leaves its
+    # ``with`` block — so the streaming path owes the same guarantee, and it is not
+    # cosmetic: the runs this path exists for are precisely the ones that do not stop
+    # on their own, so an orphan idles forever and repeated interruptions accumulate
+    # engines contending over ``user://``.
+    #
+    # Both interruption classes are covered on purpose. ``RuntimeError`` stands for
+    # anything a caller's watch raises; ``KeyboardInterrupt`` is a BaseException, so it
+    # would slip past an ``except Exception`` and is the case a Ctrl-C actually takes
+    # when gda sits in its own process group and the signal never reaches the engine.
+    engine = _fake_engine(tmp_path, "print('alive', flush=True)\ntime.sleep(120)\n")
+    spawned = _capture_popen(monkeypatch)
+
+    class _RaisingWatch:
+        def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
+            raise interruption("interrupted mid-run")
+
+    with pytest.raises(interruption):
+        launch(engine, [], cwd=None, timeout=120.0, watch=_RaisingWatch())
+
+    assert len(spawned) == 1
+    proc = spawned[0]
+    reaped = proc.poll() is not None
+    if not reaped:
+        # Do not leak the very orphan this test exists to forbid.
+        proc.kill()
+        proc.wait()
+    assert reaped, "the engine outlived the interrupted launch"

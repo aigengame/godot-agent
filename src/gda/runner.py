@@ -25,7 +25,7 @@ from typing import IO, Optional, Protocol
 # The codes the runner synthesizes when it never got a result from the engine.
 # Defined once in gda.exit_codes (the full exit-code ABI); imported here because
 # the runner is what produces them (issue #3).
-from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
+from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
 
 # The bundled GDScript operations payload, dispatched by operation name.
 OPERATIONS_GD = Path(__file__).parent / "ops" / "operations.gd"
@@ -80,7 +80,7 @@ class RunResult:
     # (issue #15).
     launch_failure: "LaunchFailure | None" = None
     # The launch's wall clock, measured only on the STREAMING capture path (issue
-    # #655) — ``None`` on the one-shot path, which does not time itself. It is the
+    # #655) — ``None`` under the buffered capture, which does not time itself. It is the
     # datum that tells a merely-slow run from a hung one: a timeout at 121s of a
     # 120s ceiling is a suite that outgrew its budget, while one that produced its
     # last output at 2s is stuck.
@@ -416,7 +416,7 @@ def _user_data_unwritable_stderr(
 class LaunchWatch(Protocol):
     """A channel's incremental view of one streaming launch (issue #655).
 
-    Passing a watch to :func:`launch` switches the primitive from ONE-SHOT capture
+    Passing a watch to :func:`launch` switches the primitive from BUFFERED capture
     (``subprocess.run``, which discards everything the child wrote when the
     timeout expires) to STREAMING capture, which changes three things about the
     launch and nothing else:
@@ -496,7 +496,7 @@ class _StreamCapture:
     character into two replacement characters. Feeding one decoder across every
     chunk — and flushing it once at the end — yields exactly what decoding the
     whole buffer at once yields, so the streaming path's text is identical to the
-    one-shot path's for the same bytes.
+    buffered strategy's for the same bytes.
     """
 
     def __init__(self, pipe: IO[bytes]) -> None:
@@ -601,7 +601,7 @@ def launch(
     child's output is captured, and nothing else:
 
     - ``None`` (the default, and what the sentinel and export channels pass) —
-      ONE-SHOT capture via ``subprocess.run``. A timeout DISCARDS whatever the
+      BUFFERED capture via ``subprocess.run``. A timeout DISCARDS whatever the
       child wrote and synthesizes the ``gda: <label> timed out after <n>s``
       diagnostic in its place, exactly as before.
     - a :class:`LaunchWatch` (``gda script run``) — STREAMING capture. A timeout
@@ -610,7 +610,7 @@ def launch(
       from the capture; ``elapsed_seconds`` is populated; and the watch may end
       the run early as ``LaunchFailure.ABORTED``.
 
-    Keeping the one-shot path is deliberate rather than transitional debt: the
+    Keeping the buffered strategy is deliberate rather than transitional debt: the
     other two channels' timeout results are a published part of their error
     envelopes, and this change had to leave them byte-identical. Moving them onto
     the preserving path is the named follow-up the issue records, and it is a
@@ -677,7 +677,11 @@ def _spawn(
     timeout_label: str,
     placement: UserDataPlacement,
 ) -> RunResult:
-    """Run one prepared launch and normalize its outcome — see :func:`launch`."""
+    """Run one prepared launch with BUFFERED capture — see :func:`launch`.
+
+    Reads both streams in one ``subprocess.run`` call, which is why a timeout here
+    has nothing left to report: the call discards what it buffered when it raises.
+    """
     cmd = [str(binary), "--headless", "--log-file", str(placement.log_file), *args]
     try:
         # Capture raw bytes (no ``text=True``): Godot's ``JSON.stringify`` emits
@@ -717,7 +721,7 @@ def _spawn(
 
 
 def _timeout_result(timeout: float, timeout_label: str) -> RunResult:
-    """The synthesized result of a run that outlived the ONE-SHOT capture's timeout.
+    """The synthesized result of a run that outlived the BUFFERED capture's timeout.
 
     The output is gone — ``subprocess.run`` discards it when the timeout expires —
     so the diagnostic stands in for it. That wording is carried into
@@ -766,7 +770,7 @@ def _spawn_streamed(
     - a timeout returns the output the child had ALREADY produced, verbatim,
       instead of discarding it. This is the whole point: a script error that
       aborted a run before its ``quit()`` had already been printed, and a
-      one-shot capture threw it away (GDA-DF-012);
+      buffered capture threw it away (GDA-DF-012);
     - the watch can end the run before the deadline, reported as
       ``LaunchFailure.ABORTED``;
     - the wall clock is measured either way, so a slow-but-live run is
@@ -820,17 +824,35 @@ def _spawn_streamed(
             # The loop ended because the child exited on its own, so the wall clock
             # is that exit — not the stale value from the last poll.
             elapsed = time.monotonic() - started
+        # Whether GDA is what ended this run is decided BEFORE the teardown below
+        # reaps it, and the clock is read before it too: the SIGTERM grace and the
+        # reader join are gda's own shutdown, so charging them to the run would
+        # report a 120s ceiling as 123s elapsed.
         ended_by_gda = aborted or proc.poll() is None
-        # Read the clock BEFORE the teardown: the SIGTERM grace and the reader join
-        # are gda's own shutdown, and charging them to the run would report a
-        # 120s ceiling as 123s elapsed.
+    finally:
+        # The WHOLE teardown lives here, so it runs on every exit from the loop
+        # above — including one by exception. A streaming launch must never outlive
+        # its gda process, and the guarantee cannot be left on the happy path: the
+        # runs this strategy exists for are exactly the ones that do NOT stop on
+        # their own, so an orphaned engine idles forever and repeated interruptions
+        # accumulate engines contending over ``user://``. The buffered strategy gets
+        # this free (``subprocess.run`` kills its child when an exception leaves its
+        # ``with`` block), so this path owes the same.
+        #
+        # ``BaseException`` matters, not just ``Exception``: a Ctrl-C out of the poll
+        # sleep is a ``KeyboardInterrupt``, and when gda runs in its own process
+        # group the signal never reaches the engine at all. A ``finally`` covers
+        # both, and covers whatever a caller's ``watch`` raised.
+        #
+        # The order is load-bearing. Reap first, so the pipes reach EOF and the
+        # readers end on their own; join them next; only then close the pipes —
+        # closing a descriptor a thread is blocked reading risks that read landing
+        # on a recycled fd. The reap is conditional so the normal path, where the
+        # child has already exited or been ended, pays nothing.
         if proc.poll() is None:
             _end_process(proc)
         stdout = out_capture.finish()
         stderr = err_capture.finish()
-    finally:
-        # Only after the readers are done: closing a pipe a reader is blocked on
-        # would raise inside its thread.
         proc.stdout.close()
         proc.stderr.close()
 
@@ -838,11 +860,14 @@ def _spawn_streamed(
         return RunResult(
             stdout=stdout,
             stderr=stderr,
-            # A non-negative stand-in, deliberately: the child's own code is the
-            # signal death gda caused, and a negative exit_code is how a genuine
-            # engine crash is recognized. ``script_aborted`` exits 4, so the
-            # operation-category code is the honest placeholder.
-            exit_code=EXIT_OPERATION,
+            # Zero, and the value is never read: the watching channel classifies
+            # ABORTED off ``launch_failure`` before anything consults ``exit_code``,
+            # and the child's own code is the signal death gda itself caused. What it
+            # must not be is NEGATIVE, which is how a genuine engine crash is
+            # recognized. An error-shaped constant here would imply a mapping onto
+            # ``script_aborted``'s exit 4 that does not exist — a Failure's process
+            # exit comes from the code registry, never from this field.
+            exit_code=0,
             launch_failure=LaunchFailure.ABORTED,
             elapsed_seconds=elapsed,
         )

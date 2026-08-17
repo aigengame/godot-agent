@@ -646,7 +646,7 @@ def script_run_timeout_failure(
     — and ADR-0031 already records this path under it. What changes is that the
     envelope now carries evidence instead of only announcing the wait. Dogfooding
     (GDA-DF-012) hit a run whose script error Godot had already PRINTED, discarded
-    by a one-shot capture that kept nothing; and (GDA-DF-032) a healthy suite that
+    by a buffered capture that kept nothing; and (GDA-DF-032) a healthy suite that
     grew past the fixed ceiling, indistinguishable from a hang because the envelope
     reported neither how long it ran nor how far it got.
 
@@ -671,7 +671,7 @@ def script_run_timeout_failure(
 def script_run_aborted_failure(
     script: str,
     *,
-    marker: str,
+    marker: str | None,
     timeout: float,
     elapsed: float,
     silence: float,
@@ -700,13 +700,23 @@ def script_run_aborted_failure(
     the caller declared, the silence window that elapsed after the error, and the
     ``--timeout`` that was NOT reached — so the bound is legible as a bound and not
     mistaken for the ceiling.
+
+    ``marker`` is typed optional only so this stays a report rather than a crash: the
+    abort is unreachable without a declared marker, and naming the condition without
+    quoting the string is a better answer to an impossible state than an assertion
+    that would kill the command (and be stripped under ``-O``).
     """
+    declared = (
+        f"the --completion-marker {marker!r}"
+        if marker is not None
+        else "the declared completion marker"
+    )
     return make_failure(
         "script_aborted",
         f"script run: {script} was ended after {elapsed:.2f}s — a script error "
-        f"appeared, the --completion-marker {marker!r} did not, and neither stream "
-        f"produced output for {silence}s. The --timeout of {timeout}s was not "
-        f"reached. The captured output is in diagnostics, truncated to the last "
+        f"appeared, {declared} did not, and neither stream produced output for "
+        f"{silence}s. The --timeout of {timeout}s was not reached. The captured "
+        f"output is in diagnostics, truncated to the last "
         f"{SCRIPT_OUTPUT_TAIL_CAP_CHARS} characters of each stream; termination "
         f"phase '{phase}'.",
         _ended_run_diagnostics("the abort", script_errors, stdout, stderr),

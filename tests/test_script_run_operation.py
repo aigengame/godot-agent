@@ -891,3 +891,62 @@ def test_a_timeout_does_not_shadow_the_shared_env_and_crash_classifier():
         )
         assert isinstance(outcome, Failure)
         assert outcome.error.code == code
+
+
+def test_an_unmeasured_run_falls_back_to_its_rule_s_lower_bound():
+    # The streaming capture always measures the clock, so `elapsed_seconds` is None
+    # only for a hand-built RunResult (this suite's injected seam). Reporting 0.00s
+    # there would read as "ended instantly" — a claim about the run — so each envelope
+    # falls back to the truthful LOWER BOUND its own rule guarantees: a timeout ran at
+    # least as long as the ceiling it reached, and an abort waited out at least the
+    # silence window that triggered it.
+    timed_out, _ = _run(
+        RunResult(
+            stdout="",
+            stderr="",
+            exit_code=EXIT_TIMEOUT,
+            launch_failure=LaunchFailure.TIMEOUT,
+        ),
+        timeout=45.0,
+    )
+    assert isinstance(timed_out, Failure)
+    assert "elapsed 45.00s" in timed_out.error.message
+
+    aborted, _ = _run(
+        RunResult(
+            stdout="",
+            stderr=ABORTED_STDERR,
+            exit_code=0,
+            launch_failure=LaunchFailure.ABORTED,
+        ),
+        timeout=120.0,
+        completion_marker="SUITE DONE",
+    )
+    assert isinstance(aborted, Failure)
+    assert (
+        f"ended after {SCRIPT_RUN_ABORT_SILENCE_SECONDS:.2f}s" in aborted.error.message
+    )
+
+
+def test_the_abort_envelope_names_the_condition_without_a_marker_string():
+    # The abort is unreachable without a declared marker, so this state cannot occur —
+    # which is exactly why it must not be an `assert`: that would crash the command on
+    # a boundary value, and vanish under `-O`. The builder degrades to naming the
+    # condition instead, so an impossible input yields a vaguer report, not a traceback.
+    from gda.errors import script_run_aborted_failure
+
+    failure = script_run_aborted_failure(
+        "res://tests/logic.gd",
+        marker=None,
+        timeout=120.0,
+        elapsed=3.4,
+        silence=SCRIPT_RUN_ABORT_SILENCE_SECONDS,
+        phase=TerminationPhase.ABORTED_ON_ERROR.value,
+        script_errors="",
+        stdout="",
+        stderr="",
+    )
+
+    assert failure.error.code == "script_aborted"
+    assert "the declared completion marker did not" in failure.error.message
+    assert "None" not in failure.error.message

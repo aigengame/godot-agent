@@ -279,8 +279,8 @@ added incrementally under ADR-0025 if a concrete need appears.
 > only the runs gda itself ends.
 >
 > **1. The `Headless launch` gains a second capture strategy.** The discard was in the
-> shared primitive: it captured with one `subprocess.run` call, which throws the child's
-> output away when the timeout expires. It now also offers a **streaming** strategy,
+> shared primitive: its **buffered** strategy captures with one `subprocess.run` call, which
+> throws the child's output away when the timeout expires. It now also offers a **streaming** strategy,
 > selected by the channel passing a watch — both pipes read as they arrive, decoded with
 > one incremental UTF-8 decoder so a chunk boundary inside a multi-byte sequence does not
 > corrupt a character. Verified against Godot 4.6.3 while building this: the engine's
@@ -290,8 +290,17 @@ added incrementally under ADR-0025 if a concrete need appears.
 > block-buffered was reading with `BufferedReader.read(n)`, which blocks until it has *n*
 > bytes; the read is on the raw descriptor for that reason.
 >
+> The streaming strategy owes one guarantee the buffered one gets free from
+> `subprocess.run`: a launch must never **outlive** its gda process. Reaping the child is
+> therefore unconditional — on the deadline, on an early abort, and on any exception out of
+> the poll loop, `KeyboardInterrupt` included, which is the case that matters when gda sits
+> in its own process group and the signal never reaches the engine. Left on the happy path
+> it would orphan exactly the runs this strategy exists for: ones that do not stop on their
+> own, so an orphan idles forever and repeated interruptions accumulate engines contending
+> over `user://`.
+>
 > `script run` uses the streaming strategy; the **sentinel and export channels keep the
-> one-shot strategy, with their defaults and their published timeout diagnostics
+> buffered strategy, with their defaults and their published timeout diagnostics
 > byte-identical**. Moving them across is named follow-up work, deliberately not folded
 > in: their timeout results are part of their own error envelopes. Both strategies return
 > through one shared timeout / launch-failure mapping, so the taxonomy still has one home.
