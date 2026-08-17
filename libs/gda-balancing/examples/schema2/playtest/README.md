@@ -59,8 +59,10 @@ UI -> Reward Content -> RewardRun System
   values and has no gda-balancing dependency.
 - `ui/playtest_shell.gd` owns the common player shell, display/language preferences, and feedback
   interaction. `ui/reward_run_view.gd` owns Reward presentation and Tween animations.
-- `main.gd` creates one client and injects it into Reward Content. The project has no Autoload,
-  service locator, event bus, `EditorPlugin`, or plugin registry.
+- `main.gd` creates one client and injects it into Reward Content. The product architecture has no
+  Autoload, service locator, event bus, `EditorPlugin`, or plugin registry. When `gda` injects the
+  optional `GdaHarness`, Reward Content uses it only for development logs; product behavior and
+  dependency resolution do not depend on it.
 
 The Add-on can later serve another Content module through a separate Execution session. This
 playable does not implement Combat/Effect adapters or a universal gameplay payload.

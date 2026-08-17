@@ -31,7 +31,7 @@ template-support, Core Extension Invariance, or cross-genre claim.
 ## Player-facing playtest
 
 This CLI tutorial remains the exact maintainer workflow and provenance source. Players use the
-[Reward Run Godot product](../playtest/README.md) instead. The exported product presents the same
+[Reward Run Godot product](../playtest/README.md) instead. The playable product presents the same
 baseline and tuned reward/build outcomes as two short trials without exposing Standard Schema or
 CLI concepts.
 

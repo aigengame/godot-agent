@@ -641,10 +641,16 @@ def formula_programs_reachable_from_entrypoints(
 def evaluator_build_identity() -> str:
     """Bind evaluator provenance to the installed Python source build."""
     source_names = sorted(
-        name for name in list_package_resources("gda_balancing") if name.endswith(".py")
+        name
+        for name in list_package_resources("gda_balancing")
+        if name.startswith("domain/") and name.endswith(".py")
     )
     source_bytes = [
-        (name, read_package_resource("gda_balancing", name)) for name in source_names
+        (
+            name.removeprefix("domain/"),
+            read_package_resource("gda_balancing", name),
+        )
+        for name in source_names
     ]
     sources: list[JsonValue] = [
         {

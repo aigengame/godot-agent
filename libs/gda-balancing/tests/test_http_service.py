@@ -380,6 +380,15 @@ def test_unknown_routes_methods_and_trailing_slashes_use_closed_errors() -> None
         with pytest.raises(HTTPError) as shutdown_response:
             urlopen(shutdown_request, timeout=10)
         shutdown_method_error = json.load(shutdown_response.value)
+        head_request = Request(
+            service.url("/v1/status"),
+            method="HEAD",
+            headers={
+                "Authorization": f"Bearer {service.capability_token}",
+            },
+        )
+        with pytest.raises(HTTPError) as head_response:
+            urlopen(head_request, timeout=10)
 
         assert unknown_status == trailing_status == 404
         assert (
@@ -405,6 +414,46 @@ def test_unknown_routes_methods_and_trailing_slashes_use_closed_errors() -> None
         assert shutdown_response.value.code == 405
         assert shutdown_response.value.headers["Allow"] == "POST"
         assert shutdown_method_error == method_error
+        assert head_response.value.code == 405
+        assert head_response.value.headers["Allow"] == "GET"
+        assert head_response.value.headers["Content-Type"] == "application/json"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"model_source":{},"model_source":{},"experiment_specification":{}}',
+        b'{"model_source":{"schema_version":"2.0.0","schema_version":"2.1.0"},'
+        b'"experiment_specification":{}}',
+    ],
+    ids=["root", "nested"],
+)
+def test_request_json_rejects_duplicate_object_members(body: bytes) -> None:
+    with running_execution_http_service() as service:
+        connection = HTTPConnection(service.host, service.port, timeout=10)
+        try:
+            connection.request(
+                "POST",
+                "/v1/execution-sessions",
+                body=body,
+                headers={
+                    "Authorization": f"Bearer {service.capability_token}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response = connection.getresponse()
+            error = json.load(response)
+        finally:
+            connection.close()
+
+        assert response.status == 400
+        assert error == {
+            "error": {
+                "category": "service",
+                "code": "invalid_request",
+                "message": "the request does not match the closed HTTP schema",
+            }
+        }
 
 
 def test_shutdown_closes_request_admission_before_acknowledgement() -> None:

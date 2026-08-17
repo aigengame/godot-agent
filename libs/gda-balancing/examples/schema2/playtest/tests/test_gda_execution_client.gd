@@ -20,6 +20,7 @@ func _run() -> void:
 
 	var client := GdaExecutionClient.new()
 	get_root().add_child(client)
+	_expect_compatibility_gate(client)
 	var started: Dictionary = await client.start(executable)
 	_expect(started.get("ok", false), "client starts a compatible local service")
 	_expect(not started.has("value"), "readiness credential stays inside the Add-on")
@@ -69,6 +70,39 @@ func _run() -> void:
 	_finish()
 
 
+func _expect_compatibility_gate(client: Node) -> void:
+	var readiness := {
+		"base_url": "http://127.0.0.1:1",
+		"capability_token": "token",
+		"protocol": "v1",
+		"status": "ready",
+		"toolkit_version": "future",
+	}
+	_expect(client._is_compatible_readiness(readiness), "complete readiness is compatible")
+	for invalid in [
+		readiness.merged({"protocol": "future"}, true),
+		readiness.merged({"toolkit_version": ""}, true),
+		readiness.merged({"toolkit_version": 1}, true),
+	]:
+		_expect(not client._is_compatible_readiness(invalid), "invalid readiness is rejected")
+	var status := {
+		"ok": true,
+		"value": {
+			"protocol": "v1",
+			"status": "ready",
+			"toolkit_version": "future",
+		},
+	}
+	_expect(client._is_compatible_status(readiness, status), "matching status is compatible")
+	for invalid in [
+		status.merged({"value": status["value"].merged({"protocol": "future"}, true)}, true),
+		status.merged({"value": status["value"].merged({"status": "starting"}, true)}, true),
+		status.merged({"value": status["value"].merged({"toolkit_version": ""}, true)}, true),
+		status.merged({"value": status["value"].merged({"toolkit_version": 1}, true)}, true),
+	]:
+		_expect(not client._is_compatible_status(readiness, invalid), "invalid status is rejected")
+
+
 func _read_json(path: String) -> Dictionary:
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
@@ -88,7 +122,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 9, "status": "passed"}))
+		print(JSON.stringify({"passed": 18, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:

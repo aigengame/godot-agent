@@ -7493,6 +7493,35 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     assert changed_build.content_identity != first.content_identity
 
 
+def test_evaluator_build_identity_covers_only_domain_implementation(monkeypatch):
+    resources = {
+        "domain/__init__.py": b"",
+        "domain/runtime/execution.py": b"runtime-v1",
+        "interfaces/http/api_v1.py": b"interface-v1",
+    }
+    monkeypatch.setattr(
+        runtime_projection_module,
+        "list_package_resources",
+        lambda _package: tuple(resources),
+    )
+    monkeypatch.setattr(
+        runtime_projection_module,
+        "read_package_resource",
+        lambda _package, name: resources[name],
+    )
+    runtime_projection_module.evaluator_build_identity.cache_clear()
+    try:
+        first = runtime_projection_module.evaluator_build_identity()
+        resources["interfaces/http/api_v1.py"] = b"interface-v2"
+        runtime_projection_module.evaluator_build_identity.cache_clear()
+        assert runtime_projection_module.evaluator_build_identity() == first
+        resources["domain/runtime/execution.py"] = b"runtime-v2"
+        runtime_projection_module.evaluator_build_identity.cache_clear()
+        assert runtime_projection_module.evaluator_build_identity() != first
+    finally:
+        runtime_projection_module.evaluator_build_identity.cache_clear()
+
+
 def test_operation_closure_includes_guard_body_nodes_and_invocations():
     root = ("example", "1.0.0", "example.root")
     child = ("example", "1.0.0", "example.child")

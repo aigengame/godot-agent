@@ -37,27 +37,43 @@ func start(executable_path: String = "") -> Dictionary:
 		return readiness
 
 	var value: Dictionary = readiness["value"]
-	if (
-		value.get("status") != "ready"
-		or value.get("protocol") != PROTOCOL
-		or not value.get("base_url") is String
-		or not value.get("capability_token") is String
-	):
+	if not _is_compatible_readiness(value):
 		_force_stop()
 		return _failure("incompatible_readiness", _compatibility_detail(value))
 	_base_url = value["base_url"]
 	_capability_token = value["capability_token"]
 
 	var status := await _request_json("GET", "/v1/status")
-	if (
-		not status.get("ok", false)
-		or status.get("value", {}).get("protocol") != PROTOCOL
-		or status.get("value", {}).get("toolkit_version")
-		!= value.get("toolkit_version")
-	):
+	if not _is_compatible_status(value, status):
 		await shutdown()
 		return _failure("incompatible_service", JSON.stringify(status))
 	return {"ok": true}
+
+
+func _is_compatible_readiness(readiness: Dictionary) -> bool:
+	return (
+		readiness.get("status") == "ready"
+		and readiness.get("protocol") == PROTOCOL
+		and readiness.get("base_url") is String
+		and not readiness["base_url"].is_empty()
+		and readiness.get("capability_token") is String
+		and not readiness["capability_token"].is_empty()
+		and readiness.get("toolkit_version") is String
+		and not readiness["toolkit_version"].is_empty()
+	)
+
+
+func _is_compatible_status(readiness: Dictionary, response: Dictionary) -> bool:
+	if not response.get("ok", false) or not response.get("value") is Dictionary:
+		return false
+	var status: Dictionary = response["value"]
+	return (
+		status.get("status") == "ready"
+		and status.get("protocol") == PROTOCOL
+		and status.get("toolkit_version") is String
+		and not status["toolkit_version"].is_empty()
+		and status["toolkit_version"] == readiness.get("toolkit_version")
+	)
 
 
 func _compatibility_detail(readiness: Dictionary) -> String:

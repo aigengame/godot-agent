@@ -48,6 +48,19 @@ _PROTOCOL_ENVELOPE_BYTES = 65_536
 RequestModel = TypeVar("RequestModel", bound=BaseModel)
 
 
+class _DuplicateObjectMember(ValueError):
+    """A JSON object repeats a member name before schema admission."""
+
+
+def _closed_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for name, member in pairs:
+        if name in value:
+            raise _DuplicateObjectMember(name)
+        value[name] = member
+    return value
+
+
 async def _request_model(
     request: Request,
     model: type[RequestModel],
@@ -59,8 +72,14 @@ async def _request_model(
         raise UnsupportedHttpMediaType
     body = await read_bounded_request_body(request, max_bytes=max_bytes)
     try:
-        return model.model_validate(json.loads(body))
-    except (json.JSONDecodeError, UnicodeDecodeError, ValidationError) as error:
+        value = json.loads(body, object_pairs_hook=_closed_json_object)
+        return model.model_validate(value)
+    except (
+        _DuplicateObjectMember,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        ValidationError,
+    ) as error:
         raise InvalidHttpRequest from error
 
 
@@ -177,6 +196,8 @@ def create_api_v1() -> ASGIApp:
     )
 
     async def status(request: Request) -> Response:
+        if request.method != "GET":
+            raise HTTPException(status_code=405, headers={"Allow": "GET"})
         await require_empty_request(request)
         return JSONResponse(
             StatusResponse(toolkit_version=toolkit_version).model_dump(mode="json")
