@@ -768,7 +768,7 @@ def test_script_run_timeout_returns_partial_output_elapsed_and_a_phase(godot_pro
     assert "elapsed 4." in err["message"]
     assert "termination phase 'output_seen'" in err["message"]
     assert "16384 characters" in err["message"]
-    # The partial output the engine had already written, which the one-shot capture
+    # The partial output the engine had already written, which the buffered capture
     # used to discard. It got as far as SUITE START and no further.
     assert "SUITE START" in err["diagnostics"]
     assert "SUITE DONE" not in err["diagnostics"]
