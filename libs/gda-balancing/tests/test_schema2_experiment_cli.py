@@ -6698,14 +6698,17 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
 
 def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
     kernel, ldb = mutable_authorities()
-    package_id, vector = next(
-        (package_id, deepcopy(candidate))
-        for package_id, _package_version, candidate in operation_execution_vectors(ldb)
+    package_id, package_version, vector = next(
+        (package_id, package_version, deepcopy(candidate))
+        for package_id, package_version, candidate in operation_execution_vectors(ldb)
         if candidate["id"] == "structured.select.empty-outcome"
     )
     vector["expect"]["completion"]["id"] = "mutated-outcome"
     failures = candidate_conformance_failures(
-        kernel, ldb, vector_overrides={vector["id"]: vector}
+        kernel,
+        ldb,
+        vector_overrides={vector["id"]: vector},
+        vector_coordinates={(package_id, package_version, vector["id"])},
     )
 
     assert len(failures) == 1
@@ -6719,6 +6722,11 @@ def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
 def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
     kernel, ldb = mutable_authorities()
     target = "structured.select.empty-outcome"
+    package_id, package_version, _vector = next(
+        candidate
+        for candidate in operation_execution_vectors(ldb)
+        if candidate[2]["id"] == target
+    )
     evaluate = operation_conformance_module.evaluate_operation_execution_vector
 
     def divergent_production(context, vector, **owner):
@@ -6734,7 +6742,11 @@ def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
         divergent_production,
     )
 
-    failures = candidate_conformance_failures(kernel, ldb)
+    failures = candidate_conformance_failures(
+        kernel,
+        ldb,
+        vector_coordinates={(package_id, package_version, target)},
+    )
 
     assert len(failures) == 1
     assert failures[0]["kind"] == "vector-divergence"

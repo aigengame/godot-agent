@@ -147,6 +147,7 @@ def candidate_conformance_failures(
     ldb: Any,
     *,
     vector_overrides: dict[str, dict[str, Any]] | None = None,
+    vector_coordinates: set[tuple[str, str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     """Return bounded candidate-graph and execution-vector disagreements."""
     production_admission = _consumer_a(kernel, ldb)
@@ -171,6 +172,9 @@ def candidate_conformance_failures(
     failures: list[dict[str, Any]] = []
     overrides = vector_overrides or {}
     for package_id, package_version, declared in operation_execution_vectors(ldb):
+        coordinate = (package_id, package_version, cast(str, declared["id"]))
+        if vector_coordinates is not None and coordinate not in vector_coordinates:
+            continue
         vector = overrides.get(declared["id"], declared)
         observations = operation_execution_observations(
             kernel,
