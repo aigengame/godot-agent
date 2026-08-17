@@ -14,6 +14,7 @@ const TERMINAL_METRICS := {
 var _exchange_id := ""
 var _revision := ""
 var _initial: Dictionary = {}
+var _after_player: Dictionary = {}
 var _terminal: Dictionary = {}
 var _damage: Dictionary = {}
 var _provenance: Dictionary = {}
@@ -84,6 +85,7 @@ func admit_run_result(
 	_exchange_id = exchange_id
 	_revision = revision
 	_initial = expected_initial.duplicate(true)
+	_after_player = player_after.duplicate(true)
 	_terminal = terminal.duplicate(true)
 	_damage = {"enemy": int(enemy_damage), "player": int(player_damage)}
 	_provenance = _artifact_provenance(artifacts, trace, snapshots)
@@ -96,6 +98,7 @@ func terminal_state() -> Dictionary:
 
 func gameplay_values() -> Dictionary:
 	return {
+		"after_player": _after_player.duplicate(true),
 		"damage": _damage.duplicate(true),
 		"initial": _initial.duplicate(true),
 		"terminal": _terminal.duplicate(true),

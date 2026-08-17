@@ -2,4 +2,4 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$script_dir/run_playtest.sh" res://apps/reward_run/main.tscn
+exec "$script_dir/run_playtest.sh" res://apps/combat_cast/main.tscn

@@ -1,0 +1,41 @@
+[gd_resource type="Translation" format=3]
+
+[resource]
+locale = "en"
+messages = {
+[&"", &"COMBAT_APP_TITLE"]: [&"ARCANE DUEL"],
+[&"", &"COMBAT_APP_SUBTITLE"]: [&"Cast, absorb the counterattack, and survive two exchanges."],
+[&"", &"COMBAT_PLAYER"]: [&"YOU"],
+[&"", &"COMBAT_ENEMY"]: [&"RIVAL MAGE"],
+[&"", &"COMBAT_STATS"]: [&"Health %d    Mana %d"],
+[&"", &"COMBAT_PREPARING"]: [&"Preparing the duel…"],
+[&"", &"COMBAT_READY"]: [&"Both mages are ready. Cast when you choose."],
+[&"", &"COMBAT_RESOLVING"]: [&"Resolving this exchange…"],
+[&"", &"COMBAT_CAST_PROMPT"]: [&"Release your spell."],
+[&"", &"COMBAT_COUNTER_PROMPT"]: [&"Your spell lands. Reveal the rival's counterattack."],
+[&"", &"COMBAT_EXCHANGE_RESOLVED"]: [&"The counterattack lands. Review both resource bars."],
+[&"", &"COMBAT_EXCHANGE_COMPLETE"]: [&"Exchange complete."],
+[&"", &"COMBAT_RETRY"]: [&"The duel could not continue. Completed exchanges are safe."],
+[&"", &"COMBAT_ACTION_CAST"]: [&"CAST SPELL"],
+[&"", &"COMBAT_ACTION_WAIT"]: [&"RESOLVING…"],
+[&"", &"COMBAT_ACTION_COUNTER"]: [&"REVEAL COUNTERATTACK"],
+[&"", &"COMBAT_ACTION_CONTINUE"]: [&"CONTINUE"],
+[&"", &"COMBAT_ACTION_NEXT"]: [&"START NEXT EXCHANGE"],
+[&"", &"COMBAT_ACTION_FEEDBACK"]: [&"SHARE FEEDBACK"],
+[&"", &"COMBAT_ACTION_RETRY"]: [&"RETRY"],
+[&"", &"COMBAT_PLAYER_HIT"]: [&"Your spell deals %d damage."],
+[&"", &"COMBAT_ENEMY_HIT"]: [&"The counterattack deals %d damage."],
+[&"", &"COMBAT_EXCHANGE_PROGRESS"]: [&"EXCHANGE %d OF %d"],
+[&"", &"COMBAT_FEEDBACK_PREFERENCE"]: [&"Which exchange felt better?"],
+[&"", &"COMBAT_FEEDBACK_READABILITY"]: [&"Were the health and mana changes easy to read?"],
+[&"", &"COMBAT_FEEDBACK_TIMING"]: [&"How did the counterattack timing feel?"],
+[&"", &"COMBAT_EXCHANGE_ONE"]: [&"Exchange 1"],
+[&"", &"COMBAT_EXCHANGE_TWO"]: [&"Exchange 2"],
+[&"", &"COMBAT_NO_DIFFERENCE"]: [&"No difference"],
+[&"", &"COMBAT_VERY_CLEAR"]: [&"Very clear"],
+[&"", &"COMBAT_MOSTLY_CLEAR"]: [&"Mostly clear"],
+[&"", &"COMBAT_UNCLEAR"]: [&"Unclear"],
+[&"", &"COMBAT_TIMING_FAIR"]: [&"Fair"],
+[&"", &"COMBAT_TIMING_FAST"]: [&"Too fast"],
+[&"", &"COMBAT_TIMING_UNCLEAR"]: [&"Unclear"]
+}
