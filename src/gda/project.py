@@ -42,29 +42,62 @@ def is_engine_virtual_path(path: str) -> bool:
     return "://" in path
 
 
+def _lexical_abs(path: Path) -> Path:
+    """``path`` made absolute and ``..``-free WITHOUT following symlinks.
+
+    ``os.path.abspath`` is by definition ``normpath(join(os.getcwd(), path))``:
+    it anchors a relative path at the cwd and collapses ``..`` textually, so a
+    symlink on the way keeps the spelling the caller used. That is the opposite
+    of ``Path.resolve()``, and both readings are needed — see
+    :func:`path_outside_project`.
+    """
+    return Path(os.path.abspath(path))
+
+
 def path_outside_project(path: str, project: Path) -> Path | None:
-    """The resolved location of ``path`` when it falls OUTSIDE ``project``.
+    """The location of ``path`` when it falls OUTSIDE ``project``.
 
     The containment check behind the "this target does not belong to the
     resolved project" refusal. Returns ``None`` when the path belongs to the
-    project — either because it is an engine-virtual path, which by
-    construction addresses the project the engine was launched with, or because
-    its filesystem location is the project directory or a descendant of it.
-    Otherwise it returns that location, so the caller can name *where* the
-    target actually is in its diagnostic.
+    project, and otherwise the target's real location, so the caller can name
+    *where* it actually is in its diagnostic.
 
-    Both sides are resolved before comparison: a caller's path may be relative
-    to the cwd, and ``resolve_project_dir`` returns the directory as it was
-    named (``--project /tmp/game``), so comparing raw values would call a
-    contained path "outside" whenever a symlink sits on either side — on macOS
-    the temp directory alone (``/tmp`` → ``/private/tmp``) is enough.
-    ``resolve()`` is non-strict, so a path that does not exist still yields the
-    location it would occupy rather than raising.
+    An engine-virtual path is inside by construction: it addresses the project
+    the engine was launched with, and gda can make no filesystem statement
+    about it.
+
+    A filesystem path is compared TWICE, and belongs to the project when
+    EITHER reading says so — because a symlink makes the two readings answer
+    different, equally true questions:
+
+    - **Lexically** (:func:`_lexical_abs`, symlinks preserved): "did the caller
+      address this file through the project's own tree?" A monorepo that links
+      a shared library into the project (``game/addons/lib -> ../../libs/lib``)
+      answers yes, and so does the engine — Godot walks the project directory
+      and follows that link, so the file really is in the project's ``res://``
+      namespace. Refusing it on its ``resolve()``d location would reject a call
+      that works, in a message naming a path the caller never typed.
+    - **Resolved** (``Path.resolve()``, symlinks followed): "are these two
+      spellings the same place?" The project may be named by one spelling and
+      the target by another — on macOS the temp directory alone (``/tmp`` →
+      ``/private/tmp``) is enough — and only the resolved reading sees through
+      that.
+
+    Refusing only when BOTH readings say outside keeps the refusal to targets
+    that are outside under every reading. It stays strict about the escape it
+    exists for: ``..`` is collapsed textually, so ``project/../other/x.gd`` is
+    outside lexically as well as resolved. ``resolve()`` is non-strict, so a
+    path that does not exist still yields the location it would occupy rather
+    than raising.
     """
     if is_engine_virtual_path(path):
         return None
-    location = Path(path).expanduser().resolve()
-    if location.is_relative_to(project.expanduser().resolve()):
+    target = Path(path).expanduser()
+    root = project.expanduser()
+    if _lexical_abs(target).is_relative_to(_lexical_abs(root)):
+        return None
+    location = target.resolve()
+    if location.is_relative_to(root.resolve()):
         return None
     return location
 

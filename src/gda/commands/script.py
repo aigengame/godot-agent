@@ -1100,6 +1100,12 @@ def _script_validate_recipe(params, *, project, godot):
             return script_outside_project_failure(outside, project)
     # The runner seam is read off the module at call time — never imported by
     # name — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    # Naming the HEADLESS factory directly is correct only while this command is
+    # HEADLESS: unlike ``gda.dispatch._emit``, which picks the factory from
+    # ``cmd.kind``, a recipe states its own channel. Changing this command's
+    # ``kind`` (or reusing this recipe for a live twin) must change this line
+    # too — the descriptor would otherwise say one channel and the run take
+    # another. The registry invariant test pins the recipe set, not this pairing.
     outcome = SCRIPT_VALIDATE_COMMAND.execute(
         params,
         godot=godot,
@@ -1108,8 +1114,12 @@ def _script_validate_recipe(params, *, project, godot):
     )
     if isinstance(outcome, Failure):
         return outcome
-    outcome.project_root = str(project) if project is not None else None
-    return outcome
+    # A copy, not an in-place set: the classified result is the engine's answer,
+    # and ``project_root`` is gda's addition to it, so the union is built rather
+    # than the parsed model mutated after validation.
+    return outcome.model_copy(
+        update={"project_root": str(project) if project is not None else None}
+    )
 
 
 # ``script validate`` stays a HEADLESS sentinel op — the engine does the

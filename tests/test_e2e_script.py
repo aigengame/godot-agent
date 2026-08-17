@@ -1007,6 +1007,65 @@ def test_script_validate_refuses_a_script_outside_the_resolved_project(tmp_path)
     assert err["diagnostics"] == ""
 
 
+@pytest.mark.e2e
+def test_script_validate_accepts_a_file_symlinked_into_the_project(tmp_path):
+    # The containment check judges a symlinked file by BOTH readings, and this is
+    # the real-engine proof of the lexical one: the monorepo shared-addon layout
+    # (game/addons/cardlib -> ../../libs/cardlib), where the file physically lives
+    # outside the project but is addressed through the project's own tree.
+    #
+    # The engine agrees with that reading — the script's `res://addons/cardlib/
+    # card.gd` preload resolves THROUGH the link — so `valid` is true. Judging the
+    # target by its resolve()d location alone would refuse a call that demonstrably
+    # works, and name a path the caller never typed.
+    #
+    # The second half is the guard that this is not a blanket escape hatch: the
+    # SAME physical file, addressed by its outside spelling, is still refused.
+    project = tmp_path / "game"
+    (project / "addons").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-symlinked"), encoding="utf-8"
+    )
+    library = tmp_path / "libs" / "cardlib"
+    library.mkdir(parents=True)
+    (library / "card.gd").write_text(
+        "extends Node\n\nclass_name SymlinkedCard\n\nfunc rank() -> int:\n\treturn 3\n",
+        encoding="utf-8",
+    )
+    (library / "deck.gd").write_text(
+        "extends Node\n\n"
+        'const Card = preload("res://addons/cardlib/card.gd")\n\n'
+        "func top() -> int:\n"
+        "\tvar c := Card.new()\n"
+        "\treturn c.rank()\n",
+        encoding="utf-8",
+    )
+    (project / "addons" / "cardlib").symlink_to(library, target_is_directory=True)
+    through_the_link = project / "addons" / "cardlib" / "deck.gd"
+
+    validated = _gda(
+        "script", "validate", str(through_the_link), "--project", str(project), "--json"
+    )
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True, data
+    assert data["diagnostics"] == []
+    assert data["project_root"] == str(project)
+
+    # Same file, outside spelling: outside under both readings, so still refused.
+    from_outside = _gda(
+        "script",
+        "validate",
+        str(library / "deck.gd"),
+        "--project",
+        str(project),
+        "--json",
+    )
+
+    _assert_operation_error(from_outside, "project_not_found")
+
+
 # --- script attach (issue #118) ---
 
 

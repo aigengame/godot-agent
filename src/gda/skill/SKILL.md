@@ -52,7 +52,12 @@ Some commands carry a verdict inside a successful result. For
 `gda script validate --json`, read the result's `valid` field: a script that does
 not compile exits `0` with no top-level `error`, and reports `valid=false` plus
 `error_string` / `diagnostics`. Do not treat exit `0` or the absence of an Error
-envelope as a pass for this command.
+envelope as a pass for this command. Check the result's `project_root` before you
+act on a `valid=false`: it names the project the script was compiled against, and
+a verdict full of missing-`res://` errors (plus the type errors derived from them)
+usually means the wrong project, not a broken script — `null` means no project was
+resolved at all. Pass `--project` for the project that owns the file and re-read
+the verdict.
 
 ## Discovery
 

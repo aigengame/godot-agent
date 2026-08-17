@@ -102,16 +102,60 @@ def test_engine_virtual_paths_are_never_outside(tmp_path):
 
 
 def test_a_symlinked_project_spelling_still_contains_its_own_files(tmp_path):
-    # Both sides are resolved before comparison, so the SAME directory reached
-    # by two spellings compares equal. Without this the check would refuse every
-    # correct call made through a symlink — on macOS the temp dir alone
-    # (/tmp -> /private/tmp) is such a spelling.
+    # The RESOLVED reading: the SAME directory reached by two spellings compares
+    # equal. Without it the check would refuse every correct call made through a
+    # symlinked project path — on macOS the temp dir alone (/tmp -> /private/tmp)
+    # is such a spelling.
     proj = _make_project(tmp_path / "game")
     link = tmp_path / "game-link"
     link.symlink_to(proj, target_is_directory=True)
 
     assert path_outside_project(str(link / "hero.gd"), proj) is None
     assert path_outside_project(str(proj / "hero.gd"), link) is None
+
+
+def test_a_directory_symlinked_into_the_project_is_inside(tmp_path):
+    # The LEXICAL reading, and the regression that motivates it: the monorepo
+    # shared-addon layout, where the project links a library that physically
+    # lives outside it (game/addons/lib -> ../../libs/lib). The caller addressed
+    # the file through the project's own tree and Godot follows the same link, so
+    # the file IS in the project's res:// namespace. Judging it by its resolved
+    # location alone would refuse a call that works, in a message naming a path
+    # the caller never typed.
+    proj = _make_project(tmp_path / "game")
+    (proj / "addons").mkdir()
+    library = tmp_path / "libs" / "cardlib"
+    library.mkdir(parents=True)
+    (library / "card.gd").write_text("extends Node\n", encoding="utf-8")
+    (proj / "addons" / "cardlib").symlink_to(library, target_is_directory=True)
+
+    assert path_outside_project(str(proj / "addons" / "cardlib" / "card.gd"), proj) is (
+        None
+    )
+
+
+def test_a_file_symlinked_into_the_project_is_inside(tmp_path):
+    # The same rule for a single linked FILE, not just a linked directory.
+    proj = _make_project(tmp_path / "game")
+    shared = tmp_path / "shared" / "card.gd"
+    shared.parent.mkdir(parents=True)
+    shared.write_text("extends Node\n", encoding="utf-8")
+    (proj / "card.gd").symlink_to(shared)
+
+    assert path_outside_project(str(proj / "card.gd"), proj) is None
+
+
+def test_a_dot_dot_escape_is_still_outside(tmp_path):
+    # The lexical reading must not become an escape hatch: `..` is collapsed
+    # textually, so a path that climbs out of the project is outside under BOTH
+    # readings and stays refused.
+    proj = _make_project(tmp_path / "game")
+    escaped = str(proj / ".." / "elsewhere" / "hero.gd")
+
+    assert (
+        path_outside_project(escaped, proj)
+        == (tmp_path / "elsewhere" / "hero.gd").resolve()
+    )
 
 
 def test_a_relative_path_is_resolved_against_the_cwd(tmp_path, monkeypatch):
