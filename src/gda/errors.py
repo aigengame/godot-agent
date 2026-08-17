@@ -20,6 +20,8 @@ engine. The decision tree, top to bottom (``code`` in parentheses; the four
 - launch NOT_FOUND → environment / binary_not_found  (runner could not launch it)
 - launch TIMEOUT   → environment / launch_timeout     (runner launched it but it
   hung past the timeout)
+- launch USER_DATA_UNWRITABLE → environment / user_data_unwritable (the engine log
+  target gda owns could not be created, so the launch was refused, #653)
 - exit < 0  → operation   / engine_crashed         (engine killed by a signal)
 - exit ≠ 0  → operation   / <operation code>        (operation reported a structured
   failure via the ADR-0002 error envelope — e.g. path_not_found)
@@ -196,6 +198,18 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
         return make_failure(
             "launch_timeout",
             "Godot launched but did not return before the timeout",
+            raw.stderr,
+        )
+    if raw.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE:
+        # Refused before the spawn (issue #653): the engine builds its file logger
+        # ahead of any project code and dies with signal 11 when it cannot open the
+        # log, so this environment problem would otherwise arrive as an
+        # `engine_crashed` backtrace. The runner's diagnostics name the binary, the
+        # user-data directory, and the log path.
+        return make_failure(
+            "user_data_unwritable",
+            "the log or user data placement for this launch is not usable; "
+            "the launch was refused",
             raw.stderr,
         )
     if raw.exit_code < 0:

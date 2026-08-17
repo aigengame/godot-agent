@@ -87,6 +87,19 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "Godot launched but did not return before the runner timeout.",
     ),
     ErrorCodeSpec(
+        "user_data_unwritable",
+        ErrorCategory.ENVIRONMENT,
+        EXIT_NOT_FOUND,
+        ErrorCodeSource.RUNNER,
+        # Deliberately about the PLACEMENT, not about Godot's own directory: the
+        # same code covers a private temporary log target that could not be created
+        # (where Godot's location may be perfectly writable) and a redirected root
+        # whose derived data path is unusable. Naming only the latter sent readers
+        # to fix the wrong directory; the diagnostics name which one it was.
+        "The log or user-data placement for the launch could not be made usable, "
+        "so the launch was refused.",
+    ),
+    ErrorCodeSpec(
         "unsupported_version",
         ErrorCategory.VERSION,
         EXIT_VERSION,

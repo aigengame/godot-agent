@@ -143,6 +143,7 @@ operation, and parse codes the CLI assigns).
 | --- | --- | --- | --- | --- |
 | `binary_not_found` | `environment` | `runner` | `127` | The Godot binary could not be launched. |
 | `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. |
+| `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
 | `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
 | `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
 | `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |

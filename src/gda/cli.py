@@ -38,6 +38,7 @@ from gda.commands import (
 )
 from gda.headless import root_json, set_root_json
 from gda.provenance import build_version_provenance, render_version_line
+from gda.runner import USER_DATA_ROOT_ENV, set_user_data_root
 
 app = typer.Typer(
     name="gda",
@@ -138,6 +139,19 @@ def main(
         "--json after the command; with --version it emits structured install "
         "provenance (`--help` stays text).",
     ),
+    user_data_root: Optional[str] = typer.Option(
+        None,
+        "--user-data-root",
+        help="Directory to place Godot's user data under for a HEADLESS launch: "
+        f"the engine log and `user://` (overrides ${USER_DATA_ROOT_ENV}). By "
+        "default gda redirects only the engine log, to a private temporary file, "
+        "so a read-only application-data directory is not fatal and concurrent "
+        "runs do not share one log; pass this when `user://` itself must be "
+        "writable. Godot reads the export templates and editor settings from that "
+        "same directory, so a release/debug 'export run' under it finds no "
+        "installed templates unless you place them there ('--mode pack' needs "
+        "none). A live session is unaffected: the daemon owns its log (ADR-0022).",
+    ),
 ) -> None:
     """An agent-facing Godot CLI with structured output."""
     # This callback keeps gda a command *group* so meta commands like `gda info`
@@ -150,8 +164,13 @@ def main(
     # inert: handing it to the shared option layer makes the invoked command's own
     # `--json` inherit it, so the root and post-command spellings mean the same
     # thing — accepting a flag that silently returned human text would be worse than
-    # the loud usage error it replaced. The hand-over happens in the option's own
-    # callback (`_record_root_json`), so this body has nothing left to do.
+    # the loud usage error it replaced. The --json hand-over happens in the
+    # option's own callback (`_record_root_json`), so it needs no line here.
+    # `--user-data-root` is a root option because it is process-wide ENVIRONMENT
+    # placement, not an operation parameter: it applies to whichever command runs,
+    # on every channel that spawns an engine, and the runner reads it there (#653).
+    # Handing it over here keeps the knowledge running downward.
+    set_user_data_root(user_data_root)
 
 
 meta_commands.register(app)
