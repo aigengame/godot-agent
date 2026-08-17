@@ -143,6 +143,35 @@ func _test_contradictory_pulses(
 		"Content rejects pulse damage that contradicts Formula evidence",
 	)
 
+	var inactive := run_result.duplicate(true)
+	var inactive_transitions := _transition_events(inactive)
+	_set_state_value(inactive_transitions[0]["state_after"], "effect_active", 0)
+	for index in range(1, inactive_transitions.size()):
+		_set_state_value(inactive_transitions[index]["state_before"], "effect_active", 0)
+		_set_state_value(inactive_transitions[index]["state_after"], "effect_active", 0)
+	var inactive_trial := PeriodicEffectTrial.new()
+	var inactive_admitted: Dictionary = inactive_trial.admit_run_result(
+		inactive, "reactive", "mutation", revision
+	)
+	_expect(
+		not inactive_admitted.get("ok", false),
+		"Content rejects pulses after an inactive Effect application",
+	)
+
+	var refused := run_result.duplicate(true)
+	var refused_transitions := _transition_events(refused)
+	refused_transitions[0]["outcome"] = {
+		"id": "effect-refused", "kind": "refusal"
+	}
+	var refused_trial := PeriodicEffectTrial.new()
+	var refused_admitted: Dictionary = refused_trial.admit_run_result(
+		refused, "reactive", "mutation", revision
+	)
+	_expect(
+		not refused_admitted.get("ok", false),
+		"Content rejects a refused lifecycle transition",
+	)
+
 
 func _transition_events(run_result: Dictionary) -> Array[Dictionary]:
 	var transitions: Array[Dictionary] = []

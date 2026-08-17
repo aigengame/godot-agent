@@ -62,6 +62,9 @@ func admit_run_result(
 			return _failure("unexpected_lifecycle_order")
 		if int(event.get("ordering_key", {}).get("logical_time", -1)) != expected_times[index]:
 			return _failure("unexpected_lifecycle_time")
+		var outcome = event.get("outcome", {})
+		if not outcome is Dictionary or outcome.get("kind") != "success":
+			return _failure("unexpected_lifecycle_outcome")
 		if index > 0 and event.get("state_before") != transitions[index - 1].get("state_after"):
 			return _failure("lifecycle_state_discontinuity")
 
@@ -89,6 +92,9 @@ func admit_run_result(
 		)
 	var pulse_damage := _pulse_damage_evidence(transitions, policy)
 	var attack_damage = _integer_fact(transitions[2], "combat_damage")
+	for index in range(4):
+		if not bool(timeline[index]["effect_active"]):
+			return _failure("invalid_lifecycle_relationships")
 	if (
 		pulse_damage.size() != 2
 		or attack_damage == null
