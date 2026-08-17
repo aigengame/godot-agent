@@ -36,9 +36,6 @@ debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
   fails. Run it first in a long session and keep the output: an editable install
   can change revision under you mid-run, so this is what ties your results to the
   code that produced them. Bare `gda --version` stays one human-readable line.
-- **User data** — each headless run's engine log goes to a private temporary file,
-  so a read-only Godot application-data directory is not fatal and concurrent runs
-  never contend. If a script needs a writable `user://`, pass
 - **User data (headless runs)** — each headless run's engine log goes to a private
   temporary file, so a read-only Godot application-data directory is not fatal and
   concurrent runs never contend. If a script needs a writable `user://`, pass
