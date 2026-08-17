@@ -266,9 +266,9 @@ def read_direct_url_record(distribution: str = DISTRIBUTION) -> DirectUrlRecord:
     archive-backed one; ``locate_file`` is NOT it, that resolves installed files
     relative to site-packages), where the outcomes stay distinct: only a genuine
     "no such file" is ``ABSENT``; every other read failure is ``UNREADABLE``. An
-    exotic ``Distribution`` subclass without ``_path`` can only offer the
-    ambiguous ``read_text`` ``None``, which degrades to ``UNREADABLE`` — never
-    promoted to the one arm that earns a confident wheel.
+    exotic ``Distribution`` subclass without ``_path`` offers only the abstract
+    ``read_text``, whose ambiguous ``None`` — or its own raise — degrades to
+    ``UNREADABLE``, never promoted to the one arm that earns a confident wheel.
     """
     try:
         dist = Distribution.from_name(distribution)
@@ -276,7 +276,13 @@ def read_direct_url_record(distribution: str = DISTRIBUTION) -> DirectUrlRecord:
         return DirectUrlRecord(RecordState.UNREADABLE)
     metadata_dir = getattr(dist, "_path", None)
     if metadata_dir is None:
-        raw = dist.read_text("direct_url.json")
+        # The abstract reader can RAISE before producing text or its ambiguous
+        # None — both land in the same UNREADABLE boundary as the path-backed
+        # branch's failures; only real text is PRESENT.
+        try:
+            raw = dist.read_text("direct_url.json")
+        except (OSError, KeyError, ValueError):
+            return DirectUrlRecord(RecordState.UNREADABLE)
         if raw is None:
             return DirectUrlRecord(RecordState.UNREADABLE)
         return DirectUrlRecord(RecordState.PRESENT, raw)

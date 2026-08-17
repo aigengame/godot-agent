@@ -604,6 +604,44 @@ def test_a_directory_shaped_record_is_unreadable_not_absent(monkeypatch, tmp_pat
     assert read_direct_url_record() == DirectUrlRecord(RecordState.UNREADABLE)
 
 
+def test_a_pathless_distribution_raising_reader_is_unreadable(monkeypatch):
+    # A custom Distribution need not expose PathDistribution's private _path; its
+    # abstract read_text() can RAISE while accessing metadata. That failure must
+    # land in the same UNREADABLE boundary as the path-backed branch's failures —
+    # not escape as a traceback (third-recheck regression).
+    class _PathlessDist:
+        version = installed_version("gda")
+
+        def read_text(self, name: str):
+            raise PermissionError("injected: metadata unreadable")
+
+    monkeypatch.setattr(
+        provenance.Distribution, "from_name", lambda name: _PathlessDist()
+    )
+
+    assert read_direct_url_record() == DirectUrlRecord(RecordState.UNREADABLE)
+
+
+def test_a_pathless_raising_reader_reaches_the_cli_as_unknown(monkeypatch):
+    class _PathlessDist:
+        version = installed_version("gda")
+
+        def read_text(self, name: str):
+            raise PermissionError("injected: metadata unreadable")
+
+    monkeypatch.setattr(
+        provenance.Distribution, "from_name", lambda name: _PathlessDist()
+    )
+
+    result = CliRunner().invoke(app, ["--version", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["install_kind"] == "unknown"
+    assert payload["source"] is None
+    assert payload["gda_version"] and payload["package_path"] and payload["godot"]
+
+
 def test_an_uninstalled_distribution_is_unreadable_not_absent():
     # gda did not learn that no record exists; it failed to look. Degrades rather
     # than raising, so a preflight never dies on missing metadata.
