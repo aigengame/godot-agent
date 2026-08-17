@@ -157,6 +157,8 @@ def _resolve_published_artifacts(
                 or len(member_locators) != len(members)
             ):
                 continue
+            requested_members: list[tuple[int, dict[str, Any]]] = []
+            ambiguous = False
             for request_index, request in enumerate(requested):
                 logical_name, artifact_kind, content_identity_value = request
                 candidates = [
@@ -168,38 +170,43 @@ def _resolve_published_artifacts(
                     and isinstance(member.get("logical_name"), str)
                     and member.get("logical_name") == logical_name
                 ]
-                if len(candidates) != 1:
-                    continue
-                member = candidates[0]
+                if len(candidates) > 1:
+                    if integrity_errors[request_index] is None:
+                        integrity_errors[request_index] = (
+                            PublishedArtifactIntegrityError(
+                                "authenticated publication contains ambiguous exact "
+                                "member descriptors",
+                                logical_name=logical_name,
+                            )
+                        )
+                    ambiguous = True
+                elif len(candidates) == 1:
+                    requested_members.append((request_index, candidates[0]))
+            if ambiguous:
+                continue
+            if not requested_members:
+                continue
+            try:
+                artifacts = _read_complete_publication_members(
+                    invocation_path,
+                    members,
+                    language_bundle,
+                )
+            except (OSError, RuntimeError, PublicationError, ValueError):
+                for request_index, _member in requested_members:
+                    if integrity_errors[request_index] is None:
+                        logical_name = requested[request_index][0]
+                        integrity_errors[request_index] = (
+                            PublishedArtifactIntegrityError(
+                                "authenticated publication contains a missing, damaged, "
+                                "or identity-inconsistent member",
+                                logical_name=logical_name,
+                            )
+                        )
+                continue
+            for request_index, member in requested_members:
                 member_name = cast(str, member["logical_name"])
-                try:
-                    artifact = _read_canonical_artifact(
-                        invocation_path / f"{member_name}.json"
-                    )
-                except (OSError, RuntimeError, PublicationError, ValueError):
-                    if integrity_errors[request_index] is None:
-                        integrity_errors[request_index] = (
-                            PublishedArtifactIntegrityError(
-                                "authenticated publication member is unreadable or "
-                                "non-canonical",
-                                logical_name=logical_name,
-                            )
-                        )
-                    continue
-                if not (
-                    _verify_artifact(artifact, language_bundle)
-                    and artifact.get("artifact_kind") == artifact_kind
-                    and artifact.get("content_identity") == content_identity_value
-                ):
-                    if integrity_errors[request_index] is None:
-                        integrity_errors[request_index] = (
-                            PublishedArtifactIntegrityError(
-                                "authenticated publication member failed schema or "
-                                "identity verification",
-                                logical_name=logical_name,
-                            )
-                        )
-                    continue
+                artifact = artifacts[member_name]
                 matches[request_index].append(artifact)
         except (OSError, RuntimeError, PublicationError, ValueError):
             continue
@@ -227,6 +234,46 @@ def _resolve_published_artifacts(
             )
         resolved.append(candidates[0])
     return tuple(resolved)
+
+
+def _read_complete_publication_members(
+    invocation_path: Path,
+    members: list[Any],
+    language_bundle: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Re-admit every member declared by one selected publication manifest."""
+    artifacts: dict[str, dict[str, Any]] = {}
+    for member in members:
+        if not isinstance(member, dict):
+            raise RuntimeError(
+                "authenticated publication member descriptor is malformed"
+            )
+        logical_name = member.get("logical_name")
+        artifact_kind = member.get("artifact_kind")
+        wire_schema_identity = member.get("wire_schema_identity")
+        content_identity_value = member.get("content_identity")
+        if (
+            not isinstance(logical_name, str)
+            or not isinstance(artifact_kind, str)
+            or not isinstance(wire_schema_identity, str)
+            or not isinstance(content_identity_value, str)
+            or logical_name in artifacts
+        ):
+            raise RuntimeError(
+                "authenticated publication member descriptor is not unique and closed"
+            )
+        artifact = _read_canonical_artifact(invocation_path / f"{logical_name}.json")
+        if (
+            not _verify_artifact(artifact, language_bundle)
+            or artifact.get("artifact_kind") != artifact_kind
+            or artifact.get("wire_schema_identity") != wire_schema_identity
+            or artifact.get("content_identity") != content_identity_value
+        ):
+            raise RuntimeError(
+                "authenticated publication member failed schema or identity verification"
+            )
+        artifacts[logical_name] = artifact
+    return artifacts
 
 
 def _write_json(path: Path, value: dict[str, JsonValue]) -> None:
