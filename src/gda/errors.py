@@ -386,12 +386,13 @@ def script_path_invalid_failure(path: str) -> Failure:
 
     ``script run`` is project-scoped: it takes the two PORTABLE forms — a
     project-relative path and a ``res://`` address — which both resolve against the
-    ``--project`` context (ADR-0006). It refuses three shapes, all decided at the
+    ``--project`` context (ADR-0006). It refuses four shapes, all decided at the
     CLI *before* any engine launch, never as a crash or a raw engine failure (an
     explicit ABI edge of ADR-0031): an **absolute** path, **another engine scheme**
-    (``user://``, ``uid://``), and a path that collapses to the project **root**
-    (``""``, ``"."``). The message names the accepted forms rather than the rejected
-    shape, so it reads the same for all three.
+    (``user://``, ``uid://``), a path naming the project **root** (``""``, ``"."``),
+    and a path **escaping above the root** (``".."``, ``"../outside.gd"``). The
+    message names the accepted forms rather than the rejected shape, so it reads the
+    same for all four.
 
     Absolute stays refused for two verified reasons, not merely as deferred scope.
     The engine reports a failed run under the ``res://`` spelling even when launched

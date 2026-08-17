@@ -97,11 +97,24 @@ status: accepted
 > otherwise the accepted form and the form every failure message quotes would differ with nothing to
 > connect them. This is a schema addition in ADR-0004's sense, moving with the implementation.
 >
-> **What stays refused**, all decided before any launch as `invalid_path`: an **absolute** path,
+> **What stays refused**, all decided before any launch as `invalid_path`: an **absolute** path;
 > **another engine scheme** (`user://`, `uid://` — lifting one would splice a second scheme into a
-> res:// address and send the engine after a path nobody typed), and a path that collapses to the
-> project **root** (`""`, `"."`, `"sub/.."` — it names a directory, not a script). The ABI edge below
-> names "a non-`res://` **or absolute** script path"; only its first half is lifted here.
+> res:// address and send the engine after a path nobody typed); a path naming the project **root**
+> (`""`, `"."`, `"sub/.."`, and the `res://` / `res://.` spellings — a directory, not a script); and a
+> path **escaping above the root** (`".."`, `"../outside.gd"`, and their `res://` spellings). The ABI
+> edge below names "a non-`res://` **or absolute** script path"; only its first half is lifted here.
+>
+> The last two are refused for a reason beyond tidiness, and both were **verified**. The engine
+> answers a root or escape address with `Can't load script: res://.` / `res://..`, whose address the
+> error parser reads back with the sentence period stripped — so it never matches the entry, the
+> never-ran verdict misses it, and the run reports a phantom `exit_status: 0`. Worse, an escape that
+> *resolves* (`../outside.gd`) **executes a script outside the project**, which is precisely the
+> ADR-0009 widening cited just below as the reason absolute paths stay refused; admitting it by the
+> relative spelling would make that reasoning false. Both shapes are reachable on the pre-amendment
+> `res://` spelling too, so this closes a pre-existing hole rather than one the widening created — but
+> the widening is what made them reachable from the ordinary project-relative form, so they are closed
+> here. The residual parser weakness (a trailing-period strip that mis-reads `res://..`) is **not**
+> addressed here; it belongs to the error parser and is tracked separately.
 >
 > Absolute stays refused for two **verified** reasons, not merely as deferred scope. First, the engine
 > reports a failed run under the **`res://` spelling even when launched with an absolute in-project

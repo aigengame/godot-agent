@@ -210,7 +210,18 @@ def test_params_json_accepts_the_project_relative_form_too(monkeypatch, tmp_path
 
 
 @pytest.mark.parametrize(
-    "script", ["/abs/logic.gd", "user://x.gd", "uid://cabc123", "", ".", "sub/.."]
+    "script",
+    [
+        "/abs/logic.gd",
+        "user://x.gd",
+        "uid://cabc123",
+        "",
+        ".",
+        "sub/..",
+        "..",
+        "../outside.gd",
+        "res://../outside.gd",
+    ],
 )
 def test_a_non_project_scoped_path_emits_invalid_path_envelope(
     monkeypatch, tmp_path, script

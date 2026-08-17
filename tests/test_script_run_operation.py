@@ -210,14 +210,28 @@ def test_both_path_forms_reach_one_canonical_address(script):
         ".",
         "./",
         "sub/..",
+        "res://",
+        "res://.",
+        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded (the
+        # engine's `Can't load script: res://..` parses back as `res://.`), and
+        # `../outside.gd` actually EXECUTED a script outside the project.
+        "..",
+        "sub/../..",
+        "../outside.gd",
+        "res://..",
+        "res://../outside.gd",
+        "../../etc/passwd",
     ],
 )
 def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
     # The path ABI edge (ADR-0031, narrowed by #675): accepting the project-relative
-    # form must not accept everything ELSE that is merely non-absolute. The root case
-    # is load-bearing — the engine answers `Can't load script: res://.`, whose address
-    # the parser reads back as `res://` once the sentence period is stripped, so it
-    # never matches the entry and the run reported a PHANTOM SUCCESS (exit 0).
+    # form must not accept everything ELSE that is merely non-absolute. The root and
+    # escape cases are load-bearing — the engine answers `Can't load script: res://.`
+    # / `res://..`, whose address the parser reads back with the sentence period
+    # stripped, so it never matches the entry and the run reported a PHANTOM SUCCESS
+    # (exit 0). A resolvable escape is worse: `../outside.gd` RAN a script outside the
+    # project, which is exactly the ADR-0009 widening the amendment cites as its
+    # reason for refusing absolute paths.
     outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
 
     assert isinstance(outcome, Failure)
@@ -424,6 +438,20 @@ def test_a_project_relative_entry_still_reaches_the_verdict(script, stderr, code
     (_binary, args, _cwd, _timeout, _label) = launch.calls[0]
     assert args[-1] == "res://tests/logic.gd"
     assert "res://tests/logic.gd" in outcome.error.message
+
+
+@pytest.mark.parametrize("script", ["..foo.gd", "res://..foo.gd", "sub/..foo.gd"])
+def test_a_leading_dot_dot_FILENAME_is_still_accepted(script):
+    # The escape refusal keys on the canonical remainder's first SEGMENT, not on a
+    # string prefix. A file whose NAME merely starts with two dots is legal and must
+    # still run — a naive `startswith("..")` would refuse it.
+    outcome, launch = _run(
+        RunResult(stdout="ok\n", stderr="", exit_code=0), script=script
+    )
+
+    assert isinstance(outcome, ScriptRunResult), getattr(outcome, "error", None)
+    assert outcome.path.endswith("..foo.gd")
+    assert launch.calls, "an accepted path must reach the engine"
 
 
 def test_a_project_relative_load_error_for_another_script_stays_a_success():
