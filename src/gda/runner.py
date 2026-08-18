@@ -10,14 +10,13 @@ import codecs
 import enum
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -440,35 +439,23 @@ class LaunchWatch(Protocol):
     :meth:`observe` is polled on a fixed cadence for the whole run, **including
     polls where no output arrived** (both arguments empty), so a policy keyed on
     SILENCE can fire. ``elapsed`` is passed in rather than read from a clock
-    inside the watch, which keeps an implementation a pure function of its
-    arguments and so testable without sleeping or spawning.
+    inside the watch, which keeps an implementation a pure function of
+    ``(text, elapsed)`` — deterministic on every platform, and testable without
+    sleeping or spawning. The observed text and the clock are deliberately the
+    watch's ONLY inputs: an earlier version also fed it the child's CPU time as
+    evidence of idleness, and review falsified that in both directions (a run
+    blocked in a wait consumes no CPU while alive, and a host where CPU time
+    cannot be read loses the policy entirely), so no process-state probe belongs
+    in this contract.
     """
 
-    def observe(
-        self,
-        *,
-        stdout: str,
-        stderr: str,
-        elapsed: float,
-        cpu_seconds: "Callable[[], float | None]",
-    ) -> bool:
+    def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
         """Feed the text that arrived since the last poll; ``True`` ends the run.
 
         ``stdout``/``stderr`` are the NEWLY-decoded text only (each may be
         empty), never the accumulated capture, so an implementation is fed each
         byte exactly once and cannot become quadratic in the output size.
         ``elapsed`` is monotonic seconds since the spawn.
-
-        ``cpu_seconds`` reads the child's **cumulative CPU time** — the evidence
-        that separates a process which has stopped working from one that is merely
-        quiet (a Godot main loop left idle by an aborted script accrues ~0.01s of
-        CPU per second; a script still computing accrues ~1.0s, two orders of
-        magnitude apart). It is a CALLABLE, not a sampled value, for cost: reading
-        it can cost a subprocess, and a policy needs it at a couple of moments, not
-        on every one of the thousands of polls a long run takes. ``None`` means this
-        platform could not be measured — a policy must then not claim the process
-        is idle. The runner supplies it because the runner owns the process; what
-        the number MEANS is the watch's business.
         """
         ...
 
@@ -498,101 +485,6 @@ _TERMINATE_GRACE_SECONDS = 3.0
 # end at EOF on their pipe, which the child's exit produces, so this only bounds a
 # pathological case rather than being a normal wait.
 _READER_JOIN_SECONDS = 5.0
-
-# How long a ``ps`` sample may take before gda gives up on measuring CPU time. A
-# policy that cannot read the number must not claim the process is idle, so a slow
-# or wedged ``ps`` degrades to "unmeasurable" rather than stalling the poll loop.
-_CPU_PROBE_TIMEOUT_SECONDS = 5.0
-
-# ``ps -o time=`` renders cumulative CPU time as ``[[DD-]HH:]MM:SS[.cc]`` — macOS
-# gives hundredths, Linux whole seconds (POSIX only requires the latter). Parsed
-# rather than assumed, so an unexpected rendering becomes "unmeasurable".
-_PS_CPU_TIME = re.compile(
-    r"^(?:(?P<days>\d+)-)?(?:(?P<hours>\d+):)?(?P<minutes>\d+):(?P<seconds>\d+(?:\.\d+)?)$"
-)
-
-
-def cpu_seconds(pid: int) -> float | None:
-    """The child's cumulative CPU time in seconds, or ``None`` if unmeasurable.
-
-    The evidence a `Completion marker` policy needs to tell a process that has
-    STOPPED working from one that is merely quiet. Measured against Godot 4.6.3: a
-    headless main loop left idle by an aborted entry script accrues about **0.01s of
-    CPU per wall second** (its loop is throttled, not spinning), while a script
-    still computing accrues about **1.0s** — a ratio wide enough that even a
-    whole-second-granularity source separates them over a few seconds.
-
-    Two sources, preferred in that order:
-
-    - Linux ``/proc/<pid>/stat`` — ``utime + stime`` in clock ticks, so ~10ms
-      granularity and no subprocess. Preferred because POSIX ``ps`` only promises
-      whole seconds, and a coarse reading of a nearly-idle process is exactly where
-      granularity would matter.
-    - ``ps -o time=`` elsewhere (macOS included, where it reports hundredths).
-
-    ``None`` — an unsupported platform, a missing or unreadable ``ps``, a process
-    that has already gone, or output this does not recognize — is a **first-class
-    answer, not an error**: the caller must treat "cannot measure" as "cannot claim
-    idle", so an unmeasurable host loses an optimisation rather than gaining a
-    wrong kill. Never raises, for the same reason: this is called from a poll loop
-    whose failure mode would otherwise be an escaping traceback.
-    """
-    if sys.platform.startswith("linux"):
-        measured = _cpu_seconds_from_proc(pid)
-        if measured is not None:
-            return measured
-    return _cpu_seconds_from_ps(pid)
-
-
-def _cpu_seconds_from_proc(pid: int) -> float | None:
-    """Linux ``utime + stime`` from ``/proc/<pid>/stat``, in seconds."""
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        return None
-    # The comm field is parenthesized and may itself contain spaces AND ')', so the
-    # fields are counted from the LAST ')' rather than by splitting the whole line.
-    close = stat.rfind(")")
-    if close == -1:
-        return None
-    fields = stat[close + 2 :].split()
-    # After comm, field 1 is state; utime/stime are fields 14/15 of the whole line,
-    # i.e. offsets 11/12 here.
-    if len(fields) < 13:
-        return None
-    try:
-        ticks = int(fields[11]) + int(fields[12])
-        per_second = os.sysconf("SC_CLK_TCK")
-    except (ValueError, OSError):
-        return None
-    if per_second <= 0:
-        return None
-    return ticks / per_second
-
-
-def _cpu_seconds_from_ps(pid: int) -> float | None:
-    """Cumulative CPU time from ``ps -o time=``, in seconds."""
-    try:
-        proc = subprocess.run(
-            ["ps", "-o", "time=", "-p", str(pid)],
-            capture_output=True,
-            timeout=_CPU_PROBE_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if proc.returncode != 0:
-        return None
-    match = _PS_CPU_TIME.match(proc.stdout.decode("utf-8", "replace").strip())
-    if match is None:
-        return None
-    days = int(match.group("days") or 0)
-    hours = int(match.group("hours") or 0)
-    return (
-        days * 86400.0
-        + hours * 3600.0
-        + int(match.group("minutes")) * 60.0
-        + float(match.group("seconds"))
-    )
 
 
 class _StreamCapture:
@@ -935,10 +827,6 @@ def _spawn_streamed(
                 stdout=out_capture.drain(),
                 stderr=err_capture.drain(),
                 elapsed=elapsed,
-                # Bound to THIS child, and lazy: the watch decides when a CPU
-                # reading is worth its cost, which for a subprocess-backed probe is
-                # not once per 50ms poll.
-                cpu_seconds=lambda: cpu_seconds(proc.pid),
             ):
                 aborted = True
                 break

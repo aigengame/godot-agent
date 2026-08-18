@@ -19,7 +19,6 @@ targets the standard build) and a dedicated decision.
 import math
 import re
 from collections import deque
-from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
@@ -587,37 +586,29 @@ class ScriptValidateResult(BaseModel):
 # hung engine so the CLI fails loudly rather than blocking forever.
 DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = 120.0
 
-# How long a run must stay SILENT, after a script error has appeared and while the
-# caller's declared completion marker has not, before gda ends it (#655).
+# How long a run must stay SILENT, after an entry-attributable script error has
+# appeared and while the caller's declared completion marker has not, before gda
+# ends it (#655).
 #
-# The silence is what makes the abort safe, and it is why this is not simply "abort
-# on the first error". A GDScript runtime error aborts only the function that
-# raised it: a script can hit one in a nested call, carry on, and still reach its
-# own ``quit()`` (``tests/test_e2e_script_run.py`` pins exactly that run as a
-# SUCCESS). Ending such a run on the error alone would turn a passing run into a
-# failure. A run that keeps working keeps printing, which resets this window; a run
-# whose entry point died goes quiet and stays quiet — measured at 0.2s from spawn
-# to the error line, so 3s of silence is a wide margin over the engine's own
-# cadence while staying far below any usable ``--timeout``.
+# This window is a CONTRACT PARAMETER, not a detector threshold. Whether a Godot
+# run that printed an error can still finish is not observable from outside the
+# process: a GDScript runtime error aborts only the function that raised it, so a
+# script can survive one and keep working — and working can look exactly like
+# death (blocked in a wait it consumes no CPU; during an ``await`` the main loop
+# iterates just as an abandoned one does). Declaring ``--completion-marker`` is
+# therefore what SETTLES the question, by contract: the caller asserts the script
+# keeps producing output (any line resets this window) until the marker line says
+# it finished, so an entry-attributable error followed by this much total silence
+# without the marker IS the run being dead, by the caller's own declaration.
+# Measured at 0.2s from spawn to the error line, 3s is a wide margin over the
+# engine's own cadence while staying far below any usable ``--timeout``.
 #
-# Fixed, not an option: it is the abort's stated bound, and a caller who wants to
-# wait longer already has ``--timeout`` (omit the marker). It is stated in the
-# failure message so the bound is legible rather than folklore.
-#
-# The window is used TWICE — once to establish silence, once more to measure CPU
-# across it — so the abort lands after roughly 2x this value.
+# Fixed, not an option: it is part of the declared contract and the abort's stated
+# bound, and a caller whose script goes quiet for longer has two escape hatches —
+# print anything during the quiet stretch, or omit the marker and wait out
+# ``--timeout``. It is stated in the failure message so the bound is legible
+# rather than folklore.
 SCRIPT_RUN_ABORT_SILENCE_SECONDS = 3.0
-
-# How much CPU time the process may consume across the idleness window and still
-# count as idle (#655). Measured against Godot 4.6.3: a headless main loop left
-# idle by an aborted entry accrues ~0.01s of CPU per wall second (~0.03s across
-# this window), while a script still computing accrues ~1.0s (~3s across it). The
-# threshold sits an order of magnitude above the idle rate and an order below the
-# working rate, so neither a slightly busy idle loop nor a coarse whole-second CPU
-# clock (all POSIX ``ps`` guarantees) can flip the verdict. Erring high would kill
-# working runs; erring low only forfeits the early abort, so the margin is
-# deliberately generous on the safe side.
-SCRIPT_RUN_IDLE_CPU_SECONDS = 0.25
 
 # How many trailing stderr lines the watch re-parses to attribute an error. Godot
 # writes one error as a header, an ``at:`` frame and possibly a backtrace, and a
@@ -694,25 +685,25 @@ class ScriptRunParams(BaseModel):
         # every blank line the run prints; `min_length` alone lets " " through.
         pattern=r"\S",
         description=(
-            "Opt-in early termination: a string the script prints on its own line "
-            "when it has finished its work. When it is declared and a script error "
-            "appears on stderr, gda ends the run and reports 'script_aborted' with "
-            "the captured error — in seconds rather than at the timeout. Matched by "
-            "WHOLE-LINE equality (both sides stripped), not as a substring. All four "
-            "conditions must hold: a recognized error ATTRIBUTABLE TO THE ENTRY "
-            "script (one about another resource arms nothing), this marker absent, "
-            f"neither stream producing output for {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, "
-            "and then NO MEASURABLE CPU consumed over a further "
-            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s — so the abort lands after about "
-            f"{2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS}s. The CPU condition is what "
-            "keeps a script that survives a recoverable error and then computes "
-            "QUIETLY from being killed: silence alone is not evidence a run is dead. "
-            "Where CPU time cannot be measured, gda does not abort at all. Omit the "
-            "marker and gda waits out 'timeout' as before. Caller-declared, never "
-            "imposed: gda does not require or inject anything in the script "
-            "(ADR-0031), and this is not the ADR-0002 op-dispatch sentinel. Note a "
-            f"'timeout' at or below {2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves "
-            "the marker inert, because the ceiling arrives first (#655)."
+            "Opt-in liveness contract: a string the script prints on its own line "
+            "when it has finished its work. Declaring it asserts the script keeps "
+            "producing output (any line counts) until that marker line — so when a "
+            "recognized error ATTRIBUTABLE TO THE ENTRY script appears on stderr "
+            "(one about another resource arms nothing), the marker has not "
+            "appeared, and neither stream then produces output for "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, gda ends the run and reports "
+            "'script_aborted' with the captured error — in seconds rather than at "
+            "the timeout, deterministically on every platform. Matched by "
+            "WHOLE-LINE equality (both sides stripped), not as a substring. The "
+            "contract cuts both ways: a script that goes silent for longer than "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s after such an error is ended "
+            "even if it would have finished — a script with long quiet stretches "
+            "should print progress during them, or run without a marker and wait "
+            "out 'timeout' as before. Caller-declared, never imposed: gda does not "
+            "require or inject anything in the script (ADR-0031), and this is not "
+            "the ADR-0002 op-dispatch sentinel. Note a 'timeout' at or below "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves the marker inert, "
+            "because the ceiling arrives first (#655)."
         ),
     )
 
@@ -986,10 +977,11 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
     Attribution is what keeps a *survivable* failure from arming the abort at all. A
     running script that merely ``load()``s a missing ``.tres``, or whose helper
     script fails, produces the same engine sentences for a DIFFERENT path — and the
-    e2e suite pins such runs as successes. Only the entry's own trouble is evidence
-    about the entry's fate, and even then only evidence, not proof: a runtime error
-    aborts one function, not necessarily the run, which is why the idleness check
-    downstream is what actually authorises the kill.
+    e2e suite pins such runs as successes. Only the entry's own trouble is grounds
+    to start the silence window at all; what authorises the kill is the caller's
+    declared contract (see :class:`_CompletionMarkerWatch`), not an inference that
+    the run cannot continue — a runtime error aborts one function, not necessarily
+    the run, and no observation from outside the process can tell the difference.
     """
     if entry_load_failure(errors, entry) is not None:
         return True
@@ -1009,13 +1001,21 @@ class _CompletionMarkerWatch:
     here, in the ``script`` group, because that meaning is this command's domain
     knowledge and no other channel's.
 
-    Killing a run is destructive and unrecoverable, so the bar is **evidence that
-    this run cannot finish**, not merely a plausible sign of trouble. An earlier
-    version armed on any parsed diagnostic plus silence, and review showed that
-    wrong on a real paired run: the same script aborted with a marker declared and
-    completed without one, because "an error was printed and nothing has been
-    printed since" is equally true of a script computing QUIETLY after surviving a
-    recoverable error. All four conditions below must hold:
+    Killing a run is destructive and unrecoverable, and whether a run that printed
+    an error can still finish is **not observable from outside the process**:
+    review falsified every observational stand-in tried here. Silence alone killed
+    a script computing quietly after a survivable error; a CPU-idleness probe was
+    indistinguishable from a run blocked in a legitimate wait (``OS.execute``, an
+    ``await`` — alive, but consuming nothing), and on a host where CPU time cannot
+    be read it silently forfeited the seconds-bound the issue promises. So this
+    watch does not CLAIM to detect death. It enforces the contract issue #655
+    defines and the caller opted into by declaring a marker: *the script signals
+    completion with the marker line and keeps producing output until then; an
+    entry-attributable error followed by sustained total silence without the
+    marker means the run is dead* — by declaration, not inference. That makes the
+    abort a pure function of the observed text and the clock: deterministic,
+    identical on every platform, and honest about what it knows. All three
+    conditions must hold:
 
     1. a recognized error attributable to the **entry script** appeared on stderr —
        see :func:`_entry_attributable`, which reuses
@@ -1030,21 +1030,16 @@ class _CompletionMarkerWatch:
        caller can say what finishing looks like. With no marker declared, this
        watch NEVER aborts and the launch simply gains its captured output;
     3. neither stream has produced output for
-       :data:`SCRIPT_RUN_ABORT_SILENCE_SECONDS`;
-    4. the process then consumed **no measurable CPU** across a further window of
-       the same length. This is the condition that makes (1)–(3) safe rather than
-       merely suggestive: an aborted entry leaves Godot idling in its main loop at
-       roughly 0.01s of CPU per wall second, while a script still computing burns
-       about 1.0s — measured against 4.6.3, two orders of magnitude apart. A quiet
-       worker is therefore no longer mistaken for a corpse. Where CPU time cannot be
-       read at all (see :func:`gda.runner.cpu_seconds`), gda does **not** abort: an
-       unmeasurable host loses the optimisation instead of gaining a wrong kill.
+       :data:`SCRIPT_RUN_ABORT_SILENCE_SECONDS` — the contract's liveness bound.
+       Any output line resets it, which is the compliant escape hatch for a script
+       with long quiet stretches: print progress, or omit the marker.
 
-    The cost of (4) is bounded: the CPU probe can be a subprocess, so it is read at
-    the two ends of one window rather than on every poll, and only once conditions
-    (1)–(3) already hold. The price of the added certainty is latency — the abort
-    lands after about two silence windows rather than one — which is still seconds
-    against a default ceiling of two minutes, and is stated in the failure message.
+    The contract cuts both ways and the price is stated where the caller declares
+    it (the ``--completion-marker`` help): a script that survives an
+    entry-attributable error and then works past the bound in total silence is
+    ended even though it would have finished. That is the declared semantics, not
+    a detection error — the alternative heuristics that tried to save such a run
+    are the ones review proved wrong in both directions.
 
     Marker matching is **whole-line equality** (both sides stripped), not a
     substring test. Substring matching made ``NOT DONE YET`` count as the marker
@@ -1065,7 +1060,6 @@ class _CompletionMarkerWatch:
         *,
         entry: str,
         silence: float = SCRIPT_RUN_ABORT_SILENCE_SECONDS,
-        max_idle_cpu: float = SCRIPT_RUN_IDLE_CPU_SECONDS,
     ) -> None:
         # A marker that is blank once stripped would equal every blank line the run
         # prints and arm the abort on nothing, so it is treated as UNDECLARED. The
@@ -1075,7 +1069,6 @@ class _CompletionMarkerWatch:
         self._marker = stripped or None
         self._entry = canonical_res_path(entry)
         self._silence = silence
-        self._max_idle_cpu = max_idle_cpu
         self._partial: dict[str, str] = {"stdout": "", "stderr": ""}
         # A bounded tail of stderr lines, re-parsed as new ones arrive. A window,
         # not the whole stream, because the parse must stay linear overall; but a
@@ -1087,25 +1080,12 @@ class _CompletionMarkerWatch:
         self._marker_seen = False
         self._error_seen = False
         self._last_output_at = 0.0
-        # The CPU baseline for condition (4), and when it was taken. Both cleared by
-        # any new output: output means the run is alive, which restarts the silence.
-        self._idle_probe_at: float | None = None
-        self._idle_baseline: float | None = None
 
-    def observe(
-        self,
-        *,
-        stdout: str,
-        stderr: str,
-        elapsed: float,
-        cpu_seconds: Callable[[], float | None],
-    ) -> bool:
+    def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
         if stdout or stderr:
+            # Any output restarts the wait from scratch: under the declared
+            # contract, a run that is still talking is not a run to kill.
             self._last_output_at = elapsed
-            # Any output restarts the wait from scratch, including a pending CPU
-            # measurement: a run that is still talking is not a run to kill.
-            self._idle_probe_at = None
-            self._idle_baseline = None
         for stream, text in (("stdout", stdout), ("stderr", stderr)):
             if not text:
                 continue
@@ -1120,34 +1100,13 @@ class _CompletionMarkerWatch:
                 self._stderr_window.extend(lines)
                 errors = parse_script_errors("\n".join(self._stderr_window))
                 self._error_seen = _entry_attributable(errors, self._entry)
-        return self._should_abort(elapsed, cpu_seconds)
+        return self._should_abort(elapsed)
 
-    def _should_abort(
-        self, elapsed: float, cpu_seconds: Callable[[], float | None]
-    ) -> bool:
-        """Conditions (2)–(4) — see the class docstring for why each is required."""
+    def _should_abort(self, elapsed: float) -> bool:
+        """Conditions (2) and (3) — see the class docstring for why each is required."""
         if self._marker is None or self._marker_seen or not self._error_seen:
             return False
-        if elapsed - self._last_output_at < self._silence:
-            return False
-        # Silent long enough to be worth measuring. Take the CPU baseline now — not
-        # when the output stopped — so the probe costs nothing on the overwhelming
-        # majority of runs, which never reach this point at all.
-        if self._idle_probe_at is None:
-            self._idle_baseline = cpu_seconds()
-            self._idle_probe_at = elapsed
-            return False
-        if elapsed - self._idle_probe_at < self._silence:
-            return False
-        before, after = self._idle_baseline, cpu_seconds()
-        if before is None or after is None:
-            # Unmeasurable: gda cannot claim the process is idle, so it must not
-            # kill it. Clearing the probe lets a later window try again, in case the
-            # failure was transient, while the run continues toward its --timeout.
-            self._idle_probe_at = None
-            self._idle_baseline = None
-            return False
-        return after - before <= self._max_idle_cpu
+        return elapsed - self._last_output_at >= self._silence
 
     def _complete_lines(self, stream: str, text: str) -> list[str]:
         """The newly-completed lines of one stream; the trailing partial is held.
@@ -1382,7 +1341,7 @@ def _classify_ended_run(
             script,
             marker=completion_marker,
             timeout=timeout,
-            elapsed=_elapsed(raw, at_least=2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS),
+            elapsed=_elapsed(raw, at_least=SCRIPT_RUN_ABORT_SILENCE_SECONDS),
             silence=SCRIPT_RUN_ABORT_SILENCE_SECONDS,
             phase=TerminationPhase.ABORTED_ON_ERROR.value,
             script_errors=_render_captured_errors(raw.stderr),
@@ -2106,20 +2065,20 @@ def run_script(
         None,
         "--completion-marker",
         help=(
-            "Opt-in early termination: a line the script prints when its work is "
-            "done, matched by WHOLE-LINE equality. gda reports 'script_aborted' with "
-            "the captured error only when all four hold: a recognized error "
-            "attributable to the ENTRY script appears, this marker does not, neither "
-            f"stream produces output for {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, and no "
-            f"measurable CPU is consumed over a further "
-            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s — so it lands in about "
-            f"{2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, not the whole --timeout. The "
-            "CPU check is what spares a script that survives a recoverable error and "
-            "then computes quietly; where CPU cannot be measured gda does not abort. "
-            "Caller-declared: gda requires nothing in your script and injects nothing "
-            "(it is NOT the op-dispatch sentinel). Omit it and gda waits out "
-            f"--timeout; a --timeout at or below "
-            f"{2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves the marker inert."
+            "Opt-in liveness contract: a line the script prints when its work is "
+            "done, matched by WHOLE-LINE equality. Declaring it asserts the script "
+            "keeps printing until that line — so gda reports 'script_aborted' with "
+            "the captured error when all three hold: a recognized error "
+            "attributable to the ENTRY script appears, this marker does not, and "
+            "neither stream then produces output for "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s — landing in seconds, not the "
+            "whole --timeout, on every platform alike. The contract cuts both "
+            "ways: a script that goes quiet for longer after such an error is "
+            "ended even if it would have finished, so print progress during long "
+            "quiet stretches or omit the marker. Caller-declared: gda requires "
+            "nothing in your script and injects nothing (it is NOT the op-dispatch "
+            "sentinel). Omit it and gda waits out --timeout; a --timeout at or "
+            f"below {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves the marker inert."
         ),
     ),
     json_output: bool = json_option(),
@@ -2174,10 +2133,10 @@ def run_script(
     gda ends that run within seconds and reports ``script_aborted`` with the error
     the engine had already printed, instead of waiting out the full ceiling. The
     marker is yours, not gda's: nothing is required of or injected into the script.
-    Ending a run needs evidence it cannot finish, so gda also requires the error to
-    name the ENTRY script and the process to consume no measurable CPU while silent —
-    a script that survives a recoverable error and then computes quietly is left
-    alone, and an unmeasurable host never aborts at all.
+    The marker is a declared liveness contract, not a detector — gda arms it only
+    on an error naming the ENTRY script, and the caller's declaration is what makes
+    the following silence mean death; a script with long quiet stretches should
+    print progress during them, or run without a marker.
     """
     # A FINITE positive ceiling, checked on both input paths (ADR-0015): the model
     # below enforces it for --params-json, this for argv. `inf` passes a bare `> 0`

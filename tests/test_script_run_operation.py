@@ -785,51 +785,16 @@ def test_an_aborted_run_is_the_registered_early_termination_verdict():
     assert "SUITE START" in outcome.error.diagnostics
 
 
-def _idle():
-    """A CPU probe standing in for a process that is doing NOTHING.
+def _drive(watch, steps):
+    """Feed ``(stdout, stderr, elapsed)`` steps to a watch; return each verdict.
 
-    Returns a constant, so any two samples differ by zero — the reading an aborted
-    entry really produces (Godot's idle main loop accrues ~0.01s of CPU per wall
-    second, measured against 4.6.3).
+    The watch is a pure function of the observed text and the clock — deliberately
+    its ONLY inputs. An earlier version also read the child's CPU time as idleness
+    evidence, and review falsified it in both directions (a run blocked in a wait
+    consumes no CPU while alive; a host that cannot read CPU time lost the abort
+    entirely), so these tests need no process, no probe, and no platform.
     """
-
-    def probe() -> float | None:
-        return 1.0
-
-    return probe
-
-
-def _burning(rate: float = 1.0):
-    """A CPU probe standing in for a process still COMPUTING at ``rate`` s/s.
-
-    Each call advances, so the watch's two samples differ — the reading a script that
-    survived a recoverable error and went on working quietly really produces (~1.0s
-    of CPU per wall second, two orders of magnitude above idle).
-    """
-    state = {"t": 0.0}
-
-    def probe() -> float | None:
-        state["t"] += rate * SCRIPT_RUN_ABORT_SILENCE_SECONDS
-        return state["t"]
-
-    return probe
-
-
-def _unmeasurable():
-    """A CPU probe for a platform gda cannot read (no /proc, no usable ps)."""
-
-    def probe() -> float | None:
-        return None
-
-    return probe
-
-
-def _drive(watch, steps, cpu):
-    """Feed ``(stdout, stderr, elapsed)`` steps to a watch; return each verdict."""
-    return [
-        watch.observe(stdout=out, stderr=err, elapsed=at, cpu_seconds=cpu)
-        for out, err, at in steps
-    ]
+    return [watch.observe(stdout=out, stderr=err, elapsed=at) for out, err, at in steps]
 
 
 def test_the_declared_marker_reaches_the_watch_and_absence_leaves_it_inert():
@@ -840,7 +805,6 @@ def test_the_declared_marker_reaches_the_watch_and_absence_leaves_it_inert():
     verdicts = _drive(
         inert,
         [("", ABORTED_STDERR, 0.5), ("", "", 600.0), ("", "", 900.0)],
-        _idle(),
     )
     assert verdicts == [False, False, False]
 
@@ -854,75 +818,64 @@ def test_a_blank_marker_is_treated_as_undeclared():
     verdicts = _drive(
         watch,
         [("\n", ABORTED_STDERR, 0.5), ("", "", 3.6), ("", "", 7.0)],
-        _idle(),
     )
     assert verdicts == [False, False, False]
 
 
-def test_the_watch_aborts_only_after_the_error_the_silence_and_the_idleness():
-    # The four-part rule. Each step below is a part that must NOT be enough on its own.
+def test_the_watch_aborts_only_after_the_error_and_a_full_silence_window():
+    # The three-part rule. Each step below is a part that must NOT be enough alone.
     watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
 
-    # (1) an entry error, but the run may still be working.
-    assert not watch.observe(
-        stdout="SUITE START\n", stderr=ABORTED_STDERR, elapsed=0.5, cpu_seconds=_idle()
-    )
-    # (3) a short silence is not the window.
-    assert not watch.observe(stdout="", stderr="", elapsed=2.9, cpu_seconds=_idle())
-    # The silence window elapses: gda takes a CPU BASELINE and still does not kill —
-    # silence alone was the old, wrong trigger.
-    assert not watch.observe(stdout="", stderr="", elapsed=3.6, cpu_seconds=_idle())
-    # Only after a further window of measured idleness is the kill authorised.
-    assert not watch.observe(stdout="", stderr="", elapsed=5.0, cpu_seconds=_idle())
-    assert watch.observe(stdout="", stderr="", elapsed=6.7, cpu_seconds=_idle())
+    # (1) an entry error, but output is still arriving: the run is talking.
+    assert not watch.observe(stdout="SUITE START\n", stderr=ABORTED_STDERR, elapsed=0.5)
+    # (3) a short silence is not the window (2.4s since the last output).
+    assert not watch.observe(stdout="", stderr="", elapsed=2.9)
+    # The full window since the last output is the contract's bound: the caller
+    # declared the script keeps printing until the marker, so this silence IS the
+    # run being dead — by declaration, on every platform alike.
+    assert watch.observe(stdout="", stderr="", elapsed=3.6)
 
 
-def test_a_quiet_but_still_working_run_is_never_aborted():
-    # THE REVIEWED DEFECT (real paired repro: the same script aborted with a marker
-    # declared and completed without one). "An entry error was printed and nothing has
-    # been printed since" is equally true of a script that survived a RECOVERABLE
-    # error and went on computing without printing — a GDScript runtime error aborts
-    # only the function that raised it. Silence is not death, so the CPU evidence is
-    # what decides, and here it says the process is busy: no abort, ever, however long
-    # the quiet lasts.
+def test_a_silent_survivor_is_ended_by_the_declared_contract():
+    # THE CONTRACT'S PRICE, stated rather than hidden: a script that survives an
+    # entry-attributable error and then works past the bound in TOTAL silence is
+    # ended even though it would have finished. Review proved every observational
+    # rescue of such a run wrong in both directions — a CPU probe cannot tell a
+    # blocked-but-alive wait (no CPU while alive) from a corpse, and a host that
+    # cannot read CPU time lost the abort entirely. Declaring the marker is what
+    # asserts the script does not do this; the compliant alternatives are pinned by
+    # the test below and the e2e pair.
     watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
-    burning = _burning()
 
     verdicts = _drive(
         watch,
-        [
-            ("SUITE START\n", ABORTED_STDERR, 0.5),
-            ("", "", 3.6),
-            ("", "", 6.7),
-            ("", "", 9.9),
-            ("", "", 30.0),
-            ("", "", 90.0),
-        ],
-        burning,
+        [("SUITE START\n", ABORTED_STDERR, 0.5), ("", "", 2.9), ("", "", 3.6)],
     )
 
-    assert verdicts == [False] * 6
+    assert verdicts == [False, False, True]
 
 
-def test_an_unmeasurable_cpu_clock_never_authorises_the_kill():
-    # Where CPU time cannot be read (no /proc, no usable ps), gda cannot claim the
-    # process is idle — so it must not kill it. The host loses the early abort and the
-    # run proceeds to its --timeout, which is the safe direction to fail.
+def test_a_survivor_that_prints_progress_is_never_aborted():
+    # The compliant escape hatch the contract names: ANY output line resets the
+    # window, so a script that survives a recoverable entry error and keeps saying
+    # so — however slowly it works — is never ended, and its marker finally
+    # disarms the watch for good.
     watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
 
     verdicts = _drive(
         watch,
         [
             ("SUITE START\n", ABORTED_STDERR, 0.5),
-            ("", "", 3.6),
-            ("", "", 6.7),
-            ("", "", 20.0),
-            ("", "", 40.0),
+            ("still checking...\n", "", 2.8),
+            ("", "", 5.0),
+            ("still checking...\n", "", 5.5),
+            ("", "", 8.0),
+            ("SUITE DONE\n", "", 8.2),
+            ("", "", 60.0),
         ],
-        _unmeasurable(),
     )
 
-    assert verdicts == [False] * 5
+    assert verdicts == [False] * 7
 
 
 def test_an_error_about_another_resource_never_arms_the_abort():
@@ -941,7 +894,6 @@ def test_an_error_about_another_resource_never_arms_the_abort():
     verdicts = _drive(
         watch,
         [("", other, 0.5), ("", "", 3.6), ("", "", 6.7), ("", "", 60.0)],
-        _idle(),
     )
 
     assert verdicts == [False] * 4
@@ -960,7 +912,6 @@ def test_a_runtime_error_in_a_helper_script_never_arms_the_abort():
     verdicts = _drive(
         watch,
         [("", helper, 0.5), ("", "", 3.6), ("", "", 6.7), ("", "", 60.0)],
-        _idle(),
     )
 
     assert verdicts == [False] * 4
@@ -980,33 +931,27 @@ def test_an_entry_load_failure_arms_the_abort_too():
 
     verdicts = _drive(
         watch,
-        [("", not_a_main_loop, 0.5), ("", "", 3.6), ("", "", 6.7)],
-        _idle(),
+        [("", not_a_main_loop, 0.5), ("", "", 2.9), ("", "", 3.6)],
     )
 
     assert verdicts == [False, False, True]
 
 
-def test_output_after_the_error_resets_both_windows():
+def test_output_after_the_error_resets_the_silence_window():
     # A run that keeps working keeps printing, and any output must restart the wait
-    # from scratch — including a CPU measurement already in flight, since output is
-    # itself proof the run is alive.
+    # from scratch: under the declared contract, output is itself the liveness the
+    # caller promised, so the window measures from the LAST line, not the error.
     watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
 
-    assert not watch.observe(
-        stdout="", stderr=ABORTED_STDERR, elapsed=0.5, cpu_seconds=_idle()
-    )
-    # Silence elapses, so a baseline is taken...
-    assert not watch.observe(stdout="", stderr="", elapsed=3.6, cpu_seconds=_idle())
-    # ...then output arrives, discarding it.
-    assert not watch.observe(
-        stdout="test 8 ok\n", stderr="", elapsed=4.0, cpu_seconds=_idle()
-    )
-    # 4.5s after the error but only 0.5s after the output: nothing may fire yet.
-    assert not watch.observe(stdout="", stderr="", elapsed=4.5, cpu_seconds=_idle())
-    # Both windows must pass again from the new output.
-    assert not watch.observe(stdout="", stderr="", elapsed=7.1, cpu_seconds=_idle())
-    assert watch.observe(stdout="", stderr="", elapsed=10.2, cpu_seconds=_idle())
+    assert not watch.observe(stdout="", stderr=ABORTED_STDERR, elapsed=0.5)
+    # A hair under the window since the error: nothing fires...
+    assert not watch.observe(stdout="test 8 ok\n", stderr="", elapsed=3.4)
+    # ...and that line restarted the wait: 4.5s after the error is only 1.1s after
+    # the output, so nothing may fire yet.
+    assert not watch.observe(stdout="", stderr="", elapsed=4.5)
+    assert not watch.observe(stdout="", stderr="", elapsed=6.3)
+    # The full window since the LAST output is what fires.
+    assert watch.observe(stdout="", stderr="", elapsed=6.5)
 
 
 def test_the_marker_appearing_disarms_the_abort_for_good():
@@ -1018,7 +963,6 @@ def test_the_marker_appearing_disarms_the_abort_for_good():
     verdicts = _drive(
         watch,
         [("SUITE DONE\n", ABORTED_STDERR, 0.5), ("", "", 60.0), ("", "", 120.0)],
-        _idle(),
     )
 
     assert verdicts == [False, False, False]
@@ -1033,8 +977,7 @@ def test_a_line_merely_containing_the_marker_does_not_disarm_the_abort():
 
     verdicts = _drive(
         watch,
-        [("NOT DONE YET\n", ABORTED_STDERR, 0.5), ("", "", 3.6), ("", "", 6.7)],
-        _idle(),
+        [("NOT DONE YET\n", ABORTED_STDERR, 0.5), ("", "", 2.9), ("", "", 3.6)],
     )
 
     assert verdicts == [False, False, True]
@@ -1048,7 +991,6 @@ def test_the_marker_matches_its_line_ignoring_surrounding_whitespace():
     verdicts = _drive(
         watch,
         [("  SUITE DONE  \n", ABORTED_STDERR, 0.5), ("", "", 3.6), ("", "", 6.7)],
-        _idle(),
     )
 
     assert verdicts == [False, False, False]
@@ -1063,7 +1005,6 @@ def test_the_marker_is_matched_across_a_chunk_boundary():
     verdicts = _drive(
         watch,
         [("SUITE ", ABORTED_STDERR, 0.1), ("DONE\n", "", 0.2), ("", "", 6.7)],
-        _idle(),
     )
 
     assert verdicts == [False, False, False]
@@ -1082,10 +1023,9 @@ def test_an_error_record_split_across_reads_is_still_attributed():
         [
             ("", "SCRIPT ERROR: Invalid call. Nonexistent function 'q'.\n", 0.1),
             ("", "          at: _initialize (res://tests/logic.gd:6)\n", 0.2),
+            ("", "", 2.9),
             ("", "", 3.6),
-            ("", "", 6.7),
         ],
-        _idle(),
     )
 
     assert verdicts == [False, False, False, True]
@@ -1103,7 +1043,6 @@ def test_a_warning_is_not_a_script_error_for_the_abort():
             ("", "", 3.6),
             ("", "", 6.7),
         ],
-        _idle(),
     )
 
     assert verdicts == [False, False, False]
@@ -1117,7 +1056,6 @@ def test_an_error_on_stdout_alone_does_not_arm_the_abort():
     verdicts = _drive(
         watch,
         [(ABORTED_STDERR, "", 0.1), ("", "", 3.6), ("", "", 6.7)],
-        _idle(),
     )
 
     assert verdicts == [False, False, False]
@@ -1181,11 +1119,10 @@ def test_an_unmeasured_run_falls_back_to_its_rule_s_lower_bound():
         completion_marker="SUITE DONE",
     )
     assert isinstance(aborted, Failure)
-    # The abort's guaranteed lower bound is TWO windows: one to establish silence and
-    # one to measure CPU across it, so it cannot have fired sooner than that.
+    # The abort's guaranteed lower bound is one full silence window: it cannot have
+    # fired sooner than the contract's own bound.
     assert (
-        f"ended after {2 * SCRIPT_RUN_ABORT_SILENCE_SECONDS:.2f}s"
-        in aborted.error.message
+        f"ended after {SCRIPT_RUN_ABORT_SILENCE_SECONDS:.2f}s" in aborted.error.message
     )
 
 

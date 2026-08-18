@@ -127,21 +127,21 @@ _Avoid_: run output, export output
 
 **Completion marker**:
 The line a `gda script run` caller **declares** its own script prints when the
-script's work is done (`--completion-marker`). It is how a caller says what finishing
-looks like for a script whose semantics gda does not know. With one declared, gda ends
-a run early — reporting `script_aborted` with the captured error, in seconds instead of
-at `--timeout` — only when **all four** hold: stderr shows a recognized error
-*attributable to the entry script*, the marker has not appeared, neither stream has
-produced output for a fixed window, and the process consumed **no measurable CPU**
-across a further window of the same length (#655). The last condition is what makes the
-rest safe: a surviving script can compute quietly, so silence alone is not death, while
-an aborted entry leaves the engine idling at two orders of magnitude less CPU. Where CPU
-time cannot be measured, gda does not abort. Matched by **whole-line equality**, not as a
-substring. Opt-in and never imposed: gda requires nothing of the script and injects
-nothing into it (ADR-0031 rejected a gda-owned sentinel wrapper), and with no marker
-declared gda waits the ceiling out. **Not** the ADR-0002 op-dispatch sentinel, which is
-gda's own contract with its own `operations.gd` payload; a marker is an arbitrary caller
-line read for one boolean.
+script's work is done (`--completion-marker`). A declared **liveness contract**, not a
+death detector: whether a run that printed an error can still finish is not observable
+from outside the process, so declaring the marker is the caller asserting the script
+keeps producing output until the marker line says it finished. With one declared, gda
+ends a run early — reporting `script_aborted` with the captured error, in seconds
+instead of at `--timeout`, identically on every platform — when **all three** hold:
+stderr shows a recognized error *attributable to the entry script*, the marker has not
+appeared, and neither stream then produces output for a fixed window (#655). The
+contract cuts both ways: a script that goes silent past the window after such an error
+is ended by declaration even if it would have finished — print progress during quiet
+stretches, or omit the marker and wait the ceiling out. Matched by **whole-line
+equality**, not as a substring. Opt-in and never imposed: gda requires nothing of the
+script and injects nothing into it (ADR-0031 rejected a gda-owned sentinel wrapper).
+**Not** the ADR-0002 op-dispatch sentinel, which is gda's own contract with its own
+`operations.gd` payload; a marker is an arbitrary caller line read for one boolean.
 _Avoid_: sentinel, done marker, quit marker
 
 **Session log**:

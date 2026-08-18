@@ -731,9 +731,10 @@ def script_run_aborted_failure(
     return make_failure(
         "script_aborted",
         f"script run: {script} was ended after {elapsed:.2f}s — an error naming the "
-        f"entry script appeared, {declared} did not, neither stream produced output "
-        f"for {silence}s, and the process then consumed no measurable CPU over a "
-        f"further {silence}s (so it was idle, not working quietly). "
+        f"entry script appeared, {declared} did not, and neither stream produced "
+        f"output for {silence}s. Declaring the marker is the contract that makes "
+        f"this silence mean the run is dead; a script with longer quiet stretches "
+        f"should print progress during them, or run without a marker. "
         f"The --timeout of {timeout}s was not reached. The captured "
         f"output is in diagnostics, truncated to the last "
         f"{SCRIPT_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; "

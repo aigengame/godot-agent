@@ -415,18 +415,14 @@ def test_timeout_and_marker_reach_the_launch_through_params_json(monkeypatch, tm
     # The marker reached the watch the streaming capture consults.
     assert watch is not None
     # Asserted through the watch's BEHAVIOUR rather than its internals: an error
-    # attributable to the entry, followed by silence and a CPU clock that does not
-    # move, now asks for the run to end — which an undeclared marker never would.
+    # attributable to the entry followed by a full silence window now asks for the
+    # run to end — which an undeclared marker never would.
     entry_error = (
         "SCRIPT ERROR: Invalid call. Nonexistent function 'boom' in base 'Nil'.\n"
         "          at: _initialize (res://logic.gd:3)\n"
     )
-    idle = lambda: 1.0  # noqa: E731 - a constant clock: two samples differ by zero
-    assert not watch.observe(
-        stdout="", stderr=entry_error, elapsed=0.1, cpu_seconds=idle
-    )
-    assert not watch.observe(stdout="", stderr="", elapsed=99.0, cpu_seconds=idle)
-    assert watch.observe(stdout="", stderr="", elapsed=199.0, cpu_seconds=idle)
+    assert not watch.observe(stdout="", stderr=entry_error, elapsed=0.1)
+    assert watch.observe(stdout="", stderr="", elapsed=99.0)
 
 
 @pytest.mark.parametrize("timeout", ["0", "-1"])
