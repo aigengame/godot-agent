@@ -1039,6 +1039,54 @@ def test_script_validate_batch_reports_a_repeated_path_once_per_occurrence(tmp_p
 
 
 @pytest.mark.e2e
+def test_script_validate_all_enumerates_a_nested_dot_godot_directory(tmp_path):
+    # The exclusion is the engine's ONE cache directory, `res://.godot` — not every
+    # directory that happens to be named `.godot`. A nested one is user content
+    # (an addon vendoring a sample project, a fixture tree), and skipping it made
+    # `--all` report `valid: true` for a project holding an invalid script: a
+    # FALSE-POSITIVE aggregate, which is the one thing this command must never
+    # produce. The root cache stays excluded — the engine owns it, and its contents
+    # are import artefacts no agent authored.
+    project = tmp_path / "nested-cache"
+    (project / "nested" / ".godot").mkdir(parents=True)
+    (project / ".godot").mkdir(parents=True, exist_ok=True)
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-nested-cache"), encoding="utf-8"
+    )
+    (project / "top.gd").write_text("extends Node\n", encoding="utf-8")
+    (project / "nested" / ".godot" / "hidden.gd").write_text(
+        "extends Node\n\nvar x =\n", encoding="utf-8"
+    )
+    # Authored INTO the engine's own cache: it must stay invisible to both
+    # commands, or the fix would have swapped one wrong enumeration for another.
+    (project / ".godot" / "engine_cache.gd").write_text(
+        "extends Node\n\nvar y =\n", encoding="utf-8"
+    )
+    gda = _gda_project(project)
+
+    validated = gda("script", "validate", "--all", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert [entry["path"] for entry in data["scripts"]] == [
+        "res://nested/.godot/hidden.gd",
+        "res://top.gd",
+    ]
+    assert data["valid"] is False
+    assert data["scripts"][0]["diagnostics"][0]["line"] == 3
+
+    # `script list` shares the enumeration, so the same correction is observable
+    # there — deliberately, and covered here rather than left to be discovered.
+    listed = gda("script", "list", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    assert [entry["path"] for entry in json.loads(listed.stdout)["scripts"]] == [
+        "res://nested/.godot/hidden.gd",
+        "res://top.gd",
+    ]
+
+
+@pytest.mark.e2e
 def test_script_validate_all_on_a_project_with_no_scripts_is_vacuously_valid(tmp_path):
     # The empty-batch edge of project mode: a project holding no .gd at all is a
     # successful, EMPTY listing with a vacuously true aggregate — not a failure and
