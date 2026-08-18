@@ -103,8 +103,11 @@ and re-read the verdict.
 - `gda <group> <command> --schema` — one command's input/output/error JSON Schema
   (no Godot spawned), plus `argv`: how each parameter is written on a command line
   (`kind` positional or option, its `position` or `--option` spelling, whether it is
-  `required`, a valueless `flag`, or `multiple`). Build the command line from `argv`
-  and you need no `--help` round trip.
+  `required`, a valueless `flag`, `multiple` — repeat it per value — or a
+  `json_value` — one token carrying the value's JSON). Every required input property
+  has a binding, so build the command line from `argv`; `input_property` links a
+  binding back to the property it fills, and is null for the two flags that rename
+  it (`project list --all`, `skill --dir`).
 - `gda schema` — the **whole** surface as one JSON manifest, `argv` included.
 - `gda version --json` — which `gda` is installed and where from; `gda info` — the
   engine's version.

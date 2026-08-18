@@ -252,19 +252,30 @@ class ArgvBinding(BaseModel):
     ``position`` (0-based, among positionals only), a named one is written as
     ``option``. ``flag`` marks an option that takes NO value (write it bare),
     ``multiple`` one that is repeated per value (a repeatable option, or a
-    variadic positional). ``required`` is the DECLARED requirement, unaffected by
-    the relaxed parse ``--schema`` itself uses (issue #36).
+    variadic positional), and ``json_value`` one whose single token is the
+    property's JSON encoding rather than a plain scalar. ``required`` is the
+    DECLARED requirement, unaffected by the relaxed parse ``--schema`` itself uses
+    (issue #36).
+
+    The list is the argv form of a command's operation parameters, not a
+    one-to-one image of ``input``: every required property has a binding, while an
+    optional property the CLI computes from flags rather than takes directly (a
+    mode selected by ``--replace`` / ``--search``) has none.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     # Descriptions stay terse: the manifest repeats them per parameter of every
     # command, so prose here is paid hundreds of times (the #667 measurement).
-    name: str = Field(description="The parameter's CLI name.")
+    name: str = Field(
+        description=(
+            "The parameter's internal name; write it as `option`, or at `position`."
+        )
+    )
     input_property: str | None = Field(
         description=(
             "The `input` schema property this parameter fills, or null where the "
-            "CLI form has no 1:1 property (e.g. two flags selecting one field)."
+            "flag's spelling renames it (`--all` fills include_defaults)."
         )
     )
     kind: ArgvKind = Field(description="Positional (argument) or named (option).")
@@ -277,6 +288,9 @@ class ArgvBinding(BaseModel):
     required: bool = Field(description="Whether the command line must supply it.")
     flag: bool = Field(description="A valueless option: write it bare.")
     multiple: bool = Field(description="Repeat it once per value.")
+    json_value: bool = Field(
+        description="Write the whole value as one JSON-encoded token."
+    )
 
 
 class CommandSchema(BaseModel):

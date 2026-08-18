@@ -30,7 +30,7 @@ reached the harness without passing the model (a direct daemon caller).
 
 import json
 from enum import Enum
-from typing import Annotated, Literal, Optional, get_args
+from typing import Annotated, Any, Literal, Optional, get_args
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -292,7 +292,9 @@ class InputEventType(str, Enum):
 # and the flat shape they used to share made a foreign one silently inert — a
 # `release` on a key event PRESSED the key. Declared once here so the rejection
 # can NAME the kind's own spelling instead of only refusing the wrong one; which
-# kind uses which is read off the variant models themselves, never restated.
+# kind uses which is read off the variant models themselves, never restated. A
+# test holds this list to the fields the variants actually declare, so renaming
+# one cannot silently drop the message back to the generic branch.
 _PHASE_FIELDS = ("pressed", "released", "release")
 
 # The shared field descriptions, written once for the whole union: each variant
@@ -317,16 +319,37 @@ _MOUSE_Y_DESC = (
     "The event's y position in the viewport. Read it from the event; "
     "engine-tracked mouse positions may remain stale."
 )
+# Nullable although it always has a value: the flat shape these variants replace
+# defaulted `button` to null and let the harness read that as left, so a producer
+# that dumped an event and replayed it sent an explicit null. Refusing it now
+# would break a caller that was never wrong. Null is normalized back to left, so
+# the payload the harness receives always names a button.
+_BUTTON_DESC = "Which button: left, right, or middle (null means left)."
+
+
+def _left_when_null(
+    event: "MouseClickSequenceEvent | MouseButtonSequenceEvent",
+) -> None:
+    """Normalize an explicit ``button: null`` to the left button, in place."""
+    if event.button is None:
+        event.button = MouseButton.LEFT
 
 
 def _event_kind(model: type[BaseModel]) -> str:
-    """The ``type`` value that selects ``model`` from the union.
+    """The ``type`` value that selects ``model`` from the union, or ``""``.
 
     Read off the variant's own ``Literal`` discriminator annotation, so the kind
-    name has ONE source — the class that declares it — and a new variant needs no
-    entry anywhere else.
+    name has ONE source: the class that declares it.
+
+    TOTAL — it answers ``""`` for a model that declares no discriminator rather
+    than raising. It is only ever called to BUILD A REFUSAL MESSAGE, and a
+    reporting path that throws replaces a structured error with a traceback: the
+    shared base carries no ``type``, so a direct validation of it (which no caller
+    does today, but which is one refactor away) would otherwise die inside the
+    handler meant to explain the mistake.
     """
-    members = get_args(model.model_fields["type"].annotation)
+    field = model.model_fields.get("type")
+    members = get_args(field.annotation) if field is not None else ()
     return str(members[0].value) if members else ""
 
 
@@ -334,7 +357,7 @@ def _kinds_accepting(field: str, exclude: type[BaseModel]) -> list[str]:
     """The other event kinds that DO accept ``field`` (derived from the union)."""
     return [
         _event_kind(model)
-        for model in SEQUENCE_EVENT_MODELS
+        for model in _SEQUENCE_EVENT_MODELS
         if model is not exclude and field in model.model_fields
     ]
 
@@ -350,7 +373,7 @@ def _foreign_field_message(model: type[BaseModel], field: str) -> str:
     kind = _event_kind(model)
     # "an 'action' event", not "a 'action' event": the kind names come from the
     # union, so the article is computed rather than written into a sentence.
-    article = "an" if kind[:1] in "aeiou" else "a"
+    article = "an" if kind[:1] and kind[0] in "aeiou" else "a"
     if field in _PHASE_FIELDS:
         own = [name for name in _PHASE_FIELDS if name in model.model_fields]
         advice = (
@@ -373,10 +396,13 @@ class _SequenceEvent(BaseModel):
     """The clock half every ``gda input sequence`` event shares (#221, #391).
 
     The union's base: it owns the two relative-offset fields and the one-clock
-    rule, so each kind below declares only the fields it actually accepts. That
-    is what makes the emitted contract machine-checkable — a kind's variant
-    schema lists exactly its required fields and forbids the rest — where one
-    flat shape could only describe the per-kind rules in prose (GDA-DF-037).
+    rule, so each kind below declares only the fields it actually accepts. That is
+    what makes a kind's FIELD SET checkable — its variant schema lists exactly the
+    fields it requires and forbids every other kind's — where one flat shape could
+    only describe the per-kind rules in prose (GDA-DF-037). The one-clock rule
+    itself stays a model-side check, as it was: it is a relation between two
+    nullable fields, and expressing it in schema would reject
+    ``{"frame": 1, "physics_frame": null}``, which is well formed.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -449,10 +475,38 @@ class MouseClickSequenceEvent(_SequenceEvent):
     type: Literal[InputEventType.MOUSE_CLICK] = Field(description="The event kind.")
     x: float = Field(description=_MOUSE_X_DESC)
     y: float = Field(description=_MOUSE_Y_DESC)
-    button: MouseButton = Field(
-        default=MouseButton.LEFT, description="Which button: left, right, or middle."
+    button: MouseButton | None = Field(
+        default=MouseButton.LEFT, description=_BUTTON_DESC
     )
     double: bool = Field(default=False, description="Mark the event a double click.")
+
+    @model_validator(mode="after")
+    def _default_button(self) -> "MouseClickSequenceEvent":
+        _left_when_null(self)
+        return self
+
+
+# The press/release phase, stated as a JSON-Schema rule so a client can CHECK it
+# rather than read it (#669). It mirrors ``_check_phase`` below, which stays the
+# enforcing authority — the two are held together by a test that runs one corpus
+# through both the emitted schema and the model and requires the same verdict.
+# Without it the one kind an agent reaches for to build a drag published its
+# fields but not the rule that makes them a press or a release, so the drag path
+# still cost the failed invocation GDA-DF-037 reported.
+_MOUSE_BUTTON_PHASE_SCHEMA: dict[str, Any] = {
+    "oneOf": [
+        # The press: `pressed: true`, and no release on the same event.
+        {
+            "required": ["pressed"],
+            "properties": {"pressed": {"const": True}, "release": {"const": False}},
+        },
+        # The release: `release: true`, with `pressed` left unset (absent or null).
+        {
+            "required": ["release"],
+            "properties": {"release": {"const": True}, "pressed": {"type": "null"}},
+        },
+    ]
+}
 
 
 class MouseButtonSequenceEvent(_SequenceEvent):
@@ -461,14 +515,16 @@ class MouseButtonSequenceEvent(_SequenceEvent):
     The sequence-only kind, for press-drag-release gestures: it carries the held
     button mask onto the motion events in between. It is the ONE kind that spells
     a phase with ``pressed``; exactly one of ``pressed: true`` / ``release: true``
-    is required.
+    is required, and that rule is published as schema, not only as prose.
     """
+
+    model_config = ConfigDict(json_schema_extra=_MOUSE_BUTTON_PHASE_SCHEMA)
 
     type: Literal[InputEventType.MOUSE_BUTTON] = Field(description="The event kind.")
     x: float = Field(description=_MOUSE_X_DESC)
     y: float = Field(description=_MOUSE_Y_DESC)
-    button: MouseButton = Field(
-        default=MouseButton.LEFT, description="Which button: left, right, or middle."
+    button: MouseButton | None = Field(
+        default=MouseButton.LEFT, description=_BUTTON_DESC
     )
     double: bool = Field(default=False, description="Mark the event a double click.")
     pressed: bool | None = Field(
@@ -482,6 +538,7 @@ class MouseButtonSequenceEvent(_SequenceEvent):
 
     @model_validator(mode="after")
     def _check_phase(self) -> "MouseButtonSequenceEvent":
+        _left_when_null(self)
         if self.pressed is None and not self.release:
             raise ValueError(
                 "a 'mouse_button' sequence event requires 'pressed' or 'release'."
@@ -530,22 +587,15 @@ class ActionSequenceEvent(_SequenceEvent):
     )
 
 
-# The union's members, in the order they appear in the emitted `oneOf`. Also the
-# one place the per-kind rejection reads which kinds accept a given field, so the
-# message and the contract come from the same declarations.
-SEQUENCE_EVENT_MODELS: tuple[type[_SequenceEvent], ...] = (
-    KeySequenceEvent,
-    MouseClickSequenceEvent,
-    MouseButtonSequenceEvent,
-    MouseMoveSequenceEvent,
-    ActionSequenceEvent,
-)
-
 # One event of a `gda input sequence`, as a DISCRIMINATED union on `type` (#669).
 # The emitted schema is a `oneOf` with a `type` discriminator mapping, so each
-# kind's required and forbidden fields are machine-checkable: a client validates a
-# candidate event against the published contract instead of learning the per-kind
-# rules from prose or from a failed invocation (GDA-DF-037/GDA-DF-032).
+# kind's field set — what it requires and what it forbids — is machine-checkable:
+# a client validates a candidate event against the published contract instead of
+# learning the per-kind fields from prose or from a failed invocation
+# (GDA-DF-037/GDA-DF-032). The CROSS-FIELD rules are a narrower story: the
+# mouse-button phase is published too (`_MOUSE_BUTTON_PHASE_SCHEMA`), while the
+# one-clock rule, the modifier vocabulary and the window ceiling stay enforced
+# model-side only, as they were before this union.
 InputSequenceEvent = Annotated[
     KeySequenceEvent
     | MouseClickSequenceEvent
@@ -554,6 +604,16 @@ InputSequenceEvent = Annotated[
     | ActionSequenceEvent,
     Field(discriminator="type"),
 ]
+
+# The union's members, READ OFF the union itself rather than re-listed: the
+# per-kind rejection asks which kinds accept a given field, and a hand-kept tuple
+# beside the union would be a second membership list — a sixth variant added to
+# one and not the other would vanish from every "is accepted on:" hint while every
+# test still passed. `InputSequenceEvent` is `Annotated[<union>, Field(...)]`, so
+# the first `get_args` unwraps the annotation and the second yields the members.
+_SEQUENCE_EVENT_MODELS: tuple[type[_SequenceEvent], ...] = get_args(
+    get_args(InputSequenceEvent)[0]
+)
 
 
 class InputSequenceParams(BaseModel):

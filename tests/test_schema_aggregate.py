@@ -330,12 +330,21 @@ def test_real_out_of_process_cli_manifest_covers_the_live_command_tree():
 # --- argv binding in the manifest (issue #669) --------------------------------
 
 
-def test_every_entry_carries_an_argv_binding_list():
-    # issue #669: the manifest is the whole-surface form of the per-command
-    # contract, so the CLI spelling of a command's parameters travels with it —
-    # an agent reading only the dump can construct a valid argv.
+def test_every_required_input_property_has_an_argv_binding():
+    # issue #669: `argv` is the argv form of the operation parameters, not a
+    # one-to-one image of `input` — a few OPTIONAL properties are computed from
+    # flags rather than taken directly. The invariant that AC1 rests on is the
+    # required half: a property an agent MUST supply always has a binding telling
+    # it how, or the command cannot be built from the contract at all.
+    unreachable = []
     for entry in _manifest()["commands"]:
-        assert isinstance(entry["argv"], list), entry["name"]
+        linked = {b["input_property"] for b in entry["argv"] if b["input_property"]}
+        for name in entry["input"].get("required", []):
+            if name not in linked:
+                unreachable.append(f"{entry['name']}: {name}")
+    assert not unreachable, "required properties with no argv binding:\n" + "\n".join(
+        unreachable
+    )
 
 
 def test_entry_argv_matches_the_commands_own_schema_argv():
@@ -367,15 +376,45 @@ def test_every_argv_binding_is_constructible_into_a_command_line():
         assert positions == list(range(len(positions))), entry["name"]
 
 
-def test_argv_metadata_rides_outside_the_two_schema_halves_gda_mcp_maps():
+def test_argv_metadata_cannot_reach_the_two_schema_halves_gda_mcp_maps():
     # The gda-mcp wire-schema answer (#669): gda-mcp maps `input` →
     # `input_schema` and `output` → `output_schema` and ignores every other entry
-    # key (ADR-0012). `argv` is therefore a SIBLING of those halves — never a key
-    # inside them — so no MCP tool's wire schema gains anything from it.
-    for entry in _manifest()["commands"]:
-        assert "argv" not in entry["input"], entry["name"]
-        assert "argv" not in entry["output"], entry["name"]
-        assert "ArgvBinding" not in entry["input"].get("$defs", {}), entry["name"]
+    # key (ADR-0012). Asserting `argv` is absent from the halves would be
+    # tautological — it is not a JSON Schema keyword — so assert the property that
+    # actually matters: emitting a schema WITH bindings leaves both halves
+    # byte-identical to emitting it WITHOUT them. That is what keeps every
+    # registered tool's wire schema unchanged by this addition.
+    from gda.headless import command_argv_bindings
+    from gda.models import CommandSchema
+
+    root = typer.main.get_command(app)
+    checked = 0
+
+    def walk(command, path):
+        nonlocal checked
+        subcommands = getattr(command, "commands", None)
+        if subcommands is not None:
+            for name, subcommand in subcommands.items():
+                walk(subcommand, [*path, name])
+            return
+        input_model = getattr(command, "gda_input_model", None)
+        output_model = getattr(command, "gda_output_model", None)
+        if input_model is None or output_model is None:
+            return
+        bare = CommandSchema.of(input_model, output_model)
+        bound = CommandSchema.of(
+            input_model,
+            output_model,
+            argv=command_argv_bindings(command, input_model),
+        )
+        assert bound.argv == [] or bound.argv, path
+        assert bound.input == bare.input, path
+        assert bound.output == bare.output, path
+        assert bound.error == bare.error, path
+        checked += 1
+
+    walk(root, [])
+    assert checked > 60, checked
 
 
 def test_self_described_manifest_describes_the_argv_binding_list():
@@ -405,6 +444,7 @@ def test_self_described_manifest_describes_the_argv_binding_list():
         "required",
         "flag",
         "multiple",
+        "json_value",
     }
     assert binding["properties"]["kind"]["$ref"] == "#/$defs/ArgvKind"
     assert manifest_schema["$defs"]["ArgvKind"]["enum"] == ["argument", "option"]

@@ -112,8 +112,8 @@ status: accepted
 > **Amendment (2026-08-18, #669):** the per-command `--schema` object gains a SIXTH,
 > additive key — `argv`, the list of `ArgvBinding`s naming how each parameter `input`
 > describes is written on a command line (`kind` positional/option, `position` or
-> `option` spelling, `required`, `flag`, `multiple`, and the `input_property` it
-> fills). Motivation: the contract stated a command's required fields but not their
+> `option` spelling, `required`, `flag`, `multiple`, `json_value`, and the
+> `input_property` it fills). Motivation: the contract stated a command's required fields but not their
 > CLI spelling, so an agent could not build argv from it — `screen capture` takes its
 > required output as `--output`, `input mouse-click` takes `x y` positionally, and
 > `input action` takes a positional ACTION it rejects as `--action` (dogfooding
@@ -121,12 +121,15 @@ status: accepted
 >
 > It is additive on the same properties the notes above establish:
 >
-> - **A sibling of the schema halves, never a key inside them.** `input` / `output`
->   stay byte-identical, so gda-mcp's `input_schema` / `output_schema` are unchanged
->   and it needs no adapter work — it maps only `input` / `output` / `description`
->   (ADR-0012). Measured across the whole surface at the time of the change: one
->   `input` differs (`input sequence`, for its own model's per-kind union), and no
->   `output` / `error` / `description` / `kind` / `constraints` does.
+> - **A sibling of the schema halves, never a key inside them.** Adding the key
+>   leaves `input` / `output` byte-identical — a test emits each command's contract
+>   with and without the bindings and requires both halves to match — so gda-mcp's
+>   `input_schema` / `output_schema` are unchanged by it and it needs no adapter
+>   work; it maps only `input` / `output` / `description` (ADR-0012). Measured
+>   across the whole surface at the time of the change, exactly one `input` differs
+>   for an unrelated reason (`input sequence`, whose own params model became a
+>   per-kind union in the same PR), and no `output` / `error` / `description` /
+>   `kind` / `constraints` differs at all.
 > - **Derived, never declared.** The bindings are read off the LIVE Typer/Click
 >   parameters at emission time, through one projection shared by the per-command
 >   `--schema` and the aggregate manifest (ADR-0012's live-tree walk, ADR-0023 §2).
@@ -136,16 +139,26 @@ status: accepted
 >   Reading the registered parameters also makes it correct on every dispatch channel
 >   at once — the sentinel path, the EXPORT / LIVE kinds, and the recipe commands.
 > - **Zero per-command cost**, like the halves it joins: a new command's spelling
->   appears because it registered parameters, not because anyone wrote it down.
+>   appears because it registered parameters, not because anyone wrote it down. The
+>   binding expresses a positional, an option, a valueless flag, a repeated value
+>   and a JSON-encoded one; a registration test fails if the surface ever grows a
+>   Click shape it cannot write (a `--x/--no-x` pair, an n-ary option, a counting
+>   option), so the contract is extended deliberately rather than emitting a
+>   binding no caller can follow.
 >
 > Two boundaries. `argv` covers the OPERATION parameters — the same set
 > `--params-json` treats as exclusive of the individual arguments (ADR-0015) — so the
 > cross-cutting flags every command shares (`--json` / `--schema` / `--params-json` /
 > `--godot` / `--project`) stay out; they are not per-command information. And
-> `input_property` is `null`, not guessed, where a CLI form has no 1:1 property (two
-> flags selecting one field, or a differently-named option): a wrong link would read
-> as authoritative. On the aggregate entry the `argv` key is required, its list
-> possibly empty — the same "key always present" guarantee `constraints` has.
+> `input_property` is `null`, not guessed, where the flag's spelling renames the
+> property it fills (`project list --all` fills `include_defaults`, `skill --dir`
+> fills `install_dir` — the only two on the surface): a wrong link would read as
+> authoritative. The projection is the argv form of the operation parameters, not a
+> one-to-one image of `input`: every REQUIRED property has a binding, held by a
+> test, while an optional property the CLI computes from flags rather than takes
+> directly (`script set`'s `mode`, from `--replace` / `--search`) has none. On the
+> aggregate entry the `argv` key is required, its list possibly empty — the same
+> "key always present" guarantee `constraints` has.
 
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.

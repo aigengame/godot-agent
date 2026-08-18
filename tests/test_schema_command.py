@@ -1820,3 +1820,51 @@ def test_schema_argv_reports_required_despite_the_relaxed_probe_parse():
     # DECLARED requirement, not the relaxed one.
     assert _argv(["screen", "capture"])["output"]["required"] is True
     assert _argv(["node", "connect-signal"])["from_node"]["required"] is True
+
+
+def test_the_argv_derivation_covers_every_parameter_shape_on_the_surface():
+    # The projection expresses a positional, an option, a valueless flag, a
+    # repeated value and a JSON-encoded value (#669). Click can spell three more
+    # shapes it would report WRONGLY: a `--x/--no-x` pair (the negative spelling
+    # would be dropped), an n-ary option (`nargs > 1`, which is neither single nor
+    # `multiple`), and a counting option (`count=True`, not a bare flag). None
+    # exists today. This guard fails the moment one is introduced, so the contract
+    # is extended deliberately instead of silently emitting a binding that cannot
+    # be written.
+    import typer as _typer
+
+    unsupported: list[str] = []
+
+    def walk(command, path):
+        subcommands = getattr(command, "commands", None)
+        if subcommands is not None:
+            for name, subcommand in subcommands.items():
+                walk(subcommand, [*path, name])
+            return
+        for param in command.params:
+            where = f"{' '.join(path)}: {param.name}"
+            if getattr(param, "secondary_opts", []):
+                unsupported.append(f"{where} (--x/--no-x pair)")
+            if getattr(param, "nargs", 1) not in (1, -1):
+                unsupported.append(f"{where} (nargs={param.nargs})")
+            if getattr(param, "count", False):
+                unsupported.append(f"{where} (counting option)")
+
+    walk(_typer.main.get_command(app), [])
+    assert not unsupported, "argv bindings cannot express:\n" + "\n".join(unsupported)
+
+
+def test_schema_argv_marks_a_json_encoded_value():
+    # `input sequence` takes an ARRAY property through a single `--events` token
+    # that carries its JSON. Without this key an agent reading `input` sees an
+    # array and writes one token per element, which the parser rejects — the
+    # encoding half of the same argv problem (#669).
+    binding = _argv(["input", "sequence"])["events"]
+
+    assert binding["json_value"] is True
+    assert binding["multiple"] is False
+    assert binding["option"] == "--events"
+    # A repeated option carries its values one token at a time instead, so it is
+    # NOT a JSON value; nor is a plain scalar.
+    assert _argv(["input", "key"])["modifiers"]["json_value"] is False
+    assert _argv(["screen", "capture"])["output"]["json_value"] is False

@@ -248,22 +248,30 @@ def command_argv_bindings(
     dispatch channel at once — the sentinel path, the EXPORT / LIVE kinds and the
     recipe commands all register the same way, whatever runs them afterwards.
 
-    Two filters decide what an *operation parameter* is, both reusing rules this
-    module already owns rather than restating them: a parameter Click does not
-    expose (its eager ``--help``) never reaches a params model, and
-    :data:`_GLOBAL_OPTION_NAMES` is the same set ``--params-json`` treats as
-    cross-cutting rather than operational (ADR-0015). So ``argv`` covers exactly
-    the parameters ``input`` describes.
+    What counts as an *operation parameter* reuses a rule this module already
+    owns rather than restating it: :data:`_GLOBAL_OPTION_NAMES` is the same set
+    ``--params-json`` treats as cross-cutting rather than operational (ADR-0015).
+    A parameter Click does not expose is skipped as well — none exists on today's
+    surface (Click appends its own ``--help`` in ``get_params``, not here), so
+    that arm is a guard against a future unexposed parameter, which by definition
+    reaches no params model.
+
+    The projection is therefore the argv form of the operation parameters, NOT a
+    one-to-one image of ``input``: every REQUIRED property has a binding (a
+    registration test holds that), while a few optional properties are computed
+    from the CLI rather than typed (``script set``'s ``mode`` comes from
+    ``--replace`` / ``--search``) or named differently by their flag.
 
     Click is duck-typed through ``getattr``, as the surface walker does: it is a
     transitive dependency through Typer, not a direct one.
 
     ``input_property`` is derived, not declared: the emitted property of the same
     name if there is one, else the one the long option spells (``--type`` fills
-    ``type`` though the Python parameter is ``node_type``), else ``None`` where
-    the CLI form genuinely has no 1:1 property — two flags selecting one field,
-    say. Guessing further would be worse than the honest null: a wrong link
-    reads as authoritative.
+    ``type`` though the Python parameter is ``node_type``), else ``None``. The two
+    nulls on today's surface are flags whose spelling renames the property
+    (``project list --all`` fills ``include_defaults``, ``skill --dir`` fills
+    ``install_dir``); guessing past that would be worse than the honest null,
+    since a wrong link reads as authoritative.
     """
     properties = input_model.model_json_schema().get("properties", {})
     bindings: list[ArgvBinding] = []
@@ -282,16 +290,19 @@ def command_argv_bindings(
         # repeatable option is, so both report ``multiple``: Click spells the
         # two differently, an argv author writes both by repeating.
         nargs = getattr(param, "nargs", 1)
+        multiple = bool(getattr(param, "multiple", False)) or nargs == -1
+        bound = _bound_property(name, option, properties)
         bindings.append(
             ArgvBinding(
                 name=name,
-                input_property=_bound_property(name, option, properties),
+                input_property=bound,
                 kind=ArgvKind.ARGUMENT if is_argument else ArgvKind.OPTION,
                 option=option,
                 position=position if is_argument else None,
                 required=bool(getattr(param, "required", False)),
                 flag=bool(getattr(param, "is_flag", False)),
-                multiple=bool(getattr(param, "multiple", False)) or nargs == -1,
+                multiple=multiple,
+                json_value=_takes_a_json_value(bound, properties, multiple),
             )
         )
         if is_argument:
@@ -310,6 +321,29 @@ def _bound_property(
         if spelled in properties:
             return spelled
     return None
+
+
+def _takes_a_json_value(
+    bound: Optional[str], properties: "dict[str, Any]", multiple: bool
+) -> bool:
+    """Whether the parameter's one token is the property's JSON encoding (#669).
+
+    A compound property (an array or object) reaches argv one of two ways: as a
+    REPEATED token, which ``multiple`` already tells the caller, or as a single
+    token carrying its JSON — the shape ``gda input sequence --events`` uses. The
+    second is invisible in the binding otherwise: the property says ``array``, so
+    an agent writing one token per element would build a command line the parser
+    rejects, which is the encoding half of the argv problem this key answers.
+
+    Derived from the two facts already in hand — the linked property's type and
+    whether the parameter repeats — so no command declares it. ``False`` when the
+    parameter has no property link: unknown, and a wrong ``true`` here would send
+    a caller to encode a plain string.
+    """
+    spec = properties.get(bound or "")
+    if not isinstance(spec, dict) or multiple:
+        return False
+    return spec.get("type") in ("array", "object")
 
 
 def schema_command_class(

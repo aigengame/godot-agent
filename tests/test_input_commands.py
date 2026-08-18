@@ -1265,8 +1265,12 @@ def test_each_event_kind_publishes_its_required_and_forbidden_fields():
 
 
 def test_a_schema_client_can_validate_events_without_invoking_gda():
-    # The acceptance property, checked the way a client would: validate candidate
-    # events against the EMITTED schema and get the same verdict gda gives.
+    # The acceptance property for the per-kind FIELD SETS, checked the way a
+    # client would: validate candidate events against the EMITTED schema and get
+    # the same verdict gda gives for what each kind requires and forbids. The
+    # cross-field rules are a narrower claim — the mouse-button phase is published
+    # too (its own test below), while the one-clock rule, the modifier vocabulary
+    # and the window ceiling stay enforced model-side only.
     import jsonschema
 
     schema = _sequence_events_schema()
@@ -1396,3 +1400,112 @@ def test_an_unknown_event_type_lists_the_kinds_a_caller_can_type(monkeypatch, tm
 
     assert "'key', 'mouse_click', 'mouse_button', 'mouse_move', 'action'" in message
     assert "InputEventType" not in message
+
+
+# The mouse-button phase corpus, spanning every combination the two fields can be
+# written in. The point is not any single verdict but that ONE corpus gets the
+# SAME verdict from the published schema and from the model.
+_PHASE_CORPUS = [
+    {"pressed": True},
+    {"release": True},
+    {"pressed": True, "release": False},
+    {"pressed": None, "release": True},
+    {},
+    {"pressed": False},
+    {"pressed": False, "release": True},
+    {"pressed": True, "release": True},
+    {"release": False},
+    {"pressed": None},
+]
+
+
+def test_the_mouse_button_phase_rule_is_checkable_and_matches_the_model():
+    # #669: `mouse_button` is the kind an agent reaches for to build a drag, and
+    # its "exactly one of `pressed: true` / `release: true`" rule used to live only
+    # in prose — so a schema-driven client learned it from a failed invocation
+    # (GDA-DF-037). It is now published as schema, and this pins the published rule
+    # to the enforcing validator so the two cannot drift apart.
+    import jsonschema
+
+    from gda.commands.input import InputSequenceParams
+
+    schema = _sequence_events_schema()
+    for phase in _PHASE_CORPUS:
+        event = {"type": "mouse_button", "x": 1.0, "y": 2.0, **phase}
+        try:
+            jsonschema.validate(instance={"events": [event]}, schema=schema)
+            by_schema = True
+        except jsonschema.ValidationError:
+            by_schema = False
+        try:
+            InputSequenceParams.model_validate({"events": [event]})
+            by_model = True
+        except ValueError:
+            by_model = False
+        assert by_schema == by_model, (phase, by_schema, by_model)
+    # …and the corpus really does span both verdicts, so agreement is not vacuous.
+    accepted = [p for p in _PHASE_CORPUS if p in ({"pressed": True}, {"release": True})]
+    assert accepted
+
+
+def test_an_explicit_null_button_still_means_the_left_button(monkeypatch, tmp_path):
+    # The flat shape these variants replace defaulted `button` to null and let the
+    # harness read that as left, so a producer that dumped an event and replayed it
+    # sent an explicit null. It stays accepted, and normalizes to a named button.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+    events = [
+        {"type": "mouse_click", "x": 1.0, "y": 2.0, "button": None},
+        {"type": "mouse_button", "x": 1.0, "y": 2.0, "button": None, "pressed": True},
+    ]
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(events),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert [e["button"] for e in fake.calls[0][1]["events"]] == ["left", "left"]
+
+
+def test_every_phase_synonym_is_a_field_some_event_kind_declares():
+    # The rejection names a kind's OWN press/release spelling by intersecting the
+    # phase synonyms with the variant's fields. That list is the one thing about
+    # the union written down separately, so hold it to what the variants declare:
+    # renaming `released` without updating it would silently drop the message back
+    # to the generic branch, with no test noticing.
+    from gda.commands.input import _PHASE_FIELDS, _SEQUENCE_EVENT_MODELS, _event_kind
+
+    declared = {f for model in _SEQUENCE_EVENT_MODELS for f in model.model_fields}
+    assert set(_PHASE_FIELDS) <= declared, set(_PHASE_FIELDS) - declared
+    # …and every kind that carries a phase is reachable through it: the three
+    # phase-bearing kinds each intersect the list, the two phaseless ones do not.
+    with_phase = {
+        _event_kind(m)
+        for m in _SEQUENCE_EVENT_MODELS
+        if set(_PHASE_FIELDS) & set(m.model_fields)
+    }
+    assert with_phase == {"key", "action", "mouse_button"}
+
+
+def test_the_union_members_are_read_off_the_union_itself():
+    # `_SEQUENCE_EVENT_MODELS` feeds every "is accepted on:" hint. Deriving it from
+    # the union rather than re-listing it is what keeps a sixth variant from
+    # joining the contract while vanishing from the messages, so pin that the two
+    # cannot disagree.
+    from gda.commands.input import _SEQUENCE_EVENT_MODELS, _event_kind
+
+    mapping = _sequence_events_schema()["properties"]["events"]["items"][
+        "discriminator"
+    ]["mapping"]
+    assert {_event_kind(m) for m in _SEQUENCE_EVENT_MODELS} == set(mapping)
