@@ -11,6 +11,7 @@ observed via ``game get``) is the e2e in ``test_e2e_input``.
 """
 
 import json
+import re
 
 from typer.testing import CliRunner
 
@@ -1359,6 +1360,13 @@ def test_an_unknown_field_rejection_lists_the_kinds_accepted_fields(
     assert "'key'" in message
 
 
+# The SGR colour sequences the help renderer emits when it believes it is writing
+# to a terminal. It believes that on GitHub Actions but not in a local run, so a
+# test that reads the rendered help must strip them or it passes locally and fails
+# only in CI.
+_ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def test_input_sequence_help_carries_a_copyable_action_example():
     # The help showed only a mouse example, so an action sequence had to be
     # inferred (GDA-DF-032). It now shows the press / release pair too.
@@ -1366,10 +1374,11 @@ def test_input_sequence_help_carries_a_copyable_action_example():
 
     assert result.exit_code == 0, result.stdout
     # The help renderer wraps the example across the option column and frames it
-    # with box borders; normalizing both back out is what a reader copying the
-    # example does. Nothing is ELLIPSIZED away — the whole example survives,
-    # which the one-line spelling it replaced did not.
-    rendered = " ".join(result.stdout.replace("│", " ").split())
+    # with box borders (and colours it); normalizing all three back out is what a
+    # reader copying the example does. Nothing is ELLIPSIZED away — the whole
+    # example survives, which the one-line spelling it replaced did not.
+    plain = _ANSI_SGR.sub("", result.stdout).replace("│", " ")
+    rendered = " ".join(plain.split())
     assert '{"type": "action", "action": "jump", "frame": 0}' in rendered
     assert (
         '{"type": "action", "action": "jump", "release": true, "frame": 10}' in rendered
