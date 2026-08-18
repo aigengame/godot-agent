@@ -68,15 +68,19 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | `6`   | live operation failed (e.g. `daemon_not_running`) |
 
 Some commands carry a verdict inside a successful result. For
-`gda script validate --json`, read the result's `valid` field: a script that does
-not compile exits `0` with no top-level `error`, and reports `valid=false` plus
-`error_string` / `diagnostics`. Do not treat exit `0` or the absence of an Error
-envelope as a pass for this command. Check the result's `project_root` before you
-act on a `valid=false`: it names the project the script was compiled against, and
-a verdict full of missing-`res://` errors (plus the type errors derived from them)
-usually means the wrong project, not a broken script — `null` means no project was
-resolved at all. Pass `--project` for the project that owns the file and re-read
-the verdict.
+`gda script validate --json`, read the result's `valid` field: it is the AGGREGATE
+verdict over every script the call validated, `false` as soon as one of them fails.
+Each script's own verdict is an entry under `scripts` (`path`, `valid`,
+`error_string`, `diagnostics`). A script that does not compile exits `0` with no
+top-level `error`, so do not treat exit `0` or the absence of an Error envelope as a
+pass for this command. Validate the whole set you changed in ONE call —
+`gda script validate a.gd b.gd c.gd --json` uses a single engine launch, and
+`--all` validates every script in the project. Check the result's `project_root`
+before you act on a `valid=false`: it names the project the scripts were compiled
+against, and a verdict full of missing-`res://` errors (plus the type errors derived
+from them) usually means the wrong project, not a broken script — `null` means no
+project was resolved at all. Pass `--project` for the project that owns the files
+and re-read the verdict.
 
 ## Discovery
 
@@ -100,7 +104,7 @@ two spellings are still usage errors (exit `2`) — `gda <group> --json` (a grou
 | ----- | -------- |
 | `scene` | `create`, `get`, `list`, `get-exports`, `delete` (`.tscn` files) |
 | `node` | `add`, `get`, `list`, `set`, `remove`, `duplicate`, `move`, `connect-signal`, `disconnect-signal` (nodes within a scene) |
-| `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails; `--timeout <s>` sets the ceiling (default 120) and a run that reaches it fails with `launch_timeout` carrying the captured partial output, the elapsed seconds and a termination phase; add `--completion-marker <line>` naming a line your script prints when done to have gda end a run whose script died before it — `script_aborted` (exit 4) with the captured error, in seconds rather than at the ceiling; declaring the marker asserts the script keeps printing until that line, so have it print progress during quiet stretches longer than ~3s, or omit the marker) |
+| `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `validate` takes SEVERAL paths at once — one engine launch for the whole batch, one aggregate `valid` plus a per-file entry under `scripts` — or `--all` for every script in the project; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails; `--timeout <s>` sets the ceiling (default 120) and a run that reaches it fails with `launch_timeout` carrying the captured partial output, the elapsed seconds and a termination phase; add `--completion-marker <line>` naming a line your script prints when done to have gda end a run whose script died before it — `script_aborted` (exit 4) with the captured error, in seconds rather than at the ceiling; declaring the marker asserts the script keeps printing until that line, so have it print progress during quiet stretches longer than ~3s, or omit the marker) |
 | `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
 | `resource` | `create`, `get`, `set`, `delete`, `uid` (`.tres` files) |
 | `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4690a415ebcff975162adcdeb87ea78a23afdcd40a7f80c578a11fad3570559a -->
+<!-- gda-readme-i18n: source=README.md sha256=ce2707c50feba30c3d17dbf0ea8b906b452002ff28b5a412ee53acd2a9e05a66 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -425,22 +425,30 @@ layout, así que define esas propiedades offset explícitamente.
 | `script set` | Edita un script mediante buscar-reemplazar, rango de líneas o sobrescritura completa. |
 | `script delete` | Elimina un archivo de script e informa qué se eliminó. |
 | `script attach` | Adjunta un script `.gd` a un nodo (por ruta de nodo) en una escena. |
-| `script validate` | Comprueba la sintaxis/compilación de un script `.gd`. |
+| `script validate` | Comprueba la sintaxis/compilación de scripts `.gd`: varias PATH a la vez, o `--all` para todos los scripts del proyecto. |
 
-Para `script validate --json`, lee el campo `valid` del objeto de resultado. Un
-script que no compila sigue siendo una operación exitosa: salida `0`, sin `error`
-de nivel superior, y `valid: false` con `error_string` / `diagnostics`. Los
-problemas de operación, como un archivo inexistente, siguen usando el Error envelope
-normal.
+`script validate` acepta un **lote**: pasa varias PATH y todas se validan en un único
+arranque del motor, así que los cuatro a seis scripts relacionados que toca un cambio
+cuestan un proceso en vez de uno cada uno. `--all` valida del mismo modo todos los
+scripts `.gd` del proyecto resuelto.
 
-El resultado también informa `project_root`: el proyecto contra el que se compiló el
-script, es decir, la raíz a la que se resolvieron sus dependencias `res://` (`null`
+Para `script validate --json`, lee el campo `valid` del objeto de resultado: es el
+veredicto **agregado**, `false` cuando falla cualquiera de los scripts. El veredicto de
+cada script es una entrada en `scripts`, con su `path`, `valid`, `error_string` y
+`diagnostics`. Una sola PATH es simplemente un lote de uno, así que la forma nunca
+varía. Un script que no compila sigue siendo una operación exitosa: salida `0`, sin
+`error` de nivel superior, y `valid: false`. Los problemas de operación, como un
+archivo inexistente, siguen usando el Error envelope normal y rechazan el lote entero
+en lugar de convertirse en un veredicto.
+
+El resultado también informa `project_root`: el proyecto contra el que se compilaron los
+scripts, es decir, la raíz a la que se resolvieron sus dependencias `res://` (`null`
 cuando no se resolvió ningún proyecto). Léelo antes de actuar sobre un `valid: false`:
 un veredicto lleno de dependencias `res://` inexistentes, más los errores de tipo
-derivados de ellas, suele significar el proyecto equivocado y no un script roto. Un
-script *fuera* del proyecto resuelto se rechaza de entrada con `project_not_found`,
-nombrando tanto el archivo como el proyecto, en lugar de informar esos errores falsos;
-pasa `--project` con el proyecto al que pertenece el archivo.
+derivados de ellas, suele significar el proyecto equivocado y no un script roto. Una
+ruta *fuera* del proyecto resuelto rechaza el lote entero de entrada con
+`project_not_found`, nombrando tanto el archivo como el proyecto, en lugar de informar
+esos errores falsos; pasa `--project` con el proyecto al que pertenecen los archivos.
 
 **`project`** — el proyecto en su conjunto (ajustes, autoloads, análisis estático)
 
