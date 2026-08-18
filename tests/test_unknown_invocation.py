@@ -244,3 +244,21 @@ def test_the_real_out_of_process_cli_refuses_structurally():
     error = json.loads(done.stdout)["error"]
     assert error["code"] == UNKNOWN_COMMAND
     assert error["hint"] == "gda scene get"
+
+
+def test_an_incomplete_command_line_is_not_refused():
+    # Click parses an INCOMPLETE command line under `resilient_parsing` (shell
+    # completion), where an unrecognized token is expected — and where an error
+    # envelope printed to stdout would land in the completion stream. gda's refusal
+    # keeps click's own guard for exactly that mode.
+    import typer._click as _click
+
+    from gda.hints import GdaGroup
+
+    root = typer.main.get_command(app)
+    assert isinstance(root, GdaGroup)
+    ctx = _click.Context(root, info_name="gda", resilient_parsing=True)
+
+    name, command, rest = root.resolve_command(ctx, ["inspect", "--json"])
+
+    assert command is None and name is None

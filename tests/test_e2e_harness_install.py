@@ -29,6 +29,7 @@ CI-runnable static counterpart — that the gate is the first statement of ``_re
 — lives in ``tests/test_harness_install.py``.
 """
 
+import json
 import socket
 import subprocess
 import sys
@@ -471,3 +472,50 @@ def test_template_feature_gates_the_harness_only_in_exported_builds(
             "the exported TEMPLATE binary connected — the `template` gate did NOT fire "
             "before marker/socket handling\n" + out_text
         )
+
+
+@pytest.mark.e2e
+def test_daemon_install_leaves_a_project_a_real_engine_boots_inert(tmp_path):
+    # #670: the CLI command, end to end. `gda daemon install` performs the same
+    # install `daemon start` folds in, so the project it leaves behind must boot the
+    # same way the fast install tests' does — the autoload loads, and stays inert with
+    # no daemon marker. Driven through a REAL `gda` subprocess (no daemon involved),
+    # so the recipe, the JSON receipt and the engine's verdict are all exercised.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+
+    installed = subprocess.run(
+        [*GDA_CMD, "daemon", "install", "--project", str(tmp_path), "--json"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    receipt = json.loads(installed.stdout)
+    assert receipt["installed_harness"] is True
+    assert HARNESS_RES_PATH in receipt["created_paths"]
+    assert receipt["created_sections"] == ["[autoload]"]
+    assert (tmp_path / "addons" / "gda_harness" / HARNESS_FILE).exists()
+    assert f'{HARNESS_AUTOLOAD_NAME}="*{HARNESS_RES_PATH}"' in (
+        tmp_path / "project.godot"
+    ).read_text(encoding="utf-8")
+
+    proc = subprocess.run(
+        [str(GODOT), "--headless", "--path", str(tmp_path), "--quit"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    _assert_inert_boot(proc.stdout + proc.stderr, proc.returncode)
+
+    # And `gda daemon uninstall` reverses it, so the pair is symmetric end to end.
+    removed = subprocess.run(
+        [*GDA_CMD, "daemon", "uninstall", "--project", str(tmp_path), "--json"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    assert json.loads(removed.stdout)["removed"] is True
+    assert not (tmp_path / "addons" / "gda_harness").exists()

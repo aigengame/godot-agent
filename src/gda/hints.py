@@ -222,7 +222,14 @@ def _refuse(
     the human channel raises the usage error click renders. It DOES return when gda
     has nothing to add and no JSON was asked for — leaving Typer's own message, its
     did-you-mean guess included, exactly as it was.
+
+    It also returns untouched under ``resilient_parsing``, click's own guard for the
+    same failures: that mode parses an INCOMPLETE command line (shell completion), so
+    an unrecognized token is expected there, and answering it would print an error
+    envelope into the completion stream.
     """
+    if ctx.resilient_parsing:
+        return
     if _json_in_effect(ctx):
         emit_failure(
             make_failure(

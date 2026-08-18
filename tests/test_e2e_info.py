@@ -53,3 +53,46 @@ def test_gda_info_missing_binary_yields_structured_error_end_to_end():
     assert err["code"] == "binary_not_found"
     # Engine/script diagnostics are surfaced on stderr (ADR-0002).
     assert "/nonexistent/Godot" in proc.stderr
+
+
+@pytest.mark.e2e
+def test_gda_info_accepts_a_project_and_still_reports_the_engine(tmp_path):
+    # #670: an orchestrator passes one `--project` argv to every command, so `info`
+    # must take it — and taking it means the engine really runs against that project
+    # (ADR-0006), not that the flag is parsed and dropped. Against a REAL engine: the
+    # version comes back unchanged, so the uniform argv costs nothing.
+    (tmp_path / "project.godot").write_text(
+        'config_version=5\n\n[application]\n\nconfig/name="probe"\n', encoding="utf-8"
+    )
+
+    proc = subprocess.run(
+        [*GDA_CMD, "info", "--project", str(tmp_path), "--json", "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    data = json.loads(proc.stdout)
+    assert (data["major"], data["minor"]) >= (4, 4)
+
+    # And it is the SAME answer as the projectless probe — the project does not
+    # change what `info` reports.
+    projectless = subprocess.run(
+        [*GDA_CMD, "info", "--json", "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(projectless.stdout) == data
+
+
+@pytest.mark.e2e
+def test_gda_info_refuses_a_project_that_is_not_one(tmp_path):
+    # Validated, not merely accepted — through the real CLI, before any engine runs.
+    proc = subprocess.run(
+        [*GDA_CMD, "info", "--project", str(tmp_path), "--json", "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 4, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["error"]["code"] == "project_not_found"
