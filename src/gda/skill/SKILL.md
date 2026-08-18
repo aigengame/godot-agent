@@ -139,7 +139,7 @@ already-running daemon's lazy Engine-session launch; only the outer
 
 | Group | Commands |
 | ----- | -------- |
-| `daemon` | `start`, `stop`, `status`, `uninstall` (lifecycle; installs the in-game harness) |
+| `daemon` | `start`, `stop`, `status`, `install`, `uninstall` (lifecycle; `start` installs the in-game harness itself, so `install` is only for doing that step deliberately — e.g. to review or commit the `project.godot` change — and `uninstall` reverses it) |
 | `game` | `tree`, `get`, `rect`, `set` (the running game's runtime scene graph) |
 | `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |

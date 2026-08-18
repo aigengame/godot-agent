@@ -179,6 +179,9 @@ _RECIPE_OPERATIONS = {
     # spawns Godot, so both are recipes for the same reason `skill` is.
     "version",
     "help",
+    # `daemon install` is the fifth daemon lifecycle recipe (ADR-0018, #670): the
+    # idempotent harness install `daemon start` folds in, runnable on its own.
+    "daemon-install",
 }
 
 

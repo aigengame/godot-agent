@@ -1304,3 +1304,150 @@ def test_cli_daemon_uninstall_schema_describes_the_result(tmp_path):
     assert result.exit_code == 0, result.output
     schema = json.loads(result.stdout)
     assert "removed" in json.dumps(schema)
+
+
+# --- `gda daemon install`: the explicit half of an implicit step (#670) --------
+# ADR-0018 point 1 named an agent-runnable `gda daemon install`; the delivered
+# surface folded it into `daemon start` and a 2026-06-23 outcome note recorded that
+# there was no install-without-start use case. Dogfooding found one that is not about
+# starting anything (GDA-DF-024): an agent looking for the harness step types the
+# command the ADR names, gets "no such command", and cannot tell whether gda installs
+# a harness at all. It is the SAME idempotent install `daemon start` performs — the
+# one `install_harness` seam — never a second implementation.
+
+
+def test_install_performs_the_first_install_and_reports_what_it_created(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+
+    outcome = daemon_ops.run_daemon_install_operation(project)
+
+    assert isinstance(outcome, daemon_ops.DaemonInstallResult), outcome
+    assert outcome.installed_harness is True
+    assert outcome.harness_synced is False  # a first install is not a resync
+    assert outcome.harness_version == HARNESS_VERSION
+    assert outcome.created_paths == [
+        "res://addons",
+        f"res://{HARNESS_RES_DIR}",
+        f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+    ]
+    assert outcome.created_sections == ["[autoload]"]
+    assert (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+    assert installed_harness_version(project) == HARNESS_VERSION
+
+
+def test_install_is_idempotent(tmp_path, short_runtime, monkeypatch):
+    # Run twice: the second changes nothing and says so, so an agent can call it
+    # unconditionally before a live session (the reason it exists).
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    daemon_ops.run_daemon_install_operation(project)
+    before = (project / "project.godot").read_bytes()
+
+    outcome = daemon_ops.run_daemon_install_operation(project)
+
+    assert isinstance(outcome, daemon_ops.DaemonInstallResult), outcome
+    assert outcome.installed_harness is False
+    assert outcome.harness_synced is False
+    assert outcome.created_paths == [] and outcome.created_sections == []
+    assert (project / "project.godot").read_bytes() == before
+
+
+def test_install_resyncs_a_stale_harness(tmp_path, short_runtime, monkeypatch):
+    # The same version self-sync `daemon start` performs (#225): a harness from an
+    # older gda is re-materialized, and that is reported as a SYNC, not a first install.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    daemon_ops.run_daemon_install_operation(project)
+    harness = project / HARNESS_RES_DIR / HARNESS_FILE
+    harness.write_bytes(b"# gda-harness-version: stale-old\nextends Node\n")
+
+    outcome = daemon_ops.run_daemon_install_operation(project)
+
+    assert isinstance(outcome, daemon_ops.DaemonInstallResult), outcome
+    assert outcome.harness_synced is True
+    assert outcome.installed_harness is True
+    assert outcome.created_paths == []  # a rewrite creates nothing
+    assert installed_harness_version(project) == HARNESS_VERSION
+
+
+def test_install_is_allowed_while_a_daemon_is_running(
+    tmp_path, short_runtime, monkeypatch
+):
+    # The asymmetry with `uninstall`, which is refused there: installing over a live
+    # daemon is exactly what a repeat `daemon start` already does, and it cannot yank
+    # an autoload out from under a running session.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    outcome = daemon_ops.run_daemon_install_operation(project)
+
+    assert isinstance(outcome, daemon_ops.DaemonInstallResult), outcome
+    assert outcome.installed_harness is True
+
+
+def test_install_without_a_project_is_a_typed_refusal(monkeypatch):
+    outcome = daemon_ops.run_daemon_install_operation(None)
+
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.code == "project_not_found"
+
+
+def test_a_failed_install_restores_the_project(
+    tmp_path, short_runtime, monkeypatch, read_only_project_godot
+):
+    # The transactional guarantee `daemon start` gained in #654 applies here for the
+    # same reason: `install_harness` materializes the file first and writes the config
+    # second, so a config write that fails leaves the harness on disk. Same snapshot,
+    # same restore — this command must not be the one that leaves residue behind.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    read_only_project_godot(project_godot)
+
+    with pytest.raises(PermissionError):
+        daemon_ops.run_daemon_install_operation(project)
+
+    assert not (project / HARNESS_RES_DIR).exists()
+    assert not (project / "addons").exists()
+    assert project_godot.read_bytes() == before
+
+
+def test_cli_daemon_install_emits_the_install_json(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+
+    result = CliRunner().invoke(
+        app, ["daemon", "install", "--project", str(project), "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["installed_harness"] is True
+    assert payload["harness_version"] == HARNESS_VERSION
+    assert (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+
+
+def test_cli_daemon_install_renders_what_it_did(tmp_path, short_runtime, monkeypatch):
+    project = _project(tmp_path)
+    CliRunner().invoke(app, ["daemon", "install", "--project", str(project)])
+
+    repeat = CliRunner().invoke(app, ["daemon", "install", "--project", str(project)])
+
+    assert repeat.exit_code == 0, repeat.output
+    assert "already installed" in repeat.stdout
+
+
+def test_cli_daemon_install_is_self_describing_with_the_live_constraint(tmp_path):
+    result = CliRunner().invoke(app, ["daemon", "install", "--schema"])
+
+    assert result.exit_code == 0, result.output
+    schema = json.loads(result.stdout)
+    assert "installed_harness" in json.dumps(schema)
+    # A daemon-lifecycle command, so it carries the live platform constraint — but no
+    # engine floor: it never launches Godot (gda.execution.live_stack_constraints).
+    assert schema["constraints"]["platforms"] == ["linux", "macos"]
+    assert schema["constraints"]["min_godot_version"] is None
