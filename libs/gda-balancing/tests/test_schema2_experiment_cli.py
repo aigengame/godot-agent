@@ -379,8 +379,6 @@ def _rpg_model_source() -> dict[str, Any]:
         "player_accuracy": "accuracy",
         "player_base_damage": "base_damage",
         "player_critical_threshold": "critical_threshold",
-        "player_health": "actor_health",
-        "defeat_threshold": "defeat_threshold",
         "enemy_defense": "target_defense",
         "enemy_health": "target_health",
         "player_effective_accuracy": "effective_accuracy",
@@ -399,7 +397,13 @@ def _rpg_model_source() -> dict[str, Any]:
         if binding["site"]["kind"] == "operation-slot"
         or binding["site"].get("symbol") == "player_effective_accuracy"
     ]
-    cast_entrypoint = deepcopy(source["entrypoints"][0])
+    cast_entrypoint = deepcopy(
+        next(
+            row
+            for row in source["entrypoints"]
+            if row["id"] == "combat.player-attacks-enemy-without-eligibility"
+        )
+    )
     cast_entrypoint["id"] = "combat.cast"
     plan_entrypoint = deepcopy(cast_entrypoint)
     plan_entrypoint["id"] = "combat.plan-casts"
@@ -6424,16 +6428,13 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
         row["id"] for row in operation["inputs"]
     }
     assert {
-        (row["id"], row["kind"], row["state_policy"])
-        for row in operation["outcomes"]
+        (row["id"], row["kind"], row["state_policy"]) for row in operation["outcomes"]
     } >= {
         ("actor-ineligible", "gameplay-alternative", "rollback"),
         ("target-defeated", "success", "commit"),
     }
     assert {
-        row["id"]
-        for row in vectors
-        if row.get("kind") == "operation-execution"
+        row["id"] for row in vectors if row.get("kind") == "operation-execution"
     } >= {
         "game.combat.cast.eligible-action",
         "game.combat.cast.target-defeated",
@@ -7908,11 +7909,13 @@ def test_metric_dataset_canonicalizer_orders_multiple_replications():
     ]
 
 
-def _assert_numeric_overflow_rolls_back_the_entire_current_event(
+def _assert_high_damage_event_behavior(
     tmp_path,
     run_cli,
     base_damage_value,
     extend_base_damage_domain,
+    *,
+    expected_capped_damage=None,
 ):
     source_value = _rpg_model_source()
     base_damage = next(
@@ -7966,6 +7969,23 @@ def _assert_numeric_overflow_rolls_back_the_entire_current_event(
         ]
     )
 
+    if expected_capped_damage is not None:
+        assert (exit_code, stderr) == (0, ""), stdout
+        event = _member(json.loads(stdout), "event-trace")["events"][0]
+        assert (
+            next(
+                row["integer"]
+                for row in event["facts"]
+                if row["name"] == "damage_dealt"
+            )
+            == expected_capped_damage
+        )
+        assert event["state_after"] == [
+            {"name": "actor_mana", "value": 22},
+            {"name": "target_health", "value": 0},
+        ]
+        return
+
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "runtime"
@@ -8016,7 +8036,7 @@ def _assert_numeric_overflow_rolls_back_the_entire_current_event(
 
 
 def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli):
-    _assert_numeric_overflow_rolls_back_the_entire_current_event(
+    _assert_high_damage_event_behavior(
         tmp_path,
         run_cli,
         1 << 62,
@@ -8024,15 +8044,13 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
     )
 
 
-def test_receiving_resource_domain_overflow_rolls_back_the_entire_current_event(
-    tmp_path,
-    run_cli,
-):
-    _assert_numeric_overflow_rolls_back_the_entire_current_event(
+def test_damage_caps_to_the_receiving_resource_domain(tmp_path, run_cli):
+    _assert_high_damage_event_behavior(
         tmp_path,
         run_cli,
         101,
         False,
+        expected_capped_damage=100,
     )
 
 
@@ -8207,7 +8225,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
             for row in production_event["facts"]
             if row["name"] == "damage_dealt"
         )
-        == 80
+        == 10
     )
     assert production_event["state_after"] == [
         {"name": "actor_mana", "value": 22},

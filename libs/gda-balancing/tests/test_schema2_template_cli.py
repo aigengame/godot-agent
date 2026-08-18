@@ -914,7 +914,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:7befdf6f838e8d0db5b643926fc3660e61821aa87c3fd0e8c20d3ac2fd34edbd"
+                    "sha256:43973866eabcb6c3618b1eff95727f064aa1b65bc29538b9ea78aac02d020d04"
                 ),
             }
         ]
@@ -2497,12 +2497,13 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     entrypoints = [
         _replace_json_value(deepcopy(entrypoint), "combat", "main")
         for entrypoint in game_source["entrypoints"]
-        if entrypoint["id"] == "combat.player-attacks-enemy"
+        if entrypoint["id"] == "combat.player-attacks-enemy-without-eligibility"
     ]
     for entrypoint in entrypoints:
         next(row for row in entrypoint["arguments"] if row["port"] == "accuracy")[
             "operand"
         ]["symbol"] = "game_effective_accuracy"
+    entrypoints[0]["id"] = "combat.player-attacks-enemy"
     entrypoints[0]["result"]["symbol"] = "output_value"
     extended["entrypoints"] = entrypoints
     extended["package_requirements"] = deepcopy(game_source["package_requirements"])
@@ -2558,6 +2559,9 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     scenario = experiment["scenarios"][0]
     scenario["event_plan"] = scenario["event_plan"][:1]
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 1}
+    experiment["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+        "guard-block"
+    )
     retained_assignments = {
         "enemy_defense",
         "enemy_health",
