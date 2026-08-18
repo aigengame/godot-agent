@@ -109,6 +109,44 @@ status: accepted
 > an operation reported. The two compose under the same omitted-when-absent rule, and
 > #687 stays free to decide its axis on its own merits.
 
+> **Amendment (2026-08-18, #669):** the per-command `--schema` object gains a SIXTH,
+> additive key — `argv`, the list of `ArgvBinding`s naming how each parameter `input`
+> describes is written on a command line (`kind` positional/option, `position` or
+> `option` spelling, `required`, `flag`, `multiple`, and the `input_property` it
+> fills). Motivation: the contract stated a command's required fields but not their
+> CLI spelling, so an agent could not build argv from it — `screen capture` takes its
+> required output as `--output`, `input mouse-click` takes `x y` positionally, and
+> `input action` takes a positional ACTION it rejects as `--action` (dogfooding
+> GDA-DF-003). The self-description was accurate and still insufficient.
+>
+> It is additive on the same properties the notes above establish:
+>
+> - **A sibling of the schema halves, never a key inside them.** `input` / `output`
+>   stay byte-identical, so gda-mcp's `input_schema` / `output_schema` are unchanged
+>   and it needs no adapter work — it maps only `input` / `output` / `description`
+>   (ADR-0012). Measured across the whole surface at the time of the change: one
+>   `input` differs (`input sequence`, for its own model's per-kind union), and no
+>   `output` / `error` / `description` / `kind` / `constraints` does.
+> - **Derived, never declared.** The bindings are read off the LIVE Typer/Click
+>   parameters at emission time, through one projection shared by the per-command
+>   `--schema` and the aggregate manifest (ADR-0012's live-tree walk, ADR-0023 §2).
+>   An `argv` field on the `HeadlessCommand` descriptor was rejected: a
+>   hand-maintained spelling table is a second authority for a fact the Typer
+>   signature already owns, and it would silently rot the moment a signature changed.
+>   Reading the registered parameters also makes it correct on every dispatch channel
+>   at once — the sentinel path, the EXPORT / LIVE kinds, and the recipe commands.
+> - **Zero per-command cost**, like the halves it joins: a new command's spelling
+>   appears because it registered parameters, not because anyone wrote it down.
+>
+> Two boundaries. `argv` covers the OPERATION parameters — the same set
+> `--params-json` treats as exclusive of the individual arguments (ADR-0015) — so the
+> cross-cutting flags every command shares (`--json` / `--schema` / `--params-json` /
+> `--godot` / `--project`) stay out; they are not per-command information. And
+> `input_property` is `null`, not guessed, where a CLI form has no 1:1 property (two
+> flags selecting one field, or a differently-named option): a wrong link would read
+> as authoritative. On the aggregate entry the `argv` key is required, its list
+> possibly empty — the same "key always present" guarantee `constraints` has.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 

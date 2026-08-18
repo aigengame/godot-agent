@@ -101,8 +101,11 @@ and re-read the verdict.
 - `gda help <group> <command>` — the same help from the command form; with `--json` it
   comes back as `{command, text}`.
 - `gda <group> <command> --schema` — one command's input/output/error JSON Schema
-  (no Godot spawned).
-- `gda schema` — the **whole** surface as one JSON manifest.
+  (no Godot spawned), plus `argv`: how each parameter is written on a command line
+  (`kind` positional or option, its `position` or `--option` spelling, whether it is
+  `required`, a valueless `flag`, or `multiple`). Build the command line from `argv`
+  and you need no `--help` round trip.
+- `gda schema` — the **whole** surface as one JSON manifest, `argv` included.
 - `gda version --json` — which `gda` is installed and where from; `gda info` — the
   engine's version.
 
@@ -162,6 +165,12 @@ already-running daemon's lazy Engine-session launch; only the outer
 | `perf` | `monitors`, `monitor` (counters now / a property-or-signal timeline) |
 | `input` | `key`, `mouse-click`, `mouse-move`, `action`, `sequence` |
 | `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`) |
+
+`gda input sequence` events are a discriminated union on `type`: each kind accepts
+only its own fields, and `gda input sequence --schema` publishes them per kind. The
+press/release spelling differs by kind — `pressed` belongs to `mouse_button` alone,
+an `action` releases with `release`, a `key` with `released` — so read the kind's
+variant rather than assuming a shared shape.
 
 For `gda input sequence`, event `frame` offsets are the original
 harness/process-frame clock from the harness `_process` loop; they are not Godot's
