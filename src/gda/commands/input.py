@@ -340,20 +340,25 @@ def _foreign_field_message(model: type[BaseModel], field: str) -> str:
     from the variant models, so it cannot drift from what they accept.
     """
     kind = _event_kind(model)
+    # "an 'action' event", not "a 'action' event": the kind names come from the
+    # union, so the article is computed rather than written into a sentence.
+    article = "an" if kind[:1] in "aeiou" else "a"
     if field in _PHASE_FIELDS:
         own = [name for name in _PHASE_FIELDS if name in model.model_fields]
         advice = (
-            f"a {kind!r} event spells its press/release phase "
+            f"{article} {kind!r} event spells its press/release phase "
             + " or ".join(repr(name) for name in own)
             if own
-            else f"a {kind!r} event has no press/release phase"
+            else f"{article} {kind!r} event has no press/release phase"
         )
     else:
         accepted = ", ".join(repr(name) for name in model.model_fields)
-        advice = f"a {kind!r} event accepts {accepted}"
+        advice = f"{article} {kind!r} event accepts {accepted}"
     elsewhere = _kinds_accepting(field, model)
     seen = f"; {field!r} is accepted on: {', '.join(elsewhere)}" if elsewhere else ""
-    return f"{field!r} is not valid on a {kind!r} sequence event: {advice}{seen}."
+    return (
+        f"{field!r} is not valid on {article} {kind!r} sequence event: {advice}{seen}."
+    )
 
 
 class _SequenceEvent(BaseModel):

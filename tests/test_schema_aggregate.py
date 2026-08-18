@@ -376,3 +376,35 @@ def test_argv_metadata_rides_outside_the_two_schema_halves_gda_mcp_maps():
         assert "argv" not in entry["input"], entry["name"]
         assert "argv" not in entry["output"], entry["name"]
         assert "ArgvBinding" not in entry["input"].get("$defs", {}), entry["name"]
+
+
+def test_self_described_manifest_describes_the_argv_binding_list():
+    # issue #669: the aggregate entry's `argv` is a HARD part of the
+    # self-described surface schema — the key is required (every entry is a real
+    # command whose signature can be walked) and its items are the named
+    # ArgvBinding shape, so a consumer validating `gda schema --schema`'s manifest
+    # schema can rely on the binding's fields rather than discovering them.
+    result = CliRunner().invoke(app, ["schema", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    manifest_schema = json.loads(result.stdout)["output"]
+
+    entry = manifest_schema["$defs"]["CommandManifestEntry"]
+    assert "argv" in entry["required"], entry["required"]
+    assert entry["properties"]["argv"]["items"] == {"$ref": "#/$defs/ArgvBinding"}
+
+    binding = manifest_schema["$defs"]["ArgvBinding"]
+    # Every field is a required KEY, so a consumer reads them unconditionally;
+    # the optional ones are nullable VALUES (`option` on a positional, `position`
+    # on an option, `input_property` where there is no 1:1 property).
+    assert set(binding["required"]) == {
+        "name",
+        "input_property",
+        "kind",
+        "option",
+        "position",
+        "required",
+        "flag",
+        "multiple",
+    }
+    assert binding["properties"]["kind"]["$ref"] == "#/$defs/ArgvKind"
+    assert manifest_schema["$defs"]["ArgvKind"]["enum"] == ["argument", "option"]
