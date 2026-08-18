@@ -277,6 +277,14 @@ class InputEventType(str, Enum):
     MOUSE_MOVE = "mouse_move"
     ACTION = "action"
 
+    def __repr__(self) -> str:
+        # These members are the union's discriminator tags (#669), and the
+        # unknown-tag refusal renders the expected ones with repr() — where the
+        # default enum repr would put "<InputEventType.KEY: 'key'>" into a public
+        # error message, naming a Python symbol the caller cannot type. Report the
+        # wire value, which is what the caller writes.
+        return repr(self.value)
+
 
 # The press/release synonyms a sequence event may spell its phase with. Each kind
 # uses exactly the one its single-frame op uses (`released` for a key, `release`

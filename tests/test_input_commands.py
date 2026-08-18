@@ -1385,3 +1385,14 @@ def test_input_sequence_help_carries_a_copyable_action_example():
     )
     # …beside the mouse example it joins, likewise intact.
     assert '{"type": "mouse_button", "x": 10, "y": 10, "pressed": true}' in rendered
+
+
+def test_an_unknown_event_type_lists_the_kinds_a_caller_can_type(monkeypatch, tmp_path):
+    # The union refuses an unknown `type` by listing the expected tags. They must
+    # read as the WIRE values a caller writes — a bare enum would put
+    # "<InputEventType.KEY: 'key'>" into a public message, naming a Python symbol
+    # that is not typeable in a request.
+    message = _reject(monkeypatch, tmp_path, {"type": "nope", "key": "A"})
+
+    assert "'key', 'mouse_click', 'mouse_button', 'mouse_move', 'action'" in message
+    assert "InputEventType" not in message
