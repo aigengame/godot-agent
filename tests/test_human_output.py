@@ -389,7 +389,12 @@ HUMAN_CASES = [
         # script validate valid (already human-pinned elsewhere; for uniformity).
         "script-validate-valid",
         ["script", "validate", "/tmp/proj/ok.gd"],
-        {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None},
+        {
+            "valid": True,
+            "scripts": [
+                {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
+            ],
+        },
         "valid /tmp/proj/ok.gd",
     ),
     # --- export group -------------------------------------------------------

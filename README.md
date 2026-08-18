@@ -414,20 +414,29 @@ offset properties explicitly instead.
 | `script set` | Edit a script via search-replace, line-range, or full overwrite. |
 | `script delete` | Delete a script file and report what was removed. |
 | `script attach` | Attach a `.gd` script to a node (by node path) in a scene. |
-| `script validate` | Syntax/compile-check a `.gd` script. |
+| `script validate` | Syntax/compile-check `.gd` scripts — several PATHs at once, or `--all` for every script in the project. |
 
-For `script validate --json`, read the result object's `valid` field. A script that
-does not compile is still a successful operation: exit `0`, no top-level `error`,
-and `valid: false` with `error_string` / `diagnostics`. Operation problems such as
-a missing file still use the normal Error envelope.
+`script validate` takes a **batch**: pass several PATHs and they are all validated in
+one engine launch, so the four to six related scripts a change touches cost one
+process instead of one each. `--all` validates every `.gd` script in the resolved
+project the same way.
 
-The result also reports `project_root`: the project the script was compiled against,
-which is the root its `res://` dependencies resolved to (`null` when no project was
+For `script validate --json`, read the result object's `valid` field — the **aggregate**
+verdict, `false` when any one script fails. Each script's own verdict is an entry under
+`scripts`, carrying its `path`, `valid`, `error_string` and `diagnostics`. A single
+PATH is simply a batch of one, so the shape never varies. A script that does not compile
+is still a successful operation: exit `0`, no top-level `error`, and `valid: false`.
+Operation problems such as a missing file still use the normal Error envelope, and they
+refuse the whole batch rather than becoming a verdict.
+
+The result also reports `project_root`: the project the scripts were compiled against,
+which is the root their `res://` dependencies resolved to (`null` when no project was
 resolved). Read it before acting on a `valid: false` — a verdict full of missing
 `res://` dependencies, plus the type errors derived from them, usually means the wrong
-project rather than a broken script. A script *outside* the resolved project is refused
-up front with `project_not_found`, naming both the file and the project, instead of
-reporting those false errors; pass `--project` for the project that owns the file.
+project rather than a broken script. A path *outside* the resolved project refuses the
+whole batch up front with `project_not_found`, naming both the file and the project,
+instead of reporting those false errors; pass `--project` for the project that owns the
+files.
 
 **`project`** — the project as a whole (settings, autoloads, static analysis)
 

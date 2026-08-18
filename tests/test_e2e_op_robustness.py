@@ -111,3 +111,73 @@ def test_script_set_dispatches_on_the_explicit_mode_not_param_presence(tmp_path)
     assert payload["extends"] == "Node2D"
     # The file was fully overwritten (full mode honored), not line-range edited.
     assert script.read_text(encoding="utf-8") == "class_name Hero\nextends Node2D\n"
+
+
+# --- script-validate's selector contract, below the CLI (#663) ---
+#
+# gda's own CLI refuses these selections before the engine is reached (the params
+# model owns the rule, ADR-0015), so these arms drive `operations.gd` directly —
+# which is what this module is for. The op is a contract in its own right
+# (ADR-0002): another caller of the payload must get the same refusal gda's CLI
+# gives, and with the same code, or the two sides of the wire disagree about what
+# a selection means.
+
+
+def _validate_failure(params: dict) -> Failure:
+    from gda.commands.script import ScriptValidateResult
+
+    result = SubprocessGodotRunner(GODOT).run("script-validate", params)
+    outcome = classify_run(result, GODOT, ScriptValidateResult)
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.category.value == "operation"
+    return outcome
+
+
+@pytest.mark.e2e
+def test_script_validate_refuses_both_selectors_at_the_op():
+    # "Both" is a contradiction, not a precedence question: all_scripts already
+    # covers every script, so silently letting it win would report a verdict for a
+    # set the caller did not ask for while discarding the one they named.
+    outcome = _validate_failure({"paths": ["res://a.gd"], "all_scripts": True})
+
+    assert outcome.error.code == "invalid_params"
+    assert "mutually exclusive" in outcome.error.message
+
+
+@pytest.mark.e2e
+def test_script_validate_refuses_an_empty_selection_at_the_op():
+    # The same failure the params model reports for the same selection, under the
+    # same code — one condition, one code, on both sides of the wire.
+    outcome = _validate_failure({"paths": [], "all_scripts": False})
+
+    assert outcome.error.code == "invalid_params"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("all_scripts", [None, "yes", [], {}, 1])
+def test_script_validate_refuses_a_non_boolean_all_scripts_at_the_op(all_scripts):
+    # GDScript's `bool(value)` is not total: a null, a String, an Array or a
+    # Dictionary makes it RAISE, which aborts _initialize before any sentinel is
+    # printed — so the caller got the generic operation_failed instead of a
+    # structured refusal naming the shape. The op type-checks the raw Variant
+    # first, exactly as it does for `paths`. (`1` is included because an int IS
+    # coercible: it must still be refused, since accepting one spelling of a
+    # boolean and not another is the kind of drift the wire contract exists to
+    # prevent.)
+    outcome = _validate_failure({"paths": [], "all_scripts": all_scripts})
+
+    assert outcome.error.code == "invalid_params"
+    assert "all_scripts" in outcome.error.message
+
+
+@pytest.mark.e2e
+def test_script_validate_separates_a_bad_params_shape_from_a_bad_path_value():
+    # The split the codes carry: a non-string entry is a params SHAPE problem
+    # (invalid_params, which is also what pydantic reports for it), while an empty
+    # string is a well-typed path VALUE that names nothing (invalid_path, like
+    # every other unusable path).
+    shape = _validate_failure({"paths": [123]})
+    value = _validate_failure({"paths": [""]})
+
+    assert shape.error.code == "invalid_params"
+    assert value.error.code == "invalid_path"

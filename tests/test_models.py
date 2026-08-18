@@ -582,20 +582,27 @@ def test_script_attach_result_round_trips_null_class_name():
 
 
 def test_script_validate_result_round_trips_a_valid_script():
-    # A valid script (issue #118): valid=true, no error_string, no diagnostics —
-    # the successful-op shape.
+    # A valid script (issue #118): the aggregate is true and its one entry carries
+    # valid=true, no error_string, no diagnostics — the successful-op shape. A
+    # single path is a batch of one (#663), so this is the same shape a six-script
+    # batch emits, with one entry instead of six.
     payload = {
-        "path": "res://ok.gd",
         "valid": True,
-        "error_string": None,
-        "diagnostics": [],
+        "scripts": [
+            {
+                "path": "res://ok.gd",
+                "valid": True,
+                "error_string": None,
+                "diagnostics": [],
+            }
+        ],
     }
 
     validated = ScriptValidateResult.model_validate(payload)
 
     assert validated.valid is True
-    assert validated.error_string is None
-    assert validated.diagnostics == []
+    assert validated.scripts[0].error_string is None
+    assert validated.scripts[0].diagnostics == []
     # `project_root` is NOT in the sentinel payload: the engine is told the
     # project through --path and never reports it back, so the CLI stamps the
     # ADR-0006-resolved root onto the result after classification (#658). The
@@ -607,25 +614,38 @@ def test_script_validate_result_round_trips_a_valid_script():
     }
 
 
-def test_script_validate_result_round_trips_an_invalid_script_with_diagnostics():
-    # An invalid script carries valid=false, the engine's one-line summary, and a
-    # best-effort diagnostic (line + message; column always null on the standard
-    # build).
+def test_script_validate_result_round_trips_a_batch_with_per_file_diagnostics():
+    # A batch (#663): the aggregate is false as soon as ONE entry is invalid, and
+    # each entry keeps its own engine summary plus its own best-effort diagnostic
+    # (line + message; column always null on the standard build).
     payload = {
-        "path": "res://broken.gd",
         "valid": False,
-        "error_string": "Parse error.",
-        "diagnostics": [
-            {"line": 3, "column": None, "message": "Parse Error: bad token."}
+        "scripts": [
+            {
+                "path": "res://ok.gd",
+                "valid": True,
+                "error_string": None,
+                "diagnostics": [],
+            },
+            {
+                "path": "res://broken.gd",
+                "valid": False,
+                "error_string": "Parse error.",
+                "diagnostics": [
+                    {"line": 3, "column": None, "message": "Parse Error: bad token."}
+                ],
+            },
         ],
     }
 
     validated = ScriptValidateResult.model_validate(payload)
 
     assert validated.valid is False
-    assert validated.diagnostics[0].line == 3
-    assert validated.diagnostics[0].column is None
-    assert validated.diagnostics[0].message == "Parse Error: bad token."
+    assert [entry.valid for entry in validated.scripts] == [True, False]
+    broken = validated.scripts[1]
+    assert broken.diagnostics[0].line == 3
+    assert broken.diagnostics[0].column is None
+    assert broken.diagnostics[0].message == "Parse Error: bad token."
     # Sentinel-absent, CLI-stamped — see the valid-script round-trip above.
     assert json.loads(validated.model_dump_json()) == {
         **payload,

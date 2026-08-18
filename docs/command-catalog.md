@@ -370,7 +370,12 @@ body cannot be mistaken for the declaration. `script get` additionally returns t
 its `res://` path and the `class_name`/`extends` parsed from the **raw text** (no compilation,
 issue #30) — null when the source declares neither, so the listing names every `.gd` it found.
 Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
-`--project`); an empty project is a valid, empty listing, not an error. `gda script delete`
+`--project`); an empty project is a valid, empty listing, not an error. The walk excludes exactly
+one directory — the engine's own cache at `res://.godot`, whose contents are import artefacts no
+agent authored. **Only that path**, not every directory named `.godot`: a nested one is authored
+content, and excluding it hid real scripts from the listing and let `script validate --all` report
+a valid aggregate for a project holding an invalid script (#663 review). Hidden entries are
+otherwise enumerated as promised (#54). `gda script delete`
 removes a script file and reports the removed script's `class_name`/`extends` (parsed before
 deletion), so the result names the content, not just the path. Delete honors the same addressing
 boundary as the rest of the group — only a `.gd` path is removed (a non-`.gd` target is refused
@@ -443,29 +448,49 @@ the scene, node, script, the attached script's `class_name` (null when it declar
 `replaced_script` (the displaced script, or null), verifiable by reading the saved `.tscn` back: the
 script now appears as an `ext_resource` the node references.
 
-**Validating** (established by #118): `gda script validate PATH` syntax/compile-checks a `.gd`
-script. **Mechanism**: it reads the file text, sets it on a fresh `GDScript`, and calls
-`reload()` — `OK` means the script compiles. It compiles the script (`reload` parses and
-compiles), but never **instantiates** it, so it does not run the script's instance code. Pass
-`--project` when the script `extends` a project `class_name` or preloads a project resource and so
-needs project context to compile; a self-contained `extends Node` script validates projectless.
+**Validating** (established by #118, batched by #663): `gda script validate PATH...`
+syntax/compile-checks one or more `.gd` scripts, and `--all` checks every script in the resolved
+project instead. **Mechanism**: for each script it reads the file text, sets it on a fresh
+`GDScript`, and calls `reload()` — `OK` means the script compiles. It compiles the script
+(`reload` parses and compiles), but never **instantiates** it, so it does not run the script's
+instance code. Pass `--project` when a script `extends` a project `class_name` or preloads a
+project resource and so needs project context to compile; a self-contained `extends Node` script
+validates projectless.
 
-A **`valid=false` result is a successful operation** — `validate` exits `0` with
-`{valid: false, error_string, diagnostics}` for a script that does not compile. The op only
-*fails* (non-zero, `invalid_path`/`path_not_found`) for op errors (empty/non-`.gd` path, missing
-or unreadable file). `diagnostics` are **best-effort advisory** `{line, message}` pairs: the line
-and message are not available from any bound API — only from the engine's stderr — so they are
-parsed Python-side and may carry only the **first** error. **`column` is always null** on the
-standard Godot build (the engine exposes no column for a parse error). `validate` reuses existing
-codes only (no new ones).
+**One launch per call, not per script** (#663): the whole batch is validated in a single headless
+process, which is what makes checking the four to six related scripts a change touches affordable.
+The result is `{valid, scripts, project_root}`: `valid` is the **aggregate** (false as soon as any
+entry fails) and `scripts` carries one `{path, valid, error_string, diagnostics}` entry per
+validated script, in requested order (under `--all`, in the engine's sorted enumeration order). A
+single path is a batch of one, so the shape never varies with the batch size. A repeated path is
+validated and reported once per occurrence — gda drops no input. `--all` needs a resolved project
+(`project_not_found` otherwise, as `script list` does), and an empty project is a vacuously valid
+empty batch. It enumerates through the same walk `script list` uses, so it sees the same set —
+including a nested `.godot` directory, and never the engine's own `res://.godot` cache.
+
+A **`valid=false` result is a successful operation** — `validate` exits `0` with the aggregate
+`valid: false` for a batch in which any script does not compile. The op only *fails* (non-zero,
+`invalid_path`/`path_not_found`) for op errors (a non-`.gd` path, a missing or unreadable file),
+and such an error **refuses the whole batch** before anything is compiled rather than becoming one
+script's verdict. `diagnostics` are **best-effort advisory** `{line, message}` pairs: the line and
+message are not available from any bound API — only from the engine's stderr — so they are parsed
+Python-side and may carry only the **first** error per script. Attribution across a batch works
+because `operations.gd` writes a `gda: validating: <path>` marker to stderr before each compile
+and the classifier splits the stream on it, which also drops engine startup noise (it precedes the
+first marker). **`column` is always null** on the standard Godot build (the engine exposes no
+column for a parse error). `validate` reuses existing codes only (no new ones).
 
 **Project context** (#658): the result carries `project_root` — the project the script was
 compiled against, i.e. the root its `res://` dependencies resolved to, absolute, and `null` when
-gda ran projectless. It is **required and nullable**, so every verdict carries the key. It exists
+gda ran projectless. It is **required and nullable**, and reported once per call rather than per
+script (ADR-0006 resolves one project per call), so every verdict carries the key. It exists
 because a script compiled against the wrong project reports every `res://` dependency as missing
 plus the type errors derived from them, which reads as a broken script; `project_root` is what
 tells the two apart. A target **outside** the resolved project is **refused before parsing** with
 `project_not_found` naming both the file and the project, rather than emitting that false cascade.
+The check applies to **every** path in a batch, and the first offender in requested order refuses
+the whole call (#663): one call has one project, so one outsider makes the requested set
+unservable. `--all` has nothing to check — the engine enumerates the resolved project's own tree.
 Containment follows the engine's own addressing: a relative path is anchored at the resolved
 project (not gda's cwd), an engine-virtual path (`res://`, `user://`, `uid://`) is inside by
 construction, and a file reached through a symlink into the project counts as inside — except when
@@ -482,7 +507,7 @@ mismatch, pending the ADR-0006 amendment tracked in #697.
 | `gda script list` | Enumerate scripts (with `class_name`/`extends` metadata) |
 | `gda script set` | Edit script (search-replace / line-range / full) |
 | `gda script attach` | Attach a script to a node in a scene |
-| `gda script validate` | Syntax/compile check |
+| `gda script validate` | Syntax/compile check (a batch of paths, or `--all`) |
 
 ### `project`
 

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4690a415ebcff975162adcdeb87ea78a23afdcd40a7f80c578a11fad3570559a -->
+<!-- gda-readme-i18n: source=README.md sha256=ce2707c50feba30c3d17dbf0ea8b906b452002ff28b5a412ee53acd2a9e05a66 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -412,17 +412,23 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `script set` | 通过搜索替换、行范围或整体覆写来编辑一个脚本。 |
 | `script delete` | 删除一个脚本文件并报告删除了什么。 |
 | `script attach` | 按节点路径把一个 `.gd` 脚本附加到场景里的某个节点上。 |
-| `script validate` | 对一个 `.gd` 脚本做语法 / 编译检查。 |
+| `script validate` | 对多个 `.gd` 脚本做语法 / 编译检查——可一次传入多个 PATH，或用 `--all` 检查项目里的全部脚本。 |
 
-对 `script validate --json`，要读取结果对象里的 `valid` 字段。脚本编译失败仍然算一次成功操作：
-退出码为 `0`，没有顶层 `error`，并以 `valid: false` 携带 `error_string` / `diagnostics`。
-缺失文件等操作层问题仍然采用标准的 Error envelope。
+`script validate` 接受**批量**输入：一次传入多个 PATH，它们会在同一次引擎启动中全部完成校验，
+因此一次改动通常涉及的四到六个相关脚本只需一个进程，而不是每个脚本各起一个。`--all` 则以同样
+的方式校验所解析项目里的每一个 `.gd` 脚本。
 
-结果还会报告 `project_root`：脚本编译时所针对的项目，也就是其 `res://` 依赖解析到的根目录
+对 `script validate --json`，要读取结果对象里的 `valid` 字段——它是**汇总**结论，只要有任何一个
+脚本未通过就是 `false`。每个脚本各自的结论是 `scripts` 里的一个条目，携带其 `path`、`valid`、
+`error_string` 与 `diagnostics`。传入单个 PATH 就是批量为一的情形，所以结构不会随批量大小变化。
+脚本编译失败仍然算一次成功操作：退出码为 `0`，没有顶层 `error`，并给出 `valid: false`。缺失文件
+等操作层问题仍然采用标准的 Error envelope，而且会拒绝整个批次，而不是变成某条结论。
+
+结果还会报告 `project_root`：这些脚本编译时所针对的项目，也就是其 `res://` 依赖解析到的根目录
 （未解析到项目时为 `null`）。在处理 `valid: false` 之前请先读它——若诊断里满是缺失的 `res://`
 依赖以及由此派生的类型错误，通常说明项目选错了，而不是脚本本身有问题。位于所解析项目**之外**
-的脚本会被提前拒绝并返回 `project_not_found`，同时指明文件与项目，而不是报出那一连串假错误；
-此时请用 `--project` 指定真正拥有该文件的项目。
+的路径会让整个批次被提前拒绝并返回 `project_not_found`，同时指明文件与项目，而不是报出那一连串
+假错误；此时请用 `--project` 指定真正拥有这些文件的项目。
 
 **`project`** — 作为整体的项目（设置、autoload、静态分析）
 

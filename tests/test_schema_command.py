@@ -634,8 +634,13 @@ def test_script_validate_schema_emits_model_derived_contract_without_other_args(
     assert doc["input"] == ScriptValidateParams.model_json_schema()
     assert doc["output"] == ScriptValidateResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    # The batch contract (#663): repeated paths in, one aggregate verdict plus one
+    # entry per script out.
+    assert doc["input"]["properties"]["paths"]["type"] == "array"
+    assert "all_scripts" in doc["input"]["properties"]
     assert "valid" in doc["output"]["properties"]
-    assert "diagnostics" in doc["output"]["properties"]
+    assert doc["output"]["properties"]["scripts"]["type"] == "array"
+    assert "diagnostics" in doc["output"]["$defs"]["ValidatedScript"]["properties"]
     # project_root is REQUIRED and nullable (#658): every emitted verdict carries
     # the key, so an agent reads it unconditionally rather than probing for it.
     assert "project_root" in doc["output"]["required"]
@@ -697,24 +702,44 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
     # The validate sample carries project_root: it is REQUIRED on the public
     # result (#658), because the CLI stamps the ADR-0006-resolved project onto
     # every emitted verdict. A payload without it is the engine's internal
-    # sentinel half, not something gda ever emits.
+    # sentinel half, not something gda ever emits. The BATCH shape (#663) is the
+    # only shape: one aggregate verdict over one entry per validated script.
     jsonschema.validate(
         instance={
-            "path": "res://broken.gd",
             "valid": False,
-            "error_string": "Parse error.",
-            "diagnostics": [{"line": 3, "column": None, "message": "Parse Error: ..."}],
+            "scripts": [
+                {
+                    "path": "res://ok.gd",
+                    "valid": True,
+                    "error_string": None,
+                    "diagnostics": [],
+                },
+                {
+                    "path": "res://broken.gd",
+                    "valid": False,
+                    "error_string": "Parse error.",
+                    "diagnostics": [
+                        {"line": 3, "column": None, "message": "Parse Error: ..."}
+                    ],
+                },
+            ],
             "project_root": "/work/game",
         },
         schema=validate_doc["output"],
     )
-    # ...and projectless still satisfies it, since the field is nullable.
+    # ...and a projectless batch of one still satisfies it, since the field is
+    # nullable and the shape does not vary with the batch size.
     jsonschema.validate(
         instance={
-            "path": "/work/standalone.gd",
             "valid": True,
-            "error_string": None,
-            "diagnostics": [],
+            "scripts": [
+                {
+                    "path": "/work/standalone.gd",
+                    "valid": True,
+                    "error_string": None,
+                    "diagnostics": [],
+                }
+            ],
             "project_root": None,
         },
         schema=validate_doc["output"],
