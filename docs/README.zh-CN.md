@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ce2707c50feba30c3d17dbf0ea8b906b452002ff28b5a412ee53acd2a9e05a66 -->
+<!-- gda-readme-i18n: source=README.md sha256=a8765d430b47f838d8cb7adfc0d50bd40a359e157c5530946bee1d607e041058 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -69,7 +69,8 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
   加上实时控制能力，用的还是同一套 CLI 语法。
 - **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错；引擎卡死则会触发超时处理。
   这些错误都会映射为一个**稳定的非零退出码**，并附带一个结构化的 `{"error": {…}}` 信封——这样 shell 或 agent
-  无需解析自然语言文本，就能按失败类别分支处理。
+  无需解析自然语言文本，就能按失败类别分支处理。`gda` 不认识的命令或选项同样以结构化方式拒绝，
+  并在 `hint` 中给出应当改用的调用方式。
 
 ---
 
@@ -368,7 +369,9 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `gda info`   | 报告 Godot 引擎的版本信息。 |
+| `gda info`   | 报告 Godot 引擎的版本信息。与其他命令一样接受 `--project`；版本结果并不依赖它。 |
+| `gda version` | 报告当前安装的是哪个 `gda`、来自何处——加 `--json` 时给出完整的安装溯源信息（与 `gda --version --json` 同一份载荷）。不会启动 Godot。 |
+| `gda help`   | 显示某条命令的帮助（`gda help scene get`）或整个 CLI 的帮助；加 `--json` 时以 `{command, text}` 返回。 |
 | `gda schema` | 把整个命令界面作为一份机器可读的 JSON 清单输出。 |
 | `gda skill`  | 输出或安装随包附带的 Agent Skill（`SKILL.md`），它教 agent 如何操控 `gda`。 |
 
@@ -488,6 +491,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话会在第一个 Live 操作时启动（`screen` 截图需加 `--windowed`）。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
+| `daemon install` | 在不启动 daemon 的情况下把游戏内 `gda` harness 安装进项目，并报告它创建的每个路径与配置段。幂等，并会把旧版 `gda` 装下的 harness 同步为当前版本。`daemon start` 自己就会执行这一步，因此只有在你想显式地做出这次 `project.godot` 改动（例如便于审阅或提交）时才需要它。 |
 | `daemon uninstall` | 从项目中移除游戏内 `gda` harness（autoload 条目 + 文件）——一次显式的开发工具卸载；`gda export run` 在导出产物时已经会自动剥离它。 |
 
 **`game`** — 正在运行的游戏的运行时场景图
@@ -626,6 +630,7 @@ Headless 的 Godot 会把它的横幅、警告和 `print()` 输出混在 stdout 
 | 退出码 | 类别      | 何时                                                                  |
 | --------- | ------------- | --------------------------------------------------------------------- |
 | `0`       | —             | 成功。                                                              |
+| `2`       | `usage`       | `gda` 无法解析你的请求——命令或选项无法识别。若属于已知的近似写法，信封的 `hint` 会给出应当改用的调用方式。 |
 | `127`     | `environment` | Godot 二进制文件无法启动（shell 惯例：not found）。 |
 | `124`     | `environment` | Godot 启动了，但在 runner 超时之前没有返回（shell 惯例：timed out）。 |
 | `3`       | `version`     | 检测到的 Godot 版本低于受支持的最低版本。            |

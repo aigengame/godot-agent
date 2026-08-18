@@ -17,7 +17,8 @@ gda <group> <command> [options] --json
 
 Exactly one JSON result is printed to **stdout**; all engine noise (warnings,
 progress, the engine banner) goes to **stderr**. Read stdout, ignore stderr unless
-debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
+debugging. `info` / `version` / `help` / `schema` / `skill` are top-level meta
+commands (no group).
 
 ## Setup
 
@@ -60,12 +61,20 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | Exit | Meaning |
 | ---- | ------- |
 | `0`   | success |
+| `2`   | gda could not resolve what you asked for: `unknown_command`, `unknown_option` |
 | `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied` |
 | `124` | engine timed out |
 | `3`   | engine version too old |
 | `4`   | operation-reported failure |
 | `5`   | could not parse the engine's output |
 | `6`   | live operation failed (e.g. `daemon_not_running`) |
+
+A command or option gda does not recognize is reported the same way — an
+`unknown_command` / `unknown_option` envelope at exit `2` — and when gda recognizes
+the mistake the envelope carries a `hint` naming the invocation to run instead
+(`{"error": {"code": "unknown_command", "hint": "gda scene get", …}}`). Re-issue the
+`hint`; when there is none, `gda schema` lists every command and
+`gda help <command>` describes one.
 
 Some commands carry a verdict inside a successful result. For
 `gda script validate --json`, read the result's `valid` field: it is the AGGREGATE
@@ -86,17 +95,21 @@ and re-read the verdict.
 
 - `gda --help` — every group.
 - `gda <group> --help` — a group's commands.
+- `gda help <group> <command>` — the same help from the command form; with `--json` it
+  comes back as `{command, text}`.
 - `gda <group> <command> --schema` — one command's input/output/error JSON Schema
   (no Godot spawned).
 - `gda schema` — the **whole** surface as one JSON manifest.
+- `gda version --json` — which `gda` is installed and where from; `gda info` — the
+  engine's version.
 
 **`--json` placement.** `gda --json <group> <command>` and `gda <group> <command> --json` mean the
 same thing — a root `--json` applies to the command it invokes — so either spelling works, as does
 both at once. `gda schema --json` is accepted too, and idempotent: the manifest is already JSON.
-Two limits: help output is always TEXT (`gda --json --help` returns the same help, never JSON), and
-two spellings are still usage errors (exit `2`) — `gda <group> --json` (a group's parser takes only
-`--help`; pass the flag to the command) and a bare `gda --json` with no command
-(`Missing command.`).
+Two limits: the `--help` FLAG always renders TEXT (`gda --json --help` returns the same help, never
+JSON — use `gda help <command> --json` for a structured payload), and two spellings are still usage
+errors (exit `2`) — `gda <group> --json` (a group's parser takes only `--help`; the structured
+refusal hints the command form) and a bare `gda --json` with no command (`Missing command.`).
 
 ## Headless commands (Godot 4.4+, all platforms)
 
