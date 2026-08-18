@@ -543,8 +543,11 @@ class ScriptValidateParams(BaseModel):
         default_factory=list,
         description=(
             "The .gd script files to validate, as one batch in a single engine "
-            "launch. Empty only with 'all_scripts'. A repeated path is validated "
-            "and reported once per occurrence."
+            "launch. A repeated path is validated and reported once per "
+            "occurrence. EXACTLY ONE selector must be given — a non-empty 'paths' "
+            "or 'all_scripts' — which JSON Schema cannot express across two "
+            "fields, so an empty or contradictory selection is refused by "
+            "validation ('invalid_params') rather than by the schema."
         ),
     )
     all_scripts: bool = Field(
@@ -1517,8 +1520,9 @@ def _render_captured_errors(stderr: str) -> str:
 # part of the reload frame; there is NO column on the standard build.
 # `[ \t]` (not `\s`) bounds the message capture so it cannot span newlines — an
 # empty SCRIPT ERROR message must not swallow the following reload frame.
-# Backtrace frames (`[n] _initialize (...)`) are operations.gd's own lines, not
-# the validated script's, so they are deliberately not matched.
+# The backtrace frames under it (`[n] _op_script_validate (…/operations.gd:…)`)
+# are gda's OWN payload lines, not the validated script's — they carry a line
+# number too — so requiring the literal `GDScript::reload` is what keeps them out.
 _SCRIPT_ERROR_LINE = re.compile(
     r"^[ \t]*SCRIPT ERROR:[ \t]*(?P<message>.*?)[ \t]*$", re.MULTILINE
 )
