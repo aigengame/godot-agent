@@ -83,7 +83,13 @@ path>, *args]`, captures bytes with the timeout, and normalizes the outcome into
 `Raw run` (the single home of the spawn / timeout / launch-failure / UTF-8-decode
 handling). Each channel contributes only its argv tail and the export-only cwd. It
 also owns the launch's `User-data placement` — resolved and preflighted here, once,
-so no channel plumbs it (#653).
+so no channel plumbs it (#653). It offers two **capture strategies**, differing only
+in how the child is read: **buffered** (the sentinel and export channels), which
+discards the child's output when the timeout expires and reports the wait instead;
+and **streaming** (`gda script run`), which reads both pipes as they arrive, so the
+output survives a timeout, times the launch, and lets the channel end the run early
+through a caller-supplied watch. Both share one timeout / launch-failure mapping
+(#655).
 _Avoid_: spawn helper, subprocess wrapper
 
 **User-data placement**:
@@ -104,16 +110,39 @@ _Avoid_: log redirect, user dir, sandbox
 
 **Raw run**:
 The normalized outcome a `Headless launch` returns — `{stdout, stderr, exit_code,
-launch_failure}`, unparsed — before any classification. `launch_failure` is set
-only when the primitive synthesized the result (binary missing, timed out, or the
-`User-data placement` was refused) rather than the engine returning one, so the
-classifier keys environment failures on that typed reason, not on the overloaded
-exit code. Those launch-backed channels
-all return the one `RunResult` shape. Normally internal, it is **promoted to a
-public result by `gda script run`** — the one operation whose success result *is*
-a Raw run (minus `launch_failure`, which is lifted out into an `Error envelope`),
-so its `exit_status` can be non-zero on success (ADR-0031).
+launch_failure, elapsed_seconds}`, unparsed — before any classification.
+`launch_failure` is set only when the primitive synthesized the result (binary
+missing, timed out, the `User-data placement` was refused, or a watch ended the run)
+rather than the engine returning one, so the classifier keys environment failures on
+that typed reason, not on the overloaded exit code. Under the streaming capture
+strategy the streams hold **what the run had already produced** rather than a gda
+notice, and `elapsed_seconds` carries the wall clock; under the buffered strategy they
+are empty on a timeout and `elapsed_seconds` is `None` (#655). Those launch-backed
+channels all return the one `RunResult` shape. Normally internal, it is **promoted to
+a public result by `gda script run`** — the one operation whose success result *is* a
+Raw run (minus `launch_failure`, `elapsed_seconds`, and the streams' timeout
+semantics, all of which are lifted out into an `Error envelope`), so its
+`exit_status` can be non-zero on success (ADR-0031).
 _Avoid_: run output, export output
+
+**Completion marker**:
+The line a `gda script run` caller **declares** its own script prints when the
+script's work is done (`--completion-marker`). A declared **liveness contract**, not a
+death detector: whether a run that printed an error can still finish is not observable
+from outside the process, so declaring the marker is the caller asserting the script
+keeps producing output until the marker line says it finished. With one declared, gda
+ends a run early — reporting `script_aborted` with the captured error, in seconds
+instead of at `--timeout`, identically on every platform — when **all three** hold:
+stderr shows a recognized error *attributable to the entry script*, the marker has not
+appeared, and neither stream then produces output for a fixed window (#655). The
+contract cuts both ways: a script that goes silent past the window after such an error
+is ended by declaration even if it would have finished — print progress during quiet
+stretches, or omit the marker and wait the ceiling out. Matched by **whole-line
+equality**, not as a substring. Opt-in and never imposed: gda requires nothing of the
+script and injects nothing into it (ADR-0031 rejected a gda-owned sentinel wrapper).
+**Not** the ADR-0002 op-dispatch sentinel, which is gda's own contract with its own
+`operations.gd` payload; a marker is an arbitrary caller line read for one boolean.
+_Avoid_: sentinel, done marker, quit marker
 
 **Session log**:
 The per-`Engine session` capture of the running game's output and error stream,

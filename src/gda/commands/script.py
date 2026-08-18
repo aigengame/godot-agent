@@ -16,7 +16,9 @@ C# (.cs) is out of scope for now — it needs the .NET build of Godot (ADR-0003
 targets the standard build) and a dedicated decision.
 """
 
+import math
 import re
+from collections import deque
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
@@ -35,7 +37,9 @@ from gda.errors import (
     script_exit_status_failure,
     script_outside_project_failure,
     script_path_invalid_failure,
+    script_run_aborted_failure,
     script_run_project_not_found_failure,
+    script_run_timeout_failure,
     unresolvable_binary_failure,
 )
 from gda.execution import ExecutionKind
@@ -48,7 +52,7 @@ from gda.headless import (
 )
 from gda.models import CREATED_DIRS_DESC, NormalizedPath
 from gda.project import path_outside_project
-from gda.runner import RunResult, launch
+from gda.runner import LaunchFailure, LaunchWatch, RunResult, launch
 from gda.script_errors import (
     ScriptError,
     ScriptErrorKind,
@@ -571,6 +575,48 @@ class ScriptValidateResult(BaseModel):
         return data
 
 
+# The DEFAULT ceiling on one ``script run``, when the caller states none. A user
+# script is arbitrary project code (it may load resources), so it is more generous
+# than a single sentinel op's tight bound but well below the export channel's —
+# enough for a logic-seam test without leaving a hung run to block forever.
+#
+# It is now a default rather than the only value (#655). A fixed ceiling made a
+# healthy suite that grew past it indistinguishable from a hang, with no way to
+# raise it (GDA-DF-032); ``--timeout`` is that way, and the ceiling still bounds a
+# hung engine so the CLI fails loudly rather than blocking forever.
+DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = 120.0
+
+# How long a run must stay SILENT, after an entry-attributable script error has
+# appeared and while the caller's declared completion marker has not, before gda
+# ends it (#655).
+#
+# This window is a CONTRACT PARAMETER, not a detector threshold. Whether a Godot
+# run that printed an error can still finish is not observable from outside the
+# process: a GDScript runtime error aborts only the function that raised it, so a
+# script can survive one and keep working — and working can look exactly like
+# death (blocked in a wait it consumes no CPU; during an ``await`` the main loop
+# iterates just as an abandoned one does). Declaring ``--completion-marker`` is
+# therefore what SETTLES the question, by contract: the caller asserts the script
+# keeps producing output (any line resets this window) until the marker line says
+# it finished, so an entry-attributable error followed by this much total silence
+# without the marker IS the run being dead, by the caller's own declaration.
+# Measured at 0.2s from spawn to the error line, 3s is a wide margin over the
+# engine's own cadence while staying far below any usable ``--timeout``.
+#
+# Fixed, not an option: it is part of the declared contract and the abort's stated
+# bound, and a caller whose script goes quiet for longer has two escape hatches —
+# print anything during the quiet stretch, or omit the marker and wait out
+# ``--timeout``. It is stated in the failure message so the bound is legible
+# rather than folklore.
+SCRIPT_RUN_ABORT_SILENCE_SECONDS = 3.0
+
+# How many trailing stderr lines the watch re-parses to attribute an error. Godot
+# writes one error as a header, an ``at:`` frame and possibly a backtrace, and a
+# read syscall can split them across batches, so the window must span a whole
+# record; it is bounded so the parse stays linear in the total output.
+_STDERR_WINDOW_LINES = 64
+
+
 class ScriptRunParams(BaseModel):
     """The operation params of ``gda script run`` (issue #343, ADR-0031, #675).
 
@@ -609,6 +655,55 @@ class ScriptRunParams(BaseModel):
             "BOTH of the script's streams under the fixed labels "
             "'--- script stdout ---' and '--- script stderr ---'. A script that "
             "never ran fails either way (ADR-0031 amendment)."
+        ),
+    )
+    timeout: float = Field(
+        default=DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "How many seconds to let the run take before gda ends it and reports "
+            "'launch_timeout'. Must be a FINITE positive number: JSON Schema cannot "
+            "express finiteness, so a non-finite value is refused by validation "
+            "rather than by the schema below — an infinite ceiling would never be "
+            "reached and so would not bound the run at all. Raise it for a suite "
+            "that outgrew the default of "
+            f"{DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS}s; lower it to fail fast. The "
+            "envelope reports the value that was reached, the elapsed wall clock, "
+            "the captured output (tail-capped, cap stated), and one termination "
+            "phase from the closed set 'launched' (the engine wrote nothing at "
+            "all), 'output_seen' (it was alive and did not finish) and "
+            "'aborted_on_error' (ended early by the rule below) — so a "
+            "slow-but-live run is distinguishable from a hang. Reported as prose "
+            "in the message, not as envelope fields (#655)."
+        ),
+    )
+    completion_marker: str | None = Field(
+        default=None,
+        min_length=1,
+        # A blank marker is compared as a stripped whole line, so it would equal
+        # every blank line the run prints; `min_length` alone lets " " through.
+        pattern=r"\S",
+        description=(
+            "Opt-in liveness contract: a string the script prints on its own line "
+            "when it has finished its work. Declaring it asserts the script keeps "
+            "producing output (any line counts) until that marker line — so when a "
+            "recognized error ATTRIBUTABLE TO THE ENTRY script appears on stderr "
+            "(one about another resource arms nothing), the marker has not "
+            "appeared, and neither stream then produces output for "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s, gda ends the run and reports "
+            "'script_aborted' with the captured error — in seconds rather than at "
+            "the timeout, deterministically on every platform. Matched by "
+            "WHOLE-LINE equality (both sides stripped), not as a substring. The "
+            "contract cuts both ways: a script that goes silent for longer than "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s after such an error is ended "
+            "even if it would have finished — a script with long quiet stretches "
+            "should print progress during them, or run without a marker and wait "
+            "out 'timeout' as before. Caller-declared, never imposed: gda does not "
+            "require or inject anything in the script (ADR-0031), and this is not "
+            "the ADR-0002 op-dispatch sentinel. Note a 'timeout' at or below "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves the marker inert, "
+            "because the ceiling arrives first (#655)."
         ),
     )
 
@@ -688,6 +783,13 @@ class ScriptRunResult(BaseModel):
 #   classified by the SAME shared :func:`gda.errors.classify_launch_or_crash` the
 #   export channel uses, into its existing codes (``binary_not_found`` /
 #   ``launch_timeout`` / ``engine_crashed``). No new GDScript-mirrored codes.
+# - **gda ENDED the run** — the caller's ``--timeout`` was reached, or (opt-in)
+#   ``--completion-marker`` was declared and the run died before printing it → an
+#   **Error envelope** carrying the run's EVIDENCE: the captured partial output,
+#   the elapsed clock, a termination phase and the recognized script errors, all as
+#   prose (``launch_timeout`` / ``script_aborted``, #655). Classified by this
+#   channel rather than the shared prefix, because only this channel has that
+#   evidence — see :func:`_classify_ended_run`.
 # - **the script never RAN** — the engine exited normally but its stderr proves it
 #   could not run the entry script: it is missing, it (or a dependency it preloads)
 #   failed to parse/compile, or it compiles but is not a ``SceneTree``/``MainLoop``
@@ -723,12 +825,6 @@ class ScriptRunResult(BaseModel):
 # of the spawn / timeout / launch-failure / UTF-8-decode normalization — reused,
 # not re-implemented. It is injected (``make_launch``) only so the bifurcation is
 # testable without a real engine.
-
-# A user script is arbitrary project code (it may load resources), so give it a
-# ceiling more generous than a single sentinel op's tight bound but well below the
-# export channel's — enough for a logic-seam test without leaving a hung run to
-# block forever. Bounds a hung engine so the CLI fails loudly (as launch_timeout).
-DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = 120.0
 
 # The res:// scheme prefix — the ONE address form script run works in internally.
 # Both accepted input spellings are folded onto it (ADR-0031 amendment, #675): a
@@ -827,7 +923,209 @@ class LaunchFn(Protocol):
         cwd: Path | None,
         timeout: float,
         timeout_label: str = ...,
+        watch: LaunchWatch | None = ...,
     ) -> RunResult: ...
+
+
+class TerminationPhase(str, Enum):
+    """How far a ``script run`` gda ENDED had got when gda ended it (#655).
+
+    Reported as PROSE in the failure message — never as an envelope field, which
+    would change ADR-0004's uniform failure ABI (**#687 owns that decision**;
+    ADR-0031's amendment records that this issue adopts its outcome). The enum
+    exists so the set is closed and the spelling cannot drift, not because the
+    envelope is typed here.
+
+    The set answers the question an agent asks of a run that did not finish: was it
+    working, or was it stuck? The issue's illustrative set named a third phase for
+    "killed at the timeout", which both timeout phases below already are — what a
+    reader cannot infer from the code is whether the run had got anywhere, so that
+    is what the phases distinguish.
+    """
+
+    #: gda ended the run at ``--timeout`` and the engine had written NOTHING to
+    #: either stream. Rare in practice and deliberately narrow: Godot prints its
+    #: version banner within ~0.1s of a normal spawn (measured), so this marks the
+    #: engine never reaching its own startup output — a wrapper that did not exec,
+    #: or a hang before stdio.
+    LAUNCHED = "launched"
+    #: gda ended the run at ``--timeout`` after output had appeared. The usual
+    #: timeout phase: the run was alive and did not finish, so the captured tail is
+    #: how far it got and ``--timeout`` is the knob.
+    OUTPUT_SEEN = "output_seen"
+    #: gda ended the run EARLY, before ``--timeout``: a script error appeared, the
+    #: declared completion marker did not, and the run went silent.
+    ABORTED_ON_ERROR = "aborted_on_error"
+
+
+def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
+    """Does any recognized error say the ENTRY script itself is in trouble (#655)?
+
+    The arming condition of :class:`_CompletionMarkerWatch`, and it reuses the
+    classification that already exists rather than inventing a second reading of the
+    same stderr:
+
+    - :func:`gda.script_errors.entry_load_failure` covers every kind that proves the
+      entry never ran — missing, uncompilable, not a ``SceneTree``/``MainLoop``, or
+      the resource-layer cascade behind those — already matched on the canonical
+      ``res://`` identity, on both sides;
+    - plus a ``RUNTIME_ERROR`` naming the entry, which that function excludes **by
+      construction** (it is the one kind proving the script DID run) and which is
+      exactly the dogfooded case: an error raised inside the entry's own
+      ``_initialize`` aborts it before its ``quit()``.
+
+    Attribution is what keeps a *survivable* failure from arming the abort at all. A
+    running script that merely ``load()``s a missing ``.tres``, or whose helper
+    script fails, produces the same engine sentences for a DIFFERENT path — and the
+    e2e suite pins such runs as successes. Only the entry's own trouble is grounds
+    to start the silence window at all; what authorises the kill is the caller's
+    declared contract (see :class:`_CompletionMarkerWatch`), not an inference that
+    the run cannot continue — a runtime error aborts one function, not necessarily
+    the run, and no observation from outside the process can tell the difference.
+    """
+    if entry_load_failure(errors, entry) is not None:
+        return True
+    return any(
+        error.kind is ScriptErrorKind.RUNTIME_ERROR
+        and error.path is not None
+        and canonical_res_path(error.path) == entry
+        for error in errors
+    )
+
+
+class _CompletionMarkerWatch:
+    """``script run``'s :class:`~gda.runner.LaunchWatch`: end a run that died (#655).
+
+    The POLICY half of the streaming launch — the primitive owns the mechanism (see
+    :class:`gda.runner.LaunchWatch`) and this owns what the output MEANS. It is
+    here, in the ``script`` group, because that meaning is this command's domain
+    knowledge and no other channel's.
+
+    Killing a run is destructive and unrecoverable, and whether a run that printed
+    an error can still finish is **not observable from outside the process**:
+    review falsified every observational stand-in tried here. Silence alone killed
+    a script computing quietly after a survivable error; a CPU-idleness probe was
+    indistinguishable from a run blocked in a legitimate wait (``OS.execute``, an
+    ``await`` — alive, but consuming nothing), and on a host where CPU time cannot
+    be read it silently forfeited the seconds-bound the issue promises. So this
+    watch does not CLAIM to detect death. It enforces the contract issue #655
+    defines (in its 2026-08-18 amendment, which replaced the undecidable "fatal
+    error" wording) and the caller opted into by declaring a marker: *the script signals
+    completion with the marker line and keeps producing output until then; an
+    entry-attributable error followed by sustained total silence without the
+    marker means the run is dead* — by declaration, not inference. That makes the
+    abort a pure function of the observed text and the clock: deterministic,
+    identical on every platform, and honest about what it knows. All three
+    conditions must hold:
+
+    1. a recognized error attributable to the **entry script** appeared on stderr —
+       see :func:`_entry_attributable`, which reuses
+       :func:`gda.script_errors.entry_load_failure` and the canonical ``res://``
+       identity, so the abort recognizes exactly the sentences the rest of
+       ``script run`` does and nothing is parsed twice in two ways. An error about
+       some *other* resource says nothing about the entry's fate; warnings are not
+       errors and are already skipped by the shared parser;
+    2. the caller's **declared marker** has not appeared. This is the opt-in:
+       ADR-0031 rejected imposing a gda-owned sentinel wrapper on a user-authored
+       entry script, so gda cannot know a run "should" have finished — only the
+       caller can say what finishing looks like. With no marker declared, this
+       watch NEVER aborts and the launch simply gains its captured output;
+    3. neither stream has produced output for
+       :data:`SCRIPT_RUN_ABORT_SILENCE_SECONDS` — the contract's liveness bound.
+       Any output line resets it, which is the compliant escape hatch for a script
+       with long quiet stretches: print progress, or omit the marker.
+
+    The contract cuts both ways and the price is stated where the caller declares
+    it (the ``--completion-marker`` help): a script that survives an
+    entry-attributable error and then works past the bound in total silence is
+    ended even though it would have finished. That is the declared semantics, not
+    a detection error — the alternative heuristics that tried to save such a run
+    are the ones review proved wrong in both directions.
+
+    Marker matching is **whole-line equality** (both sides stripped), not a
+    substring test. Substring matching made ``NOT DONE YET`` count as the marker
+    ``DONE``, silently disarming the abort for a run that had in fact died — and the
+    marker is defined as a LINE the script prints, so the line is the unit to
+    compare. GDScript's ``print()`` always ends with a newline, so buffering to a
+    line boundary is also what lets each byte be seen exactly once, keeping the
+    watch linear in the output however chatty the run.
+
+    Note this is NOT the ADR-0002 op-dispatch sentinel: that is gda's own contract
+    with its own ``operations.gd`` payload, emitted on stdout and parsed for a
+    structured result. This is a caller's arbitrary line, used for one boolean.
+    """
+
+    def __init__(
+        self,
+        completion_marker: str | None,
+        *,
+        entry: str,
+        silence: float = SCRIPT_RUN_ABORT_SILENCE_SECONDS,
+    ) -> None:
+        # A marker that is blank once stripped would equal every blank line the run
+        # prints and arm the abort on nothing, so it is treated as UNDECLARED. The
+        # params model and the argv guard both refuse one, making this unreachable;
+        # it is here so the hazard cannot be reintroduced from a third call site.
+        stripped = completion_marker.strip() if completion_marker is not None else ""
+        self._marker = stripped or None
+        self._entry = canonical_res_path(entry)
+        self._silence = silence
+        self._partial: dict[str, str] = {"stdout": "", "stderr": ""}
+        # A bounded tail of stderr lines, re-parsed as new ones arrive. A window,
+        # not the whole stream, because the parse must stay linear overall; but a
+        # window rather than only the newest batch because Godot writes an error as
+        # SEVERAL lines (``ERROR:`` then ``at:`` then a backtrace) and a read syscall
+        # can split them — parsing each batch alone would drop the ``at:`` frame that
+        # carries the res:// path, and with it the attribution in (1).
+        self._stderr_window: deque[str] = deque(maxlen=_STDERR_WINDOW_LINES)
+        self._marker_seen = False
+        self._error_seen = False
+        self._last_output_at = 0.0
+
+    def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
+        if stdout or stderr:
+            # Any output restarts the wait from scratch: under the declared
+            # contract, a run that is still talking is not a run to kill.
+            self._last_output_at = elapsed
+        for stream, text in (("stdout", stdout), ("stderr", stderr)):
+            if not text:
+                continue
+            lines = self._complete_lines(stream, text)
+            if not lines:
+                continue
+            if self._marker is not None and any(
+                line.strip() == self._marker for line in lines
+            ):
+                self._marker_seen = True
+            if stream == "stderr" and not self._error_seen:
+                self._stderr_window.extend(lines)
+                errors = parse_script_errors("\n".join(self._stderr_window))
+                self._error_seen = _entry_attributable(errors, self._entry)
+        return self._should_abort(elapsed)
+
+    def _should_abort(self, elapsed: float) -> bool:
+        """Conditions (2) and (3) — see the class docstring for why each is required."""
+        if self._marker is None or self._marker_seen or not self._error_seen:
+            return False
+        return elapsed - self._last_output_at >= self._silence
+
+    def _complete_lines(self, stream: str, text: str) -> list[str]:
+        """The newly-completed lines of one stream; the trailing partial is held.
+
+        Splitting on ``"\\n"`` rather than using ``str.splitlines`` because only the
+        split can tell a COMPLETE final line from a partial one: ``"a\\nb"`` and
+        ``"a\\nb\\n"`` both give ``["a", "b"]`` from ``splitlines``, so a fragment a
+        read syscall stopped mid-line would be consumed as though it were whole — and
+        the marker or error record continuing on the next feed would never match.
+        ``split("\\n")`` puts that fragment last, which is exactly what ``parts.pop()``
+        holds back for the next feed. (It also leaves ``\\v`` / ``\\x1c`` /
+        ``\\u2028`` alone, which ``splitlines`` breaks on and the engine's
+        line-oriented format never uses.)
+        """
+        buffered = self._partial[stream] + text
+        parts = buffered.split("\n")
+        self._partial[stream] = parts.pop()
+        return parts
 
 
 # The verdict each proven entry-load failure maps to (#651). Two of the three codes
@@ -865,6 +1163,7 @@ def run_script_run_operation(
     strict: bool = False,
     make_launch: Optional[LaunchFn] = None,
     timeout: float = DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
+    completion_marker: Optional[str] = None,
 ) -> ScriptRunResult | Failure:
     """Run ``script run``'s validate → launch → classify recipe (ADR-0031, #651, #675).
 
@@ -877,13 +1176,18 @@ def run_script_run_operation(
     or a :class:`~gda.errors.Failure` — a pre-run ABI-edge failure
     (``invalid_path`` / ``project_not_found``), a ``classify_launch_or_crash``
     env/crash outcome, the ``script_not_found`` / ``script_compile_failed`` verdict
-    for a script the engine never ran, or — with ``strict`` — ``script_failed`` for
+    for a script the engine never ran, the ``launch_timeout`` / ``script_aborted``
+    verdict for a run gda ENDED (#655), or — with ``strict`` — ``script_failed`` for
     a completed run that chose a non-zero status. ``project`` is the
     already-resolved directory (resolution stays CLI-side, ADR-0006); ``None``
     means none resolved. ``make_launch`` is the injected headless-launch seam;
     ``None`` (the default) uses the real deep-module :func:`gda.runner.launch`,
     resolved at call time — the ``screen`` group's idiom — so a test can inject a fake
     OR patch ``gda.commands.script.launch``.
+
+    ``timeout`` is the caller's ceiling and ``completion_marker`` its opt-in
+    early-termination declaration (#655); both come from the params model, so the
+    argv and ``--params-json`` paths behave identically (ADR-0015).
     """
     run_launch = make_launch or launch
     # Pre-run ABI edges (ADR-0031), decided BEFORE any launch so they never surface
@@ -925,9 +1229,35 @@ def run_script_run_operation(
     # via --path, so no working directory is needed (unlike the export channel,
     # whose relative output path needs cwd=project).
     args = ["--path", str(project), "--script", script]
+    # Pass a watch, which is what switches the shared primitive from buffered
+    # capture to STREAMING capture (#655): whatever the run produced survives a
+    # timeout, the wall clock is measured, and — only when the caller declared a
+    # completion marker — a run whose script died can be ended in seconds instead
+    # of at the ceiling. The watch is inert without a marker, so the no-marker
+    # invocation gains the captured output and nothing else.
     raw = run_launch(
-        binary, args, cwd=None, timeout=timeout, timeout_label="Godot script"
+        binary,
+        args,
+        cwd=None,
+        timeout=timeout,
+        timeout_label="Godot script",
+        watch=_CompletionMarkerWatch(completion_marker, entry=script),
     )
+
+    # A run gda ENDED is classified here rather than by the shared
+    # classify_launch_or_crash prefix, because only this channel has what those two
+    # envelopes carry: the captured partial output, the elapsed clock, and the
+    # script errors read with this command's own parser (#655). The shared prefix
+    # still owns everything else — a missing binary, an unusable placement, a signal
+    # death — so the two channels stay identical on those.
+    ended = _classify_ended_run(
+        raw,
+        script=script,
+        timeout=timeout,
+        completion_marker=completion_marker,
+    )
+    if ended is not None:
+        return ended
 
     # Bifurcate by whose failure it is (ADR-0031): a launch failure or a signal
     # death (exit_code < 0) is a gda-/engine-level Error envelope, classified by the
@@ -966,6 +1296,122 @@ def run_script_run_operation(
         stdout=raw.stdout,
         stderr=raw.stderr,
         diagnostics=diagnostics,
+    )
+
+
+def _classify_ended_run(
+    raw: RunResult,
+    *,
+    script: str,
+    timeout: float,
+    completion_marker: Optional[str],
+) -> Failure | None:
+    """The envelope for a run GDA ended — timeout or early abort — else ``None`` (#655).
+
+    Both outcomes are the same kind of thing: the engine never gave an answer,
+    because gda stopped waiting for one. What the caller then needs is not the bare
+    fact of stopping but the EVIDENCE — the output the run had already produced, how
+    long it ran, how far it got, and any script error the engine had already printed.
+    Dogfooding had a run whose error was on stderr within a second and a 120s
+    envelope that contained only "timed out" (GDA-DF-012), and a healthy suite that
+    outgrew its ceiling and looked identical to a hang (GDA-DF-032).
+
+    All of it is PROSE in the message and ``diagnostics``. Structured envelope
+    fields would change ADR-0004's uniform failure ABI; **#687 owns that decision**,
+    and ADR-0031's amendment records that this path adopts its outcome. Do not add
+    envelope fields here.
+
+    The recognized script errors are read with the SAME parser stack the rest of
+    ``script run`` uses — :mod:`gda.engine_log` through
+    :func:`gda.script_errors.parse_script_errors` — over the partial stderr, so the
+    lines an agent sees on a timeout are the ones it sees on a completed run. What
+    is deliberately NOT done is re-verdicting: a captured ``script_missing`` or
+    ``not_a_main_loop`` error stays a diagnostic under the timeout envelope rather
+    than being promoted to the entry-load verdict, because ADR-0031 records that
+    shape as reaching a failure "by another route" and narrowing it is a separate
+    decision.
+    """
+    if raw.launch_failure is LaunchFailure.ABORTED:
+        # Only the watch produces this, and it can only abort with a marker declared,
+        # so ``completion_marker`` is set in every reachable case. It is still passed
+        # as OPTIONAL rather than asserted: an assert here would be a crash on a
+        # boundary value (and would vanish under ``-O``), and the builder can name the
+        # condition truthfully without the string — so an unreachable state degrades
+        # to slightly vaguer prose instead of killing the command.
+        return script_run_aborted_failure(
+            script,
+            marker=completion_marker,
+            timeout=timeout,
+            elapsed=_elapsed(raw, at_least=SCRIPT_RUN_ABORT_SILENCE_SECONDS),
+            silence=SCRIPT_RUN_ABORT_SILENCE_SECONDS,
+            phase=TerminationPhase.ABORTED_ON_ERROR.value,
+            script_errors=_render_captured_errors(raw.stderr),
+            stdout=raw.stdout,
+            stderr=raw.stderr,
+        )
+    if raw.launch_failure is LaunchFailure.TIMEOUT:
+        return script_run_timeout_failure(
+            script,
+            timeout=timeout,
+            elapsed=_elapsed(raw, at_least=timeout),
+            phase=_timeout_phase(raw).value,
+            script_errors=_render_captured_errors(raw.stderr),
+            stdout=raw.stdout,
+            stderr=raw.stderr,
+        )
+    return None
+
+
+def _elapsed(raw: RunResult, *, at_least: float) -> float:
+    """The run's MEASURED wall clock, or ``at_least`` when it was not measured.
+
+    The streaming capture — the only strategy that produces these two envelopes —
+    always measures the clock, so the fallback is for a hand-built
+    :class:`~gda.runner.RunResult` (the injected test seam). It exists so an
+    unmeasured run is never reported as ``0.00s``, which would read as "ended
+    instantly" rather than "not measured".
+
+    Each call site passes the truthful LOWER BOUND its own rule guarantees, which is
+    why the value is the caller's rather than a constant here: a timeout ran at least
+    as long as the ceiling it reached, and an abort waited out at least the silence
+    window that triggered it.
+    """
+    return raw.elapsed_seconds if raw.elapsed_seconds is not None else at_least
+
+
+def _timeout_phase(raw: RunResult) -> TerminationPhase:
+    """Which timeout phase a gda-ended run reached — see :class:`TerminationPhase`.
+
+    Keyed on whether the engine wrote ANYTHING, which is the only honest signal the
+    capture carries. It is not "did the script start": Godot prints its own version
+    banner to stdout within ~0.1s of a normal spawn (measured against 4.6.3), so
+    output arriving does not prove the entry script ran — only that the engine
+    reached its startup. That is still the distinction worth reporting, because its
+    absence means the engine never got that far.
+    """
+    return (
+        TerminationPhase.OUTPUT_SEEN
+        if raw.stdout or raw.stderr
+        else TerminationPhase.LAUNCHED
+    )
+
+
+def _render_captured_errors(stderr: str) -> str:
+    """The recognized script errors of a partial capture, as ``diagnostics`` lines.
+
+    Reuses :func:`gda.script_errors.parse_script_errors` and the SAME
+    ``<kind>: <path>:<line>: <message>`` layout the human renderer uses for a
+    successful run's structured diagnostics, so the curated high-signal lines read
+    identically whether they arrive typed (on a success) or as prose (on a
+    gda-ended run, where ADR-0004's ``diagnostics`` is a plain string). Empty when
+    the engine printed nothing this module recognizes.
+    """
+    errors = parse_script_errors(stderr)
+    if not errors:
+        return ""
+    return "".join(
+        f"gda:   {error.kind.value}: {_render_script_error_location(error)}\n"
+        for error in errors
     )
 
 
@@ -1302,6 +1748,8 @@ def _script_run_recipe(params, *, project, godot):
         godot=godot,
         project=project,
         strict=params.strict,
+        timeout=params.timeout,
+        completion_marker=params.completion_marker,
     )
 
 
@@ -1602,6 +2050,38 @@ def run_script(
             "ran fails either way."
         ),
     ),
+    timeout: float = typer.Option(
+        DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
+        "--timeout",
+        help=(
+            "Seconds to let the run take before gda ends it and reports "
+            "'launch_timeout' with the captured output, the elapsed time and one "
+            "termination phase: 'launched' (the engine wrote nothing), "
+            "'output_seen' (alive but unfinished) or 'aborted_on_error' (ended by "
+            "--completion-marker). Raise it for a suite that outgrew the default; "
+            "lower it to fail fast."
+        ),
+    ),
+    completion_marker: Optional[str] = typer.Option(
+        None,
+        "--completion-marker",
+        help=(
+            "Opt-in liveness contract: a line the script prints when its work is "
+            "done, matched by WHOLE-LINE equality. Declaring it asserts the script "
+            "keeps printing until that line — so gda reports 'script_aborted' with "
+            "the captured error when all three hold: a recognized error "
+            "attributable to the ENTRY script appears, this marker does not, and "
+            "neither stream then produces output for "
+            f"{SCRIPT_RUN_ABORT_SILENCE_SECONDS}s — landing in seconds, not the "
+            "whole --timeout, on every platform alike. The contract cuts both "
+            "ways: a script that goes quiet for longer after such an error is "
+            "ended even if it would have finished, so print progress during long "
+            "quiet stretches or omit the marker. Caller-declared: gda requires "
+            "nothing in your script and injects nothing (it is NOT the op-dispatch "
+            "sentinel). Omit it and gda waits out --timeout; a --timeout at or "
+            f"below {SCRIPT_RUN_ABORT_SILENCE_SECONDS}s leaves the marker inert."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = SCRIPT_RUN_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -1644,10 +2124,42 @@ def run_script(
     crash) is a ``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``
     envelope. A path that is not a project-scoped script address, or no resolved
     project, is a structured ``invalid_path`` / ``project_not_found``.
+
+    A run gda has to END reports what it captured, not just that it stopped:
+    ``--timeout`` sets the ceiling, and the ``launch_timeout`` envelope carries the
+    captured partial output, the elapsed seconds and a termination phase, so a
+    suite that is merely slow is distinguishable from one that hung. For a script
+    that DIES before its own ``quit()`` — a GDScript error aborts the function that
+    raised it and the engine then idles — declare ``--completion-marker <line>``:
+    gda ends that run within seconds and reports ``script_aborted`` with the error
+    the engine had already printed, instead of waiting out the full ceiling. The
+    marker is yours, not gda's: nothing is required of or injected into the script.
+    The marker is a declared liveness contract, not a detector — gda arms it only
+    on an error naming the ENTRY script, and the caller's declaration is what makes
+    the following silence mean death; a script with long quiet stretches should
+    print progress during them, or run without a marker.
     """
+    # A FINITE positive ceiling, checked on both input paths (ADR-0015): the model
+    # below enforces it for --params-json, this for argv. `inf` passes a bare `> 0`
+    # test on both routes and then makes `elapsed >= timeout` unsatisfiable, so the
+    # run gda promised to bound would never be bounded at all — the opposite of what
+    # this option is for. `math.isfinite` rejects `nan` too, which compares false
+    # against everything and fails the same way.
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise typer.BadParameter("--timeout must be a finite number greater than 0.")
+    # Blank (not merely empty) is refused: the marker is compared as a stripped
+    # whole line, so a whitespace-only one would equal every blank line the run
+    # prints and arm the abort on nothing.
+    if completion_marker is not None and not completion_marker.strip():
+        raise typer.BadParameter("--completion-marker must not be blank.")
     dispatch_recipe(
         SCRIPT_RUN_COMMAND,
-        ScriptRunParams(path=path, strict=strict),
+        ScriptRunParams(
+            path=path,
+            strict=strict,
+            timeout=timeout,
+            completion_marker=completion_marker,
+        ),
         json_output=json_output,
         godot=godot,
         project=project,

@@ -420,6 +420,32 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "status; strict mode maps that opted-in failure onto the uniform error "
         "envelope. Never reported without --strict (ADR-0031).",
     ),
+    # `script run`'s early-abort verdict (#655, dogfooding GDA-DF-012). Minted
+    # rather than reused, because no registered code names this condition:
+    #
+    # - `launch_timeout` says "Godot did not return before the timeout". Here gda
+    #   DECIDED not to wait — the timeout was never reached — so reporting it would
+    #   be untrue, and would hide the very distinction the abort exists to make.
+    # - `script_failed` says "the script ran to completion and chose a non-zero
+    #   status", is documented as never reported without `--strict`, and leads an
+    #   agent to read an exit status. Here the script never completed and there is
+    #   no status to read; the remedy is the error it died on.
+    # - `script_compile_failed` / `script_not_found` say the entry never LOADED.
+    #   Here it loaded and ran, then hit an error partway.
+    #
+    # CLASSIFIER-source and so NOT GDScript-mirrored, like the rest of `script
+    # run`'s verdicts: the entry script is the user's own and emits no ADR-0002
+    # sentinel, so gda decides this from the engine's error stream.
+    ErrorCodeSpec(
+        "script_aborted",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A `script run` was ended early, before its --timeout: a script error "
+        "appeared on stderr, the caller's declared --completion-marker did not, "
+        "and the run then went silent. Reported only when --completion-marker is "
+        "declared (#655).",
+    ),
     ErrorCodeSpec(
         "incompatible_script_type",
         ErrorCategory.OPERATION,
