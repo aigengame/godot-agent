@@ -130,45 +130,49 @@ func _test_combat_duel() -> void:
 	var duel := CombatDuel.new()
 	duel.start(
 		{
-			"initial": {
-				"enemy_health": 100,
-				"enemy_mana": 30,
-				"player_health": 100,
-				"player_mana": 35,
-			},
-			"after_player": {
+			"enemy_health": 100,
+			"enemy_mana": 30,
+			"player_health": 100,
+			"player_mana": 35,
+		}
+	)
+	_expect(duel.snapshot()["phase"] == "ready", "duel starts ready")
+	duel.present_action(
+		{
+			"actor": "player",
+			"damage": 37,
+			"mana_cost": 9,
+			"terminal": {
 				"enemy_health": 63,
 				"enemy_mana": 30,
 				"player_health": 100,
 				"player_mana": 26,
 			},
+		}
+	)
+	_expect(duel.snapshot()["mana_cost"] == 9, "duel presents the validated mana cost")
+	_expect(
+		duel.snapshot()["combatants"]["enemy_health"] == 63,
+		"duel presents the validated player result",
+	)
+	duel.present_action(
+		{
+			"actor": "enemy",
+			"damage": 14,
+			"mana_cost": 7,
 			"terminal": {
 				"enemy_health": 63,
 				"enemy_mana": 23,
 				"player_health": 86,
 				"player_mana": 26,
 			},
-			"damage": {"enemy": 14, "player": 37},
-			"mana_cost": {"enemy": 7, "player": 9},
 		}
 	)
-	_expect(duel.snapshot()["phase"] == "before_exchange", "duel starts ready")
-	_expect(
-		duel.snapshot()["mana_cost"] == {"enemy": 7, "player": 9},
-		"duel presents validated mana costs",
-	)
-	duel.primary_action()
-	_expect(
-		duel.snapshot()["combatants"]["enemy_health"] == 63,
-		"duel presents the validated player result",
-	)
-	duel.primary_action()
 	_expect(
 		duel.snapshot()["combatants"]["player_health"] == 86,
 		"duel presents the validated enemy result",
 	)
-	duel.primary_action()
-	_expect(duel.snapshot()["phase"] == "exchange_complete", "duel completes")
+	_expect(duel.snapshot()["phase"] == "enemy_resolved", "duel continues")
 	_expect(not duel.snapshot().has("provenance"), "duel owns gameplay values only")
 
 

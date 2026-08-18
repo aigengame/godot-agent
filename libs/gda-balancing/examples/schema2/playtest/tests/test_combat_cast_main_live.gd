@@ -16,13 +16,17 @@ func _run() -> void:
 	var controller: Node = main.get_node("CombatCastController")
 	var action := view.find_child("PrimaryAction", true, false) as Button
 	_expect(action != null, "Combat main exposes the player action")
-	_expect(await _wait_for_phase(view, "ready"), "Combat main reaches the first exchange")
-	await _play_exchange(view, action)
-	action.pressed.emit()
-	_expect(await _wait_for_phase(view, "ready"), "Combat main reaches the later exchange")
-	await _play_exchange(view, action)
-	action.pressed.emit()
-	_expect(await _wait_for_phase(view, "feedback"), "Combat main reaches feedback")
+	_expect(await _wait_for_phase(view, "ready"), "Combat main reaches the duel")
+	for expected in [
+		"player_resolved", "enemy_resolved", "player_resolved", "enemy_resolved", "victory"
+	]:
+		action.pressed.emit()
+		_expect(await _wait_for_phase(view, expected), "Combat presents %s" % expected)
+	var open_feedback := view.find_child("OpenCombatFeedback", true, false) as Button
+	_expect(open_feedback != null and open_feedback.visible, "terminal duel offers feedback")
+	if open_feedback != null:
+		open_feedback.pressed.emit()
+	_expect(await _wait_for_phase(view, "feedback"), "Combat enters feedback by player choice")
 	var save := view.find_child("SaveFeedback", true, false) as Button
 	_expect(save != null, "Combat feedback action is available")
 	if save != null:
@@ -36,16 +40,6 @@ func _run() -> void:
 	await controller.shutdown()
 	main.queue_free()
 	_finish()
-
-
-func _play_exchange(view: Control, action: Button) -> void:
-	action.pressed.emit()
-	_expect(await _wait_for_phase(view, "before_exchange"), "complete revision starts exchange")
-	for expected in ["player_resolved", "enemy_resolved", "exchange_complete"]:
-		action.pressed.emit()
-		_expect(await _wait_for_phase(view, expected), "Combat presents %s" % expected)
-
-
 func _wait_for_phase(view: Control, expected: String) -> bool:
 	var deadline := Time.get_ticks_msec() + WAIT_TIMEOUT_MSEC
 	while Time.get_ticks_msec() < deadline:

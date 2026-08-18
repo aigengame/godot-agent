@@ -27,29 +27,51 @@ func _run() -> void:
 	)
 	var started: Dictionary = await controller.start()
 	_expect(started.get("ok", false), "Combat playtest prepares")
-	_expect(controller.current_state().get("phase") == "ready", "first exchange is ready")
-	controller.primary_action()
-	_expect(await _wait_for_phase(controller, "before_exchange"), "first revision runs")
-	_complete_exchange(controller)
-	controller.primary_action()
-	_expect(controller.current_state().get("phase") == "ready", "second exchange is ready")
+	_expect(controller.current_state().get("phase") == "ready", "duel is ready")
+	var configured := controller.set_playtest_options("efficient", "strong")
+	_expect(configured.get("ok", false), "player can select duel options")
+
+	for expected in [
+		["player_resolved", 26, 6],
+		["enemy_resolved", 26, 7],
+		["player_resolved", 26, 6],
+		["enemy_resolved", 26, 7],
+		["player_resolved", 26, 6],
+		["enemy_resolved", 26, 7],
+		["victory", 22, 6],
+	]:
+		controller.primary_action()
+		_expect(
+			await _wait_for_phase(controller, expected[0]),
+			"action reaches %s" % expected[0],
+		)
+		_expect(controller.current_state().get("damage") == expected[1], "damage is visible")
+		_expect(controller.current_state().get("mana_cost") == expected[2], "MP cost is visible")
+
+	var terminal := controller.current_state()
 	_expect(
-		controller.current_state().get("combatants", {}).get("player_health") == 86,
-		"later exchange starts from the prior validated health",
+		terminal.get("combatants", {}).get("enemy_health") == 0,
+		"duel ends only after the explicit target-defeated action",
 	)
-	controller.primary_action()
-	_expect(await _wait_for_phase(controller, "before_exchange"), "later revision runs")
-	_complete_exchange(controller)
-	controller.primary_action()
-	_expect(controller.current_state().get("phase") == "feedback", "duel reaches feedback")
+	_expect(terminal.get("action_index") == 7, "no counterattack follows terminal defeat")
+	controller.open_feedback()
+	_expect(controller.current_state().get("phase") == "feedback", "terminal duel offers feedback")
 	var payload := controller.submit_feedback(
-		"Exchange 1", "Very clear", "Fair", "Readable"
+		"Satisfying", "Very clear", "Fair", "Readable"
 	)
 	_expect(not payload.is_empty(), "Combat feedback saves")
-	_expect(payload.get("exchanges", []).size() == 2, "feedback retains both exchanges")
+	_expect(payload.get("actions", []).size() == 7, "feedback retains every played action")
 	_expect(
-		payload.get("exchanges", [])[1].get("terminal", {}).get("enemy_health") == 26,
-		"feedback retains the continued duel result",
+		payload.get("playtest_options")
+		== {"rival_strength": "strong", "spell_style": "efficient"},
+		"feedback retains the selected duel options",
+	)
+	_expect(payload.get("outcome") == "victory", "feedback retains the explicit outcome")
+	controller.restart_battle()
+	_expect(controller.current_state().get("phase") == "ready", "player can restart the duel")
+	_expect(
+		controller.current_state().get("combatants", {}).get("enemy_health") == 100,
+		"restart restores the selected duel's initial state",
 	)
 	await controller.shutdown()
 	controller.queue_free()
@@ -57,19 +79,12 @@ func _run() -> void:
 	_finish()
 
 
-func _complete_exchange(controller: Node) -> void:
-	controller.primary_action()
-	_expect(controller.current_state().get("phase") == "player_resolved", "player cast is shown")
-	controller.primary_action()
-	_expect(controller.current_state().get("phase") == "enemy_resolved", "counterattack is shown")
-	controller.primary_action()
-	_expect(controller.current_state().get("phase") == "exchange_complete", "exchange completes")
-
-
 func _wait_for_phase(controller: Node, expected: String) -> bool:
 	var deadline := Time.get_ticks_msec() + WAIT_TIMEOUT_MSEC
 	while Time.get_ticks_msec() < deadline:
 		if controller.current_state().get("phase") == expected:
 			return true
+		if controller.current_state().get("phase") == "retry":
+			return false
 		await process_frame
 	return false

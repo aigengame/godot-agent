@@ -11,10 +11,10 @@ const ENGLISH_TRANSLATION = preload(
 const CHINESE_TRANSLATION = preload(
 	"res://ui/combat_cast/localization/combat_cast.zh_CN.tres"
 )
-const EXCHANGE_KEYS: Array[String] = [
-	"COMBAT_EXCHANGE_ONE", "COMBAT_EXCHANGE_TWO", "COMBAT_NO_DIFFERENCE"
+const FEEL_KEYS: Array[String] = [
+	"COMBAT_SPELL_SATISFYING", "COMBAT_SPELL_WEAK", "COMBAT_SPELL_COSTLY"
 ]
-const EXCHANGE_VALUES: Array[String] = ["Exchange 1", "Exchange 2", "No difference"]
+const FEEL_VALUES: Array[String] = ["Satisfying", "Too weak", "Too costly"]
 const CLARITY_KEYS: Array[String] = [
 	"COMBAT_VERY_CLEAR", "COMBAT_MOSTLY_CLEAR", "COMBAT_UNCLEAR"
 ]
@@ -26,6 +26,12 @@ const TIMING_VALUES: Array[String] = ["Fair", "Too fast", "Unclear"]
 const HEALTH_COLOR := Color("d64545")
 const MANA_COLOR := Color("3478d4")
 const RESOURCE_BACKGROUND_COLOR := Color("111d2d")
+const SPELL_STYLE_KEYS: Array[String] = [
+	"COMBAT_STYLE_EFFICIENT", "COMBAT_STYLE_BALANCED", "COMBAT_STYLE_POWERFUL"
+]
+const SPELL_STYLE_VALUES: Array[String] = ["efficient", "balanced", "powerful"]
+const RIVAL_KEYS: Array[String] = ["COMBAT_RIVAL_NORMAL", "COMBAT_RIVAL_STRONG"]
+const RIVAL_VALUES: Array[String] = ["normal", "strong"]
 
 var _controller: CombatCastController
 var _shell: PlaytestShell
@@ -42,6 +48,12 @@ var _enemy_mana: ProgressBar
 var _player_stats: Label
 var _enemy_stats: Label
 var _damage_result: Label
+var _feedback_action: Button
+var _settings: HBoxContainer
+var _spell_style: OptionButton
+var _spell_style_label: Label
+var _rival_strength: OptionButton
+var _rival_strength_label: Label
 var _preference_label: Label
 var _readability_label: Label
 var _timing_label: Label
@@ -72,6 +84,7 @@ func bind(controller: CombatCastController) -> void:
 
 
 func _build_arena(content: VBoxContainer) -> void:
+	_build_options(content)
 	_arena = HBoxContainer.new()
 	_arena.name = "CombatArena"
 	_arena.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -95,6 +108,36 @@ func _build_arena(content: VBoxContainer) -> void:
 	_damage_result.name = "ActionResult"
 	_damage_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(_damage_result)
+	_feedback_action = Button.new()
+	_feedback_action.name = "OpenCombatFeedback"
+	_feedback_action.visible = false
+	_feedback_action.pressed.connect(_on_open_feedback)
+	content.add_child(_feedback_action)
+
+
+func _build_options(content: VBoxContainer) -> void:
+	_settings = HBoxContainer.new()
+	_settings.name = "CombatOptions"
+	_settings.add_theme_constant_override("separation", 18)
+	content.add_child(_settings)
+	var spell_column := VBoxContainer.new()
+	spell_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_settings.add_child(spell_column)
+	_spell_style_label = _make_label("", 14, Color("9fb0ca"))
+	spell_column.add_child(_spell_style_label)
+	_spell_style = _make_options(SPELL_STYLE_KEYS, SPELL_STYLE_VALUES, 1)
+	_spell_style.name = "SpellStyle"
+	_spell_style.item_selected.connect(_on_options_changed)
+	spell_column.add_child(_spell_style)
+	var rival_column := VBoxContainer.new()
+	rival_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_settings.add_child(rival_column)
+	_rival_strength_label = _make_label("", 14, Color("9fb0ca"))
+	rival_column.add_child(_rival_strength_label)
+	_rival_strength = _make_options(RIVAL_KEYS, RIVAL_VALUES, 0)
+	_rival_strength.name = "RivalStrength"
+	_rival_strength.item_selected.connect(_on_options_changed)
+	rival_column.add_child(_rival_strength)
 
 
 func _combatant_panel(
@@ -167,7 +210,7 @@ func _bar_style(color: Color) -> StyleBoxFlat:
 func _build_feedback(content: VBoxContainer) -> void:
 	_preference_label = _make_label("", 15, Color("9fb0ca"))
 	content.add_child(_preference_label)
-	_preference = _make_options(EXCHANGE_KEYS, EXCHANGE_VALUES, 2)
+	_preference = _make_options(FEEL_KEYS, FEEL_VALUES, 0)
 	content.add_child(_preference)
 	_readability_label = _make_label("", 15, Color("9fb0ca"))
 	content.add_child(_readability_label)
@@ -184,8 +227,10 @@ func _render(state: Dictionary) -> void:
 	_last_state = state.duplicate(true)
 	_current_phase = str(state.get("phase", ""))
 	if _current_phase == "preparing":
+		_settings.visible = false
 		_arena.visible = false
 		_damage_result.visible = false
+		_feedback_action.visible = false
 		_shell.show_play("", tr("COMBAT_PREPARING"), "")
 		_last_phase = _current_phase
 		return
@@ -195,41 +240,41 @@ func _render(state: Dictionary) -> void:
 		return
 	_arena.visible = true
 	_damage_result.visible = true
+	_feedback_action.visible = _current_phase in ["victory", "defeat"]
+	_settings.visible = _current_phase == "ready" and int(state.get("action_index", 0)) == 0
 	var combatants: Dictionary = state.get("combatants", {})
 	if not combatants.is_empty():
 		_update_combatants(combatants)
-	var progress := tr("COMBAT_EXCHANGE_PROGRESS") % [
-		mini(int(state.get("exchange_index", 0)) + 1, int(state.get("exchange_count", 2))),
-		int(state.get("exchange_count", 2)),
-	]
+	var progress := tr("COMBAT_ROUND_PROGRESS") % int(state.get("round", 1))
 	match _current_phase:
 		"ready":
 			_damage_result.text = ""
 			_shell.show_play(progress, tr("COMBAT_READY"), tr("COMBAT_ACTION_CAST"))
-		"preparing_exchange":
+		"resolving_player", "resolving_enemy":
 			_shell.show_play(progress, tr("COMBAT_RESOLVING"), tr("COMBAT_ACTION_WAIT"), false)
-		"before_exchange":
-			_damage_result.text = ""
-			_shell.show_play(progress, tr("COMBAT_CAST_PROMPT"), tr("COMBAT_ACTION_CAST"))
 		"player_resolved":
 			_damage_result.text = tr("COMBAT_PLAYER_HIT") % [
-				int(state["damage"]["player"]), int(state["mana_cost"]["player"])
+				int(state["damage"]), int(state["mana_cost"])
 			]
 			_shell.show_play(progress, tr("COMBAT_COUNTER_PROMPT"), tr("COMBAT_ACTION_COUNTER"))
 			_pulse(_enemy_block)
 		"enemy_resolved":
 			_damage_result.text = tr("COMBAT_ENEMY_HIT") % [
-				int(state["damage"]["enemy"]), int(state["mana_cost"]["enemy"])
+				int(state["damage"]), int(state["mana_cost"])
 			]
-			_shell.show_play(progress, tr("COMBAT_EXCHANGE_RESOLVED"), tr("COMBAT_ACTION_CONTINUE"))
+			_shell.show_play(progress, tr("COMBAT_EXCHANGE_RESOLVED"), tr("COMBAT_ACTION_CAST"))
 			_pulse(_player_block)
-		"exchange_complete":
-			var final_exchange := int(state.get("exchange_index", 0)) + 1 == int(state.get("exchange_count", 2))
+		"victory", "defeat":
+			var player_won := _current_phase == "victory"
+			_damage_result.text = (
+				tr("COMBAT_PLAYER_HIT") if player_won else tr("COMBAT_ENEMY_HIT")
+			) % [int(state["damage"]), int(state["mana_cost"])]
 			_shell.show_play(
 				progress,
-				tr("COMBAT_EXCHANGE_COMPLETE"),
-				tr("COMBAT_ACTION_FEEDBACK") if final_exchange else tr("COMBAT_ACTION_NEXT"),
+				tr("COMBAT_VICTORY") if player_won else tr("COMBAT_DEFEAT"),
+				tr("COMBAT_ACTION_RESTART"),
 			)
+			_pulse(_enemy_block if player_won else _player_block)
 		"retry":
 			_shell.show_play(progress, tr("COMBAT_RETRY"), tr("COMBAT_ACTION_RETRY"))
 	_last_phase = _current_phase
@@ -267,6 +312,19 @@ func _on_feedback_save_requested(notes: String) -> void:
 		)
 
 
+func _on_open_feedback() -> void:
+	if _controller != null:
+		_controller.open_feedback()
+
+
+func _on_options_changed(_index: int) -> void:
+	if _controller != null:
+		_controller.set_playtest_options(
+			_selected_value(_spell_style),
+			_selected_value(_rival_strength),
+		)
+
+
 func _on_feedback_saved(payload: Dictionary, path: String) -> void:
 	_shell.show_feedback_saved(payload, path)
 
@@ -281,9 +339,14 @@ func _refresh_feature_translations() -> void:
 	if _preference_label == null:
 		return
 	_preference_label.text = tr("COMBAT_FEEDBACK_PREFERENCE")
+	_spell_style_label.text = tr("COMBAT_STYLE_LABEL")
+	_rival_strength_label.text = tr("COMBAT_RIVAL_LABEL")
+	_feedback_action.text = tr("COMBAT_ACTION_FEEDBACK")
 	_readability_label.text = tr("COMBAT_FEEDBACK_READABILITY")
 	_timing_label.text = tr("COMBAT_FEEDBACK_TIMING")
-	_populate_options(_preference, EXCHANGE_KEYS, EXCHANGE_VALUES, 2)
+	_populate_options(_spell_style, SPELL_STYLE_KEYS, SPELL_STYLE_VALUES, 1)
+	_populate_options(_rival_strength, RIVAL_KEYS, RIVAL_VALUES, 0)
+	_populate_options(_preference, FEEL_KEYS, FEEL_VALUES, 0)
 	_populate_options(_readability, CLARITY_KEYS, CLARITY_VALUES, 2)
 	_populate_options(_timing, TIMING_KEYS, TIMING_VALUES, 2)
 

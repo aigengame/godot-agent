@@ -56,13 +56,15 @@ GDA_GODOT=/absolute/path/to/godot \
   examples/schema2/playtest/scripts/run_combat_cast.sh
 ```
 
-The player casts a spell, observes the counterattack, and continues through a second exchange. The
-second exchange starts from the first exchange's validated terminal health and mana. The UI shows
-only combat terms and gameplay values.
+The player selects a spell style and rival strength, then trades casts until one mage is defeated.
+Every cast is a complete Experiment revision that starts from the prior validated health and mana.
+The UI shows red HP bars, blue MP bars, returned damage, and MP cost. It enters the terminal screen
+only when the authored combat Operation returns `target-defeated`; it does not calculate defeat.
+The player can restart or save feedback from that terminal screen.
 
 Combat Content reads this directory's `model-source.json` and `experiment.json` directly. It sends
-complete Experiment values to the local service and validates returned order, damage, health, and
-mana before it publishes an exchange to Godot. The System does not calculate combat. Technical
+complete Experiment values to the local service and validates returned order, outcome, damage,
+health, and mana before it publishes an action to Godot. The System does not calculate combat. Technical
 artifact identities remain in Content and appear only as opaque maintainer provenance in the saved
 feedback payload.
 

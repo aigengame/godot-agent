@@ -7,9 +7,21 @@ const CombatCastView = preload("res://ui/combat_cast/combat_cast_view.gd")
 
 class RecordingController extends CombatCastController:
 	var primary_actions := 0
+	var feedback_actions := 0
+	var selected_options: Dictionary = {}
 
 	func primary_action() -> void:
 		primary_actions += 1
+
+	func open_feedback() -> void:
+		feedback_actions += 1
+
+	func set_playtest_options(spell_style: String, rival_strength: String) -> Dictionary:
+		selected_options = {
+			"rival_strength": rival_strength,
+			"spell_style": spell_style,
+		}
+		return {"ok": true}
 
 
 func _init() -> void:
@@ -24,7 +36,7 @@ func _run() -> void:
 	get_root().add_child(view)
 	await process_frame
 	view.bind(controller)
-	controller.view_state_changed.emit({"phase": "preparing", "exchange_count": 2, "exchange_index": 0})
+	controller.view_state_changed.emit({"phase": "preparing"})
 	await process_frame
 	var early_action := InputEventKey.new()
 	early_action.pressed = true
@@ -40,12 +52,23 @@ func _run() -> void:
 				"player_health": 100,
 				"player_mana": 35,
 			},
-			"exchange_count": 2,
-			"exchange_index": 0,
+			"action_index": 0,
 			"phase": "ready",
+			"round": 1,
 		}
 	)
 	await process_frame
+	var spell_style := view.find_child("SpellStyle", true, false) as OptionButton
+	var rival_strength := view.find_child("RivalStrength", true, false) as OptionButton
+	_expect(spell_style != null and rival_strength != null, "Combat options are visible")
+	if spell_style != null:
+		spell_style.select(0)
+		spell_style.item_selected.emit(0)
+	_expect(
+		controller.selected_options
+		== {"rival_strength": "normal", "spell_style": "efficient"},
+		"spell and rival options reach Content",
+	)
 	var action := view.find_child("PrimaryAction", true, false) as Button
 	_expect(action != null and not action.disabled, "player can cast")
 	if action != null:
@@ -79,11 +102,11 @@ func _run() -> void:
 				"player_health": 100,
 				"player_mana": 26,
 			},
-			"damage": {"enemy": 14, "player": 37},
-			"exchange_count": 2,
-			"exchange_index": 0,
-			"mana_cost": {"enemy": 7, "player": 9},
+			"action_index": 1,
+			"damage": 37,
+			"mana_cost": 9,
 			"phase": "player_resolved",
+			"round": 1,
 		}
 	)
 	await process_frame
@@ -101,11 +124,11 @@ func _run() -> void:
 				"player_health": 86,
 				"player_mana": 26,
 			},
-			"damage": {"enemy": 14, "player": 37},
-			"exchange_count": 2,
-			"exchange_index": 0,
-			"mana_cost": {"enemy": 7, "player": 9},
+			"action_index": 2,
+			"damage": 14,
+			"mana_cost": 7,
 			"phase": "enemy_resolved",
+			"round": 2,
 		}
 	)
 	await process_frame
@@ -114,6 +137,30 @@ func _run() -> void:
 		and action_result.text == "The counterattack deals 14 damage and costs 7 MP.",
 		"enemy action shows damage and mana cost",
 	)
+	controller.view_state_changed.emit(
+		{
+			"action_index": 5,
+			"combatants": {
+				"enemy_health": 0,
+				"enemy_mana": 16,
+				"player_health": 72,
+				"player_mana": 8,
+			},
+			"damage": 26,
+			"mana_cost": 9,
+			"phase": "victory",
+			"round": 3,
+		}
+	)
+	await process_frame
+	var feedback := view.find_child("OpenCombatFeedback", true, false) as Button
+	_expect(feedback != null and feedback.visible, "terminal state offers feedback")
+	if feedback != null:
+		feedback.pressed.emit()
+	_expect(controller.feedback_actions == 1, "feedback is a distinct terminal choice")
+	if action != null:
+		action.pressed.emit()
+	_expect(controller.primary_actions == 2, "terminal primary action offers restart")
 	view.queue_free()
 	controller.queue_free()
 	_finish()

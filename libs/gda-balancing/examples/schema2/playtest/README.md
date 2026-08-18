@@ -5,7 +5,7 @@ This repository-local Godot project contains three small, player-facing applicat
 | Application | Player experience | Feature under test |
 | --- | --- | --- |
 | Reward Run | Break targets, equip a reward, and compare two builds. | Reward frequency and build impact |
-| Arcane Duel | Cast a spell and absorb a counterattack across two exchanges. | Reciprocal damage and resource readability |
+| Arcane Duel | Choose a spell style and trade casts until one mage is defeated. | Damage, mana cost, opponent pressure, and combat pacing |
 | Curse Timing | Apply two curses and watch each pulse, strike, and expiry. | Periodic-effect timing and impact |
 
 Each application uses blockout shapes, short Tween animations, mouse and keyboard controls, and a
@@ -73,13 +73,14 @@ Crown and produces power 90. Frequency `2` selects the common Iron Guard and pro
 
 ### Arcane Duel
 
-1. Cast a spell and inspect the rival's health and mana.
-2. Reveal the rival's counterattack and inspect your health.
-3. Continue to a second exchange that starts from the first exchange's validated result.
-4. Compare the two exchanges and save feedback.
+1. Choose an efficient, balanced, or powerful spell style.
+2. Choose a normal or strong rival.
+3. Cast a spell and inspect the damage, MP cost, and red HP and blue MP bars.
+4. Trade casts until one mage is defeated.
+5. Play again or save feedback from the terminal screen.
 
-Godot presents the returned damage, health, mana, and order. It does not calculate the combat
-outcome.
+Each action is one complete Experiment revision. Godot presents the returned damage, health, mana,
+and explicit victory or defeat. It does not infer defeat by comparing HP in UI or host code.
 
 ### Curse Timing
 

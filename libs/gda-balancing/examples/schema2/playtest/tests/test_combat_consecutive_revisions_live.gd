@@ -3,11 +3,9 @@ extends "res://tests/playtest_test_case.gd"
 const GdaExecutionClient = preload(
 	"res://addons/gda_balancing_client/gda_execution_client.gd"
 )
+const CombatAction = preload("res://content/combat_cast/combat_action.gd")
 const CombatCastDocuments = preload(
 	"res://content/combat_cast/combat_cast_documents.gd"
-)
-const CombatExchange = preload(
-	"res://content/combat_cast/combat_exchange.gd"
 )
 
 
@@ -19,14 +17,10 @@ func _init() -> void:
 func _run() -> void:
 	var documents := CombatCastDocuments.new()
 	var loaded: Dictionary = documents.load_maintained()
-	_expect(
-		loaded.get("ok", false),
-		"maintained Combat documents load: %s" % JSON.stringify(loaded),
-	)
+	_expect(loaded.get("ok", false), "maintained Combat documents load")
 	if not loaded.get("ok", false):
 		_finish()
 		return
-
 	var client := GdaExecutionClient.new()
 	get_root().add_child(client)
 	var started: Dictionary = await client.start(
@@ -37,8 +31,7 @@ func _run() -> void:
 		_finish()
 		return
 	var created: Dictionary = await client.create_session(
-		loaded["model_source"],
-		loaded["experiment"],
+		loaded["model_source"], loaded["experiment"]
 	)
 	_expect(created.get("ok", false), "Combat session admits maintained documents")
 	if not created.get("ok", false):
@@ -46,82 +39,24 @@ func _run() -> void:
 		_finish()
 		return
 
-	var first := await _run_exchange(
-		client,
-		created["session"],
-		created["revision"],
-		loaded["combat_state"],
-		"exchange-one",
+	var state: Dictionary = loaded["combat_state"]
+	var first := await _run_action(
+		client, documents, created["session"], state, "player", 1, loaded["defeat_threshold"]
 	)
-	_expect(
-		first.get("ok", false),
-		"first complete Combat revision validates: %s" % JSON.stringify(first),
+	_expect(first.get("ok", false), "first player action validates")
+	if first.get("ok", false):
+		_expect(first["terminal"]["enemy_health"] == 63, "first action commits damage")
+		state = first["terminal"]
+	var second := await _run_action(
+		client, documents, created["session"], state, "enemy", 2, loaded["defeat_threshold"]
 	)
-	if not first.get("ok", false):
-		await client.delete_session(created["session"])
-		await client.shutdown()
-		_finish()
-		return
-	_expect(
-		first["gameplay"]["terminal"]
-		== {
-			"enemy_health": 63,
-			"enemy_mana": 23,
-			"player_health": 86,
-			"player_mana": 26,
-		},
-		"first exchange returns the maintained terminal combat state",
-	)
-	_expect(
-		first["gameplay"]["damage"] == {"enemy": 14, "player": 37},
-		"first exchange returns the maintained reciprocal damage",
-	)
-	_expect(
-		first["gameplay"].get("mana_cost", {}) == {"enemy": 7, "player": 9},
-		"first exchange returns the maintained reciprocal mana cost",
-	)
-
-	var revised: Dictionary = documents.experiment_from_terminal(
-		first["terminal"]
-	)
-	_expect(revised.get("ok", false), "Content creates the complete next Experiment")
-	var admitted: Dictionary = await client.admit_revision(
-		created["session"],
-		revised["value"],
-	)
-	_expect(admitted.get("ok", false), "same session admits the next exact revision")
-	var second := await _run_exchange(
-		client,
-		created["session"],
-		admitted["revision"],
-		first["terminal"],
-		"exchange-two",
-	)
-	_expect(second.get("ok", false), "second complete Combat revision validates")
+	_expect(second.get("ok", false), "enemy action uses the prior committed state")
 	if second.get("ok", false):
+		_expect(second["terminal"]["player_health"] == 86, "enemy action commits damage")
 		_expect(
-			second["gameplay"]["initial"] == first["gameplay"]["terminal"],
-			"second exchange starts from the first terminal health and mana",
+			second["revision"] != first.get("revision", ""),
+			"complete actions produce distinct exact revisions",
 		)
-		_expect(
-			second["gameplay"]["terminal"]
-			== {
-				"enemy_health": 26,
-				"enemy_mana": 16,
-				"player_health": 72,
-				"player_mana": 17,
-			},
-			"second exchange continues the maintained duel",
-		)
-		_expect(
-			not second["gameplay"].has("provenance")
-			and second["feedback"].has("provenance"),
-			"technical provenance stays in Content feedback",
-		)
-	_expect(
-		admitted.get("revision", "") != created.get("revision", ""),
-		"complete Combat Experiments produce distinct exact revisions",
-	)
 
 	await client.delete_session(created["session"])
 	await client.shutdown()
@@ -129,114 +64,93 @@ func _run() -> void:
 	_finish()
 
 
-func _run_exchange(
+func _run_action(
 	client: Node,
+	documents: CombatCastDocuments,
 	session: String,
-	revision: String,
-	expected_initial: Dictionary,
-	exchange_id: String,
+	state: Dictionary,
+	actor: String,
+	index: int,
+	defeat_threshold: int,
 ) -> Dictionary:
-	var run: Dictionary = await client.run_revision(session, revision)
-	if not run.get("ok", false):
-		return run
-	if exchange_id == "exchange-one":
-		_test_contradictory_combat_artifacts(
-			run["value"], expected_initial, revision
-		)
-	var exchange := CombatExchange.new()
-	var admitted: Dictionary = exchange.admit_run_result(
-		run["value"],
-		expected_initial,
-		exchange_id,
-		revision,
+	var authored := documents.experiment_for_action(
+		state, actor, "balanced", "normal", index
 	)
+	if not authored.get("ok", false):
+		return authored
+	var admitted: Dictionary = await client.admit_revision(session, authored["value"])
 	if not admitted.get("ok", false):
 		return admitted
+	var run: Dictionary = await client.run_revision(session, admitted["revision"])
+	if not run.get("ok", false):
+		return run
+	if index == 1:
+		_test_projection_refusals(
+			run["value"], state, actor, admitted["revision"], defeat_threshold
+		)
+	var action := CombatAction.new()
+	var result := action.admit_run_result(
+		run["value"], state, actor, admitted["revision"], defeat_threshold
+	)
+	if not result.get("ok", false):
+		return result
 	return {
 		"ok": true,
-		"feedback": exchange.feedback_record(),
-		"gameplay": exchange.gameplay_values(),
-		"terminal": exchange.terminal_state(),
+		"revision": admitted["revision"],
+		"terminal": action.terminal_state(),
 	}
 
 
-func _test_contradictory_combat_artifacts(
+func _test_projection_refusals(
 	run_result: Dictionary,
-	expected_initial: Dictionary,
+	state: Dictionary,
+	actor: String,
 	revision: String,
+	defeat_threshold: int,
 ) -> void:
-	var shifted_damage := run_result.duplicate(true)
-	var shifted_transitions := _transition_events(shifted_damage)
-	_set_state_value(
-		shifted_transitions[0]["state_after"],
-		"enemy_health",
-		int(expected_initial["enemy_health"]),
-	)
-	_set_state_value(
-		shifted_transitions[1]["state_before"],
-		"enemy_health",
-		int(expected_initial["enemy_health"]),
-	)
+	var forged_outcome := run_result.duplicate(true)
+	var event := _transition(forged_outcome)
+	event["outcome"] = {"id": "target-defeated", "kind": "success"}
 	_expect(
-		not _projection_accepts(shifted_damage, expected_initial, revision),
-		"Content rejects damage moved to the wrong exchange transition",
+		not _projection_accepts(
+			forged_outcome, state, actor, revision, defeat_threshold
+		),
+		"Content rejects a terminal outcome that contradicts target state",
 	)
-
-	var forged_mana := run_result.duplicate(true)
-	var mana_transitions := _transition_events(forged_mana)
-	for rows in [
-		mana_transitions[0]["state_after"],
-		mana_transitions[1]["state_before"],
-		mana_transitions[1]["state_after"],
-	]:
-		_set_state_value(rows, "player_mana", 999)
-	var mana_artifacts: Dictionary = forged_mana["artifacts"]
-	var mana_snapshots: Array = mana_artifacts["snapshot-series"]["snapshots"]
-	_set_state_value(mana_snapshots[-1]["values"], "player_mana", 999)
+	var forged_damage := run_result.duplicate(true)
+	var forged_event := _transition(forged_damage)
+	_set_state_value(forged_event["state_after"], "enemy_health", 100)
+	var snapshots: Array = forged_damage["artifacts"]["snapshot-series"]["snapshots"]
+	_set_state_value(snapshots[-1]["values"], "enemy_health", 100)
 	_set_metric_value(
-		mana_artifacts["metric-dataset"]["samples"],
-		"player_resource_remaining",
-		999,
+		forged_damage["artifacts"]["metric-dataset"]["samples"],
+		"enemy_health_remaining",
+		100,
 	)
 	_expect(
-		not _projection_accepts(forged_mana, expected_initial, revision),
-		"Content rejects resource changes that contradict the cast cost",
-	)
-
-	var extra_state := run_result.duplicate(true)
-	var extra_transitions := _transition_events(extra_state)
-	for rows in [
-		extra_transitions[0]["state_after"],
-		extra_transitions[1]["state_before"],
-		extra_transitions[1]["state_after"],
-	]:
-		rows.append({"name": "runtime_debug", "value": 1})
-	var extra_artifacts: Dictionary = extra_state["artifacts"]
-	var extra_snapshots: Array = extra_artifacts["snapshot-series"]["snapshots"]
-	extra_snapshots[-1]["values"].append({"name": "runtime_debug", "value": 1})
-	_expect(
-		not _projection_accepts(extra_state, expected_initial, revision),
-		"Content rejects state outside the application-owned combat surface",
+		not _projection_accepts(forged_damage, state, actor, revision, defeat_threshold),
+		"Content rejects state that contradicts the damage fact",
 	)
 
 
 func _projection_accepts(
 	run_result: Dictionary,
-	expected_initial: Dictionary,
+	state: Dictionary,
+	actor: String,
 	revision: String,
+	defeat_threshold: int,
 ) -> bool:
-	var exchange := CombatExchange.new()
-	return exchange.admit_run_result(
-		run_result, expected_initial, "mutation", revision
+	var action := CombatAction.new()
+	return action.admit_run_result(
+		run_result, state, actor, revision, defeat_threshold
 	).get("ok", false)
 
 
-func _transition_events(run_result: Dictionary) -> Array[Dictionary]:
-	var transitions: Array[Dictionary] = []
-	for event in run_result.get("artifacts", {}).get("event-trace", {}).get("events", []):
+func _transition(run_result: Dictionary) -> Dictionary:
+	for event in run_result["artifacts"]["event-trace"]["events"]:
 		if event.get("ordering_key", {}).get("phase") == "transition":
-			transitions.append(event)
-	return transitions
+			return event
+	return {}
 
 
 func _set_state_value(rows: Array, name: String, value: int) -> void:
@@ -246,11 +160,7 @@ func _set_state_value(rows: Array, name: String, value: int) -> void:
 			return
 
 
-func _set_metric_value(
-	samples: Array,
-	metric: String,
-	value: int,
-) -> void:
+func _set_metric_value(samples: Array, metric: String, value: int) -> void:
 	for sample in samples:
 		if sample.get("metric") == metric:
 			sample["value"] = value
