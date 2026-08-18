@@ -24,6 +24,15 @@ take no project simply ignore it — so gda-mcp needs no per-command knowledge o
 commands accept a project, and a `--project` flag (which meta commands reject outright)
 is never forged.
 
+> **Amendment (2026-08-18, #670):** `gda info` now *accepts* an explicit
+> `--project` (validated; ADR-0006 amendment), so "take no project" and "reject
+> outright" no longer describe it — they still describe `skill`/`version`/`help`,
+> whose signatures declare no such option. What this ADR relies on is unchanged:
+> a meta command never **inherits** a project (the `inherits_project` descriptor
+> field, ADR-0023), so it ignores an injected `GDA_PROJECT` exactly as before,
+> gda-mcp still needs no per-command knowledge, and no `--project` flag is ever
+> forged.
+
 **Resolution is by a portable precedence, with cwd only as a last resort** — because
 the launch working directory is not reliably the project across MCP clients (clients
 differ in whether the operator can set it, and several leave it at an arbitrary launch
