@@ -633,14 +633,14 @@ def _fact_value(row: dict[str, Any]) -> JsonValue:
     raise ValueError("operation vector result fact has an unsupported kind")
 
 
-def evaluate_operation_execution_vector(
+def evaluate_operation_execution_vector_with_evidence(
     context: AdmittedAuthorityContext,
     vector: dict[str, Any],
     *,
     package_id: str | None = None,
     package_version: str | None = None,
-) -> dict[str, JsonValue]:
-    """Execute one admitted Package vector through the production evaluator."""
+) -> dict[str, Any]:
+    """Execute one Package vector and retain its Runtime audit evidence."""
     if package_id is None or package_version is None:
         language = cast(dict[str, Any], context.language_bundle["language"])
         package_id, package_version = _operation_owner(
@@ -658,6 +658,14 @@ def evaluate_operation_execution_vector(
     checked, result_name = _checked_vector_experiment(
         context, coordinate, operation, vector
     )
+    resolved_operations = {
+        (
+            cast(str, row["package"]),
+            cast(str, row["definition"]["version"]),
+            cast(str, row["definition"]["id"]),
+        ): row["definition"]
+        for row in checked.rir["selected_semantics"]["operations"]
+    }
     evaluation = evaluate_experiment(checked)
     state_names = [
         row["id"] for row in operation["inputs"] if row["access"] == "read-write"
@@ -673,13 +681,20 @@ def evaluate_operation_execution_vector(
         if len(reasons) != 1:
             raise ValueError("operation vector refusal reason is not unique")
         return {
-            "completion": {"kind": "refusal", "reason": reasons[0]},
-            "result": {"kind": "not-produced"},
-            "rng_draws": [],
-            "state_after": [
-                {"name": name, "value": evaluation.state_after[name]}
-                for name in state_names
-            ],
+            "execution_evidence": {
+                "ordering_key": evaluation.refusing_ordering_key,
+                "resource_charge": evaluation.budget_counters["event_steps"],
+            },
+            "observation": {
+                "completion": {"kind": "refusal", "reason": reasons[0]},
+                "result": {"kind": "not-produced"},
+                "rng_draws": [],
+                "state_after": [
+                    {"name": name, "value": evaluation.state_after[name]}
+                    for name in state_names
+                ],
+            },
+            "resolved_operations": resolved_operations,
         }
     if isinstance(evaluation, Schema2RefusalReport):
         raise ValueError("operation vector failed before production dispatch")
@@ -687,6 +702,12 @@ def evaluate_operation_execution_vector(
         raise TypeError("operation vector returned an unknown production result")
     trace = evaluation.members["event-trace"].value
     event = next(row for row in trace["events"] if row["observation"] is None)
+    snapshots = evaluation.members["snapshot-series"].value["snapshots"]
+    snapshot_after = next(
+        row
+        for row in snapshots
+        if row["snapshot_identity"] == event["snapshot_after_identity"]
+    )
     outcome = event["outcome"]
     result: dict[str, JsonValue] = {"kind": "not-produced"}
     if outcome["kind"] == "success":
@@ -694,16 +715,41 @@ def evaluate_operation_execution_vector(
         result = {"kind": "value", "value": _fact_value(result_fact)}
     state_after = {row["name"]: row["value"] for row in event["state_after"]}
     return {
-        "completion": {"kind": "outcome", "id": outcome["id"]},
-        "result": result,
-        "rng_draws": [
-            {
-                member: draw[member]
-                for member in ("candidate_hex", "index", "stream", "value")
-            }
-            for draw in event["rng_draws"]
-        ],
-        "state_after": [
-            {"name": name, "value": state_after[name]} for name in state_names
-        ],
+        "execution_evidence": {
+            "ordering_key": event["ordering_key"],
+            "resource_charge": snapshot_after["continuation"]["resource_ledger"][
+                "event_steps"
+            ],
+        },
+        "observation": {
+            "completion": {"kind": "outcome", "id": outcome["id"]},
+            "result": result,
+            "rng_draws": [
+                {
+                    member: draw[member]
+                    for member in ("candidate_hex", "index", "stream", "value")
+                }
+                for draw in event["rng_draws"]
+            ],
+            "state_after": [
+                {"name": name, "value": state_after[name]} for name in state_names
+            ],
+        },
+        "resolved_operations": resolved_operations,
     }
+
+
+def evaluate_operation_execution_vector(
+    context: AdmittedAuthorityContext,
+    vector: dict[str, Any],
+    *,
+    package_id: str | None = None,
+    package_version: str | None = None,
+) -> dict[str, JsonValue]:
+    """Execute one admitted Package vector through the production evaluator."""
+    return evaluate_operation_execution_vector_with_evidence(
+        context,
+        vector,
+        package_id=package_id,
+        package_version=package_version,
+    )["observation"]

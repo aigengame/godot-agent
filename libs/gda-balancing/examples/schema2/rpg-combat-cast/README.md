@@ -289,8 +289,9 @@ root-member order change are different semantic edits.
 The later Event does not read Snapshot 0. It reads the Snapshot that the earlier Event committed.
 Runtime does not infer defeat, interruption, or cancellation from health-like values. The selected
 `game.combat.eligible-cast-v1` Operation checks actor eligibility and publishes the explicit
-`target-defeated` outcome. The raw cast entrypoints in section 8.3 prove that this policy comes from
-the package Operation, not Runtime.
+`target-defeated` outcome. It requires a non-negative defeat threshold before resource use, RNG, or
+state change. The raw cast entrypoints in section 8.3 prove that this policy comes from the package
+Operation, not Runtime.
 
 Each independent scenario receives its own Snapshot 0, Event queue, and replication. Two scenarios
 cannot form a reciprocal exchange or observe each other's committed state.
@@ -620,6 +621,7 @@ additional eligible-cast outcomes:
 | admitted hit | `cast-resolved` / `success` | `commit` |
 | hit check fails | `miss` / `gameplay-alternative` | `rollback` |
 | actor resource below action cost | `insufficient-resource` / `gameplay-alternative` | `rollback` |
+| negative defeat threshold | `game.combat.reason.invalid-defeat-threshold` / refusal | no dispatch |
 | actor health at or below the defeat threshold | `actor-ineligible` / `gameplay-alternative` | `rollback` |
 | committed damage reaches the target defeat threshold | `target-defeated` / `success` | `commit` |
 
@@ -804,9 +806,11 @@ uv run pytest \
   tests/test_e2e_cli.py::TestKeyUserPath::test_reciprocal_combat_revisions_stop_on_explicit_defeat
 ```
 
-The neutral package vectors separately prove that a later attempt with actor health at the defeat
-threshold returns `actor-ineligible`, consumes no resource or RNG, and changes no state. The
-application does not need to execute that rejected action after it observes `target-defeated`.
+The neutral package vectors separately prove two fail-closed paths. A negative defeat threshold
+produces `game.combat.reason.invalid-defeat-threshold` before resource use, RNG, or state change. A
+later attempt with actor health at the defeat threshold returns `actor-ineligible`, consumes no
+resource or RNG, and changes no state. The application does not need to execute that rejected action
+after it observes `target-defeated`.
 
 ### 8.5 Run the multi-time scheduler companion
 

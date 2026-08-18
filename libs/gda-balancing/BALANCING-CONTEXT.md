@@ -1144,18 +1144,18 @@ _Avoid_: callback, message (unqualified), async task
 
 **Defeat transition**:
 An authored `game.combat` transition that compares the committed result of damage resolution with
-an explicit defeat threshold and publishes the typed `target-defeated` outcome. The combat package
-owns this transition policy. Health storage remains a resource concern, and defeat/revival state
-storage remains an entity concern. Runtime does not infer defeat from a health-like value
-(bADR-0014/0017).
+an explicit non-negative defeat threshold and publishes the typed `target-defeated` outcome. The
+combat package owns this transition policy and refuses a negative threshold before resource use,
+RNG, or state change. Health storage remains a resource concern, and defeat/revival state storage
+remains an entity concern. Runtime does not infer defeat from a health-like value (bADR-0014/0017).
 _Avoid_: HP check (unqualified), Runtime defeat inference, host-side death rule
 
 **Combat action eligibility**:
 The authored `game.combat` predicate that decides whether one combatant may execute a combat
 Operation. The current eligible-cast contract compares actor health with the explicit defeat
-threshold before resource spending, RNG, or damage. An ineligible actor returns the typed
-`actor-ineligible` outcome with no state change. This predicate does not define turn order or the
-eligible-responder order owned by `game.turn` (bADR-0017).
+threshold before resource spending, RNG, or damage. The threshold must be non-negative. An
+ineligible actor returns the typed `actor-ineligible` outcome with no state change. This predicate
+does not define turn order or the eligible-responder order owned by `game.turn` (bADR-0017).
 _Avoid_: UI can-act flag, host eligibility check, turn eligibility (when combat eligibility is meant)
 
 **Periodic Effect**:

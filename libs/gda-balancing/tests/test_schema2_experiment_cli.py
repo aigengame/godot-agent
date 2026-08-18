@@ -6435,9 +6435,11 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
         row["id"] for row in vectors if row.get("kind") == "operation-execution"
     } >= {
         "game.combat.cast.eligible-action",
+        "game.combat.cast.invalid-defeat-threshold",
         "game.combat.cast.target-defeated",
         "game.combat.cast.actor-ineligible",
     }
+    assert "game.combat.reason.invalid-defeat-threshold" in operation["refusals"]
 
 
 def test_neutral_structured_operation_vectors_cover_control_paths():
@@ -6730,7 +6732,41 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
     kernel, ldb = mutable_authorities()
     assert operation_execution_vectors(ldb)
 
-    assert candidate_conformance_failures(kernel, ldb) == []
+    root_ordering_key = {
+        "logical_time": 0,
+        "phase": "transition",
+        "priority": 0,
+        "enqueue_sequence": 0,
+    }
+    assert (
+        candidate_conformance_failures(
+            kernel,
+            ldb,
+            execution_evidence_expectations={
+                ("game.combat", "2.1.0", "game.combat.cast.eligible-action"): {
+                    "ordering_key": root_ordering_key,
+                    "resource_charge": 30,
+                },
+                ("game.combat", "2.1.0", "game.combat.cast.target-defeated"): {
+                    "ordering_key": root_ordering_key,
+                    "resource_charge": 30,
+                },
+                ("game.combat", "2.1.0", "game.combat.cast.actor-ineligible"): {
+                    "ordering_key": root_ordering_key,
+                    "resource_charge": 5,
+                },
+                (
+                    "game.combat",
+                    "2.1.0",
+                    "game.combat.cast.invalid-defeat-threshold",
+                ): {
+                    "ordering_key": root_ordering_key,
+                    "resource_charge": 3,
+                },
+            },
+        )
+        == []
+    )
 
 
 def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
@@ -6758,24 +6794,29 @@ def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
 
 def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
     kernel, ldb = mutable_authorities()
-    target = "structured.select.empty-outcome"
+    target = "game.combat.cast.eligible-action"
     package_id, package_version, _vector = next(
         candidate
         for candidate in operation_execution_vectors(ldb)
         if candidate[2]["id"] == target
     )
-    evaluate = operation_conformance_module.evaluate_operation_execution_vector
+    evaluate = (
+        operation_conformance_module.evaluate_operation_execution_vector_with_evidence
+    )
 
     def divergent_production(context, vector, **owner):
-        observation = deepcopy(evaluate(context, vector, **owner))
+        result = deepcopy(evaluate(context, vector, **owner))
         if vector["id"] == target:
-            completion = cast(dict[str, Any], observation["completion"])
+            completion = cast(
+                dict[str, Any], result["observation"]["completion"]
+            )
             completion["id"] = "production-only-outcome"
-        return observation
+            result["execution_evidence"]["resource_charge"] += 1
+        return result
 
     monkeypatch.setattr(
         operation_conformance_module,
-        "evaluate_operation_execution_vector",
+        "evaluate_operation_execution_vector_with_evidence",
         divergent_production,
     )
 
@@ -6783,13 +6824,30 @@ def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
         kernel,
         ldb,
         vector_coordinates={(package_id, package_version, target)},
+        execution_evidence_expectations={
+            (package_id, package_version, target): {
+                "ordering_key": {
+                    "logical_time": 0,
+                    "phase": "transition",
+                    "priority": 0,
+                    "enqueue_sequence": 0,
+                },
+                "resource_charge": 30,
+            }
+        },
     )
 
-    assert len(failures) == 1
-    assert failures[0]["kind"] == "vector-divergence"
-    assert failures[0]["vector"] == target
-    assert failures[0]["production"] != failures[0]["independent"]
-    assert failures[0]["independent"] == failures[0]["expected"]
+    assert [failure["kind"] for failure in failures] == [
+        "vector-divergence",
+        "execution-evidence-divergence",
+    ]
+    assert all(failure["vector"] == target for failure in failures)
+    assert all(
+        failure["production"] != failure["independent"] for failure in failures
+    )
+    assert all(
+        failure["independent"] == failure["expected"] for failure in failures
+    )
 
 
 def test_operation_execution_projection_preserves_declared_state_order():

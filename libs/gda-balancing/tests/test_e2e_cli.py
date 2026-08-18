@@ -1929,6 +1929,9 @@ class TestKeyUserPath:
         no_cancellation["runtime"]["required_evaluator"]["instruction_nodes"].remove(
             "guard-block"
         )
+        no_cancellation["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "require"
+        )
         enemy_health = next(
             row
             for row in no_cancellation["scenarios"][0]["assignments"]
@@ -2366,6 +2369,9 @@ class TestKeyUserPath:
         )
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].remove(
             "guard-block"
+        )
+        backward_time["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "require"
         )
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].sort()
         backward_time["runtime"]["required_evaluator"]["effects"].extend(
