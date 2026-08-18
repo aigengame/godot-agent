@@ -10,6 +10,8 @@ from schema2_bootstrap_conformance_support import _consumer_b
 from schema2_bootstrap_production_support import _consumer_a
 from schema2_operation_execution_independent_support import reference_execute_event
 from schema2_operation_execution_production_support import (
+    OperationExecutionHarness,
+    compile_operation_execution_harness,
     evaluate_operation_execution_vector_with_evidence,
 )
 
@@ -123,12 +125,14 @@ def _operation_execution_results(
     context: AdmittedAuthorityContext,
     package_id: str,
     package_version: str,
+    harness: OperationExecutionHarness | None = None,
 ) -> dict[str, dict[str, Any]]:
     production = evaluate_operation_execution_vector_with_evidence(
         context,
         vector,
         package_id=package_id,
         package_version=package_version,
+        harness=harness,
     )
     return {
         "production": production,
@@ -211,12 +215,26 @@ def candidate_conformance_failures(
     context = admit_authority_context(kernel, ldb)
     assert isinstance(context, AdmittedAuthorityContext)
     failures: list[dict[str, Any]] = []
+    operations = _operation_index(ldb)
+    harnesses: dict[OperationCoordinate, OperationExecutionHarness] = {}
     overrides = vector_overrides or {}
     for package_id, package_version, declared in operation_execution_vectors(ldb):
         coordinate = (package_id, package_version, cast(str, declared["id"]))
         if vector_coordinates is not None and coordinate not in vector_coordinates:
             continue
         vector = overrides.get(declared["id"], declared)
+        operation_coordinate = (
+            package_id,
+            package_version,
+            cast(str, vector["operation"]),
+        )
+        harness = harnesses.get(operation_coordinate)
+        if harness is None:
+            operation = operations[operation_coordinate]
+            harness = compile_operation_execution_harness(
+                context, operation_coordinate, operation
+            )
+            harnesses[operation_coordinate] = harness
         results = _operation_execution_results(
             kernel,
             ldb,
@@ -224,6 +242,7 @@ def candidate_conformance_failures(
             context=context,
             package_id=package_id,
             package_version=package_version,
+            harness=harness,
         )
         observations = {
             "expected": vector["expect"],

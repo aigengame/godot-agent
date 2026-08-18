@@ -6728,9 +6728,22 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
     }
 
 
-def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
+def test_candidate_graph_executes_every_operation_vector_in_two_consumers(monkeypatch):
     kernel, ldb = mutable_authorities()
-    assert operation_execution_vectors(ldb)
+    vectors = operation_execution_vectors(ldb)
+    assert vectors
+    compile_harness = operation_conformance_module.compile_operation_execution_harness
+    compiled_coordinates = []
+
+    def tracked_compile_harness(context, coordinate, operation):
+        compiled_coordinates.append(coordinate)
+        return compile_harness(context, coordinate, operation)
+
+    monkeypatch.setattr(
+        operation_conformance_module,
+        "compile_operation_execution_harness",
+        tracked_compile_harness,
+    )
 
     root_ordering_key = {
         "logical_time": 0,
@@ -6767,6 +6780,12 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
         )
         == []
     )
+    expected_coordinates = {
+        (package_id, package_version, vector["operation"])
+        for package_id, package_version, vector in vectors
+    }
+    assert len(compiled_coordinates) == len(set(compiled_coordinates))
+    assert set(compiled_coordinates) == expected_coordinates
 
 
 def test_candidate_graph_gate_identifies_an_operation_vector_divergence():

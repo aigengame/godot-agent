@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, cast
 
 from gda_balancing.domain.authority.context import AdmittedAuthorityContext
@@ -21,6 +22,20 @@ from gda_balancing.domain.runtime.execution import (
 )
 
 OperationCoordinate = tuple[str, str, str]
+
+
+@dataclass(frozen=True)
+class OperationExecutionHarness:
+    """One compiled production harness shared by vectors for one Operation."""
+
+    operation_coordinate: OperationCoordinate
+    source: dict[str, Any]
+    checked_model: CheckedModel
+    artifacts: dict[str, dict[str, Any]]
+    result_name: str
+    requirements: dict[str, list[str]]
+    named_streams: list[str]
+    entrypoint_id: str
 
 
 def _operation_coordinate(reference: dict[str, Any]) -> OperationCoordinate:
@@ -363,7 +378,7 @@ def _candidate_model_source(
     context: AdmittedAuthorityContext,
     operation_coordinate: OperationCoordinate,
     operation: dict[str, Any],
-    vector: dict[str, Any],
+    entrypoint_id: str,
 ) -> tuple[dict[str, Any], str]:
     runtime = cast(dict[str, Any], context.kernel["meta_format"]["runtime_program"])
     numeric = cast(dict[str, int], runtime["numeric"])
@@ -451,7 +466,7 @@ def _candidate_model_source(
                 ],
                 "entrypoints": [
                     {
-                        "id": vector["id"],
+                        "id": entrypoint_id,
                         "operation": {
                             "package": operation_owner[0],
                             "version": operation_owner[1],
@@ -490,14 +505,15 @@ def _candidate_model_source(
     )
 
 
-def _checked_vector_experiment(
+def compile_operation_execution_harness(
     context: AdmittedAuthorityContext,
     operation_coordinate: OperationCoordinate,
     operation: dict[str, Any],
-    vector: dict[str, Any],
-) -> tuple[CheckedExperiment, str]:
+) -> OperationExecutionHarness:
+    """Compile the invariant Model and RIR for one Operation's vectors."""
+    entrypoint_id = cast(str, operation["id"])
     source, result_name = _candidate_model_source(
-        context, operation_coordinate, operation, vector
+        context, operation_coordinate, operation, entrypoint_id
     )
     checked_model = check_model_source_value(source, authority_context=context)
     if not isinstance(checked_model, CheckedModel):
@@ -521,9 +537,47 @@ def _checked_vector_experiment(
     )
     requirements, named_streams = derive_scenario_program_requirements(
         rir,
-        cast(str, vector["id"]),
+        entrypoint_id,
         profile,
         rng_algorithm,
+    )
+    return OperationExecutionHarness(
+        operation_coordinate=operation_coordinate,
+        source=source,
+        checked_model=checked_model,
+        artifacts=artifacts,
+        result_name=result_name,
+        requirements=requirements,
+        named_streams=named_streams,
+        entrypoint_id=entrypoint_id,
+    )
+
+
+def _checked_vector_experiment(
+    context: AdmittedAuthorityContext,
+    operation_coordinate: OperationCoordinate,
+    operation: dict[str, Any],
+    vector: dict[str, Any],
+    *,
+    harness: OperationExecutionHarness | None = None,
+) -> tuple[CheckedExperiment, str]:
+    resolved_harness = harness or compile_operation_execution_harness(
+        context, operation_coordinate, operation
+    )
+    if resolved_harness.operation_coordinate != operation_coordinate:
+        raise ValueError("operation execution harness coordinate does not match")
+    source = resolved_harness.source
+    checked_model = resolved_harness.checked_model
+    artifacts = resolved_harness.artifacts
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    result_name = resolved_harness.result_name
+    requirements = resolved_harness.requirements
+    named_streams = resolved_harness.named_streams
+    entrypoint_id = resolved_harness.entrypoint_id
+    profile = cast(str, operation["runtime_profile"])
+    rng_algorithm = cast(
+        str,
+        context.kernel["meta_format"]["runtime_program"]["named_rng"]["algorithm"],
     )
     values = {row["name"]: row["value"] for row in vector["input"]["values"]}
     assignments = [
@@ -576,7 +630,7 @@ def _checked_vector_experiment(
                         "root_event_ref": "vector",
                         "logical_time": 0,
                         "priority": 0,
-                        "entrypoint": vector["id"],
+                        "entrypoint": entrypoint_id,
                         "payload": [],
                     }
                 ],
@@ -639,6 +693,7 @@ def evaluate_operation_execution_vector_with_evidence(
     *,
     package_id: str | None = None,
     package_version: str | None = None,
+    harness: OperationExecutionHarness | None = None,
 ) -> dict[str, Any]:
     """Execute one Package vector and retain its Runtime audit evidence."""
     if package_id is None or package_version is None:
@@ -656,7 +711,7 @@ def evaluate_operation_execution_vector_with_evidence(
     if operation is None or vector.get("kind") != "operation-execution":
         raise ValueError("operation execution vector target is unavailable")
     checked, result_name = _checked_vector_experiment(
-        context, coordinate, operation, vector
+        context, coordinate, operation, vector, harness=harness
     )
     resolved_operations = {
         (
