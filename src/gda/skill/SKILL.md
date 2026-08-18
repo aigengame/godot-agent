@@ -26,8 +26,11 @@ commands (no group).
 - **Project** — resolved by `--project DIR` → `$GDA_PROJECT` → the current
   directory; the directory must contain `project.godot`. Resolving a project runs
   that project's autoloads at engine startup.
-- **Projectless** — meta commands and file-path-only operations run with no
-  project; they resolve filesystem paths but not `res://`.
+- **Projectless** — file-path-only operations run with no project; they resolve
+  filesystem paths but not `res://`. Meta commands never *inherit* a project
+  (`$GDA_PROJECT`/cwd is ignored, so an invalid one cannot break them); `gda
+  info` still accepts an explicit `--project`, validated as anywhere else, while
+  the other meta commands take none.
 - **Provenance** — `gda --version --json` reports which `gda` is running: its
   version, the executable and interpreter paths, `package_path` (the directory the
   running code was imported from), `install_kind` (`wheel`, `editable`, or

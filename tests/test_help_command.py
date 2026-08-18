@@ -133,3 +133,27 @@ def test_it_never_launches_the_engine(monkeypatch):
     result = CliRunner().invoke(app, ["help", "scene", "get"])
 
     assert result.exit_code == 0, result.stdout
+
+
+def test_it_describes_the_tree_it_was_registered_into():
+    # ADR-0040: the meta slice sits below the composition root, so `help` must
+    # answer from the `root` handed to `register(root)` — the same closure rule
+    # `gda schema` follows — not from the global `gda.cli.app`. A custom root
+    # carrying a command the global app lacks tells the two trees apart: walking
+    # the registered root answers; reaching up to the global app refuses it.
+    import typer
+
+    from gda.commands import meta
+
+    root = typer.Typer()
+
+    @root.command()
+    def local_only() -> None:
+        """A command that exists only in this custom tree."""
+
+    meta.register(root)
+
+    result = CliRunner().invoke(root, ["help", "local-only", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout)["command"] == "gda local-only"

@@ -130,14 +130,15 @@ def _resolve_project_or_fail(project: Optional[str]) -> Optional[Path]:
 def _project_context(cmd: HeadlessCommand[M], project: Optional[str]) -> Optional[Path]:
     """The project ``cmd`` runs against, resolved once per dispatch (ADR-0006).
 
-    One rule, shared by all three tails. A ``projectless`` command never INHERITS a
-    project context ($GDA_PROJECT, then the cwd): it is about ``gda`` or the engine
-    itself, so an inherited invalid ``$GDA_PROJECT`` must not make it fail (#357). It
-    still VALIDATES an EXPLICIT ``--project`` when it takes one and one is given
-    (``gda info --project``, #670) — naming a project is a deliberate choice, so a bad
-    one is a structured refusal rather than something quietly ignored.
+    One rule, shared by all three tails. A command with ``inherits_project=False``
+    (a meta command) never INHERITS a project context ($GDA_PROJECT, then the cwd):
+    it is about ``gda`` or the engine itself, so an inherited invalid
+    ``$GDA_PROJECT`` must not make it fail (#357). It still VALIDATES an EXPLICIT
+    ``--project`` when it takes one and one is given (``gda info --project``, #670)
+    — naming a project is a deliberate choice, so a bad one is a structured refusal
+    rather than something quietly ignored.
     """
-    if cmd.projectless and project is None:
+    if not cmd.inherits_project and project is None:
         return None
     return _resolve_project_or_fail(project)
 
@@ -214,15 +215,15 @@ def dispatch_recipe(
     (ADR-0006) and happens HERE, once, for every PROJECT-USING recipe — so an
     invalid ``--project`` yields the structured ``project_not_found`` envelope on
     this channel exactly as on the sentinel one, and no recipe re-resolves (#353).
-    A ``projectless`` recipe (a pure meta emitter like ``gda skill``, ADR-0024) is
+    A non-inheriting recipe (a pure meta emitter like ``gda skill``, ADR-0024) is
     NOT resolved: it takes no project, so an inherited invalid ``$GDA_PROJECT``
     must not make it fail (#357).
     """
     # A recipe command always carries a recipe channel — that is what routes it
     # here rather than to the sentinel ``cmd.emit`` path (ADR-0023). A project-using
     # recipe receives the ALREADY-resolved project (or a structured project_not_found
-    # is emitted before it runs); a projectless meta recipe receives None and never
-    # touches ``resolve_project_dir``.
+    # is emitted before it runs); a non-inheriting meta recipe receives None and
+    # never touches ``resolve_project_dir``.
     assert cmd.recipe is not None
     outcome = cmd.recipe(params, project=_project_context(cmd, project), godot=godot)
     if isinstance(outcome, Failure):
@@ -240,9 +241,9 @@ def _run_params_json(
     it through the *same* project resolution + runner seam the argv path uses, so
     the two input paths are indistinguishable downstream. The global
     ``--json`` / ``--godot`` / ``--project`` options parsed alongside
-    ``--params-json`` are honored; a ``projectless`` command dispatches through
-    :func:`dispatch_meta`, which validates an explicit ``--project`` but inherits
-    none.
+    ``--params-json`` are honored; a non-inheriting (meta) command dispatches
+    through :func:`dispatch_meta`, which validates an explicit ``--project`` but
+    inherits none.
     """
     options = ctx.params
     json_output = bool(options.get("json_output", False))
@@ -264,8 +265,8 @@ def _run_params_json(
     # Read off the DESCRIPTOR (ADR-0023), not off whether a `project` key happens to be
     # in `ctx.params`: since `gda info` takes an explicit `--project` (#670), the
     # PRESENCE of the option no longer tells a meta command from a domain one — what a
-    # command may INHERIT does, which is what `projectless` records.
-    if cmd.projectless:
+    # command may INHERIT does, which is what `inherits_project` records.
+    if not cmd.inherits_project:
         dispatch_meta(
             cmd,
             params,

@@ -46,7 +46,7 @@ def resolve_project_dir(
         # real project we do NOT silently fall through to a roots/cwd candidate.
         # Resolve None and inject nothing — gda inherits the explicit GDA_PROJECT
         # and surfaces its own typed error for project-taking commands, while
-        # projectless meta commands (info) ignore it.
+        # meta commands (info), which never inherit a project, ignore it.
         candidate = Path(gda_project).expanduser()
         return candidate if _is_project(candidate) else None
 

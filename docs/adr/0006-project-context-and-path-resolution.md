@@ -52,6 +52,17 @@ is a literal path component, not shell-style home expansion.
 - `res://` resolves deterministically against the chosen project regardless of
   `gda`'s cwd; a scene's inter-resource references resolve in their own project.
 - Meta commands (`gda info`) take no path and no project — they run projectless.
+
+  > **Amendment (2026-08-18, #670):** the enduring rule is that a meta command
+  > never **inherits** a project — steps 2–3 of the precedence are skipped for
+  > it, so an inherited invalid `$GDA_PROJECT` cannot break the commands an
+  > agent reaches for first (#357). Whether it **accepts** an explicit
+  > `--project` (step 1) is the command's own signature decision: `gda info`
+  > now takes one, validated by this ADR's strictness rule, so an orchestrator
+  > can pass a uniform argv to every command; `skill`/`version`/`help` take
+  > none. The descriptor field recording inheritance is `inherits_project`
+  > (ADR-0023).
+
 - The test suite's temp-project fixture is exercised for real by passing
   `--project`, rather than being a directory the engine never sees.
 - `--project`/`$GDA_PROJECT` is process context, not an operation parameter, so

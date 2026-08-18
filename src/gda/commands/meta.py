@@ -360,7 +360,7 @@ INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
     classify=classify_info,
     # A meta command about the ENGINE, so it inherits no project context — but it does
     # accept and validate an explicit `--project` (#670). See the field's own doc.
-    projectless=True,
+    inherits_project=False,
 )
 
 
@@ -385,7 +385,7 @@ SKILL_COMMAND: HeadlessCommand[SkillResult] = HeadlessCommand(
     # A pure meta emitter (ADR-0024): no --project, resolves none — so the recipe
     # dispatcher must not resolve a project for it (an inherited invalid $GDA_PROJECT
     # must not make `gda skill` fail, #357).
-    projectless=True,
+    inherits_project=False,
 )
 
 
@@ -396,36 +396,21 @@ def _version_recipe(params, *, project, godot):
     return build_version_provenance()
 
 
-def _help_recipe(params, *, project, godot):
-    # The composition root imports THIS module, so the app is imported here rather
-    # than at module scope; `build_help_result` takes it as an argument and stays a
-    # pure function of the tree it is handed.
-    from gda.cli import app
-
-    return build_help_result(app, list(params.command))
-
-
-# Both are pure emitter meta commands, so — like `gda skill` (ADR-0024) — they carry a
-# `recipe` and dispatch through it rather than the sentinel pipeline, and both are
-# `projectless`: they take no --project and must not resolve one, or an inherited
-# invalid $GDA_PROJECT would break the two commands an agent reaches for FIRST when
-# something is wrong (#357's rule, same reasoning).
+# A pure emitter meta command, so — like `gda skill` (ADR-0024) — it carries a
+# `recipe` and dispatches through it rather than the sentinel pipeline, and it
+# inherits no project: it takes no --project and must not resolve one, or an
+# inherited invalid $GDA_PROJECT would break a command an agent reaches for FIRST
+# when something is wrong (#357's rule, same reasoning). `help` shares all of this but
+# additionally answers FROM a command tree, so its descriptor is built inside
+# ``register`` where the tree is in hand (ADR-0040 — the meta slice must not
+# import the composition root back).
 VERSION_COMMAND: HeadlessCommand[VersionProvenance] = HeadlessCommand(
     operation="version",
     input_model=VersionParams,
     output_model=VersionProvenance,
     render=render_version,
     recipe=_version_recipe,
-    projectless=True,
-)
-
-HELP_COMMAND: HeadlessCommand[HelpResult] = HeadlessCommand(
-    operation="help",
-    input_model=HelpParams,
-    output_model=HelpResult,
-    render=render_help,
-    recipe=_help_recipe,
-    projectless=True,
+    inherits_project=False,
 )
 
 
@@ -433,11 +418,28 @@ def register(root: typer.Typer) -> None:
     """Attach the meta commands to the root app (ADR-0005/0040).
 
     A meta command is top-level and ungrouped, so — unlike a domain group, which
-    mounts its own sub-app — this defines the three commands directly against the
-    ``root`` it is handed. ``gda schema`` additionally CLOSES OVER ``root`` for
-    its surface walk: the manifest is read off the live Typer tree, which is the
-    only registry (ADR-0012/0023).
+    mounts its own sub-app — this defines the commands directly against the
+    ``root`` it is handed. ``gda schema`` and ``gda help`` additionally CLOSE
+    OVER ``root``: the manifest and the help are both read off the live Typer
+    tree, which is the only registry (ADR-0012/0023) — and closing over the tree
+    they were registered into, rather than importing the composition root back,
+    keeps the dependency direction downward (ADR-0040).
     """
+
+    def _help_recipe(params, *, project, godot):
+        # Closes over ``root`` exactly as ``schema`` does: `build_help_result`
+        # stays a pure function of the tree it is handed, and the tree is the one
+        # this registration attached `help` to — never the global app.
+        return build_help_result(root, list(params.command))
+
+    help_command: HeadlessCommand[HelpResult] = HeadlessCommand(
+        operation="help",
+        input_model=HelpParams,
+        output_model=HelpResult,
+        render=render_help,
+        recipe=_help_recipe,
+        inherits_project=False,
+    )
 
     @root.command(cls=INFO_COMMAND.command_class())
     def info(
@@ -581,7 +583,7 @@ def register(root: typer.Typer) -> None:
             project=None,
         )
 
-    @root.command(cls=HELP_COMMAND.command_class())
+    @root.command(cls=help_command.command_class())
     def help(
         command: Optional[list[str]] = typer.Argument(
             None,
@@ -589,7 +591,7 @@ def register(root: typer.Typer) -> None:
             "(e.g. `scene get`); omit it for the whole CLI.",
         ),
         json_output: bool = json_option(),
-        schema: bool = HELP_COMMAND.schema_option(),
+        schema: bool = help_command.schema_option(),
         params_json: Optional[str] = params_json_option(),
     ) -> None:
         """Show the help for a command, or for gda itself (no Godot is spawned).
@@ -602,7 +604,7 @@ def register(root: typer.Typer) -> None:
         command is refused exactly as the parser refuses it, curated hint included.
         """
         dispatch_recipe(
-            HELP_COMMAND,
+            help_command,
             HelpParams(command=list(command or [])),
             json_output=json_output,
             godot=None,

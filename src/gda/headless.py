@@ -410,17 +410,22 @@ class HeadlessCommand(Generic[M]):
     # means the command runs through ``emit`` with its ``kind``-selected runner — so a
     # single ``recipe is None`` test selects the channel, no identity table.
     recipe: "Recipe | None" = None
-    # A projectless command never INHERITS a project context: it is about ``gda`` or
-    # the engine itself (ADR-0005/0024 — ``skill``, ``version``, ``help``, ``info``),
-    # so the dispatcher must not resolve ``$GDA_PROJECT``/the cwd for it — an inherited
-    # value that is not a project would otherwise break the commands an agent reaches
-    # for FIRST when something is wrong (#353/#357). It does not mean "takes no
-    # ``--project``": ``gda info`` takes one for uniform orchestration argv and has it
-    # validated like anywhere else (#670). Project-using commands leave this ``False``
-    # and receive the fully resolved project (or a structured ``project_not_found``).
-    # Read by every dispatch tail (``gda.dispatch._project_context``), so it applies to
-    # the sentinel channel as much as to a recipe.
-    projectless: bool = False
+    # Whether the command INHERITS a project context ($GDA_PROJECT, then the cwd)
+    # when no explicit ``--project`` is given. This field decides inheritance and
+    # NOTHING else. A meta command (ADR-0005/0024 — ``skill``, ``version``,
+    # ``help``, ``info``) sets it ``False``: it is about ``gda`` or the engine
+    # itself, so an inherited value that is not a project must not break the
+    # commands an agent reaches for FIRST when something is wrong (#353/#357).
+    # Whether a command ACCEPTS an explicit ``--project`` is its CLI signature's
+    # decision, not this field's: ``gda info`` declares the option for uniform
+    # orchestration argv and has it validated like anywhere else (#670), while
+    # ``skill``/``version``/``help`` declare none, so a passed ``--project`` is
+    # the usual unknown-option refusal there. Project-using commands leave this
+    # ``True`` and receive the fully resolved project (or a structured
+    # ``project_not_found``). Read by every dispatch tail
+    # (``gda.dispatch._project_context``), so it applies to the sentinel channel
+    # as much as to a recipe.
+    inherits_project: bool = True
 
     def schema_option(self) -> bool:
         """Return the Typer ``--schema`` flag for this command."""

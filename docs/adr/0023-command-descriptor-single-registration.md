@@ -67,6 +67,14 @@ absorbs the two missing facts.**
   > emitters (e.g. `gda skill`, ADR-0024) from resolution, so an inherited invalid
   > `$GDA_PROJECT` cannot make a projectless meta command fail.
 
+  > **Outcome (2026-08-18, #670):** the field is now `inherits_project: bool`
+  > (default `True`; meta commands set `False`), because "projectless" had come
+  > to overstate it: the field decides only whether a command **inherits** a
+  > project context (`$GDA_PROJECT`, then the cwd). Whether a command **accepts**
+  > an explicit `--project` is its CLI signature's decision — `gda info` takes
+  > one and has it validated (ADR-0006 amendment), while `skill`/`version`/`help`
+  > take none. The exclusion-from-inheritance behaviour above is unchanged.
+
 **2. The render map and dispatch routing are projections of the descriptor, not
 parallel registries.** On the `cmd.emit` path the descriptor is already in hand, so
 rendering and channel selection read off `cmd` directly. Where a whole-surface view
