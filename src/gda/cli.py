@@ -36,6 +36,7 @@ from gda.commands import (
     shader as shader_commands,
     theme as theme_commands,
 )
+from gda import hints
 from gda.headless import root_json, set_root_json
 from gda.provenance import build_version_provenance, render_version_line
 from gda.runner import USER_DATA_ROOT_ENV, set_user_data_root
@@ -174,3 +175,11 @@ def main(
 
 
 meta_commands.register(app)
+
+# Every group — the root included — is given gda's own click group class LAST, once
+# the tree is complete (#670). It refuses an unrecognized command or option with the
+# structured envelope plus a curated hint instead of prose on stderr. Applied here
+# rather than per group module for the same reason the mount order lives here: it is
+# one property of the whole surface, and a group added later inherits it by being
+# mounted. The class itself, and the curated table, are `gda.hints`.
+hints.adopt(app)

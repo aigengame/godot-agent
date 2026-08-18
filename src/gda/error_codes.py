@@ -29,6 +29,7 @@ from gda.exit_codes import (
     EXIT_OPERATION,
     EXIT_PARSE,
     EXIT_TIMEOUT,
+    EXIT_USAGE,
     EXIT_VERSION,
 )
 from gda.models import ErrorCategory
@@ -98,6 +99,33 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         # to fix the wrong directory; the diagnostics name which one it was.
         "The log or user-data placement for the launch could not be made usable, "
         "so the launch was refused.",
+    ),
+    # The USAGE category (#670): gda could not resolve WHAT was asked for, so no
+    # operation was ever identified — the stage before every other code here. Both
+    # rows are classifier-source (the CLI decides them; no GDScript operation can
+    # report one, so neither is mirrored) and both exit 2, the code every CLI parser
+    # already uses for a usage error: gda's structured refusal is that same failure
+    # reported better, not a different one, so the exit an agent already keys on is
+    # unchanged. They are kept apart from each other because the remedy differs — an
+    # unknown COMMAND sends the caller to `gda schema` / `gda --help`, an unknown
+    # OPTION to that command's own `--help` / `--schema`.
+    ErrorCodeSpec(
+        "unknown_command",
+        ErrorCategory.USAGE,
+        EXIT_USAGE,
+        ErrorCodeSource.CLASSIFIER,
+        "gda has no such command; discover the surface with `gda schema` or "
+        "`gda --help`. A recognized near miss also carries the supported "
+        "invocation in the envelope's `hint`.",
+    ),
+    ErrorCodeSpec(
+        "unknown_option",
+        ErrorCategory.USAGE,
+        EXIT_USAGE,
+        ErrorCodeSource.CLASSIFIER,
+        "The command exists but has no such option; read its options with "
+        "`--help` or its input contract with `--schema`. A recognized near miss "
+        "also carries the supported invocation in the envelope's `hint`.",
     ),
     ErrorCodeSpec(
         "unsupported_version",

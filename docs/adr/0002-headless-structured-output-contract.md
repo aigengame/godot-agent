@@ -151,6 +151,31 @@ the standard build), and they never determine the outcome or a stable code.
 > meaning, not a change to the contract. `src/gda/error_codes.py`'s module
 > docstring is the single home of this definition.
 
+> **Scope note (2026-08-18, #670) — a failure stage that precedes the sentinel: the
+> `usage` category, and the envelope's optional `hint`.** Everything above describes
+> failures of an operation gda has already identified. Dogfooding kept producing an
+> earlier one: gda could not resolve WHAT was asked for — `gda scene inspect`,
+> `gda --schema`, `gda script run --script …` — and that failure left the contract
+> entirely, as prose on stderr with nothing to branch on (GDA-DF-024/025/032/033/041).
+> It now reports through this same envelope, with three consequences recorded here:
+>
+> - **A sixth category, `usage`**, rather than folding into `operation`: no engine was
+>   launched and no operation was named, so `operation`'s meaning ("a launched engine
+>   failed to deliver a result") would have been false. It is the one category whose
+>   codes cannot be reported by any operation — both are classifier-source and neither
+>   is GDScript-mirrored.
+> - **Exit `2`, which gda did not choose.** It is the exit every CLI parser already
+>   uses for a usage error, and it is what these invocations already exited with, so
+>   registering it changes no observable exit code — it only makes the envelope's
+>   `exit_code` and the process's agree. `exit_codes.py` gains `EXIT_USAGE` for it.
+> - **An optional `hint` on `GdaError`**, the supported invocation to run instead. It
+>   joins `probe` on the optional-context axis under the same rule — OMITTED, never
+>   `null`, so every envelope emitted before is byte-identical — and it is set only
+>   where gda RECOGNIZES the mistake, from a curated table (`src/gda/hints.py`), never
+>   from a string-similarity guess that can name a different operation than the one
+>   meant. This widens no cross-language contract: neither GDScript surface emits or
+>   reads `hint`, and `OperationErrorEnvelope` stays `extra="forbid"`.
+
 ## `GdaError.code` registry
 
 `GdaError.code` values are a public ABI for agents. Their authoritative source is
@@ -169,6 +194,8 @@ operation, and parse codes the CLI assigns).
 | `binary_not_found` | `environment` | `runner` | `127` | The Godot binary could not be launched. |
 | `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. |
 | `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
+| `unknown_command` | `usage` | `classifier` | `2` | gda has no such command; discover the surface with `gda schema` or `gda --help`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
+| `unknown_option` | `usage` | `classifier` | `2` | The command exists but has no such option; read its options with `--help` or its input contract with `--schema`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
 | `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
 | `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |

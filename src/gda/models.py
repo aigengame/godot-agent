@@ -37,7 +37,9 @@ class ErrorCategory(str, Enum):
     contract (ADR-0002): a missing/malformed sentinel or a wrong-shape payload.
     LIVE is a Phase-2 live operation failing against ``gda-daemon`` / the engine
     session — no running daemon, a lost session, or a live timeout (ADR-0017,
-    ADR-0021).
+    ADR-0021). USAGE is the one bucket that precedes all of them: gda could not
+    resolve WHAT was asked for — an unrecognized command or option — so no
+    operation was ever identified, let alone run (#670).
     """
 
     ENVIRONMENT = "environment"
@@ -45,6 +47,7 @@ class ErrorCategory(str, Enum):
     OPERATION = "operation"
     PARSE = "parse"
     LIVE = "live"
+    USAGE = "usage"
 
 
 # WHY this exists (kept as a comment, not a docstring): a model docstring becomes
@@ -82,7 +85,9 @@ class GdaError(BaseModel):
     process-exit-code-aligned bucket; ``code`` is the finer, stable identifier;
     ``diagnostics`` carries the engine/script stderr surfaced per ADR-0002;
     ``probe`` is optional context on the few environment failures gda decides by
-    probing the host (ADR-0004 amendment, #667).
+    probing the host (ADR-0004 amendment, #667); ``hint`` is the supported
+    invocation to use instead, on the refusals gda recognizes as a near miss
+    (#670). Both optional keys are OMITTED when unset, never null.
     """
 
     category: ErrorCategory
@@ -100,6 +105,20 @@ class GdaError(BaseModel):
         description=(
             "Which host probe decided this environment failure; the key is omitted "
             "(never null) on failures that have none."
+        ),
+    )
+    # Omitted, not null, the same way ``probe`` is — so every failure that offers no
+    # correction keeps its pre-#670 envelope bytes. Deliberately the CORRECTED
+    # INVOCATION and nothing else: it is the one thing the caller has to retype, and
+    # keeping it a single command line means an agent re-issues it without composing
+    # anything. Set only where gda RECOGNIZES the mistake (the curated near-miss
+    # table, gda.hints) — never a difflib guess, which can name a different operation
+    # than the one meant.
+    hint: str | None = Field(
+        default=None,
+        description=(
+            "The supported invocation to run instead; the key is omitted (never "
+            "null) when gda has no correction to offer."
         ),
     )
 

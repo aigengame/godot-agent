@@ -15,6 +15,7 @@ from typing import Any, Generic, NoReturn, Optional, TypeVar
 
 import typer
 from pydantic import BaseModel, ValidationError
+from typer._click import Context as ClickContext
 from typer.core import TyperCommand
 
 from gda.binary import resolve_godot_binary
@@ -96,13 +97,19 @@ def set_root_json(ctx: typer.Context, value: bool) -> None:
     ctx.meta[ROOT_JSON_META_KEY] = bool(value)
 
 
-def root_json(ctx: typer.Context) -> bool:
+def root_json(ctx: ClickContext) -> bool:
     """Whether a root ``--json`` was recorded for this invocation (#659).
 
-    The read half of the same contract, for the ONE reader that is not a command:
-    the root's own ``--version``, which renders either a human line or the
-    structured provenance payload and so must ask the same question a command's
-    inherited flag asks — without re-deriving where the answer is kept.
+    The read half of the same contract, for the readers that are not a command: the
+    root's own ``--version``, which renders either a human line or the structured
+    provenance payload and so must ask the same question a command's inherited flag
+    asks; and the unknown-invocation refusal (``gda.hints``, #670), which must answer
+    in the channel the caller asked for. Neither re-derives where the answer is kept.
+
+    ``ctx`` is typed as the click ``Context`` Typer builds on, not ``typer.Context``,
+    because the refusal is decided inside the click group class and holds that one;
+    ``typer.Context`` is a subclass, so every existing caller still fits, and this
+    function only ever reads ``ctx.meta``.
     """
     return bool(ctx.meta.get(ROOT_JSON_META_KEY, False))
 
