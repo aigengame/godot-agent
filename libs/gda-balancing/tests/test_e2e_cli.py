@@ -566,6 +566,18 @@ class TestKeyUserPath:
         }
         assert directional_bindings == {
             "combat.enemy-attacks-player": {
+                "actor_health": "enemy_health",
+                "actor_resource": "enemy_mana",
+                "action_cost": "enemy_action_cost",
+                "accuracy": "enemy_effective_accuracy",
+                "base_damage": "enemy_base_damage",
+                "critical_threshold": "enemy_critical_threshold",
+                "hit_defense": "player_defense",
+                "damage_mitigation": "player_defense",
+                "defeat_threshold": "defeat_threshold",
+                "target_health": "player_health",
+            },
+            "combat.enemy-attacks-player-without-eligibility": {
                 "actor_resource": "enemy_mana",
                 "action_cost": "enemy_action_cost",
                 "accuracy": "enemy_effective_accuracy",
@@ -586,6 +598,18 @@ class TestKeyUserPath:
                 "target_health": "enemy_health",
             },
             "combat.player-attacks-enemy": {
+                "actor_health": "player_health",
+                "actor_resource": "player_mana",
+                "action_cost": "player_action_cost",
+                "accuracy": "player_effective_accuracy",
+                "base_damage": "player_base_damage",
+                "critical_threshold": "player_critical_threshold",
+                "hit_defense": "enemy_defense",
+                "damage_mitigation": "enemy_defense",
+                "defeat_threshold": "defeat_threshold",
+                "target_health": "enemy_health",
+            },
+            "combat.player-attacks-enemy-without-eligibility": {
                 "actor_resource": "player_mana",
                 "action_cost": "player_action_cost",
                 "accuracy": "player_effective_accuracy",
@@ -1949,9 +1973,7 @@ class TestKeyUserPath:
             tmp_path,
             invocation_key="5" * 64,
         )
-        baseline = json.loads(
-            (example / "experiment.json").read_text(encoding="utf-8")
-        )
+        baseline = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
         _bind_experiment_to_build(baseline, build_receipt)
         state = {
             row["target"]["name"]: row["value"]
@@ -2009,9 +2031,7 @@ class TestKeyUserPath:
             "target-defeated",
         ]
         terminal_event = next(
-            event
-            for event in traces[-1]["events"]
-            if event["operation"] is not None
+            event for event in traces[-1]["events"] if event["operation"] is not None
         )
         assert {row["name"]: row["integer"] for row in terminal_event["facts"]}[
             "player_damage_dealt"
@@ -2338,10 +2358,14 @@ class TestKeyUserPath:
         backward_time["scenarios"][0]["assignments"] = [
             row
             for row in backward_time["scenarios"][0]["assignments"]
-            if row["target"]["name"] in _PLAYER_ATTACK_ASSIGNMENT_NAMES
+            if row["target"]["name"]
+            in _PLAYER_ATTACK_ASSIGNMENT_NAMES - {"defeat_threshold", "player_health"}
         ]
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].extend(
             ["cancel", "schedule"]
+        )
+        backward_time["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "guard-block"
         )
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].sort()
         backward_time["runtime"]["required_evaluator"]["effects"].extend(

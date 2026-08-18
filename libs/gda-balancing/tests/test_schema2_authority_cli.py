@@ -1382,6 +1382,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
         "game.combat.cast-and-cancel-v1",
         "game.combat.cast-v1",
         "game.combat.damage-v1",
+        "game.combat.eligible-cast-v1",
         "game.combat.plan-casts-v1",
     }
     cast = next(
