@@ -74,6 +74,41 @@ status: accepted
 > omitted when absent, so every other live reply and every headless envelope is
 > byte-identical to before.
 
+> **Amendment (2026-08-18, #670):** the uniform failure envelope gains a SECOND
+> optional key — `hint`, a string naming the supported invocation to run instead
+> (`"gda scene get"`, `"gda schema"`, `"gda script run <path>"`). Motivation: an
+> unrecognized command or option used to leave this contract entirely, as prose on
+> stderr, so an agent that mistyped had nothing to branch on and no pointer at the
+> working sibling (dogfooding GDA-DF-024/025/032/033/041). The correction is the one
+> thing such a caller has to retype, so it is carried as a value rather than embedded
+> only in a sentence.
+>
+> It is additive on the same three properties the #667 amendment above established,
+> and deliberately mirrors them:
+>
+> - **Optional and OMITTED, never `null`** — the same `exclude_none` emit path, so
+>   every failure that sets no hint emits byte-identically to before.
+> - **The stable trio is untouched.** `hint` is guidance ABOUT the refusal, never a
+>   substitute for branching on `code`; `gda-mcp` passes the envelope through
+>   unchanged (ADR-0012).
+> - **Schema-derived, zero per-command cost** — still the one shared
+>   `GdaErrorEnvelope` schema, changed once for all.
+>
+> Two boundaries. **It is set only where gda RECOGNIZES the mistake**, from the
+> curated table in `src/gda/hints.py` — never from a string-similarity guess, which is
+> silent when the spelling is not close and can name a different operation than the one
+> meant. And it stays on the **CLI-side** envelope: neither GDScript surface emits or
+> reads it, so `OperationError` stays `extra="forbid"` and the live `LiveError` is
+> unchanged. The registry side of the same change — the `usage` category, `EXIT_USAGE`,
+> and the two codes that carry a hint — is recorded in
+> [ADR-0002's scope note](0002-headless-structured-output-contract.md) with its table
+> rows; this note is the envelope-shape half.
+>
+> **Scope boundary with #687** is unchanged by this: `hint` is CLI-layer guidance for
+> an invocation gda could not resolve, not operation-scoped typed EVIDENCE of a failure
+> an operation reported. The two compose under the same omitted-when-absent rule, and
+> #687 stays free to decide its axis on its own merits.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 

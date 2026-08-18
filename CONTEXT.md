@@ -184,14 +184,28 @@ the operation understood and chose to report.
 _Avoid_: script error code, raw engine error
 
 **Classifier error code**:
-A `Gda error code` assigned by `gda` after classifying a runner, parser,
-version, crash, or fallback operation failure.
+A `Gda error code` assigned by `gda` itself rather than reported by an operation —
+after classifying a runner, parser, version, crash, or fallback operation failure,
+or before any operation is identified at all, when the invocation names no command
+or option gda has (#670).
 _Avoid_: wrapper error code, Python error code
 
 **Error envelope**:
 The structured failure result that distinguishes a failed command from a
 successful result.
 _Avoid_: error blob, failure JSON
+
+**Near-miss hint**:
+The corrected invocation gda returns when it RECOGNIZES a wrong one — an unknown
+command or option it holds a curated entry for (`gda scene inspect` → `gda scene
+get`, `gda --schema` → `gda schema`). It rides the `Error envelope` as the optional
+`hint` key, so an agent re-issues the corrected command without parsing prose; the
+human error carries the same correction in its message. Curated, never a
+string-similarity guess: similarity is silent whenever the spelling is not close
+and the nearest string can be a different — even opposite — operation. One table
+(`src/gda/hints.py`) is the authority, kept honest by a test that re-resolves every
+hint against the live command tree (#670).
+_Avoid_: did-you-mean, suggestion, autocorrect
 
 ### Trust model
 

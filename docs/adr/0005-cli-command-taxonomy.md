@@ -26,6 +26,27 @@ rather than a Godot domain object — are exempt from grouping and sit at the to
 > object — neither a Godot domain object nor a top-level meta singleton — a deliberate
 > extension of this taxonomy for the daemon's surface.
 
+> **Outcome (2026-08-18, #670) — `version` and `help` are delivered, and `help` takes
+> the optional command path.** The two meta commands named above were never
+> implemented, while the dogfooding record shows agents typing both (GDA-DF-032), so
+> they are implemented rather than dropped from the taxonomy. Two shapes this ADR's
+> naming governs, decided here:
+>
+> - **`gda help [COMMAND…]`** takes the optional command path, so `gda help scene get`
+>   answers what `gda scene get --help` answers — the `git help <command>` /
+>   `docker help <command>` shape, and the spelling GDA-DF-032 recorded agents
+>   reaching for; a bare `gda help` is `gda --help`. It is not a second discovery
+>   mechanism: the text IS the command's own `--help` rendering, and the `--help` FLAG
+>   is unchanged.
+> - **`gda version` is the command spelling of the root `--version` flag** — the same
+>   one line, and with `--json` the same install-provenance payload (#659). One
+>   question, one answer: a meta command that could disagree with the flag would be
+>   worse than not having one.
+>
+> Both are top-level and ungrouped as decided above, both spawn no Godot, and both are
+> `--schema` self-describing (ADR-0004), so they appear in `gda schema` and reach
+> gda-mcp with no adapter change.
+
 This enables:
 
 - **Zero learning cost** for anyone who knows Godot — a group name *is* an engine

@@ -69,6 +69,8 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
 - **🛡️ Fails loudly, never silently.** A missing or hung engine is bounded by a timeout
   and mapped to a **stable non-zero exit code** plus a structured `{"error": {…}}`
   envelope — so a shell or agent can branch on the failure category without parsing prose.
+  A command or option `gda` does not recognize is refused the same structured way, with a
+  `hint` naming the invocation to use instead.
 
 ---
 
@@ -369,7 +371,9 @@ flags — `gda --help` is the authoritative list of what is installed.
 
 | Command | What it does |
 | ------- | ------------ |
-| `gda info`   | Report the Godot engine version info. |
+| `gda info`   | Report the Godot engine version info. Takes `--project` like any other command; the version does not depend on it. |
+| `gda version` | Report which `gda` is installed and where it came from — with `--json`, the full install provenance (the same payload as `gda --version --json`). No Godot is spawned. |
+| `gda help`   | Show a command's help (`gda help scene get`) or the whole CLI's; `--json` returns it as `{command, text}`. |
 | `gda schema` | Emit the whole command surface as one machine-readable JSON manifest. |
 | `gda skill`  | Emit or install the bundled Agent Skill (`SKILL.md`) that teaches an agent how to drive `gda`. |
 
@@ -496,6 +500,7 @@ files.
 | `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
+| `daemon install` | Install the in-game `gda` harness into the project without starting a daemon, reporting every path and section it created. Idempotent, and re-syncs a harness from an older `gda`. `daemon start` does this itself, so run it only to make that `project.godot` change deliberately — to review or commit it. |
 | `daemon uninstall` | Remove the in-game `gda` harness from the project — the autoload entry, the harness files and its `.uid` sidecar, plus an `[autoload]` section left with no keys, so `project.godot` returns to its pre-install bytes (for files Godot's own writer produces); the result enumerates every path and section removed. An explicit dev-tooling teardown; `gda export run` already strips the harness from exported artifacts automatically. |
 
 **`game`** — the running game's runtime scene graph
@@ -640,6 +645,7 @@ or agent can branch on the failure **category without parsing the JSON error**:
 | Exit code | Category      | When                                                                  |
 | --------- | ------------- | --------------------------------------------------------------------- |
 | `0`       | —             | Success.                                                              |
+| `2`       | `usage`       | `gda` could not resolve what was asked for — an unrecognized command or option. A recognized near miss carries the invocation to use instead in the envelope's `hint`. |
 | `127`     | `environment` | The Godot binary could not be launched (shell convention: not found). |
 | `124`     | `environment` | Godot launched but did not return before the runner timeout (shell convention: timed out). |
 | `3`       | `version`     | The detected Godot version is below the supported minimum.            |

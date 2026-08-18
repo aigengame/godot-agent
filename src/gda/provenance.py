@@ -476,6 +476,14 @@ def build_version_provenance() -> VersionProvenance:
     )
 
 
-def render_version_line() -> str:
-    """The human one-liner ``gda --version`` prints without ``--json``."""
-    return f"gda {package_version(DISTRIBUTION)}"
+def render_version_line(version: Optional[str] = None) -> str:
+    """The human one-liner the version surfaces print without ``--json``.
+
+    ``version`` defaults to the installed distribution's, which is what the root
+    ``--version`` flag needs: that spelling answers without building the whole
+    payload, so it stays a metadata read and never runs ``git``. The ``gda version``
+    COMMAND passes the version off the payload it was handed instead — it has one, and
+    rendering a second, independently-read value would make "the flag and the command
+    are one answer" rest on two reads agreeing. One format string either way.
+    """
+    return f"gda {version if version is not None else package_version(DISTRIBUTION)}"

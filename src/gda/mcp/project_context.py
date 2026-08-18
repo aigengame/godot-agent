@@ -16,8 +16,8 @@ per-agent config is the registration recipes' concern (ADR-0013), not the core.
 This module owns only the *pure* resolution (``env``/``roots``/``cwd`` in, a
 project dir or ``None`` out). The resolved dir reaches ``gda`` through gda's own
 ``GDA_PROJECT`` channel (ADR-0006) — set on the subprocess env — so meta commands
-(``info``) that take no project ignore it while domain commands consume it, with
-no per-command knowledge in gda-mcp.
+(``info``), which never inherit a project (#670), ignore it while domain commands
+consume it, with no per-command knowledge in gda-mcp.
 
 Per ADR-0011 gda-mcp imports no gda internal symbol; the ``GDA_PROJECT`` name and
 the ``project.godot`` marker are part of the public ABI, defined locally here.
@@ -46,7 +46,7 @@ def resolve_project_dir(
         # real project we do NOT silently fall through to a roots/cwd candidate.
         # Resolve None and inject nothing — gda inherits the explicit GDA_PROJECT
         # and surfaces its own typed error for project-taking commands, while
-        # projectless meta commands (info) ignore it.
+        # meta commands (info), which never inherit a project, ignore it.
         candidate = Path(gda_project).expanduser()
         return candidate if _is_project(candidate) else None
 

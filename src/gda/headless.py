@@ -15,6 +15,7 @@ from typing import Any, Generic, NoReturn, Optional, TypeVar
 
 import typer
 from pydantic import BaseModel, ValidationError
+from typer._click import Context as ClickContext
 from typer.core import TyperCommand
 
 from gda.binary import resolve_godot_binary
@@ -96,13 +97,19 @@ def set_root_json(ctx: typer.Context, value: bool) -> None:
     ctx.meta[ROOT_JSON_META_KEY] = bool(value)
 
 
-def root_json(ctx: typer.Context) -> bool:
+def root_json(ctx: ClickContext) -> bool:
     """Whether a root ``--json`` was recorded for this invocation (#659).
 
-    The read half of the same contract, for the ONE reader that is not a command:
-    the root's own ``--version``, which renders either a human line or the
-    structured provenance payload and so must ask the same question a command's
-    inherited flag asks — without re-deriving where the answer is kept.
+    The read half of the same contract, for the readers that are not a command: the
+    root's own ``--version``, which renders either a human line or the structured
+    provenance payload and so must ask the same question a command's inherited flag
+    asks; and the unknown-invocation refusal (``gda.hints``, #670), which must answer
+    in the channel the caller asked for. Neither re-derives where the answer is kept.
+
+    ``ctx`` is typed as the click ``Context`` Typer builds on, not ``typer.Context``,
+    because the refusal is decided inside the click group class and holds that one;
+    ``typer.Context`` is a subclass, so every existing caller still fits, and this
+    function only ever reads ``ctx.meta``.
     """
     return bool(ctx.meta.get(ROOT_JSON_META_KEY, False))
 
@@ -403,13 +410,22 @@ class HeadlessCommand(Generic[M]):
     # means the command runs through ``emit`` with its ``kind``-selected runner — so a
     # single ``recipe is None`` test selects the channel, no identity table.
     recipe: "Recipe | None" = None
-    # A projectless recipe is a pure meta emitter (ADR-0024/0005, e.g. ``gda skill``):
-    # it takes no ``--project`` and resolves none, so the recipe dispatcher must NOT
-    # resolve a project for it — otherwise an inherited ``$GDA_PROJECT`` that is not a
-    # project would make a projectless meta command fail (#353/#357). Project-using
-    # recipes leave this ``False`` and receive a resolved project (or a structured
-    # ``project_not_found``). Meaningless for the sentinel channel (``recipe is None``).
-    projectless: bool = False
+    # Whether the command INHERITS a project context ($GDA_PROJECT, then the cwd)
+    # when no explicit ``--project`` is given. This field decides inheritance and
+    # NOTHING else. A meta command (ADR-0005/0024 — ``skill``, ``version``,
+    # ``help``, ``info``) sets it ``False``: it is about ``gda`` or the engine
+    # itself, so an inherited value that is not a project must not break the
+    # commands an agent reaches for FIRST when something is wrong (#353/#357).
+    # Whether a command ACCEPTS an explicit ``--project`` is its CLI signature's
+    # decision, not this field's: ``gda info`` declares the option for uniform
+    # orchestration argv and has it validated like anywhere else (#670), while
+    # ``skill``/``version``/``help`` declare none, so a passed ``--project`` is
+    # the usual unknown-option refusal there. Project-using commands leave this
+    # ``True`` and receive the fully resolved project (or a structured
+    # ``project_not_found``). Read by every dispatch tail
+    # (``gda.dispatch._project_context``), so it applies to the sentinel channel
+    # as much as to a recipe.
+    inherits_project: bool = True
 
     def schema_option(self) -> bool:
         """Return the Typer ``--schema`` flag for this command."""

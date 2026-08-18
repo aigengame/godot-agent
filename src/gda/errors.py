@@ -78,6 +78,7 @@ def make_failure(
     message: str,
     stderr: str,
     probe: EnvironmentProbe | None = None,
+    hint: str | None = None,
 ) -> Failure:
     """Build a ``Failure`` from the parts that actually vary per failure.
 
@@ -93,6 +94,11 @@ def make_failure(
     amendment, #667): the host call that decided an ENVIRONMENT failure gda
     resolved by probing the machine rather than by running the engine. It stays
     ``None`` — and so out of the emitted JSON entirely — for every other failure.
+
+    ``hint`` is the optional supported invocation to run instead (#670), set only
+    where gda RECOGNIZES the mistake — today the curated near-miss table behind an
+    unknown command or option (``gda.hints``). Like ``probe`` it is omitted from
+    the emitted JSON when unset.
     """
     spec = ERROR_CODE_BY_CODE.get(code)
     if spec is None:
@@ -104,6 +110,7 @@ def make_failure(
             message=message,
             diagnostics=stderr,
             probe=probe,
+            hint=hint,
         ),
         exit_code=spec.exit_code,
     )

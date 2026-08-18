@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ce2707c50feba30c3d17dbf0ea8b906b452002ff28b5a412ee53acd2a9e05a66 -->
+<!-- gda-readme-i18n: source=README.md sha256=a8765d430b47f838d8cb7adfc0d50bd40a359e157c5530946bee1d607e041058 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -72,6 +72,8 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
 - **🛡️ Falla de forma ruidosa, nunca en silencio.** Un motor ausente o colgado queda acotado por un timeout
   y se mapea a un **código de salida no nulo estable** más un sobre estructurado `{"error": {…}}`
   — de modo que un shell o un agente puede bifurcar según la categoría del fallo sin analizar prosa.
+  Un comando o una opción que `gda` no reconoce se rechaza del mismo modo estructurado, con un
+  `hint` que nombra la invocación que debe usarse en su lugar.
 
 ---
 
@@ -380,7 +382,9 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `gda info`   | Informa la información de versión del motor Godot. |
+| `gda info`   | Informa la información de versión del motor Godot. Acepta `--project` como cualquier otro comando; la versión no depende de él. |
+| `gda version` | Informa qué `gda` está instalado y de dónde viene — con `--json`, la procedencia completa de la instalación (la misma carga útil que `gda --version --json`). No se lanza Godot. |
+| `gda help`   | Muestra la ayuda de un comando (`gda help scene get`) o la de toda la CLI; con `--json` la devuelve como `{command, text}`. |
 | `gda schema` | Emite toda la superficie de comandos como un único manifiesto JSON legible por máquina. |
 | `gda skill`  | Emite o instala la Agent Skill incluida (`SKILL.md`) que enseña a un agente cómo manejar `gda`. |
 
@@ -508,6 +512,7 @@ esos errores falsos; pasa `--project` con el proyecto al que pertenecen los arch
 | `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza en la primera operación live (`--windowed` para la captura de `screen`). |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
+| `daemon install` | Instala el harness `gda` dentro del proyecto sin iniciar un daemon, informando cada ruta y sección que creó. Idempotente, y resincroniza un harness de un `gda` anterior. `daemon start` ya lo hace por su cuenta, así que ejecútalo solo para realizar ese cambio en `project.godot` de forma deliberada — para revisarlo o confirmarlo. |
 | `daemon uninstall` | Elimina el harness `gda` dentro del juego (entrada de autoload + archivos) del proyecto — un desmontaje explícito de herramientas de desarrollo; `gda export run` ya lo elimina automáticamente de los artefactos exportados. |
 
 **`game`** — el grafo de escena en runtime del juego en ejecución
@@ -654,6 +659,7 @@ para que un shell o un agente pueda bifurcar según la **categoría del fallo si
 | Código de salida | Categoría     | Cuándo                                                                |
 | --------- | ------------- | --------------------------------------------------------------------- |
 | `0`       | —             | Éxito.                                                               |
+| `2`       | `usage`       | `gda` no pudo resolver lo que se le pidió — un comando o una opción que no reconoce. Un caso cercano reconocido lleva en el `hint` del sobre la invocación que debe usarse. |
 | `127`     | `environment` | No se pudo lanzar el binario de Godot (convención de shell: no encontrado). |
 | `124`     | `environment` | Godot se lanzó pero no retornó antes del timeout del runner (convención de shell: tiempo agotado). |
 | `3`       | `version`     | La versión de Godot detectada está por debajo del mínimo soportado.   |

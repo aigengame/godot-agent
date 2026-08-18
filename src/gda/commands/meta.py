@@ -1,14 +1,21 @@
-"""The meta commands: ``gda info``, ``gda skill`` and ``gda schema`` (ADR-0005).
+"""The meta commands: ``info``, ``skill``, ``schema``, ``version``, ``help`` (ADR-0005).
 
 The one non-domain slice of the per-command-group split (ADR-0040): a meta
 command is about ``gda`` or the engine ITSELF rather than a Godot domain object,
-so these three stay TOP-LEVEL and ungrouped. This module owns their
+so these stay TOP-LEVEL and ungrouped. This module owns their
 params/result models, the ``gda skill`` emitter (formerly ``gda.skill_ops``),
 ``info``'s version-gate classifier, their human renderers, their
 ``HeadlessCommand`` descriptors (ADR-0023) and their command bodies — and,
 because they attach directly to the root app, :func:`register` defines them
 against the ``root`` it is handed and closes over it for the ``gda schema``
 surface walk.
+
+``version`` and ``help`` are the two ADR-0005 named from the start and delivered
+late (#670): the taxonomy listed them, the dogfooding record showed agents typing
+them, and neither existed. Both are pure emitters — no Godot, no project — and
+neither invents an answer: ``version`` renders the ``gda.provenance`` payload the
+root ``--version`` flag already renders, and ``help`` renders the text
+``<command> --help`` already renders.
 
 It imports the shared machinery downward — the dispatch tail (``gda.dispatch``),
 the descriptor machinery (``gda.headless``), the shared failure taxonomy
@@ -18,6 +25,8 @@ agent-directory quarantine (``gda.skill_targets``, ADR-0027) and the surface wal
 (``gda.cli``).
 """
 
+import contextlib
+import io
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Optional
@@ -37,10 +46,17 @@ from gda.headless import (
     godot_option,
     json_option,
     params_json_option,
+    project_option,
     schema_command_class,
     schema_option,
 )
+from gda.hints import CLI_NAME, refuse_unknown_command
 from gda.models import EngineVersion, SurfaceManifest
+from gda.provenance import (
+    VersionProvenance,
+    build_version_provenance,
+    render_version_line,
+)
 from gda.runner import RunResult
 from gda.skill_targets import SkillProvider, SkillScope, resolve_skill_dir
 from gda.surface import build_surface_manifest
@@ -63,6 +79,48 @@ class SchemaAllParams(BaseModel):
     --schema`` is derived model-side rather than hand-written, keeping the meta
     command self-describing under the same ADR-0004 gate as every other command.
     """
+
+
+class VersionParams(BaseModel):
+    """The operation params of ``gda version`` — none (ADR-0004).
+
+    Like ``gda info`` it takes no operation params, so its ``input`` schema is
+    trivially empty; the model exists so the ``--schema`` document is derived
+    model-side rather than hand-written.
+    """
+
+
+class HelpParams(BaseModel):
+    """The operation params of ``gda help``: the command path to describe.
+
+    ``command`` is the path as it is typed after ``gda`` — ``["scene", "get"]`` for
+    ``gda help scene get`` — so the argv form and a ``--params-json`` object name the
+    target the same way (ADR-0015). Empty (the default) describes the CLI itself,
+    which is what a bare ``gda help`` asks for.
+    """
+
+    command: list[str] = Field(
+        default_factory=list,
+        description="The command path to describe, as the words typed after `gda` "
+        '(e.g. ["scene", "get"]); empty describes the whole CLI.',
+    )
+
+
+class HelpResult(BaseModel):
+    """The result of ``gda help``: one command's help text, and whose it is.
+
+    ``text`` is the SAME rendering ``--help`` produces — this command re-renders
+    nothing — so the two forms cannot drift. ``command`` names the target as its full
+    invocation, so a caller reading the payload alone knows which help it holds.
+    """
+
+    command: str = Field(
+        description="The command the help text describes, as its full invocation "
+        "(`gda`, `gda scene`, `gda scene get`)."
+    )
+    text: str = Field(
+        description="The command's help text, exactly as `--help` renders it."
+    )
 
 
 class SkillParams(BaseModel):
@@ -180,6 +238,57 @@ def build_skill_result(
     return result.model_copy(update={"installed_path": target})
 
 
+def build_help_result(app: typer.Typer, path: list[str]) -> "HelpResult":
+    """Render the help of the command ``path`` names, or refuse the path.
+
+    Walks the LIVE Typer command tree — the same authority ``gda schema`` projects
+    from (ADR-0012) — so `help` describes exactly what is installed. The text is
+    produced by the command's own help renderer, so this adds no second rendering to
+    keep in step with ``--help``.
+
+    A path that names nothing does not return: `gda help scene inspect` is the SAME
+    mistake as `gda scene inspect`, so it is handed to the one refusal the parser uses
+    (``gda.hints.refuse_unknown_command``) — same sentence, same hint, same channel —
+    rather than described a second time here, where the two spellings would drift.
+    """
+    command = typer.main.get_command(app)
+    walked: list[str] = []
+    # The chain root-first, so the help can be rendered under contexts that spell the
+    # full invocation in its usage line.
+    lineage: list[object] = [command]
+    for token in path:
+        subcommands = getattr(command, "commands", None)
+        target = subcommands.get(token) if subcommands is not None else None
+        if target is None:
+            refuse_unknown_command(tuple(walked), token)
+        command = target
+        walked.append(token)
+        lineage.append(target)
+    return HelpResult(
+        command=" ".join([CLI_NAME, *walked]), text=_rendered_help(lineage, walked)
+    )
+
+
+def _rendered_help(lineage: list, path: list[str]) -> str:
+    """The help text the last command in ``lineage`` prints for ``--help``.
+
+    Typer renders help through Rich, which WRITES to the console instead of filling
+    click's help formatter — so ``get_help`` returns an empty string and the text
+    arrives on stdout. Capturing that stdout is therefore how to get the REAL
+    rendering rather than a second one; the non-Rich fallback returns the text
+    instead, so both arms are read. The contexts are built parent-first, from the
+    lineage, so the usage line spells the full invocation (`Usage: gda scene get …`)
+    — which is the line a reader needs most.
+    """
+    context = None
+    for name, node in zip([CLI_NAME, *path], lineage):
+        context = typer.Context(node, info_name=name, parent=context)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        returned = lineage[-1].get_help(context)
+    return returned or buffer.getvalue()
+
+
 def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
     """Classify the raw ``info`` result into a success model or a ``Failure``.
 
@@ -223,12 +332,35 @@ def render_skill(skill: "SkillResult") -> str:
     return skill.content
 
 
+def render_version(provenance: "VersionProvenance") -> str:
+    """Render ``gda version`` as text: the one line the root ``--version`` prints.
+
+    The same formatter, over the version carried by the payload THIS command built —
+    not a second read of the package metadata. The flag and the command are one answer
+    because they render one value, not because two independent reads agree.
+    """
+    return render_version_line(provenance.gda_version)
+
+
+def render_help(help_result: "HelpResult") -> str:
+    """Render ``gda help`` as text: the help itself, verbatim.
+
+    The same shape ``gda skill`` uses for the manifest it emits (ADR-0024) — the
+    payload IS the human output, so the text form prints it unchanged and the JSON
+    form carries it as a field.
+    """
+    return help_result.text
+
+
 INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
     operation="info",
     input_model=InfoParams,
     output_model=EngineVersion,
     render=render_engine_version,
     classify=classify_info,
+    # A meta command about the ENGINE, so it inherits no project context — but it does
+    # accept and validate an explicit `--project` (#670). See the field's own doc.
+    inherits_project=False,
 )
 
 
@@ -253,7 +385,32 @@ SKILL_COMMAND: HeadlessCommand[SkillResult] = HeadlessCommand(
     # A pure meta emitter (ADR-0024): no --project, resolves none — so the recipe
     # dispatcher must not resolve a project for it (an inherited invalid $GDA_PROJECT
     # must not make `gda skill` fail, #357).
-    projectless=True,
+    inherits_project=False,
+)
+
+
+def _version_recipe(params, *, project, godot):
+    # A pure local emitter (ADR-0005 meta, #659 payload): it reads this install's own
+    # metadata and never launches Godot — which is the point, since the environment
+    # where provenance matters most is one where an engine spawn fails.
+    return build_version_provenance()
+
+
+# A pure emitter meta command, so — like `gda skill` (ADR-0024) — it carries a
+# `recipe` and dispatches through it rather than the sentinel pipeline, and it
+# inherits no project: it takes no --project and must not resolve one, or an
+# inherited invalid $GDA_PROJECT would break a command an agent reaches for FIRST
+# when something is wrong (#357's rule, same reasoning). `help` shares all of this but
+# additionally answers FROM a command tree, so its descriptor is built inside
+# ``register`` where the tree is in hand (ADR-0040 — the meta slice must not
+# import the composition root back).
+VERSION_COMMAND: HeadlessCommand[VersionProvenance] = HeadlessCommand(
+    operation="version",
+    input_model=VersionParams,
+    output_model=VersionProvenance,
+    render=render_version,
+    recipe=_version_recipe,
+    inherits_project=False,
 )
 
 
@@ -261,11 +418,28 @@ def register(root: typer.Typer) -> None:
     """Attach the meta commands to the root app (ADR-0005/0040).
 
     A meta command is top-level and ungrouped, so — unlike a domain group, which
-    mounts its own sub-app — this defines the three commands directly against the
-    ``root`` it is handed. ``gda schema`` additionally CLOSES OVER ``root`` for
-    its surface walk: the manifest is read off the live Typer tree, which is the
-    only registry (ADR-0012/0023).
+    mounts its own sub-app — this defines the commands directly against the
+    ``root`` it is handed. ``gda schema`` and ``gda help`` additionally CLOSE
+    OVER ``root``: the manifest and the help are both read off the live Typer
+    tree, which is the only registry (ADR-0012/0023) — and closing over the tree
+    they were registered into, rather than importing the composition root back,
+    keeps the dependency direction downward (ADR-0040).
     """
+
+    def _help_recipe(params, *, project, godot):
+        # Closes over ``root`` exactly as ``schema`` does: `build_help_result`
+        # stays a pure function of the tree it is handed, and the tree is the one
+        # this registration attached `help` to — never the global app.
+        return build_help_result(root, list(params.command))
+
+    help_command: HeadlessCommand[HelpResult] = HeadlessCommand(
+        operation="help",
+        input_model=HelpParams,
+        output_model=HelpResult,
+        render=render_help,
+        recipe=_help_recipe,
+        inherits_project=False,
+    )
 
     @root.command(cls=INFO_COMMAND.command_class())
     def info(
@@ -273,13 +447,24 @@ def register(root: typer.Typer) -> None:
         schema: bool = INFO_COMMAND.schema_option(),
         params_json: Optional[str] = params_json_option(),
         godot: Optional[str] = godot_option(),
+        project: Optional[str] = project_option(),
     ) -> None:
-        """Report the Godot engine version info."""
+        """Report the Godot engine version info.
+
+        `--project` is accepted so an orchestrator can pass one argv shape to every
+        command (#670). It is validated like anywhere else — a directory that is not a
+        Godot project is a structured `project_not_found` — and the engine then runs
+        against it, so that project's autoloads run as they do for any `--project` op.
+        The reported version does not depend on it; omit it for the plain engine probe,
+        which is also what an inherited `$GDA_PROJECT` gets you: this command never
+        acquires a project it was not explicitly given.
+        """
         dispatch_meta(
             INFO_COMMAND,
             InfoParams(),
             json_output=json_output,
             godot=godot,
+            project=project,
         )
 
     @root.command(cls=SKILL_COMMAND.command_class())
@@ -373,3 +558,55 @@ def register(root: typer.Typer) -> None:
         # --json" — must not exit 2 on the very surface that describes the others,
         # and the declared option is what inherits a root `--json` (gda.headless).
         typer.echo(build_surface_manifest(root).model_dump_json())
+
+    @root.command(cls=VERSION_COMMAND.command_class())
+    def version(
+        json_output: bool = json_option(),
+        schema: bool = VERSION_COMMAND.schema_option(),
+        params_json: Optional[str] = params_json_option(),
+    ) -> None:
+        """Report which gda is installed, and where it came from (no Godot is spawned).
+
+        The command spelling of the root `--version` flag, and the same answer: bare,
+        one human-readable line; with `--json`, the structured install provenance —
+        version, executable, interpreter, imported package path, install kind, an
+        editable install's source checkout with its Git revision and dirty flag, and
+        the Godot binary gda would use (resolved, never launched). Run it first in a
+        long session and keep the output: it is what ties later results to the code
+        that produced them. For the ENGINE's version, run `gda info`.
+        """
+        dispatch_recipe(
+            VERSION_COMMAND,
+            VersionParams(),
+            json_output=json_output,
+            godot=None,
+            project=None,
+        )
+
+    @root.command(cls=help_command.command_class())
+    def help(
+        command: Optional[list[str]] = typer.Argument(
+            None,
+            help="The command to describe, as the words typed after `gda` "
+            "(e.g. `scene get`); omit it for the whole CLI.",
+        ),
+        json_output: bool = json_option(),
+        schema: bool = help_command.schema_option(),
+        params_json: Optional[str] = params_json_option(),
+    ) -> None:
+        """Show the help for a command, or for gda itself (no Godot is spawned).
+
+        `gda help scene get` is `gda scene get --help`, reached from the argv form
+        agents reach for; a bare `gda help` is `gda --help`. The text is the command's
+        own rendering, never a second one, so the two forms cannot drift. `--json`
+        returns it as `{command, text}` — the ONE rule ("always pass `--json`") holds
+        here too, while the `--help` FLAG stays text-only. A path that names no
+        command is refused exactly as the parser refuses it, curated hint included.
+        """
+        dispatch_recipe(
+            help_command,
+            HelpParams(command=list(command or [])),
+            json_output=json_output,
+            godot=None,
+            project=None,
+        )
