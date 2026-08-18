@@ -344,11 +344,13 @@ added incrementally under ADR-0025 if a concrete need appears.
 > killed a script that completed without a marker, and a CPU-idleness probe both spared
 > nothing that blocks (blocking burns no CPU) and silently lost the early abort wherever
 > CPU time cannot be read (`ps`-less or restricted hosts, Windows), making the promised
-> seconds-bound platform-dependent. So the abort does not claim to detect death. It
-> enforces the **contract issue #655 defines**: *"gda kills the run and returns the
-> captured error when the script's stderr shows a fatal script error and the declared
-> marker has not appeared"* — declaring the marker is the caller asserting the script
-> keeps producing output until the marker line says it finished. The decision is a pure
+> seconds-bound platform-dependent. So the abort does not claim to detect death. Issue
+> #655 originally keyed the kill on "a fatal script error" that "prevents `quit()`" —
+> a condition the findings above show is not decidable from outside the process — and
+> was therefore **explicitly amended (2026-08-18, its "Amendment — completion-marker
+> semantics" section) to define the deterministic form of the same intent**, which this
+> ADR implements: declaring the marker is the caller asserting the script keeps
+> producing output until the marker line says it finished. The decision is a pure
 > function of the observed text and the clock — deterministic and identical on every
 > platform — and all three of these must hold:
 >

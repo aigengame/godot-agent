@@ -1009,7 +1009,8 @@ class _CompletionMarkerWatch:
     ``await`` — alive, but consuming nothing), and on a host where CPU time cannot
     be read it silently forfeited the seconds-bound the issue promises. So this
     watch does not CLAIM to detect death. It enforces the contract issue #655
-    defines and the caller opted into by declaring a marker: *the script signals
+    defines (in its 2026-08-18 amendment, which replaced the undecidable "fatal
+    error" wording) and the caller opted into by declaring a marker: *the script signals
     completion with the marker line and keeps producing output until then; an
     entry-attributable error followed by sustained total silence without the
     marker means the run is dead* — by declaration, not inference. That makes the
