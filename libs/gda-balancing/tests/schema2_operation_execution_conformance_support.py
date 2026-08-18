@@ -187,9 +187,7 @@ def candidate_conformance_failures(
     *,
     vector_overrides: dict[str, dict[str, Any]] | None = None,
     vector_coordinates: set[tuple[str, str, str]] | None = None,
-    execution_evidence_expectations: dict[
-        tuple[str, str, str], dict[str, Any]
-    ]
+    execution_evidence_expectations: dict[tuple[str, str, str], dict[str, Any]]
     | None = None,
 ) -> list[dict[str, Any]]:
     """Return bounded candidate-graph and execution-vector disagreements."""
@@ -248,8 +246,7 @@ def candidate_conformance_failures(
         if evidence_expectation is not None and (
             results["production"]["execution_evidence"]
             != results["independent"]["execution_evidence"]
-            or results["production"]["execution_evidence"]
-            != evidence_expectation
+            or results["production"]["execution_evidence"] != evidence_expectation
         ):
             failures.append(
                 {

@@ -6807,9 +6807,7 @@ def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
     def divergent_production(context, vector, **owner):
         result = deepcopy(evaluate(context, vector, **owner))
         if vector["id"] == target:
-            completion = cast(
-                dict[str, Any], result["observation"]["completion"]
-            )
+            completion = cast(dict[str, Any], result["observation"]["completion"])
             completion["id"] = "production-only-outcome"
             result["execution_evidence"]["resource_charge"] += 1
         return result
@@ -6842,12 +6840,8 @@ def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
         "execution-evidence-divergence",
     ]
     assert all(failure["vector"] == target for failure in failures)
-    assert all(
-        failure["production"] != failure["independent"] for failure in failures
-    )
-    assert all(
-        failure["independent"] == failure["expected"] for failure in failures
-    )
+    assert all(failure["production"] != failure["independent"] for failure in failures)
+    assert all(failure["independent"] == failure["expected"] for failure in failures)
 
 
 def test_operation_execution_projection_preserves_declared_state_order():
