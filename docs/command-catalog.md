@@ -46,6 +46,10 @@ they are provenance, not status markers.
 
 > `--schema` is a per-command flag, not a command, and ships with **every** domain
 > command as a hard gate (ADR-0004). It is local introspection — no Godot process.
+> Alongside the schemas it emits `argv`: how each parameter is written on a command
+> line (positional and its position, or its `--option` spelling, plus whether it is
+> required, a valueless flag, or repeated), derived from the live command signature
+> so an agent builds argv from the contract instead of from `--help`.
 
 ---
 
@@ -709,7 +713,12 @@ headless is unaffected (4.4+, cross-platform).
   to decide are deferred to the harness: a key name the engine cannot resolve to a
   keycode is `live_invalid_key`, an action absent from the running `InputMap` is
   `live_unknown_action`; a sequence event whose type the harness does not recognize
-  is `live_invalid_event_spec`.
+  is `live_invalid_event_spec`. The per-event shape is a **discriminated union** on
+  `type`: each kind accepts only its own fields, so `--schema` publishes each kind's
+  required and forbidden fields rather than one flat shape. The press/release
+  spelling differs by kind — `pressed` belongs to `mouse_button` alone, an `action`
+  releases with `release`, a `key` with `released` — and a field from another kind is
+  refused with the spelling this kind uses instead.
 - **`screen` / capture:** running-game viewport screenshot, multi-frame capture.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
