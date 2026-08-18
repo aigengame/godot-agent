@@ -220,6 +220,65 @@ class LiveStackConstraints(BaseModel):
     min_godot_version: str | None
 
 
+class ArgvKind(str, Enum):
+    """How one operation parameter is supplied on a ``gda`` command line (#669).
+
+    ``ARGUMENT`` is positional — its place in the command line is its identity;
+    ``OPTION`` is named — its ``--spelling`` is. Typed as an enum so the emitted
+    schema constrains the value rather than leaving it free text.
+    """
+
+    ARGUMENT = "argument"
+    OPTION = "option"
+
+
+class ArgvBinding(BaseModel):
+    """How ONE operation parameter is spelled on the command line (#669).
+
+    The missing half of a command's self-description: ``input`` says WHAT a
+    command needs, this says HOW to write it as argv. Without it an agent knew
+    ``screen capture`` requires an ``output`` but not that it is spelled
+    ``--output``, and that ``input action`` takes its action POSITIONALLY and
+    rejects ``--action`` — so every new command cost a ``--help`` round trip or a
+    failed invocation (dogfooding GDA-DF-003).
+
+    Every field is derived from the live Typer/Click parameter at emission time
+    (ADR-0012's live-tree walk, ADR-0023 §2's "projections, not parallel
+    registries"), never declared on the command descriptor: a hand-maintained
+    spelling table would be a second source of truth for a fact the Typer
+    signature already owns.
+
+    Reading it: ``kind`` picks the spelling rule — a positional goes at
+    ``position`` (0-based, among positionals only), a named one is written as
+    ``option``. ``flag`` marks an option that takes NO value (write it bare),
+    ``multiple`` one that is repeated per value (a repeatable option, or a
+    variadic positional). ``required`` is the DECLARED requirement, unaffected by
+    the relaxed parse ``--schema`` itself uses (issue #36).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Descriptions stay terse: the manifest repeats them per parameter of every
+    # command, so prose here is paid hundreds of times (the #667 measurement).
+    name: str = Field(description="The parameter's CLI name.")
+    input_property: str | None = Field(
+        description=(
+            "The `input` schema property this parameter fills, or null where the "
+            "CLI form has no 1:1 property (e.g. two flags selecting one field)."
+        )
+    )
+    kind: ArgvKind = Field(description="Positional (argument) or named (option).")
+    option: str | None = Field(
+        description="The option spelling, e.g. --output; null for a positional."
+    )
+    position: int | None = Field(
+        description="0-based position among the positionals; null for an option."
+    )
+    required: bool = Field(description="Whether the command line must supply it.")
+    flag: bool = Field(description="A valueless option: write it bare.")
+    multiple: bool = Field(description="Repeat it once per value.")
+
+
 class CommandSchema(BaseModel):
     """A command's self-description: its ``input``, ``output`` and ``error`` JSON Schemas (ADR-0004).
 
@@ -253,6 +312,13 @@ class CommandSchema(BaseModel):
     ``None`` for a command with no live-stack dependence (issue #233). Both forms
     are sourced from the single :func:`gda.execution.live_stack_constraints`
     authority. Additive and ignored by gda-mcp (ADR-0012, ADR-0004).
+
+    ``argv`` carries the command's :class:`ArgvBinding` list — how each of the
+    parameters ``input`` describes is spelled on a command line (issue #669),
+    derived from the live Typer/Click parameters. It is a SIBLING of the schema
+    halves, never a key inside them, so gda-mcp's ``input_schema`` /
+    ``output_schema`` are byte-identical with or without it (ADR-0012); an empty
+    list for a command with no operation parameters.
     """
 
     input: dict[str, Any]
@@ -260,6 +326,7 @@ class CommandSchema(BaseModel):
     error: dict[str, Any]
     kind: ExecutionKind | None = None
     constraints: LiveStackConstraints | None = None
+    argv: list[ArgvBinding] = Field(default_factory=list)
 
     @classmethod
     def of(
@@ -268,6 +335,7 @@ class CommandSchema(BaseModel):
         output_model: type[BaseModel],
         kind: ExecutionKind | None = None,
         constraints: LiveStackConstraints | None = None,
+        argv: "list[ArgvBinding] | None" = None,
     ) -> "CommandSchema":
         """Derive the contract from a command's params and result models.
 
@@ -277,7 +345,10 @@ class CommandSchema(BaseModel):
         serializes to its lowercase string because ``ExecutionKind`` subclasses
         ``str``. ``constraints`` is the command's live-stack precondition or
         ``None`` (issue #233), computed by the caller from the single
-        :func:`gda.execution.live_stack_constraints` authority.
+        :func:`gda.execution.live_stack_constraints` authority. ``argv`` is the
+        command's CLI-spelling projection (issue #669), computed by the caller
+        from the single :func:`gda.headless.command_argv_bindings` derivation off
+        the live Click parameters.
         """
         return cls(
             input=input_model.model_json_schema(),
@@ -285,6 +356,7 @@ class CommandSchema(BaseModel):
             error=GdaErrorEnvelope.model_json_schema(),
             kind=kind,
             constraints=constraints,
+            argv=argv or [],
         )
 
 
@@ -317,6 +389,13 @@ class CommandManifestEntry(BaseModel):
     descriptor, so the self-described surface schema guarantees the key is
     present) while its **value is nullable** (``null`` for non-live-stack
     commands) — a consumer can rely on the key always being there to read.
+
+    ``argv`` mirrors :class:`CommandSchema`'s: how each of the command's
+    parameters is spelled on a command line (issue #669), from the same live
+    Click parameters, so the aggregate and per-command forms agree. **Required**
+    here for the same reason ``kind`` is — every entry is a real command whose
+    signature can be walked — with an empty list where a command takes no
+    operation parameters. Additive and ignored by gda-mcp (ADR-0012).
     """
 
     name: str
@@ -326,6 +405,7 @@ class CommandManifestEntry(BaseModel):
     error: dict[str, Any]
     kind: ExecutionKind
     constraints: LiveStackConstraints | None
+    argv: list[ArgvBinding]
 
 
 class SurfaceManifest(BaseModel):

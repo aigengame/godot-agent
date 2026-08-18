@@ -325,3 +325,54 @@ def test_real_out_of_process_cli_manifest_covers_the_live_command_tree():
     assert {"info", "scene create"} <= names
     # The non-dispatchable `schema` meta command is excluded (Plan A).
     assert "schema" not in names
+
+
+# --- argv binding in the manifest (issue #669) --------------------------------
+
+
+def test_every_entry_carries_an_argv_binding_list():
+    # issue #669: the manifest is the whole-surface form of the per-command
+    # contract, so the CLI spelling of a command's parameters travels with it —
+    # an agent reading only the dump can construct a valid argv.
+    for entry in _manifest()["commands"]:
+        assert isinstance(entry["argv"], list), entry["name"]
+
+
+def test_entry_argv_matches_the_commands_own_schema_argv():
+    # Both schema sites derive the binding from the SAME live Click parameters
+    # (ADR-0012's live-tree walk, ADR-0023 §2's "projections, not parallel
+    # registries"), so the aggregate and per-command forms cannot drift.
+    for entry in _manifest()["commands"]:
+        result = CliRunner().invoke(app, [*entry["name"].split(" "), "--schema"])
+        assert result.exit_code == 0, result.stdout
+        assert entry["argv"] == json.loads(result.stdout)["argv"], entry["name"]
+
+
+def test_every_argv_binding_is_constructible_into_a_command_line():
+    # The acceptance property: for EVERY command, each binding says either where
+    # the value goes positionally or exactly how to spell its option — never
+    # neither, never both — and the positions are a contiguous 0..n-1 run.
+    for entry in _manifest()["commands"]:
+        positions = []
+        for binding in entry["argv"]:
+            where = f"{entry['name']}: {binding['name']}"
+            if binding["kind"] == "argument":
+                assert binding["option"] is None, where
+                assert isinstance(binding["position"], int), where
+                positions.append(binding["position"])
+            else:
+                assert binding["kind"] == "option", where
+                assert binding["position"] is None, where
+                assert str(binding["option"]).startswith("-"), where
+        assert positions == list(range(len(positions))), entry["name"]
+
+
+def test_argv_metadata_rides_outside_the_two_schema_halves_gda_mcp_maps():
+    # The gda-mcp wire-schema answer (#669): gda-mcp maps `input` →
+    # `input_schema` and `output` → `output_schema` and ignores every other entry
+    # key (ADR-0012). `argv` is therefore a SIBLING of those halves — never a key
+    # inside them — so no MCP tool's wire schema gains anything from it.
+    for entry in _manifest()["commands"]:
+        assert "argv" not in entry["input"], entry["name"]
+        assert "argv" not in entry["output"], entry["name"]
+        assert "ArgvBinding" not in entry["input"].get("$defs", {}), entry["name"]

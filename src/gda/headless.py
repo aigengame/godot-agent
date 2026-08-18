@@ -28,7 +28,13 @@ from gda.errors import (
     unresolvable_binary_failure,
 )
 from gda.execution import ExecutionKind, live_stack_constraints
-from gda.models import CommandSchema, GdaErrorEnvelope, LiveStackConstraints
+from gda.models import (
+    ArgvBinding,
+    ArgvKind,
+    CommandSchema,
+    GdaErrorEnvelope,
+    LiveStackConstraints,
+)
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
@@ -225,6 +231,87 @@ def _from_command_line(ctx: typer.Context, name: str) -> bool:
     return source is not None and source.name == "COMMANDLINE"
 
 
+def command_argv_bindings(
+    command: object, input_model: type[BaseModel]
+) -> list[ArgvBinding]:
+    """Project ``command``'s live Click parameters into their CLI spelling (#669).
+
+    The one place a command's argv form is derived, shared by the per-command
+    ``--schema`` here and the aggregate manifest builder (``gda.surface``) so the
+    two forms cannot drift — the same shape :func:`command_constraints` gives the
+    live-stack precondition.
+
+    The **live Typer/Click signature is the source**, read at emission time: a
+    spelling table on the descriptor would be a second authority for a fact the
+    signature already owns, which is the parallel registry ADR-0023 §2 rejects.
+    Reading the registered parameters also makes the projection correct on every
+    dispatch channel at once — the sentinel path, the EXPORT / LIVE kinds and the
+    recipe commands all register the same way, whatever runs them afterwards.
+
+    Two filters decide what an *operation parameter* is, both reusing rules this
+    module already owns rather than restating them: a parameter Click does not
+    expose (its eager ``--help``) never reaches a params model, and
+    :data:`_GLOBAL_OPTION_NAMES` is the same set ``--params-json`` treats as
+    cross-cutting rather than operational (ADR-0015). So ``argv`` covers exactly
+    the parameters ``input`` describes.
+
+    Click is duck-typed through ``getattr``, as the surface walker does: it is a
+    transitive dependency through Typer, not a direct one.
+
+    ``input_property`` is derived, not declared: the emitted property of the same
+    name if there is one, else the one the long option spells (``--type`` fills
+    ``type`` though the Python parameter is ``node_type``), else ``None`` where
+    the CLI form genuinely has no 1:1 property — two flags selecting one field,
+    say. Guessing further would be worse than the honest null: a wrong link
+    reads as authoritative.
+    """
+    properties = input_model.model_json_schema().get("properties", {})
+    bindings: list[ArgvBinding] = []
+    position = 0
+    for param in getattr(command, "params", []):
+        if not getattr(param, "expose_value", True):
+            continue
+        name = getattr(param, "name", None)
+        if not isinstance(name, str) or name in _GLOBAL_OPTION_NAMES:
+            continue
+        opts = [str(opt) for opt in getattr(param, "opts", [])]
+        is_argument = getattr(param, "param_type_name", "") == "argument"
+        long_opts = [opt for opt in opts if opt.startswith("--")]
+        option = None if is_argument else next(iter(long_opts or opts), None)
+        # A variadic positional (``nargs=-1``) is repeated the same way a
+        # repeatable option is, so both report ``multiple``: Click spells the
+        # two differently, an argv author writes both by repeating.
+        nargs = getattr(param, "nargs", 1)
+        bindings.append(
+            ArgvBinding(
+                name=name,
+                input_property=_bound_property(name, option, properties),
+                kind=ArgvKind.ARGUMENT if is_argument else ArgvKind.OPTION,
+                option=option,
+                position=position if is_argument else None,
+                required=bool(getattr(param, "required", False)),
+                flag=bool(getattr(param, "is_flag", False)),
+                multiple=bool(getattr(param, "multiple", False)) or nargs == -1,
+            )
+        )
+        if is_argument:
+            position += 1
+    return bindings
+
+
+def _bound_property(
+    name: str, option: Optional[str], properties: "dict[str, Any]"
+) -> Optional[str]:
+    """The ``input`` property this parameter fills, or ``None`` if undecidable."""
+    if name in properties:
+        return name
+    if option is not None:
+        spelled = option.lstrip("-").replace("-", "_")
+        if spelled in properties:
+            return spelled
+    return None
+
+
 def schema_command_class(
     input_model: type[BaseModel],
     output_model: type[BaseModel],
@@ -283,12 +370,20 @@ def schema_command_class(
                 # ``kind`` + ``operation`` — wrapped into the model here so the
                 # per-command ``--schema`` and the aggregate manifest agree.
                 constraints = command_constraints(command)
+                # The CLI spelling of this command's parameters (#669), read off
+                # THIS command object's live Click parameters — the same single
+                # derivation the aggregate manifest uses. Taken after the relaxed
+                # parse above has restored each parameter's declared ``required``,
+                # so the published binding reports the real requirement rather
+                # than the probe's relaxation (issue #36).
+                argv = command_argv_bindings(self, input_model)
                 typer.echo(
                     CommandSchema.of(
                         input_model,
                         output_model,
                         kind=kind,
                         constraints=constraints,
+                        argv=argv,
                     ).model_dump_json()
                 )
                 raise typer.Exit()

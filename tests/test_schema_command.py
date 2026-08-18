@@ -1688,3 +1688,124 @@ def test_asset_file_schema_spawns_no_godot(monkeypatch):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0
         assert set(json.loads(result.stdout)) >= {"input", "output", "error"}
+
+
+# --- argv binding in --schema (issue #669, ADR-0004/ADR-0012/ADR-0023 §2) -----
+#
+# GDA-DF-003: the emitted schema stated a command's required fields but not how
+# to SPELL them on a command line — `screen capture` needs `--output` while
+# `input mouse-click` needs positional `x y` and `input action` a positional
+# ACTION it rejects as `--action`. The `argv` key answers that from the live
+# Typer/Click parameters (never a hand-maintained table, ADR-0023 §2).
+
+
+def _argv(command: list[str]) -> dict[str, dict]:
+    """The command's ``--schema`` argv bindings, keyed by binding name."""
+    result = CliRunner().invoke(app, [*command, "--schema"])
+    assert result.exit_code == 0, result.stdout
+    return {b["name"]: b for b in json.loads(result.stdout)["argv"]}
+
+
+def test_schema_argv_names_a_required_options_spelling():
+    # GDA-DF-003 case 1: `screen capture` takes its required `output` as an
+    # OPTION, so the schema must publish the `--output` spelling.
+    binding = _argv(["screen", "capture"])["output"]
+
+    assert binding["kind"] == "option"
+    assert binding["option"] == "--output"
+    assert binding["required"] is True
+    assert binding["position"] is None
+
+
+def test_schema_argv_places_positional_parameters_in_order():
+    # GDA-DF-003 case 2: `input mouse-click` takes `x y` POSITIONALLY — the
+    # schema publishes their order, and that they carry no option spelling.
+    bindings = _argv(["input", "mouse-click"])
+
+    assert bindings["x"]["kind"] == "argument"
+    assert bindings["x"]["position"] == 0
+    assert bindings["x"]["option"] is None
+    assert bindings["y"]["position"] == 1
+    assert bindings["x"]["required"] is True
+
+
+def test_schema_argv_reports_a_positional_that_has_no_option_form():
+    # GDA-DF-003 case 3: `input action` requires a positional ACTION and rejects
+    # `--action`; the schema says so, so no round-trip through `--help` is needed.
+    bindings = _argv(["input", "action"])
+
+    assert bindings["action"]["kind"] == "argument"
+    assert bindings["action"]["position"] == 0
+    assert bindings["action"]["option"] is None
+    assert "--action" not in {b["option"] for b in bindings.values()}
+
+
+def test_schema_argv_distinguishes_valueless_flags_from_repeatable_options():
+    # Constructing argv needs two more facts a JSON Schema cannot carry: a flag
+    # takes NO value (`--released`), and a repeatable option is REPEATED per
+    # value (`--modifiers shift --modifiers ctrl`).
+    bindings = _argv(["input", "key"])
+
+    assert bindings["released"]["flag"] is True
+    assert bindings["released"]["multiple"] is False
+    assert bindings["modifiers"]["flag"] is False
+    assert bindings["modifiers"]["multiple"] is True
+    assert bindings["modifiers"]["option"] == "--modifiers"
+
+
+def test_schema_argv_reports_a_variadic_positional_as_multiple():
+    # `script validate [PATHS]...` takes any number of positional paths (#663).
+    binding = _argv(["script", "validate"])["paths"]
+
+    assert binding["kind"] == "argument"
+    assert binding["multiple"] is True
+
+
+def test_schema_argv_omits_the_shared_cross_cutting_flags():
+    # `argv` describes the OPERATION parameters — the same set `--params-json`
+    # is mutually exclusive with (ADR-0015). The cross-cutting flags every
+    # command shares are not per-command information, so they stay out.
+    for command in (["scene", "create"], ["input", "key"], ["export", "run"]):
+        names = set(_argv(command))
+        assert names.isdisjoint(
+            {"json_output", "schema", "params_json", "godot", "project"}
+        )
+
+
+def test_schema_argv_links_a_binding_to_the_input_property_it_fills():
+    # The join that closes GDA-DF-003: an agent holding a REQUIRED input property
+    # can find its CLI spelling. The link is derived (never declared), so it is
+    # right even where the CLI spelling differs from the Python parameter name —
+    # `node add`'s `node_type` parameter is spelled `--type` and fills `type`.
+    binding = _argv(["node", "add"])["node_type"]
+
+    assert binding["option"] == "--type"
+    assert binding["input_property"] == "type"
+
+    # …and it is honestly null rather than guessed where the CLI form names the
+    # property differently: `project list --all` fills `include_defaults`, which
+    # neither the parameter name nor the option spelling reveals.
+    assert _argv(["project", "list"])["all_settings"]["input_property"] is None
+
+
+def test_schema_argv_covers_every_dispatch_channel():
+    # Several channels bypass the sentinel `cmd.emit` (EXPORT and LIVE by kind,
+    # the daemon lifecycle and screen by recipe). The binding is read off the
+    # live Click parameters, so it is present on all of them, not just the
+    # sentinel path.
+    assert _argv(["export", "run"])["preset"]["option"] == "--preset"
+    assert _argv(["daemon", "start"])["scene"]["option"] == "--scene"
+    assert _argv(["game", "get"])["node"]["kind"] == "argument"
+    assert _argv(["script", "run"])["path"]["kind"] == "argument"
+    # A command with no operation parameters carries an empty list, not a
+    # missing key.
+    result = CliRunner().invoke(app, ["info", "--schema"])
+    assert json.loads(result.stdout)["argv"] == []
+
+
+def test_schema_argv_reports_required_despite_the_relaxed_probe_parse():
+    # The `--schema` probe parses with every parameter's `required` RELAXED so a
+    # bare probe succeeds (issue #36). The published binding must report the
+    # DECLARED requirement, not the relaxed one.
+    assert _argv(["screen", "capture"])["output"]["required"] is True
+    assert _argv(["node", "connect-signal"])["from_node"]["required"] is True
