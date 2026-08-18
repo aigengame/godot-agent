@@ -48,9 +48,10 @@ def _dispatchable():
 
 
 # The one non-domain group module (ADR-0005/0040): its commands are top-level and
-# ungrouped, so it mounts no sub-app — these three names must exist on the root.
+# ungrouped, so it mounts no sub-app — these names must exist on the root. `version`
+# and `help` are the two ADR-0005 named from the start and #670 delivered.
 _META_MODULE = "meta"
-_META_TOP_LEVEL_COMMANDS = {"info", "skill", "schema"}
+_META_TOP_LEVEL_COMMANDS = {"info", "skill", "schema", "version", "help"}
 
 
 def test_every_group_module_is_registered_on_the_root_app():
@@ -103,6 +104,10 @@ _HELPER_RENDERERS = {
     "render_set_echo",  # the shared node/resource property-set echo line
     "render_script_metadata",  # the shared path/class_name/extends script surface
     "render_shader_metadata",  # the shared shader-metadata surface
+    # The root `--version` one-liner (gda.provenance), imported into the meta module
+    # and composed by `render_version` so the flag and the `gda version` command print
+    # the same line (#670). Bound to no descriptor of its own.
+    "render_version_line",
 }
 
 
@@ -169,6 +174,11 @@ _RECIPE_OPERATIONS = {
     # in-package SKILL.md and emits/installs it, spawning no Godot, so it is
     # fulfilled by a CLI-side recipe like export run / the daemon lifecycle.
     "skill",
+    # The other two pure emitter meta commands (ADR-0005, #670): `version` renders this
+    # install's provenance and `help` renders a command's own help text — neither
+    # spawns Godot, so both are recipes for the same reason `skill` is.
+    "version",
+    "help",
 }
 
 
