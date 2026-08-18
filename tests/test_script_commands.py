@@ -961,3 +961,332 @@ def test_script_set_human_output_renders_metadata(monkeypatch):
         result.stdout.strip()
         == "set /tmp/proj/hero.gd (extends Node2D, class_name Hero)"
     )
+
+
+# --- script validate: batch and project mode (#663) ---------------------------
+#
+# One invocation validates N scripts in ONE engine launch, reporting per-file
+# diagnostics plus one aggregate verdict. A single path is just a batch of one, so
+# there is no second code path to keep in step.
+
+
+def _validate_sentinel(*entries: dict, valid: bool | None = None) -> str:
+    """The batch sentinel operations.gd emits: the aggregate plus per-script rows."""
+    aggregate = all(entry["valid"] for entry in entries) if valid is None else valid
+    return sentinel({"valid": aggregate, "scripts": list(entries)})
+
+
+def _ok(path: str) -> dict:
+    return {"path": path, "valid": True, "error_string": None}
+
+
+def _broken(path: str, error: str = "Parse error") -> dict:
+    return {"path": path, "valid": False, "error_string": error}
+
+
+def test_script_validate_batch_reaches_the_engine_once_with_every_path(monkeypatch):
+    # The #663 core: repeated PATH arguments become ONE op call carrying the whole
+    # batch, so six related scripts cost one engine launch instead of six.
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(
+                _ok("/tmp/proj/a.gd"), _ok("/tmp/proj/b.gd"), _ok("/tmp/proj/c.gd")
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            "/tmp/proj/a.gd",
+            "/tmp/proj/b.gd",
+            "/tmp/proj/c.gd",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [
+        (
+            "script-validate",
+            {
+                "paths": ["/tmp/proj/a.gd", "/tmp/proj/b.gd", "/tmp/proj/c.gd"],
+                "all_scripts": False,
+            },
+        )
+    ]
+    data = json.loads(result.stdout)
+    assert data["valid"] is True
+    assert [entry["path"] for entry in data["scripts"]] == [
+        "/tmp/proj/a.gd",
+        "/tmp/proj/b.gd",
+        "/tmp/proj/c.gd",
+    ]
+
+
+def test_script_validate_batch_aggregate_is_false_when_any_script_is_invalid(
+    monkeypatch,
+):
+    # The aggregate verdict: false when ANY file is invalid, and the command still
+    # exits 0 — an invalid script is a successful validation, the existing contract.
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_ok("/tmp/proj/a.gd"), _broken("/tmp/proj/b.gd")),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "/tmp/proj/a.gd", "/tmp/proj/b.gd", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["valid"] is False
+    assert [entry["valid"] for entry in data["scripts"]] == [True, False]
+
+
+def test_script_validate_batch_attributes_diagnostics_to_their_own_script(monkeypatch):
+    # Per-FILE diagnostics: the engine marks each script's stderr window with its
+    # own `gda: validating:` line, so the advisory line/message pairs land on the
+    # script that produced them rather than on the batch as a whole.
+    stderr = (
+        "gda: running operation: script-validate\n"
+        "gda: validating: /tmp/proj/a.gd\n"
+        "gda: validating: /tmp/proj/b.gd\n"
+        "SCRIPT ERROR: Parse Error: bad b\n"
+        "   at: GDScript::reload (/tmp/proj/b.gd:3)\n"
+        "gda: validating: /tmp/proj/c.gd\n"
+        "SCRIPT ERROR: Parse Error: bad c\n"
+        "   at: GDScript::reload (/tmp/proj/c.gd:7)\n"
+    )
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(
+                _ok("/tmp/proj/a.gd"),
+                _broken("/tmp/proj/b.gd"),
+                _broken("/tmp/proj/c.gd"),
+            ),
+            stderr=stderr,
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            "/tmp/proj/a.gd",
+            "/tmp/proj/b.gd",
+            "/tmp/proj/c.gd",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    scripts = json.loads(result.stdout)["scripts"]
+    assert scripts[0]["diagnostics"] == []
+    assert scripts[1]["diagnostics"] == [
+        {"line": 3, "column": None, "message": "Parse Error: bad b"}
+    ]
+    assert scripts[2]["diagnostics"] == [
+        {"line": 7, "column": None, "message": "Parse Error: bad c"}
+    ]
+
+
+def test_script_validate_keeps_a_duplicate_path_as_its_own_entry(monkeypatch):
+    # gda never silently drops an input: a path given twice is validated twice and
+    # reported twice, so entry i always corresponds to argument i.
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_ok("/tmp/proj/a.gd"), _ok("/tmp/proj/a.gd")),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "/tmp/proj/a.gd", "/tmp/proj/a.gd", "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls[0][1]["paths"] == ["/tmp/proj/a.gd", "/tmp/proj/a.gd"]
+    assert len(json.loads(result.stdout)["scripts"]) == 2
+
+
+def test_script_validate_refuses_a_batch_whose_second_path_is_outside_the_project(
+    monkeypatch, tmp_path
+):
+    # ADR-0006's one resolved project applies to EVERY path in the batch: a batch
+    # that spans projects is refused before the engine runs, reusing #658's refusal
+    # rather than compiling the outsider against the wrong root.
+    proj = _project(tmp_path, "game")
+    inside = proj / "deck.gd"
+    outsider = tmp_path / "elsewhere" / "card.gd"
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            str(inside),
+            str(outsider),
+            "--project",
+            str(proj),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "project_not_found"
+    assert str(outsider.resolve()) in error["message"]
+    assert fake.calls == []
+
+
+def test_script_validate_all_asks_the_engine_for_every_project_script(monkeypatch):
+    # Project mode: `--all` carries no paths — the engine enumerates the project's
+    # res:// tree itself and reports the same result shape.
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_ok("res://a.gd"), _ok("res://b.gd")),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["script", "validate", "--all", "--json"])
+
+    assert result.exit_code == 0
+    assert fake.calls == [("script-validate", {"paths": [], "all_scripts": True})]
+    assert len(json.loads(result.stdout)["scripts"]) == 2
+
+
+def test_script_validate_all_with_paths_is_a_usage_error(monkeypatch):
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "--all", "/tmp/proj/a.gd", "--json"]
+    )
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_script_validate_without_paths_or_all_is_a_usage_error(monkeypatch):
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["script", "validate", "--json"])
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_script_validate_params_json_refuses_an_empty_batch(monkeypatch):
+    # ADR-0015 parity: the rule lives on the model, so the JSON route reports it as
+    # the structured invalid_params rather than as a usage error.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            "--params-json",
+            json.dumps({"paths": []}),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
+
+
+def test_script_validate_params_json_refuses_paths_together_with_all(monkeypatch):
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            "--params-json",
+            json.dumps({"paths": ["/tmp/proj/a.gd"], "all_scripts": True}),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
+
+
+def test_script_validate_batch_human_output_leads_with_the_aggregate(monkeypatch):
+    stderr = (
+        "gda: validating: /tmp/proj/a.gd\n"
+        "gda: validating: /tmp/proj/b.gd\n"
+        "SCRIPT ERROR: Parse Error: bad b\n"
+        "   at: GDScript::reload (/tmp/proj/b.gd:3)\n"
+    )
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_ok("/tmp/proj/a.gd"), _broken("/tmp/proj/b.gd")),
+            stderr=stderr,
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "/tmp/proj/a.gd", "/tmp/proj/b.gd"]
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.splitlines() == [
+        "invalid (1 of 2 scripts)",
+        "  project: (none resolved: projectless)",
+        "  valid /tmp/proj/a.gd",
+        "  invalid /tmp/proj/b.gd",
+        "    Parse error",
+        "    line 3: Parse Error: bad b",
+    ]
+
+
+def test_script_validate_marker_is_the_one_operations_gd_emits():
+    # The cross-language half of the per-file attribution: the Python parser splits
+    # the engine's stderr on a marker `operations.gd` writes, so the two spellings
+    # must not drift apart silently (#650's guard tier, extended to this contract).
+    from pathlib import Path
+
+    from gda.commands.script import VALIDATE_MARKER_PREFIX
+
+    operations = (
+        Path(__file__).resolve().parents[1] / "src" / "gda" / "ops" / "operations.gd"
+    )
+
+    assert f'_diag("{VALIDATE_MARKER_PREFIX.removeprefix("gda: ")}" + path)' in (
+        operations.read_text(encoding="utf-8")
+    )
