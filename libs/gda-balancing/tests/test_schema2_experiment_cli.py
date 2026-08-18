@@ -379,6 +379,8 @@ def _rpg_model_source() -> dict[str, Any]:
         "player_accuracy": "accuracy",
         "player_base_damage": "base_damage",
         "player_critical_threshold": "critical_threshold",
+        "player_health": "actor_health",
+        "defeat_threshold": "defeat_threshold",
         "enemy_defense": "target_defense",
         "enemy_health": "target_health",
         "player_effective_accuracy": "effective_accuracy",
@@ -6344,6 +6346,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
         if vector.get("kind") == "operation-execution"
     ]
     assert {vector["category"] for vector in vectors} == {
+        "boundary",
         "positive",
         "negative",
         "semantic-mutation",
@@ -6401,6 +6404,41 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
         {"name": "actor_resource", "value": 30},
         {"name": "target_health", "value": 100},
     ]
+
+
+def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
+    _kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.combat.eligible-cast-v1"
+    )
+    vectors = next(
+        vector_set["vector_definitions"]
+        for vector_set in ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == "game.combat"
+        and vector_set["package_version"] == "2.1.0"
+    )
+
+    assert {"actor_health", "defeat_threshold"} <= {
+        row["id"] for row in operation["inputs"]
+    }
+    assert {
+        (row["id"], row["kind"], row["state_policy"])
+        for row in operation["outcomes"]
+    } >= {
+        ("actor-ineligible", "gameplay-alternative", "rollback"),
+        ("target-defeated", "success", "commit"),
+    }
+    assert {
+        row["id"]
+        for row in vectors
+        if row.get("kind") == "operation-execution"
+    } >= {
+        "game.combat.cast.eligible-action",
+        "game.combat.cast.target-defeated",
+        "game.combat.cast.actor-ineligible",
+    }
 
 
 def test_neutral_structured_operation_vectors_cover_control_paths():

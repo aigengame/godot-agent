@@ -1517,10 +1517,25 @@ issues own detailed observations, acceptance criteria, and live completion statu
   - Architecture consequence: Added stable root Event references and exact cancellation targets.
     Runtime now proves canceled roots in artifact recovery and selects only reachable initialization
     Formula sites.
-  - Open boundary: The example does not define general Action interruption, turn order, defeat
+  - Open boundary: The example does not define general Action interruption, turn order, revival
     policy, Replay, or Evidence.
   - Evidence: [rpg-combat-cast](../examples/schema2/rpg-combat-cast/) and
     [bADR-0014](badr/0014-deterministic-atomic-event-runtime.md).
+- **Explicit combat defeat and action eligibility
+  ([#708](https://github.com/aigengame/godot-agent/issues/708))**
+  - Architecture consequence: `game.combat` composes existing Runtime nodes into one eligible-cast
+    Operation. It checks an authored defeat threshold before resource spending or RNG. It caps
+    applied damage at current health and returns an explicit `target-defeated` outcome when the
+    committed target reaches the threshold. The raw cast remains available without this policy.
+  - Validation consequence: Neutral Operation vectors cover an eligible action, a target-defeating
+    boundary, and an ineligible actor. Production and independent consumers must agree on outcome,
+    result, state, RNG, effects, refusals, charge, and Event order. The maintained RPG tracer runs
+    complete one-action Experiment revisions and stops only on the explicit outcome.
+  - Open boundary: This slice does not add general Action lifecycle, turn order, revival storage,
+    downed states, teams, encounters, or a host-side health rule.
+  - Evidence: [rpg-combat-cast](../examples/schema2/rpg-combat-cast/),
+    [issue #708](https://github.com/aigengame/godot-agent/issues/708), and
+    [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md).
 - **Periodic Effect ([#596](https://github.com/aigengame/godot-agent/issues/596))**
   - Architecture consequence: Kept the Effect lifecycle in a Domain package and reused ordinary
     Runtime scheduling. Reachability includes scheduled Operations. Public traces record Formula
