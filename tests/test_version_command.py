@@ -77,3 +77,15 @@ def test_it_is_self_describing_and_on_the_surface():
     )
     assert entry["kind"] == "headless"
     assert "gda_version" in entry["output"]["properties"]
+
+
+def test_the_human_line_comes_from_the_payload_it_built(monkeypatch):
+    # The "one answer" property must rest on ONE value, not on two independent reads
+    # of the package metadata agreeing. Rendering a payload whose version differs from
+    # the installed distribution's proves the command renders what it was handed.
+    from gda.commands.meta import render_version
+    from gda.provenance import build_version_provenance
+
+    payload = build_version_provenance().model_copy(update={"gda_version": "9.9.9"})
+
+    assert render_version(payload) == "gda 9.9.9"

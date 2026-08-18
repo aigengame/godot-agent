@@ -29,7 +29,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.error_codes import ERROR_CODE_BY_CODE
 from gda.exit_codes import EXIT_USAGE
-from gda.hints import NEAR_MISSES, UNKNOWN_COMMAND, UNKNOWN_OPTION
+from gda.hints import CLI_NAME, NEAR_MISSES, UNKNOWN_COMMAND, UNKNOWN_OPTION
 from tests.support import GDA_CMD, plain_text
 
 
@@ -176,7 +176,7 @@ def test_every_curated_hint_names_a_real_invocation():
     # than sending an agent at a command that no longer exists.
     for key, miss in NEAR_MISSES.items():
         words = miss.use.split()
-        assert words[0] == "gda", (
+        assert words[0] == CLI_NAME, (
             f"{key}: a hint spells the full invocation: {miss.use}"
         )
         path = [w for w in words[1:] if not w.startswith(("-", "<"))]
@@ -192,18 +192,51 @@ def test_every_curated_hint_names_a_real_invocation():
 def test_every_group_in_the_live_tree_refuses_through_the_gda_class():
     # `adopt()` runs once in the composition root, so a group added later inherits the
     # refusal by being mounted — but only while the root really applies it to the whole
-    # tree. Walked from the live tree, the same authority `gda schema` projects from.
+    # tree. Walked from the live tree, the same authority `gda schema` projects from,
+    # and walked RECURSIVELY: gda's tree is two levels deep today, so a check that
+    # read only the root's own groups would pass while a nested sub-group escaped the
+    # interception entirely.
     from gda.hints import GdaGroup
+
+    def plain_groups(command, path):
+        subcommands = getattr(command, "commands", None)
+        if subcommands is None:
+            return []
+        found = [] if isinstance(command, GdaGroup) or not path else [" ".join(path)]
+        for name, sub in subcommands.items():
+            found.extend(plain_groups(sub, [*path, name]))
+        return found
 
     root = typer.main.get_command(app)
     assert isinstance(root, GdaGroup), type(root)
-    plain = [
-        name
-        for name, command in root.commands.items()
-        if getattr(command, "commands", None) is not None
-        and not isinstance(command, GdaGroup)
-    ]
+    plain = plain_groups(root, [])
     assert not plain, f"groups mounted without the gda group class: {plain}"
+
+
+def test_the_adoption_reaches_a_nested_sub_group():
+    # The negative sentinel for the walk above: a group mounted on a GROUP (not on the
+    # root) is the shape a flat adoption would miss, and the tree has none today — so
+    # the guard is proven on a tree built here rather than left untested until someone
+    # adds one.
+    from gda.hints import GdaGroup, adopt
+
+    inner = typer.Typer(name="inner")
+
+    @inner.command("leaf")
+    def _leaf() -> None:  # pragma: no cover - never invoked
+        """A leaf."""
+
+    middle = typer.Typer(name="middle")
+    middle.add_typer(inner, name="inner")
+    root = typer.Typer(name="root")
+    root.add_typer(middle, name="middle")
+
+    adopt(root)
+
+    built = typer.main.get_command(root)
+    assert isinstance(built, GdaGroup)
+    assert isinstance(built.commands["middle"], GdaGroup)
+    assert isinstance(built.commands["middle"].commands["inner"], GdaGroup)
 
 
 def test_both_refusal_codes_are_registered_at_the_usage_exit():
@@ -262,3 +295,39 @@ def test_an_incomplete_command_line_is_not_refused():
     name, command, rest = root.resolve_command(ctx, ["inspect", "--json"])
 
     assert command is None and name is None
+
+
+# --- the two arms that can meet the same mistake answer it identically ---------
+
+
+def _arms(mistake: list[str], *, json: bool) -> tuple:
+    """The same wrong command through the parser and through `gda help`."""
+    flag = ["--json"] if json else []
+    return (
+        CliRunner().invoke(app, [*mistake, *flag]),
+        CliRunner().invoke(app, ["help", *mistake, *flag]),
+    )
+
+
+def test_the_parser_and_help_arms_return_the_same_envelope():
+    # `gda help scene inspect` IS `gda scene inspect` — the same mistake, reached two
+    # ways — so the two must not describe it differently. They share one Refusal
+    # construction (`gda.hints.unknown_command`), which is what makes this hold
+    # verbatim rather than by two prose strings happening to agree.
+    parser, through_help = _arms(["scene", "inspect"], json=True)
+
+    assert parser.exit_code == through_help.exit_code == EXIT_USAGE
+    assert json.loads(parser.stdout) == json.loads(through_help.stdout)
+    assert json.loads(parser.stdout)["error"]["hint"] == "gda scene get"
+
+
+def test_the_parser_and_help_arms_share_the_human_channel_too():
+    # The CHANNEL must match as well as the words: without `--json` neither arm may
+    # print an envelope to stdout — an agent that asked for text gets text, and the
+    # correction rides the human error on stderr.
+    parser, through_help = _arms(["scene", "inspect"], json=False)
+
+    assert parser.exit_code == through_help.exit_code == EXIT_USAGE
+    for result in (parser, through_help):
+        assert not result.stdout.startswith("{"), result.stdout
+        assert "gda scene get" in plain_text(result.output)

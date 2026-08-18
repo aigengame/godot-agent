@@ -184,8 +184,10 @@ the operation understood and chose to report.
 _Avoid_: script error code, raw engine error
 
 **Classifier error code**:
-A `Gda error code` assigned by `gda` after classifying a runner, parser,
-version, crash, or fallback operation failure.
+A `Gda error code` assigned by `gda` itself rather than reported by an operation —
+after classifying a runner, parser, version, crash, or fallback operation failure,
+or before any operation is identified at all, when the invocation names no command
+or option gda has (#670).
 _Avoid_: wrapper error code, Python error code
 
 **Error envelope**:

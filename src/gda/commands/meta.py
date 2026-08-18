@@ -50,7 +50,7 @@ from gda.headless import (
     schema_command_class,
     schema_option,
 )
-from gda.hints import DISCOVERY, UNKNOWN_COMMAND, near_miss
+from gda.hints import CLI_NAME, refuse_unknown_command
 from gda.models import EngineVersion, SurfaceManifest
 from gda.provenance import (
     VersionProvenance,
@@ -238,13 +238,7 @@ def build_skill_result(
     return result.model_copy(update={"installed_path": target})
 
 
-# The name the help text addresses the CLI by. Fixed rather than read from the
-# process, so `gda help` reads the same under the console script and under
-# `python -m gda` (which names itself "python -m gda" in its own usage line).
-CLI_NAME = "gda"
-
-
-def build_help_result(app: typer.Typer, path: list[str]) -> "HelpResult | Failure":
+def build_help_result(app: typer.Typer, path: list[str]) -> "HelpResult":
     """Render the help of the command ``path`` names, or refuse the path.
 
     Walks the LIVE Typer command tree — the same authority ``gda schema`` projects
@@ -252,9 +246,10 @@ def build_help_result(app: typer.Typer, path: list[str]) -> "HelpResult | Failur
     produced by the command's own help renderer, so this adds no second rendering to
     keep in step with ``--help``.
 
-    A path that names nothing is the SAME refusal an unrecognized command gets at the
-    parser (``gda.hints``), curated hint included: `gda help scene inspect` is the
-    same mistake as `gda scene inspect`, so it must not get a different answer.
+    A path that names nothing does not return: `gda help scene inspect` is the SAME
+    mistake as `gda scene inspect`, so it is handed to the one refusal the parser uses
+    (``gda.hints.refuse_unknown_command``) — same sentence, same hint, same channel —
+    rather than described a second time here, where the two spellings would drift.
     """
     command = typer.main.get_command(app)
     walked: list[str] = []
@@ -265,19 +260,7 @@ def build_help_result(app: typer.Typer, path: list[str]) -> "HelpResult | Failur
         subcommands = getattr(command, "commands", None)
         target = subcommands.get(token) if subcommands is not None else None
         if target is None:
-            named = " ".join([CLI_NAME, *walked, token])
-            hit = near_miss(tuple(walked), token, on_group=False)
-            return make_failure(
-                UNKNOWN_COMMAND,
-                f"`{named}` is not a gda command"
-                + (
-                    f". Use `{hit.use}` instead: {hit.because}"
-                    if hit is not None
-                    else f"; {DISCOVERY}"
-                ),
-                "",
-                hint=hit.use if hit is not None else None,
-            )
+            refuse_unknown_command(tuple(walked), token)
         command = target
         walked.append(token)
         lineage.append(target)
@@ -352,10 +335,11 @@ def render_skill(skill: "SkillResult") -> str:
 def render_version(provenance: "VersionProvenance") -> str:
     """Render ``gda version`` as text: the one line the root ``--version`` prints.
 
-    The same one-liner, from the same builder, so the flag and the command are one
-    answer in both channels rather than two that can drift.
+    The same formatter, over the version carried by the payload THIS command built —
+    not a second read of the package metadata. The flag and the command are one answer
+    because they render one value, not because two independent reads agree.
     """
-    return render_version_line()
+    return render_version_line(provenance.gda_version)
 
 
 def render_help(help_result: "HelpResult") -> str:

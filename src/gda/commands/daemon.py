@@ -1,7 +1,7 @@
 """The ``daemon`` command group: gda's own per-project daemon lifecycle (ADR-0017).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, the four lifecycle operations (formerly ``gda.daemon_ops``),
+params/result models, the five lifecycle operations (formerly ``gda.daemon_ops``),
 its human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe
 channels and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
@@ -16,12 +16,13 @@ import paths (``gda.daemon.discovery``, ``gda.commands.daemon``), never a relati
 one, so the two stay distinct.
 
 The group is a deliberate extension of ADR-0005's domain-object grouping to an
-infrastructure object (gda-daemon), not a top-level meta singleton. start / stop /
-status / uninstall manage the daemon PROCESS, so — like ``export run`` — each runs
-a recipe rather than the sentinel pipeline: ``start`` gates the platform (live is
-UNIX-only, ADR-0021), performs the reported idempotent harness install (ADR-0018),
-spawns the detached daemon, and waits until it is accepting; ``stop`` asks it to
-shut down; ``status`` reports liveness from the pidfile.
+infrastructure object (gda-daemon), not a top-level meta singleton. None of its
+operations is a sentinel op, so — like ``export run`` — each runs a recipe:
+``start`` gates the platform (live is UNIX-only, ADR-0021), performs the reported
+idempotent harness install (ADR-0018), spawns the detached daemon, and waits until
+it is accepting; ``stop`` asks it to shut down; ``status`` reports liveness from
+the pidfile; and ``install`` / ``uninstall`` are the harness half of the lifecycle
+on their own — the same install ``start`` folds in, and its paired removal.
 """
 
 import os
@@ -30,6 +31,7 @@ import socket
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -431,10 +433,24 @@ def _await_gone(paths: DaemonPaths, pid: int, timeout: float = _STOP_TIMEOUT) ->
 _START_FAILED = "the gda-daemon did not start (it never began accepting on its socket)"
 
 
-def _restore_harness_install(
-    snapshot: HarnessSnapshot,
-) -> "tuple[str, ...] | OSError":
-    """Undo a failed harness install; the undone set, or the error that stopped it.
+@dataclass(frozen=True)
+class _RestoreOutcome:
+    """What undoing a failed harness install achieved, and what it left behind.
+
+    Exactly one of the two is meaningful: ``residue`` is the sentence naming the
+    rollback failure AND the paths still differing from their pre-install state (files
+    and created directories, measured off the snapshot); ``undone`` is what came back
+    when there was no such failure — empty when the operation had written nothing to
+    undo. Kept as one value so the two callers below decide only HOW to report it,
+    never how to phrase it.
+    """
+
+    undone: tuple[str, ...] = ()
+    residue: Optional[str] = None
+
+
+def _restore_harness_install(snapshot: HarnessSnapshot) -> _RestoreOutcome:
+    """Undo a failed harness install, and describe the outcome for the caller to report.
 
     Takes ONLY the snapshot: the restore must work for an operation that failed at any
     point after the snapshot was taken, including PART WAY THROUGH the install itself
@@ -444,12 +460,19 @@ def _restore_harness_install(
 
     Never raises: a restore failure must not replace the failure the caller is
     already reporting — it is reported ALONGSIDE it, as the mutation the user now has
-    to clean up by hand.
+    to clean up by hand. Measuring the residue must not throw either, so the whole
+    sentence is built here, once, for both ways it is reported.
     """
     try:
-        return snapshot.restore()
+        return _RestoreOutcome(undone=snapshot.restore())
     except OSError as exc:
-        return exc
+        return _RestoreOutcome(
+            residue=(
+                f"the harness install could NOT be rolled back ({exc}); these paths "
+                f"still differ from their pre-install state: "
+                f"{', '.join(snapshot.pending())}"
+            )
+        )
 
 
 def _note_failed_restore(exc: BaseException, snapshot: HarnessSnapshot) -> None:
@@ -457,18 +480,12 @@ def _note_failed_restore(exc: BaseException, snapshot: HarnessSnapshot) -> None:
 
     The exception arm shared by the two operations that install the harness
     (``daemon start`` and ``daemon install``): the ORIGINAL error stays the primary
-    failure, and only when the restore itself fails does the outcome — with the
-    measured residual paths — ride along as a note. Silently dropping them would hide
-    residue ADR-0018 requires reporting.
+    failure, and only when the restore itself fails does the residue ride along as a
+    note. Silently dropping it would hide residue ADR-0018 requires reporting.
     """
     outcome = _restore_harness_install(snapshot)
-    if isinstance(outcome, OSError):
-        pending = ", ".join(snapshot.pending())
-        exc.add_note(
-            f"additionally, the harness install could NOT be rolled back "
-            f"({outcome}); these paths still differ from their pre-install "
-            f"state: {pending}"
-        )
+    if outcome.residue is not None:
+        exc.add_note(f"additionally, {outcome.residue}")
 
 
 def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
@@ -476,24 +493,18 @@ def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
 
     Carries the harness install's fate in the ``diagnostics`` prose (ADR-0004 shape
     unchanged, no new error code): what was restored, or — when the restore itself
-    failed — the paths (files AND created directories) that still differ from their
-    pre-start state, measured off the snapshot rather than predicted from a receipt.
+    failed — the residue the same rollback reports to the exception arm above. The
+    two spellings of "what happened to the install" are one sentence, built once.
     """
     outcome = _restore_harness_install(snapshot)
-    if isinstance(outcome, OSError):
-        pending = ", ".join(snapshot.pending())
-        return make_failure(
-            "daemon_not_running",
-            _START_FAILED,
-            f"the harness install could NOT be rolled back ({outcome}); these paths "
-            f"still differ from their pre-start state: {pending}",
-        )
-    if not outcome:
+    if outcome.residue is not None:
+        return make_failure("daemon_not_running", _START_FAILED, outcome.residue)
+    if not outcome.undone:
         return make_failure("daemon_not_running", _START_FAILED, "")
     return make_failure(
         "daemon_not_running",
         _START_FAILED,
-        f"rolled back this start's harness install: {', '.join(outcome)}",
+        f"rolled back this start's harness install: {', '.join(outcome.undone)}",
     )
 
 
