@@ -39,6 +39,7 @@ func snapshot() -> Dictionary:
 	return {
 		"combatants": _combatants.duplicate(true),
 		"damage": _exchange.get("damage", {}).duplicate(true),
+		"mana_cost": _exchange.get("mana_cost", {}).duplicate(true),
 		"phase": _phase_name(),
 	}
 

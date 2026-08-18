@@ -17,6 +17,7 @@ var _initial: Dictionary = {}
 var _after_player: Dictionary = {}
 var _terminal: Dictionary = {}
 var _damage: Dictionary = {}
+var _mana_cost: Dictionary = {}
 var _provenance: Dictionary = {}
 
 
@@ -109,6 +110,7 @@ func admit_run_result(
 	_after_player = player_after.duplicate(true)
 	_terminal = terminal.duplicate(true)
 	_damage = {"enemy": int(enemy_damage), "player": int(player_damage)}
+	_mana_cost = {"enemy": int(enemy_cost), "player": int(player_cost)}
 	_provenance = _artifact_provenance(artifacts, trace, snapshots)
 	return {"ok": true}
 
@@ -122,6 +124,7 @@ func gameplay_values() -> Dictionary:
 		"after_player": _after_player.duplicate(true),
 		"damage": _damage.duplicate(true),
 		"initial": _initial.duplicate(true),
+		"mana_cost": _mana_cost.duplicate(true),
 		"terminal": _terminal.duplicate(true),
 	}
 
@@ -131,6 +134,7 @@ func feedback_record() -> Dictionary:
 		"damage": _damage.duplicate(true),
 		"id": _exchange_id,
 		"initial": _initial.duplicate(true),
+		"mana_cost": _mana_cost.duplicate(true),
 		"provenance": _provenance.duplicate(true),
 		"terminal": _terminal.duplicate(true),
 	}

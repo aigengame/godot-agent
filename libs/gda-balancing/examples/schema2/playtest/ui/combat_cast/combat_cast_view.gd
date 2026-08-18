@@ -23,6 +23,9 @@ const TIMING_KEYS: Array[String] = [
 	"COMBAT_TIMING_FAIR", "COMBAT_TIMING_FAST", "COMBAT_TIMING_UNCLEAR"
 ]
 const TIMING_VALUES: Array[String] = ["Fair", "Too fast", "Unclear"]
+const HEALTH_COLOR := Color("d64545")
+const MANA_COLOR := Color("3478d4")
+const RESOURCE_BACKGROUND_COLOR := Color("111d2d")
 
 var _controller: CombatCastController
 var _shell: PlaytestShell
@@ -89,6 +92,7 @@ func _build_arena(content: VBoxContainer) -> void:
 	_enemy_mana = enemy_panel["mana"]
 	_enemy_stats = enemy_panel["stats"]
 	_damage_result = _make_label("", 19, Color("ffd166"))
+	_damage_result.name = "ActionResult"
 	_damage_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(_damage_result)
 
@@ -114,20 +118,50 @@ func _combatant_panel(
 	block.custom_minimum_size = Vector2(180, 150)
 	block.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	column.add_child(block)
-	var health := ProgressBar.new()
-	health.name = block_name.trim_suffix("Block") + "Health"
-	health.max_value = 100
-	health.show_percentage = false
-	column.add_child(health)
-	var mana := ProgressBar.new()
-	mana.name = block_name.trim_suffix("Block") + "Mana"
-	mana.max_value = 100
-	mana.show_percentage = false
-	column.add_child(mana)
+	var resource_prefix := block_name.trim_suffix("Block")
+	var health := _resource_row(column, resource_prefix, "Health", "HP", HEALTH_COLOR)
+	var mana := _resource_row(column, resource_prefix, "Mana", "MP", MANA_COLOR)
 	var stats := _make_label("", 16, Color("dce7f7"))
 	stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(stats)
 	return {"block": block, "health": health, "mana": mana, "stats": stats}
+
+
+func _resource_row(
+	parent: VBoxContainer,
+	name_prefix: String,
+	resource_name: String,
+	label_text: String,
+	fill_color: Color,
+) -> ProgressBar:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	parent.add_child(row)
+	var label := _make_label(label_text, 14, Color("dce7f7"))
+	label.name = name_prefix + resource_name + "Label"
+	label.custom_minimum_size.x = 28
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(label)
+	var bar := ProgressBar.new()
+	bar.name = name_prefix + resource_name
+	bar.max_value = 100
+	bar.show_percentage = false
+	bar.custom_minimum_size.y = 20
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.add_theme_stylebox_override("background", _bar_style(RESOURCE_BACKGROUND_COLOR))
+	bar.add_theme_stylebox_override("fill", _bar_style(fill_color))
+	row.add_child(bar)
+	return bar
+
+
+func _bar_style(color: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.corner_radius_top_left = 4
+	style.corner_radius_top_right = 4
+	style.corner_radius_bottom_left = 4
+	style.corner_radius_bottom_right = 4
+	return style
 
 
 func _build_feedback(content: VBoxContainer) -> void:
@@ -178,11 +212,15 @@ func _render(state: Dictionary) -> void:
 			_damage_result.text = ""
 			_shell.show_play(progress, tr("COMBAT_CAST_PROMPT"), tr("COMBAT_ACTION_CAST"))
 		"player_resolved":
-			_damage_result.text = tr("COMBAT_PLAYER_HIT") % int(state["damage"]["player"])
+			_damage_result.text = tr("COMBAT_PLAYER_HIT") % [
+				int(state["damage"]["player"]), int(state["mana_cost"]["player"])
+			]
 			_shell.show_play(progress, tr("COMBAT_COUNTER_PROMPT"), tr("COMBAT_ACTION_COUNTER"))
 			_pulse(_enemy_block)
 		"enemy_resolved":
-			_damage_result.text = tr("COMBAT_ENEMY_HIT") % int(state["damage"]["enemy"])
+			_damage_result.text = tr("COMBAT_ENEMY_HIT") % [
+				int(state["damage"]["enemy"]), int(state["mana_cost"]["enemy"])
+			]
 			_shell.show_play(progress, tr("COMBAT_EXCHANGE_RESOLVED"), tr("COMBAT_ACTION_CONTINUE"))
 			_pulse(_player_block)
 		"exchange_complete":

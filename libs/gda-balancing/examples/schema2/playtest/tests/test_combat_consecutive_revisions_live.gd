@@ -76,6 +76,10 @@ func _run() -> void:
 		first["gameplay"]["damage"] == {"enemy": 14, "player": 37},
 		"first exchange returns the maintained reciprocal damage",
 	)
+	_expect(
+		first["gameplay"].get("mana_cost", {}) == {"enemy": 7, "player": 9},
+		"first exchange returns the maintained reciprocal mana cost",
+	)
 
 	var revised: Dictionary = documents.experiment_from_terminal(
 		first["terminal"]

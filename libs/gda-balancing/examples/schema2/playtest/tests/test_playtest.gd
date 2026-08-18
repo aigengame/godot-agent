@@ -149,9 +149,14 @@ func _test_combat_duel() -> void:
 				"player_mana": 26,
 			},
 			"damage": {"enemy": 14, "player": 37},
+			"mana_cost": {"enemy": 7, "player": 9},
 		}
 	)
 	_expect(duel.snapshot()["phase"] == "before_exchange", "duel starts ready")
+	_expect(
+		duel.snapshot()["mana_cost"] == {"enemy": 7, "player": 9},
+		"duel presents validated mana costs",
+	)
 	duel.primary_action()
 	_expect(
 		duel.snapshot()["combatants"]["enemy_health"] == 63,
