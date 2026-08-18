@@ -1007,6 +1007,58 @@ def test_script_validate_all_validates_every_script_in_the_project(tmp_path):
 
 
 @pytest.mark.e2e
+def test_script_validate_batch_reports_a_repeated_path_once_per_occurrence(tmp_path):
+    # The documented duplicate behaviour, and it needs a REAL engine: each compile
+    # calls `GDScript.take_over_path(path)`, so a repeated path claims the same
+    # res:// cache slot twice inside one process. Whether the engine tolerates that
+    # — and still reports the same verdict and the same diagnostic the second time
+    # — is exactly what a fake runner cannot vouch for. It must, because gda
+    # promises entry i corresponds to argument i and so never deduplicates.
+    project = _batch_project(tmp_path)
+    gda = _gda_project(project)
+
+    validated = gda(
+        "script", "validate", "res://bad.gd", "res://a.gd", "res://bad.gd", "--json"
+    )
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    assert validated.stderr.count("running operation: script-validate") == 1
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    assert [entry["path"] for entry in data["scripts"]] == [
+        "res://bad.gd",
+        "res://a.gd",
+        "res://bad.gd",
+    ]
+    assert [entry["valid"] for entry in data["scripts"]] == [False, True, False]
+    # Both occurrences carry the SAME verdict and the SAME diagnostic: the second
+    # take_over_path did not degrade the compile into a different answer.
+    assert data["scripts"][0] == data["scripts"][2]
+    assert data["scripts"][0]["diagnostics"][0]["line"] == 3
+    assert data["scripts"][1]["diagnostics"] == []
+
+
+@pytest.mark.e2e
+def test_script_validate_all_on_a_project_with_no_scripts_is_vacuously_valid(tmp_path):
+    # The empty-batch edge of project mode: a project holding no .gd at all is a
+    # successful, EMPTY listing with a vacuously true aggregate — not a failure and
+    # not a false negative. Same reading as `script list` on an empty project.
+    project = tmp_path / "bare"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-bare"), encoding="utf-8"
+    )
+
+    validated = _gda_project(project)("script", "validate", "--all", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["scripts"] == []
+    assert data["valid"] is True
+    assert data["project_root"] == str(project)
+
+
+@pytest.mark.e2e
 def test_script_validate_refuses_a_batch_that_spans_two_projects(tmp_path):
     # ADR-0006's one resolved project, applied to the whole batch: a batch whose
     # paths span projects is refused before anything is compiled, rather than

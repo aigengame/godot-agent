@@ -488,7 +488,7 @@ class ScriptDiagnostic(BaseModel):
     message: str
 
 
-def resolve_validate_targets(paths: list[str], all_scripts: bool) -> None:
+def check_validate_selection(paths: list[str], all_scripts: bool) -> None:
     """Check ``script validate``'s target selection: a batch OR the whole project (#663).
 
     The single home of the rule, shared by the params model and the argv wrapper
@@ -496,8 +496,12 @@ def resolve_validate_targets(paths: list[str], all_scripts: bool) -> None:
     Exactly one selector must be given: at least one PATH, or ``--all``. Raises
     ``ValueError`` on a violation — the argv wrapper turns it into a Click usage
     error (exit 2), while the model surfaces it as the structured
-    ``invalid_params`` for ``--params-json`` (the same split
-    :func:`resolve_set_mode` uses).
+    ``invalid_params`` for ``--params-json``. That two-surfacing split is
+    :func:`resolve_set_mode`'s; the naming is deliberately NOT, because this only
+    CHECKS. ``script set`` has three flag combinations collapsing to one mode, so
+    there is something to resolve and return; here the two selectors are already
+    the answer the operation runs on, and inventing a value to hand back would be
+    ceremony.
 
     Both violations are worth naming separately. NEITHER is the unset-variable
     shape (``gda script validate $SCRIPTS`` with nothing to expand), which would
@@ -527,7 +531,7 @@ class ScriptValidateParams(BaseModel):
     resolved project's ``res://`` tree and validates that set instead, so it needs
     a resolved project (``project_not_found`` otherwise, exactly as ``script
     list`` does). Exactly one of the two selectors is given
-    (:func:`resolve_validate_targets`).
+    (:func:`check_validate_selection`).
 
     A path given twice is validated twice and reported twice: gda never silently
     drops an input, so result entry *i* always corresponds to requested path *i*.
@@ -563,7 +567,7 @@ class ScriptValidateParams(BaseModel):
     def _one_selector(self) -> "ScriptValidateParams":
         # Model-side (ADR-0015) so the --params-json route refuses an empty or
         # contradictory selection as structured invalid_params, not just argv.
-        resolve_validate_targets(list(self.paths), self.all_scripts)
+        check_validate_selection(list(self.paths), self.all_scripts)
         return self
 
 
@@ -1523,8 +1527,14 @@ def _render_captured_errors(stderr: str) -> str:
 # The backtrace frames under it (`[n] _op_script_validate (…/operations.gd:…)`)
 # are gda's OWN payload lines, not the validated script's — they carry a line
 # number too — so requiring the literal `GDScript::reload` is what keeps them out.
+#
+# `\r` joins the trailing character class for the same reason the marker below
+# tolerates one: on Windows the engine's C runtime writes stderr in TEXT mode, so
+# every `\n` reaches gda as `\r\n`, and the runner decodes raw bytes with no
+# newline translation (a locale-aware decode would mojibake a non-ASCII path,
+# #33). Without it the captured message ended in a stray `\r` on that platform.
 _SCRIPT_ERROR_LINE = re.compile(
-    r"^[ \t]*SCRIPT ERROR:[ \t]*(?P<message>.*?)[ \t]*$", re.MULTILINE
+    r"^[ \t]*SCRIPT ERROR:[ \t]*(?P<message>.*?)[ \t\r]*$", re.MULTILINE
 )
 _RELOAD_FRAME = re.compile(r"GDScript::reload \([^)]*:(?P<line>\d+)\)")
 
@@ -1537,12 +1547,22 @@ _RELOAD_FRAME = re.compile(r"GDScript::reload \([^)]*:(?P<line>\d+)\)")
 # that frame's spelling is the engine's, and gda would have to guess how the engine
 # renders whatever address it was handed (``res://``, absolute, relative) to match
 # it back. The marker is gda's own text, written by gda, in the order gda asked for
-# — so attribution needs no agreement about path spellings at all. Both sides of
-# this spelling are pinned by a test, since they live in different languages.
+# — so attribution needs no agreement about path spellings at all.
+#
+# This is the Python half of a cross-language constant: ``operations.gd`` composes
+# the same line from its ``DIAG_PREFIX`` and ``VALIDATE_MARKER`` consts, and a test
+# pins this string against those two VALUES (not against the call site that writes
+# them), the way the harness's ``LOG_MARKER`` is mirrored.
 VALIDATE_MARKER_PREFIX = "gda: validating: "
 
+# `\r?$` (not a bare `$`) because the path is CAPTURED and then compared for
+# equality: on Windows every engine line arrives as `\r\n` (see the note on
+# `_SCRIPT_ERROR_LINE` above), and a `\r` swallowed into the capture makes the
+# attribution guard reject every verdict — which reported empty diagnostics for
+# every validate on that platform rather than misattributing anything. The lazy
+# `.*?` is what lets the optional `\r` be the one to consume it.
 _VALIDATE_MARKER = re.compile(
-    rf"^{re.escape(VALIDATE_MARKER_PREFIX)}(?P<path>.*)$", re.MULTILINE
+    rf"^{re.escape(VALIDATE_MARKER_PREFIX)}(?P<path>.*?)\r?$", re.MULTILINE
 )
 
 
@@ -1628,21 +1648,30 @@ def classify_script_validate(
     each script's own to its own verdict.
 
     Attribution is POSITIONAL — the engine emits its markers and its verdicts in
-    the same order — and guarded by the path the marker carries. The guard is what
-    keeps the failure mode safe rather than wrong: if the stream ever desynchronizes
-    (a path containing a newline splits into a phantom marker, say), the mismatched
-    entry keeps its empty advisory ``diagnostics`` instead of inheriting another
-    script's errors. The authoritative verdict is the engine's ``valid`` either way.
+    the same order — under TWO guards, and both are needed because a duplicate
+    path defeats either one alone:
+
+    - the **count** must match. The op writes exactly one marker per verdict, so a
+      different number of segments means the stream is not the one this result came
+      from: a path containing a newline has split into a phantom marker, or output
+      was lost. A shift of one is invisible to a path check when the same script
+      appears twice in the batch (``a.gd b.gd a.gd``), which is a supported input.
+    - each segment's **path** must equal the verdict's. This catches a
+      substitution that keeps the count, and it is what a mismatch degrades to.
+
+    A failed guard leaves the affected entries with their empty advisory
+    ``diagnostics`` rather than another script's errors — wrong evidence about a
+    named file is worse than none. The authoritative verdict is the engine's
+    ``valid`` either way, which no guard here can change.
     """
     outcome = classify_run(result, binary, ScriptValidateResult)
     if isinstance(outcome, Failure):
         return outcome
     segments = parse_validate_segments(result.stderr)
-    for index, script in enumerate(outcome.scripts):
-        if script.valid or index >= len(segments):
-            continue
-        path, diagnostics = segments[index]
-        if path == script.path:
+    if len(segments) != len(outcome.scripts):
+        return outcome
+    for script, (path, diagnostics) in zip(outcome.scripts, segments):
+        if not script.valid and path == script.path:
             script.diagnostics = diagnostics
     return outcome
 
@@ -1754,14 +1783,15 @@ def render_script_validate(validated: "ScriptValidateResult") -> str:
             lines.insert(1, f"  project: {_render_project_root(validated)}")
         return "\n".join(lines)
 
+    # Two or more from here on: the single-script form returned above, so the
+    # plural is unconditional.
     total = len(validated.scripts)
-    noun = "script" if total == 1 else "scripts"
     if validated.valid:
-        lines = [f"valid ({total} {noun})"]
+        lines = [f"valid ({total} scripts)"]
     else:
         failed = sum(1 for script in validated.scripts if not script.valid)
         lines = [
-            f"invalid ({failed} of {total} {noun})",
+            f"invalid ({failed} of {total} scripts)",
             f"  project: {_render_project_root(validated)}",
         ]
     for script in validated.scripts:
@@ -2249,7 +2279,7 @@ def validate_script(
     """
     targets = list(paths or [])
     try:
-        resolve_validate_targets(targets, all_scripts)
+        check_validate_selection(targets, all_scripts)
     except ValueError as exc:
         # The argv half of the shared rule: a Click usage error (exit 2) keeps the
         # command-line ergonomics, while --params-json gets the same rule as the

@@ -75,6 +75,20 @@ const OP_ERROR_INVALID_KEY := "invalid_key"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
+# The prefix every gda diagnostic line carries on stderr (see _diag), so a reader
+# can tell gda's own lines from the engine's. A const rather than an inline
+# literal because one diagnostic — VALIDATE_MARKER below — is PARSED by gda, not
+# merely displayed, which makes this prefix half of a cross-language contract.
+const DIAG_PREFIX := "gda: "
+
+# The per-script delimiter script-validate writes before each compile (#663), so
+# gda can attribute a batch's advisory stderr diagnostics to individual files.
+# The full line is DIAG_PREFIX + this + the script path, and that composition is
+# mirrored Python-side by gda.commands.script.VALIDATE_MARKER_PREFIX. A test pins
+# these two VALUES against that constant, so the contract survives any change to
+# how or where the line is written.
+const VALIDATE_MARKER := "validating: "
+
 # The project-info settings (issue #111), read with a default so a project that
 # never wrote them still reports a sensible value rather than failing: a new
 # Godot 4 project has no explicit main_scene and inherits viewport defaults.
@@ -1596,7 +1610,7 @@ func _op_script_validate(params: Dictionary) -> void:
 	for path in paths:
 		# The per-script delimiter gda splits the engine's stderr on, so each
 		# script's advisory diagnostics are attributed to it and not to the batch.
-		_diag("validating: " + path)
+		_diag(VALIDATE_MARKER + path)
 		var source: Variant = _read_script_source(path)
 		if source == null:
 			return  # _read_script_source already recorded the failure
@@ -1627,8 +1641,31 @@ func _op_script_validate(params: Dictionary) -> void:
 # every .gd in the project under `all_scripts` (#663). Returns null after recording
 # the failure (the caller must stop), so the two selectors' error handling stays
 # out of the operation body.
+#
+# EXACTLY ONE selector, enforced here as well as at the CLI. gda's own CLI refuses
+# a contradictory selection before it ever reaches the engine, so this arm is not
+# reachable through `gda script validate` — but the op is a contract in its own
+# right (ADR-0002), and a contract that documents "both is a contradiction, not a
+# precedence question" must not quietly pick a winner when both arrive. Silently
+# discarding a caller's explicit `paths` because `all_scripts` was also set would
+# report a verdict for a set they did not ask for.
+#
+# The refusals split by WHAT is wrong, so the codes mean the same thing on both
+# sides of the wire: a params SHAPE problem — a non-array `paths`, a non-string
+# entry, both selectors, or neither — is invalid_params, the same code the Python
+# model reports for the identical selections; a path VALUE problem (an empty
+# string, which is a well-typed path naming nothing) is invalid_path, like every
+# other unusable path in this file.
 func _validate_target_paths(params: Dictionary) -> Variant:
-	if bool(params.get("all_scripts", false)):
+	var requested: Variant = params.get("paths", [])
+	if not (requested is Array):
+		_fail(OP_ERROR_INVALID_PARAMS, "paths must be a JSON array of .gd script paths")
+		return null
+	var all_scripts := bool(params.get("all_scripts", false))
+	if all_scripts and not (requested as Array).is_empty():
+		_fail(OP_ERROR_INVALID_PARAMS, "paths and all_scripts are mutually exclusive: all_scripts already covers every script in the project")
+		return null
+	if all_scripts:
 		if not _has_project():
 			_fail(OP_ERROR_PROJECT_NOT_FOUND, "script validate --all requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 			return null
@@ -1639,18 +1676,17 @@ func _validate_target_paths(params: Dictionary) -> Variant:
 		found.sort()
 		return found
 
-	var requested: Variant = params.get("paths", [])
-	if not (requested is Array):
-		_fail(OP_ERROR_INVALID_PARAMS, "paths must be a JSON array of .gd script paths")
-		return null
 	var paths: Array[String] = []
 	for entry in requested:
-		if not (entry is String) or String(entry).is_empty():
-			_fail(OP_ERROR_INVALID_PATH, "each path must be a non-empty .gd script path")
+		if not (entry is String):
+			_fail(OP_ERROR_INVALID_PARAMS, "each entry of paths must be a string: " + str(entry))
+			return null
+		if String(entry).is_empty():
+			_fail(OP_ERROR_INVALID_PATH, "script path must not be empty")
 			return null
 		paths.append(entry)
 	if paths.is_empty():
-		_fail(OP_ERROR_INVALID_PATH, "missing required param: paths (or all_scripts)")
+		_fail(OP_ERROR_INVALID_PARAMS, "give at least one path, or set all_scripts")
 		return null
 	return paths
 
@@ -5349,7 +5385,7 @@ func _succeed(payload: Dictionary) -> void:
 
 
 func _diag(message: String) -> void:
-	printerr("gda: " + message)
+	printerr(DIAG_PREFIX + message)
 
 
 # Record a structured failure through the ADR-0002 sentinel contract. The

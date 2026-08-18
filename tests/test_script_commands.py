@@ -7,6 +7,8 @@ parse → typed model → JSON — with canned engine output, no real Godot.
 """
 
 import json
+import re
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -1302,21 +1304,96 @@ def test_script_validate_batch_human_output_leads_with_the_aggregate(monkeypatch
     ]
 
 
-def test_script_validate_marker_is_the_one_operations_gd_emits():
-    # The cross-language half of the per-file attribution: the Python parser splits
-    # the engine's stderr on a marker `operations.gd` writes, so the two spellings
-    # must not drift apart silently (#650's guard tier, extended to this contract).
-    from pathlib import Path
+# The two `operations.gd` consts the per-file marker is composed from. Matched the
+# way every other cross-language mirror in this repo is (cf. `HARNESS_LOG_MARKER`
+# in tests/test_error_registry.py): extract the const's VALUE, so the pin survives
+# any change to how or where the line is written and fails only when the CONTRACT
+# moves.
+_OPERATIONS_DIAG_PREFIX = re.compile(r'^const DIAG_PREFIX := "(.*)"$', re.MULTILINE)
+_OPERATIONS_VALIDATE_MARKER = re.compile(
+    r'^const VALIDATE_MARKER := "(.*)"$', re.MULTILINE
+)
 
-    from gda.commands.script import VALIDATE_MARKER_PREFIX
 
+def _operations_const(pattern: re.Pattern[str], name: str) -> str:
     operations = (
         Path(__file__).resolve().parents[1] / "src" / "gda" / "ops" / "operations.gd"
     )
+    match = pattern.search(operations.read_text(encoding="utf-8"))
+    assert match is not None, f"{name} const missing from operations.gd"
+    return match.group(1)
 
-    assert f'_diag("{VALIDATE_MARKER_PREFIX.removeprefix("gda: ")}" + path)' in (
-        operations.read_text(encoding="utf-8")
+
+def test_validate_marker_mirrors_the_operations_gd_consts():
+    # The cross-language half of the per-file attribution: the engine WRITES the
+    # marker and Python READS it, so a drift in either spelling silently empties
+    # every batch's diagnostics. The engine composes the line from two consts and
+    # Python holds the composed prefix; this pins the composition.
+    from gda.commands.script import VALIDATE_MARKER_PREFIX
+
+    prefix = _operations_const(_OPERATIONS_DIAG_PREFIX, "DIAG_PREFIX")
+    marker = _operations_const(_OPERATIONS_VALIDATE_MARKER, "VALIDATE_MARKER")
+
+    assert prefix + marker == VALIDATE_MARKER_PREFIX
+
+
+def test_validate_marker_is_recognised_by_the_parser_it_feeds():
+    # The behavioural half of the same contract: the composed line the engine emits
+    # is one the segment parser actually splits on. The equality above pins the
+    # spelling; this pins that the spelling is the one the regex accepts, so a
+    # future change to the pattern (an anchor, an escape) cannot pass the mirror
+    # check while failing on real output.
+    from gda.commands.script import parse_validate_segments
+
+    prefix = _operations_const(_OPERATIONS_DIAG_PREFIX, "DIAG_PREFIX")
+    marker = _operations_const(_OPERATIONS_VALIDATE_MARKER, "VALIDATE_MARKER")
+
+    segments = parse_validate_segments(f"{prefix}{marker}res://a.gd\n")
+
+    assert [path for path, _ in segments] == ["res://a.gd"]
+
+
+def test_script_validate_attribution_is_dropped_when_the_stream_desynchronizes(
+    monkeypatch,
+):
+    # The count guard, and it is a DEFENSIVE invariant rather than a fix for a
+    # reachable defect: the op writes exactly one marker per verdict, so a stream
+    # carrying a different number of them is not the stream this result came from.
+    # Checking it makes such a stream degrade WHOLESALE — no advisory diagnostics
+    # at all — instead of attaching the leading segments that happen to line up and
+    # silently dropping the rest, which is a half-answer no reader can tell from a
+    # complete one. The per-path guard stays: it is the one that catches a
+    # substitution which keeps the count. The engine's `valid` is untouched either
+    # way, so nothing about the verdict itself depends on this.
+    stderr = (
+        "gda: validating: /tmp/proj/a.gd\n"
+        "SCRIPT ERROR: Parse Error: bad a\n"
+        "   at: GDScript::reload (/tmp/proj/a.gd:3)\n"
+        "gda: validating: /tmp/proj/b.gd\n"
+        "SCRIPT ERROR: Parse Error: bad b\n"
+        "   at: GDScript::reload (/tmp/proj/b.gd:4)\n"
+        "gda: validating: /tmp/proj/unexpected.gd\n"
     )
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(
+                _broken("/tmp/proj/a.gd"), _broken("/tmp/proj/b.gd")
+            ),
+            stderr=stderr,
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "/tmp/proj/a.gd", "/tmp/proj/b.gd", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["valid"] is False
+    assert [entry["valid"] for entry in data["scripts"]] == [False, False]
+    assert [entry["diagnostics"] for entry in data["scripts"]] == [[], []]
 
 
 def test_script_validate_attributes_diagnostics_over_a_crlf_stream(monkeypatch):
