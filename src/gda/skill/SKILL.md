@@ -104,10 +104,9 @@ and re-read the verdict.
   (no Godot spawned), plus `argv`: how each parameter is written on a command line
   (`kind` positional or option, its `position` or `--option` spelling, whether it is
   `required`, a valueless `flag`, `multiple` — repeat it per value — or a
-  `json_value` — one token carrying the value's JSON). Every required input property
-  has a binding, so build the command line from `argv`; `input_property` links a
-  binding back to the property it fills, and is null for the two flags that rename
-  it (`project list --all`, `skill --dir`).
+  `json_value` — one token carrying the value's JSON). Build the command line from
+  `argv`; `input_property` links each binding to the input property it fills, and is
+  null where a flag's spelling renames it.
 - `gda schema` — the **whole** surface as one JSON manifest, `argv` included.
 - `gda version --json` — which `gda` is installed and where from; `gda info` — the
   engine's version.

@@ -239,39 +239,18 @@ def command_argv_bindings(
     The one place a command's argv form is derived, shared by the per-command
     ``--schema`` here and the aggregate manifest builder (``gda.surface``) so the
     two forms cannot drift — the same shape :func:`command_constraints` gives the
-    live-stack precondition.
+    live-stack precondition. The rationale, the boundaries and the case inventory
+    live in the ADR-0004 amendment (#669); this is the derivation.
 
-    The **live Typer/Click signature is the source**, read at emission time: a
-    spelling table on the descriptor would be a second authority for a fact the
-    signature already owns, which is the parallel registry ADR-0023 §2 rejects.
-    Reading the registered parameters also makes the projection correct on every
-    dispatch channel at once — the sentinel path, the EXPORT / LIVE kinds and the
-    recipe commands all register the same way, whatever runs them afterwards.
-
-    What counts as an *operation parameter* reuses a rule this module already
-    owns rather than restating it: :data:`_GLOBAL_OPTION_NAMES` is the same set
-    ``--params-json`` treats as cross-cutting rather than operational (ADR-0015).
-    A parameter Click does not expose is skipped as well — none exists on today's
-    surface (Click appends its own ``--help`` in ``get_params``, not here), so
-    that arm is a guard against a future unexposed parameter, which by definition
-    reaches no params model.
-
-    The projection is therefore the argv form of the operation parameters, NOT a
-    one-to-one image of ``input``: every REQUIRED property has a binding (a
-    registration test holds that), while a few optional properties are computed
-    from the CLI rather than typed (``script set``'s ``mode`` comes from
-    ``--replace`` / ``--search``) or named differently by their flag.
+    Which parameters are operational reuses a rule this module already owns:
+    :data:`_GLOBAL_OPTION_NAMES`, the same set ``--params-json`` treats as
+    cross-cutting (ADR-0015). The ``expose_value`` arm has no case on today's
+    surface — Click appends its own ``--help`` in ``get_params``, not here — and
+    guards a future unexposed parameter, which by definition reaches no params
+    model.
 
     Click is duck-typed through ``getattr``, as the surface walker does: it is a
     transitive dependency through Typer, not a direct one.
-
-    ``input_property`` is derived, not declared: the emitted property of the same
-    name if there is one, else the one the long option spells (``--type`` fills
-    ``type`` though the Python parameter is ``node_type``), else ``None``. The two
-    nulls on today's surface are flags whose spelling renames the property
-    (``project list --all`` fills ``include_defaults``, ``skill --dir`` fills
-    ``install_dir``); guessing past that would be worse than the honest null,
-    since a wrong link reads as authoritative.
     """
     properties = input_model.model_json_schema().get("properties", {})
     bindings: list[ArgvBinding] = []
@@ -328,17 +307,12 @@ def _takes_a_json_value(
 ) -> bool:
     """Whether the parameter's one token is the property's JSON encoding (#669).
 
-    A compound property (an array or object) reaches argv one of two ways: as a
-    REPEATED token, which ``multiple`` already tells the caller, or as a single
-    token carrying its JSON — the shape ``gda input sequence --events`` uses. The
-    second is invisible in the binding otherwise: the property says ``array``, so
-    an agent writing one token per element would build a command line the parser
-    rejects, which is the encoding half of the argv problem this key answers.
-
-    Derived from the two facts already in hand — the linked property's type and
-    whether the parameter repeats — so no command declares it. ``False`` when the
-    parameter has no property link: unknown, and a wrong ``true`` here would send
-    a caller to encode a plain string.
+    A compound property reaches argv as a REPEATED token, which ``multiple``
+    already reports, or as a single token carrying its JSON. ``False`` without a
+    property link: unknown, and a wrong ``true`` would send a caller to encode a
+    plain string. Reads a DECLARED ``type`` only, so a compound behind an
+    ``anyOf`` is not seen — no case exists, and a registration test fails if one
+    appears (``tests/test_schema_command.py``).
     """
     spec = properties.get(bound or "")
     if not isinstance(spec, dict) or multiple:

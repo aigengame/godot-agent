@@ -1868,3 +1868,53 @@ def test_schema_argv_marks_a_json_encoded_value():
     # NOT a JSON value; nor is a plain scalar.
     assert _argv(["input", "key"])["modifiers"]["json_value"] is False
     assert _argv(["screen", "capture"])["output"]["json_value"] is False
+
+
+def _is_compound(spec: dict) -> bool:
+    """Whether a property schema is an array/object, INCLUDING behind an anyOf."""
+    if spec.get("type") in ("array", "object"):
+        return True
+    branches = spec.get("anyOf") or spec.get("oneOf") or []
+    return any(_is_compound(branch) for branch in branches if isinstance(branch, dict))
+
+
+def test_no_parameter_needs_a_json_value_the_derivation_cannot_see():
+    # `json_value` is derived from the LINKED property's declared `type`, so it
+    # sees a bare `array`/`object` but not one behind an `anyOf` — the shape a
+    # nullable compound (`array | null`) takes. Such a parameter would silently
+    # publish `json_value: false` and send an agent to write its value as a plain
+    # token. None exists today, so the derivation is deliberately left narrow; this
+    # fails the moment one appears, forcing the extension rather than a wrong
+    # binding. Same guard shape as the unsupported-Click-shapes test above.
+    import typer as _typer
+
+    from gda.headless import command_argv_bindings
+
+    invisible: list[str] = []
+
+    def walk(command, path):
+        subcommands = getattr(command, "commands", None)
+        if subcommands is not None:
+            for name, subcommand in subcommands.items():
+                walk(subcommand, [*path, name])
+            return
+        input_model = getattr(command, "gda_input_model", None)
+        if input_model is None:
+            return
+        properties = input_model.model_json_schema().get("properties", {})
+        for binding in command_argv_bindings(command, input_model):
+            spec = properties.get(binding.input_property or "")
+            if not isinstance(spec, dict) or binding.multiple or binding.json_value:
+                continue
+            if _is_compound(spec):
+                invisible.append(f"{' '.join(path)}: {binding.name}")
+
+    walk(_typer.main.get_command(app), [])
+    assert not invisible, (
+        "compound properties taking one token that json_value cannot see:\n"
+        + "\n".join(invisible)
+    )
+    # …and the detector is not blind: it recognizes the nullable-compound shape it
+    # is meant to catch, so passing above means absence, not a broken predicate.
+    assert _is_compound({"anyOf": [{"type": "array"}, {"type": "null"}]})
+    assert not _is_compound({"type": "string"})

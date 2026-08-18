@@ -389,9 +389,10 @@ def test_argv_metadata_cannot_reach_the_two_schema_halves_gda_mcp_maps():
 
     root = typer.main.get_command(app)
     checked = 0
+    with_bindings = 0
 
     def walk(command, path):
-        nonlocal checked
+        nonlocal checked, with_bindings
         subcommands = getattr(command, "commands", None)
         if subcommands is not None:
             for name, subcommand in subcommands.items():
@@ -407,14 +408,18 @@ def test_argv_metadata_cannot_reach_the_two_schema_halves_gda_mcp_maps():
             output_model,
             argv=command_argv_bindings(command, input_model),
         )
-        assert bound.argv == [] or bound.argv, path
         assert bound.input == bare.input, path
         assert bound.output == bare.output, path
         assert bound.error == bare.error, path
         checked += 1
+        with_bindings += 1 if bound.argv else 0
 
     walk(root, [])
     assert checked > 60, checked
+    # …and the comparison is not vacuous: most of those commands really do carry
+    # bindings, so the halves matched DESPITE the bindings being emitted, not
+    # because there were none to leak.
+    assert with_bindings > 40, with_bindings
 
 
 def test_self_described_manifest_describes_the_argv_binding_list():

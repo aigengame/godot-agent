@@ -236,17 +236,10 @@ class ArgvBinding(BaseModel):
     """How ONE operation parameter is spelled on the command line (#669).
 
     The missing half of a command's self-description: ``input`` says WHAT a
-    command needs, this says HOW to write it as argv. Without it an agent knew
-    ``screen capture`` requires an ``output`` but not that it is spelled
-    ``--output``, and that ``input action`` takes its action POSITIONALLY and
-    rejects ``--action`` — so every new command cost a ``--help`` round trip or a
-    failed invocation (dogfooding GDA-DF-003).
-
-    Every field is derived from the live Typer/Click parameter at emission time
-    (ADR-0012's live-tree walk, ADR-0023 §2's "projections, not parallel
-    registries"), never declared on the command descriptor: a hand-maintained
-    spelling table would be a second source of truth for a fact the Typer
-    signature already owns.
+    command needs, this says HOW to write it as argv. Derived from the live
+    Typer/Click parameter at emission time
+    (:func:`gda.headless.command_argv_bindings`); the rationale, the boundaries
+    and the case inventory are the ADR-0004 amendment (#669).
 
     Reading it: ``kind`` picks the spelling rule — a positional goes at
     ``position`` (0-based, among positionals only), a named one is written as
@@ -256,11 +249,6 @@ class ArgvBinding(BaseModel):
     property's JSON encoding rather than a plain scalar. ``required`` is the
     DECLARED requirement, unaffected by the relaxed parse ``--schema`` itself uses
     (issue #36).
-
-    The list is the argv form of a command's operation parameters, not a
-    one-to-one image of ``input``: every required property has a binding, while an
-    optional property the CLI computes from flags rather than takes directly (a
-    mode selected by ``--replace`` / ``--search``) has none.
     """
 
     model_config = ConfigDict(extra="forbid")

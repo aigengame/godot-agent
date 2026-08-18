@@ -156,7 +156,8 @@ status: accepted
 > authoritative. The projection is the argv form of the operation parameters, not a
 > one-to-one image of `input`: every REQUIRED property has a binding, held by a
 > test, while an optional property the CLI computes from flags rather than takes
-> directly (`script set`'s `mode`, from `--replace` / `--search`) has none. On the
+> directly (`script set`'s and `shader set`'s `mode`, from `--replace` /
+> `--search`) has none. On the
 > aggregate entry the `argv` key is required, its list possibly empty — the same
 > "key always present" guarantee `constraints` has.
 
