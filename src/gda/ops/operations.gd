@@ -89,6 +89,15 @@ const DIAG_PREFIX := "gda: "
 # how or where the line is written.
 const VALIDATE_MARKER := "validating: "
 
+# The ONE directory a res:// walk excludes: the engine's own import/cache tree at
+# the project root. Compared as a full path, never as a directory NAME, because a
+# `.godot` deeper in the tree is not the engine's — it is user content (an addon
+# vendoring a sample project, a test fixture tree) and its scripts are the
+# project's like any other. Excluding those made `script validate --all` report a
+# valid aggregate for a project holding an invalid script (#663 review), and hid
+# them from `script list` too.
+const ENGINE_CACHE_DIR := "res://.godot"
+
 # The project-info settings (issue #111), read with a default so a project that
 # never wrote them still reports a sensible value rather than failing: a new
 # Godot 4 project has no explicit main_scene and inherits viewport defaults.
@@ -1661,7 +1670,17 @@ func _validate_target_paths(params: Dictionary) -> Variant:
 	if not (requested is Array):
 		_fail(OP_ERROR_INVALID_PARAMS, "paths must be a JSON array of .gd script paths")
 		return null
-	var all_scripts := bool(params.get("all_scripts", false))
+	# Type-check the raw Variant before coercing it. `bool(value)` is not total in
+	# GDScript: a null, a String or an Array makes it raise, which aborts
+	# _initialize BEFORE any sentinel is printed — so a malformed payload came back
+	# as the generic operation_failed instead of ADR-0002's structured
+	# invalid_params. Same reason the `paths` shape is checked above, and the same
+	# hazard issue #31 named for a typed assignment on arbitrary JSON.
+	var raw_all: Variant = params.get("all_scripts", false)
+	if not (raw_all is bool):
+		_fail(OP_ERROR_INVALID_PARAMS, "all_scripts must be a boolean: " + str(raw_all))
+		return null
+	var all_scripts: bool = raw_all
 	if all_scripts and not (requested as Array).is_empty():
 		_fail(OP_ERROR_INVALID_PARAMS, "paths and all_scripts are mutually exclusive: all_scripts already covers every script in the project")
 		return null
@@ -3685,11 +3704,12 @@ func _scene_summary(path: String) -> Dictionary:
 
 
 # Recursively collect every .gd script under res:// (issue #117), skipping only
-# the engine's own res://.godot cache directory. Mirrors _collect_scene_paths
-# (issue #54): hidden entries are enumerated (a .hidden.gd, or a script under a
-# dot-prefixed directory), navigational entries stay off, and the skip is scoped
-# to res://.godot alone. Paths are returned as res:// paths so they round-trip
-# into other script commands.
+# the engine's own res://.godot cache directory. Hidden entries are enumerated (a
+# .hidden.gd, or a script under a dot-prefixed directory) and navigational entries
+# stay off. The skip is the ROOT cache path exactly (ENGINE_CACHE_DIR), not any
+# directory named `.godot`: an earlier name test also swallowed a nested one,
+# which is authored content — see that const. Paths are returned as res:// paths
+# so they round-trip into other script commands.
 func _collect_script_paths(dir_path: String, out: Array[String]) -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
@@ -3700,7 +3720,7 @@ func _collect_script_paths(dir_path: String, out: Array[String]) -> void:
 	while not entry.is_empty():
 		var child := dir_path.path_join(entry)
 		if dir.current_is_dir():
-			if entry != ".godot":
+			if child != ENGINE_CACHE_DIR:
 				_collect_script_paths(child, out)
 		elif entry.get_extension().to_lower() == "gd":
 			out.append(child)

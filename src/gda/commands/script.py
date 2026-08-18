@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from gda import dispatch
 from gda.binary import resolve_godot_binary
-from gda.dispatch import dispatch_domain, dispatch_recipe
+from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
     Failure,
     classify_launch_or_crash,
@@ -491,17 +491,21 @@ class ScriptDiagnostic(BaseModel):
 def check_validate_selection(paths: list[str], all_scripts: bool) -> None:
     """Check ``script validate``'s target selection: a batch OR the whole project (#663).
 
-    The single home of the rule, shared by the params model and the argv wrapper
-    (ADR-0015), so both input paths accept and refuse exactly the same selections.
     Exactly one selector must be given: at least one PATH, or ``--all``. Raises
-    ``ValueError`` on a violation — the argv wrapper turns it into a Click usage
-    error (exit 2), while the model surfaces it as the structured
-    ``invalid_params`` for ``--params-json``. That two-surfacing split is
-    :func:`resolve_set_mode`'s; the naming is deliberately NOT, because this only
-    CHECKS. ``script set`` has three flag combinations collapsing to one mode, so
-    there is something to resolve and return; here the two selectors are already
-    the answer the operation runs on, and inventing a value to hand back would be
-    ceremony.
+    ``ValueError`` on a violation.
+
+    It has ONE caller — :class:`ScriptValidateParams`'s validator — because the
+    model is the input-rule authority (ADR-0015) and both input paths go through
+    it: ``--params-json`` surfaces the raised error as the structured
+    ``invalid_params``, and the argv body builds the same model through
+    :func:`~gda.dispatch.params_or_bad_parameter`, which turns it into the Click
+    usage error (exit 2). It stays a named function rather than inlined prose in
+    the validator so the rule can be read, and tested, on its own.
+
+    The naming deliberately departs from :func:`resolve_set_mode`, the sibling
+    rule: that one collapses three flag combinations into one mode and RETURNS it,
+    so there is something to resolve; here the two selectors are already the answer
+    the operation runs on, and inventing a value to hand back would be ceremony.
 
     Both violations are worth naming separately. NEITHER is the unset-variable
     shape (``gda script validate $SCRIPTS`` with nothing to expand), which would
@@ -2277,17 +2281,16 @@ def validate_script(
     that owns the files. A missing file or a non-.gd path likewise refuses the
     batch (path_not_found / invalid_path) instead of becoming a verdict.
     """
-    targets = list(paths or [])
-    try:
-        check_validate_selection(targets, all_scripts)
-    except ValueError as exc:
-        # The argv half of the shared rule: a Click usage error (exit 2) keeps the
-        # command-line ergonomics, while --params-json gets the same rule as the
-        # structured invalid_params through the model (ADR-0015).
-        raise typer.BadParameter(str(exc)) from exc
+    # The model owns the selection rule and the argv body does not restate it: the
+    # shared builder turns any model-construction failure into the Click usage
+    # error (exit 2), which is the SAME translation an argv-side pre-check did by
+    # hand — and it keeps working when a future rule is added to the model, where a
+    # hand-written pre-check would silently stop covering argv (ADR-0015).
     dispatch_recipe(
         SCRIPT_VALIDATE_COMMAND,
-        ScriptValidateParams(paths=targets, all_scripts=all_scripts),
+        params_or_bad_parameter(
+            ScriptValidateParams, paths=list(paths or []), all_scripts=all_scripts
+        ),
         json_output=json_output,
         godot=godot,
         project=project,

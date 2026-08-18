@@ -370,7 +370,12 @@ body cannot be mistaken for the declaration. `script get` additionally returns t
 its `res://` path and the `class_name`/`extends` parsed from the **raw text** (no compilation,
 issue #30) — null when the source declares neither, so the listing names every `.gd` it found.
 Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
-`--project`); an empty project is a valid, empty listing, not an error. `gda script delete`
+`--project`); an empty project is a valid, empty listing, not an error. The walk excludes exactly
+one directory — the engine's own cache at `res://.godot`, whose contents are import artefacts no
+agent authored. **Only that path**, not every directory named `.godot`: a nested one is authored
+content, and excluding it hid real scripts from the listing and let `script validate --all` report
+a valid aggregate for a project holding an invalid script (#663 review). Hidden entries are
+otherwise enumerated as promised (#54). `gda script delete`
 removes a script file and reports the removed script's `class_name`/`extends` (parsed before
 deletion), so the result names the content, not just the path. Delete honors the same addressing
 boundary as the rest of the group — only a `.gd` path is removed (a non-`.gd` target is refused
@@ -460,7 +465,8 @@ validated script, in requested order (under `--all`, in the engine's sorted enum
 single path is a batch of one, so the shape never varies with the batch size. A repeated path is
 validated and reported once per occurrence — gda drops no input. `--all` needs a resolved project
 (`project_not_found` otherwise, as `script list` does), and an empty project is a vacuously valid
-empty batch.
+empty batch. It enumerates through the same walk `script list` uses, so it sees the same set —
+including a nested `.godot` directory, and never the engine's own `res://.godot` cache.
 
 A **`valid=false` result is a successful operation** — `validate` exits `0` with the aggregate
 `valid: false` for a batch in which any script does not compile. The op only *fails* (non-zero,

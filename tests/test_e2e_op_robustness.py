@@ -154,6 +154,23 @@ def test_script_validate_refuses_an_empty_selection_at_the_op():
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("all_scripts", [None, "yes", [], {}, 1])
+def test_script_validate_refuses_a_non_boolean_all_scripts_at_the_op(all_scripts):
+    # GDScript's `bool(value)` is not total: a null, a String, an Array or a
+    # Dictionary makes it RAISE, which aborts _initialize before any sentinel is
+    # printed — so the caller got the generic operation_failed instead of a
+    # structured refusal naming the shape. The op type-checks the raw Variant
+    # first, exactly as it does for `paths`. (`1` is included because an int IS
+    # coercible: it must still be refused, since accepting one spelling of a
+    # boolean and not another is the kind of drift the wire contract exists to
+    # prevent.)
+    outcome = _validate_failure({"paths": [], "all_scripts": all_scripts})
+
+    assert outcome.error.code == "invalid_params"
+    assert "all_scripts" in outcome.error.message
+
+
+@pytest.mark.e2e
 def test_script_validate_separates_a_bad_params_shape_from_a_bad_path_value():
     # The split the codes carry: a non-string entry is a params SHAPE problem
     # (invalid_params, which is also what pydantic reports for it), while an empty
