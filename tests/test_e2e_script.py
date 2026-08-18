@@ -759,8 +759,9 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(godot_pr
     assert validated.returncode == 0, validated.stdout + validated.stderr
     data = json.loads(validated.stdout)
     assert data["valid"] is True
-    assert data["error_string"] is None
-    assert data["diagnostics"] == []
+    assert len(data["scripts"]) == 1
+    assert data["scripts"][0]["error_string"] is None
+    assert data["scripts"][0]["diagnostics"] == []
 
 
 @pytest.mark.e2e
@@ -779,7 +780,7 @@ def test_script_validate_accepts_both_path_forms(godot_project, form):
     assert validated.returncode == 0, validated.stdout + validated.stderr
     data = json.loads(validated.stdout)
     assert data["valid"] is True
-    assert data["diagnostics"] == []
+    assert data["scripts"][0]["diagnostics"] == []
 
 
 @pytest.mark.e2e
@@ -804,12 +805,13 @@ def test_script_validate_broken_script_is_success_with_a_real_diagnostic(godot_p
     assert validated.returncode == 0, validated.stdout + validated.stderr
     data = json.loads(validated.stdout)
     assert data["valid"] is False
-    assert data["error_string"] is not None
+    entry = data["scripts"][0]
+    assert entry["error_string"] is not None
     # Exactly one diagnostic, at the error's real source line (3: `var x =`) —
     # pinned (not just `len>=1`/`line>=1`) so a regression in the stderr pairing
     # (a borrowed/duplicated frame line) fails this real-engine gate.
-    assert len(data["diagnostics"]) == 1
-    diag = data["diagnostics"][0]
+    assert len(entry["diagnostics"]) == 1
+    diag = entry["diagnostics"][0]
     assert diag["line"] == 3
     assert diag["message"]
     # Column is unavailable on the standard build.
@@ -854,8 +856,8 @@ def test_script_validate_relative_preload_resolves_at_the_real_res_path(godot_pr
     assert validated.returncode == 0, validated.stdout + validated.stderr
     data = json.loads(validated.stdout)
     assert data["valid"] is True
-    assert data["error_string"] is None
-    assert data["diagnostics"] == []
+    assert data["scripts"][0]["error_string"] is None
+    assert data["scripts"][0]["diagnostics"] == []
 
 
 @pytest.mark.e2e
@@ -886,9 +888,10 @@ def test_script_validate_broken_script_under_project_still_reports_diagnostics(
     assert validated.returncode == 0, validated.stdout + validated.stderr
     data = json.loads(validated.stdout)
     assert data["valid"] is False
-    assert data["error_string"] is not None
-    assert len(data["diagnostics"]) == 1
-    diag = data["diagnostics"][0]
+    entry = data["scripts"][0]
+    assert entry["error_string"] is not None
+    assert len(entry["diagnostics"]) == 1
+    diag = entry["diagnostics"][0]
     assert diag["line"] == 3
     assert diag["message"]
     assert diag["column"] is None
@@ -915,6 +918,119 @@ def test_script_validate_wrong_extension_yields_invalid_path(godot_project):
 
     err = _assert_operation_error(validated, "invalid_path")
     assert ".gd" in err["message"]
+
+
+# --- script validate: batch and project mode (#663, GDA-DF-008) ---
+
+
+def _batch_project(root, name: str = "game"):
+    """A project holding two compiling scripts and one that does not.
+
+    The GDA-DF-008 shape at its smallest: the related scripts a change touches
+    together, one of which is broken. ``bad.gd``'s `var x =` is a parse error the
+    engine reports on its own line (3), so the per-file diagnostic is checkable.
+    """
+    project = root / name
+    project.mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-batch"), encoding="utf-8"
+    )
+    (project / "a.gd").write_text("extends Node\n", encoding="utf-8")
+    (project / "bad.gd").write_text("extends Node\n\nvar x =\n", encoding="utf-8")
+    (project / "c.gd").write_text(
+        "extends Node\n\nfunc top() -> int:\n\treturn 3\n", encoding="utf-8"
+    )
+    return project
+
+
+@pytest.mark.e2e
+def test_script_validate_batch_uses_one_engine_launch_for_every_script(tmp_path):
+    # The #663 AC, against the real engine: one invocation validates three scripts
+    # in ONE launch, reports a per-file verdict for each, and the aggregate is
+    # false because one of them is broken — while the command still exits 0.
+    #
+    # The launch count is read off the engine's own stderr: `operations.gd` logs
+    # `running operation: script-validate` once per dispatched op, and one op
+    # dispatch is one process. Three occurrences would be the pre-#663 behaviour
+    # (one launch per script) passing every other assertion here.
+    project = _batch_project(tmp_path)
+    gda = _gda_project(project)
+
+    validated = gda(
+        "script", "validate", "res://a.gd", "res://bad.gd", "res://c.gd", "--json"
+    )
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    assert validated.stderr.count("running operation: script-validate") == 1
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    assert data["project_root"] == str(project)
+    assert [entry["path"] for entry in data["scripts"]] == [
+        "res://a.gd",
+        "res://bad.gd",
+        "res://c.gd",
+    ]
+    assert [entry["valid"] for entry in data["scripts"]] == [True, False, True]
+    # Per-FILE diagnostics: the broken script's parse error is attributed to IT,
+    # at its real source line, and the two valid scripts carry none.
+    assert data["scripts"][0]["diagnostics"] == []
+    assert data["scripts"][2]["diagnostics"] == []
+    broken = data["scripts"][1]
+    assert broken["error_string"] is not None
+    assert len(broken["diagnostics"]) == 1
+    assert broken["diagnostics"][0]["line"] == 3
+    assert broken["diagnostics"][0]["message"]
+
+
+@pytest.mark.e2e
+def test_script_validate_all_validates_every_script_in_the_project(tmp_path):
+    # Project mode: `--all` enumerates the project's res:// tree itself and reports
+    # the same shape, so an agent can screen a whole project in one launch without
+    # first listing its scripts.
+    project = _batch_project(tmp_path)
+    gda = _gda_project(project)
+
+    validated = gda("script", "validate", "--all", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    assert validated.stderr.count("running operation: script-validate") == 1
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    # Every .gd in the project, in the engine's sorted enumeration order.
+    assert [entry["path"] for entry in data["scripts"]] == [
+        "res://a.gd",
+        "res://bad.gd",
+        "res://c.gd",
+    ]
+    assert [entry["valid"] for entry in data["scripts"]] == [True, False, True]
+    assert data["scripts"][1]["diagnostics"][0]["line"] == 3
+
+
+@pytest.mark.e2e
+def test_script_validate_refuses_a_batch_that_spans_two_projects(tmp_path):
+    # ADR-0006's one resolved project, applied to the whole batch: a batch whose
+    # paths span projects is refused before anything is compiled, rather than
+    # compiling the outsider against a root that does not own it and reporting the
+    # false res:// cascade for it.
+    project = _batch_project(tmp_path)
+    _, other_project, outsider = _nested_project_script(tmp_path / "elsewhere")
+
+    validated = _gda(
+        "script",
+        "validate",
+        str(project / "a.gd"),
+        str(outsider),
+        "--project",
+        str(project),
+        "--json",
+    )
+
+    err = _assert_operation_error(validated, "project_not_found")
+    assert str(outsider) in err["message"]
+    assert str(project) in err["message"]
+    assert other_project.exists()
+    # Nothing was compiled: no verdict for the script that WAS inside, either.
+    assert '"valid"' not in validated.stdout
 
 
 # --- script validate: project context (#658, GDA-DF-035) ---
@@ -984,7 +1100,8 @@ def test_script_validate_verdict_is_root_dependent_and_names_the_root(tmp_path):
     # The false cascade the issue reports: the preload miss plus at least one
     # error derived from it.
     assert any(
-        "res://scripts/card.gd" in diag["message"] for diag in wrong_root["diagnostics"]
+        "res://scripts/card.gd" in diag["message"]
+        for diag in wrong_root["scripts"][0]["diagnostics"]
     )
 
     with_owning_project = _gda(
@@ -996,7 +1113,7 @@ def test_script_validate_verdict_is_root_dependent_and_names_the_root(tmp_path):
     )
     right_root = json.loads(with_owning_project.stdout)
     assert right_root["valid"] is True
-    assert right_root["diagnostics"] == []
+    assert right_root["scripts"][0]["diagnostics"] == []
     assert right_root["project_root"] == str(project)
 
 
@@ -1069,7 +1186,7 @@ def test_script_validate_accepts_a_file_symlinked_into_the_project(tmp_path):
     assert validated.returncode == 0, validated.stdout + validated.stderr
     data = json.loads(validated.stdout)
     assert data["valid"] is True, data
-    assert data["diagnostics"] == []
+    assert data["scripts"][0]["diagnostics"] == []
     assert data["project_root"] == str(project)
 
     # Same file, outside spelling: outside under both readings, so still refused.
@@ -1128,7 +1245,7 @@ def test_script_validate_relative_target_from_an_ancestor_cwd_agrees_with_the_en
         "script",
         "validate",
         "--params-json",
-        json.dumps({"path": "deck.gd"}),
+        json.dumps({"paths": ["deck.gd"]}),
         "--project",
         "game",
         "--json",
