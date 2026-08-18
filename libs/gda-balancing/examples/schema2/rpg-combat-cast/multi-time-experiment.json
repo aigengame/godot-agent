@@ -3,13 +3,13 @@
   "id": "example.rpg-combat-cast.multi-time-companion",
   "version": "1.0.0",
   "kernel_identity": "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856",
-  "language_bundle_identity": "sha256:2784cf44379d7dcbcac43d633a1a35af404db060332289abdf55e27f5d77fce0",
+  "language_bundle_identity": "sha256:8fabf441701b33ec11590ff83ca26ec3a440e6d989da0234b3ac5f2bbcef1af6",
   "model": {
-    "source_identity": "sha256:9754a18e47b61d779dcafc6cc48dd174e2990cfc8de57589475992c7e0f31fea",
-    "build_receipt_identity": "sha256:558c0f8ae58dd2e3c1e5ad102bc85b88ececee1d150d587ab73250dfd84bb012",
-    "resolved_model_identity": "sha256:f813320e0d0ec7e77a5e41592ebf32020b62d38f30ab7c64e0976f492979fc51",
-    "package_lock_identity": "sha256:ec131d8772174bdbadc561e28f67d691896eccab7636e166d19cdbb86b661911",
-    "rir_identity": "sha256:b9c236ea160542425f1b11db0d22d5877ad7b01c9effe41f8a05f23bc53506e3"
+    "source_identity": "sha256:00b83ba951c5cfbd61631e54bbfb9371cb8b848f4209ab4451e28e7ad9ce68b9",
+    "build_receipt_identity": "sha256:50e9ab0d87dc32280d7a6506ac32f1edbdd3df43f3d504b2f8aa994dadea80eb",
+    "resolved_model_identity": "sha256:25d6bb8dd88f54bedd6e9027a3493f54568b956b3417ab82d59101e55b589f46",
+    "package_lock_identity": "sha256:3c28d703ca53da7cb7f166070b0a56960a263d2cefc7ad66cbe171b556c15daf",
+    "rir_identity": "sha256:8b72e882ce0d36c326eec6ea3a85923ec84099760c7a9e309180f69b344ad315"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -24,6 +24,7 @@
         "constant",
         "copy",
         "draw",
+        "guard-block",
         "if",
         "invoke",
         "less-than-or-equal",
@@ -121,6 +122,22 @@
             "model": "example.rpg-combat-cast",
             "module": "combat",
             "name": "enemy_health"
+          },
+          "value": 100
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "defeat_threshold"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "player_health"
           },
           "value": 100
         }

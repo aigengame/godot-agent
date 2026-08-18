@@ -40,11 +40,13 @@ _PLAYER_ATTACK_ASSIGNMENT_NAMES = frozenset(
     {
         "enemy_defense",
         "enemy_health",
+        "defeat_threshold",
         "player_accuracy",
         "player_action_cost",
         "player_base_damage",
         "player_critical_threshold",
         "player_mana",
+        "player_health",
     }
 )
 _PLAYER_ATTACK_METRIC_IDS = frozenset(
@@ -52,6 +54,26 @@ _PLAYER_ATTACK_METRIC_IDS = frozenset(
         "enemy_health_remaining",
         "player_damage_dealt",
         "player_resource_remaining",
+    }
+)
+_ENEMY_ATTACK_ASSIGNMENT_NAMES = frozenset(
+    {
+        "defeat_threshold",
+        "enemy_accuracy",
+        "enemy_action_cost",
+        "enemy_base_damage",
+        "enemy_critical_threshold",
+        "enemy_health",
+        "enemy_mana",
+        "player_defense",
+        "player_health",
+    }
+)
+_ENEMY_ATTACK_METRIC_IDS = frozenset(
+    {
+        "enemy_damage_dealt",
+        "enemy_resource_remaining",
+        "player_health_remaining",
     }
 )
 
@@ -189,21 +211,40 @@ def _build_periodic_effect_example(
     return json.loads(result.stdout)
 
 
-def _one_way_variant(baseline: dict, identifier: str) -> dict:
+def _one_way_action_variant(
+    baseline: dict,
+    identifier: str,
+    *,
+    root_event_ref: str,
+    assignment_names: frozenset[str],
+    metric_ids: frozenset[str],
+) -> dict:
     variant = json.loads(json.dumps(baseline))
     variant["id"] = identifier
-    variant["scenarios"][0]["event_plan"] = variant["scenarios"][0]["event_plan"][:1]
+    variant["scenarios"][0]["event_plan"] = [
+        event
+        for event in variant["scenarios"][0]["event_plan"]
+        if event["root_event_ref"] == root_event_ref
+    ]
     variant["scenarios"][0]["assignments"] = [
         row
         for row in variant["scenarios"][0]["assignments"]
-        if row["target"]["name"] in _PLAYER_ATTACK_ASSIGNMENT_NAMES
+        if row["target"]["name"] in assignment_names
     ]
     variant["metrics"] = [
-        metric
-        for metric in variant["metrics"]
-        if metric["id"] in _PLAYER_ATTACK_METRIC_IDS
+        metric for metric in variant["metrics"] if metric["id"] in metric_ids
     ]
     return variant
+
+
+def _one_way_variant(baseline: dict, identifier: str) -> dict:
+    return _one_way_action_variant(
+        baseline,
+        identifier,
+        root_event_ref="player-attacks-enemy",
+        assignment_names=_PLAYER_ATTACK_ASSIGNMENT_NAMES,
+        metric_ids=_PLAYER_ATTACK_METRIC_IDS,
+    )
 
 
 class TestEntryPoints:
@@ -487,6 +528,11 @@ class TestKeyUserPath:
             "combat.enemy-attacks-player": {
                 "package": "game.combat",
                 "version": "2.1.0",
+                "id": "game.combat.eligible-cast-v1",
+            },
+            "combat.enemy-attacks-player-without-eligibility": {
+                "package": "game.combat",
+                "version": "2.1.0",
                 "id": "game.combat.cast-v1",
             },
             "combat.player-attacks-enemy-and-cancels-counterattack": {
@@ -495,6 +541,11 @@ class TestKeyUserPath:
                 "id": "game.combat.cast-and-cancel-v1",
             },
             "combat.player-attacks-enemy": {
+                "package": "game.combat",
+                "version": "2.1.0",
+                "id": "game.combat.eligible-cast-v1",
+            },
+            "combat.player-attacks-enemy-without-eligibility": {
                 "package": "game.combat",
                 "version": "2.1.0",
                 "id": "game.combat.cast-v1",
@@ -1840,6 +1891,20 @@ class TestKeyUserPath:
             (example / "experiment.json").read_text(encoding="utf-8")
         )
         no_cancellation["id"] = "example.rpg-combat-cast.no-inferred-defeat"
+        no_cancellation["scenarios"][0]["event_plan"][0]["entrypoint"] = (
+            "combat.player-attacks-enemy-without-eligibility"
+        )
+        no_cancellation["scenarios"][0]["event_plan"][1]["entrypoint"] = (
+            "combat.enemy-attacks-player-without-eligibility"
+        )
+        no_cancellation["scenarios"][0]["assignments"] = [
+            row
+            for row in no_cancellation["scenarios"][0]["assignments"]
+            if row["target"]["name"] != "defeat_threshold"
+        ]
+        no_cancellation["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "guard-block"
+        )
         enemy_health = next(
             row
             for row in no_cancellation["scenarios"][0]["assignments"]
@@ -1875,6 +1940,100 @@ class TestKeyUserPath:
             "player_health"
         ] == 86
 
+    def test_reciprocal_combat_revisions_stop_on_explicit_defeat(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example, build_receipt = _build_reciprocal_example(
+            tmp_path,
+            invocation_key="5" * 64,
+        )
+        baseline = json.loads(
+            (example / "experiment.json").read_text(encoding="utf-8")
+        )
+        _bind_experiment_to_build(baseline, build_receipt)
+        state = {
+            row["target"]["name"]: row["value"]
+            for row in baseline["scenarios"][0]["assignments"]
+        }
+        traces = []
+        outcomes = []
+        actions = (
+            (
+                "player-attacks-enemy",
+                _PLAYER_ATTACK_ASSIGNMENT_NAMES,
+                frozenset({"enemy_health_remaining", "player_resource_remaining"}),
+            ),
+            (
+                "enemy-attacks-player",
+                _ENEMY_ATTACK_ASSIGNMENT_NAMES,
+                frozenset({"enemy_resource_remaining", "player_health_remaining"}),
+            ),
+        )
+
+        for index in range(1, 7):
+            root_event_ref, assignment_names, metric_ids = actions[(index - 1) % 2]
+            revision = _one_way_action_variant(
+                baseline,
+                f"example.rpg-combat-cast.action-{index}",
+                root_event_ref=root_event_ref,
+                assignment_names=assignment_names,
+                metric_ids=metric_ids,
+            )
+            for assignment in revision["scenarios"][0]["assignments"]:
+                assignment["value"] = state[assignment["target"]["name"]]
+            _receipt, trace = _run_experiment_variant(
+                tmp_path,
+                revision,
+                name=f"combat-action-{index}",
+                invocation_key="6789ab"[index - 1] * 64,
+            )
+            traces.append(trace)
+            transition = next(
+                event for event in trace["events"] if event["operation"] is not None
+            )
+            outcomes.append(transition["outcome"]["id"])
+            state.update(
+                {row["name"]: row["value"] for row in transition["state_after"]}
+            )
+            if transition["outcome"]["id"] == "target-defeated":
+                break
+
+        assert len(traces) == 5
+        assert outcomes == [
+            "cast-resolved",
+            "cast-resolved",
+            "cast-resolved",
+            "cast-resolved",
+            "target-defeated",
+        ]
+        terminal_event = next(
+            event
+            for event in traces[-1]["events"]
+            if event["operation"] is not None
+        )
+        assert {row["name"]: row["integer"] for row in terminal_event["facts"]}[
+            "player_damage_dealt"
+        ] == 26
+        assert state == {
+            "enemy_health": 0,
+            "enemy_mana": 16,
+            "player_health": 72,
+            "player_mana": 8,
+            "defeat_threshold": 0,
+            "enemy_accuracy": 1000,
+            "enemy_action_cost": 7,
+            "enemy_base_damage": 20,
+            "enemy_critical_threshold": 0,
+            "enemy_defense": 8,
+            "player_accuracy": 1000,
+            "player_action_cost": 9,
+            "player_base_damage": 45,
+            "player_critical_threshold": 0,
+            "player_defense": 6,
+        }
+
     def test_rpg_combat_example_distinguishes_one_way_and_alternative_outcomes(
         self, tmp_path, monkeypatch
     ):
@@ -1902,6 +2061,7 @@ class TestKeyUserPath:
         assert one_way_event["outcome"] == {"id": "cast-resolved", "kind": "success"}
         assert one_way_event["state_after"] == [
             {"name": "enemy_health", "value": 63},
+            {"name": "player_health", "value": 100},
             {"name": "player_mana", "value": 26},
         ]
 
