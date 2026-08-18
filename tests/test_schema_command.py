@@ -1403,16 +1403,27 @@ def test_input_commands_schema_report_kind_live_and_are_model_derived():
     events_description = sequence_input["properties"]["events"]["description"]
     assert "process-clock `frame`" in events_description
     assert "physics-clock `physics_frame`" in events_description
-    sequence_event_props = sequence_input["$defs"]["InputSequenceEvent"]["properties"]
-    sequence_event_types = sequence_input["$defs"]["InputEventType"]["enum"]
-    assert "mouse_button" in sequence_event_types
-    assert "harness/process-frame" in sequence_event_props["frame"]["description"]
-    assert "physics-frame" in sequence_event_props["physics_frame"]["description"]
+    # The event kinds are a discriminated union (#669): each kind's variant is
+    # reached through the discriminator mapping rather than one flat shape.
+    mapping = sequence_input["properties"]["events"]["items"]["discriminator"][
+        "mapping"
+    ]
+    assert "mouse_button" in mapping
+    variants = {
+        kind: sequence_input["$defs"][ref.rsplit("/", 1)[-1]]
+        for kind, ref in mapping.items()
+    }
+    key_props = variants["key"]["properties"]
+    assert "harness/process-frame" in key_props["frame"]["description"]
+    assert "physics-frame" in key_props["physics_frame"]["description"]
     assert (
         "engine-tracked mouse positions may remain stale"
-        in (sequence_event_props["x"]["description"])
+        in (variants["mouse_move"]["properties"]["x"]["description"])
     )
-    assert "mouse-button event" in sequence_event_props["pressed"]["description"]
+    assert (
+        "one of `pressed` or `release`"
+        in variants["mouse_button"]["properties"]["pressed"]["description"]
+    )
 
 
 def test_sample_input_results_validate_against_emitted_output_schemas():

@@ -772,12 +772,17 @@ def test_input_sequence_schema_reports_kind_live():
     events_description = schema["input"]["properties"]["events"]["description"]
     assert "process-clock `frame`" in events_description
     assert "physics-clock `physics_frame`" in events_description
-    event_props = schema["input"]["$defs"]["InputSequenceEvent"]["properties"]
-    event_types = schema["input"]["$defs"]["InputEventType"]["enum"]
-    assert "mouse_button" in event_types
-    assert "harness/process-frame" in event_props["frame"]["description"]
-    assert "physics-frame" in event_props["physics_frame"]["description"]
-    assert "mouse-button event" in event_props["pressed"]["description"]
+    # The kinds are enumerated by the union's discriminator mapping (#669), and
+    # each variant carries the clock descriptions the whole union shares.
+    variants = _variants()
+    assert "mouse_button" in variants
+    key_props = variants["key"]["properties"]
+    assert "harness/process-frame" in key_props["frame"]["description"]
+    assert "physics-frame" in key_props["physics_frame"]["description"]
+    assert (
+        "one of `pressed` or `release`"
+        in variants["mouse_button"]["properties"]["pressed"]["description"]
+    )
 
 
 def test_input_sequence_help_names_process_and_physics_clocks():
@@ -1187,3 +1192,187 @@ def test_input_key_params_json_dispatches_like_argv(monkeypatch, tmp_path):
     assert fake.calls == [
         ("input-key", {"key": "Right", "modifiers": ["shift"], "released": False})
     ]
+
+
+# --- the sequence event is a discriminated union (#669) ------------------------
+#
+# GDA-DF-037 / GDA-DF-032: one flat event shape carried every kind's fields, so
+# the per-kind rules lived only in prose — `pressed` is valid on `mouse_button`
+# alone, an action presses by default and releases with `release`, and a key
+# releases with `released`. Schema-driven automation could not tell the kinds
+# apart without a failed invocation, and a foreign field was silently accepted
+# and ignored (a `release` on a key event PRESSED the key).
+
+
+def _sequence_events_schema() -> dict:
+    result = CliRunner().invoke(app, ["input", "sequence", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    return json.loads(result.stdout)["input"]
+
+
+def _variants() -> dict[str, dict]:
+    """Each event kind's variant schema, resolved through the discriminator."""
+    schema = _sequence_events_schema()
+    mapping = schema["properties"]["events"]["items"]["discriminator"]["mapping"]
+    return {
+        kind: schema["$defs"][ref.rsplit("/", 1)[-1]] for kind, ref in mapping.items()
+    }
+
+
+def test_sequence_events_are_published_as_a_discriminated_union():
+    # The kinds are machine-discoverable: one `oneOf` branch per kind, selected
+    # by the `type` discriminator — not a single shape plus prose.
+    items = _sequence_events_schema()["properties"]["events"]["items"]
+
+    assert items["discriminator"]["propertyName"] == "type"
+    assert set(items["discriminator"]["mapping"]) == {
+        "key",
+        "mouse_click",
+        "mouse_button",
+        "mouse_move",
+        "action",
+    }
+    assert len(items["oneOf"]) == 5
+
+
+def test_each_event_kind_publishes_its_required_and_forbidden_fields():
+    # A schema client can decide each kind's valid fields without a trial
+    # invocation: what it MUST carry, and that nothing else is accepted.
+    variants = _variants()
+
+    assert set(variants["key"]["required"]) == {"type", "key"}
+    assert set(variants["action"]["required"]) == {"type", "action"}
+    assert set(variants["mouse_click"]["required"]) == {"type", "x", "y"}
+    assert set(variants["mouse_move"]["required"]) == {"type", "x", "y"}
+    assert set(variants["mouse_button"]["required"]) == {"type", "x", "y"}
+
+    for kind, variant in variants.items():
+        assert variant["additionalProperties"] is False, kind
+
+    # `pressed` belongs to `mouse_button` alone; an action releases with
+    # `release`, a key with `released`.
+    assert "pressed" in variants["mouse_button"]["properties"]
+    assert "pressed" not in variants["action"]["properties"]
+    assert "pressed" not in variants["key"]["properties"]
+    assert "pressed" not in variants["mouse_move"]["properties"]
+    assert "release" in variants["action"]["properties"]
+    assert "released" in variants["key"]["properties"]
+    assert "released" not in variants["action"]["properties"]
+    # Both clocks stay shared by every kind.
+    for kind, variant in variants.items():
+        assert {"frame", "physics_frame"} <= set(variant["properties"]), kind
+
+
+def test_a_schema_client_can_validate_events_without_invoking_gda():
+    # The acceptance property, checked the way a client would: validate candidate
+    # events against the EMITTED schema and get the same verdict gda gives.
+    import jsonschema
+
+    schema = _sequence_events_schema()
+
+    def check(event: dict) -> bool:
+        try:
+            jsonschema.validate(instance={"events": [event]}, schema=schema)
+        except jsonschema.ValidationError:
+            return False
+        return True
+
+    assert check({"type": "action", "action": "jump"})
+    assert check({"type": "action", "action": "jump", "release": True, "frame": 10})
+    assert check({"type": "mouse_button", "x": 1.0, "y": 2.0, "pressed": True})
+    # …and the mistakes the flat shape used to swallow are rejected.
+    assert not check({"type": "action", "action": "jump", "pressed": True})
+    assert not check({"type": "key", "key": "A", "release": True})
+    assert not check({"type": "mouse_move", "x": 1.0, "y": 2.0, "pressed": True})
+    assert not check({"type": "key"})
+
+
+def _reject(monkeypatch, tmp_path, event: dict) -> str:
+    """Run one malformed event through --params-json; return the error message."""
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--params-json",
+            json.dumps({"events": [event]}),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+    payload = json.loads(result.stdout)
+    assert payload["error"]["code"] == "invalid_params", payload
+    assert fake.calls == []
+    return payload["error"]["message"]
+
+
+def test_a_wrong_kind_field_rejection_names_the_accepted_field(monkeypatch, tmp_path):
+    # The rejection already fired; it did not say what to write instead.
+    message = _reject(
+        monkeypatch, tmp_path, {"type": "action", "action": "j", "pressed": True}
+    )
+
+    assert "'pressed'" in message
+    assert "'release'" in message
+    assert "action" in message
+
+
+def test_a_wrong_kind_field_rejection_names_the_key_events_own_phase_field(
+    monkeypatch, tmp_path
+):
+    # The reverse mistake: an action's `release` on a key event, which used to be
+    # accepted and silently PRESS the key.
+    message = _reject(
+        monkeypatch, tmp_path, {"type": "key", "key": "A", "release": True}
+    )
+
+    assert "'release'" in message
+    assert "'released'" in message
+
+
+def test_a_phaseless_kind_rejection_points_at_the_kind_that_has_a_phase(
+    monkeypatch, tmp_path
+):
+    # `mouse_click` / `mouse_move` have no press/release phase at all; the
+    # rejection names the kind that does rather than a field they lack.
+    message = _reject(
+        monkeypatch,
+        tmp_path,
+        {"type": "mouse_move", "x": 1.0, "y": 2.0, "pressed": True},
+    )
+
+    assert "'pressed'" in message
+    assert "mouse_button" in message
+
+
+def test_an_unknown_field_rejection_lists_the_kinds_accepted_fields(
+    monkeypatch, tmp_path
+):
+    message = _reject(monkeypatch, tmp_path, {"type": "key", "key": "A", "keycode": 65})
+
+    assert "'keycode'" in message
+    assert "'key'" in message
+
+
+def test_input_sequence_help_carries_a_copyable_action_example():
+    # The help showed only a mouse example, so an action sequence had to be
+    # inferred (GDA-DF-032). It now shows the press / release pair too.
+    result = CliRunner().invoke(app, ["input", "sequence", "--help"])
+
+    assert result.exit_code == 0, result.stdout
+    # The help renderer wraps the example across the option column and frames it
+    # with box borders; normalizing both back out is what a reader copying the
+    # example does. Nothing is ELLIPSIZED away — the whole example survives,
+    # which the one-line spelling it replaced did not.
+    rendered = " ".join(result.stdout.replace("│", " ").split())
+    assert '{"type": "action", "action": "jump", "frame": 0}' in rendered
+    assert (
+        '{"type": "action", "action": "jump", "release": true, "frame": 10}' in rendered
+    )
+    # …beside the mouse example it joins, likewise intact.
+    assert '{"type": "mouse_button", "x": 10, "y": 10, "pressed": true}' in rendered
