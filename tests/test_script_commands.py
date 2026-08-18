@@ -1317,3 +1317,37 @@ def test_script_validate_marker_is_the_one_operations_gd_emits():
     assert f'_diag("{VALIDATE_MARKER_PREFIX.removeprefix("gda: ")}" + path)' in (
         operations.read_text(encoding="utf-8")
     )
+
+
+def test_script_validate_attributes_diagnostics_over_a_crlf_stream(monkeypatch):
+    # Windows regression guard: the engine's C runtime writes stderr in TEXT mode,
+    # so every `\n` reaches gda as `\r\n` — and the runner decodes raw bytes with
+    # no newline translation, by design (a locale-aware decode mojibakes non-ASCII
+    # paths). A marker pattern that let the `\r` into the captured path made the
+    # attribution guard fail against every verdict, so EVERY validate on Windows —
+    # batch and single-path alike — silently reported empty `diagnostics`. The
+    # engine's own message must come through clean too: a trailing `\r` inside it
+    # is not part of what the engine said.
+    stderr = (
+        "gda: running operation: script-validate\r\n"
+        "gda: validating: /tmp/proj/broken.gd\r\n"
+        "SCRIPT ERROR: Parse Error: bad token\r\n"
+        "   at: GDScript::reload (/tmp/proj/broken.gd:3)\r\n"
+    )
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_broken("/tmp/proj/broken.gd")),
+            stderr=stderr,
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "/tmp/proj/broken.gd", "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["scripts"][0]["diagnostics"] == [
+        {"line": 3, "column": None, "message": "Parse Error: bad token"}
+    ]
