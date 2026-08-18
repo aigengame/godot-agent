@@ -17,6 +17,21 @@ from schema2_operation_execution_production_support import (
 OperationCoordinate = tuple[str, str, str]
 
 
+def _operation_index(ldb: Any) -> dict[OperationCoordinate, dict[str, Any]]:
+    language = cast(dict[str, Any], ldb["language"])
+    return {
+        (
+            cast(str, package["id"]),
+            cast(str, package["version"]),
+            cast(str, definition["id"]),
+        ): definition
+        for package in cast(list[dict[str, Any]], language["packages"])
+        for closure in cast(list[dict[str, Any]], package["semantic_closure"])
+        if closure["authority_path"] == "language.operations"
+        for definition in cast(list[dict[str, Any]], closure["definitions"])
+    }
+
+
 def operation_execution_vectors(
     ldb: Any,
 ) -> list[tuple[str, str, dict[str, Any]]]:
