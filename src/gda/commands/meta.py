@@ -46,6 +46,7 @@ from gda.headless import (
     godot_option,
     json_option,
     params_json_option,
+    project_option,
     schema_command_class,
     schema_option,
 )
@@ -373,6 +374,9 @@ INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
     output_model=EngineVersion,
     render=render_engine_version,
     classify=classify_info,
+    # A meta command about the ENGINE, so it inherits no project context — but it does
+    # accept and validate an explicit `--project` (#670). See the field's own doc.
+    projectless=True,
 )
 
 
@@ -457,13 +461,24 @@ def register(root: typer.Typer) -> None:
         schema: bool = INFO_COMMAND.schema_option(),
         params_json: Optional[str] = params_json_option(),
         godot: Optional[str] = godot_option(),
+        project: Optional[str] = project_option(),
     ) -> None:
-        """Report the Godot engine version info."""
+        """Report the Godot engine version info.
+
+        `--project` is accepted so an orchestrator can pass one argv shape to every
+        command (#670). It is validated like anywhere else — a directory that is not a
+        Godot project is a structured `project_not_found` — and the engine then runs
+        against it, so that project's autoloads run as they do for any `--project` op.
+        The reported version does not depend on it; omit it for the plain engine probe,
+        which is also what an inherited `$GDA_PROJECT` gets you: this command never
+        acquires a project it was not explicitly given.
+        """
         dispatch_meta(
             INFO_COMMAND,
             InfoParams(),
             json_output=json_output,
             godot=godot,
+            project=project,
         )
 
     @root.command(cls=SKILL_COMMAND.command_class())

@@ -127,6 +127,21 @@ def _resolve_project_or_fail(project: Optional[str]) -> Optional[Path]:
         emit_failure(invalid_project_failure(str(exc)))
 
 
+def _project_context(cmd: HeadlessCommand[M], project: Optional[str]) -> Optional[Path]:
+    """The project ``cmd`` runs against, resolved once per dispatch (ADR-0006).
+
+    One rule, shared by all three tails. A ``projectless`` command never INHERITS a
+    project context ($GDA_PROJECT, then the cwd): it is about ``gda`` or the engine
+    itself, so an inherited invalid ``$GDA_PROJECT`` must not make it fail (#357). It
+    still VALIDATES an EXPLICIT ``--project`` when it takes one and one is given
+    (``gda info --project``, #670) — naming a project is a deliberate choice, so a bad
+    one is a structured refusal rather than something quietly ignored.
+    """
+    if cmd.projectless and project is None:
+        return None
+    return _resolve_project_or_fail(project)
+
+
 def dispatch_domain(
     cmd: HeadlessCommand[M],
     params: BaseModel,
@@ -150,7 +165,7 @@ def dispatch_domain(
         params,
         json_output=json_output,
         godot=godot,
-        project=_resolve_project_or_fail(project),
+        project=_project_context(cmd, project),
     )
 
 
@@ -160,19 +175,22 @@ def dispatch_meta(
     *,
     json_output: bool,
     godot: Optional[str],
+    project: Optional[str] = None,
 ) -> None:
-    """Run a meta command (no ``--project``, ADR-0005) through the shared tail.
+    """Run a meta command (ADR-0005) through the shared tail.
 
-    Unlike :func:`dispatch_domain`, this never calls ``resolve_project_dir``: a meta
-    command (``gda info``) is about ``gda``/the engine itself, so it runs
-    projectless rather than resolving a project context.
+    A meta command is about ``gda``/the engine itself, so it acquires no project
+    context of its own — the difference from :func:`dispatch_domain` is that
+    ``project`` here is the EXPLICIT flag only, never the ``$GDA_PROJECT``/cwd
+    fallback (:func:`_project_context`). ``gda info`` takes one so an orchestrator can
+    pass the same argv to every command (#670); it is validated like anywhere else.
     """
     _emit(
         cmd,
         params,
         json_output=json_output,
         godot=godot,
-        project=None,
+        project=_project_context(cmd, project),
     )
 
 
@@ -206,8 +224,7 @@ def dispatch_recipe(
     # is emitted before it runs); a projectless meta recipe receives None and never
     # touches ``resolve_project_dir``.
     assert cmd.recipe is not None
-    resolved = None if cmd.projectless else _resolve_project_or_fail(project)
-    outcome = cmd.recipe(params, project=resolved, godot=godot)
+    outcome = cmd.recipe(params, project=_project_context(cmd, project), godot=godot)
     if isinstance(outcome, Failure):
         emit_failure(outcome)
     emit_result(outcome, json_output, cmd.render)
@@ -223,8 +240,9 @@ def _run_params_json(
     it through the *same* project resolution + runner seam the argv path uses, so
     the two input paths are indistinguishable downstream. The global
     ``--json`` / ``--godot`` / ``--project`` options parsed alongside
-    ``--params-json`` are honored; a meta command (no ``--project`` option)
-    dispatches projectless, mirroring :func:`dispatch_meta`.
+    ``--params-json`` are honored; a ``projectless`` command dispatches through
+    :func:`dispatch_meta`, which validates an explicit ``--project`` but inherits
+    none.
     """
     options = ctx.params
     json_output = bool(options.get("json_output", False))
@@ -243,8 +261,12 @@ def _run_params_json(
             project=options.get("project"),
         )
         return
-    if "project" in options:
-        dispatch_domain(
+    # Read off the DESCRIPTOR (ADR-0023), not off whether a `project` key happens to be
+    # in `ctx.params`: since `gda info` takes an explicit `--project` (#670), the
+    # PRESENCE of the option no longer tells a meta command from a domain one — what a
+    # command may INHERIT does, which is what `projectless` records.
+    if cmd.projectless:
+        dispatch_meta(
             cmd,
             params,
             json_output=json_output,
@@ -252,7 +274,13 @@ def _run_params_json(
             project=options.get("project"),
         )
     else:
-        dispatch_meta(cmd, params, json_output=json_output, godot=godot)
+        dispatch_domain(
+            cmd,
+            params,
+            json_output=json_output,
+            godot=godot,
+            project=options.get("project"),
+        )
 
 
 register_params_json_dispatch(_run_params_json)
