@@ -488,41 +488,93 @@ class ScriptDiagnostic(BaseModel):
     message: str
 
 
-class ScriptValidateParams(BaseModel):
-    """The operation params of ``gda script validate``: the script to check (issue #118).
+def resolve_validate_targets(paths: list[str], all_scripts: bool) -> None:
+    """Check ``script validate``'s target selection: a batch OR the whole project (#663).
 
-    ``path`` addresses the ``.gd`` script by its ``res://`` or filesystem path.
-    Unlike the other script-file ops, validate DOES compile the script (it sets
+    The single home of the rule, shared by the params model and the argv wrapper
+    (ADR-0015), so both input paths accept and refuse exactly the same selections.
+    Exactly one selector must be given: at least one PATH, or ``--all``. Raises
+    ``ValueError`` on a violation — the argv wrapper turns it into a Click usage
+    error (exit 2), while the model surfaces it as the structured
+    ``invalid_params`` for ``--params-json`` (the same split
+    :func:`resolve_set_mode` uses).
+
+    Both violations are worth naming separately. NEITHER is the unset-variable
+    shape (``gda script validate $SCRIPTS`` with nothing to expand), which would
+    otherwise reach the engine as an empty batch and report a vacuously valid
+    verdict for zero scripts. BOTH is a contradiction rather than a precedence
+    question: ``--all`` already covers every project script, so silently letting
+    one selector win would hide which set was actually validated.
+    """
+    if all_scripts and paths:
+        raise ValueError("PATH arguments and --all are mutually exclusive.")
+    if not all_scripts and not paths:
+        raise ValueError(
+            "give at least one .gd PATH to validate, or --all for every script "
+            "in the resolved project."
+        )
+
+
+class ScriptValidateParams(BaseModel):
+    """The operation params of ``gda script validate``: the scripts to check (#118, #663).
+
+    ``paths`` is the BATCH: one or more ``.gd`` scripts, each addressed by its
+    ``res://`` or filesystem path. The whole batch is validated in ONE engine
+    launch, so validating the four-to-six related scripts a change usually touches
+    costs one process instead of one each (#663). A single path is simply a batch
+    of one — there is no second code path. ``all_scripts`` (the ``--all`` flag) is
+    the project-wide alternative: the engine enumerates every ``.gd`` under the
+    resolved project's ``res://`` tree and validates that set instead, so it needs
+    a resolved project (``project_not_found`` otherwise, exactly as ``script
+    list`` does). Exactly one of the two selectors is given
+    (:func:`resolve_validate_targets`).
+
+    A path given twice is validated twice and reported twice: gda never silently
+    drops an input, so result entry *i* always corresponds to requested path *i*.
+
+    Unlike the other script-file ops, validate DOES compile each script (it sets
     the source on a fresh ``GDScript`` and reloads it to learn whether it parses),
     but it never instantiates the script, so it does not run instance code. Pass
-    ``--project`` when the script extends a project ``class_name`` or preloads a
+    ``--project`` when a script extends a project ``class_name`` or preloads a
     project resource and so needs project context to compile.
     """
 
-    path: NormalizedPath = Field(description="The .gd script file to validate.")
+    paths: list[NormalizedPath] = Field(
+        default_factory=list,
+        description=(
+            "The .gd script files to validate, as one batch in a single engine "
+            "launch. Empty only with 'all_scripts'. A repeated path is validated "
+            "and reported once per occurrence."
+        ),
+    )
+    all_scripts: bool = Field(
+        default=False,
+        description=(
+            "Validate every .gd script in the resolved project instead of a "
+            "named batch (the --all flag). Mutually exclusive with 'paths', and "
+            "requires a resolved project."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _one_selector(self) -> "ScriptValidateParams":
+        # Model-side (ADR-0015) so the --params-json route refuses an empty or
+        # contradictory selection as structured invalid_params, not just argv.
+        resolve_validate_targets(list(self.paths), self.all_scripts)
+        return self
 
 
-class ScriptValidateResult(BaseModel):
-    """The result of ``gda script validate``: whether the script compiles (issue #118).
+class ValidatedScript(BaseModel):
+    """One script's verdict inside a ``gda script validate`` result (#118, #663).
 
-    Validating an INVALID script is a SUCCESSFUL operation — the command exits 0
-    and reports ``valid=false`` rather than failing. ``error_string`` carries the
-    engine's one-line summary of the compile error (null when valid).
-    ``diagnostics`` is a best-effort list parsed from the engine's stderr (the
-    only place line/message are available); it may hold only the first error, and
-    is empty when the script is valid or nothing could be parsed.
-
-    ``project_root`` names the project the script was compiled against, so a
-    reader can tell a real compile error from one caused by the wrong project
-    context without re-deriving gda's resolution (#658). It is REQUIRED and
-    nullable, not optional: every public result carries the key (``null`` means
-    projectless), so an agent can read it unconditionally. The engine's sentinel
-    does not report it — ADR-0006 keeps the project CLI-side, and the engine is
-    told it through ``--path`` — so the ``before`` validator below supplies the
-    key for the internal sentinel parse and the CLI stamps the real value
-    immediately after (:func:`_script_validate_recipe`). The leniency is
-    therefore inward-facing only: it never reaches the published contract, which
-    lists ``project_root`` in ``required``.
+    The per-file half of the batch result, and it carries exactly what the
+    single-path result used to carry at the top level: the ``path`` that was
+    validated, whether it compiles, the engine's one-line ``error_string``, and
+    the best-effort ``diagnostics`` parsed from that script's own window of the
+    engine's stderr. The batch-level facts — the aggregate verdict and the one
+    resolved project — live on the enclosing result instead of being repeated per
+    entry (ADR-0006 resolves ONE project per call, so a per-entry copy would be a
+    duplicate with no way to differ).
     """
 
     path: str
@@ -539,20 +591,64 @@ class ScriptValidateResult(BaseModel):
     diagnostics: list[ScriptDiagnostic] = Field(
         default_factory=list,
         description=(
-            "Best-effort advisory diagnostics parsed from the engine's stderr "
-            "(line + message). May hold only the first error; empty when valid."
+            "Best-effort advisory diagnostics parsed from this script's window of "
+            "the engine's stderr (line + message). May hold only the first error; "
+            "empty when the script is valid or nothing could be parsed."
         ),
+    )
+
+
+class ScriptValidateResult(BaseModel):
+    """The result of ``gda script validate``: one verdict per script, plus the aggregate (#118, #663).
+
+    Validating an INVALID script is a SUCCESSFUL operation — the command exits 0
+    and reports ``valid=false`` rather than failing. That holds for a batch too:
+    the top-level ``valid`` is the AGGREGATE (false when any entry is invalid) and
+    the exit code stays 0, so an agent reads the verdict from the result and never
+    from the process status.
+
+    ``scripts`` carries one :class:`ValidatedScript` per validated file, in the
+    order they were requested (or, under ``--all``, the order the engine
+    enumerated them). A single-path invocation yields exactly one entry — the
+    shape does not vary with the batch size, so no consumer has to branch on it.
+
+    ``project_root`` names the project the scripts were compiled against, so a
+    reader can tell a real compile error from one caused by the wrong project
+    context without re-deriving gda's resolution (#658). It is REQUIRED and
+    nullable, not optional: every public result carries the key (``null`` means
+    projectless), so an agent can read it unconditionally. The engine's sentinel
+    does not report it — ADR-0006 keeps the project CLI-side, and the engine is
+    told it through ``--path`` — so the ``before`` validator below supplies the
+    key for the internal sentinel parse and the CLI stamps the real value
+    immediately after (:func:`_script_validate_recipe`). The leniency is
+    therefore inward-facing only: it never reaches the published contract, which
+    lists ``project_root`` in ``required``.
+    """
+
+    valid: bool = Field(
+        description=(
+            "The AGGREGATE verdict: true only when every entry in 'scripts' "
+            "compiles. False when any one of them does not — the command still "
+            "exits 0, so read this field, not the exit code. Vacuously true for "
+            "an empty '--all' run in a project with no scripts."
+        )
+    )
+    scripts: list[ValidatedScript] = Field(
+        description=(
+            "One verdict per validated script, in requested order (a single path "
+            "yields exactly one entry)."
+        )
     )
     project_root: str | None = Field(
         description=(
-            "The Godot project this script was compiled against — the root its "
-            "res:// dependencies resolved to, reported as an absolute path "
+            "The Godot project the whole batch was compiled against — the root "
+            "its res:// dependencies resolved to, reported as an absolute path "
             "(ADR-0006: --project, then $GDA_PROJECT, then the current "
-            "directory). Always present; null when gda ran projectless (no "
-            "project resolved), where only filesystem paths resolve. A script "
-            "whose res:// dependencies were reported missing with a null or "
-            "unexpected root here has a project-context problem, not a source "
-            "problem."
+            "directory). One per call, never per script. Always present; null "
+            "when gda ran projectless (no project resolved), where only "
+            "filesystem paths resolve. A script whose res:// dependencies were "
+            "reported missing with a null or unexpected root here has a "
+            "project-context problem, not a source problem."
         ),
     )
 
@@ -1428,9 +1524,26 @@ _SCRIPT_ERROR_LINE = re.compile(
 )
 _RELOAD_FRAME = re.compile(r"GDScript::reload \([^)]*:(?P<line>\d+)\)")
 
+# The line ``operations.gd`` writes to stderr immediately before it compiles one
+# script of the batch (#663) — the delimiter that makes a batch's diagnostics
+# attributable to individual FILES. It is emitted through the op's ordinary
+# ``_diag`` channel, so the full line is this prefix plus the script's path.
+#
+# A marker rather than the path inside the engine's own ``GDScript::reload`` frame:
+# that frame's spelling is the engine's, and gda would have to guess how the engine
+# renders whatever address it was handed (``res://``, absolute, relative) to match
+# it back. The marker is gda's own text, written by gda, in the order gda asked for
+# — so attribution needs no agreement about path spellings at all. Both sides of
+# this spelling are pinned by a test, since they live in different languages.
+VALIDATE_MARKER_PREFIX = "gda: validating: "
+
+_VALIDATE_MARKER = re.compile(
+    rf"^{re.escape(VALIDATE_MARKER_PREFIX)}(?P<path>.*)$", re.MULTILINE
+)
+
 
 def parse_validate_diagnostics(stderr: str) -> list[ScriptDiagnostic]:
-    """Parse advisory ``script validate`` diagnostics from the engine's stderr.
+    """Parse advisory ``script validate`` diagnostics from ONE script's stderr window.
 
     A pure function (no engine, no I/O): the line/message of a failed
     ``GDScript.reload()`` are available only from stderr, not from any bound API
@@ -1438,11 +1551,11 @@ def parse_validate_diagnostics(stderr: str) -> list[ScriptDiagnostic]:
     success/failure outcome or error codes, only surfaced here as best-effort
     diagnostics). ``column`` is always null (the engine exposes none).
 
-    The validate op does exactly ONE ``reload()``, so the only legitimate
-    ``GDScript::reload`` frame in stderr is the validated script's. Each
+    The window is one script's, which :func:`parse_validate_segments` cuts out, so
+    the only legitimate ``GDScript::reload`` frame in it is that script's own. Each
     ``SCRIPT ERROR: <message>`` line is paired with a reload frame found ONLY in
-    the window up to the next ``SCRIPT ERROR`` line, and a ``SCRIPT ERROR`` with
-    no reload frame in that window is dropped: bounding the search keeps a later
+    the sub-window up to the next ``SCRIPT ERROR`` line, and a ``SCRIPT ERROR``
+    with no reload frame there is dropped: bounding the search keeps a later
     error's frame from being mis-attributed to an earlier message, and the
     frame requirement excludes unrelated engine ``SCRIPT ERROR`` noise — e.g. an
     autoload's own startup error under ``--project``, whose frame is its
@@ -1468,23 +1581,65 @@ def parse_validate_diagnostics(stderr: str) -> list[ScriptDiagnostic]:
     return diagnostics
 
 
+def parse_validate_segments(stderr: str) -> list[tuple[str, list[ScriptDiagnostic]]]:
+    """Cut the engine's stderr into one ``(path, diagnostics)`` window per script (#663).
+
+    The batch's attribution step, and the reason a batch can report per-FILE
+    diagnostics at all: the engine compiles the scripts one after another into a
+    single stderr stream, so without a delimiter every error would belong to "the
+    batch" and a six-script run would report six errors with nothing saying which
+    file each came from. ``operations.gd`` writes
+    :data:`VALIDATE_MARKER_PREFIX` + the path before each compile, and this splits
+    on those markers and hands each window to :func:`parse_validate_diagnostics`
+    unchanged — the per-script pairing rule is reused, not re-implemented.
+
+    Text BEFORE the first marker is dropped, which is what makes the batch strictly
+    more precise than the old whole-stream parse: engine startup noise, and an
+    autoload's own errors under ``--project``, arrive before any script is compiled
+    and can no longer reach any verdict.
+
+    Returns the windows in engine order. The path is carried out of the marker
+    rather than assumed, so the caller can verify it against the verdict it is
+    about to attach the diagnostics to.
+    """
+    markers = list(_VALIDATE_MARKER.finditer(stderr))
+    segments: list[tuple[str, list[ScriptDiagnostic]]] = []
+    for index, marker in enumerate(markers):
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(stderr)
+        window = stderr[marker.end() : end]
+        segments.append((marker.group("path"), parse_validate_diagnostics(window)))
+    return segments
+
+
 def classify_script_validate(
     result: RunResult, binary: Path
 ) -> ScriptValidateResult | Failure:
-    """Classify the raw ``script validate`` result (issue #118).
+    """Classify the raw ``script validate`` result (issue #118, #663).
 
     The per-command layer for ``script validate``: the shared decision tree comes
-    from ``classify_run`` (an op error — missing path, wrong extension,
-    unreadable file — is still a ``Failure``). For a SUCCESSFUL op reporting an
-    invalid script (``valid=false``), the line/message diagnostics are not in the
-    sentinel — they live only in the engine's stderr — so this layer parses them
-    in and attaches them to the result.
+    from ``classify_run`` (an op error — a missing path, a wrong extension, an
+    unreadable file — is still a ``Failure``, and it refuses the whole batch). For
+    a SUCCESSFUL op, the line/message diagnostics are not in the sentinel — they
+    live only in the engine's stderr — so this layer parses them in and attaches
+    each script's own to its own verdict.
+
+    Attribution is POSITIONAL — the engine emits its markers and its verdicts in
+    the same order — and guarded by the path the marker carries. The guard is what
+    keeps the failure mode safe rather than wrong: if the stream ever desynchronizes
+    (a path containing a newline splits into a phantom marker, say), the mismatched
+    entry keeps its empty advisory ``diagnostics`` instead of inheriting another
+    script's errors. The authoritative verdict is the engine's ``valid`` either way.
     """
     outcome = classify_run(result, binary, ScriptValidateResult)
     if isinstance(outcome, Failure):
         return outcome
-    if not outcome.valid:
-        outcome.diagnostics = parse_validate_diagnostics(result.stderr)
+    segments = parse_validate_segments(result.stderr)
+    for index, script in enumerate(outcome.scripts):
+        if script.valid or index >= len(segments):
+            continue
+        path, diagnostics = segments[index]
+        if path == script.path:
+            script.diagnostics = diagnostics
     return outcome
 
 
@@ -1556,26 +1711,63 @@ def render_script_attach(attached: "ScriptAttachResult") -> str:
     return f"attached {attached.script} to {attached.node} in {attached.scene_path}"
 
 
-def render_script_validate(validated: "ScriptValidateResult") -> str:
-    """Render a validate result: valid/invalid plus best-effort diagnostics.
+def _render_validated_script(script: "ValidatedScript", indent: str) -> list[str]:
+    """One script's verdict as human lines: the answer, then its evidence.
 
-    An INVALID verdict leads with the project the script was compiled against
+    Shared by both shapes :func:`render_script_validate` prints, so a per-file
+    block reads the same whether it stands alone or sits inside a batch.
+    """
+    if script.valid:
+        return [f"{indent}valid {script.path}"]
+    lines = [f"{indent}invalid {script.path}"]
+    if script.error_string is not None:
+        lines.append(f"{indent}  {script.error_string}")
+    for diag in script.diagnostics:
+        location = f"line {diag.line}" if diag.line is not None else "unknown line"
+        lines.append(f"{indent}  {location}: {diag.message}")
+    return lines
+
+
+def render_script_validate(validated: "ScriptValidateResult") -> str:
+    """Render a validate result: the verdict(s) plus best-effort diagnostics.
+
+    An INVALID verdict leads with the project the scripts were compiled against
     (#658), before the diagnostics rather than after them: when the root is the
     wrong one, every diagnostic below it is an artefact of that single mistake,
     and the reader needs to see the cause before the cascade. A valid verdict
-    stays the one-line answer — the root only explains a failure.
+    stays the short answer — the root only explains a failure.
+
+    ONE script renders as the one-line/one-block form it always has. A BATCH leads
+    with the aggregate ("invalid (1 of 6 scripts)"), then the project when that
+    aggregate is false, then each script's block indented under it — conclusion
+    first, so a six-script run's answer is the first line rather than something the
+    reader has to derive by scanning six blocks. The batch-level facts appear once,
+    because ADR-0006 resolves one project for the whole call.
     """
+    if len(validated.scripts) == 1:
+        lines = _render_validated_script(validated.scripts[0], "")
+        if not validated.valid:
+            lines.insert(1, f"  project: {_render_project_root(validated)}")
+        return "\n".join(lines)
+
+    total = len(validated.scripts)
+    noun = "script" if total == 1 else "scripts"
     if validated.valid:
-        return f"valid {validated.path}"
-    lines = [f"invalid {validated.path}"]
-    root = validated.project_root or "(none resolved: projectless)"
-    lines.append(f"  project: {root}")
-    if validated.error_string is not None:
-        lines.append(f"  {validated.error_string}")
-    for diag in validated.diagnostics:
-        location = f"line {diag.line}" if diag.line is not None else "unknown line"
-        lines.append(f"  {location}: {diag.message}")
+        lines = [f"valid ({total} {noun})"]
+    else:
+        failed = sum(1 for script in validated.scripts if not script.valid)
+        lines = [
+            f"invalid ({failed} of {total} {noun})",
+            f"  project: {_render_project_root(validated)}",
+        ]
+    for script in validated.scripts:
+        lines += _render_validated_script(script, "  ")
     return "\n".join(lines)
+
+
+def _render_project_root(validated: "ScriptValidateResult") -> str:
+    """The project line's value, naming the projectless case explicitly (#658)."""
+    return validated.project_root or "(none resolved: projectless)"
 
 
 def render_script_run(ran: "ScriptRunResult") -> str:
@@ -1656,22 +1848,30 @@ def _script_validate_recipe(
     project: Optional[Path],
     godot: Optional[str],
 ) -> ScriptValidateResult | Failure:
-    """Refuse → compile → report the root: ``script validate``'s recipe (#658).
+    """Refuse → compile → report the root: ``script validate``'s recipe (#658, #663).
 
     The sentinel op still does the compiling (``cmd.execute``, as the export
     recipe runs its preflight); this wraps it in the two decisions only the CLI
     can make, because ADR-0006 keeps project resolution CLI-side and the engine
     is TOLD the project through ``--path``, never asked about it.
 
-    First the refusal. A script outside the resolved project is refused HERE,
-    before the engine is spawned, so the false ``res://`` dependency cascade is
-    never produced (see :func:`~gda.errors.script_outside_project_failure`).
-    Only a *resolved* project can be missed, so projectless is not a refusal:
-    with no project resolved, gda validates a standalone script by filesystem
-    path exactly as before (ADR-0006's projectless fallback). Whether the script
-    belongs to some OTHER project is not asked — deriving a project from the
+    First the refusal, now applied to EVERY path in the batch (#663). ADR-0006
+    resolves one project per call, so a batch whose paths span projects is exactly
+    the hazard that decision's rejection rationale names: the outsiders would be
+    compiled against a root that does not own them. A script outside the resolved
+    project is refused HERE, before the engine is spawned, so the false ``res://``
+    dependency cascade is never produced (see
+    :func:`~gda.errors.script_outside_project_failure`). The FIRST offender in
+    requested order is named, and it refuses the whole batch: the whole call has
+    one project, so one outsider makes the requested set unservable, not just its
+    own entry. Only a *resolved* project can be missed, so projectless is not a
+    refusal: with no project resolved, gda validates standalone scripts by
+    filesystem path exactly as before (ADR-0006's projectless fallback). Whether a
+    script belongs to some OTHER project is not asked — deriving a project from the
     target path is what ADR-0006 rejected, and discovering the nearest
-    ``project.godot`` waits on an amendment to it.
+    ``project.godot`` waits on an amendment to it. ``--all`` has nothing to check:
+    the engine enumerates the resolved project's own tree, so every path it
+    produces is inside by construction.
 
     Then the report: the resolved project is stamped onto the result as
     ``project_root``, so a caller reading a ``valid=false`` verdict sees which
@@ -1690,9 +1890,10 @@ def _script_validate_recipe(
     root = None
     if project is not None:
         root = project.expanduser().resolve()
-        outside = path_outside_project(params.path, project)
-        if outside is not None:
-            return script_outside_project_failure(outside, root)
+        for path in params.paths:
+            outside = path_outside_project(path, project)
+            if outside is not None:
+                return script_outside_project_failure(outside, root)
     # The runner seam is read off the module at call time — never imported by
     # name — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
     # Naming the HEADLESS factory directly is correct only while this command is
@@ -1998,29 +2199,61 @@ def attach_script(
 
 @_app.command(name="validate", cls=SCRIPT_VALIDATE_COMMAND.command_class())
 def validate_script(
-    path: str = typer.Argument(..., help="The .gd script file to validate."),
+    paths: Optional[list[str]] = typer.Argument(
+        None,
+        help=(
+            "The .gd script files to validate. Repeat the argument to validate a "
+            "batch in ONE engine launch. Omit them and pass --all instead."
+        ),
+    ),
+    all_scripts: bool = typer.Option(
+        False,
+        "--all",
+        help=(
+            "Validate every .gd script in the resolved project instead of named "
+            "paths. Requires a resolved project; mutually exclusive with PATH."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = SCRIPT_VALIDATE_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Syntax/compile-check a .gd script; invalid exits 0 with valid=false.
+    """Syntax/compile-check .gd scripts; invalid exits 0 with valid=false.
 
-    The script is compiled against the resolved project (ADR-0006: --project, then
-    $GDA_PROJECT, then the current directory) — the root its res:// dependencies
-    resolve against — and the result reports that root as 'project_root'. Read it
-    before trusting a verdict: a script compiled against the wrong project reports
-    every res:// dependency as missing, plus the type errors derived from them.
+    Pass several PATHs to validate them as one BATCH in a single engine launch —
+    the four to six related scripts a change usually touches cost one process, not
+    one each. Pass --all instead to validate every script in the resolved project.
+    Either way the result is the same shape: one entry per script under 'scripts',
+    plus one aggregate 'valid' that is false when ANY of them fails. A single path
+    is simply a batch of one.
 
-    A script OUTSIDE the resolved project is refused with 'project_not_found'
-    before it is parsed, naming both the file and the project, rather than
-    reporting that false cascade. gda never derives the project from the script's
-    own path (ADR-0006), so pass --project for the project that owns the file.
+    The scripts are compiled against the resolved project (ADR-0006: --project,
+    then $GDA_PROJECT, then the current directory) — the root their res://
+    dependencies resolve against — and the result reports that root as
+    'project_root'. Read it before trusting a verdict: a script compiled against
+    the wrong project reports every res:// dependency as missing, plus the type
+    errors derived from them.
+
+    A path OUTSIDE the resolved project refuses the whole batch with
+    'project_not_found' before anything is parsed, naming both the file and the
+    project, rather than reporting that false cascade. gda never derives the
+    project from a script's own path (ADR-0006), so pass --project for the project
+    that owns the files. A missing file or a non-.gd path likewise refuses the
+    batch (path_not_found / invalid_path) instead of becoming a verdict.
     """
+    targets = list(paths or [])
+    try:
+        resolve_validate_targets(targets, all_scripts)
+    except ValueError as exc:
+        # The argv half of the shared rule: a Click usage error (exit 2) keeps the
+        # command-line ergonomics, while --params-json gets the same rule as the
+        # structured invalid_params through the model (ADR-0015).
+        raise typer.BadParameter(str(exc)) from exc
     dispatch_recipe(
         SCRIPT_VALIDATE_COMMAND,
-        ScriptValidateParams(path=path),
+        ScriptValidateParams(paths=targets, all_scripts=all_scripts),
         json_output=json_output,
         godot=godot,
         project=project,

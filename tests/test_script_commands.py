@@ -490,9 +490,12 @@ def test_script_attach_reports_the_displaced_script(monkeypatch):
 
 def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypatch):
     # script validate (issue #118): a valid script is a successful op (exit 0)
-    # reporting valid=true, no error_string, and no diagnostics.
-    payload = {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(payload)
+    # reporting valid=true, no error_string, and no diagnostics. A single path is a
+    # batch of one (#663), so the verdict sits in the one `scripts` entry and the
+    # top-level `valid` is that entry's own.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + _validate_sentinel(
+        _ok("/tmp/proj/ok.gd")
+    )
     fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -502,9 +505,13 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypa
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["valid"] is True
-    assert data["error_string"] is None
-    assert data["diagnostics"] == []
-    assert fake.calls == [("script-validate", {"path": "/tmp/proj/ok.gd"})]
+    assert len(data["scripts"]) == 1
+    assert data["scripts"][0]["path"] == "/tmp/proj/ok.gd"
+    assert data["scripts"][0]["error_string"] is None
+    assert data["scripts"][0]["diagnostics"] == []
+    assert fake.calls == [
+        ("script-validate", {"paths": ["/tmp/proj/ok.gd"], "all_scripts": False})
+    ]
 
 
 def test_script_validate_help_mentions_valid_false_success_result():
@@ -573,7 +580,7 @@ def test_script_validate_refusal_is_identical_on_the_params_json_path(
             "script",
             "validate",
             "--params-json",
-            json.dumps({"path": str(outsider)}),
+            json.dumps({"paths": [str(outsider)]}),
             "--project",
             str(proj),
             "--json",
@@ -591,9 +598,9 @@ def test_script_validate_reports_the_resolved_project_root(monkeypatch, tmp_path
     # re-deriving gda's resolution.
     proj = _project(tmp_path, "game")
     script = proj / "deck.gd"
-    payload = {"path": str(script), "valid": True, "error_string": None}
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=_validate_sentinel(_ok(str(script))), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -613,9 +620,11 @@ def test_script_validate_reports_a_null_project_root_when_projectless(
     # gda's choosing — so any res:// dependency error is not to be trusted.
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GDA_PROJECT", raising=False)
-    payload = {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_ok("/tmp/proj/ok.gd")), stderr="", exit_code=0
+        ),
     )
 
     result = CliRunner().invoke(
@@ -625,16 +634,20 @@ def test_script_validate_reports_a_null_project_root_when_projectless(
     assert result.exit_code == 0
     assert json.loads(result.stdout)["project_root"] is None
     # The engine still ran: projectless is not a refusal.
-    assert fake.calls == [("script-validate", {"path": "/tmp/proj/ok.gd"})]
+    assert fake.calls == [
+        ("script-validate", {"paths": ["/tmp/proj/ok.gd"], "all_scripts": False})
+    ]
 
 
 def test_script_validate_does_not_refuse_a_res_path(monkeypatch, tmp_path):
     # A res:// path addresses the resolved project by construction (ADR-0006), so
     # containment makes no filesystem claim about it — it is never refused.
     proj = _project(tmp_path, "game")
-    payload = {"path": "res://deck.gd", "valid": True, "error_string": None}
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_ok("res://deck.gd")), stderr="", exit_code=0
+        ),
     )
 
     result = CliRunner().invoke(
@@ -643,7 +656,9 @@ def test_script_validate_does_not_refuse_a_res_path(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 0
-    assert fake.calls == [("script-validate", {"path": "res://deck.gd"})]
+    assert fake.calls == [
+        ("script-validate", {"paths": ["res://deck.gd"], "all_scripts": False})
+    ]
 
 
 def test_script_validate_does_not_refuse_a_colon_bearing_path_as_virtual(
@@ -683,9 +698,9 @@ def test_script_validate_accepts_a_relative_target_from_an_ancestor_cwd(
     # relatively. The engine anchors `deck.gd` at `--path game`, and the README
     # promises exactly that, so gda must not judge it against its own cwd.
     proj = _ancestor_cwd_project(monkeypatch, tmp_path)
-    payload = {"path": "deck.gd", "valid": True, "error_string": None}
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=_validate_sentinel(_ok("deck.gd")), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -695,7 +710,9 @@ def test_script_validate_accepts_a_relative_target_from_an_ancestor_cwd(
     assert result.exit_code == 0, result.stdout
     # The op receives the path unchanged — the engine does the anchoring — and the
     # reported root is absolute, not the bare relative "game" the caller typed.
-    assert fake.calls == [("script-validate", {"path": "deck.gd"})]
+    assert fake.calls == [
+        ("script-validate", {"paths": ["deck.gd"], "all_scripts": False})
+    ]
     assert json.loads(result.stdout)["project_root"] == str(proj)
 
 
@@ -704,9 +721,9 @@ def test_script_validate_relative_target_parity_on_the_params_json_path(
 ):
     # ADR-0015 parity for the same shape: --params-json must anchor identically.
     proj = _ancestor_cwd_project(monkeypatch, tmp_path)
-    payload = {"path": "deck.gd", "valid": True, "error_string": None}
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=_validate_sentinel(_ok("deck.gd")), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -715,7 +732,7 @@ def test_script_validate_relative_target_parity_on_the_params_json_path(
             "script",
             "validate",
             "--params-json",
-            json.dumps({"path": "deck.gd"}),
+            json.dumps({"paths": ["deck.gd"]}),
             "--project",
             "game",
             "--json",
@@ -723,7 +740,9 @@ def test_script_validate_relative_target_parity_on_the_params_json_path(
     )
 
     assert result.exit_code == 0, result.stdout
-    assert fake.calls == [("script-validate", {"path": "deck.gd"})]
+    assert fake.calls == [
+        ("script-validate", {"paths": ["deck.gd"], "all_scripts": False})
+    ]
     assert json.loads(result.stdout)["project_root"] == str(proj)
 
 
@@ -758,17 +777,15 @@ def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monke
     # Validating an INVALID script is a SUCCESSFUL op (exit 0): the sentinel says
     # valid=false, and the per-command classifier parses the line/message
     # diagnostics from stderr (the only place they live) into the result.
-    payload = {
-        "path": "/tmp/proj/broken.gd",
-        "valid": False,
-        "error_string": "Parse error.",
-    }
     stderr = (
+        "gda: validating: /tmp/proj/broken.gd\n"
         "SCRIPT ERROR: Parse Error: Expected expression for variable initial "
         'value after "=".\n'
-        "          at: GDScript::reload (gdscript://-9223371888644840980.gd:3)\n"
+        "          at: GDScript::reload (/tmp/proj/broken.gd:3)\n"
     )
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(payload)
+    stdout = "Godot Engine v4.6.3.stable.official\n" + _validate_sentinel(
+        _broken("/tmp/proj/broken.gd", "Parse error.")
+    )
     fake = inject_runner(
         monkeypatch, RunResult(stdout=stdout, stderr=stderr, exit_code=0)
     )
@@ -780,13 +797,16 @@ def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monke
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["valid"] is False
-    assert data["error_string"] == "Parse error."
+    entry = data["scripts"][0]
+    assert entry["error_string"] == "Parse error."
     # The advisory diagnostics were parsed from stderr (line + message, no column).
-    assert len(data["diagnostics"]) == 1
-    assert data["diagnostics"][0]["line"] == 3
-    assert data["diagnostics"][0]["column"] is None
-    assert "Expected expression" in data["diagnostics"][0]["message"]
-    assert fake.calls == [("script-validate", {"path": "/tmp/proj/broken.gd"})]
+    assert len(entry["diagnostics"]) == 1
+    assert entry["diagnostics"][0]["line"] == 3
+    assert entry["diagnostics"][0]["column"] is None
+    assert "Expected expression" in entry["diagnostics"][0]["message"]
+    assert fake.calls == [
+        ("script-validate", {"paths": ["/tmp/proj/broken.gd"], "all_scripts": False})
+    ]
 
 
 def test_script_set_start_line_without_content_is_a_usage_error(monkeypatch):
@@ -832,9 +852,11 @@ def test_script_set_end_line_without_start_line_is_a_usage_error(monkeypatch):
 
 def test_script_validate_human_output_valid(monkeypatch):
     # Without --json, a valid result renders a one-line 'valid <path>'.
-    payload = {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_ok("/tmp/proj/ok.gd")), stderr="", exit_code=0
+        ),
     )
 
     result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/ok.gd"])
@@ -846,17 +868,18 @@ def test_script_validate_human_output_valid(monkeypatch):
 def test_script_validate_human_output_invalid_lists_diagnostics(monkeypatch):
     # An invalid result renders 'invalid <path>', the error_string, and each
     # advisory diagnostic as 'line N: message' (parsed from stderr).
-    payload = {
-        "path": "/tmp/proj/broken.gd",
-        "valid": False,
-        "error_string": "Parse error.",
-    }
     stderr = (
+        "gda: validating: /tmp/proj/broken.gd\n"
         "SCRIPT ERROR: Parse Error: the message.\n"
-        "          at: GDScript::reload (gdscript://-1.gd:3)\n"
+        "          at: GDScript::reload (/tmp/proj/broken.gd:3)\n"
     )
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr=stderr, exit_code=0)
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_broken("/tmp/proj/broken.gd", "Parse error.")),
+            stderr=stderr,
+            exit_code=0,
+        ),
     )
 
     result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/broken.gd"])
@@ -875,9 +898,13 @@ def test_script_validate_human_output_invalid_leads_with_the_project_root(
     # artefact of that one mistake, so the cause must not sit under the cascade.
     proj = _project(tmp_path, "game")
     script = proj / "broken.gd"
-    payload = {"path": str(script), "valid": False, "error_string": "Parse error."}
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_broken(str(script), "Parse error.")),
+            stderr="",
+            exit_code=0,
+        ),
     )
 
     result = CliRunner().invoke(
@@ -898,13 +925,13 @@ def test_script_validate_human_output_names_projectless_explicitly(
     # res:// dependency error.
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GDA_PROJECT", raising=False)
-    payload = {
-        "path": "/tmp/proj/broken.gd",
-        "valid": False,
-        "error_string": "Parse error.",
-    }
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(
+            stdout=_validate_sentinel(_broken("/tmp/proj/broken.gd", "Parse error.")),
+            stderr="",
+            exit_code=0,
+        ),
     )
 
     result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/broken.gd"])
