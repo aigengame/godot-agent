@@ -11,6 +11,7 @@ observed via ``game get``) is the e2e in ``test_e2e_input``.
 """
 
 import json
+import re
 
 from typer.testing import CliRunner
 
@@ -772,12 +773,17 @@ def test_input_sequence_schema_reports_kind_live():
     events_description = schema["input"]["properties"]["events"]["description"]
     assert "process-clock `frame`" in events_description
     assert "physics-clock `physics_frame`" in events_description
-    event_props = schema["input"]["$defs"]["InputSequenceEvent"]["properties"]
-    event_types = schema["input"]["$defs"]["InputEventType"]["enum"]
-    assert "mouse_button" in event_types
-    assert "harness/process-frame" in event_props["frame"]["description"]
-    assert "physics-frame" in event_props["physics_frame"]["description"]
-    assert "mouse-button event" in event_props["pressed"]["description"]
+    # The kinds are enumerated by the union's discriminator mapping (#669), and
+    # each variant carries the clock descriptions the whole union shares.
+    variants = _variants()
+    assert "mouse_button" in variants
+    key_props = variants["key"]["properties"]
+    assert "harness/process-frame" in key_props["frame"]["description"]
+    assert "physics-frame" in key_props["physics_frame"]["description"]
+    assert (
+        "one of `pressed` or `release`"
+        in variants["mouse_button"]["properties"]["pressed"]["description"]
+    )
 
 
 def test_input_sequence_help_names_process_and_physics_clocks():
@@ -1187,3 +1193,428 @@ def test_input_key_params_json_dispatches_like_argv(monkeypatch, tmp_path):
     assert fake.calls == [
         ("input-key", {"key": "Right", "modifiers": ["shift"], "released": False})
     ]
+
+
+# --- the sequence event is a discriminated union (#669) ------------------------
+#
+# GDA-DF-037 / GDA-DF-032: one flat event shape carried every kind's fields, so
+# the per-kind rules lived only in prose — `pressed` is valid on `mouse_button`
+# alone, an action presses by default and releases with `release`, and a key
+# releases with `released`. Schema-driven automation could not tell the kinds
+# apart without a failed invocation, and a foreign field was silently accepted
+# and ignored (a `release` on a key event PRESSED the key).
+
+
+def _sequence_events_schema() -> dict:
+    result = CliRunner().invoke(app, ["input", "sequence", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    return json.loads(result.stdout)["input"]
+
+
+def _variants() -> dict[str, dict]:
+    """Each event kind's variant schema, resolved through the discriminator."""
+    schema = _sequence_events_schema()
+    mapping = schema["properties"]["events"]["items"]["discriminator"]["mapping"]
+    return {
+        kind: schema["$defs"][ref.rsplit("/", 1)[-1]] for kind, ref in mapping.items()
+    }
+
+
+def test_sequence_events_are_published_as_a_discriminated_union():
+    # The kinds are machine-discoverable: one `oneOf` branch per kind, selected
+    # by the `type` discriminator — not a single shape plus prose.
+    items = _sequence_events_schema()["properties"]["events"]["items"]
+
+    assert items["discriminator"]["propertyName"] == "type"
+    assert set(items["discriminator"]["mapping"]) == {
+        "key",
+        "mouse_click",
+        "mouse_button",
+        "mouse_move",
+        "action",
+    }
+    assert len(items["oneOf"]) == 5
+
+
+def test_each_event_kind_publishes_its_required_and_forbidden_fields():
+    # A schema client can decide each kind's valid fields without a trial
+    # invocation: what it MUST carry, and that nothing else is accepted.
+    variants = _variants()
+
+    assert set(variants["key"]["required"]) == {"type", "key"}
+    assert set(variants["action"]["required"]) == {"type", "action"}
+    assert set(variants["mouse_click"]["required"]) == {"type", "x", "y"}
+    assert set(variants["mouse_move"]["required"]) == {"type", "x", "y"}
+    assert set(variants["mouse_button"]["required"]) == {"type", "x", "y"}
+
+    for kind, variant in variants.items():
+        assert variant["additionalProperties"] is False, kind
+
+    # `pressed` belongs to `mouse_button` alone; an action releases with
+    # `release`, a key with `released`.
+    assert "pressed" in variants["mouse_button"]["properties"]
+    assert "pressed" not in variants["action"]["properties"]
+    assert "pressed" not in variants["key"]["properties"]
+    assert "pressed" not in variants["mouse_move"]["properties"]
+    assert "release" in variants["action"]["properties"]
+    assert "released" in variants["key"]["properties"]
+    assert "released" not in variants["action"]["properties"]
+    # Both clocks stay shared by every kind.
+    for kind, variant in variants.items():
+        assert {"frame", "physics_frame"} <= set(variant["properties"]), kind
+
+
+def test_a_schema_client_can_validate_events_without_invoking_gda():
+    # The acceptance property for the per-kind FIELD SETS, checked the way a
+    # client would: validate candidate events against the EMITTED schema and get
+    # the same verdict gda gives for what each kind requires and forbids. The
+    # cross-field rules are a narrower claim — the mouse-button phase is published
+    # too (its own test below), while the one-clock rule, the modifier vocabulary
+    # and the window ceiling stay enforced model-side only.
+    import jsonschema
+
+    schema = _sequence_events_schema()
+
+    def check(event: dict) -> bool:
+        try:
+            jsonschema.validate(instance={"events": [event]}, schema=schema)
+        except jsonschema.ValidationError:
+            return False
+        return True
+
+    assert check({"type": "action", "action": "jump"})
+    assert check({"type": "action", "action": "jump", "release": True, "frame": 10})
+    assert check({"type": "mouse_button", "x": 1.0, "y": 2.0, "pressed": True})
+    # …and the mistakes the flat shape used to swallow are rejected.
+    assert not check({"type": "action", "action": "jump", "pressed": True})
+    assert not check({"type": "key", "key": "A", "release": True})
+    assert not check({"type": "mouse_move", "x": 1.0, "y": 2.0, "pressed": True})
+    assert not check({"type": "key"})
+
+
+def _reject(monkeypatch, tmp_path, event: dict) -> str:
+    """Run one malformed event through --params-json; return the error message."""
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--params-json",
+            json.dumps({"events": [event]}),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+    payload = json.loads(result.stdout)
+    assert payload["error"]["code"] == "invalid_params", payload
+    assert fake.calls == []
+    return payload["error"]["message"]
+
+
+def test_a_wrong_kind_field_rejection_names_the_accepted_field(monkeypatch, tmp_path):
+    # The rejection already fired; it did not say what to write instead.
+    message = _reject(
+        monkeypatch, tmp_path, {"type": "action", "action": "j", "pressed": True}
+    )
+
+    assert "'pressed'" in message
+    assert "'release'" in message
+    assert "action" in message
+
+
+def test_a_wrong_kind_field_rejection_names_the_key_events_own_phase_field(
+    monkeypatch, tmp_path
+):
+    # The reverse mistake: an action's `release` on a key event, which used to be
+    # accepted and silently PRESS the key.
+    message = _reject(
+        monkeypatch, tmp_path, {"type": "key", "key": "A", "release": True}
+    )
+
+    assert "'release'" in message
+    assert "'released'" in message
+
+
+def test_a_phaseless_kind_rejection_points_at_the_kind_that_has_a_phase(
+    monkeypatch, tmp_path
+):
+    # `mouse_click` / `mouse_move` have no press/release phase at all; the
+    # rejection names the kind that does rather than a field they lack.
+    message = _reject(
+        monkeypatch,
+        tmp_path,
+        {"type": "mouse_move", "x": 1.0, "y": 2.0, "pressed": True},
+    )
+
+    assert "'pressed'" in message
+    assert "mouse_button" in message
+
+
+def test_an_unknown_field_rejection_lists_the_kinds_accepted_fields(
+    monkeypatch, tmp_path
+):
+    message = _reject(monkeypatch, tmp_path, {"type": "key", "key": "A", "keycode": 65})
+
+    assert "'keycode'" in message
+    assert "'key'" in message
+
+
+# The SGR colour sequences the help renderer emits when it believes it is writing
+# to a terminal. It believes that on GitHub Actions but not in a local run, so a
+# test that reads the rendered help must strip them or it passes locally and fails
+# only in CI.
+_ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def test_input_sequence_help_carries_a_copyable_action_example():
+    # The help showed only a mouse example, so an action sequence had to be
+    # inferred (GDA-DF-032). It now shows the press / release pair too.
+    result = CliRunner().invoke(app, ["input", "sequence", "--help"])
+
+    assert result.exit_code == 0, result.stdout
+    # The help renderer wraps the example across the option column and frames it
+    # with box borders (and colours it); normalizing all three back out is what a
+    # reader copying the example does. Nothing is ELLIPSIZED away — the whole
+    # example survives, which the one-line spelling it replaced did not.
+    plain = _ANSI_SGR.sub("", result.stdout).replace("│", " ")
+    rendered = " ".join(plain.split())
+    assert '{"type": "action", "action": "jump", "frame": 0}' in rendered
+    assert (
+        '{"type": "action", "action": "jump", "release": true, "frame": 10}' in rendered
+    )
+    # …beside the mouse example it joins, likewise intact.
+    assert '{"type": "mouse_button", "x": 10, "y": 10, "pressed": true}' in rendered
+
+
+def test_an_unknown_event_type_lists_the_kinds_a_caller_can_type(monkeypatch, tmp_path):
+    # The union refuses an unknown `type` by listing the expected tags. They must
+    # read as the WIRE values a caller writes — a bare enum would put
+    # "<InputEventType.KEY: 'key'>" into a public message, naming a Python symbol
+    # that is not typeable in a request.
+    message = _reject(monkeypatch, tmp_path, {"type": "nope", "key": "A"})
+
+    assert "'key', 'mouse_click', 'mouse_button', 'mouse_move', 'action'" in message
+    assert "InputEventType" not in message
+
+
+# The mouse-button phase corpus, spanning every combination the two fields can be
+# written in. The point is not any single verdict but that ONE corpus gets the
+# SAME verdict from the published schema and from the model.
+_PHASE_CORPUS = [
+    {"pressed": True},
+    {"release": True},
+    {"pressed": True, "release": False},
+    {"pressed": None, "release": True},
+    {},
+    {"pressed": False},
+    {"pressed": False, "release": True},
+    {"pressed": True, "release": True},
+    {"release": False},
+    {"pressed": None},
+]
+
+
+def test_the_mouse_button_phase_rule_is_checkable_and_matches_the_model():
+    # #669: `mouse_button` is the kind an agent reaches for to build a drag, and
+    # its "exactly one of `pressed: true` / `release: true`" rule used to live only
+    # in prose — so a schema-driven client learned it from a failed invocation
+    # (GDA-DF-037). It is now published as schema, and this pins the published rule
+    # to the enforcing validator so the two cannot drift apart.
+    import jsonschema
+
+    from gda.commands.input import InputSequenceParams
+
+    schema = _sequence_events_schema()
+    for phase in _PHASE_CORPUS:
+        event = {"type": "mouse_button", "x": 1.0, "y": 2.0, **phase}
+        try:
+            jsonschema.validate(instance={"events": [event]}, schema=schema)
+            by_schema = True
+        except jsonschema.ValidationError:
+            by_schema = False
+        try:
+            InputSequenceParams.model_validate({"events": [event]})
+            by_model = True
+        except ValueError:
+            by_model = False
+        assert by_schema == by_model, (phase, by_schema, by_model)
+    # …and the corpus really does span both verdicts, so agreement is not vacuous.
+    accepted = [p for p in _PHASE_CORPUS if p in ({"pressed": True}, {"release": True})]
+    assert accepted
+
+
+def test_an_explicit_null_button_still_means_the_left_button(monkeypatch, tmp_path):
+    # The flat shape these variants replace defaulted `button` to null and let the
+    # harness read that as left, so a producer that dumped an event and replayed it
+    # sent an explicit null. It stays accepted, and normalizes to a named button.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+    events = [
+        {"type": "mouse_click", "x": 1.0, "y": 2.0, "button": None},
+        {"type": "mouse_button", "x": 1.0, "y": 2.0, "button": None, "pressed": True},
+    ]
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(events),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert [e["button"] for e in fake.calls[0][1]["events"]] == ["left", "left"]
+
+
+def test_every_phase_synonym_is_a_field_some_event_kind_declares():
+    # The rejection names a kind's OWN press/release spelling by intersecting the
+    # phase synonyms with the variant's fields. That list is the one thing about
+    # the union written down separately, so hold it to what the variants declare:
+    # renaming `released` without updating it would silently drop the message back
+    # to the generic branch, with no test noticing.
+    from gda.commands.input import _PHASE_FIELDS, _SEQUENCE_EVENT_MODELS, _event_kind
+
+    declared = {f for model in _SEQUENCE_EVENT_MODELS for f in model.model_fields}
+    assert set(_PHASE_FIELDS) <= declared, set(_PHASE_FIELDS) - declared
+    # …and every kind that carries a phase is reachable through it: the three
+    # phase-bearing kinds each intersect the list, the two phaseless ones do not.
+    with_phase = {
+        _event_kind(m)
+        for m in _SEQUENCE_EVENT_MODELS
+        if set(_PHASE_FIELDS) & set(m.model_fields)
+    }
+    assert with_phase == {"key", "action", "mouse_button"}
+
+
+def test_the_union_members_are_read_off_the_union_itself():
+    # `_SEQUENCE_EVENT_MODELS` feeds every "is accepted on:" hint. Deriving it from
+    # the union rather than re-listing it is what keeps a sixth variant from
+    # joining the contract while vanishing from the messages, so pin that the two
+    # cannot disagree.
+    from gda.commands.input import _SEQUENCE_EVENT_MODELS, _event_kind
+
+    mapping = _sequence_events_schema()["properties"]["events"]["items"][
+        "discriminator"
+    ]["mapping"]
+    assert {_event_kind(m) for m in _SEQUENCE_EVENT_MODELS} == set(mapping)
+
+
+# Each sequence variant, the single-frame op whose shape it mirrors, and the
+# PINNED list of mirrored fields. The variants deliberately REDECLARE those
+# fields (their descriptions differ — a variant explains itself inside a union),
+# so nothing shared is extracted; this pairing is what keeps the redeclaration
+# honest. The field lists are pinned rather than intersected: an intersection
+# shrinks when a mirrored field is removed or renamed on one side, which is
+# exactly the drift the guard exists to catch (PR #719 recheck).
+_MIRRORED_MODELS = [
+    ("key", "KeySequenceEvent", "InputKeyParams", ("key", "modifiers", "released")),
+    (
+        "mouse_click",
+        "MouseClickSequenceEvent",
+        "InputMouseClickParams",
+        ("x", "y", "button", "double"),
+    ),
+    ("mouse_move", "MouseMoveSequenceEvent", "InputMouseMoveParams", ("x", "y")),
+    (
+        "action",
+        "ActionSequenceEvent",
+        "InputActionParams",
+        ("action", "release", "strength"),
+    ),
+]
+
+# The one deliberate annotation divergence: the sequence variant accepts an
+# explicit `button: null` (normalized to left) so a replayed dump of the old
+# flat shape stays valid, while the single-frame op never took null. The
+# exemption is pinned here so it cannot widen silently; the test still requires
+# the variant's annotation to be exactly `Optional[<the op's annotation>]`.
+_MIRRORED_NULLABLE_EXEMPTIONS = {("MouseClickSequenceEvent", "button")}
+
+
+def test_a_sequence_variant_keeps_its_single_frame_ops_constraints():
+    # A sequence event and its single-frame op are the same request at a clock
+    # offset, so a bound that holds for one must hold for the other: tightening
+    # `input action --strength` while a sequence action kept 0..∞ would accept
+    # through one door what the other refuses. Compares the CONSTRAINTS
+    # (annotation, bounds, defaults) of the PINNED mirrored fields, not their
+    # prose — and requires each pinned field to exist on both sides, so removing
+    # or renaming one is itself the drift.
+    import gda.commands.input as input_module
+
+    drift: list[str] = []
+    for kind, variant_name, params_name, fields in _MIRRORED_MODELS:
+        variant = getattr(input_module, variant_name)
+        params = getattr(input_module, params_name)
+        for field in fields:
+            here = variant.model_fields.get(field)
+            there = params.model_fields.get(field)
+            if here is None or there is None:
+                drift.append(
+                    f"{variant_name}.{field} / {params_name}.{field}: pinned "
+                    f"mirrored field missing on "
+                    f"{'both sides' if here is there else (variant_name if here is None else params_name)}"
+                )
+                continue
+            expected = there.annotation
+            if (variant_name, field) in _MIRRORED_NULLABLE_EXEMPTIONS:
+                # The exemption only means something while the op side is NOT
+                # nullable: once it becomes nullable too, `| None` collapses
+                # (Optional[Optional[T]] is Optional[T]) and the plain
+                # comparison would keep passing forever — so a resolved
+                # divergence must take its exemption entry with it.
+                if repr(there.annotation | None) == repr(there.annotation):
+                    drift.append(
+                        f"stale exemption ({variant_name!r}, {field!r}): "
+                        f"{params_name}.{field} is itself nullable now — the "
+                        f"divergence is gone, delete the exemption"
+                    )
+                expected = there.annotation | None
+            if repr(here.annotation) != repr(expected):
+                drift.append(
+                    f"{variant_name}.{field} annotation {here.annotation!r} != "
+                    f"{params_name}.{field} annotation {there.annotation!r}"
+                )
+            if repr(here.metadata) != repr(there.metadata):
+                drift.append(
+                    f"{variant_name}.{field} bounds {here.metadata} != "
+                    f"{params_name}.{field} bounds {there.metadata}"
+                )
+            if repr(here.default) != repr(there.default):
+                drift.append(
+                    f"{variant_name}.{field} default {here.default!r} != "
+                    f"{params_name}.{field} default {there.default!r}"
+                )
+            if repr(here.default_factory) != repr(there.default_factory):
+                drift.append(
+                    f"{variant_name}.{field} default_factory "
+                    f"{here.default_factory!r} != {params_name}.{field} "
+                    f"default_factory {there.default_factory!r}"
+                )
+
+    assert not drift, "sequence variants drifted from their single-frame ops:\n" + (
+        "\n".join(drift)
+    )
+    # Every exemption must name a pinned mirrored field, so an entry whose field
+    # went away fails loudly instead of exempting nothing. (The other stale form
+    # — the divergence got resolved — is caught above, where an exemption whose
+    # op side is itself nullable is reported as drift.)
+    pinned = {
+        (variant_name, field)
+        for _, variant_name, _, fields in _MIRRORED_MODELS
+        for field in fields
+    }
+    assert _MIRRORED_NULLABLE_EXEMPTIONS <= pinned, (
+        _MIRRORED_NULLABLE_EXEMPTIONS - pinned
+    )

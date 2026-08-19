@@ -325,3 +325,227 @@ def test_real_out_of_process_cli_manifest_covers_the_live_command_tree():
     assert {"info", "scene create"} <= names
     # The non-dispatchable `schema` meta command is excluded (Plan A).
     assert "schema" not in names
+
+
+# --- argv binding in the manifest (issue #669) --------------------------------
+
+
+# A property the caller cannot supply directly says so in its own description:
+# the CLI derives it from other flags and ignores anything passed in. That phrase
+# is the mechanical exclusion below — no command names are matched.
+_IGNORED_VALUE_MARKER = "a value passed in is ignored"
+
+# …and the properties it excuses today. Pinned so the phrase cannot become a
+# quiet escape hatch: a new computed property has to be acknowledged here.
+_COMPUTED_PROPERTIES = {"script set: mode", "shader set: mode"}
+
+
+def test_every_directly_supplyable_input_property_has_an_argv_binding():
+    # issue #669: an agent reads `input`, then needs `argv` to write what it
+    # found. Every property it can actually supply must therefore have a binding
+    # — not just the required ones, since an optional property with no binding is
+    # equally unreachable from the contract. The only exemption is a property the
+    # CLI COMPUTES (`script set` / `shader set` derive `mode` from `--replace` /
+    # `--search`), which its description already declares.
+    unreachable: list[str] = []
+    computed: set[str] = set()
+    for entry in _manifest()["commands"]:
+        linked = {b["input_property"] for b in entry["argv"] if b["input_property"]}
+        for name, spec in entry["input"].get("properties", {}).items():
+            if name in linked:
+                continue
+            where = f"{entry['name']}: {name}"
+            if _IGNORED_VALUE_MARKER in str(spec.get("description", "")):
+                computed.add(where)
+                continue
+            unreachable.append(where)
+
+    assert not unreachable, (
+        "input properties a caller can supply but cannot write on a command line:\n"
+        + "\n".join(unreachable)
+    )
+    # The exemption stays the narrow, declared one it claims to be.
+    assert computed == _COMPUTED_PROPERTIES, computed
+
+
+def test_entry_argv_matches_the_commands_own_schema_argv():
+    # Both schema sites derive the binding from the SAME live Click parameters
+    # (ADR-0012's live-tree walk, ADR-0023 §2's "projections, not parallel
+    # registries"), so the aggregate and per-command forms cannot drift.
+    for entry in _manifest()["commands"]:
+        result = CliRunner().invoke(app, [*entry["name"].split(" "), "--schema"])
+        assert result.exit_code == 0, result.stdout
+        assert entry["argv"] == json.loads(result.stdout)["argv"], entry["name"]
+
+
+def test_every_argv_binding_is_constructible_into_a_command_line():
+    # The acceptance property: for EVERY command, each binding says either where
+    # the value goes positionally or exactly how to spell its option — never
+    # neither, never both — and the positions are a contiguous 0..n-1 run.
+    for entry in _manifest()["commands"]:
+        positions = []
+        for binding in entry["argv"]:
+            where = f"{entry['name']}: {binding['name']}"
+            if binding["kind"] == "argument":
+                assert binding["option"] is None, where
+                assert isinstance(binding["position"], int), where
+                positions.append(binding["position"])
+            else:
+                assert binding["kind"] == "option", where
+                assert binding["position"] is None, where
+                assert str(binding["option"]).startswith("-"), where
+        assert positions == list(range(len(positions))), entry["name"]
+
+
+def test_argv_metadata_cannot_reach_the_two_schema_halves_gda_mcp_maps():
+    # The gda-mcp wire-schema answer (#669): gda-mcp maps `input` →
+    # `input_schema` and `output` → `output_schema` and ignores every other entry
+    # key (ADR-0012). Asserting `argv` is absent from the halves would be
+    # tautological — it is not a JSON Schema keyword — so assert the property that
+    # actually matters: emitting a schema WITH bindings leaves both halves
+    # byte-identical to emitting it WITHOUT them. That is what keeps every
+    # registered tool's wire schema unchanged by this addition.
+    from gda.headless import command_argv_bindings
+    from gda.models import CommandSchema
+
+    root = typer.main.get_command(app)
+    checked = 0
+    with_bindings = 0
+
+    def walk(command, path):
+        nonlocal checked, with_bindings
+        subcommands = getattr(command, "commands", None)
+        if subcommands is not None:
+            for name, subcommand in subcommands.items():
+                walk(subcommand, [*path, name])
+            return
+        input_model = getattr(command, "gda_input_model", None)
+        output_model = getattr(command, "gda_output_model", None)
+        if input_model is None or output_model is None:
+            return
+        bare = CommandSchema.of(input_model, output_model)
+        bound = CommandSchema.of(
+            input_model,
+            output_model,
+            argv=command_argv_bindings(command, input_model),
+        )
+        assert bound.input == bare.input, path
+        assert bound.output == bare.output, path
+        assert bound.error == bare.error, path
+        checked += 1
+        with_bindings += 1 if bound.argv else 0
+
+    walk(root, [])
+    assert checked > 60, checked
+    # …and the comparison is not vacuous: most of those commands really do carry
+    # bindings, so the halves matched DESPITE the bindings being emitted, not
+    # because there were none to leak.
+    assert with_bindings > 40, with_bindings
+
+
+def test_self_described_manifest_describes_the_argv_binding_list():
+    # issue #669: the aggregate entry's `argv` is a HARD part of the
+    # self-described surface schema — the key is required (every entry is a real
+    # command whose signature can be walked) and its items are the named
+    # ArgvBinding shape, so a consumer validating `gda schema --schema`'s manifest
+    # schema can rely on the binding's fields rather than discovering them.
+    result = CliRunner().invoke(app, ["schema", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    manifest_schema = json.loads(result.stdout)["output"]
+
+    entry = manifest_schema["$defs"]["CommandManifestEntry"]
+    assert "argv" in entry["required"], entry["required"]
+    assert entry["properties"]["argv"]["items"] == {"$ref": "#/$defs/ArgvBinding"}
+
+    binding = manifest_schema["$defs"]["ArgvBinding"]
+    # Every field is a required KEY, so a consumer reads them unconditionally;
+    # the optional ones are nullable VALUES (`option` on a positional, `position`
+    # on an option, `input_property` where there is no 1:1 property).
+    assert set(binding["required"]) == {
+        "name",
+        "input_property",
+        "kind",
+        "option",
+        "position",
+        "required",
+        "flag",
+        "multiple",
+        "json_value",
+    }
+    assert binding["properties"]["kind"]["$ref"] == "#/$defs/ArgvKind"
+    assert manifest_schema["$defs"]["ArgvKind"]["enum"] == ["argument", "option"]
+
+
+# Every pairing of the two spelling keys against each `kind`, valid and not. The
+# point is not any single verdict but that ONE corpus gets the SAME verdict from
+# the published rule and from the model — the two engines disagree readily (a
+# pydantic Rust validator versus Python `jsonschema`), so agreement has to be
+# tested rather than assumed.
+_SPELLING_CORPUS = [
+    {"kind": "argument", "option": None, "position": 0, "flag": False},
+    {"kind": "option", "option": "--out", "position": None, "flag": False},
+    {"kind": "option", "option": "--all", "position": None, "flag": True},
+    # …and the states no caller could write.
+    {"kind": "argument", "option": "--out", "position": 0, "flag": False},
+    {"kind": "argument", "option": None, "position": None, "flag": False},
+    {"kind": "argument", "option": None, "position": 0, "flag": True},
+    {"kind": "option", "option": None, "position": None, "flag": False},
+    {"kind": "option", "option": "--out", "position": 1, "flag": False},
+    {"kind": "option", "option": None, "position": 0, "flag": False},
+]
+
+
+def test_the_published_spelling_rule_matches_the_model():
+    # #669 review: a binding that claims both a position and an option spelling —
+    # or neither — is unwritable, and a consumer reading one cannot tell which key
+    # to believe. The model rejects those states; this pins the PUBLISHED rule to
+    # the model so a client checking the manifest schema reaches the same verdict.
+    import jsonschema
+    import pydantic
+
+    from gda.models import ArgvBinding
+
+    result = CliRunner().invoke(app, ["schema", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    defs = json.loads(result.stdout)["output"]["$defs"]
+    published = {"allOf": [{"$ref": "#/$defs/ArgvBinding"}], "$defs": defs}
+
+    for spelling in _SPELLING_CORPUS:
+        binding = {
+            "name": "x",
+            "input_property": "x",
+            "required": False,
+            "multiple": False,
+            "json_value": False,
+            **spelling,
+        }
+        try:
+            jsonschema.validate(instance=binding, schema=published)
+            by_schema = True
+        except jsonschema.ValidationError:
+            by_schema = False
+        try:
+            ArgvBinding.model_validate(binding)
+            by_model = True
+        except pydantic.ValidationError:
+            by_model = False
+        assert by_schema == by_model, (spelling, by_schema, by_model)
+
+    # …and the corpus spans both verdicts, so agreement is not vacuous.
+    verdicts = set()
+    for spelling in _SPELLING_CORPUS:
+        try:
+            ArgvBinding.model_validate(
+                {
+                    "name": "x",
+                    "input_property": "x",
+                    "required": False,
+                    "multiple": False,
+                    "json_value": False,
+                    **spelling,
+                }
+            )
+            verdicts.add(True)
+        except pydantic.ValidationError:
+            verdicts.add(False)
+    assert verdicts == {True, False}

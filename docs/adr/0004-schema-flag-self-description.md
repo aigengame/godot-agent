@@ -109,6 +109,60 @@ status: accepted
 > an operation reported. The two compose under the same omitted-when-absent rule, and
 > #687 stays free to decide its axis on its own merits.
 
+> **Amendment (2026-08-18, #669):** the per-command `--schema` object gains a SIXTH,
+> additive key — `argv`, the list of `ArgvBinding`s naming how each parameter `input`
+> describes is written on a command line (`kind` positional/option, `position` or
+> `option` spelling, `required`, `flag`, `multiple`, `json_value`, and the
+> `input_property` it fills). Motivation: the contract stated a command's required fields but not their
+> CLI spelling, so an agent could not build argv from it — `screen capture` takes its
+> required output as `--output`, `input mouse-click` takes `x y` positionally, and
+> `input action` takes a positional ACTION it rejects as `--action` (dogfooding
+> GDA-DF-003). The self-description was accurate and still insufficient.
+>
+> It is additive on the same properties the notes above establish:
+>
+> - **A sibling of the schema halves, never a key inside them.** Adding the key
+>   leaves `input` / `output` byte-identical — a test emits each command's contract
+>   with and without the bindings and requires both halves to match — so gda-mcp's
+>   `input_schema` / `output_schema` are unchanged by it and it needs no adapter
+>   work; it maps only `input` / `output` / `description` (ADR-0012). Measured
+>   across the whole surface at the time of the change, exactly one `input` differs
+>   for an unrelated reason (`input sequence`, whose own params model became a
+>   per-kind union in the same PR), and no `output` / `error` / `description` /
+>   `kind` / `constraints` differs at all.
+> - **Derived, never declared.** The bindings are read off the LIVE Typer/Click
+>   parameters at emission time, through one projection shared by the per-command
+>   `--schema` and the aggregate manifest (ADR-0012's live-tree walk, ADR-0023 §2).
+>   An `argv` field on the `HeadlessCommand` descriptor was rejected: a
+>   hand-maintained spelling table is a second authority for a fact the Typer
+>   signature already owns, and it would silently rot the moment a signature changed.
+>   Reading the registered parameters also makes it correct on every dispatch channel
+>   at once — the sentinel path, the EXPORT / LIVE kinds, and the recipe commands.
+> - **Zero per-command cost**, like the halves it joins: a new command's spelling
+>   appears because it registered parameters, not because anyone wrote it down. The
+>   binding expresses a positional, an option, a valueless flag, a repeated value
+>   and a JSON-encoded one; a registration test fails if the surface ever grows a
+>   Click shape it cannot write (a `--x/--no-x` pair, an n-ary option, a counting
+>   option), so the contract is extended deliberately rather than emitting a
+>   binding no caller can follow.
+>
+> Two boundaries. `argv` covers the OPERATION parameters — the same set
+> `--params-json` treats as exclusive of the individual arguments (ADR-0015) — so the
+> cross-cutting flags every command shares (`--json` / `--schema` / `--params-json` /
+> `--godot` / `--project`) stay out; they are not per-command information. And
+> `input_property` is `null`, not guessed, where a parameter's property is revealed
+> by neither its name nor its long option: a wrong link would read as authoritative.
+> The surface has **no such parameter** — where an option renames the property it
+> fills (`project list --all` → `include_defaults`, `skill --dir` → `install_dir`)
+> the Python parameter carries the property's name, so the link resolves — and a
+> test holds that every **directly supplyable** property has a binding. The nullable
+> value stays part of the contract for a future parameter that cannot be resolved,
+> rather than being forced into a guess. The one exemption from that guard is a
+> property the CLI COMPUTES rather than takes (`script set`'s and `shader set`'s
+> `mode`, from `--replace` / `--search`), which its own description declares. On the
+> aggregate entry the `argv` key is required, its list possibly empty — the same
+> "key always present" guarantee `constraints` has.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 

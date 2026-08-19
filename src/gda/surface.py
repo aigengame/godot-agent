@@ -23,7 +23,7 @@ dispatch (ADR-0011/0012).
 
 import typer
 
-from gda.headless import command_constraints
+from gda.headless import command_argv_bindings, command_constraints
 from gda.models import CommandManifestEntry, CommandSchema, SurfaceManifest
 
 
@@ -93,8 +93,17 @@ def _collect(
     # aggregate and per-command forms cannot drift. ``None`` for a command with no
     # live-stack dependence.
     constraints = command_constraints(gda_command)
+    # The command's argv spelling (issue #669) comes from the same one derivation
+    # the per-command ``--schema`` uses, applied to this leaf's live Click
+    # parameters — the tree this walker is already standing in is the source, so
+    # the aggregate and per-command forms cannot drift.
+    argv = command_argv_bindings(command, input_model)
     schema = CommandSchema.of(
-        input_model, output_model, kind=gda_command.kind, constraints=constraints
+        input_model,
+        output_model,
+        kind=gda_command.kind,
+        constraints=constraints,
+        argv=argv,
     )
     description = (
         getattr(command, "help", None) or getattr(command, "short_help", None) or ""
@@ -113,5 +122,8 @@ def _collect(
             # The entry's required ``constraints`` key (issue #233); its value is
             # the command's live-stack precondition or ``None`` (nullable).
             constraints=schema.constraints,
+            # The entry's required ``argv`` key (issue #669): how each parameter
+            # is spelled on a command line, empty for a command that takes none.
+            argv=schema.argv,
         )
     )

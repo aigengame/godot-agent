@@ -21,6 +21,21 @@ status: accepted
 > `constraints` — so the addition is backward compatible. On the aggregate entry
 > the `constraints` key is always present, its value nullable.
 
+> **Outcome (2026-08-18, #669):** each manifest entry gained an additive `argv`
+> field (the command's `ArgvBinding` list — how each parameter is written on a
+> command line, ADR-0004's amendment of the same date), so the entry above is now
+> `{name, description, input, output, error, kind, constraints, argv}`. gda-mcp's
+> mapping is unchanged — it ignores `kind` / `constraints` / `argv` — and **the
+> `argv` addition leaves both mapped halves byte-identical**, so no registered
+> tool's wire schema changes because of it. (One tool's `input_schema` did change
+> in the same PR for an unrelated reason: `gda input sequence`'s own params model
+> became a per-kind discriminated union. That is a model change, not a
+> manifest-shape one, and it is the only entry whose `input` differs.)
+> The bindings come from the same live-tree walk this ADR established: the walker is
+> already standing in the Typer tree, so it reads each leaf's Click parameters
+> there rather than consulting anything else. On the aggregate entry the `argv` key
+> is always present, its list empty for a command with no operation parameters.
+
 ADR-0011 fixes [gda-mcp](../../CONTEXT.md) as a subprocess adapter that consumes
 `gda`'s public ABI. ADR-0004 / ADR-0005 make each command self-describing
 (`--schema` → `{input, output, error}`) and give a deterministic CLI→MCP name map

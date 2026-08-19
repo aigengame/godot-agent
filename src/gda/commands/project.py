@@ -871,7 +871,7 @@ def project_get(
 
 @_app.command(name="list", cls=PROJECT_LIST_COMMAND.command_class())
 def project_list(
-    all_settings: bool = typer.Option(
+    include_defaults: bool = typer.Option(
         False,
         "--all",
         help=(
@@ -896,7 +896,7 @@ def project_list(
     """List the project's settings keys (customized only by default; --all adds defaults)."""
     dispatch_domain(
         PROJECT_LIST_COMMAND,
-        ProjectListParams(include_defaults=all_settings, section=section),
+        ProjectListParams(include_defaults=include_defaults, section=section),
         json_output=json_output,
         godot=godot,
         project=project,

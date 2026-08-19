@@ -4,6 +4,28 @@ status: accepted
 
 # Structured params input: a uniform `--params-json` channel, the params model as the single source
 
+> **Amendment (2026-08-19, #669):** the emitted contract now DOES carry CLI-binding
+> metadata — an `argv` list alongside the schema halves, naming each parameter's
+> positional slot or option spelling (the
+> [ADR-0004 amendment](0004-schema-flag-self-description.md) of 2026-08-18). Two
+> sentences below are superseded by it: the framing that the dump "deliberately does
+> not encode CLI binding", and the rejected option's claim that encoding it would
+> "reopen ADR-0012's contract".
+>
+> **What this ADR decided remains in force, unchanged.** gda-mcp still forwards an
+> MCP tool's input object **verbatim** through `--params-json`, reconstructs no argv,
+> and ignores `argv` entirely — so the rejected option's real cost, pushing fragile
+> typed-argv encoding (booleans, arrays, nested objects, defaults) into gda-mcp,
+> never materializes. The binding metadata exists for a DIFFERENT consumer: an agent
+> driving the CLI directly, which had no way to learn a required field's spelling
+> without a `--help` round trip (dogfooding GDA-DF-003). Two audiences, two channels,
+> one params model behind both.
+>
+> The distinction the rejection rested on also holds: argv is still not mechanically
+> recoverable from the `input` schema ALONE, which is exactly why the binding is
+> published as a separate, derived projection rather than by enriching the schema —
+> `input` and `output` stay byte-identical, so ADR-0012's mapping is untouched.
+
 gda commands take their params as CLI argv — a mix of positional `Argument`s and
 `--kebab` `Option`s. [gda-mcp](../../CONTEXT.md) (ADR-0011/0012) must forward an MCP
 tool's input object to gda over gda's **public CLI ABI**. ADR-0012's aggregate
