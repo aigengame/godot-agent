@@ -1511,35 +1511,70 @@ def test_the_union_members_are_read_off_the_union_itself():
     assert {_event_kind(m) for m in _SEQUENCE_EVENT_MODELS} == set(mapping)
 
 
-# Each sequence variant and the single-frame op whose shape it mirrors. The
-# variants deliberately REDECLARE those fields (their descriptions differ — a
-# variant explains itself inside a union), so nothing shared is extracted; this
-# pairing is what keeps the redeclaration honest.
+# Each sequence variant, the single-frame op whose shape it mirrors, and the
+# PINNED list of mirrored fields. The variants deliberately REDECLARE those
+# fields (their descriptions differ — a variant explains itself inside a union),
+# so nothing shared is extracted; this pairing is what keeps the redeclaration
+# honest. The field lists are pinned rather than intersected: an intersection
+# shrinks when a mirrored field is removed or renamed on one side, which is
+# exactly the drift the guard exists to catch (PR #719 recheck).
 _MIRRORED_MODELS = [
-    ("key", "KeySequenceEvent", "InputKeyParams"),
-    ("mouse_click", "MouseClickSequenceEvent", "InputMouseClickParams"),
-    ("mouse_move", "MouseMoveSequenceEvent", "InputMouseMoveParams"),
-    ("action", "ActionSequenceEvent", "InputActionParams"),
+    ("key", "KeySequenceEvent", "InputKeyParams", ("key", "modifiers", "released")),
+    (
+        "mouse_click",
+        "MouseClickSequenceEvent",
+        "InputMouseClickParams",
+        ("x", "y", "button", "double"),
+    ),
+    ("mouse_move", "MouseMoveSequenceEvent", "InputMouseMoveParams", ("x", "y")),
+    (
+        "action",
+        "ActionSequenceEvent",
+        "InputActionParams",
+        ("action", "release", "strength"),
+    ),
 ]
+
+# The one deliberate annotation divergence: the sequence variant accepts an
+# explicit `button: null` (normalized to left) so a replayed dump of the old
+# flat shape stays valid, while the single-frame op never took null. The
+# exemption is pinned here so it cannot widen silently; the test still requires
+# the variant's annotation to be exactly `Optional[<the op's annotation>]`.
+_MIRRORED_NULLABLE_EXEMPTIONS = {("MouseClickSequenceEvent", "button")}
 
 
 def test_a_sequence_variant_keeps_its_single_frame_ops_constraints():
     # A sequence event and its single-frame op are the same request at a clock
     # offset, so a bound that holds for one must hold for the other: tightening
     # `input action --strength` while a sequence action kept 0..∞ would accept
-    # through one door what the other refuses. Compares the CONSTRAINTS (bounds
-    # and defaults) of the fields both declare, not their prose.
+    # through one door what the other refuses. Compares the CONSTRAINTS
+    # (annotation, bounds, defaults) of the PINNED mirrored fields, not their
+    # prose — and requires each pinned field to exist on both sides, so removing
+    # or renaming one is itself the drift.
     import gda.commands.input as input_module
 
     drift: list[str] = []
-    compared = 0
-    for kind, variant_name, params_name in _MIRRORED_MODELS:
+    for kind, variant_name, params_name, fields in _MIRRORED_MODELS:
         variant = getattr(input_module, variant_name)
         params = getattr(input_module, params_name)
-        shared = set(variant.model_fields) & set(params.model_fields)
-        assert shared, (kind, "no shared fields — the pairing is stale")
-        for field in sorted(shared):
-            here, there = variant.model_fields[field], params.model_fields[field]
+        for field in fields:
+            here = variant.model_fields.get(field)
+            there = params.model_fields.get(field)
+            if here is None or there is None:
+                drift.append(
+                    f"{variant_name}.{field} / {params_name}.{field}: pinned "
+                    f"mirrored field missing on "
+                    f"{'both sides' if here is there else (variant_name if here is None else params_name)}"
+                )
+                continue
+            expected = there.annotation
+            if (variant_name, field) in _MIRRORED_NULLABLE_EXEMPTIONS:
+                expected = there.annotation | None
+            if repr(here.annotation) != repr(expected):
+                drift.append(
+                    f"{variant_name}.{field} annotation {here.annotation!r} != "
+                    f"{params_name}.{field} annotation {there.annotation!r}"
+                )
             if repr(here.metadata) != repr(there.metadata):
                 drift.append(
                     f"{variant_name}.{field} bounds {here.metadata} != "
@@ -1550,10 +1585,24 @@ def test_a_sequence_variant_keeps_its_single_frame_ops_constraints():
                     f"{variant_name}.{field} default {here.default!r} != "
                     f"{params_name}.{field} default {there.default!r}"
                 )
-            compared += 1
+            if repr(here.default_factory) != repr(there.default_factory):
+                drift.append(
+                    f"{variant_name}.{field} default_factory "
+                    f"{here.default_factory!r} != {params_name}.{field} "
+                    f"default_factory {there.default_factory!r}"
+                )
 
     assert not drift, "sequence variants drifted from their single-frame ops:\n" + (
         "\n".join(drift)
     )
-    # The comparison really covered the interesting fields, not just `type`.
-    assert compared >= 10, compared
+    # Every exemption must name a pinned mirrored field, so a stale entry (the
+    # divergence got resolved, or the field went away) fails loudly instead of
+    # exempting nothing.
+    pinned = {
+        (variant_name, field)
+        for _, variant_name, _, fields in _MIRRORED_MODELS
+        for field in fields
+    }
+    assert _MIRRORED_NULLABLE_EXEMPTIONS <= pinned, (
+        _MIRRORED_NULLABLE_EXEMPTIONS - pinned
+    )
