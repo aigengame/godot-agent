@@ -64,6 +64,8 @@ they are provenance, not status markers.
 | `gda scene get` | Read a scene's structured tree from its file on disk |
 | `gda scene list` | Enumerate scenes in the project |
 | `gda scene get-exports` | List `@export` properties declared by a scene's nodes |
+| `gda scene validate` | Check statically that a scene's dependencies resolve and its scripts compile |
+| `gda scene preflight` | Boot a scene headless and report its startup verdict |
 
 **Static instance reporting** (established by #400): `scene get` reads the stored
 `SceneState` without instantiating the host scene, but an instanced node is still
@@ -91,6 +93,68 @@ a scene with no exported variables anywhere is a valid, empty listing (`nodes ==
 `path_not_found`, a non-scene file `not_a_scene` (both exit 4). It reads but does not save, so
 it skips the re-save mutation-integrity guard; instantiating still runs attached scripts'
 `_init` (the trust boundary of ADR-0009).
+
+**Two verdicts, neither replacing the other** (established by #664): `scene get` reports what a
+scene DECLARES, and reporting it survives most breakage — Godot substitutes null for a NODE's
+`[ext_resource]` it cannot resolve, prints an error to stderr, and still returns a usable
+`PackedScene`, so a scene whose script and texture are both gone reads as a healthy tree
+(dogfooding GDA-DF-040; a dependency broken from inside a `[sub_resource]` can instead fail the
+whole load, measured on Godot 4.6.3). The two validating commands answer the questions that read cannot, and
+they answer *different* ones:
+
+- `gda scene validate PATH` is **static**. It loads the scene without instantiating it, so none of
+  the scene's own node scripts run — no `_init`, no `_ready`, no frames (issue #30; the project's
+  autoloads still start, as they do for every `--project` op, and compiling a script executes its
+  static initializers). It resolves every dependency the `.tscn` declares, compiles every script
+  it binds — the referenced `.gd` files and the embedded `[sub_resource type="GDScript"]`s the
+  dependency walk never sees — and checks each script's native base against the node carrying it,
+  reporting one problem per file: `missing_resource` (the file is gone), `unloadable_resource`
+  (present on disk but no `ResourceLoader` opens it — typically an asset that was never imported,
+  which a non-editor engine cannot load at all), `script_compile_failed` (the same verdict
+  `script validate` gives that file; an embedded script is named by its `::id` sub-resource path)
+  or `incompatible_script` (it compiles, but the engine would refuse to bind it — the same rule
+  `node script attach` enforces, asked statically). Each problem carries the declared `type` and
+  the node paths referencing it, read from the file's own text because the engine drops an
+  unresolvable reference from what it loads. A path declared twice is one problem with both nodes
+  listed.
+- `gda scene preflight PATH` is **dynamic**. It instantiates the scene, adds it under a one-shot
+  engine's tree root — which runs its `_ready` and the project's autoloads — keeps it alive for
+  `--frames` idle frames so startup work landing after `_ready` still prints, and reports
+  `status` (`ready` / `not_ready` / `timeout`) plus the script errors gda recognized in the
+  engine's error stream. Read `started`: true only when the scene reached `_ready` AND nothing was
+  recognized on stderr, which is the distinction the dogfooding note asks for (GDA-DF-030 —
+  static validation passed while the first live launch rejected every assembly). Recognition is
+  #651's closed set of engine failure sentences (a runtime error, a failed assertion, a script
+  that could not load), so project prose written with `push_error()` is not among them.
+
+`scene validate` takes a `.tscn` specifically, and refuses a binary `.scn` with `invalid_path`:
+its dependency set comes from the scene's own TEXT (which is also what attributes each dependency
+to the nodes using it), and a binary scene carries none — answering `valid: true` for a file it
+could not read would be the worst thing a gate can do. `scene preflight` has no such restriction:
+it boots whatever loads.
+
+Both report an invalid/failed scene as a **successful operation** (exit `0`, verdict in the
+result), including preflight's `timeout` — "it did not come up within the bound" is the answer
+that command was asked for. Only addressing and environment problems fail: `path_not_found`,
+`invalid_path`, `not_a_scene`, preflight's `missing_dependency` for a scene the engine cannot
+instantiate at all, and the shared binary/crash envelopes. One case that looks like a refusal but
+is a verdict: an unresolvable `[ext_resource]` referenced from a `[sub_resource]` (an
+`AtlasTexture`'s atlas, a script-backed `Resource`) makes Godot fail the WHOLE scene load, so
+`scene validate` reports its own dependency finding rather than the `not_a_scene` the load alone
+would suggest. Both carry `project_root`, the root the `res://`
+dependencies resolved against — read it before trusting a bad verdict, since the wrong project
+reports everything as missing (the #658 rule).
+
+Neither command replaces the other, and the e2e suite pins why in both directions: a scene whose
+dependencies all resolve can still fail on its first frame, and a scene referencing a
+never-imported texture starts CLEAN — the engine builds the tree without it and says so in a
+sentence the recognized set does not cover, so only static validation names that file and the
+node holding it. (The two do overlap in between: a missing *script* produces sentences the parser
+knows, so both commands flag it — validate additionally saying which node and which declared
+type.) Preflight is a headless one-shot launch, not a live session —
+it needs no daemon and does not drive the scene (`gda game`, behind `gda daemon start`, is what
+does). It runs the project's code by construction, the widest such surface in the scene group,
+inside the same trusted-project assumption (ADR-0009).
 
 ### `node`
 

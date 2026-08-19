@@ -88,6 +88,33 @@ into the result's `diagnostics`. This stays within the contract: the diagnostics
 are advisory (they may hold only the first error, and `column` is unavailable on
 the standard build), and they never determine the outcome or a stable code.
 
+> **Scope note (2026-08-19, #664) — a verdict command may put the same recognized
+> sentences in a result FIELD, and may report its own bound as a verdict.**
+> `scene preflight` boots a scene and reports how far it got, so two of its answers
+> come from outside the stdout sentinel. Neither loosens the rules above; both are
+> stated here because a reader will otherwise see them as exceptions.
+>
+> - **A verdict field derived from stderr.** The op's sentinel reports readiness;
+>   whether the scene started *cleanly* also depends on the engine's error stream,
+>   which the command reads with the SAME recognized-sentence parser #651 owns (no
+>   free-text matching, no second parser) and publishes as `diagnostics`. The
+>   success/failure OUTCOME — which envelope is emitted, and every stable code —
+>   still comes only from the exit code plus the sentinel, exactly as above. What is
+>   new is that a *field of a success result* (`started`) is derived from the
+>   advisory stream rather than merely carrying it. The rule that matters is
+>   unchanged: an unrecognized line changes nothing, and the op's own verdict is
+>   never overridden — `status` is reported as the engine gave it.
+> - **The launch bound as a verdict, not `launch_timeout`.** A scene whose `_ready`
+>   never returns blocks the engine before any frame runs, so no sentinel can ever
+>   arrive; gda's own ceiling is the only thing that ends the run. That is reported
+>   as a SUCCESS carrying `status: timeout` (with the captured diagnostics), not as
+>   the `launch_timeout` envelope every other launch-backed channel reports. The
+>   difference is what the timeout MEANS: elsewhere it means gda could not get you
+>   an answer, while here the question was whether this scene comes up within the
+>   bound — so the bound being reached IS the answer. Scoped to this command: an
+>   unlaunchable binary, an unusable user-data placement, a signal death, and the
+>   op's own structured refusals stay the shared envelope.
+
 > **Scope note (2026-08-18, #663) — one operation, several scripts: the advisory
 > stream needs a delimiter.** `script validate` now validates a BATCH of scripts in
 > one op (#663), so the stderr it parses carries several scripts' errors in one
@@ -192,7 +219,7 @@ operation, and parse codes the CLI assigns).
 | Code | Category | Source | Exit Code | Meaning |
 | --- | --- | --- | --- | --- |
 | `binary_not_found` | `environment` | `runner` | `127` | The Godot binary could not be launched. |
-| `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. |
+| `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. One command does not report it — see the 2026-08-19 scope note (#664). |
 | `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
 | `unknown_command` | `usage` | `classifier` | `2` | gda has no such command; discover the surface with `gda schema` or `gda --help`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unknown_option` | `usage` | `classifier` | `2` | The command exists but has no such option; read its options with `--help` or its input contract with `--schema`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |

@@ -926,6 +926,59 @@ def _end_process(proc: "subprocess.Popen[bytes]") -> None:
         proc.wait()
 
 
+class LaunchFn(Protocol):
+    """The headless-launch seam — the shape of :func:`launch` (#343, #664).
+
+    Injected by a channel that calls the primitive directly, so its
+    launch/classify bifurcation can be exercised with a canned
+    :class:`RunResult` instead of a real engine — the launch-channel twin of the
+    sentinel channel's ``RunnerFactory`` and the export channel's
+    ``ExportRunnerFactory``. The default is always the real :func:`launch`: the
+    deep module is reused, never re-implemented. ``gda script run`` (ADR-0031)
+    and ``gda scene preflight`` (#664) both take one.
+    """
+
+    def __call__(
+        self,
+        binary: Path,
+        args: list[str],
+        *,
+        cwd: Path | None,
+        timeout: float,
+        timeout_label: str = ...,
+        watch: "LaunchWatch | None" = ...,
+    ) -> RunResult: ...
+
+
+def sentinel_args(
+    operation: str,
+    params: dict,
+    *,
+    project: Path | None,
+    script: Path = OPERATIONS_GD,
+) -> list[str]:
+    """The argv tail that dispatches one sentinel operation (ADR-0001, ADR-0002).
+
+    How a sentinel op is SPELLED on the command line, owned once: the payload
+    script, the ``--`` separator, the operation name and its JSON params — plus
+    ``--path`` when the op runs against a project, so ``res://`` resolves there
+    (issue #32). Everything after ``--`` reaches the payload verbatim through
+    ``OS.get_cmdline_user_args()``, which decouples it from however Godot orders
+    its own engine arguments.
+
+    Two channels build this tail (#664): :class:`SubprocessGodotRunner`, the
+    default sentinel runner, and ``scene preflight``, which dispatches the same
+    kind of op but needs :func:`launch`'s STREAMING capture — so it calls the
+    primitive itself rather than going through the runner seam. Extracting the
+    spelling keeps that second channel from re-deriving it, and keeps a change to
+    it (a new separator, another engine flag) landing in one place.
+    """
+    args: list[str] = []
+    if project is not None:
+        args += ["--path", str(project)]
+    return [*args, "--script", str(script), "--", operation, json.dumps(params)]
+
+
 class GodotRunner(Protocol):
     """Spawns a headless Godot operation and returns its raw output."""
 
@@ -949,21 +1002,16 @@ class SubprocessGodotRunner:
     timeout: float = DEFAULT_TIMEOUT_SECONDS
 
     def run(self, operation: str, params: dict) -> RunResult:
-        # Build only this channel's argv tail and delegate the spawn / timeout /
-        # OSError / UTF-8-decode handling to the shared launch primitive (#185).
-        # Everything after `--` is delivered to the script verbatim via
-        # OS.get_cmdline_user_args(), so the payload is decoupled from however
-        # Godot orders its own engine arguments.
-        args: list[str] = []
-        if self.project is not None:
-            args += ["--path", str(self.project)]
-        args += [
-            "--script",
-            str(self.script),
-            "--",
-            operation,
-            json.dumps(params),
-        ]
-        # A sentinel op runs projectless or against --path; it never needs a
-        # working directory, so cwd is always the default.
-        return launch(self.binary, args, cwd=None, timeout=self.timeout)
+        # Build only this channel's argv tail (:func:`sentinel_args`, shared with the
+        # one other channel that dispatches a sentinel op) and delegate the spawn /
+        # timeout / OSError / UTF-8-decode handling to the shared launch primitive
+        # (#185).
+        #
+        # A sentinel op runs projectless or against --path; it never needs a working
+        # directory, so cwd is always the default.
+        return launch(
+            self.binary,
+            sentinel_args(operation, params, project=self.project, script=self.script),
+            cwd=None,
+            timeout=self.timeout,
+        )

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a8765d430b47f838d8cb7adfc0d50bd40a359e157c5530946bee1d607e041058 -->
+<!-- gda-readme-i18n: source=README.md sha256=d936b11c0b290e4aefe210d22d15d328f686c067a6ccccb1a5fdc328aa9f524d -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -399,6 +399,27 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `scene list` | Enumera las escenas `.tscn` del proyecto resuelto. |
 | `scene get-exports` | Lista las propiedades `@export` que declaran los scripts de los nodos de una escena. |
 | `scene delete` | Elimina un archivo de escena e informa qué se eliminó. |
+| `scene validate` | Comprueba estáticamente que las dependencias de una escena se resuelven y sus scripts adjuntos compilan. |
+| `scene preflight` | Arranca una escena en headless, espera a `_ready` e informa su veredicto de arranque. |
+
+Leer una escena sobrevive a la mayoría de las roturas: Godot sustituye por null la referencia
+de un nodo que no puede resolver y aun así devuelve un árbol utilizable, así que `scene get`
+muestra una escena sana cuyo script y textura han desaparecido (una dependencia rota desde un
+sub-resource todavía puede hacer fallar la carga entera). Las dos comprobaciones responden
+preguntas distintas. `scene validate` es **estática**: resuelve cada dependencia, compila cada
+script vinculado (referenciado o embebido) y comprueba que la base nativa de cada script pueda
+vincularse al nodo que lo lleva, todo sin instanciar nada, e informa un problema por archivo
+(`missing_resource`, `unloadable_resource` para un recurso que nunca se importó,
+`script_compile_failed`, o `incompatible_script` cuando compila pero el motor rechazaría el
+vínculo) junto con los nodos que lo referencian. `scene preflight` es
+**dinámica**: arranca la escena, ejecuta su `_ready` y los autoloads del proyecto, la observa
+durante unos fotogramas e informa `status` (`ready` / `not_ready` / `timeout`) más los errores
+de script vistos durante el arranque; lee `started` como puerta de un solo booleano. Ejecuta ambas: una escena con todas sus dependencias resueltas
+puede fallar en su primer fotograma, y una escena que referencia una textura nunca importada
+arranca de forma perfectamente limpia; solo la comprobación estática nombra ese archivo.
+Ambas informan una escena defectuosa como una **operación exitosa** (salida `0`, veredicto en el
+resultado); solo un archivo inexistente, un archivo que no es una escena o un fallo del entorno
+usan el sobre de Error.
 
 **`node`** — nodos dentro de un archivo de escena
 

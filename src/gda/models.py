@@ -576,6 +576,37 @@ CREATED_DIRS_DESC = (
 )
 
 
+class ProjectRootedResult(BaseModel):
+    """A result whose ``project_root`` gda supplies, not the engine (#658, #664).
+
+    ``project_root`` is gda's own addition to an operation's answer: ADR-0006 keeps
+    project resolution CLI-side and the engine is TOLD the project through
+    ``--path``, so the ADR-0002 sentinel a result is parsed from carries only the
+    fields ``operations.gd`` reports. The field is nonetheless declared REQUIRED and
+    nullable on each result, so it appears in the published ``required`` list every
+    consumer reads and an agent can read the key unconditionally — which would make
+    that internal parse fail. The validator below supplies the absent key as
+    ``null``, and each command's recipe stamps the resolved project immediately
+    after.
+
+    The leniency is inward-facing only: it never reaches the published contract, and
+    anything that DOES carry the key (a recipe's ``model_copy``, a round-trip of an
+    emitted result) passes through untouched.
+
+    A base rather than a copied validator: ``script validate`` (#658) and ``scene
+    validate`` (#664) need the identical rule for the identical reason, and a second
+    hand-written copy is a second place for it to drift. It declares no fields, so a
+    subclass's schema — field order included — is exactly what it was.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _supply_absent_project_root(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "project_root" not in data:
+            return {**data, "project_root": None}
+        return data
+
+
 class ReferenceProjection(BaseModel):
     """A Resource value named by type and ``res://`` path (ADR-0035).
 

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a8765d430b47f838d8cb7adfc0d50bd40a359e157c5530946bee1d607e041058 -->
+<!-- gda-readme-i18n: source=README.md sha256=d936b11c0b290e4aefe210d22d15d328f686c067a6ccccb1a5fdc328aa9f524d -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -386,6 +386,21 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `scene list` | 枚举已解析项目中的 `.tscn` 场景。 |
 | `scene get-exports` | 列出场景里各节点脚本声明的 `@export` 属性。 |
 | `scene delete` | 删除一个场景文件并报告删除了什么。 |
+| `scene validate` | 静态检查场景的依赖能否解析、其挂载脚本能否编译。 |
+| `scene preflight` | 以 headless 方式启动场景，等待 `_ready`，并报告启动结论。 |
+
+读取场景能扛住大多数损坏：Godot 会把节点上无法解析的引用替换为 null 并仍返回一棵可用的树，
+所以脚本与贴图都已丢失的场景，在 `scene get` 里看起来依然健康（但从 sub-resource 内部坏掉的依赖
+仍可能让整个加载失败）。这两个检查回答的是不同的问题。
+`scene validate` 是**静态的**——它不实例化任何东西，解析每一个依赖、编译每一个绑定脚本
+（引用的与内嵌的都算），并检查脚本的原生基类能否绑定挂载它的节点，为每个有问题的文件报告一条
+problem（`missing_resource`、`unloadable_resource`（从未被导入的资源）、`script_compile_failed`
+或 `incompatible_script`（能编译但引擎会拒绝绑定）），同时给出引用它的节点。`scene preflight` 是**动态的**——
+它启动场景，运行其 `_ready` 与项目的 autoload，观察若干帧，然后报告 `status`
+（`ready` / `not_ready` / `timeout`）以及启动过程中出现的脚本错误；只需读 `started` 这一个布尔值即可作为门禁。
+两者都要跑：依赖全部解析的场景仍可能在第一帧失败，而引用了从未导入的贴图的场景会“干净地”启动——只有静态检查会指出那个文件。
+两者都把有问题的场景报告为**成功的操作**（退出码 `0`，结论在结果里）——只有文件不存在、不是场景文件
+或环境失败才使用 Error 信封。
 
 **`node`** — 场景文件内的节点
 

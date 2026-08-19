@@ -21,7 +21,7 @@ import re
 from collections import deque
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 import typer
 from pydantic import BaseModel, Field, model_validator
@@ -50,9 +50,10 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import CREATED_DIRS_DESC, NormalizedPath
+from gda.models import CREATED_DIRS_DESC, NormalizedPath, ProjectRootedResult
 from gda.project import path_outside_project
-from gda.runner import LaunchFailure, LaunchWatch, RunResult, launch
+from gda.render import render_script_error_location
+from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
 from gda.script_errors import (
     ScriptError,
     ScriptErrorKind,
@@ -609,7 +610,7 @@ class ValidatedScript(BaseModel):
     )
 
 
-class ScriptValidateResult(BaseModel):
+class ScriptValidateResult(ProjectRootedResult):
     """The result of ``gda script validate``: one verdict per script, plus the aggregate (#118, #663).
 
     Validating an INVALID script is a SUCCESSFUL operation — the command exits 0
@@ -629,11 +630,10 @@ class ScriptValidateResult(BaseModel):
     nullable, not optional: every public result carries the key (``null`` means
     projectless), so an agent can read it unconditionally. The engine's sentinel
     does not report it — ADR-0006 keeps the project CLI-side, and the engine is
-    told it through ``--path`` — so the ``before`` validator below supplies the
-    key for the internal sentinel parse and the CLI stamps the real value
-    immediately after (:func:`_script_validate_recipe`). The leniency is
-    therefore inward-facing only: it never reaches the published contract, which
-    lists ``project_root`` in ``required``.
+    told it through ``--path`` — which is what
+    :class:`~gda.models.ProjectRootedResult` above reconciles: it supplies the
+    absent key for the internal sentinel parse, and :func:`_script_validate_recipe`
+    stamps the real value immediately after.
     """
 
     valid: bool = Field(
@@ -662,24 +662,6 @@ class ScriptValidateResult(BaseModel):
             "project-context problem, not a source problem."
         ),
     )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _supply_absent_project_root(cls, data: Any) -> Any:
-        """Fill the key the ENGINE never sends, so the field can stay required.
-
-        ``project_root`` is gda's own addition to the engine's answer: the
-        ADR-0002 sentinel this model is parsed from carries only the fields
-        ``operations.gd`` reports. Declaring the field required — so it appears
-        in the published ``required`` list every consumer reads — would make
-        that internal parse fail, so the absent key is supplied as ``null``
-        here and the recipe stamps the resolved project immediately after.
-        Anything that DOES carry the key (the recipe's own ``model_copy``, a
-        round-trip of an emitted result) passes through untouched.
-        """
-        if isinstance(data, dict) and "project_root" not in data:
-            return {**data, "project_root": None}
-        return data
 
 
 # The DEFAULT ceiling on one ``script run``, when the caller states none. A user
@@ -1010,28 +992,6 @@ def _project_scoped_res_path(script: str) -> str | None:
     if remainder == ".." or remainder.startswith("../"):
         return None
     return canonical
-
-
-class LaunchFn(Protocol):
-    """The headless-launch seam — the shape of :func:`gda.runner.launch` (#343).
-
-    Injected into :func:`run_script_run_operation` so the launch/crash bifurcation
-    is exercised with a canned :class:`~gda.runner.RunResult`, without spawning a
-    real engine — the ``script run`` twin of the sentinel channel's ``RunnerFactory``
-    and the export channel's ``ExportRunnerFactory``. The default is the real
-    ``launch`` (the deep module is reused, never re-implemented).
-    """
-
-    def __call__(
-        self,
-        binary: Path,
-        args: list[str],
-        *,
-        cwd: Path | None,
-        timeout: float,
-        timeout_label: str = ...,
-        watch: LaunchWatch | None = ...,
-    ) -> RunResult: ...
 
 
 class TerminationPhase(str, Enum):
@@ -1517,7 +1477,7 @@ def _render_captured_errors(stderr: str) -> str:
     if not errors:
         return ""
     return "".join(
-        f"gda:   {error.kind.value}: {_render_script_error_location(error)}\n"
+        f"gda:   {error.kind.value}: {render_script_error_location(error)}\n"
         for error in errors
     )
 
@@ -1825,16 +1785,8 @@ def render_script_run(ran: "ScriptRunResult") -> str:
     if ran.stderr:
         parts.append(ran.stderr.rstrip("\n"))
     for diag in ran.diagnostics:
-        parts.append(f"  {diag.kind.value}: {_render_script_error_location(diag)}")
+        parts.append(f"  {diag.kind.value}: {render_script_error_location(diag)}")
     return "\n".join(parts)
-
-
-def _render_script_error_location(diag: "ScriptError") -> str:
-    """``<path>:<line>: <message>`` for a diagnostic, dropping the parts it lacks."""
-    where = diag.path or ""
-    if diag.path is not None and diag.line is not None:
-        where = f"{diag.path}:{diag.line}"
-    return f"{where}: {diag.message}" if where else diag.message
 
 
 SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(

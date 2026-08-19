@@ -181,3 +181,74 @@ def test_script_validate_separates_a_bad_params_shape_from_a_bad_path_value():
 
     assert shape.error.code == "invalid_params"
     assert value.error.code == "invalid_path"
+
+
+# The scene-preflight frame budget, driven at the op (#664). gda's own CLI and its
+# params model refuse a non-positive budget before the engine is reached (ADR-0015),
+# so these arms drive `operations.gd` directly — the same reason the script-validate
+# selectors above are pinned here. The budget is the op's bound on its own main loop,
+# so a caller that could smuggle a nonsensical one past the refusal would be handing
+# the payload's frame cap a value it cannot honour.
+
+
+def _preflight_failure(params: dict) -> Failure:
+    from gda.commands.scene import ScenePreflightResult
+
+    result = SubprocessGodotRunner(GODOT).run("scene-preflight", params)
+    outcome = classify_run(result, GODOT, ScenePreflightResult)
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.category.value == "operation"
+    return outcome
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("frames", [None, "ten", [], {}, True])
+def test_scene_preflight_refuses_a_non_numeric_frame_budget_at_the_op(frames):
+    # GDScript's `int(value)` is not total either — and where it IS total it lies:
+    # `int("ten")` is 0, not an error, which would silently become a budget of zero
+    # frames. So the raw Variant is type-checked before coercion, exactly as
+    # script-validate does for `all_scripts`. (`true` is included for the same reason
+    # `1` is there: a bool coerces to 1 and must still be refused, since accepting a
+    # second spelling of a number is the drift the wire contract exists to prevent.)
+    outcome = _preflight_failure({"path": "res://any.tscn", "frames": frames})
+
+    assert outcome.error.code == "invalid_params"
+    assert "frames" in outcome.error.message
+
+
+@pytest.mark.e2e
+def test_scene_preflight_refuses_a_fractional_frame_budget_at_the_op():
+    # `int(1.5)` would silently truncate to a ONE-frame window (#720 review) — a
+    # silent shrink of the observation window is a verdict changer, not a rounding
+    # detail. Only a mathematically integral number names a frame count.
+    outcome = _preflight_failure({"path": "res://any.tscn", "frames": 1.5})
+
+    assert outcome.error.code == "invalid_params"
+    assert "whole number" in outcome.error.message
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("frames", [0, -1])
+def test_scene_preflight_refuses_a_non_positive_frame_budget_at_the_op(frames):
+    # A budget below one frame is a well-typed value that leaves the op with no way
+    # to answer at all: the verdict is recorded by the per-frame tick, and the frame
+    # cap is checked BEFORE the tick runs, so a zero-frame window quits without ever
+    # emitting a sentinel — the caller would get the generic operation_failed instead
+    # of a verdict or a reason. Refused up front rather than answered that way.
+    outcome = _preflight_failure({"path": "res://any.tscn", "frames": frames})
+
+    assert outcome.error.code == "invalid_params"
+    assert "frames" in outcome.error.message
+
+
+@pytest.mark.e2e
+def test_scene_preflight_requires_a_frame_budget_at_the_op():
+    # The window's default belongs to gda's params model, which every CLI invocation
+    # goes through. A second default here would be a second authority for one fact —
+    # and an unreachable one, free to disagree with the real default indefinitely. So
+    # the op requires the key instead of inventing a window for a caller that omitted
+    # it.
+    outcome = _preflight_failure({"path": "res://any.tscn"})
+
+    assert outcome.error.code == "invalid_params"
+    assert "frames is required" in outcome.error.message

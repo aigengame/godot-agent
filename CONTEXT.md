@@ -59,6 +59,18 @@ simulation, viewport capture, performance/signal monitoring). Served through
 context (UndoRedo, the editor's open-scene tree) is out of scope (ADR-0017).
 _Avoid_: realtime op, online op
 
+**Startup preflight**:
+A `Headless operation` that BOOTS a scene to find out whether it comes up: it
+instantiates the scene into a one-shot engine's tree, observes it for a bounded
+number of frames, and reports a startup verdict (`gda scene preflight`, #664). It is
+the dynamic counterpart of static scene validation, which checks a scene without
+instantiating or running the TARGET scene — the project's autoloads still start and
+script compilation still runs static initializers, as on every `--project` op
+(ADR-0009) — so a scene can pass that and still fail on its first frame. Despite booting the game's code it is NOT a `Live operation`: nothing
+drives or observes the scene from outside, there is no `Engine session` and no
+`gda-daemon`, and the process ends with the verdict.
+_Avoid_: smoke test, dry run, live check
+
 **Engine session**:
 A single transient run of a gda-owned Godot game, launched and held by `gda-daemon`
 with the `gda harness` injected, against which `Live operation`s are served. The
@@ -76,19 +88,23 @@ _Avoid_: consistency, coherence, sync
 
 **Headless launch**:
 The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
-the sentinel op-dispatch runner, the native-export runner, and the `gda script run`
-user-script runner (ADR-0031). Given the binary, an argv tail, an optional working
+the sentinel op-dispatch runner, the native-export runner, the `gda script run`
+user-script runner (ADR-0031), and the `gda scene preflight` runner, which
+dispatches an ordinary sentinel op but calls the primitive itself for its
+streaming capture (#664). Given the binary, an argv tail, an optional working
 directory, and a timeout, it builds `[binary, --headless, --log-file <gda-owned
 path>, *args]`, captures bytes with the timeout, and normalizes the outcome into a
 `Raw run` (the single home of the spawn / timeout / launch-failure / UTF-8-decode
 handling). Each channel contributes only its argv tail and the export-only cwd. It
 also owns the launch's `User-data placement` — resolved and preflighted here, once,
 so no channel plumbs it (#653). It offers two **capture strategies**, differing only
-in how the child is read: **buffered** (the sentinel and export channels), which
-discards the child's output when the timeout expires and reports the wait instead;
-and **streaming** (`gda script run`), which reads both pipes as they arrive, so the
-output survives a timeout, times the launch, and lets the channel end the run early
-through a caller-supplied watch. Both share one timeout / launch-failure mapping
+in how the child is read: **buffered** (the sentinel-runner and export channels),
+which discards the child's output when the timeout expires and reports the wait
+instead; and **streaming** (`gda script run`, and `gda scene preflight` — which
+dispatches a sentinel op but calls the primitive itself precisely for this
+capture), which reads both pipes as they arrive, so the output survives a timeout,
+times the launch, and lets the channel end the run early through a caller-supplied
+watch. Both share one timeout / launch-failure mapping
 (#655).
 _Avoid_: spawn helper, subprocess wrapper
 
@@ -223,10 +239,14 @@ constructs (a `class_name` node via `node add`, a script-backed `class_name`
 Resource via `resource create`, or every script inside a **scene composed as an
 instanced child** via `node add --instance`, #399), the `_init` of a
 **script-backed Resource loaded as a value** assigned to an Object-typed
-property (`node set` / `resource set --value res://…`, ADR-0033), and — via
-`gda script run` (ADR-0031) — the **full execution of a named project script**.
-All stay within the `Trusted project` assumption (ADR-0009); `script run` and the
-loaded-value assignment (ADR-0033) widen this surface without adding a new trust axis.
+property (`node set` / `resource set --value res://…`, ADR-0033), the **full
+execution of a named project script** via `gda script run` (ADR-0031), and — via
+`gda scene preflight` (#664) — the **startup of a whole scene**: every script it
+carries runs its `_init` and `_ready` and keeps running for a bounded number of
+frames, beside the autoloads. That last point is the widest on this list.
+All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
+loaded-value assignment (ADR-0033) and the startup preflight widen this surface
+without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:
