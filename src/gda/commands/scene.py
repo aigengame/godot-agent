@@ -11,6 +11,8 @@ the cross-command contract core (``gda.models``) and the shared render helpers
 reuses ``SceneNode`` / ``derive_scene_root_name``, ADR-0040 §5).
 """
 
+import math
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -19,8 +21,9 @@ import typer
 from pydantic import BaseModel, Field, model_validator
 
 from gda import dispatch
+from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe
-from gda.errors import Failure
+from gda.errors import Failure, classify_run, unresolvable_binary_failure
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -34,7 +37,9 @@ from gda.models import (
     projected_value_schema_extra,
     VALUE_PROJECTION_DESC,
 )
-from gda.render import format_value, render_node_tree
+from gda.render import format_value, render_node_tree, render_script_error_location
+from gda.runner import LaunchFailure, LaunchFn, launch, sentinel_args
+from gda.script_errors import ScriptError, parse_script_errors
 
 
 def derive_scene_root_name(path: str) -> str:
@@ -417,6 +422,151 @@ class SceneValidateResult(BaseModel):
         return data
 
 
+# The DEFAULT observation window of one preflight, in idle frames. A booted scene
+# reports ready on the frame after it enters the tree (measured against Godot
+# 4.6.3), so one frame would already answer "did it come up" — the rest of the
+# window is what lets startup work that lands AFTER _ready run and print: a
+# deferred call, the first _process ticks, a signal awaited on a timer. Ten frames
+# cost about 65ms of a ~350ms process (measured), which buys that margin without
+# making a gate noticeably slower.
+DEFAULT_PREFLIGHT_FRAMES = 10
+
+# The DEFAULT wall-clock ceiling on one preflight launch. Deliberately far below
+# `script run`'s 120s: this is not an arbitrary user script but one scene coming up,
+# and the ceiling IS the verdict's bound — a scene that hangs should be reported as
+# hung in seconds, not minutes. Raise it for a project whose autoloads do real work
+# at startup.
+DEFAULT_PREFLIGHT_TIMEOUT_SECONDS = 30.0
+
+
+class SceneStartupStatus(str, Enum):
+    """How far ``gda scene preflight`` got booting a scene (#664).
+
+    A closed, public enum projected into ``--schema``. Two values are the engine's
+    own answer and one is gda's, which is not a seam in the contract but a fact
+    about where each can be known: an engine blocked inside a scene's ``_ready``
+    never reaches the frame that would report anything, so only the CLI's bound can
+    end it.
+    """
+
+    #: The scene instantiated, entered the tree, and the engine reported it ready
+    #: within the observation window. This says the scene came up — NOT that it came
+    #: up cleanly; ``diagnostics`` is the other half of that question.
+    READY = "ready"
+    #: The scene instantiated and entered the tree but was still not ready when the
+    #: window ended. Raise ``--frames`` if the scene legitimately needs longer.
+    NOT_READY = "not_ready"
+    #: gda ended the launch at ``--timeout``: the engine never reported a verdict,
+    #: which is what a ``_ready`` that does not return looks like from outside. The
+    #: captured ``diagnostics`` are whatever the engine had already printed.
+    TIMEOUT = "timeout"
+
+
+class ScenePreflightParams(BaseModel):
+    """The operation params of ``gda scene preflight``: the scene and its bounds (#664).
+
+    ``path`` is the ``.tscn`` to boot. The two bounds are different things and both
+    are needed: ``frames`` is how long gda OBSERVES a scene that came up, measured
+    in the engine's own idle frames, while ``timeout`` is the wall-clock ceiling on
+    the whole launch — the one that answers a scene that never comes up at all.
+    """
+
+    path: NormalizedPath = Field(description="The .tscn scene file to boot.")
+    frames: int = Field(
+        default=DEFAULT_PREFLIGHT_FRAMES,
+        ge=1,
+        description=(
+            "How many idle frames to keep the booted scene alive before reporting. "
+            "A scene reports ready on the frame after it enters the tree, so the "
+            "rest of the window is what lets startup work that lands after _ready — "
+            "a deferred call, the first _process ticks, an awaited signal — run and "
+            "print its errors. Frames are the engine's own unit and NOT wall clock: "
+            "a scene awaiting a one-second timer will not have finished waiting "
+            f"whatever this is set to. Defaults to {DEFAULT_PREFLIGHT_FRAMES}."
+        ),
+    )
+    timeout: float = Field(
+        default=DEFAULT_PREFLIGHT_TIMEOUT_SECONDS,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "How many seconds to let the launch take before gda ends it and reports "
+            "the 'timeout' verdict with whatever the engine had already printed. "
+            "Must be a FINITE positive number: JSON Schema cannot express "
+            "finiteness, so a non-finite value is refused by validation rather than "
+            "by the schema — an infinite ceiling would never be reached, and this "
+            "ceiling IS the bound the timeout verdict is promised within. Defaults "
+            f"to {DEFAULT_PREFLIGHT_TIMEOUT_SECONDS}s."
+        ),
+    )
+
+
+class ScenePreflightResult(BaseModel):
+    """The result of ``gda scene preflight``: the scene's startup verdict (#664).
+
+    A scene that does not start is a SUCCESSFUL operation — the command exits 0 and
+    reports the verdict, including the ``timeout`` one, because "it did not come up"
+    is the answer this command was asked for, not a gda failure. Only what is NOT
+    about the scene stays an error envelope: an unlaunchable binary, an unusable
+    user-data placement, a signal death, and the op's own structured refusals (a
+    missing file, a scene that cannot be instantiated at all).
+
+    ``status`` and ``diagnostics`` answer two different questions, which is exactly
+    the distinction the dogfooding note asks for (GDA-DF-030): the first says how far
+    the boot got, the second what the engine complained about while it did. A scene
+    can reach ``ready`` and still be broken — that is the case static validation
+    misses and this command exists for — so ``started`` requires both.
+    """
+
+    path: str
+    started: bool = Field(
+        description=(
+            "The single verdict: true only when status is 'ready' AND no script "
+            "error was recognized. Derived from the two fields below, carried so a "
+            "gate reads one boolean; branch on 'status' when the reason matters."
+        )
+    )
+    status: SceneStartupStatus = Field(
+        description="How far the boot got — the engine's own answer, or gda's bound."
+    )
+    diagnostics: list[ScriptError] = Field(
+        default_factory=list,
+        description=(
+            "The script errors gda recognized in the engine's error stream during "
+            "startup, in emission order; empty when it printed none it recognizes. "
+            "Advisory and best-effort: recognition is a closed set of the engine's "
+            "own failure sentences (a runtime error, a failed assertion, a script "
+            "that could not be loaded), so project prose written with push_error() "
+            "is NOT among them. The verbatim stream is still forwarded to gda's "
+            "stderr."
+        ),
+    )
+    project_root: str | None = Field(
+        description=(
+            "The Godot project the scene was booted against, as an absolute path "
+            "(ADR-0006: --project, then $GDA_PROJECT, then the current directory). "
+            "Always present; null when gda ran projectless — which for a preflight "
+            "usually explains a failure by itself, since a scene's res:// "
+            "dependencies and the project's autoloads both need the right root."
+        ),
+    )
+
+
+class _ScenePreflightPayload(BaseModel):
+    """What ``operations.gd`` reports for ``scene-preflight`` — the engine's half (#664).
+
+    Internal, never published: the sentinel carries only what the engine can know
+    (which path it booted, and how far it got), and the public
+    :class:`ScenePreflightResult` is BUILT from it by adding what only gda knows —
+    the script errors read off stderr and the CLI-resolved project. Parsing into
+    this model rather than leniently into the public one keeps the published shape
+    free of optional-key validators that exist purely for an internal parse.
+    """
+
+    path: str
+    status: SceneStartupStatus
+
+
 class SceneDeleteParams(BaseModel):
     """The operation params of ``gda scene delete``: the ``.tscn`` file to remove."""
 
@@ -589,6 +739,169 @@ def _scene_validate_recipe(
     )
 
 
+def render_scene_preflight(preflight: "ScenePreflightResult") -> str:
+    """Render a startup verdict: the answer, then — when it is not clean — the evidence.
+
+    Conclusion first, and the headline distinguishes the case this command exists
+    for: a scene that came up but complained on the way reads as ``ready with
+    errors``, not as ``ready``. A clean start stays the one short line; the project
+    only ever explains a failure, so it appears only with one (the shape ``script
+    validate`` uses).
+    """
+    if preflight.started:
+        return f"{preflight.status.value} {preflight.path}"
+    headline = {
+        SceneStartupStatus.READY: "ready with errors",
+        SceneStartupStatus.NOT_READY: "not ready",
+        SceneStartupStatus.TIMEOUT: "timeout",
+    }[preflight.status]
+    lines = [
+        f"{headline} {preflight.path}",
+        f"  project: {preflight.project_root or '(none resolved: projectless)'}",
+    ]
+    for diagnostic in preflight.diagnostics:
+        lines.append(
+            f"  {diagnostic.kind.value}: {render_script_error_location(diagnostic)}"
+        )
+    return "\n".join(lines)
+
+
+class _CaptureOnlyWatch:
+    """``scene preflight``'s :class:`~gda.runner.LaunchWatch`: stream, never abort (#664).
+
+    Passing a watch is what switches the launch primitive from BUFFERED capture to
+    STREAMING (see :class:`gda.runner.LaunchWatch`), and streaming is what this
+    channel needs: a buffered timeout DISCARDS everything the child wrote, and for a
+    scene that never came up that discarded text is the entire evidence — the
+    verdict would say "timeout" and carry nothing.
+
+    It observes and never ends a run, which is deliberate rather than unfinished.
+    ``script run``'s watch can end one because its caller DECLARED what finishing
+    looks like (``--completion-marker``); nobody declares that for a booting scene,
+    and a scene that prints an error is very often still coming up. So the only
+    bound here is the caller's ``--timeout``, and what the watch buys is the capture.
+    """
+
+    def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
+        return False
+
+
+def run_scene_preflight_operation(
+    params: ScenePreflightParams,
+    *,
+    godot: Optional[str],
+    project: Optional[Path],
+    make_launch: Optional[LaunchFn] = None,
+) -> "ScenePreflightResult | Failure":
+    """Boot → observe → classify: ``scene preflight``'s recipe (#664).
+
+    Returns its outcome instead of emitting or exiting (the ``export run`` /
+    ``script run`` recipe shape), so the bifurcation below has its own engine-free
+    test surface.
+
+    It dispatches an ordinary ADR-0002 sentinel op — the entry script is gda's own
+    ``operations.gd``, so the engine can and does report a structured verdict — but
+    it calls :func:`gda.runner.launch` directly instead of going through the runner
+    seam, for ONE reason: the seam's buffered capture throws the child's output away
+    at a timeout, and a scene that never came up leaves nothing else behind. The argv
+    is still the shared :func:`gda.runner.sentinel_args` spelling, so the two
+    channels cannot drift on how an op is dispatched.
+
+    The outcome bifurcates by WHOSE failure it is, which is where this command
+    departs from every other launch-backed channel:
+
+    - **gda ended the run at the bound** → the ``timeout`` VERDICT, not an error
+      envelope. ``launch_timeout`` is the right answer when a timeout means "gda
+      could not get you an answer"; here it IS the answer — the question was whether
+      this scene comes up within the bound, and it did not. The captured stderr is
+      still read for diagnostics, so the verdict carries what the engine printed
+      before it stopped.
+    - **an environment or engine-level failure** (unlaunchable binary, unusable
+      user-data placement, signal death) → the shared error envelope, because none
+      of those are about the scene.
+    - **the op reported a structured refusal** (missing file, not a scene, a scene
+      that cannot be instantiated at all) → its registered code, classified by the
+      same ``classify_run`` every sentinel command uses.
+    - **the op reported a verdict** → the public result, with the script errors gda
+      read off stderr (#651's parser, the single home of that reading) and the
+      CLI-resolved project added to the engine's answer.
+    """
+    run_launch = make_launch or launch
+    try:
+        binary = resolve_godot_binary(godot)
+    except ValueError as exc:
+        # An empty ``--godot ""`` (a natural $GDA_GODOT mistake): the same
+        # environment failure as a missing binary, mapped to the structured envelope
+        # so it never escapes as a traceback (mirrors gda.headless.execute).
+        return unresolvable_binary_failure(str(exc))
+
+    root = project.expanduser().resolve() if project is not None else None
+    raw = run_launch(
+        binary,
+        sentinel_args("scene-preflight", params.model_dump(), project=project),
+        cwd=None,
+        timeout=params.timeout,
+        timeout_label="Godot scene preflight",
+        watch=_CaptureOnlyWatch(),
+    )
+    # Forward the engine's own stream, exactly as the sentinel channel does
+    # (``HeadlessCommand.execute``): a preflight's stderr is where the booted scene's
+    # verbatim complaints are, and this command must not be the one that swallows
+    # them.
+    if raw.stderr:
+        print(raw.stderr, end="", file=sys.stderr)
+
+    diagnostics = parse_script_errors(raw.stderr)
+    if raw.launch_failure is LaunchFailure.TIMEOUT:
+        return ScenePreflightResult(
+            path=params.path,
+            started=False,
+            status=SceneStartupStatus.TIMEOUT,
+            diagnostics=diagnostics,
+            project_root=str(root) if root is not None else None,
+        )
+    outcome = classify_run(raw, binary, _ScenePreflightPayload)
+    if isinstance(outcome, Failure):
+        return outcome
+    return ScenePreflightResult(
+        path=outcome.path,
+        # BOTH halves, which is the contract: the engine's readiness and gda's
+        # reading of the error stream. Either one alone reports a broken scene as
+        # started.
+        started=outcome.status is SceneStartupStatus.READY and not diagnostics,
+        status=outcome.status,
+        diagnostics=diagnostics,
+        project_root=str(root) if root is not None else None,
+    )
+
+
+def _scene_preflight_recipe(
+    params: ScenePreflightParams,
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+) -> "ScenePreflightResult | Failure":
+    # ``project`` arrives ALREADY resolved by dispatch_recipe (#353). Projectless is
+    # not refused here: a self-contained scene addressed by filesystem path can be
+    # booted without one, and the result reports the null root so a reader can tell.
+    return run_scene_preflight_operation(params, godot=godot, project=project)
+
+
+# ``scene preflight`` is a sentinel op dispatched through the launch primitive
+# rather than the runner seam (see the recipe): it carries a ``recipe`` (ADR-0023)
+# because that dispatch, the timeout verdict, the stderr diagnostics and the
+# ``project_root`` are all decided CLI-side. Its ``kind`` stays HEADLESS, which is
+# what it is — a one-shot ``godot --headless`` run of gda's own payload, no daemon
+# and no Engine session (ADR-0017's live channel is a different thing entirely).
+SCENE_PREFLIGHT_COMMAND: HeadlessCommand[ScenePreflightResult] = HeadlessCommand(
+    operation="scene-preflight",
+    input_model=ScenePreflightParams,
+    output_model=ScenePreflightResult,
+    render=render_scene_preflight,
+    recipe=_scene_preflight_recipe,
+)
+
+
 # ``scene validate`` stays a HEADLESS sentinel op — the engine resolves the
 # dependencies — but carries a ``recipe`` (ADR-0023) because one part of its
 # contract is decided at the CLI, where ADR-0006's resolved project lives: the
@@ -745,6 +1058,76 @@ def validate_scene(
     dispatch_recipe(
         SCENE_VALIDATE_COMMAND,
         SceneValidateParams(path=path),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="preflight", cls=SCENE_PREFLIGHT_COMMAND.command_class())
+def preflight_scene(
+    path: str = typer.Argument(..., help="The .tscn scene file to boot."),
+    frames: int = typer.Option(
+        DEFAULT_PREFLIGHT_FRAMES,
+        "--frames",
+        help=(
+            "Idle frames to keep the booted scene alive before reporting, so "
+            "startup work landing after _ready (a deferred call, the first _process "
+            "ticks, an awaited signal) runs and prints. Engine frames, NOT wall "
+            "clock — a scene awaiting a one-second timer will still be waiting."
+        ),
+    ),
+    timeout: float = typer.Option(
+        DEFAULT_PREFLIGHT_TIMEOUT_SECONDS,
+        "--timeout",
+        help=(
+            "Seconds before gda ends the launch and reports the 'timeout' verdict "
+            "with the captured diagnostics. Raise it for a project whose autoloads "
+            "do real work at startup."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCENE_PREFLIGHT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Boot a scene headless and report how far it got: its startup verdict.
+
+    Static checks cannot answer this. A scene whose dependencies all resolve and
+    whose scripts all compile can still fail the moment it runs — 'gda scene
+    validate' passing is not 'the scene works'. This command instantiates the scene,
+    puts it under the tree root (which runs its _ready and the project's autoloads),
+    keeps it alive for --frames idle frames, and reports 'status': 'ready',
+    'not_ready' or 'timeout', plus the script errors gda recognized in the engine's
+    error stream while it started. Read 'started' for the one-boolean gate: it is
+    true only when the scene reached _ready AND nothing was recognized on stderr.
+
+    A scene that does not start is a SUCCESSFUL operation — exit 0 with the verdict,
+    the 'timeout' one included, because "it did not come up within the bound" is the
+    answer this command was asked for. Only what is not about the scene fails: an
+    unlaunchable binary, a signal death, a missing file ('path_not_found'), a file
+    that does not load as a scene ('not_a_scene'), or a scene the engine cannot
+    instantiate at all ('missing_dependency').
+
+    It RUNS the project's code by construction — every script in the scene plus the
+    autoloads — which stays inside gda's trusted-project assumption (ADR-0009) but
+    is the widest such surface in the scene group. This is a one-shot headless
+    launch, not a live session: it needs no daemon, and observes the scene coming
+    up rather than driving it (that is 'gda game', behind 'gda daemon start').
+    """
+    # A FINITE positive ceiling and a positive frame budget, checked on both input
+    # paths (ADR-0015): the params model enforces them for --params-json, this for
+    # argv. `inf` passes a bare `> 0` test and then makes the ceiling unreachable, so
+    # the launch gda promised to bound would never be bounded — the opposite of what
+    # this option is for; `math.isfinite` rejects `nan` for the same reason.
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise typer.BadParameter("--timeout must be a finite number greater than 0.")
+    if frames < 1:
+        raise typer.BadParameter("--frames must be at least 1.")
+    dispatch_recipe(
+        SCENE_PREFLIGHT_COMMAND,
+        ScenePreflightParams(path=path, frames=frames, timeout=timeout),
         json_output=json_output,
         godot=godot,
         project=project,

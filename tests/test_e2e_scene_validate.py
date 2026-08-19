@@ -183,7 +183,7 @@ def test_an_asset_that_was_never_imported_is_unloadable_not_missing(godot_projec
         )
     )
     (godot_project / "main.tscn").write_text(
-        '[gd_scene load_steps=2 format=3]\n\n'
+        "[gd_scene load_steps=2 format=3]\n\n"
         '[ext_resource type="Texture2D" path="res://dot.png" id="1_dot"]\n\n'
         '[node name="Hero" type="Node2D"]\n\n'
         '[node name="Sprite" type="Sprite2D" parent="."]\n'

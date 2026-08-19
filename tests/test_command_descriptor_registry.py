@@ -104,6 +104,10 @@ _HELPER_RENDERERS = {
     "render_set_echo",  # the shared node/resource property-set echo line
     "render_script_metadata",  # the shared path/class_name/extends script surface
     "render_shader_metadata",  # the shared shader-metadata surface
+    # The one-line `<path>:<line>: <message>` form of a recognized script error,
+    # shared by `script run`'s passed-through diagnostics and `scene preflight`'s
+    # startup diagnostics (#664). Bound to no descriptor of its own.
+    "render_script_error_location",
     # The root `--version` one-liner (gda.provenance), imported into the meta module
     # and composed by `render_version` so the flag and the `gda version` command print
     # the same line (#670). Bound to no descriptor of its own.
@@ -168,6 +172,11 @@ _RECIPE_OPERATIONS = {
     # `project_root` comes from ADR-0006's CLI-resolved project, and every problem it
     # reports is a res:// resolution outcome, so the verdict is unreadable without it.
     "scene-validate",
+    # `scene preflight` dispatches a sentinel op through the launch primitive rather
+    # than the runner seam (#664): it needs the streaming capture, so that a run gda
+    # ends at its bound still carries what the engine printed — the whole evidence of
+    # a scene that never came up. That dispatch is the recipe.
+    "scene-preflight",
     "daemon-start",
     "daemon-stop",
     "daemon-status",

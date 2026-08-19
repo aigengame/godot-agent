@@ -40,6 +40,41 @@ def format_value(value: Any) -> str:
     return json.dumps(value)
 
 
+class ScriptErrorLocation(Protocol):
+    """The located-message surface of a recognized script error (#664).
+
+    A structural (typing-only) interface over the ``path``/``line``/``message`` a
+    :class:`~gda.script_errors.ScriptError` carries. Two groups render those errors
+    now — ``script run``'s passed-through diagnostics and ``scene preflight``'s
+    startup diagnostics — so the one-line location form lives here rather than in
+    either group, and reads identically in both. Structural rather than an import,
+    matching :class:`NodeOutline`: the presentation layer names no group model, and
+    the ``commands`` → ``render`` direction stays one-way (ADR-0040 §5).
+    """
+
+    @property
+    def path(self) -> str | None: ...
+
+    @property
+    def line(self) -> int | None: ...
+
+    @property
+    def message(self) -> str: ...
+
+
+def render_script_error_location(diagnostic: ScriptErrorLocation) -> str:
+    """``<path>:<line>: <message>`` for one script error, dropping the parts it lacks.
+
+    An engine-side load failure carries no script line, and some carry no path at
+    all, so each piece is included only when the engine reported it — never as an
+    empty ``:`` or a bare ``None``.
+    """
+    where = diagnostic.path or ""
+    if diagnostic.path is not None and diagnostic.line is not None:
+        where = f"{diagnostic.path}:{diagnostic.line}"
+    return f"{where}: {diagnostic.message}" if where else diagnostic.message
+
+
 class NodeOutline(Protocol):
     """The shared tree surface every renderable node shape carries.
 

@@ -52,7 +52,8 @@ from gda.headless import (
 )
 from gda.models import CREATED_DIRS_DESC, NormalizedPath
 from gda.project import path_outside_project
-from gda.runner import LaunchFailure, LaunchWatch, RunResult, launch
+from gda.render import render_script_error_location
+from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
 from gda.script_errors import (
     ScriptError,
     ScriptErrorKind,
@@ -1012,28 +1013,6 @@ def _project_scoped_res_path(script: str) -> str | None:
     return canonical
 
 
-class LaunchFn(Protocol):
-    """The headless-launch seam — the shape of :func:`gda.runner.launch` (#343).
-
-    Injected into :func:`run_script_run_operation` so the launch/crash bifurcation
-    is exercised with a canned :class:`~gda.runner.RunResult`, without spawning a
-    real engine — the ``script run`` twin of the sentinel channel's ``RunnerFactory``
-    and the export channel's ``ExportRunnerFactory``. The default is the real
-    ``launch`` (the deep module is reused, never re-implemented).
-    """
-
-    def __call__(
-        self,
-        binary: Path,
-        args: list[str],
-        *,
-        cwd: Path | None,
-        timeout: float,
-        timeout_label: str = ...,
-        watch: LaunchWatch | None = ...,
-    ) -> RunResult: ...
-
-
 class TerminationPhase(str, Enum):
     """How far a ``script run`` gda ENDED had got when gda ended it (#655).
 
@@ -1517,7 +1496,7 @@ def _render_captured_errors(stderr: str) -> str:
     if not errors:
         return ""
     return "".join(
-        f"gda:   {error.kind.value}: {_render_script_error_location(error)}\n"
+        f"gda:   {error.kind.value}: {render_script_error_location(error)}\n"
         for error in errors
     )
 
@@ -1825,16 +1804,8 @@ def render_script_run(ran: "ScriptRunResult") -> str:
     if ran.stderr:
         parts.append(ran.stderr.rstrip("\n"))
     for diag in ran.diagnostics:
-        parts.append(f"  {diag.kind.value}: {_render_script_error_location(diag)}")
+        parts.append(f"  {diag.kind.value}: {render_script_error_location(diag)}")
     return "\n".join(parts)
-
-
-def _render_script_error_location(diag: "ScriptError") -> str:
-    """``<path>:<line>: <message>`` for a diagnostic, dropping the parts it lacks."""
-    where = diag.path or ""
-    if diag.path is not None and diag.line is not None:
-        where = f"{diag.path}:{diag.line}"
-    return f"{where}: {diag.message}" if where else diag.message
 
 
 SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
