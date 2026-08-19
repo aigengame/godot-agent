@@ -164,6 +164,10 @@ _RECIPE_OPERATIONS = {
     # result are decided from ADR-0006's CLI-resolved project, which `cmd.emit`
     # does not expose to a command (#658).
     "script-validate",
+    # `scene validate` carries a recipe for the same one reason (#664): its
+    # `project_root` comes from ADR-0006's CLI-resolved project, and every problem it
+    # reports is a res:// resolution outcome, so the verdict is unreadable without it.
+    "scene-validate",
     "daemon-start",
     "daemon-stop",
     "daemon-status",
