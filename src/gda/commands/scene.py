@@ -340,11 +340,14 @@ class SceneProblemKind(str, Enum):
 
 
 class SceneProblem(BaseModel):
-    """One dependency of a scene that did not resolve (#664).
+    """One thing statically wrong with a scene (#664).
 
-    Dependency-centric, one entry per referenced file rather than per reference: a
-    path the scene declares twice is one broken file, and both referencing nodes
-    appear under ``nodes``.
+    Either a dependency that did not resolve, or a script the scene binds that
+    could not serve its node — an embedded or referenced script that does not
+    compile, or one whose native base the engine would refuse to bind
+    (``kind`` tells them apart). File-centric, one entry per problem file rather
+    than per reference: a path the scene declares twice is one broken file, and
+    both referencing nodes appear under ``nodes``.
     """
 
     kind: SceneProblemKind
@@ -414,8 +417,10 @@ class SceneValidateResult(ProjectRootedResult):
     )
     problems: list[SceneProblem] = Field(
         description=(
-            "One entry per unresolved dependency, in the order the scene file "
-            "declares them; empty when the scene is valid."
+            "One entry per problem file: unresolved dependencies (in declaration "
+            "order), or — when every dependency resolves — script-binding "
+            "problems (in tree order): a bound script that does not compile, or "
+            "one the engine would refuse to bind. Empty when the scene is valid."
         )
     )
     project_root: str | None = Field(
@@ -1110,16 +1115,20 @@ def validate_scene(
 ) -> None:
     """Check a scene's dependencies and scripts statically; invalid exits 0 with valid=false.
 
-    Answers what 'scene get' cannot: loading a scene SUCCEEDS whatever is broken
-    inside it — the engine substitutes null for a reference it could not resolve and
-    still hands back a usable tree — so a scene whose script and texture are both
-    gone reads as perfectly healthy. This command resolves every dependency the
-    scene declares and compiles every '.gd' it attaches, and reports one problem per
-    file that did not resolve: 'missing_resource' (the file is gone),
-    'unloadable_resource' (it is there but no loader can open it — typically an
-    asset that was never imported) or 'script_compile_failed' (run 'gda script
-    validate' on it for the line and message). Each problem names the declared type
-    and the node paths that reference it.
+    Answers what 'scene get' cannot: loading a scene survives most breakage — the
+    engine substitutes null for a node's reference it could not resolve and still
+    hands back a usable tree — so a scene whose script and texture are both gone
+    reads as perfectly healthy. This command resolves every dependency the scene
+    declares, compiles every script it binds (the referenced '.gd' files and the
+    embedded GDScript sub-resources the dependency walk never sees), and checks
+    each script's native base against the node that carries it, reporting one
+    problem per file: 'missing_resource' (the file is gone), 'unloadable_resource'
+    (it is there but no loader can open it — typically an asset that was never
+    imported), 'script_compile_failed' (run 'gda script validate' on it for the
+    line and message; an embedded script is named by its ::id sub-resource path) or
+    'incompatible_script' (it compiles, but the engine would refuse to bind it and
+    the node would run script-less). Each problem names the declared type and the
+    node paths that reference it.
 
     STATIC: the scene is loaded but never instantiated, so none of its own node
     scripts run — no _init, no _ready, no frames (issue #30). The project's autoloads
@@ -1133,12 +1142,12 @@ def validate_scene(
 
     An invalid scene is a SUCCESSFUL operation: exit 0 with 'valid': false. Only an
     addressing error fails — a missing file is 'path_not_found', a non-.tscn path
-    'invalid_path', and a file with no findable dependencies that also does not load
-    as a scene is 'not_a_scene'. A scene that FAILS TO LOAD because of a dependency
-    gda found is still a verdict, not a refusal: an unresolvable [ext_resource]
-    referenced from a [sub_resource] (an AtlasTexture's atlas, a script-backed
-    Resource) makes the whole load fail, and that is the broken dependency this
-    command reports. The result carries 'project_root', the root the res://
+    'invalid_path', and 'not_a_scene' refuses a file that is not a scene document:
+    no complete [gd_scene] header, or a header whose file then does not load as a
+    scene. A scene that FAILS TO LOAD because of a dependency gda found is still a
+    verdict, not a refusal: an unresolvable [ext_resource] referenced from a
+    [sub_resource] (an AtlasTexture's atlas, a script-backed Resource) makes the
+    whole load fail, and that is the broken dependency this command reports. The result carries 'project_root', the root the res://
     dependencies resolved against; read it before trusting an invalid verdict,
     because the wrong project reports every dependency as missing.
     """

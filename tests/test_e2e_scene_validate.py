@@ -392,3 +392,24 @@ def test_a_tscn_that_is_not_a_scene_document_is_refused_not_diagnosed(godot_proj
 
     payload = json.loads(validated.stdout)
     assert payload["error"]["code"] == "not_a_scene"
+
+
+@pytest.mark.e2e
+def test_a_header_that_merely_starts_with_gd_scene_is_still_refused(godot_project):
+    # Admission must recognize the COMPLETE section header, not a prefix (#720
+    # recheck): `[gd_scenery]` names a different section, so a dependency line
+    # inside it must not buy the file a scene verdict.
+    (godot_project / "scenery.tscn").write_text(
+        "[gd_scenery]\n"
+        "\n"
+        '[ext_resource type="Texture2D" path="res://missing.png" id="1_missing"]\n'
+        "\n"
+        "this is not a Godot scene\n",
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://scenery.tscn", "--json")
+
+    payload = json.loads(validated.stdout)
+    assert payload["error"]["code"] == "not_a_scene"

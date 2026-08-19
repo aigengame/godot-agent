@@ -615,9 +615,11 @@ func _op_scene_validate(params: Dictionary) -> void:
 	# refused as not_a_scene, not diagnosed — a dependency finding inside garbage
 	# text would otherwise skip the load below and convert the garbage into a
 	# scene VERDICT. The header is the text format's own discriminator, so this
-	# admission needs no load.
+	# admission needs no load. A COMPLETE header, not a prefix: the section name
+	# must BE "gd_scene" — `[gd_scene]` or `[gd_scene <attrs>…]` — or a
+	# `[gd_scenery]` would pass a bare prefix test (#720 recheck).
 	var text := FileAccess.get_file_as_string(path)
-	if not text.lstrip(" \t\r\n" + String.chr(0xFEFF)).begins_with("[gd_scene"):
+	if not _has_scene_header(text):
 		_fail(OP_ERROR_NOT_A_SCENE, "not a scene document (no [gd_scene] header): " + path)
 		return
 
@@ -649,6 +651,25 @@ func _op_scene_validate(params: Dictionary) -> void:
 		"valid": problems.is_empty(),
 		"problems": problems,
 	})
+
+
+# Whether the text OPENS with a complete `[gd_scene …]` section header (#720
+# recheck). The section NAME must be exactly "gd_scene": after the tag the next
+# character is the section's closing bracket or the whitespace before its
+# attributes — anything else ("[gd_scenery]") is a different section and not a
+# scene document. Leading whitespace and a UTF-8 BOM are tolerated, as Godot's
+# own text loader is not the parser here and the question is identity, not
+# well-formedness — the load below still has the final word on a header that
+# lies.
+func _has_scene_header(text: String) -> bool:
+	var stripped := text.lstrip(" \t\r\n" + String.chr(0xFEFF))
+	const TAG := "[gd_scene"
+	if not stripped.begins_with(TAG):
+		return false
+	if stripped.length() == TAG.length():
+		return false  # "[gd_scene" at EOF never closes the section header.
+	var next := stripped[TAG.length()]
+	return next == "]" or next == " " or next == "\t"
 
 
 # Whether a load produced a scene with a root — the two conditions _load_scene

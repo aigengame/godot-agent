@@ -155,9 +155,12 @@ class ScriptErrorKind(str, Enum):
     """What a recognized engine error line says about the resource it names (#651).
 
     A closed, public enum: it is projected into ``--schema`` through the results
-    that carry :class:`ScriptError`. Every kind except ``RUNTIME_ERROR`` reports
-    that the named resource could **not be loaded or run**; ``RUNTIME_ERROR``
-    reports an error raised by a script that was already executing.
+    that carry :class:`ScriptError`. Every kind except ``RUNTIME_ERROR`` and
+    ``INCOMPATIBLE_SCRIPT`` reports that the named resource could **not be loaded
+    or run**; ``RUNTIME_ERROR`` reports an error raised by a script that was
+    already executing, and ``INCOMPATIBLE_SCRIPT`` reports a script that loaded
+    and compiled but could not be BOUND to its object (it names no resource at
+    all — the engine's sentence names the two types).
 
     Whether such a failure ended the *run* depends on **which** resource it names:
     a load failure naming the entry script means the run never happened, while the
@@ -238,11 +241,14 @@ class ScriptError(BaseModel):
     kind: ScriptErrorKind = Field(
         description=(
             "Which known engine failure this line reports. Every kind except "
-            "'runtime_error' means the named resource could not be loaded or run; "
-            "'runtime_error' means a script was already executing when it raised. "
-            "Whether the RUN failed depends on whether 'path' is the entry script: "
-            "a load failure naming something the running script merely tried to "
-            "load is not a failed run."
+            "'runtime_error' and 'incompatible_script' means the named resource "
+            "could not be loaded or run; 'runtime_error' means a script was "
+            "already executing when it raised, and 'incompatible_script' means a "
+            "compiled script could not be BOUND to its object (path is null: the "
+            "engine names the two types, not a file). Whether the RUN failed "
+            "depends on whether 'path' is the entry script: a load failure naming "
+            "something the running script merely tried to load is not a failed "
+            "run."
         )
     )
     message: str = Field(
