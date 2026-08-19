@@ -222,3 +222,21 @@ def test_scene_startup_statuses_mirror_the_operations_gd_consts():
     assert _operations_consts(_SCENE_STARTUP_CONST) == {
         status.value for status in SceneStartupStatus
     } - {SceneStartupStatus.TIMEOUT.value}
+
+
+def test_the_rendered_help_keeps_the_bracketed_scene_file_tokens():
+    # `[gd_scene]` / `[ext_resource]` / `[sub_resource]` look exactly like Rich
+    # style tags, so an unescaped docstring RENDERS without them — the published
+    # help read "no complete  header" (#720 recheck ×2). Pin the rendered output,
+    # not the source: the escape is load-bearing.
+    from typer.testing import CliRunner
+
+    from gda.cli import app
+    from tests.support import plain_text
+
+    result = CliRunner().invoke(app, ["scene", "validate", "--help"])
+
+    assert result.exit_code == 0, result.stdout
+    text = " ".join(plain_text(result.stdout).split())
+    assert "no complete [gd_scene] header" in text
+    assert "an unresolvable [ext_resource] referenced from a [sub_resource]" in text

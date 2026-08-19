@@ -653,22 +653,33 @@ func _op_scene_validate(params: Dictionary) -> void:
 	})
 
 
-# Whether the text OPENS with a complete `[gd_scene …]` section header (#720
-# recheck). The section NAME must be exactly "gd_scene": after the tag the next
-# character is the section's closing bracket or the whitespace before its
-# attributes — anything else ("[gd_scenery]") is a different section and not a
-# scene document. Leading whitespace and a UTF-8 BOM are tolerated, as Godot's
-# own text loader is not the parser here and the question is identity, not
-# well-formedness — the load below still has the final word on a header that
-# lies.
+# Whether the text OPENS with a complete, CLOSED `[gd_scene …]` section header
+# (#720 recheck ×2). Two requirements, each defeating a real bypass:
+#
+# - the section NAME must be exactly "gd_scene" — after the tag comes the
+#   closing bracket or the whitespace before attributes, or "[gd_scenery]"
+#   would pass a bare prefix test;
+# - the header LINE must close with "]" — an unclosed "[gd_scene load_steps=2"
+#   is not a header, and the load cannot be relied on to catch it: when the
+#   dependency walk finds problems the load is deliberately skipped, so
+#   admission must be decided here, completely.
+#
+# Leading whitespace and a UTF-8 BOM are tolerated. The question is identity,
+# not well-formedness — a closed header over a broken body is still admitted,
+# and the load has the final word only on that admitted case.
 func _has_scene_header(text: String) -> bool:
 	var stripped := text.lstrip(" \t\r\n" + String.chr(0xFEFF))
 	const TAG := "[gd_scene"
 	if not stripped.begins_with(TAG):
 		return false
-	if stripped.length() == TAG.length():
-		return false  # "[gd_scene" at EOF never closes the section header.
-	var next := stripped[TAG.length()]
+	var line_end := stripped.find("\n")
+	var line := stripped if line_end == -1 else stripped.substr(0, line_end)
+	line = line.strip_edges()
+	# The shortest admitted header is "[gd_scene]", so a line that closes always
+	# has a character after the tag.
+	if not line.ends_with("]") or line.length() <= TAG.length():
+		return false
+	var next := line[TAG.length()]
 	return next == "]" or next == " " or next == "\t"
 
 

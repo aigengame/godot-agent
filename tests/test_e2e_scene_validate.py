@@ -413,3 +413,25 @@ def test_a_header_that_merely_starts_with_gd_scene_is_still_refused(godot_projec
 
     payload = json.loads(validated.stdout)
     assert payload["error"]["code"] == "not_a_scene"
+
+
+@pytest.mark.e2e
+def test_an_unclosed_gd_scene_header_is_still_refused(godot_project):
+    # Admission must require the header LINE to close (#720 recheck ×2): with a
+    # dependency problem in the text the load is skipped, so an unclosed
+    # `[gd_scene …` would otherwise buy garbage a scene verdict with no
+    # downstream check left to catch it.
+    (godot_project / "unclosed.tscn").write_text(
+        "[gd_scene load_steps=2 format=3\n"
+        "\n"
+        '[ext_resource type="Texture2D" path="res://missing.png" id="1_missing"]\n'
+        "\n"
+        "this is not a Godot scene\n",
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://unclosed.tscn", "--json")
+
+    payload = json.loads(validated.stdout)
+    assert payload["error"]["code"] == "not_a_scene"

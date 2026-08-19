@@ -311,10 +311,12 @@ class SceneListResult(BaseModel):
 
 
 class SceneProblemKind(str, Enum):
-    """What ``gda scene validate`` found wrong with one of a scene's dependencies (#664).
+    """What ``gda scene validate`` found wrong with a scene, per problem file (#664).
 
-    A closed, public enum projected into ``--schema``, so an agent branches on the
-    kind instead of matching the message prose. The values are kept apart
+    Covers both problem classes the verdict reports: a DEPENDENCY that did not
+    resolve, and a BOUND SCRIPT (referenced or embedded) that could not serve its
+    node. A closed, public enum projected into ``--schema``, so an agent branches
+    on the kind instead of matching the message prose. The values are kept apart
     because the REMEDY differs: a missing file has to be restored or the reference
     fixed, an unloadable asset has to be imported, a broken script has to be
     edited, and an incompatible script has to move to a matching node or change
@@ -1143,10 +1145,10 @@ def validate_scene(
     An invalid scene is a SUCCESSFUL operation: exit 0 with 'valid': false. Only an
     addressing error fails — a missing file is 'path_not_found', a non-.tscn path
     'invalid_path', and 'not_a_scene' refuses a file that is not a scene document:
-    no complete [gd_scene] header, or a header whose file then does not load as a
+    no complete \\[gd_scene] header, or a header whose file then does not load as a
     scene. A scene that FAILS TO LOAD because of a dependency gda found is still a
-    verdict, not a refusal: an unresolvable [ext_resource] referenced from a
-    [sub_resource] (an AtlasTexture's atlas, a script-backed Resource) makes the
+    verdict, not a refusal: an unresolvable \\[ext_resource] referenced from a
+    \\[sub_resource] (an AtlasTexture's atlas, a script-backed Resource) makes the
     whole load fail, and that is the broken dependency this command reports. The result carries 'project_root', the root the res://
     dependencies resolved against; read it before trusting an invalid verdict,
     because the wrong project reports every dependency as missing.
