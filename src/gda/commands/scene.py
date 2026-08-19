@@ -314,10 +314,11 @@ class SceneProblemKind(str, Enum):
     """What ``gda scene validate`` found wrong with one of a scene's dependencies (#664).
 
     A closed, public enum projected into ``--schema``, so an agent branches on the
-    kind instead of matching the message prose. The three values are kept apart
+    kind instead of matching the message prose. The values are kept apart
     because the REMEDY differs: a missing file has to be restored or the reference
-    fixed, an unloadable asset has to be imported, and a broken script has to be
-    edited.
+    fixed, an unloadable asset has to be imported, a broken script has to be
+    edited, and an incompatible script has to move to a matching node or change
+    its ``extends``.
     """
 
     #: The referenced ``res://`` file does not exist.
@@ -326,9 +327,16 @@ class SceneProblemKind(str, Enum):
     #: asset that was never imported, which a non-editor engine cannot load at all
     #: (so the running game would lose it exactly as the scene does here).
     UNLOADABLE_RESOURCE = "unloadable_resource"
-    #: A referenced ``.gd`` script exists and loads, but does not compile — the same
-    #: verdict ``gda script validate`` reports for it, reached from the scene side.
+    #: A script the scene binds does not compile — the same verdict ``gda script
+    #: validate`` reports, reached from the scene side. Covers a referenced
+    #: ``.gd`` file and an embedded ``[sub_resource type="GDScript"]``, which the
+    #: dependency walk never sees (its ``path`` is the ``::id`` sub-resource form).
     SCRIPT_COMPILE_FAILED = "script_compile_failed"
+    #: A script that compiles but whose native base cannot bind the node that
+    #: carries it (an ``extends Resource`` script on a ``Node2D``): the engine
+    #: would refuse the assignment at runtime and the node would run script-less.
+    #: The same rule ``node script attach`` enforces, asked statically.
+    INCOMPATIBLE_SCRIPT = "incompatible_script"
 
 
 class SceneProblem(BaseModel):
@@ -342,9 +350,12 @@ class SceneProblem(BaseModel):
     kind: SceneProblemKind
     path: str = Field(
         description=(
-            "The res:// path of the dependency, as the scene's [ext_resource] "
-            "declares it (a relative reference resolved against the scene's own "
-            "directory)."
+            "The path of the problem resource. For a dependency: as the scene's "
+            "[ext_resource] declares it, a relative reference resolved against "
+            "the scene's own directory — res:// under a project, a filesystem "
+            "path for a projectless scene addressed by filesystem path. For an "
+            "embedded script: the ::id sub-resource form "
+            "(res://scene.tscn::GDScript_1)."
         )
     )
     type: str | None = Field(
@@ -395,9 +406,10 @@ class SceneValidateResult(ProjectRootedResult):
     path: str
     valid: bool = Field(
         description=(
-            "True when every dependency the scene declares resolves and every "
-            "attached script compiles. False when any does not — the command still "
-            "exits 0, so read this field, not the exit code."
+            "True when every dependency the scene declares resolves, every bound "
+            "script (referenced or embedded) compiles, and each script's native "
+            "base can bind the node that carries it. False when any does not — "
+            "the command still exits 0, so read this field, not the exit code."
         )
     )
     problems: list[SceneProblem] = Field(
@@ -411,10 +423,11 @@ class SceneValidateResult(ProjectRootedResult):
             "The Godot project the scene's res:// dependencies were resolved "
             "against, as an absolute path (ADR-0006: --project, then $GDA_PROJECT, "
             "then the current directory). Always present; null when gda ran "
-            "projectless. Read it before trusting an invalid verdict: a scene "
-            "checked against the wrong root reports every dependency as missing "
-            "(the #658 lesson, which applies here for the same reason — every "
-            "problem below is a res:// resolution outcome)."
+            "projectless — a projectless scene's dependency paths are then plain "
+            "filesystem paths, not res:// addresses. Read it before trusting an "
+            "invalid verdict: a scene checked against the wrong root reports "
+            "every dependency as missing (the #658 lesson, which applies here "
+            "for the same reason — each problem's path is resolved against it)."
         ),
     )
 

@@ -63,9 +63,10 @@ _Avoid_: realtime op, online op
 A `Headless operation` that BOOTS a scene to find out whether it comes up: it
 instantiates the scene into a one-shot engine's tree, observes it for a bounded
 number of frames, and reports a startup verdict (`gda scene preflight`, #664). It is
-the dynamic counterpart of static scene validation, which resolves a scene's
-dependencies without running anything — a scene can pass that and still fail on its
-first frame. Despite booting the game's code it is NOT a `Live operation`: nothing
+the dynamic counterpart of static scene validation, which checks a scene without
+instantiating or running the TARGET scene — the project's autoloads still start and
+script compilation still runs static initializers, as on every `--project` op
+(ADR-0009) — so a scene can pass that and still fail on its first frame. Despite booting the game's code it is NOT a `Live operation`: nothing
 drives or observes the scene from outside, there is no `Engine session` and no
 `gda-daemon`, and the process ends with the verdict.
 _Avoid_: smoke test, dry run, live check
@@ -97,11 +98,13 @@ path>, *args]`, captures bytes with the timeout, and normalizes the outcome into
 handling). Each channel contributes only its argv tail and the export-only cwd. It
 also owns the launch's `User-data placement` — resolved and preflighted here, once,
 so no channel plumbs it (#653). It offers two **capture strategies**, differing only
-in how the child is read: **buffered** (the sentinel and export channels), which
-discards the child's output when the timeout expires and reports the wait instead;
-and **streaming** (`gda script run`), which reads both pipes as they arrive, so the
-output survives a timeout, times the launch, and lets the channel end the run early
-through a caller-supplied watch. Both share one timeout / launch-failure mapping
+in how the child is read: **buffered** (the sentinel-runner and export channels),
+which discards the child's output when the timeout expires and reports the wait
+instead; and **streaming** (`gda script run`, and `gda scene preflight` — which
+dispatches a sentinel op but calls the primitive itself precisely for this
+capture), which reads both pipes as they arrive, so the output survives a timeout,
+times the launch, and lets the channel end the run early through a caller-supplied
+watch. Both share one timeout / launch-failure mapping
 (#655).
 _Avoid_: spawn helper, subprocess wrapper
 

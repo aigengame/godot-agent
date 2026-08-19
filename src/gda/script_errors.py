@@ -48,6 +48,7 @@ The recognized sentences, verbatim from Godot 4.6.3::
     ERROR: Can't load the script "res://plain.gd" as it doesn't inherit from SceneTree or MainLoop.
     ERROR: Cannot open file 'res://missing.tres'.
     ERROR: Failed loading resource: res://missing.tres.
+    ERROR: Script inherits from native type 'Resource', so it can't be assigned to an object of type 'Node2D'.
 """
 
 import posixpath
@@ -94,6 +95,20 @@ _CANT_LOAD = re.compile(r"^Can't load script: (?P<path>\S+?)\.?$")
 _NOT_A_MAIN_LOOP = re.compile(
     r'^Can\'t load the script "(?P<path>[^"]*)" as it doesn\'t inherit from '
     r"SceneTree or MainLoop"
+)
+
+# `ERROR: Script inherits from native type '<base>', so it can't be assigned to an
+# object of type '<target>'.` — the engine refusing to BIND a compiled script to a
+# node whose native class is outside the script's base (gdscript.cpp
+# instance_create). Deterministic and high-signal: the node boots silently
+# script-less, so its `_ready` never runs (the PR #720 review's preflight false
+# positive). The sentence names no res:// path — the `at:` frame is the engine's
+# own C++ file — so the diagnostic honestly carries none. Distinct from the #722
+# `push_error` question: this is the engine's own refusal with a fixed shape, not
+# an arbitrary project-authored message.
+_INCOMPATIBLE_BINDING = re.compile(
+    r"^Script inherits from native type '(?P<base>[^']*)', so it can't be "
+    r"assigned to an object of type '(?P<target>[^']*)'"
 )
 
 # The two resource-load sentences (#651 review claim 4). Godot emits BOTH for one
@@ -172,6 +187,12 @@ class ScriptErrorKind(str, Enum):
     #: (e.g. a ``.tres``), but the engine reports a missing script this way too,
     #: beside its more specific sentence.
     RESOURCE_LOAD_FAILED = "resource_load_failed"
+    #: A script that compiles but whose native base cannot bind the object it was
+    #: assigned to (e.g. an ``extends Resource`` script on a ``Node2D``): the
+    #: engine refuses the assignment and the object runs script-less. Carries no
+    #: ``path`` — the engine's sentence names the two types, not a file — so it
+    #: can never name an entry script and never decides a run verdict.
+    INCOMPATIBLE_SCRIPT = "incompatible_script"
 
 
 #: The kinds that prove a script never ran, in verdict precedence — the order
@@ -374,6 +395,13 @@ def _engine_error(message: str) -> ScriptError | None:
     if cant_load is not None:
         return _engine_diagnostic(
             ScriptErrorKind.LOAD_FAILED, message, cant_load.group("path")
+        )
+    if _INCOMPATIBLE_BINDING.match(message) is not None:
+        # The one recognized sentence with no res:// address: the engine names the
+        # two incompatible TYPES, not a file, so the diagnostic carries the message
+        # and honestly no path — keeping it out of every entry-verdict comparison.
+        return ScriptError(
+            kind=ScriptErrorKind.INCOMPATIBLE_SCRIPT, message=message, path=None
         )
     # The resource layer's two sentences (#651 review claim 4). Both name a
     # res:// address the run tried to load; whether that address is the ENTRY is

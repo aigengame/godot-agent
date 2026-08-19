@@ -300,3 +300,95 @@ def test_a_binary_scene_is_refused_rather_than_reported_valid(godot_project):
     text_verdict = gda("scene", "validate", "res://hero.tscn", "--json")
     assert text_verdict.returncode == 0, text_verdict.stdout + text_verdict.stderr
     assert json.loads(text_verdict.stdout)["valid"] is False
+
+
+# An `extends Resource` script on a Node2D: it compiles, every file resolves, and
+# the engine still refuses the binding at instance time — the PR #720 review's
+# first false positive.
+RESOURCE_SCRIPT = """\
+extends Resource
+
+
+func describe() -> String:
+	return "a resource script"
+"""
+
+INCOMPATIBLE_BINDING_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://res_script.gd" id="1"]
+
+[node name="Root" type="Node2D"]
+script = ExtResource("1")
+"""
+
+# A syntax error inside an EMBEDDED [sub_resource type="GDScript"]: it is not an
+# [ext_resource], so the dependency walk never sees it — the review's second
+# false positive.
+BROKEN_EMBEDDED_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[sub_resource type="GDScript" id="GDScript_1"]
+script/source = "extends Node
+func _ready() -> void:
+	this is not gdscript at all
+"
+
+[node name="Root" type="Node"]
+script = SubResource("GDScript_1")
+"""
+
+
+@pytest.mark.e2e
+def test_an_incompatible_script_binding_is_a_problem_not_a_pass(godot_project):
+    (godot_project / "res_script.gd").write_text(RESOURCE_SCRIPT, encoding="utf-8")
+    (godot_project / "badbind.tscn").write_text(
+        INCOMPATIBLE_BINDING_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://badbind.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    (problem,) = data["problems"]
+    assert problem["kind"] == "incompatible_script"
+    assert problem["path"] == "res://res_script.gd"
+    assert problem["nodes"] == ["."]
+    assert "extends Resource" in problem["message"]
+    assert "Node2D" in problem["message"]
+
+
+@pytest.mark.e2e
+def test_a_broken_embedded_script_is_a_problem_not_a_pass(godot_project):
+    (godot_project / "badembed.tscn").write_text(BROKEN_EMBEDDED_TSCN, encoding="utf-8")
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://badembed.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    (problem,) = data["problems"]
+    assert problem["kind"] == "script_compile_failed"
+    # The embedded script's identity is its ::id sub-resource address.
+    assert problem["path"] == "res://badembed.tscn::GDScript_1"
+    assert problem["nodes"] == ["."]
+
+
+@pytest.mark.e2e
+def test_a_tscn_that_is_not_a_scene_document_is_refused_not_diagnosed(godot_project):
+    # A dependency finding must not bypass scene admission (#720 review): garbage
+    # text carrying an [ext_resource] line used to come back as a scene VERDICT.
+    (godot_project / "garbage.tscn").write_text(
+        '[ext_resource type="Texture2D" path="res://missing.png" id="1"]\n'
+        "this is not a scene file at all\n",
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://garbage.tscn", "--json")
+
+    payload = json.loads(validated.stdout)
+    assert payload["error"]["code"] == "not_a_scene"

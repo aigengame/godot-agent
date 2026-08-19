@@ -98,6 +98,9 @@ const VALIDATE_MARKER := "validating: "
 const SCENE_PROBLEM_MISSING_RESOURCE := "missing_resource"
 const SCENE_PROBLEM_UNLOADABLE_RESOURCE := "unloadable_resource"
 const SCENE_PROBLEM_SCRIPT_COMPILE_FAILED := "script_compile_failed"
+# Deliberately the same word OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE's remedy speaks:
+# the script compiles but its native base cannot bind the node that carries it.
+const SCENE_PROBLEM_INCOMPATIBLE_SCRIPT := "incompatible_script"
 
 # The startup verdicts scene-preflight reports (#664). The third one an agent can
 # read, `timeout`, is gda's own: only the CLI knows the launch outran its bound,
@@ -607,6 +610,16 @@ func _op_scene_validate(params: Dictionary) -> void:
 	if not FileAccess.file_exists(path):
 		_fail(OP_ERROR_PATH_NOT_FOUND, "scene file does not exist: " + path)
 		return
+	# Scene-identity admission, decided from the file's own text BEFORE any
+	# diagnosis (#720 review): a .tscn that is not a scene document at all must be
+	# refused as not_a_scene, not diagnosed — a dependency finding inside garbage
+	# text would otherwise skip the load below and convert the garbage into a
+	# scene VERDICT. The header is the text format's own discriminator, so this
+	# admission needs no load.
+	var text := FileAccess.get_file_as_string(path)
+	if not text.lstrip(" \t\r\n" + String.chr(0xFEFF)).begins_with("[gd_scene"):
+		_fail(OP_ERROR_NOT_A_SCENE, "not a scene document (no [gd_scene] header): " + path)
+		return
 
 	# The dependency scan runs BEFORE the load, and its answer OUTRANKS a load
 	# failure. Godot tolerates an unresolvable [ext_resource] referenced from a NODE
@@ -625,6 +638,11 @@ func _op_scene_validate(params: Dictionary) -> void:
 		if not _is_loaded_scene(packed):
 			_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
 			return
+		# The BINDING scan (#720 review): the dependency walk proves each referenced
+		# file loads, but not that a script can bind the node that carries it, and
+		# it never sees an EMBEDDED [sub_resource type="GDScript"] at all. Both are
+		# read off the loaded scene's state, so this runs only when the load did.
+		problems = _scene_binding_problems(packed)
 
 	_succeed({
 		"path": path,
@@ -641,6 +659,79 @@ func _is_loaded_scene(packed: PackedScene) -> bool:
 		return false
 	var state := packed.get_state()
 	return state != null and state.get_node_count() > 0
+
+
+# One entry per SCRIPT the loaded scene binds that cannot actually serve its node
+# (#720 review). The dependency walk above proves each referenced FILE loads; this
+# walk asks the two questions only the loaded state can answer:
+#
+# - an EMBEDDED [sub_resource type="GDScript"] never appears as an [ext_resource],
+#   so a syntax error inside one is invisible to the text walk — here it shows up
+#   as a script that cannot instantiate, named by its ::id sub-resource path;
+# - a script that compiles can still be REFUSED by the engine at bind time when
+#   the node's native class is outside the script's base (an `extends Resource`
+#   script on a Node2D boots silently script-less). The compatibility rule is the
+#   one _op_script_attach enforces at attach time, asked statically: the node's
+#   type must be the script's base or inherit from it.
+#
+# Reported per SCRIPT with the referencing nodes merged, the dependency walk's own
+# shape. A node without a type of its own (an instanced/inherited child) is
+# skipped honestly: its real class lives in another scene, and guessing it would
+# turn this into the false positive it exists to remove.
+func _scene_binding_problems(packed: PackedScene) -> Array:
+	var state := packed.get_state()
+	var problems: Array = []
+	var by_script := {}
+	for i in state.get_node_count():
+		var node_type := String(state.get_node_type(i))
+		for j in state.get_node_property_count(i):
+			if String(state.get_node_property_name(i, j)) != "script":
+				continue
+			var script := state.get_node_property_value(i, j) as Script
+			if script == null:
+				continue
+			var problem: Variant = _script_binding_problem(script, node_type)
+			if problem == null:
+				continue
+			var key := script.resource_path + "|" + String((problem as Dictionary)["kind"])
+			if not by_script.has(key):
+				(problem as Dictionary)["nodes"] = []
+				by_script[key] = problems.size()
+				problems.append(problem)
+			var nodes: Array = (problems[int(by_script[key])] as Dictionary)["nodes"]
+			var node_path := String(state.get_node_path(i))
+			if not nodes.has(node_path):
+				nodes.append(node_path)
+	return problems
+
+
+# One bound script's verdict against one node type: a problem Dictionary (without
+# its `nodes`, the caller owns attribution), or null when the binding is sound.
+func _script_binding_problem(script: Script, node_type: String) -> Variant:
+	if not script.can_instantiate():
+		# The scene loaded with the script attached, but the script itself never
+		# compiled — the embedded-GDScript case (an external one is caught by the
+		# dependency walk before the load is even asked). reload() on a script
+		# that never compiled retries the compile and runs no project code.
+		var err := script.reload()
+		if err == OK and script.can_instantiate():
+			return null
+		return _scene_problem(SCENE_PROBLEM_SCRIPT_COMPILE_FAILED,
+				script.resource_path, "Script",
+				"the script does not compile: " + error_string(err))
+	var base := script.get_instance_base_type()
+	if String(base).is_empty() or node_type.is_empty():
+		return null
+	if not ClassDB.class_exists(node_type):
+		return null
+	if node_type == String(base) or ClassDB.is_parent_class(node_type, base):
+		return null
+	return _scene_problem(SCENE_PROBLEM_INCOMPATIBLE_SCRIPT,
+			script.resource_path, "Script",
+			"the script extends " + String(base) + ", which cannot bind a node of type "
+			+ node_type + " — the engine would refuse the assignment and the node "
+			+ "would run script-less. Bind it to a " + String(base)
+			+ "-compatible target, or change the script's extends")
 
 
 # One entry per DEPENDENCY the scene declares and gda could not resolve, in the
@@ -880,6 +971,13 @@ func _preflight_frames(params: Dictionary) -> Variant:
 	var raw: Variant = params.get("frames")
 	if not (raw is float or raw is int):
 		_fail(OP_ERROR_INVALID_PARAMS, "frames must be a number: " + str(raw))
+		return null
+	# JSON numbers arrive as floats; only a mathematically integral one names a
+	# frame count. int(raw) would silently truncate 1.5 to a one-frame window
+	# (#720 review), and a silent shrink of an observation window is a verdict
+	# changer, not a rounding detail.
+	if raw is float and raw != floorf(raw):
+		_fail(OP_ERROR_INVALID_PARAMS, "frames must be a whole number: " + str(raw))
 		return null
 	var frames := int(raw)
 	if frames < 1:

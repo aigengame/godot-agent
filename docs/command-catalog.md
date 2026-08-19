@@ -95,23 +95,28 @@ it skips the re-save mutation-integrity guard; instantiating still runs attached
 `_init` (the trust boundary of ADR-0009).
 
 **Two verdicts, neither replacing the other** (established by #664): `scene get` reports what a
-scene DECLARES, and reporting it succeeds whatever is broken inside — Godot substitutes null for
-an `[ext_resource]` it cannot resolve, prints an error to stderr, and still returns a usable
+scene DECLARES, and reporting it survives most breakage — Godot substitutes null for a NODE's
+`[ext_resource]` it cannot resolve, prints an error to stderr, and still returns a usable
 `PackedScene`, so a scene whose script and texture are both gone reads as a healthy tree
-(dogfooding GDA-DF-040). The two validating commands answer the questions that read cannot, and
+(dogfooding GDA-DF-040; a dependency broken from inside a `[sub_resource]` can instead fail the
+whole load, measured on Godot 4.6.3). The two validating commands answer the questions that read cannot, and
 they answer *different* ones:
 
 - `gda scene validate PATH` is **static**. It loads the scene without instantiating it, so none of
   the scene's own node scripts run — no `_init`, no `_ready`, no frames (issue #30; the project's
   autoloads still start, as they do for every `--project` op, and compiling a script executes its
-  static initializers). It resolves every dependency the `.tscn` declares and compiles
-  every `.gd` it attaches — reporting one problem per file that did not resolve: `missing_resource`
-  (the file is gone), `unloadable_resource` (present on disk but no `ResourceLoader` opens it —
-  typically an asset that was never imported, which a non-editor engine cannot load at all) or
-  `script_compile_failed` (the same verdict `script validate` gives that file, which has the line
-  and message). Each problem carries the declared `type` and the node paths referencing it, read
-  from the file's own text because the engine drops an unresolvable reference from what it loads.
-  A path declared twice is one problem with both nodes listed.
+  static initializers). It resolves every dependency the `.tscn` declares, compiles every script
+  it binds — the referenced `.gd` files and the embedded `[sub_resource type="GDScript"]`s the
+  dependency walk never sees — and checks each script's native base against the node carrying it,
+  reporting one problem per file: `missing_resource` (the file is gone), `unloadable_resource`
+  (present on disk but no `ResourceLoader` opens it — typically an asset that was never imported,
+  which a non-editor engine cannot load at all), `script_compile_failed` (the same verdict
+  `script validate` gives that file; an embedded script is named by its `::id` sub-resource path)
+  or `incompatible_script` (it compiles, but the engine would refuse to bind it — the same rule
+  `node script attach` enforces, asked statically). Each problem carries the declared `type` and
+  the node paths referencing it, read from the file's own text because the engine drops an
+  unresolvable reference from what it loads. A path declared twice is one problem with both nodes
+  listed.
 - `gda scene preflight PATH` is **dynamic**. It instantiates the scene, adds it under a one-shot
   engine's tree root — which runs its `_ready` and the project's autoloads — keeps it alive for
   `--frames` idle frames so startup work landing after `_ready` still prints, and reports

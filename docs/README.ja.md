@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=512bcee439ab0316cd8a4445f386a54fffa33463fd7d2604db724d72a6e0b4fa -->
+<!-- gda-readme-i18n: source=README.md sha256=d936b11c0b290e4aefe210d22d15d328f686c067a6ccccb1a5fdc328aa9f524d -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -406,12 +406,14 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `scene validate` | シーンの依存が解決でき、アタッチされたスクリプトがコンパイルできるかを静的に検査します。 |
 | `scene preflight` | シーンを headless で起動し、`_ready` を待って起動結果を報告します。 |
 
-シーンの読み取りは、中身がどれだけ壊れていても必ず成功します。Godot は解決できない参照を null に
+シーンの読み取りはほとんどの破損に耐えます。Godot はノード上の解決できない参照を null に
 置き換えたうえで使えるツリーを返すため、スクリプトもテクスチャも失われたシーンが `scene get` では
-健全に見えます。2 つの検査は別々の問いに答えます。`scene validate` は**静的**です。何もインスタンス化
-せずに各依存を解決し、アタッチされた各スクリプトをコンパイルして、解決できなかったファイルごとに 1 件の
-problem（`missing_resource`、未インポートのアセットを表す `unloadable_resource`、または
-`script_compile_failed`）を、それを参照するノードとともに報告します。`scene preflight` は**動的**です。
+健全に見えます(ただし sub-resource 内部から壊れた依存は、読み込み全体を失敗させることがあります)。2 つの検査は別々の問いに答えます。`scene validate` は**静的**です。何もインスタンス化
+せずに各依存を解決し、バインドされる各スクリプト(参照されたものも埋め込みのものも)をコンパイルし、
+スクリプトのネイティブ基底がそれを載せるノードにバインドできるかも検査して、問題のあるファイルごとに
+1 件の problem(`missing_resource`、未インポートのアセットを表す `unloadable_resource`、
+`script_compile_failed`、またはコンパイルは通るがエンジンがバインドを拒否する
+`incompatible_script`)を、それを参照するノードとともに報告します。`scene preflight` は**動的**です。
 シーンを起動して `_ready` とプロジェクトの autoload を実行し、数フレーム観測してから `status`
 （`ready` / `not_ready` / `timeout`）と起動中に検出したスクリプトエラーを報告します。ゲートとしては
 `started` の 1 つの真偽値を読んでください。両方を実行してください。依存がすべて解決するシーンでも最初のフレームで失敗しえますし、

@@ -301,3 +301,44 @@ def test_a_scene_that_quits_the_engine_names_the_project_not_gdas_contract(
     assert "ended the run" in error["message"]
     # The scene's own line is still in the diagnostics, so the cause is visible.
     assert "handing control back" in error["diagnostics"]
+
+
+# The PR #720 review's preflight false positive: a compiled `extends Resource`
+# script on a Node2D. The engine refuses the binding with a deterministic ERROR,
+# the node boots silently script-less, and its `_ready` never runs — so a verdict
+# that read only the ready latch called this a clean start.
+RESOURCE_SCRIPT = """\
+extends Resource
+
+
+func describe() -> String:
+	return "a resource script"
+"""
+
+INCOMPATIBLE_BINDING_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://res_script.gd" id="1"]
+
+[node name="Root" type="Node2D"]
+script = ExtResource("1")
+"""
+
+
+@pytest.mark.e2e
+def test_a_refused_script_binding_is_not_a_clean_start(godot_project):
+    (godot_project / "res_script.gd").write_text(RESOURCE_SCRIPT, encoding="utf-8")
+    (godot_project / "badbind.tscn").write_text(
+        INCOMPATIBLE_BINDING_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    preflighted = gda("scene", "preflight", "res://badbind.tscn", "--json")
+
+    assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
+    data = json.loads(preflighted.stdout)
+    # The scene REACHES ready (the tree comes up), but the intended script never
+    # bound: started must not call that clean.
+    assert data["started"] is False
+    kinds = [diag["kind"] for diag in data["diagnostics"]]
+    assert "incompatible_script" in kinds

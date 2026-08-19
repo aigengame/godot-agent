@@ -391,13 +391,16 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `scene validate` | Check statically that a scene's dependencies resolve and its attached scripts compile. |
 | `scene preflight` | Boot a scene headless, wait for `_ready`, and report its startup verdict. |
 
-Reading a scene always succeeds, whatever is broken inside it: Godot substitutes null for a
-reference it cannot resolve and still returns a usable tree, so `scene get` shows a healthy
-scene whose script and texture are both gone. The two checks answer different questions.
-`scene validate` is **static** — it resolves every dependency and compiles every attached
-script without instantiating anything, reporting one problem per file that did not resolve
-(`missing_resource`, `unloadable_resource` for an asset that was never imported, or
-`script_compile_failed`) with the nodes that reference it. `scene preflight` is **dynamic** —
+Reading a scene survives most breakage: Godot substitutes null for a node's reference it
+cannot resolve and still returns a usable tree, so `scene get` shows a healthy scene whose
+script and texture are both gone (a dependency broken from inside a sub-resource can still
+fail the whole load). The two checks answer different questions.
+`scene validate` is **static** — it resolves every dependency, compiles every bound script
+(referenced or embedded), and checks each script's native base against the node that carries
+it, all without instantiating anything — reporting one problem per file (`missing_resource`,
+`unloadable_resource` for an asset that was never imported, `script_compile_failed`, or
+`incompatible_script` for a script the engine would refuse to bind) with the nodes that
+reference it. `scene preflight` is **dynamic** —
 it boots the scene, runs its `_ready` and the project's autoloads, watches it for a few frames,
 and reports `status` (`ready` / `not_ready` / `timeout`) plus the script errors seen while it
 started; read `started` for the one-boolean gate. Run both: a scene whose dependencies all

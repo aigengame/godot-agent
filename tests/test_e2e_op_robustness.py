@@ -217,6 +217,17 @@ def test_scene_preflight_refuses_a_non_numeric_frame_budget_at_the_op(frames):
 
 
 @pytest.mark.e2e
+def test_scene_preflight_refuses_a_fractional_frame_budget_at_the_op():
+    # `int(1.5)` would silently truncate to a ONE-frame window (#720 review) — a
+    # silent shrink of the observation window is a verdict changer, not a rounding
+    # detail. Only a mathematically integral number names a frame count.
+    outcome = _preflight_failure({"path": "res://any.tscn", "frames": 1.5})
+
+    assert outcome.error.code == "invalid_params"
+    assert "whole number" in outcome.error.message
+
+
+@pytest.mark.e2e
 @pytest.mark.parametrize("frames", [0, -1])
 def test_scene_preflight_refuses_a_non_positive_frame_budget_at_the_op(frames):
     # A budget below one frame is a well-typed value that leaves the op with no way
