@@ -446,6 +446,28 @@ the documented environment can be reproduced safely. If it cannot, record the li
   rerun the relevant gates, then push and reply or resolve only when those remote writes
   are authorized. Follow the host's convention. Review remediation can touch shared surfaces, so
   update the overlap map and dependent-change plan after each review fix.
+- **Fix an admission/validation predicate by its full grammar, not by the reproduced bypass.**
+  An adversarial reviewer's next round is the NEIGHBORHOOD of the last fix: a prefix test was
+  bypassed by a longer name, the next-character fix by an unclosed header — three rounds for one
+  predicate. When a guard is falsified, enumerate the bypass family (prefix, unterminated,
+  same-line trailing junk, …), close it in one round, and pin each neighbor as its own
+  regression on the reviewer's exact fixture shape.
+- **A claimed fallback must hold on every path the fix takes.** "The loader has the final word"
+  was cited as the safety net for a lenient admission check — but the very code under review
+  skips that loader when an earlier scan finds problems, so the net did not exist on the path
+  that mattered. Before citing mechanism B as the backstop for a weakened mechanism A, trace
+  that B actually runs in A's failure arms; a reply's every claim gets checked verbatim.
+- **The rendered surface is the contract, not its source text.** Published help dropped its
+  bracketed file-format tokens because they parse as Rich style tags; the docstring read fine
+  while the shipped output said "no complete  header". Pin agent-facing text at the rendering
+  boundary (CLI help output, emitted schema descriptions), not at the source string — and
+  red-proof the pin against the unescaped text.
+- **Serial waves inherit this discipline unchanged.** A wave whose every slice touches the same
+  hotspots (one op-dispatch file, one error registry, one skill manifest) is correctly run as
+  wave size ONE: same worktree isolation, same per-slice adversarial review and independent
+  re-verification, same merge-before-next-slice — parallelism is the only thing removed (§1's
+  serialization rule; §8's cure applies when the conflict tax justifies the split). A five-slice
+  serial wave shipped this way with zero merge conflicts and no cross-slice contamination.
 
 ## 7. Resilience & takeover
 
