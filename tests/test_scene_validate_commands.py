@@ -8,10 +8,13 @@ group, where every problem reported is a ``res://`` resolution outcome).
 """
 
 import json
+import re
+from pathlib import Path
 
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.commands.scene import SceneProblemKind, SceneStartupStatus
 from gda.runner import RunResult
 from tests.support import inject_runner, sentinel
 
@@ -176,3 +179,46 @@ def test_an_operation_failure_is_still_an_error_envelope(monkeypatch, tmp_path):
 
     assert result.exit_code == 4, result.stdout + result.stderr
     assert json.loads(result.stdout)["error"]["code"] == "path_not_found"
+
+
+# --- The cross-language enum contract (#664) --------------------------------
+#
+# `operations.gd` WRITES these strings into the sentinel and the pydantic enums
+# READ them, so a drift in either spelling turns a real verdict into a
+# `contract_violation` at parse time. Pinned the way every other cross-language
+# mirror in this repo is (cf. `VALIDATE_MARKER` in tests/test_script_commands.py):
+# scrape the const VALUES out of the payload, so the pin survives any change to
+# where they are used and fails only when the CONTRACT moves. It is a non-e2e test
+# on purpose — the drift is invisible without a real engine otherwise, and the e2e
+# tier does not run in PR CI.
+
+_SCENE_PROBLEM_CONST = re.compile(
+    r'^const SCENE_PROBLEM_[A-Z_]+ := "(.*)"$', re.MULTILINE
+)
+_SCENE_STARTUP_CONST = re.compile(
+    r'^const SCENE_STARTUP_[A-Z_]+ := "(.*)"$', re.MULTILINE
+)
+
+
+def _operations_consts(pattern: re.Pattern[str]) -> set[str]:
+    operations = (
+        Path(__file__).resolve().parents[1] / "src" / "gda" / "ops" / "operations.gd"
+    )
+    found = set(pattern.findall(operations.read_text(encoding="utf-8")))
+    assert found, "no matching consts found in operations.gd"
+    return found
+
+
+def test_scene_problem_kinds_mirror_the_operations_gd_consts():
+    assert _operations_consts(_SCENE_PROBLEM_CONST) == {
+        kind.value for kind in SceneProblemKind
+    }
+
+
+def test_scene_startup_statuses_mirror_the_operations_gd_consts():
+    # `timeout` is gda's OWN verdict — no engine ever reports it, so it is
+    # deliberately absent from the GDScript side and excluded here. Every value the
+    # ENGINE can send must have a member; a member gda mints itself must not need one.
+    assert _operations_consts(_SCENE_STARTUP_CONST) == {
+        status.value for status in SceneStartupStatus
+    } - {SceneStartupStatus.TIMEOUT.value}

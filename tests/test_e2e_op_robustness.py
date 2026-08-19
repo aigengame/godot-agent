@@ -181,3 +181,49 @@ def test_script_validate_separates_a_bad_params_shape_from_a_bad_path_value():
 
     assert shape.error.code == "invalid_params"
     assert value.error.code == "invalid_path"
+
+
+# The scene-preflight frame budget, driven at the op (#664). gda's own CLI and its
+# params model refuse a non-positive budget before the engine is reached (ADR-0015),
+# so these arms drive `operations.gd` directly — the same reason the script-validate
+# selectors above are pinned here. The budget is the op's bound on its own main loop,
+# so a caller that could smuggle a nonsensical one past the refusal would be handing
+# the payload's frame cap a value it cannot honour.
+
+
+def _preflight_failure(params: dict) -> Failure:
+    from gda.commands.scene import ScenePreflightResult
+
+    result = SubprocessGodotRunner(GODOT).run("scene-preflight", params)
+    outcome = classify_run(result, GODOT, ScenePreflightResult)
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.category.value == "operation"
+    return outcome
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("frames", [None, "ten", [], {}, True])
+def test_scene_preflight_refuses_a_non_numeric_frame_budget_at_the_op(frames):
+    # GDScript's `int(value)` is not total either — and where it IS total it lies:
+    # `int("ten")` is 0, not an error, which would silently become a budget of zero
+    # frames. So the raw Variant is type-checked before coercion, exactly as
+    # script-validate does for `all_scripts`. (`true` is included for the same reason
+    # `1` is there: a bool coerces to 1 and must still be refused, since accepting a
+    # second spelling of a number is the drift the wire contract exists to prevent.)
+    outcome = _preflight_failure({"path": "res://any.tscn", "frames": frames})
+
+    assert outcome.error.code == "invalid_params"
+    assert "frames" in outcome.error.message
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("frames", [0, -1])
+def test_scene_preflight_refuses_a_non_positive_frame_budget_at_the_op(frames):
+    # A budget below one frame is a well-typed value that asks the op to report a
+    # verdict it can never have observed: readiness is propagated on the frame AFTER
+    # the scene enters the tree, so a zero-frame window would answer "not ready" for
+    # every scene alike. Refused rather than answered.
+    outcome = _preflight_failure({"path": "res://any.tscn", "frames": frames})
+
+    assert outcome.error.code == "invalid_params"
+    assert "frames" in outcome.error.message

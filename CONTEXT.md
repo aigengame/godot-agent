@@ -88,8 +88,9 @@ _Avoid_: consistency, coherence, sync
 **Headless launch**:
 The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
 the sentinel op-dispatch runner, the native-export runner, the `gda script run`
-user-script runner (ADR-0031), and the `gda scene preflight` runner, which dispatches
-an ordinary sentinel op but calls the primitive itself for its streaming capture (#664). Given the binary, an argv tail, an optional working
+user-script runner (ADR-0031), and the `gda scene preflight` runner, which
+dispatches an ordinary sentinel op but calls the primitive itself for its
+streaming capture (#664). Given the binary, an argv tail, an optional working
 directory, and a timeout, it builds `[binary, --headless, --log-file <gda-owned
 path>, *args]`, captures bytes with the timeout, and normalizes the outcome into a
 `Raw run` (the single home of the spawn / timeout / launch-failure / UTF-8-decode
@@ -235,10 +236,14 @@ constructs (a `class_name` node via `node add`, a script-backed `class_name`
 Resource via `resource create`, or every script inside a **scene composed as an
 instanced child** via `node add --instance`, #399), the `_init` of a
 **script-backed Resource loaded as a value** assigned to an Object-typed
-property (`node set` / `resource set --value res://…`, ADR-0033), and — via
-`gda script run` (ADR-0031) — the **full execution of a named project script**.
-All stay within the `Trusted project` assumption (ADR-0009); `script run` and the
-loaded-value assignment (ADR-0033) widen this surface without adding a new trust axis.
+property (`node set` / `resource set --value res://…`, ADR-0033), the **full
+execution of a named project script** via `gda script run` (ADR-0031), and — via
+`gda scene preflight` (#664) — the **startup of a whole scene**: every script it
+carries runs its `_init` and `_ready` and keeps running for a bounded number of
+frames, beside the autoloads. That last point is the widest on this list.
+All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
+loaded-value assignment (ADR-0033) and the startup preflight widen this surface
+without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:

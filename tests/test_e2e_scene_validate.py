@@ -212,3 +212,91 @@ def test_a_missing_scene_is_refused_not_reported_as_invalid(godot_project):
 
     assert validated.returncode == 4, validated.stdout + validated.stderr
     assert json.loads(validated.stdout)["error"]["code"] == "path_not_found"
+
+
+# A dependency referenced from a [sub_resource] rather than from a node. Godot
+# tolerates the node form (it substitutes null and the scene still loads) but
+# hard-fails the WHOLE load for this one, which is why the verdict cannot be gated
+# on the load succeeding.
+SUB_RESOURCE_TSCN = """\
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Texture2D" path="res://art/gone.png" id="1_gone"]
+
+[sub_resource type="AtlasTexture" id="Atlas_1"]
+atlas = ExtResource("1_gone")
+
+[node name="Hero" type="Node2D"]
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture = SubResource("Atlas_1")
+"""
+
+# Re-saves a .tscn as a binary .scn, so the refusal below is tested against a REAL
+# binary scene rather than a path that merely ends in .scn.
+SAVE_AS_BINARY_GD = """\
+extends SceneTree
+
+
+func _initialize() -> void:
+	var packed := ResourceLoader.load("res://hero.tscn", "PackedScene") as PackedScene
+	var err := ResourceSaver.save(packed, "res://hero.scn")
+	if err != OK:
+		printerr("save failed: ", err)
+	quit(0 if err == OK else 1)
+"""
+
+
+@pytest.mark.e2e
+def test_a_dependency_broken_from_a_sub_resource_is_a_verdict_not_a_refusal(
+    godot_project,
+):
+    # The load fails outright here, so gating the verdict on it would answer
+    # `not_a_scene` about a file that IS a scene — hiding exactly the broken
+    # dependency this command exists to report.
+    (godot_project / "main.tscn").write_text(SUB_RESOURCE_TSCN, encoding="utf-8")
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://main.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    problem = data["problems"][0]
+    assert problem["kind"] == "missing_resource"
+    assert problem["path"] == "res://art/gone.png"
+    # No node references it directly — a sub-resource does — so the attribution is
+    # empty rather than wrong.
+    assert problem["nodes"] == []
+
+
+@pytest.mark.e2e
+def test_a_binary_scene_is_refused_rather_than_reported_valid(godot_project):
+    # The regression this guards is the worst answer a gate can give: the dependency
+    # set is read from the scene's TEXT, and a binary .scn carries none — so a
+    # dependency walk over one finds nothing and would report a clean verdict for a
+    # scene with definitively broken dependencies.
+    (godot_project / "hero.gd").write_text(GOOD_SCRIPT, encoding="utf-8")
+    (godot_project / "hero.tscn").write_text(GOOD_TSCN, encoding="utf-8")
+    (godot_project / "save_binary.gd").write_text(SAVE_AS_BINARY_GD, encoding="utf-8")
+    gda = _gda_project(godot_project)
+
+    saved = gda("script", "run", "res://save_binary.gd", "--json")
+    assert saved.returncode == 0, saved.stdout + saved.stderr
+    assert (godot_project / "hero.scn").exists(), saved.stdout + saved.stderr
+    # Break it AFTER the binary was written, so the .scn genuinely references a
+    # script that is now gone.
+    (godot_project / "hero.gd").unlink()
+
+    validated = gda("scene", "validate", "res://hero.scn", "--json")
+
+    assert validated.returncode == 4, validated.stdout + validated.stderr
+    error = json.loads(validated.stdout)["error"]
+    assert error["code"] == "invalid_path"
+    assert ".tscn" in error["message"]
+
+    # And the text form of the same broken scene is still answered, so the refusal
+    # is about the FORM gda can read, not about the scene.
+    text_verdict = gda("scene", "validate", "res://hero.tscn", "--json")
+    assert text_verdict.returncode == 0, text_verdict.stdout + text_verdict.stderr
+    assert json.loads(text_verdict.stdout)["valid"] is False

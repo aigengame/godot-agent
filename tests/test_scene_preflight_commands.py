@@ -282,3 +282,180 @@ def test_human_output_leads_with_the_verdict(monkeypatch, tmp_path):
         == "  runtime_error: res://encounter.gd:12: Assertion failed: no spawn "
         "point in the encounter"
     )
+
+
+def test_an_engine_reported_not_ready_projects_as_a_failed_start(monkeypatch, tmp_path):
+    # The verdict gda cannot produce on a healthy engine but must still project
+    # faithfully: readiness is settled before the first observed frame, so a
+    # not_ready payload means the propagation never reached the scene at all.
+    project = _project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({"path": "res://main.tscn", "status": "not_ready"}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["status"] == "not_ready"
+    assert data["started"] is False
+
+
+def test_an_unknown_status_is_a_contract_violation_not_a_verdict(monkeypatch, tmp_path):
+    # The closed enum is the contract: a payload gda does not understand is a parse
+    # failure, never a guess. This is what keeps the GDScript/Python mirror honest at
+    # runtime as well as in the pinning test.
+    project = _project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({"path": "res://main.tscn", "status": "half_ready"}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 5, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+
+
+def test_a_timeout_outranks_a_sentinel_that_arrived_before_it(monkeypatch, tmp_path):
+    # Bifurcation precedence, pinned: gda ended this run, so its own verdict wins
+    # over whatever the partial capture happens to contain. A sentinel in a timed-out
+    # capture is not the engine's final answer — the run never finished — and reading
+    # it would report a scene as started that gda had just killed.
+    project = _project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(
+            stdout=READY,
+            stderr="",
+            exit_code=124,
+            launch_failure=LaunchFailure.TIMEOUT,
+            elapsed_seconds=30.0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["status"] == "timeout"
+
+
+def test_the_watch_never_ends_a_run_which_is_what_keeps_aborted_unreachable():
+    # gda.runner documents that a watching channel must classify LaunchFailure.ABORTED
+    # itself, because the shared prefix has no honest code for "the caller's own
+    # declared condition fired". This channel declares no such condition — it takes a
+    # watch ONLY to select the streaming capture — so ABORTED is unreachable here.
+    # That invariant lives in one method, and this is what pins it: a policy added to
+    # `observe` later fails this test rather than silently degrading an abort into a
+    # contract_violation.
+    from gda.commands.scene import _CaptureOnlyWatch
+
+    watch = _CaptureOnlyWatch()
+
+    assert (
+        watch.observe(stdout="anything", stderr="ERROR: everything", elapsed=999.0)
+        is False
+    )
+    assert watch.observe(stdout="", stderr="", elapsed=0.0) is False
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"path": "res://main.tscn", "frames": 0},
+        {"path": "res://main.tscn", "timeout": 0},
+        {"path": "res://main.tscn", "timeout": float("inf")},
+    ],
+    ids=["frames-zero", "timeout-zero", "timeout-infinite"],
+)
+def test_params_json_refuses_the_same_bounds_argv_does(monkeypatch, tmp_path, params):
+    # ADR-0015: the model owns the rule, so both input paths refuse identically —
+    # argv as a usage error, --params-json as the structured invalid_params. An
+    # infinite ceiling is refused because it would never be reached, leaving the run
+    # gda promised to bound unbounded.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "scene",
+            "preflight",
+            "--params-json",
+            json.dumps(params),
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert calls == []
+
+
+def test_a_project_that_quits_the_engine_is_not_blamed_on_gdas_contract(
+    monkeypatch, tmp_path
+):
+    # A booting scene — or an autoload starting beside it — may call
+    # get_tree().quit(); a splash scene that hands off does exactly that. The engine
+    # then exits cleanly with no sentinel, which the shared classifier reads as gda's
+    # own output contract being violated. That sends the reader to debug gda for
+    # something the project did, so this channel names the real cause instead.
+    project = _project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(stdout="Godot Engine v4.6.3\n", stderr="quitting\n", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 4, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "operation_failed"
+    assert "ended the run" in error["message"]
+
+
+def test_a_payload_that_died_without_reporting_is_still_the_generic_failure(
+    monkeypatch, tmp_path
+):
+    # The other side of that discriminator, and what keeps it exact: gda's own
+    # payload quits with a code that DEFAULTS to failure, so every way it can end
+    # without emitting exits non-zero — and stays the generic operation_failed rather
+    # than being mislabelled as the project's own quit.
+    project = _project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(stdout="", stderr="SCRIPT ERROR: in the payload\n", exit_code=1),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 4, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "operation_failed"
+    assert "ended the run" not in error["message"]

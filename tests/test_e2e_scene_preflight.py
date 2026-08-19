@@ -204,3 +204,100 @@ def test_a_missing_scene_is_refused_not_reported_as_a_verdict(godot_project):
 
     assert preflighted.returncode == 4, preflighted.stdout + preflighted.stderr
     assert json.loads(preflighted.stdout)["error"]["code"] == "path_not_found"
+
+
+# Hands off in _ready — a splash/bootstrap shape. The node is gone before the first
+# observed frame, so a verdict SAMPLED there would call it not_ready.
+HANDOFF_READY_SCRIPT = """\
+extends Node2D
+
+
+func _ready() -> void:
+	printerr("handing off")
+	queue_free()
+"""
+
+# Fails on the fifth _process frame, not during _ready — the shape the observation
+# window exists for.
+LATE_FAILURE_SCRIPT = """\
+extends Node2D
+
+var _frames := 0
+
+
+func _process(_delta: float) -> void:
+	_frames += 1
+	if _frames == 5:
+		assert(false, "the encounter fell apart on frame five")
+"""
+
+
+@pytest.mark.e2e
+def test_a_scene_that_hands_off_in_ready_still_counts_as_started(godot_project):
+    # Readiness is LATCHED from the engine's signal, not sampled on a later frame:
+    # the propagation happens before the first observed frame, and by then a scene
+    # that freed itself in _ready is already gone. Sampling reported this shape as
+    # not_ready — a scene that plainly started.
+    _scene(godot_project, "splash.tscn", "splash.gd", HANDOFF_READY_SCRIPT)
+    gda = _gda_project(godot_project)
+
+    preflighted = gda("scene", "preflight", "res://splash.tscn", "--json")
+
+    assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
+    data = json.loads(preflighted.stdout)
+    assert data["status"] == "ready"
+    assert data["started"] is True
+    assert "handing off" in preflighted.stderr
+
+
+@pytest.mark.e2e
+def test_the_frame_window_is_what_catches_a_failure_after_ready(godot_project):
+    # What --frames buys, measured rather than asserted: the same scene passes with a
+    # one-frame window and fails with the default one, because its error lands on
+    # frame five. This is why the window is not simply "wait for ready".
+    _scene(godot_project, "late.tscn", "late.gd", LATE_FAILURE_SCRIPT)
+    gda = _gda_project(godot_project)
+
+    narrow = gda("scene", "preflight", "res://late.tscn", "--frames", "1", "--json")
+    assert narrow.returncode == 0, narrow.stdout + narrow.stderr
+    assert json.loads(narrow.stdout)["started"] is True
+
+    default_window = gda("scene", "preflight", "res://late.tscn", "--json")
+
+    assert default_window.returncode == 0, default_window.stdout + default_window.stderr
+    data = json.loads(default_window.stdout)
+    assert data["status"] == "ready"
+    assert data["started"] is False
+    assert "fell apart on frame five" in data["diagnostics"][0]["message"]
+
+
+# Ends the run from inside _ready — a boot/splash shape, and what any autoload
+# quitting under a condition looks like from outside.
+QUITTING_READY_SCRIPT = """\
+extends Node2D
+
+
+func _ready() -> void:
+	printerr("handing control back")
+	get_tree().quit()
+"""
+
+
+@pytest.mark.e2e
+def test_a_scene_that_quits_the_engine_names_the_project_not_gdas_contract(
+    godot_project,
+):
+    # The engine exits cleanly with no verdict, which the shared classifier would
+    # otherwise report as gda's structured-output contract being violated (a PARSE
+    # failure, exit 5) — sending the reader to debug gda for what the scene did.
+    _scene(godot_project, "splash.tscn", "splash.gd", QUITTING_READY_SCRIPT)
+    gda = _gda_project(godot_project)
+
+    preflighted = gda("scene", "preflight", "res://splash.tscn", "--json")
+
+    assert preflighted.returncode == 4, preflighted.stdout + preflighted.stderr
+    error = json.loads(preflighted.stdout)["error"]
+    assert error["code"] == "operation_failed"
+    assert "ended the run" in error["message"]
+    # The scene's own line is still in the diagnostics, so the cause is visible.
+    assert "handing control back" in error["diagnostics"]

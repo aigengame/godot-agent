@@ -88,20 +88,6 @@ into the result's `diagnostics`. This stays within the contract: the diagnostics
 are advisory (they may hold only the first error, and `column` is unavailable on
 the standard build), and they never determine the outcome or a stable code.
 
-> **Scope note (2026-08-18, #663) — one operation, several scripts: the advisory
-> stream needs a delimiter.** `script validate` now validates a BATCH of scripts in
-> one op (#663), so the stderr it parses carries several scripts' errors in one
-> stream and "which script is this about?" has no answer in the engine's output that
-> gda can rely on. The op therefore writes its own `gda: validating: <path>` line to
-> stderr before each compile, and the classifier splits the stream on those markers
-> to attach each script's `line`/`message` pairs to its own entry. This stays inside
-> the rule above rather than widening it: the markers are gda's own diagnostics on
-> the advisory channel, they carry no verdict (`valid` still comes only from the
-> stdout sentinel), and a stream that ever failed to line up leaves the affected
-> entry with empty `diagnostics` rather than another script's. It does add a
-> cross-language contract — the marker is written in GDScript and read in Python —
-> which a test pins on both sides.
-
 > **Scope note (2026-08-19, #664) — a verdict command may put the same recognized
 > sentences in a result FIELD, and may report its own bound as a verdict.**
 > `scene preflight` boots a scene and reports how far it got, so two of its answers
@@ -128,6 +114,20 @@ the standard build), and they never determine the outcome or a stable code.
 >   bound — so the bound being reached IS the answer. Scoped to this command: an
 >   unlaunchable binary, an unusable user-data placement, a signal death, and the
 >   op's own structured refusals stay the shared envelope.
+
+> **Scope note (2026-08-18, #663) — one operation, several scripts: the advisory
+> stream needs a delimiter.** `script validate` now validates a BATCH of scripts in
+> one op (#663), so the stderr it parses carries several scripts' errors in one
+> stream and "which script is this about?" has no answer in the engine's output that
+> gda can rely on. The op therefore writes its own `gda: validating: <path>` line to
+> stderr before each compile, and the classifier splits the stream on those markers
+> to attach each script's `line`/`message` pairs to its own entry. This stays inside
+> the rule above rather than widening it: the markers are gda's own diagnostics on
+> the advisory channel, they carry no verdict (`valid` still comes only from the
+> stdout sentinel), and a stream that ever failed to line up leaves the affected
+> entry with empty `diagnostics` rather than another script's. It does add a
+> cross-language contract — the marker is written in GDScript and read in Python —
+> which a test pins on both sides.
 
 > **Scope note (2026-08-15, #651) — the two rules above presuppose the sentinel
 > channel, which ADR-0031's `script run` does not have.** Both the "stderr is never

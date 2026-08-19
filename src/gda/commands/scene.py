@@ -23,7 +23,12 @@ from pydantic import BaseModel, Field, model_validator
 from gda import dispatch
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe
-from gda.errors import Failure, classify_run, unresolvable_binary_failure
+from gda.errors import (
+    Failure,
+    classify_run,
+    make_failure,
+    unresolvable_binary_failure,
+)
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -37,8 +42,13 @@ from gda.models import (
     projected_value_schema_extra,
     VALUE_PROJECTION_DESC,
 )
-from gda.render import format_value, render_node_tree, render_script_error_location
-from gda.runner import LaunchFailure, LaunchFn, launch, sentinel_args
+from gda.parser import RESULT_BEGIN
+from gda.render import (
+    format_value,
+    render_node_tree,
+    render_script_error_location,
+)
+from gda.runner import LaunchFailure, LaunchFn, RunResult, launch, sentinel_args
 from gda.script_errors import ScriptError, parse_script_errors
 
 
@@ -373,9 +383,12 @@ class SceneValidateResult(BaseModel):
     file, a file that does not load as a scene at all), which refuses the whole call
     rather than becoming a verdict.
 
-    The verdict is STATIC: the scene is loaded but never instantiated, so validating
-    it runs no project code (the read boundary of issue #30). It therefore cannot
-    speak for what happens once the scene runs — that is ``gda scene preflight``.
+    The verdict is STATIC: the scene is loaded but never INSTANTIATED, so none of
+    the scene's own node scripts run — no ``_init``, no ``_ready``, no frames (the
+    read boundary of issue #30). It is not a claim that nothing at all executes:
+    the project's autoloads start, as they do for every ``--project`` op, and
+    compiling a script executes its static initializers. What it cannot speak for is
+    what happens once the SCENE runs — that is ``gda scene preflight``.
     """
 
     path: str
@@ -422,10 +435,10 @@ class SceneValidateResult(BaseModel):
         return data
 
 
-# The DEFAULT observation window of one preflight, in idle frames. A booted scene
-# reports ready on the frame after it enters the tree (measured against Godot
-# 4.6.3), so one frame would already answer "did it come up" — the rest of the
-# window is what lets startup work that lands AFTER _ready run and print: a
+# The DEFAULT observation window of one preflight, in idle frames. Readiness itself
+# is settled before the first frame (the engine propagates it as the tree finishes
+# initializing, measured against Godot 4.6.3), so the window is NOT a bound on
+# coming up — it is what lets startup work that lands AFTER _ready run and print: a
 # deferred call, the first _process ticks, a signal awaited on a timer. Ten frames
 # cost about 65ms of a ~350ms process (measured), which buys that margin without
 # making a gate noticeably slower.
@@ -453,8 +466,10 @@ class SceneStartupStatus(str, Enum):
     #: within the observation window. This says the scene came up — NOT that it came
     #: up cleanly; ``diagnostics`` is the other half of that question.
     READY = "ready"
-    #: The scene instantiated and entered the tree but was still not ready when the
-    #: window ended. Raise ``--frames`` if the scene legitimately needs longer.
+    #: The scene instantiated and entered the tree, but the engine never reported it
+    #: ready. Readiness is settled before the first observed frame, so this is not
+    #: "needs more time" and raising ``--frames`` will not change it: it means the
+    #: propagation never reached this scene at all.
     NOT_READY = "not_ready"
     #: gda ended the launch at ``--timeout``: the engine never reported a verdict,
     #: which is what a ``_ready`` that does not return looks like from outside. The
@@ -465,10 +480,13 @@ class SceneStartupStatus(str, Enum):
 class ScenePreflightParams(BaseModel):
     """The operation params of ``gda scene preflight``: the scene and its bounds (#664).
 
-    ``path`` is the ``.tscn`` to boot. The two bounds are different things and both
-    are needed: ``frames`` is how long gda OBSERVES a scene that came up, measured
-    in the engine's own idle frames, while ``timeout`` is the wall-clock ceiling on
-    the whole launch — the one that answers a scene that never comes up at all.
+    ``path`` is the ``.tscn`` to boot. The two bounds measure different things and
+    both are needed: ``frames`` is how long gda OBSERVES a scene that came up,
+    counted in the engine's own idle frames, while ``timeout`` is the wall-clock
+    ceiling on the whole launch — the one that answers a scene that never comes up
+    at all. They are not independent, and the relationship is stated on both fields:
+    frames cost wall clock, so a window that outruns the ceiling ends as a
+    ``timeout`` verdict for a scene that was starting perfectly well.
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to boot.")
@@ -477,12 +495,14 @@ class ScenePreflightParams(BaseModel):
         ge=1,
         description=(
             "How many idle frames to keep the booted scene alive before reporting. "
-            "A scene reports ready on the frame after it enters the tree, so the "
-            "rest of the window is what lets startup work that lands after _ready — "
-            "a deferred call, the first _process ticks, an awaited signal — run and "
-            "print its errors. Frames are the engine's own unit and NOT wall clock: "
+            "NOT a bound on coming up — readiness is settled before the first of "
+            "them — but the window that lets startup work landing after _ready (a "
+            "deferred call, the first _process ticks, an awaited signal) run and "
+            "print its errors. Frames are the engine's own unit and not wall clock: "
             "a scene awaiting a one-second timer will not have finished waiting "
-            f"whatever this is set to. Defaults to {DEFAULT_PREFLIGHT_FRAMES}."
+            "whatever this is set to. They do COST wall clock (a few milliseconds "
+            "each), so a window large enough to outrun 'timeout' reports the timeout "
+            f"verdict for a healthy scene. Defaults to {DEFAULT_PREFLIGHT_FRAMES}."
         ),
     )
     timeout: float = Field(
@@ -495,8 +515,11 @@ class ScenePreflightParams(BaseModel):
             "Must be a FINITE positive number: JSON Schema cannot express "
             "finiteness, so a non-finite value is refused by validation rather than "
             "by the schema — an infinite ceiling would never be reached, and this "
-            "ceiling IS the bound the timeout verdict is promised within. Defaults "
-            f"to {DEFAULT_PREFLIGHT_TIMEOUT_SECONDS}s."
+            "ceiling IS the bound the timeout verdict is promised within. It must "
+            "also leave room for 'frames': the two are not cross-checked, because "
+            "the per-frame cost depends on the machine and on what the scene does, "
+            "so a false precision here would be worse than the stated relationship. "
+            f"Defaults to {DEFAULT_PREFLIGHT_TIMEOUT_SECONDS}s."
         ),
     )
 
@@ -863,6 +886,9 @@ def run_scene_preflight_operation(
             diagnostics=diagnostics,
             project_root=str(root) if root is not None else None,
         )
+    ended_early = _ended_before_the_verdict(raw)
+    if ended_early is not None:
+        return ended_early
     outcome = classify_run(raw, binary, _ScenePreflightPayload)
     if isinstance(outcome, Failure):
         return outcome
@@ -875,6 +901,41 @@ def run_scene_preflight_operation(
         status=outcome.status,
         diagnostics=diagnostics,
         project_root=str(root) if root is not None else None,
+    )
+
+
+def _ended_before_the_verdict(raw: RunResult) -> "Failure | None":
+    """The refusal for a run the PROJECT ended before the op could report (#664).
+
+    A booting scene — or one of the autoloads that start beside it — may call
+    ``get_tree().quit()``; a splash scene that hands off does exactly that. The
+    engine then exits cleanly with no sentinel, and the shared classifier reads that
+    as gda's own structured-output contract being violated (``contract_violation``,
+    a PARSE failure). That sends the reader to debug gda for something the project
+    did.
+
+    The discriminator is exact rather than a guess, and it is worth stating why. The
+    payload's single exit point (:issue:`31`) quits with an exit code that DEFAULTS
+    TO FAILURE, so every way gda's own op can end without emitting — an uncaught
+    error, an abandoned pending tail — exits non-zero and is classified as
+    ``operation_failed`` exactly as before. A clean ``0`` with no sentinel can
+    therefore only be someone else's ``quit(0)``.
+
+    Reported as an operation failure rather than a startup verdict: gda saw the
+    scene neither reach ready nor fail to, so it has no verdict to give, and
+    inventing one would be the phantom success this whole command exists to prevent.
+    """
+    if raw.launch_failure is not None or raw.exit_code != 0:
+        return None
+    if RESULT_BEGIN in raw.stdout:
+        return None
+    return make_failure(
+        "operation_failed",
+        "the engine exited before the preflight could report: the scene, or an "
+        "autoload starting beside it, ended the run (get_tree().quit()). gda's own "
+        "payload always exits non-zero when it cannot report, so a clean exit with "
+        "no result is the project's own.",
+        raw.stderr,
     )
 
 
@@ -1046,15 +1107,24 @@ def validate_scene(
     validate' on it for the line and message). Each problem names the declared type
     and the node paths that reference it.
 
-    STATIC: the scene is loaded but never instantiated, so no project code runs
-    (issue #30). It therefore says nothing about what happens once the scene RUNS —
-    a scene can pass this and still fail on its first frame; 'gda scene preflight'
-    is the command that boots it.
+    STATIC: the scene is loaded but never instantiated, so none of its own node
+    scripts run — no _init, no _ready, no frames (issue #30). The project's autoloads
+    still start, as they do for every --project op. It therefore says nothing about
+    what happens once the scene RUNS — a scene can pass this and still fail on its
+    first frame; 'gda scene preflight' is the command that boots it.
+
+    Takes a .tscn: the dependency set is read from the scene's own text, which a
+    binary .scn does not carry, so one is refused ('invalid_path') rather than
+    answered about.
 
     An invalid scene is a SUCCESSFUL operation: exit 0 with 'valid': false. Only an
-    addressing error fails — a missing file is 'path_not_found' and a file that does
-    not load as a scene at all is 'not_a_scene', the same ladder the rest of the
-    scene group uses. The result carries 'project_root', the root the res://
+    addressing error fails — a missing file is 'path_not_found', a non-.tscn path
+    'invalid_path', and a file with no findable dependencies that also does not load
+    as a scene is 'not_a_scene'. A scene that FAILS TO LOAD because of a dependency
+    gda found is still a verdict, not a refusal: an unresolvable [ext_resource]
+    referenced from a [sub_resource] (an AtlasTexture's atlas, a script-backed
+    Resource) makes the whole load fail, and that is the broken dependency this
+    command reports. The result carries 'project_root', the root the res://
     dependencies resolved against; read it before trusting an invalid verdict,
     because the wrong project reports every dependency as missing.
     """
@@ -1076,8 +1146,10 @@ def preflight_scene(
         help=(
             "Idle frames to keep the booted scene alive before reporting, so "
             "startup work landing after _ready (a deferred call, the first _process "
-            "ticks, an awaited signal) runs and prints. Engine frames, NOT wall "
-            "clock — a scene awaiting a one-second timer will still be waiting."
+            "ticks, an awaited signal) runs and prints. Not a bound on coming up: "
+            "readiness is settled before the first frame. Engine frames, NOT wall "
+            "clock — a scene awaiting a one-second timer will still be waiting — but "
+            "they do cost a few ms each, so keep the window inside --timeout."
         ),
     ),
     timeout: float = typer.Option(
@@ -1086,7 +1158,7 @@ def preflight_scene(
         help=(
             "Seconds before gda ends the launch and reports the 'timeout' verdict "
             "with the captured diagnostics. Raise it for a project whose autoloads "
-            "do real work at startup."
+            "do real work at startup, or for a large --frames window."
         ),
     ),
     json_output: bool = json_option(),
@@ -1118,6 +1190,12 @@ def preflight_scene(
     is the widest such surface in the scene group. This is a one-shot headless
     launch, not a live session: it needs no daemon, and observes the scene coming
     up rather than driving it (that is 'gda game', behind 'gda daemon start').
+
+    The engine's error stream is forwarded to gda's stderr, so what the scene
+    complained about is visible verbatim as well as parsed into 'diagnostics'. Its
+    STDOUT is not: gda's own stdout carries only the result object, so a scene's
+    print() output is consumed with the rest of the engine's stdout. Use printerr()
+    for anything a preflight should surface.
     """
     # A FINITE positive ceiling and a positive frame budget, checked on both input
     # paths (ADR-0015): the params model enforces them for --params-json, this for

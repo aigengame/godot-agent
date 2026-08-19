@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from typing import Any, Protocol
 
 from gda.models import NodeProperty
+from gda.script_errors import ScriptError
 
 
 def format_value(value: Any) -> str:
@@ -40,30 +41,17 @@ def format_value(value: Any) -> str:
     return json.dumps(value)
 
 
-class ScriptErrorLocation(Protocol):
-    """The located-message surface of a recognized script error (#664).
-
-    A structural (typing-only) interface over the ``path``/``line``/``message`` a
-    :class:`~gda.script_errors.ScriptError` carries. Two groups render those errors
-    now — ``script run``'s passed-through diagnostics and ``scene preflight``'s
-    startup diagnostics — so the one-line location form lives here rather than in
-    either group, and reads identically in both. Structural rather than an import,
-    matching :class:`NodeOutline`: the presentation layer names no group model, and
-    the ``commands`` → ``render`` direction stays one-way (ADR-0040 §5).
-    """
-
-    @property
-    def path(self) -> str | None: ...
-
-    @property
-    def line(self) -> int | None: ...
-
-    @property
-    def message(self) -> str: ...
-
-
-def render_script_error_location(diagnostic: ScriptErrorLocation) -> str:
+def render_script_error_location(diagnostic: ScriptError) -> str:
     """``<path>:<line>: <message>`` for one script error, dropping the parts it lacks.
+
+    Two groups render recognized script errors now — ``script run``'s passed-through
+    diagnostics and ``scene preflight``'s startup diagnostics — so the one-line
+    location form lives here rather than in either group, and reads identically in
+    both. Typed against :class:`~gda.script_errors.ScriptError` directly, unlike the
+    structural :class:`NodeOutline` below: that one bridges several GROUP models,
+    while this is one model from a foundation module the presentation layer may name
+    (``gda.script_errors`` imports only ``gda.engine_log``), so a Protocol would buy
+    nothing here.
 
     An engine-side load failure carries no script line, and some carry no path at
     all, so each piece is included only when the engine reported it — never as an

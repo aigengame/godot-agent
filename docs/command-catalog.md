@@ -101,8 +101,10 @@ an `[ext_resource]` it cannot resolve, prints an error to stderr, and still retu
 (dogfooding GDA-DF-040). The two validating commands answer the questions that read cannot, and
 they answer *different* ones:
 
-- `gda scene validate PATH` is **static**. It loads the scene without instantiating it (so no
-  project code runs, issue #30), resolves every dependency the `.tscn` declares, and compiles
+- `gda scene validate PATH` is **static**. It loads the scene without instantiating it, so none of
+  the scene's own node scripts run — no `_init`, no `_ready`, no frames (issue #30; the project's
+  autoloads still start, as they do for every `--project` op, and compiling a script executes its
+  static initializers). It resolves every dependency the `.tscn` declares and compiles
   every `.gd` it attaches — reporting one problem per file that did not resolve: `missing_resource`
   (the file is gone), `unloadable_resource` (present on disk but no `ResourceLoader` opens it —
   typically an asset that was never imported, which a non-editor engine cannot load at all) or
@@ -120,11 +122,21 @@ they answer *different* ones:
   #651's closed set of engine failure sentences (a runtime error, a failed assertion, a script
   that could not load), so project prose written with `push_error()` is not among them.
 
+`scene validate` takes a `.tscn` specifically, and refuses a binary `.scn` with `invalid_path`:
+its dependency set comes from the scene's own TEXT (which is also what attributes each dependency
+to the nodes using it), and a binary scene carries none — answering `valid: true` for a file it
+could not read would be the worst thing a gate can do. `scene preflight` has no such restriction:
+it boots whatever loads.
+
 Both report an invalid/failed scene as a **successful operation** (exit `0`, verdict in the
 result), including preflight's `timeout` — "it did not come up within the bound" is the answer
 that command was asked for. Only addressing and environment problems fail: `path_not_found`,
-`not_a_scene`, preflight's `missing_dependency` for a scene the engine cannot instantiate at
-all, and the shared binary/crash envelopes. Both carry `project_root`, the root the `res://`
+`invalid_path`, `not_a_scene`, preflight's `missing_dependency` for a scene the engine cannot
+instantiate at all, and the shared binary/crash envelopes. One case that looks like a refusal but
+is a verdict: an unresolvable `[ext_resource]` referenced from a `[sub_resource]` (an
+`AtlasTexture`'s atlas, a script-backed `Resource`) makes Godot fail the WHOLE scene load, so
+`scene validate` reports its own dependency finding rather than the `not_a_scene` the load alone
+would suggest. Both carry `project_root`, the root the `res://`
 dependencies resolved against — read it before trusting a bad verdict, since the wrong project
 reports everything as missing (the #658 rule).
 
