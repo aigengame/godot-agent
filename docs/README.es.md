@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a8765d430b47f838d8cb7adfc0d50bd40a359e157c5530946bee1d607e041058 -->
+<!-- gda-readme-i18n: source=README.md sha256=9dc23859cd67f70e8697ef3e683bb8d0afc6a20c4b2c294113ed761cfc3feb2b -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -399,6 +399,24 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `scene list` | Enumera las escenas `.tscn` del proyecto resuelto. |
 | `scene get-exports` | Lista las propiedades `@export` que declaran los scripts de los nodos de una escena. |
 | `scene delete` | Elimina un archivo de escena e informa qué se eliminó. |
+| `scene validate` | Comprueba estáticamente que las dependencias de una escena se resuelven y sus scripts adjuntos compilan. |
+| `scene preflight` | Arranca una escena en headless, espera a `_ready` e informa su veredicto de arranque. |
+
+Leer una escena siempre funciona, esté como esté rota por dentro: Godot sustituye por null la
+referencia que no puede resolver y aun así devuelve un árbol utilizable, así que `scene get`
+muestra una escena sana cuyo script y textura han desaparecido. Las dos comprobaciones responden
+preguntas distintas. `scene validate` es **estática**: resuelve cada dependencia y compila cada
+script adjunto sin instanciar nada, e informa un problema por archivo que no se resolvió
+(`missing_resource`, `unloadable_resource` para un recurso que nunca se importó, o
+`script_compile_failed`) junto con los nodos que lo referencian. `scene preflight` es
+**dinámica**: arranca la escena, ejecuta su `_ready` y los autoloads del proyecto, la observa
+durante unos fotogramas e informa `status` (`ready` / `not_ready` / `timeout`) más los errores
+de script vistos durante el arranque; lee `started` como puerta de un solo booleano. Que pase
+`validate` no significa "la escena funciona": una escena con todas sus dependencias resueltas
+puede fallar en su primer fotograma, y una escena a la que le falta un script arranca igual.
+Ambas informan una escena defectuosa como una **operación exitosa** (salida `0`, veredicto en el
+resultado); solo un archivo inexistente, un archivo que no es una escena o un fallo del entorno
+usan el sobre de Error.
 
 **`node`** — nodos dentro de un archivo de escena
 

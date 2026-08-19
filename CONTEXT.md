@@ -59,6 +59,17 @@ simulation, viewport capture, performance/signal monitoring). Served through
 context (UndoRedo, the editor's open-scene tree) is out of scope (ADR-0017).
 _Avoid_: realtime op, online op
 
+**Startup preflight**:
+A `Headless operation` that BOOTS a scene to find out whether it comes up: it
+instantiates the scene into a one-shot engine's tree, observes it for a bounded
+number of frames, and reports a startup verdict (`gda scene preflight`, #664). It is
+the dynamic counterpart of static scene validation, which resolves a scene's
+dependencies without running anything — a scene can pass that and still fail on its
+first frame. Despite booting the game's code it is NOT a `Live operation`: nothing
+drives or observes the scene from outside, there is no `Engine session` and no
+`gda-daemon`, and the process ends with the verdict.
+_Avoid_: smoke test, dry run, live check
+
 **Engine session**:
 A single transient run of a gda-owned Godot game, launched and held by `gda-daemon`
 with the `gda harness` injected, against which `Live operation`s are served. The
@@ -76,8 +87,9 @@ _Avoid_: consistency, coherence, sync
 
 **Headless launch**:
 The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
-the sentinel op-dispatch runner, the native-export runner, and the `gda script run`
-user-script runner (ADR-0031). Given the binary, an argv tail, an optional working
+the sentinel op-dispatch runner, the native-export runner, the `gda script run`
+user-script runner (ADR-0031), and the `gda scene preflight` runner, which dispatches
+an ordinary sentinel op but calls the primitive itself for its streaming capture (#664). Given the binary, an argv tail, an optional working
 directory, and a timeout, it builds `[binary, --headless, --log-file <gda-owned
 path>, *args]`, captures bytes with the timeout, and normalizes the outcome into a
 `Raw run` (the single home of the spawn / timeout / launch-failure / UTF-8-decode

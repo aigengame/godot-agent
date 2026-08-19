@@ -102,6 +102,33 @@ the standard build), and they never determine the outcome or a stable code.
 > cross-language contract — the marker is written in GDScript and read in Python —
 > which a test pins on both sides.
 
+> **Scope note (2026-08-19, #664) — a verdict command may put the same recognized
+> sentences in a result FIELD, and may report its own bound as a verdict.**
+> `scene preflight` boots a scene and reports how far it got, so two of its answers
+> come from outside the stdout sentinel. Neither loosens the rules above; both are
+> stated here because a reader will otherwise see them as exceptions.
+>
+> - **A verdict field derived from stderr.** The op's sentinel reports readiness;
+>   whether the scene started *cleanly* also depends on the engine's error stream,
+>   which the command reads with the SAME recognized-sentence parser #651 owns (no
+>   free-text matching, no second parser) and publishes as `diagnostics`. The
+>   success/failure OUTCOME — which envelope is emitted, and every stable code —
+>   still comes only from the exit code plus the sentinel, exactly as above. What is
+>   new is that a *field of a success result* (`started`) is derived from the
+>   advisory stream rather than merely carrying it. The rule that matters is
+>   unchanged: an unrecognized line changes nothing, and the op's own verdict is
+>   never overridden — `status` is reported as the engine gave it.
+> - **The launch bound as a verdict, not `launch_timeout`.** A scene whose `_ready`
+>   never returns blocks the engine before any frame runs, so no sentinel can ever
+>   arrive; gda's own ceiling is the only thing that ends the run. That is reported
+>   as a SUCCESS carrying `status: timeout` (with the captured diagnostics), not as
+>   the `launch_timeout` envelope every other launch-backed channel reports. The
+>   difference is what the timeout MEANS: elsewhere it means gda could not get you
+>   an answer, while here the question was whether this scene comes up within the
+>   bound — so the bound being reached IS the answer. Scoped to this command: an
+>   unlaunchable binary, an unusable user-data placement, a signal death, and the
+>   op's own structured refusals stay the shared envelope.
+
 > **Scope note (2026-08-15, #651) — the two rules above presuppose the sentinel
 > channel, which ADR-0031's `script run` does not have.** Both the "stderr is never
 > parsed for the outcome" rule and the "copies stderr into diagnostics" wrapper

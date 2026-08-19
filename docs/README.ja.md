@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a8765d430b47f838d8cb7adfc0d50bd40a359e157c5530946bee1d607e041058 -->
+<!-- gda-readme-i18n: source=README.md sha256=9dc23859cd67f70e8697ef3e683bb8d0afc6a20c4b2c294113ed761cfc3feb2b -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -403,6 +403,21 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `scene list` | 解決済みプロジェクト内の `.tscn` シーンを列挙します。 |
 | `scene get-exports` | シーンのノードのスクリプトが宣言する `@export` プロパティを一覧します。 |
 | `scene delete` | シーンファイルを削除し、削除された内容を報告します。 |
+| `scene validate` | シーンの依存が解決でき、アタッチされたスクリプトがコンパイルできるかを静的に検査します。 |
+| `scene preflight` | シーンを headless で起動し、`_ready` を待って起動結果を報告します。 |
+
+シーンの読み取りは、中身がどれだけ壊れていても必ず成功します。Godot は解決できない参照を null に
+置き換えたうえで使えるツリーを返すため、スクリプトもテクスチャも失われたシーンが `scene get` では
+健全に見えます。2 つの検査は別々の問いに答えます。`scene validate` は**静的**です。何もインスタンス化
+せずに各依存を解決し、アタッチされた各スクリプトをコンパイルして、解決できなかったファイルごとに 1 件の
+problem（`missing_resource`、未インポートのアセットを表す `unloadable_resource`、または
+`script_compile_failed`）を、それを参照するノードとともに報告します。`scene preflight` は**動的**です。
+シーンを起動して `_ready` とプロジェクトの autoload を実行し、数フレーム観測してから `status`
+（`ready` / `not_ready` / `timeout`）と起動中に検出したスクリプトエラーを報告します。ゲートとしては
+`started` の 1 つの真偽値を読んでください。`validate` に通ることは「シーンが動く」ことではありません。
+依存がすべて解決するシーンでも最初のフレームで失敗しえますし、スクリプトが欠けたシーンでも起動はします。
+どちらも問題のあるシーンを**成功した操作**として報告します（終了コード `0`、結論は結果の中）。Error
+エンベロープを使うのは、ファイルが存在しない場合、シーンでないファイルの場合、または環境の失敗だけです。
 
 **`node`** — シーンファイル内のノード
 

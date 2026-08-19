@@ -388,6 +388,23 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `scene list` | Enumerate the `.tscn` scenes in the resolved project. |
 | `scene get-exports` | List the `@export` properties a scene's nodes' scripts declare. |
 | `scene delete` | Delete a scene file and report what was removed. |
+| `scene validate` | Check statically that a scene's dependencies resolve and its attached scripts compile. |
+| `scene preflight` | Boot a scene headless, wait for `_ready`, and report its startup verdict. |
+
+Reading a scene always succeeds, whatever is broken inside it: Godot substitutes null for a
+reference it cannot resolve and still returns a usable tree, so `scene get` shows a healthy
+scene whose script and texture are both gone. The two checks answer different questions.
+`scene validate` is **static** — it resolves every dependency and compiles every attached
+script without instantiating anything, reporting one problem per file that did not resolve
+(`missing_resource`, `unloadable_resource` for an asset that was never imported, or
+`script_compile_failed`) with the nodes that reference it. `scene preflight` is **dynamic** —
+it boots the scene, runs its `_ready` and the project's autoloads, watches it for a few frames,
+and reports `status` (`ready` / `not_ready` / `timeout`) plus the script errors seen while it
+started; read `started` for the one-boolean gate. Passing `validate` is not "the scene works":
+a scene whose dependencies all resolve can still fail on its first frame, and a scene with a
+missing script still boots. Both report a bad scene as a **successful operation** (exit `0`,
+verdict in the result) — only a missing file, a non-scene file, or an environment failure uses
+the Error envelope.
 
 **`node`** — nodes within a scene file
 
