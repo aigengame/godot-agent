@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9dc23859cd67f70e8697ef3e683bb8d0afc6a20c4b2c294113ed761cfc3feb2b -->
+<!-- gda-readme-i18n: source=README.md sha256=512bcee439ab0316cd8a4445f386a54fffa33463fd7d2604db724d72a6e0b4fa -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -411,9 +411,9 @@ script adjunto sin instanciar nada, e informa un problema por archivo que no se 
 `script_compile_failed`) junto con los nodos que lo referencian. `scene preflight` es
 **dinámica**: arranca la escena, ejecuta su `_ready` y los autoloads del proyecto, la observa
 durante unos fotogramas e informa `status` (`ready` / `not_ready` / `timeout`) más los errores
-de script vistos durante el arranque; lee `started` como puerta de un solo booleano. Que pase
-`validate` no significa "la escena funciona": una escena con todas sus dependencias resueltas
-puede fallar en su primer fotograma, y una escena a la que le falta un script arranca igual.
+de script vistos durante el arranque; lee `started` como puerta de un solo booleano. Ejecuta ambas: una escena con todas sus dependencias resueltas
+puede fallar en su primer fotograma, y una escena que referencia una textura nunca importada
+arranca de forma perfectamente limpia; solo la comprobación estática nombra ese archivo.
 Ambas informan una escena defectuosa como una **operación exitosa** (salida `0`, veredicto en el
 resultado); solo un archivo inexistente, un archivo que no es una escena o un fallo del entorno
 usan el sobre de Error.

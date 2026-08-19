@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9dc23859cd67f70e8697ef3e683bb8d0afc6a20c4b2c294113ed761cfc3feb2b -->
+<!-- gda-readme-i18n: source=README.md sha256=512bcee439ab0316cd8a4445f386a54fffa33463fd7d2604db724d72a6e0b4fa -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -414,8 +414,8 @@ problem（`missing_resource`、未インポートのアセットを表す `unloa
 `script_compile_failed`）を、それを参照するノードとともに報告します。`scene preflight` は**動的**です。
 シーンを起動して `_ready` とプロジェクトの autoload を実行し、数フレーム観測してから `status`
 （`ready` / `not_ready` / `timeout`）と起動中に検出したスクリプトエラーを報告します。ゲートとしては
-`started` の 1 つの真偽値を読んでください。`validate` に通ることは「シーンが動く」ことではありません。
-依存がすべて解決するシーンでも最初のフレームで失敗しえますし、スクリプトが欠けたシーンでも起動はします。
+`started` の 1 つの真偽値を読んでください。両方を実行してください。依存がすべて解決するシーンでも最初のフレームで失敗しえますし、
+一度もインポートされていないテクスチャを参照するシーンは完全に「クリーンに」起動します——そのファイルを指摘できるのは静的検査だけです。
 どちらも問題のあるシーンを**成功した操作**として報告します（終了コード `0`、結論は結果の中）。Error
 エンベロープを使うのは、ファイルが存在しない場合、シーンでないファイルの場合、または環境の失敗だけです。
 

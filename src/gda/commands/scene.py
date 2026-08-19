@@ -750,11 +750,14 @@ def render_scene_preflight(preflight: "ScenePreflightResult") -> str:
     """
     if preflight.started:
         return f"{preflight.status.value} {preflight.path}"
+    # ``.get`` with the raw value as the fallback: a renderer must not be the thing
+    # that kills a command, so a status added later without a phrase here degrades to
+    # its own spelling instead of raising a KeyError on the presentation path.
     headline = {
         SceneStartupStatus.READY: "ready with errors",
         SceneStartupStatus.NOT_READY: "not ready",
         SceneStartupStatus.TIMEOUT: "timeout",
-    }[preflight.status]
+    }.get(preflight.status, preflight.status.value)
     lines = [
         f"{headline} {preflight.path}",
         f"  project: {preflight.project_root or '(none resolved: projectless)'}",

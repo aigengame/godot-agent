@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9dc23859cd67f70e8697ef3e683bb8d0afc6a20c4b2c294113ed761cfc3feb2b -->
+<!-- gda-readme-i18n: source=README.md sha256=512bcee439ab0316cd8a4445f386a54fffa33463fd7d2604db724d72a6e0b4fa -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -396,7 +396,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 或 `script_compile_failed`），同时给出引用它的节点。`scene preflight` 是**动态的**——
 它启动场景，运行其 `_ready` 与项目的 autoload，观察若干帧，然后报告 `status`
 （`ready` / `not_ready` / `timeout`）以及启动过程中出现的脚本错误；只需读 `started` 这一个布尔值即可作为门禁。
-`validate` 通过并不等于“场景可用”：依赖全部解析的场景仍可能在第一帧失败，而缺少脚本的场景照样能启动。
+两者都要跑：依赖全部解析的场景仍可能在第一帧失败，而引用了从未导入的贴图的场景会“干净地”启动——只有静态检查会指出那个文件。
 两者都把有问题的场景报告为**成功的操作**（退出码 `0`，结论在结果里）——只有文件不存在、不是场景文件
 或环境失败才使用 Error 信封。
 

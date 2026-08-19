@@ -128,9 +128,13 @@ all, and the shared binary/crash envelopes. Both carry `project_root`, the root 
 dependencies resolved against — read it before trusting a bad verdict, since the wrong project
 reports everything as missing (the #658 rule).
 
-Neither command replaces the other, and the e2e suite pins why: a scene with a missing script
-still BOOTS (the engine builds the tree without it), and a scene whose dependencies all resolve
-can still fail on its first frame. Preflight is a headless one-shot launch, not a live session —
+Neither command replaces the other, and the e2e suite pins why in both directions: a scene whose
+dependencies all resolve can still fail on its first frame, and a scene referencing a
+never-imported texture starts CLEAN — the engine builds the tree without it and says so in a
+sentence the recognized set does not cover, so only static validation names that file and the
+node holding it. (The two do overlap in between: a missing *script* produces sentences the parser
+knows, so both commands flag it — validate additionally saying which node and which declared
+type.) Preflight is a headless one-shot launch, not a live session —
 it needs no daemon and does not drive the scene (`gda game`, behind `gda daemon start`, is what
 does). It runs the project's code by construction, the widest such surface in the scene group,
 inside the same trusted-project assumption (ADR-0009).

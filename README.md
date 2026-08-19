@@ -400,9 +400,10 @@ script without instantiating anything, reporting one problem per file that did n
 `script_compile_failed`) with the nodes that reference it. `scene preflight` is **dynamic** —
 it boots the scene, runs its `_ready` and the project's autoloads, watches it for a few frames,
 and reports `status` (`ready` / `not_ready` / `timeout`) plus the script errors seen while it
-started; read `started` for the one-boolean gate. Passing `validate` is not "the scene works":
-a scene whose dependencies all resolve can still fail on its first frame, and a scene with a
-missing script still boots. Both report a bad scene as a **successful operation** (exit `0`,
+started; read `started` for the one-boolean gate. Run both: a scene whose dependencies all
+resolve can still fail on its first frame, and a scene referencing a never-imported texture
+starts perfectly cleanly — only the static check names that file. Both report a bad scene as a
+**successful operation** (exit `0`,
 verdict in the result) — only a missing file, a non-scene file, or an environment failure uses
 the Error envelope.
 

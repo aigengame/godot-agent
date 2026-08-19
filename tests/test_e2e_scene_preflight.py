@@ -155,29 +155,45 @@ def test_a_scene_whose_ready_never_returns_is_a_timeout_verdict_within_the_bound
 
 
 @pytest.mark.e2e
-def test_a_scene_with_missing_dependencies_still_starts_which_is_why_both_exist(
+def test_a_scene_missing_an_unimported_asset_starts_clean_which_is_why_both_exist(
     godot_project,
 ):
-    # Complementarity, pinned rather than asserted in prose: the engine builds the
-    # tree without the reference it could not resolve, so the scene DOES come up. A
-    # preflight alone would call this fine; only static validation names the missing
-    # file. Neither command replaces the other.
+    # Complementarity, pinned rather than asserted in prose, on the case that shows it
+    # sharpest: a texture that was never imported. The engine builds the tree without
+    # it and says so in a sentence the recognized set does not cover, so the preflight
+    # reports a CLEAN start — while static validation names the file and the node.
+    # (The two do overlap elsewhere: a missing script produces sentences the parser
+    # does know, and both commands then flag it.) Neither replaces the other.
+    (godot_project / "dot.png").write_bytes(
+        bytes.fromhex(
+            "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+            "01f15c4890000000d4944415478da63fccf000000004010012a4f4b21"
+            "0000000049454e44ae426082"
+        )
+    )
     (godot_project / "main.tscn").write_text(
         "[gd_scene load_steps=2 format=3]\n\n"
-        '[ext_resource type="Script" path="res://gone.gd" id="1_gone"]\n\n'
-        '[node name="Hero" type="Node2D"]\n'
-        'script = ExtResource("1_gone")\n',
+        '[ext_resource type="Texture2D" path="res://dot.png" id="1_dot"]\n\n'
+        '[node name="Hero" type="Node2D"]\n\n'
+        '[node name="Sprite" type="Sprite2D" parent="."]\n'
+        'texture = ExtResource("1_dot")\n',
         encoding="utf-8",
     )
     gda = _gda_project(godot_project)
 
     preflighted = gda("scene", "preflight", "res://main.tscn", "--json")
     assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
-    assert json.loads(preflighted.stdout)["status"] == "ready"
+    started = json.loads(preflighted.stdout)
+    assert started["status"] == "ready"
+    assert started["started"] is True
+    assert started["diagnostics"] == []
 
     validated = gda("scene", "validate", "res://main.tscn", "--json")
     assert validated.returncode == 0, validated.stdout + validated.stderr
-    assert json.loads(validated.stdout)["problems"][0]["path"] == "res://gone.gd"
+    problem = json.loads(validated.stdout)["problems"][0]
+    assert problem["kind"] == "unloadable_resource"
+    assert problem["path"] == "res://dot.png"
+    assert problem["nodes"] == ["Sprite"]
 
 
 @pytest.mark.e2e
