@@ -616,12 +616,15 @@ func _op_scene_validate(params: Dictionary) -> void:
 	# would answer `not_a_scene` for exactly the broken dependency this command exists
 	# to report, and about a file that IS a scene.
 	var problems := _scene_dependency_problems(path)
-	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
-	if problems.is_empty() and not _is_loaded_scene(packed):
-		# Nothing found AND nothing loadable: this is the group's ordinary
-		# not-a-scene, reported in its words.
-		_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
-		return
+	if problems.is_empty():
+		# The load is only ASKED when the scan found nothing: a scene already known
+		# broken needs no second opinion, and loading it would only add the engine's
+		# own cascade to stderr. Nothing found and nothing loadable is the group's
+		# ordinary not-a-scene, reported in its words.
+		var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
+		if not _is_loaded_scene(packed):
+			_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
+			return
 
 	_succeed({
 		"path": path,
@@ -788,15 +791,12 @@ func _scene_ext_resource_nodes_by_id(text: String) -> Dictionary:
 func _ext_resource_ids_in_line(line: String) -> Array:
 	var ids: Array = []
 	var needle := "ExtResource("
-	var from := 0
-	while true:
-		var idx := line.find(needle, from)
-		if idx == -1:
-			return ids
-		var id := _first_quoted_after(line, idx + needle.length())
+	var at := line.find(needle)
+	while at != -1:
+		var id := _first_quoted_after(line, at + needle.length())
 		if not id.is_empty():
 			ids.append(id)
-		from = idx + needle.length()
+		at = line.find(needle, at + needle.length())
 	return ids
 
 
@@ -867,8 +867,17 @@ func _on_preflight_ready() -> void:
 # after recording the failure (the caller must stop). Checked as a raw Variant
 # before coercion for the reason _validate_target_paths states: int() on arbitrary
 # JSON raises, which would abort _initialize before any sentinel is printed.
+#
+# REQUIRED, with no default of its own. The window's default belongs to gda's params
+# model, which every CLI invocation goes through; inventing a second one here would
+# be a second authority for one fact — and an unreachable one, so it could disagree
+# with the real default indefinitely without anyone noticing. A caller driving the
+# payload directly states its own window.
 func _preflight_frames(params: Dictionary) -> Variant:
-	var raw: Variant = params.get("frames", 1)
+	if not params.has("frames"):
+		_fail(OP_ERROR_INVALID_PARAMS, "frames is required: the observation window, in idle frames")
+		return null
+	var raw: Variant = params.get("frames")
 	if not (raw is float or raw is int):
 		_fail(OP_ERROR_INVALID_PARAMS, "frames must be a number: " + str(raw))
 		return null

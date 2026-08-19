@@ -39,10 +39,11 @@ from gda.headless import (
 from gda.models import (
     CREATED_DIRS_DESC,
     NormalizedPath,
+    ProjectRootedResult,
     projected_value_schema_extra,
     VALUE_PROJECTION_DESC,
 )
-from gda.parser import RESULT_BEGIN
+from gda.parser import result_sentinel_start
 from gda.render import (
     format_value,
     render_node_tree,
@@ -373,7 +374,7 @@ class SceneValidateParams(BaseModel):
     path: NormalizedPath = Field(description="The .tscn scene file to validate.")
 
 
-class SceneValidateResult(BaseModel):
+class SceneValidateResult(ProjectRootedResult):
     """The result of ``gda scene validate``: the scene's static validity verdict (#664).
 
     Validating an INVALID scene is a SUCCESSFUL operation — the command exits 0 and
@@ -417,22 +418,9 @@ class SceneValidateResult(BaseModel):
         ),
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def _supply_absent_project_root(cls, data: Any) -> Any:
-        """Fill the key the ENGINE never sends, so the field can stay required.
-
-        ``project_root`` is gda's own addition: ADR-0006 keeps project resolution
-        CLI-side, so the ADR-0002 sentinel this model is parsed from carries only the
-        fields ``operations.gd`` reports. Declaring the field required — so it
-        appears in the published ``required`` list every consumer reads — would make
-        that internal parse fail, so the absent key is supplied as ``null`` here and
-        the recipe stamps the resolved project immediately after. The same shape
-        :class:`~gda.commands.script.ScriptValidateResult` uses, for the same reason.
-        """
-        if isinstance(data, dict) and "project_root" not in data:
-            return {**data, "project_root": None}
-        return data
+    # The key the ENGINE never sends is supplied by ProjectRootedResult above, so
+    # the field can stay required in the published contract; the recipe stamps the
+    # resolved project immediately after the parse.
 
 
 # The DEFAULT observation window of one preflight, in idle frames. Readiness itself
@@ -864,7 +852,14 @@ def run_scene_preflight_operation(
     root = project.expanduser().resolve() if project is not None else None
     raw = run_launch(
         binary,
-        sentinel_args("scene-preflight", params.model_dump(), project=project),
+        # The op reads `path` and `frames`; `timeout` is gda's own bound, enforced
+        # by the launch primitive, so it is kept off the wire rather than shipped as
+        # a field the payload would have to ignore.
+        sentinel_args(
+            "scene-preflight",
+            params.model_dump(exclude={"timeout"}),
+            project=project,
+        ),
         cwd=None,
         timeout=params.timeout,
         timeout_label="Godot scene preflight",
@@ -927,7 +922,13 @@ def _ended_before_the_verdict(raw: RunResult) -> "Failure | None":
     """
     if raw.launch_failure is not None or raw.exit_code != 0:
         return None
-    if RESULT_BEGIN in raw.stdout:
+    # Asked through the parser, which owns the sentinel's BEGIN/END discipline
+    # (ADR-0002), rather than by testing for the marker here: a second, looser rule
+    # about the same bytes could disagree with the one that actually parses them. It
+    # answers "did the payload START a result", so a begun-but-unterminated sentinel
+    # is NOT this case — it falls through to the parse, which rejects it as the
+    # broken payload it is.
+    if result_sentinel_start(raw.stdout) != -1:
         return None
     return make_failure(
         "operation_failed",

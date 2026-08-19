@@ -459,3 +459,28 @@ def test_a_payload_that_died_without_reporting_is_still_the_generic_failure(
     error = json.loads(result.stdout)["error"]
     assert error["code"] == "operation_failed"
     assert "ended the run" not in error["message"]
+
+
+def test_a_begun_but_unterminated_sentinel_stays_a_parse_failure(monkeypatch, tmp_path):
+    # The boundary between "the project ended the run" and "the payload is broken",
+    # and why the question is asked through gda.parser rather than by testing for the
+    # marker here: a payload that STARTED a result and did not finish one has not
+    # been quit out from under — it emitted something gda cannot read. Reported as
+    # the parse failure it is, not as the project's own quit.
+    project = _project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(
+            stdout='<<<GDA:RESULT>>>{"path": "res://main.tscn", "status": "ready"',
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 5, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"

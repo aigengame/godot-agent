@@ -219,11 +219,25 @@ def test_scene_preflight_refuses_a_non_numeric_frame_budget_at_the_op(frames):
 @pytest.mark.e2e
 @pytest.mark.parametrize("frames", [0, -1])
 def test_scene_preflight_refuses_a_non_positive_frame_budget_at_the_op(frames):
-    # A budget below one frame is a well-typed value that asks the op to report a
-    # verdict it can never have observed: readiness is propagated on the frame AFTER
-    # the scene enters the tree, so a zero-frame window would answer "not ready" for
-    # every scene alike. Refused rather than answered.
+    # A budget below one frame is a well-typed value that leaves the op with no way
+    # to answer at all: the verdict is recorded by the per-frame tick, and the frame
+    # cap is checked BEFORE the tick runs, so a zero-frame window quits without ever
+    # emitting a sentinel — the caller would get the generic operation_failed instead
+    # of a verdict or a reason. Refused up front rather than answered that way.
     outcome = _preflight_failure({"path": "res://any.tscn", "frames": frames})
 
     assert outcome.error.code == "invalid_params"
     assert "frames" in outcome.error.message
+
+
+@pytest.mark.e2e
+def test_scene_preflight_requires_a_frame_budget_at_the_op():
+    # The window's default belongs to gda's params model, which every CLI invocation
+    # goes through. A second default here would be a second authority for one fact —
+    # and an unreachable one, free to disagree with the real default indefinitely. So
+    # the op requires the key instead of inventing a window for a caller that omitted
+    # it.
+    outcome = _preflight_failure({"path": "res://any.tscn"})
+
+    assert outcome.error.code == "invalid_params"
+    assert "frames is required" in outcome.error.message
