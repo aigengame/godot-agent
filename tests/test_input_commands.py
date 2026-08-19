@@ -1569,6 +1569,17 @@ def test_a_sequence_variant_keeps_its_single_frame_ops_constraints():
                 continue
             expected = there.annotation
             if (variant_name, field) in _MIRRORED_NULLABLE_EXEMPTIONS:
+                # The exemption only means something while the op side is NOT
+                # nullable: once it becomes nullable too, `| None` collapses
+                # (Optional[Optional[T]] is Optional[T]) and the plain
+                # comparison would keep passing forever — so a resolved
+                # divergence must take its exemption entry with it.
+                if repr(there.annotation | None) == repr(there.annotation):
+                    drift.append(
+                        f"stale exemption ({variant_name!r}, {field!r}): "
+                        f"{params_name}.{field} is itself nullable now — the "
+                        f"divergence is gone, delete the exemption"
+                    )
                 expected = there.annotation | None
             if repr(here.annotation) != repr(expected):
                 drift.append(
@@ -1595,9 +1606,10 @@ def test_a_sequence_variant_keeps_its_single_frame_ops_constraints():
     assert not drift, "sequence variants drifted from their single-frame ops:\n" + (
         "\n".join(drift)
     )
-    # Every exemption must name a pinned mirrored field, so a stale entry (the
-    # divergence got resolved, or the field went away) fails loudly instead of
-    # exempting nothing.
+    # Every exemption must name a pinned mirrored field, so an entry whose field
+    # went away fails loudly instead of exempting nothing. (The other stale form
+    # — the divergence got resolved — is caught above, where an exemption whose
+    # op side is itself nullable is reported as drift.)
     pinned = {
         (variant_name, field)
         for _, variant_name, _, fields in _MIRRORED_MODELS
