@@ -1509,3 +1509,51 @@ def test_the_union_members_are_read_off_the_union_itself():
         "discriminator"
     ]["mapping"]
     assert {_event_kind(m) for m in _SEQUENCE_EVENT_MODELS} == set(mapping)
+
+
+# Each sequence variant and the single-frame op whose shape it mirrors. The
+# variants deliberately REDECLARE those fields (their descriptions differ — a
+# variant explains itself inside a union), so nothing shared is extracted; this
+# pairing is what keeps the redeclaration honest.
+_MIRRORED_MODELS = [
+    ("key", "KeySequenceEvent", "InputKeyParams"),
+    ("mouse_click", "MouseClickSequenceEvent", "InputMouseClickParams"),
+    ("mouse_move", "MouseMoveSequenceEvent", "InputMouseMoveParams"),
+    ("action", "ActionSequenceEvent", "InputActionParams"),
+]
+
+
+def test_a_sequence_variant_keeps_its_single_frame_ops_constraints():
+    # A sequence event and its single-frame op are the same request at a clock
+    # offset, so a bound that holds for one must hold for the other: tightening
+    # `input action --strength` while a sequence action kept 0..∞ would accept
+    # through one door what the other refuses. Compares the CONSTRAINTS (bounds
+    # and defaults) of the fields both declare, not their prose.
+    import gda.commands.input as input_module
+
+    drift: list[str] = []
+    compared = 0
+    for kind, variant_name, params_name in _MIRRORED_MODELS:
+        variant = getattr(input_module, variant_name)
+        params = getattr(input_module, params_name)
+        shared = set(variant.model_fields) & set(params.model_fields)
+        assert shared, (kind, "no shared fields — the pairing is stale")
+        for field in sorted(shared):
+            here, there = variant.model_fields[field], params.model_fields[field]
+            if repr(here.metadata) != repr(there.metadata):
+                drift.append(
+                    f"{variant_name}.{field} bounds {here.metadata} != "
+                    f"{params_name}.{field} bounds {there.metadata}"
+                )
+            if repr(here.default) != repr(there.default):
+                drift.append(
+                    f"{variant_name}.{field} default {here.default!r} != "
+                    f"{params_name}.{field} default {there.default!r}"
+                )
+            compared += 1
+
+    assert not drift, "sequence variants drifted from their single-frame ops:\n" + (
+        "\n".join(drift)
+    )
+    # The comparison really covered the interesting fields, not just `type`.
+    assert compared >= 10, compared

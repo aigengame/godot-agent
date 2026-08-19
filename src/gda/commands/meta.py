@@ -474,7 +474,7 @@ def register(root: typer.Typer) -> None:
             "--install",
             help="Write the bundled SKILL.md into the skills directory instead of printing it.",
         ),
-        dir: Optional[str] = typer.Option(
+        install_dir: Optional[str] = typer.Option(
             None,
             "--dir",
             help="The skills directory to install into (caller-supplied; the neutral path, "
@@ -514,19 +514,22 @@ def register(root: typer.Typer) -> None:
         # rules are mirrored in SkillParams (so the --params-json path enforces them too,
         # ADR-0015); resolving provider→dir also happens there. The CLI raises the friendly
         # usage errors and otherwise just forwards the raw flags.
-        if dir is not None and provider is not None:
+        if install_dir is not None and provider is not None:
             raise typer.BadParameter(
                 "`--dir` and `--provider` are mutually exclusive: name a directory OR an "
                 "agent, not both"
             )
-        if install and dir is None and provider is None:
+        if install and install_dir is None and provider is None:
             raise typer.BadParameter(
                 "`--install` requires `--dir` or `--provider` (where to write the SKILL.md)"
             )
         dispatch_recipe(
             SKILL_COMMAND,
             SkillParams(
-                install=install, install_dir=dir, provider=provider, scope=scope
+                install=install,
+                install_dir=install_dir,
+                provider=provider,
+                scope=scope,
             ),
             json_output=json_output,
             godot=None,

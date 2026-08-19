@@ -150,14 +150,16 @@ status: accepted
 > `--params-json` treats as exclusive of the individual arguments (ADR-0015) — so the
 > cross-cutting flags every command shares (`--json` / `--schema` / `--params-json` /
 > `--godot` / `--project`) stay out; they are not per-command information. And
-> `input_property` is `null`, not guessed, where the flag's spelling renames the
-> property it fills (`project list --all` fills `include_defaults`, `skill --dir`
-> fills `install_dir` — the only two on the surface): a wrong link would read as
-> authoritative. The projection is the argv form of the operation parameters, not a
-> one-to-one image of `input`: every REQUIRED property has a binding, held by a
-> test, while an optional property the CLI computes from flags rather than takes
-> directly (`script set`'s and `shader set`'s `mode`, from `--replace` /
-> `--search`) has none. On the
+> `input_property` is `null`, not guessed, where a parameter's property is revealed
+> by neither its name nor its long option: a wrong link would read as authoritative.
+> The surface has **no such parameter** — where an option renames the property it
+> fills (`project list --all` → `include_defaults`, `skill --dir` → `install_dir`)
+> the Python parameter carries the property's name, so the link resolves — and a
+> test holds that every **directly supplyable** property has a binding. The nullable
+> value stays part of the contract for a future parameter that cannot be resolved,
+> rather than being forced into a guess. The one exemption from that guard is a
+> property the CLI COMPUTES rather than takes (`script set`'s and `shader set`'s
+> `mode`, from `--replace` / `--search`), which its own description declares. On the
 > aggregate entry the `argv` key is required, its list possibly empty — the same
 > "key always present" guarantee `constraints` has.
 

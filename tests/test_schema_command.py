@@ -1793,10 +1793,33 @@ def test_schema_argv_links_a_binding_to_the_input_property_it_fills():
     assert binding["option"] == "--type"
     assert binding["input_property"] == "type"
 
-    # …and it is honestly null rather than guessed where the CLI form names the
-    # property differently: `project list --all` fills `include_defaults`, which
-    # neither the parameter name nor the option spelling reveals.
-    assert _argv(["project", "list"])["all_settings"]["input_property"] is None
+    # …and where the OPTION renames the property, the parameter carries the
+    # property's name so the link still holds: `project list --all` and
+    # `skill --dir` fill `include_defaults` / `install_dir`.
+    assert _argv(["project", "list"])["include_defaults"]["option"] == "--all"
+    assert _argv(["project", "list"])["include_defaults"]["input_property"] == (
+        "include_defaults"
+    )
+    assert _argv(["skill"])["install_dir"]["option"] == "--dir"
+    assert _argv(["skill"])["install_dir"]["input_property"] == "install_dir"
+
+
+def test_an_underivable_link_is_published_as_null_rather_than_guessed():
+    # `input_property` stays nullable BY CONTRACT for a parameter whose property
+    # neither its name nor its long option reveals — a wrong link would read as
+    # authoritative. No command on the surface is in that state (a guard in
+    # test_schema_aggregate holds that), so the rule is pinned on the derivation
+    # itself rather than through a command that would then have to stay broken.
+    from gda.headless import _bound_property
+
+    properties = {"include_defaults": {"type": "boolean"}}
+    assert _bound_property("all_settings", "--all", properties) is None
+    # The two derivations that DO resolve: by parameter name, and by the long
+    # option's spelling (`--type` fills `type` from a `node_type` parameter).
+    assert _bound_property("include_defaults", "--all", properties) == (
+        "include_defaults"
+    )
+    assert _bound_property("node_type", "--type", {"type": {}}) == "type"
 
 
 def test_schema_argv_covers_every_dispatch_channel():

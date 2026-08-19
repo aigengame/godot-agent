@@ -330,21 +330,42 @@ def test_real_out_of_process_cli_manifest_covers_the_live_command_tree():
 # --- argv binding in the manifest (issue #669) --------------------------------
 
 
-def test_every_required_input_property_has_an_argv_binding():
-    # issue #669: `argv` is the argv form of the operation parameters, not a
-    # one-to-one image of `input` — a few OPTIONAL properties are computed from
-    # flags rather than taken directly. The invariant that AC1 rests on is the
-    # required half: a property an agent MUST supply always has a binding telling
-    # it how, or the command cannot be built from the contract at all.
-    unreachable = []
+# A property the caller cannot supply directly says so in its own description:
+# the CLI derives it from other flags and ignores anything passed in. That phrase
+# is the mechanical exclusion below — no command names are matched.
+_IGNORED_VALUE_MARKER = "a value passed in is ignored"
+
+# …and the properties it excuses today. Pinned so the phrase cannot become a
+# quiet escape hatch: a new computed property has to be acknowledged here.
+_COMPUTED_PROPERTIES = {"script set: mode", "shader set: mode"}
+
+
+def test_every_directly_supplyable_input_property_has_an_argv_binding():
+    # issue #669: an agent reads `input`, then needs `argv` to write what it
+    # found. Every property it can actually supply must therefore have a binding
+    # — not just the required ones, since an optional property with no binding is
+    # equally unreachable from the contract. The only exemption is a property the
+    # CLI COMPUTES (`script set` / `shader set` derive `mode` from `--replace` /
+    # `--search`), which its description already declares.
+    unreachable: list[str] = []
+    computed: set[str] = set()
     for entry in _manifest()["commands"]:
         linked = {b["input_property"] for b in entry["argv"] if b["input_property"]}
-        for name in entry["input"].get("required", []):
-            if name not in linked:
-                unreachable.append(f"{entry['name']}: {name}")
-    assert not unreachable, "required properties with no argv binding:\n" + "\n".join(
-        unreachable
+        for name, spec in entry["input"].get("properties", {}).items():
+            if name in linked:
+                continue
+            where = f"{entry['name']}: {name}"
+            if _IGNORED_VALUE_MARKER in str(spec.get("description", "")):
+                computed.add(where)
+                continue
+            unreachable.append(where)
+
+    assert not unreachable, (
+        "input properties a caller can supply but cannot write on a command line:\n"
+        + "\n".join(unreachable)
     )
+    # The exemption stays the narrow, declared one it claims to be.
+    assert computed == _COMPUTED_PROPERTIES, computed
 
 
 def test_entry_argv_matches_the_commands_own_schema_argv():
@@ -453,3 +474,78 @@ def test_self_described_manifest_describes_the_argv_binding_list():
     }
     assert binding["properties"]["kind"]["$ref"] == "#/$defs/ArgvKind"
     assert manifest_schema["$defs"]["ArgvKind"]["enum"] == ["argument", "option"]
+
+
+# Every pairing of the two spelling keys against each `kind`, valid and not. The
+# point is not any single verdict but that ONE corpus gets the SAME verdict from
+# the published rule and from the model — the two engines disagree readily (a
+# pydantic Rust validator versus Python `jsonschema`), so agreement has to be
+# tested rather than assumed.
+_SPELLING_CORPUS = [
+    {"kind": "argument", "option": None, "position": 0, "flag": False},
+    {"kind": "option", "option": "--out", "position": None, "flag": False},
+    {"kind": "option", "option": "--all", "position": None, "flag": True},
+    # …and the states no caller could write.
+    {"kind": "argument", "option": "--out", "position": 0, "flag": False},
+    {"kind": "argument", "option": None, "position": None, "flag": False},
+    {"kind": "argument", "option": None, "position": 0, "flag": True},
+    {"kind": "option", "option": None, "position": None, "flag": False},
+    {"kind": "option", "option": "--out", "position": 1, "flag": False},
+    {"kind": "option", "option": None, "position": 0, "flag": False},
+]
+
+
+def test_the_published_spelling_rule_matches_the_model():
+    # #669 review: a binding that claims both a position and an option spelling —
+    # or neither — is unwritable, and a consumer reading one cannot tell which key
+    # to believe. The model rejects those states; this pins the PUBLISHED rule to
+    # the model so a client checking the manifest schema reaches the same verdict.
+    import jsonschema
+    import pydantic
+
+    from gda.models import ArgvBinding
+
+    result = CliRunner().invoke(app, ["schema", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    defs = json.loads(result.stdout)["output"]["$defs"]
+    published = {"allOf": [{"$ref": "#/$defs/ArgvBinding"}], "$defs": defs}
+
+    for spelling in _SPELLING_CORPUS:
+        binding = {
+            "name": "x",
+            "input_property": "x",
+            "required": False,
+            "multiple": False,
+            "json_value": False,
+            **spelling,
+        }
+        try:
+            jsonschema.validate(instance=binding, schema=published)
+            by_schema = True
+        except jsonschema.ValidationError:
+            by_schema = False
+        try:
+            ArgvBinding.model_validate(binding)
+            by_model = True
+        except pydantic.ValidationError:
+            by_model = False
+        assert by_schema == by_model, (spelling, by_schema, by_model)
+
+    # …and the corpus spans both verdicts, so agreement is not vacuous.
+    verdicts = set()
+    for spelling in _SPELLING_CORPUS:
+        try:
+            ArgvBinding.model_validate(
+                {
+                    "name": "x",
+                    "input_property": "x",
+                    "required": False,
+                    "multiple": False,
+                    "json_value": False,
+                    **spelling,
+                }
+            )
+            verdicts.add(True)
+        except pydantic.ValidationError:
+            verdicts.add(False)
+    assert verdicts == {True, False}

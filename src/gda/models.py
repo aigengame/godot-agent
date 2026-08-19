@@ -15,6 +15,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    model_validator,
 )
 
 from gda.execution import ExecutionKind
@@ -232,6 +233,38 @@ class ArgvKind(str, Enum):
     OPTION = "option"
 
 
+# The two spellings a binding can be, as a JSON-Schema rule so a consumer can
+# CHECK the pairing rather than discover it (#669 review). It mirrors
+# :meth:`ArgvBinding._check_spelling`, which stays the enforcing authority — a
+# corpus test runs one set of combinations through both this published rule and
+# the model and requires the same verdict, so the two cannot drift. Published
+# because the alternative reading is worse than useless: a consumer that sees
+# `position: null` on an option and `option: null` on a positional has to guess
+# which key is authoritative, and a binding claiming both (or neither) would look
+# writable.
+_ARGV_BINDING_SPELLING_SCHEMA: dict[str, Any] = {
+    "oneOf": [
+        # A positional: it has a place, no spelling, and cannot be a bare flag.
+        {
+            "properties": {
+                "kind": {"const": "argument"},
+                "option": {"type": "null"},
+                "position": {"type": "integer"},
+                "flag": {"const": False},
+            },
+        },
+        # An option: it has a spelling and no place.
+        {
+            "properties": {
+                "kind": {"const": "option"},
+                "option": {"type": "string"},
+                "position": {"type": "null"},
+            },
+        },
+    ]
+}
+
+
 class ArgvBinding(BaseModel):
     """How ONE operation parameter is spelled on the command line (#669).
 
@@ -251,7 +284,9 @@ class ArgvBinding(BaseModel):
     (issue #36).
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid", json_schema_extra=_ARGV_BINDING_SPELLING_SCHEMA
+    )
 
     # Descriptions stay terse: the manifest repeats them per parameter of every
     # command, so prose here is paid hundreds of times (the #667 measurement).
@@ -262,8 +297,8 @@ class ArgvBinding(BaseModel):
     )
     input_property: str | None = Field(
         description=(
-            "The `input` schema property this parameter fills, or null where the "
-            "flag's spelling renames it (`--all` fills include_defaults)."
+            "The `input` schema property this parameter fills; null only where the "
+            "binding cannot be resolved to one."
         )
     )
     kind: ArgvKind = Field(description="Positional (argument) or named (option).")
@@ -279,6 +314,30 @@ class ArgvBinding(BaseModel):
     json_value: bool = Field(
         description="Write the whole value as one JSON-encoded token."
     )
+
+    @model_validator(mode="after")
+    def _check_spelling(self) -> "ArgvBinding":
+        """Reject a binding no caller could write (#669 review).
+
+        The type system allows a positional carrying an option spelling, an
+        option carrying a position, or a binding with neither — states the
+        derivation cannot produce but the model could hold, and a consumer
+        reading one would have no way to tell which key to believe. Enforced
+        here, published as ``_ARGV_BINDING_SPELLING_SCHEMA``.
+        """
+        if self.kind is ArgvKind.ARGUMENT:
+            if self.option is not None:
+                raise ValueError("a positional binding carries no option spelling.")
+            if self.position is None:
+                raise ValueError("a positional binding needs its position.")
+            if self.flag:
+                raise ValueError("a positional binding is never a valueless flag.")
+        else:
+            if self.option is None:
+                raise ValueError("an option binding needs its option spelling.")
+            if self.position is not None:
+                raise ValueError("an option binding occupies no position.")
+        return self
 
 
 class CommandSchema(BaseModel):
