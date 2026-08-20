@@ -24,9 +24,7 @@ def test_schema2_delivery_entries_share_maintained_authoring_sources():
     }
 
     example_index = (_SCHEMA2_EXAMPLES / "README.md").read_text(encoding="utf-8")
-    cli_index = (_SCHEMA2_EXAMPLES / "cli" / "README.md").read_text(
-        encoding="utf-8"
-    )
+    cli_index = (_SCHEMA2_EXAMPLES / "cli" / "README.md").read_text(encoding="utf-8")
     for example, filenames in maintained_sources.items():
         source_directory = _SCHEMA2_EXAMPLES / example
         assert source_directory.is_dir()
