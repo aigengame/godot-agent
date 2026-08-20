@@ -5,8 +5,8 @@ const MAINTAINED_SOURCE_DIRECTORY := "res://../rpg-periodic-effect"
 const MODEL_SOURCE_FILE := "model-source.json"
 const EXPERIMENT_FILE := "same-time-experiment.json"
 const POLICY_ENTRYPOINTS := {
-	"reactive": "effect.apply-live-periodic",
-	"locked": "effect.apply-snapshot-periodic",
+	"dynamic": "effect.apply-live-periodic",
+	"snapshot": "effect.apply-snapshot-periodic",
 }
 
 var _experiment: Dictionary = {}
@@ -30,15 +30,21 @@ func load(model_source_path: String, experiment_path: String) -> Dictionary:
 	if not experiment_result.get("ok", false):
 		return experiment_result
 	_experiment = experiment_result["value"].duplicate(true)
-	var reactive := experiment_for_policy("reactive")
-	var locked := experiment_for_policy("locked")
-	if not reactive.get("ok", false) or not locked.get("ok", false):
+	var initial_health = _assignment_value(_experiment, "target_health")
+	var damage_threshold = _assignment_value(_experiment, "magnitude_threshold")
+	if initial_health == null or damage_threshold == null:
+		return _failure("missing_periodic_assignments", experiment_path)
+	var dynamic := experiment_for_policy("dynamic")
+	var snapshot := experiment_for_policy("snapshot")
+	if not dynamic.get("ok", false) or not snapshot.get("ok", false):
 		return _failure("invalid_periodic_experiment", experiment_path)
 	return {
+		"damage_threshold": int(damage_threshold),
+		"dynamic_experiment": dynamic["value"],
+		"initial_health": int(initial_health),
 		"ok": true,
 		"model_source": model_result["value"].duplicate(true),
-		"reactive_experiment": reactive["value"],
-		"locked_experiment": locked["value"],
+		"snapshot_experiment": snapshot["value"],
 	}
 
 
@@ -73,6 +79,24 @@ func _read_object(path: String) -> Dictionary:
 	if not parsed is Dictionary:
 		return _failure("invalid_document", path)
 	return {"ok": true, "value": parsed}
+
+
+func _assignment_value(experiment: Dictionary, name: String):
+	var found: Array = []
+	for scenario in experiment.get("scenarios", []):
+		for assignment in scenario.get("assignments", []):
+			if assignment.get("target", {}).get("name") == name:
+				found.append(assignment.get("value"))
+	if found.size() != 1 or not _is_integer_number(found[0]):
+		return null
+	return found[0]
+
+
+func _is_integer_number(value) -> bool:
+	return (
+		value is int
+		or (value is float and is_finite(value) and float(int(value)) == value)
+	)
 
 
 func _failure(kind: String, detail: String) -> Dictionary:

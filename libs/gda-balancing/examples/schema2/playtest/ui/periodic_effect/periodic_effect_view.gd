@@ -12,20 +12,24 @@ const CHINESE_TRANSLATION = preload(
 	"res://ui/periodic_effect/localization/periodic_effect.zh_CN.tres"
 )
 const STYLE_KEYS: Array[String] = [
-	"EFFECT_REACTIVE_STYLE", "EFFECT_LOCKED_STYLE", "EFFECT_NO_DIFFERENCE"
+	"EFFECT_DYNAMIC_NAME", "EFFECT_FIXED_NAME", "EFFECT_NO_DIFFERENCE"
 ]
-const STYLE_VALUES: Array[String] = ["Reactive Hex", "Locked Hex", "No difference"]
+const STYLE_VALUES: Array[String] = ["Dynamic Curse", "Fixed Curse", "No difference"]
 const CLARITY_KEYS: Array[String] = [
 	"EFFECT_VERY_CLEAR", "EFFECT_MOSTLY_CLEAR", "EFFECT_UNCLEAR"
 ]
 const CLARITY_VALUES: Array[String] = ["Very clear", "Mostly clear", "Unclear"]
+const TARGET_RESET_DURATION := 0.5
 
 var _controller: PeriodicEffectController
 var _shell: PlaytestShell
 var _current_phase := ""
 var _last_state: Dictionary = {}
 var _target_block: ColorRect
+var _rule_label: Label
 var _health: ProgressBar
+var _threshold_marker: ColorRect
+var _threshold_label: Label
 var _health_label: Label
 var _effect_badge: Label
 var _step_label: Label
@@ -35,6 +39,7 @@ var _timing_label: Label
 var _preference: OptionButton
 var _impact: OptionButton
 var _timing: OptionButton
+var _target_reset_tween: Tween
 
 
 func _ready() -> void:
@@ -68,6 +73,10 @@ func _build_stage(content: VBoxContainer) -> void:
 	var target_label := _make_label(tr("EFFECT_TARGET"), 20, Color("e5d4ff"))
 	target_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(target_label)
+	_rule_label = _make_label("", 17, Color("d7e5ff"))
+	_rule_label.name = "EffectRule"
+	_rule_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(_rule_label)
 	_target_block = ColorRect.new()
 	_target_block.name = "EffectTargetBlock"
 	_target_block.color = Color("7856c6")
@@ -80,6 +89,21 @@ func _build_stage(content: VBoxContainer) -> void:
 	_health.show_percentage = false
 	_health.custom_minimum_size = Vector2(560, 28)
 	column.add_child(_health)
+	_threshold_marker = ColorRect.new()
+	_threshold_marker.name = "EffectDamageThresholdMarker"
+	_threshold_marker.color = Color("ffcf70")
+	_threshold_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_threshold_marker.anchor_top = 0.0
+	_threshold_marker.anchor_bottom = 1.0
+	_threshold_marker.offset_left = -2
+	_threshold_marker.offset_right = 2
+	_threshold_marker.offset_top = 0
+	_threshold_marker.offset_bottom = 0
+	_health.add_child(_threshold_marker)
+	_threshold_label = _make_label("", 15, Color("ffcf70"))
+	_threshold_label.name = "EffectDamageThreshold"
+	_threshold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(_threshold_label)
 	_health_label = _make_label("", 20, Color("ffffff"))
 	_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(_health_label)
@@ -87,6 +111,7 @@ func _build_stage(content: VBoxContainer) -> void:
 	_effect_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(_effect_badge)
 	_step_label = _make_label("", 18, Color("9fd5ff"))
+	_step_label.name = "EffectStep"
 	_step_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(_step_label)
 
@@ -122,19 +147,29 @@ func _render(state: Dictionary) -> void:
 		mini(int(state.get("trial_index", 0)) + 1, int(state.get("trial_count", 2))),
 		int(state.get("trial_count", 2)),
 	]
+	if _current_phase == "resetting_target":
+		_start_target_reset(state, progress)
+		return
 	if _current_phase == "ready":
-		_reset_stage()
+		_cancel_target_reset()
+		_reset_stage(state)
 		var style_key := (
-			"EFFECT_REACTIVE_STYLE"
-			if state.get("trial_kind") == "reactive"
-			else "EFFECT_LOCKED_STYLE"
+			"EFFECT_DYNAMIC_NAME"
+			if state.get("trial_kind") == "dynamic"
+			else "EFFECT_FIXED_NAME"
+		)
+		var ready_message := (
+			tr("EFFECT_READY_FRESH") % [int(state.get("initial_health", 100)), tr(style_key)]
+			if state.get("fresh_target", false)
+			else tr("EFFECT_READY") % tr(style_key)
 		)
 		_shell.show_play(
 			progress,
-			tr("EFFECT_READY") % tr(style_key),
+			ready_message,
 			tr("EFFECT_ACTION_APPLY"),
 		)
 		return
+	_render_rule(state)
 	if _current_phase == "preparing_trial":
 		_shell.show_play(progress, tr("EFFECT_RESOLVING"), tr("EFFECT_ACTION_WAIT"), false)
 		return
@@ -159,31 +194,124 @@ func _render(state: Dictionary) -> void:
 			_pulse_target()
 	elif _current_phase == "trial_complete":
 		var final_trial := int(state.get("trial_index", 0)) + 1 == int(state.get("trial_count", 2))
+		var completion_message := (
+			tr("EFFECT_TRIAL_COMPLETE_FIXED") % int(state.get("health", 0))
+			if final_trial
+			else tr("EFFECT_TRIAL_COMPLETE_DYNAMIC") % int(state.get("health", 0))
+		)
+		_step_label.text = completion_message
 		_shell.show_play(
 			progress,
-			tr("EFFECT_TRIAL_COMPLETE"),
+			completion_message,
 			tr("EFFECT_ACTION_FEEDBACK") if final_trial else tr("EFFECT_ACTION_NEXT_TRIAL"),
 		)
 
 
 func _step_text(state: Dictionary) -> String:
+	var dynamic: bool = state.get("trial_kind") == "dynamic"
+	var damage := int(state.get("damage", 0))
+	var threshold := int(state.get("damage_threshold", 0))
 	match str(state.get("lifecycle_phase", "")):
 		"apply":
-			return tr("EFFECT_STEP_APPLY")
+			if dynamic:
+				return tr("EFFECT_STEP_APPLY_DYNAMIC")
+			var cast_damage := int(state.get("cast_damage", 0))
+			return tr("EFFECT_STEP_APPLY_FIXED") % [cast_damage, cast_damage]
 		"pulse":
-			return tr("EFFECT_STEP_PULSE") % int(state.get("damage", 0))
+			if not dynamic:
+				return tr("EFFECT_STEP_FIXED_PULSE") % damage
+			if damage == 0:
+				return tr("EFFECT_STEP_DYNAMIC_THRESHOLD") % [
+					int(state.get("health_before", state.get("health", 0))), threshold
+				]
+			return tr("EFFECT_STEP_DYNAMIC_PULSE") % [
+				int(state.get("health_before", state.get("health", 0))), damage
+			]
 		"attack":
-			return tr("EFFECT_STEP_ATTACK") % int(state.get("damage", 0))
+			return (
+				tr("EFFECT_STEP_ATTACK_DYNAMIC") % damage
+				if dynamic
+				else tr("EFFECT_STEP_ATTACK_FIXED") % damage
+			)
 		"expire":
 			return tr("EFFECT_STEP_EXPIRE")
 	return ""
 
 
-func _reset_stage() -> void:
-	_health.value = 100
-	_health_label.text = tr("EFFECT_HEALTH") % 100
+func _reset_stage(state: Dictionary) -> void:
+	var initial_health := int(state.get("initial_health", 100))
+	_health.max_value = initial_health
+	_set_displayed_health(float(initial_health))
 	_effect_badge.text = tr("EFFECT_INACTIVE")
 	_step_label.text = ""
+	_render_rule(state)
+
+
+func _start_target_reset(state: Dictionary, progress: String) -> void:
+	_cancel_target_reset()
+	var initial_health := maxi(int(state.get("initial_health", 100)), 1)
+	var previous_health := clampi(
+		int(state.get("previous_health", initial_health)), 0, initial_health
+	)
+	_health.max_value = initial_health
+	_set_displayed_health(float(previous_health))
+	_effect_badge.text = tr("EFFECT_INACTIVE")
+	_step_label.text = tr("EFFECT_RESETTING_TARGET") % initial_health
+	_render_rule(state)
+	_shell.show_play(
+		progress,
+		tr("EFFECT_RESETTING_TARGET") % initial_health,
+		"",
+		false,
+	)
+	_target_reset_tween = create_tween()
+	_target_reset_tween.set_trans(Tween.TRANS_QUAD)
+	_target_reset_tween.set_ease(Tween.EASE_OUT)
+	_target_reset_tween.tween_method(
+		_set_displayed_health,
+		float(previous_health),
+		float(initial_health),
+		TARGET_RESET_DURATION,
+	)
+	_target_reset_tween.tween_callback(_finish_target_reset.bind(initial_health))
+
+
+func _finish_target_reset(initial_health: int) -> void:
+	_target_reset_tween = null
+	_set_displayed_health(float(initial_health))
+	if _controller != null:
+		_controller.target_reset_completed()
+
+
+func _cancel_target_reset() -> void:
+	if _target_reset_tween != null and _target_reset_tween.is_valid():
+		_target_reset_tween.kill()
+	_target_reset_tween = null
+
+
+func _set_displayed_health(value: float) -> void:
+	_health.value = value
+	_health_label.text = tr("EFFECT_HEALTH") % int(round(value))
+
+
+func _render_rule(state: Dictionary) -> void:
+	var threshold := int(state.get("damage_threshold", 0))
+	var initial_health := maxi(int(state.get("initial_health", 100)), 1)
+	var dynamic: bool = state.get("trial_kind") == "dynamic"
+	_rule_label.text = (
+		tr("EFFECT_DYNAMIC_RULE") % [threshold, threshold]
+		if dynamic
+		else tr("EFFECT_FIXED_RULE") % initial_health
+	)
+	_threshold_label.text = (
+		tr("EFFECT_DYNAMIC_THRESHOLD") % threshold
+		if dynamic
+		else tr("EFFECT_FIXED_THRESHOLD") % threshold
+	)
+	var ratio := clampf(float(threshold) / float(initial_health), 0.0, 1.0)
+	_threshold_marker.anchor_left = ratio
+	_threshold_marker.anchor_right = ratio
+	_threshold_marker.visible = threshold > 0
 
 
 func _on_primary_action() -> void:

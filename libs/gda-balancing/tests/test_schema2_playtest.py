@@ -67,6 +67,30 @@ def test_playtest_player_settings_have_explicit_defaults_and_translations():
             _PLAYTEST / "ui/periodic_effect/localization/periodic_effect.zh_CN.tres"
         ).read_text()
     )
+    effect_english = (
+        _PLAYTEST / "ui/periodic_effect/localization/periodic_effect.en.tres"
+    ).read_text(encoding="utf-8")
+    effect_chinese = (
+        _PLAYTEST / "ui/periodic_effect/localization/periodic_effect.zh_CN.tres"
+    ).read_text(encoding="utf-8")
+    assert '[&"", &"EFFECT_DYNAMIC_NAME"]: [&"Dynamic Curse"]' in effect_english
+    assert '[&"", &"EFFECT_FIXED_NAME"]: [&"Fixed Curse"]' in effect_english
+    assert '[&"", &"EFFECT_DYNAMIC_NAME"]: [&"动态诅咒"]' in effect_chinese
+    assert '[&"", &"EFFECT_FIXED_NAME"]: [&"定值诅咒"]' in effect_chinese
+    assert (
+        '[&"", &"EFFECT_FIXED_RULE"]: [&"This trial starts with a fresh target at '
+        '%d Health. Damage is calculated once when cast; both pulses repeat it."]'
+        in effect_english
+    )
+    assert (
+        '[&"", &"EFFECT_FIXED_RULE"]: [&"本轮使用生命为 %d 的新目标。'
+        '伤害只在施放时计算一次；两次脉冲都重复该伤害。"]'
+        in effect_chinese
+    )
+    assert "Reactive Hex" not in effect_english
+    assert "Locked Hex" not in effect_english
+    assert "响应诅咒" not in effect_chinese
+    assert "锁定诅咒" not in effect_chinese
 
     key_pattern = re.compile(r'\[&"", &"([A-Z0-9_]+)"\]')
     for english_path in (_PLAYTEST / "ui").rglob("*.en.tres"):

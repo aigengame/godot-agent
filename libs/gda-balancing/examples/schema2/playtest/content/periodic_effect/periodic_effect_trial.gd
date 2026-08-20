@@ -2,11 +2,11 @@ class_name PeriodicEffectTrial
 extends RefCounted
 
 const POLICY_OPERATIONS := {
-	"reactive": {
+	"dynamic": {
 		"apply": "game.effect.apply-live-periodic-v1",
 		"tick": "game.effect.tick-live-periodic-v1",
 	},
-	"locked": {
+	"snapshot": {
 		"apply": "game.effect.apply-snapshot-periodic-v1",
 		"tick": "game.effect.tick-snapshot-periodic-v1",
 	},
@@ -18,6 +18,7 @@ const EXPECTED_TIMELINE_PHASES: Array[String] = [
 var _trial_id := ""
 var _revision := ""
 var _policy := ""
+var _cast_damage := 0
 var _timeline: Array[Dictionary] = []
 var _provenance: Dictionary = {}
 
@@ -87,6 +88,7 @@ func admit_run_result(
 				"damage": int(before.get("target_health", 0)) - int(after.get("target_health", 0)),
 				"effect_active": int(after.get("effect_active", 0)) == 1,
 				"health": int(after.get("target_health", 0)),
+				"health_before": int(before.get("target_health", 0)),
 				"phase": EXPECTED_TIMELINE_PHASES[index],
 			}
 		)
@@ -114,13 +116,18 @@ func admit_run_result(
 	_trial_id = trial_id
 	_revision = revision
 	_policy = policy
+	_cast_damage = int(pulse_damage[0]) if policy == "snapshot" else 0
 	_timeline = timeline
 	_provenance = _artifact_provenance(artifacts, trace, snapshots)
 	return {"ok": true}
 
 
 func gameplay_values() -> Dictionary:
-	return {"timeline": _timeline.duplicate(true), "trial_kind": _policy}
+	return {
+		"cast_damage": _cast_damage,
+		"timeline": _timeline.duplicate(true),
+		"trial_kind": _policy,
+	}
 
 
 func feedback_record() -> Dictionary:
@@ -172,7 +179,7 @@ func _pulse_damage_evidence(
 ) -> Array:
 	var operations: Dictionary = POLICY_OPERATIONS[policy]
 	var damage: Array[int] = []
-	if policy == "reactive":
+	if policy == "dynamic":
 		for index in [1, 3]:
 			var result = _formula_result(transitions[index], operations["tick"])
 			if result == null:

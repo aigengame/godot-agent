@@ -6,11 +6,15 @@ This repository-local Godot project contains three small, player-facing applicat
 | --- | --- | --- |
 | Reward Run | Break targets, equip a reward, and compare two builds. | Reward frequency and build impact |
 | Arcane Duel | Choose a spell style and trade casts until one mage is defeated. | Damage, mana cost, opponent pressure, and combat pacing |
-| Curse Timing | Apply two curses and watch each pulse, strike, and expiry. | Periodic-effect timing and impact |
+| Curse Timing | Compare a Dynamic Curse with a Fixed Curse across two pulses and an intervening strike. | Per-pulse recalculation and cast-time damage |
 
 Each application uses blockout shapes, short Tween animations, mouse and keyboard controls, and a
 feature-specific feedback form. A player does not need to know how `gda-balancing` compiles or
 executes the maintained data.
+
+Player-facing rules use familiar game terms and explain an outcome at the point where the player
+sees it. A player must not need Standard Schema, compiler, or Runtime knowledge to understand what
+an action does. Application-specific names are used only when the UI explains their meaning.
 
 ## Launch a playtest
 
@@ -87,14 +91,22 @@ and explicit victory or defeat. It does not infer defeat by comparing HP in UI o
 
 ### Curse Timing
 
-1. Apply the first curse.
-2. Watch the curse pulse, an intervening strike, another pulse, and expiry.
-3. Repeat the same sequence with the second curse.
-4. Compare the timing and impact, then save feedback.
+1. Read the Dynamic Curse rule and locate its 85-Health damage threshold on the health bar.
+2. Apply it and observe the first pulse, an intervening strike, and the recalculated second pulse.
+3. Finish the first trial. The UI prepares a fresh 100-Health target before the second trial.
+4. Apply the Fixed Curse. Its two pulses repeat the damage that was set when the curse was cast.
+5. Compare which damage rule was easier to understand, then save feedback.
 
-Both trials derive from the maintained same-time experiment. They use the same visible ordering.
-The Effect entrypoint is the only comparison variable. Godot presents the validated lifecycle. It
-does not calculate effect magnitude, damage, timing, or scheduling.
+The Dynamic Curse deals damage equal to the target's Health above 85. It recalculates before each
+pulse, so its current trial deals 15 damage and then 0 after the strike moves Health below the
+threshold. The UI states why the second pulse deals 0; it does not present it as a missing effect.
+The two curses run as independent comparison trials. The health bar visibly resets from 75 to 100
+before the Fixed Curse trial, and the UI identifies the replacement as a fresh target. The Fixed
+Curse then sets 15 damage when cast and repeats it on both pulses.
+
+Both trials derive from the maintained same-time experiment and use the same visible ordering. The
+Effect entrypoint is the only comparison variable. Godot presents the validated lifecycle and
+damage. It does not calculate effect magnitude, damage, timing, or scheduling.
 
 ## Architecture
 

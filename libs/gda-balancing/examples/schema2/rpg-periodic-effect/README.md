@@ -41,9 +41,13 @@ GDA_GODOT=/absolute/path/to/godot \
   examples/schema2/playtest/scripts/run_periodic_effect.sh
 ```
 
-The player applies two curses and observes apply, pulse, an intervening strike, another pulse, and
-expiry. The UI uses spell and status language. It does not expose logical time, Event queues, or
-Snapshot policy.
+The player compares a Dynamic Curse with a Fixed Curse. The UI explains that dynamic damage is
+recalculated before each pulse and that fixed damage is set when the curse is cast. It marks the
+85-Health damage threshold on the health bar and explains why a dynamic pulse deals 0 after Health
+falls below that threshold. These are independent comparison trials: before the Fixed Curse trial,
+the UI visibly replaces the 75-Health target with a fresh 100-Health target. After the cast, it
+states that the validated damage is fixed at 15 for both pulses. The UI does not expose Formula,
+logical time, Event queues, or Snapshot policy.
 
 Periodic Effect Content reads this directory's `model-source.json` and
 `same-time-experiment.json` directly. It derives two complete Experiment values with the same

@@ -26,12 +26,12 @@ func _run() -> void:
 	if not loaded.get("ok", false):
 		_finish()
 		return
-	var normalized_locked: Dictionary = loaded["locked_experiment"].duplicate(true)
-	normalized_locked["scenarios"][0]["event_plan"][0]["entrypoint"] = (
-		loaded["reactive_experiment"]["scenarios"][0]["event_plan"][0]["entrypoint"]
+	var normalized_snapshot: Dictionary = loaded["snapshot_experiment"].duplicate(true)
+	normalized_snapshot["scenarios"][0]["event_plan"][0]["entrypoint"] = (
+		loaded["dynamic_experiment"]["scenarios"][0]["event_plan"][0]["entrypoint"]
 	)
 	_expect(
-		normalized_locked == loaded["reactive_experiment"],
+		normalized_snapshot == loaded["dynamic_experiment"],
 		"Effect entrypoint is the only gameplay value that differs",
 	)
 
@@ -46,47 +46,59 @@ func _run() -> void:
 		return
 	var created: Dictionary = await client.create_session(
 		loaded["model_source"],
-		loaded["reactive_experiment"],
+		loaded["dynamic_experiment"],
 	)
 	_expect(created.get("ok", false), "Periodic Effect session is admitted")
 	if not created.get("ok", false):
 		await client.shutdown()
 		_finish()
 		return
-	var reactive := await _run_trial(
-		client, created["session"], created["revision"], "reactive", "trial-one"
+	var dynamic := await _run_trial(
+		client, created["session"], created["revision"], "dynamic", "trial-one"
 	)
 	_expect(
-		reactive.get("ok", false),
-		"reactive Effect trial validates: %s" % JSON.stringify(reactive),
+		dynamic.get("ok", false),
+		"dynamic Effect trial validates: %s" % JSON.stringify(dynamic),
 	)
 	var admitted: Dictionary = await client.admit_revision(
-		created["session"], loaded["locked_experiment"]
+		created["session"], loaded["snapshot_experiment"]
 	)
-	_expect(admitted.get("ok", false), "same session admits the locked Effect trial")
-	var locked := await _run_trial(
-		client, created["session"], admitted["revision"], "locked", "trial-two"
+	_expect(admitted.get("ok", false), "same session admits the fixed Effect trial")
+	var snapshot := await _run_trial(
+		client, created["session"], admitted["revision"], "snapshot", "trial-two"
 	)
 	_expect(
-		locked.get("ok", false),
-		"locked Effect trial validates: %s" % JSON.stringify(locked),
+		snapshot.get("ok", false),
+		"fixed Effect trial validates: %s" % JSON.stringify(snapshot),
 	)
-	if reactive.get("ok", false) and locked.get("ok", false):
+	if dynamic.get("ok", false) and snapshot.get("ok", false):
 		_expect(
-			_phases(reactive["gameplay"]) == ["apply", "pulse", "attack", "pulse", "expire"],
-			"reactive trial presents the full player-facing lifecycle",
+			_phases(dynamic["gameplay"]) == ["apply", "pulse", "attack", "pulse", "expire"],
+			"dynamic trial presents the full player-facing lifecycle",
 		)
 		_expect(
-			int(reactive["gameplay"]["timeline"][-1]["health"]) == 75,
-			"reactive trial ends at the validated health",
+			_pulse_damage(dynamic["gameplay"]) == [15, 0],
+			"dynamic pulses expose the cutoff result on both recalculations",
 		)
 		_expect(
-			int(locked["gameplay"]["timeline"][-1]["health"]) == 60,
-			"locked trial ends at the validated health",
+			int(dynamic["gameplay"]["timeline"][-1]["health"]) == 75,
+			"dynamic trial preserves the validated terminal health",
 		)
 		_expect(
-			not reactive["gameplay"].has("provenance")
-			and reactive["feedback"].has("provenance"),
+			_pulse_damage(snapshot["gameplay"]) == [15, 15],
+			"fixed pulses repeat the cast-time damage",
+		)
+		_expect(
+			int(snapshot["gameplay"].get("cast_damage", -1)) == 15,
+			"fixed gameplay names the validated cast-time damage for player presentation",
+		)
+		_expect(
+			int(snapshot["gameplay"]["timeline"][-1]["health"]) == 60,
+			"fixed trial ends at the validated health",
+		)
+		_expect(
+			not dynamic["gameplay"].has("provenance")
+			and dynamic["feedback"].has("provenance"),
 			"technical provenance stays in Content feedback",
 		)
 	_expect(
@@ -109,8 +121,8 @@ func _run_trial(
 	var run: Dictionary = await client.run_revision(session, revision)
 	if not run.get("ok", false):
 		return run
-	if policy == "reactive":
-		_test_reactive_projection_failures(run["value"], revision)
+	if policy == "dynamic":
+		_test_dynamic_projection_failures(run["value"], revision)
 	var trial := PeriodicEffectTrial.new()
 	var projected: Dictionary = trial.admit_run_result(
 		run["value"], policy, trial_id, revision
@@ -124,7 +136,7 @@ func _run_trial(
 	}
 
 
-func _test_reactive_projection_failures(
+func _test_dynamic_projection_failures(
 	run_result: Dictionary,
 	revision: String,
 ) -> void:
@@ -136,7 +148,7 @@ func _test_reactive_projection_failures(
 	_set_state_value(transitions[3]["state_before"], "target_health", 70)
 	var trial := PeriodicEffectTrial.new()
 	var admitted: Dictionary = trial.admit_run_result(
-		forged, "reactive", "mutation", revision
+		forged, "dynamic", "mutation", revision
 	)
 	_expect(
 		not admitted.get("ok", false),
@@ -151,7 +163,7 @@ func _test_reactive_projection_failures(
 		_set_state_value(inactive_transitions[index]["state_after"], "effect_active", 0)
 	var inactive_trial := PeriodicEffectTrial.new()
 	var inactive_admitted: Dictionary = inactive_trial.admit_run_result(
-		inactive, "reactive", "mutation", revision
+		inactive, "dynamic", "mutation", revision
 	)
 	_expect(
 		not inactive_admitted.get("ok", false),
@@ -165,7 +177,7 @@ func _test_reactive_projection_failures(
 	}
 	var refused_trial := PeriodicEffectTrial.new()
 	var refused_admitted: Dictionary = refused_trial.admit_run_result(
-		refused, "reactive", "mutation", revision
+		refused, "dynamic", "mutation", revision
 	)
 	_expect(
 		not refused_admitted.get("ok", false),
@@ -193,3 +205,11 @@ func _phases(gameplay: Dictionary) -> Array[String]:
 	for step in gameplay.get("timeline", []):
 		phases.append(str(step.get("phase", "")))
 	return phases
+
+
+func _pulse_damage(gameplay: Dictionary) -> Array[int]:
+	var values: Array[int] = []
+	for step in gameplay.get("timeline", []):
+		if step.get("phase") == "pulse":
+			values.append(int(step.get("damage", 0)))
+	return values

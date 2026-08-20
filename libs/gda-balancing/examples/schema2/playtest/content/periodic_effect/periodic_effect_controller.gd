@@ -17,7 +17,7 @@ const PlaytestFeedbackFile = preload(
 	"res://addons/playtest_feedback_file/playtest_feedback_file.gd"
 )
 const FEEDBACK_PATH := "user://rpg_periodic_effect_feedback.json"
-const TRIAL_KINDS: Array[String] = ["reactive", "locked"]
+const TRIAL_KINDS: Array[String] = ["dynamic", "snapshot"]
 
 var phase := "loading"
 var playtest_complete := false
@@ -32,6 +32,8 @@ var _model_source: Dictionary = {}
 var _experiments: Dictionary = {}
 var _session := ""
 var _initial_revision := ""
+var _initial_health := 0
+var _damage_threshold := 0
 var _trials: Array[PeriodicEffectTrial] = []
 var _last_state: Dictionary = {}
 var _busy := false
@@ -68,7 +70,13 @@ func primary_action() -> void:
 				phase = "feedback"
 				_emit_state({"phase": phase})
 			else:
-				_emit_ready()
+				_emit_target_reset()
+
+
+func target_reset_completed() -> void:
+	if phase != "resetting_target" or _busy or _trials.size() >= TRIAL_KINDS.size():
+		return
+	_emit_ready()
 
 
 func retry() -> Dictionary:
@@ -137,16 +145,18 @@ func _prepare_live_session() -> Dictionary:
 	if not loaded.get("ok", false):
 		return _fail_preparation(loaded)
 	_model_source = loaded["model_source"]
+	_initial_health = loaded["initial_health"]
+	_damage_threshold = loaded["damage_threshold"]
 	_experiments = {
-		"locked": loaded["locked_experiment"],
-		"reactive": loaded["reactive_experiment"],
+		"dynamic": loaded["dynamic_experiment"],
+		"snapshot": loaded["snapshot_experiment"],
 	}
 	var started: Dictionary = await _client.start(_executable_path)
 	if not started.get("ok", false):
 		return _fail_preparation(started)
 	var created: Dictionary = await _client.create_session(
 		_model_source,
-		_experiments["reactive"],
+		_experiments["dynamic"],
 	)
 	if not created.get("ok", false):
 		await _client.shutdown()
@@ -166,7 +176,7 @@ func _run_next_trial() -> void:
 	_emit_state({"phase": phase})
 	var policy := TRIAL_KINDS[_trials.size()]
 	var revision := _initial_revision
-	if policy == "locked":
+	if policy == "snapshot":
 		var admitted: Dictionary = await _client.admit_revision(
 			_session, _experiments[policy]
 		)
@@ -196,12 +206,36 @@ func _run_next_trial() -> void:
 
 func _emit_ready() -> void:
 	phase = "ready"
-	_emit_state({"phase": phase, "trial_kind": TRIAL_KINDS[_trials.size()]})
+	_emit_state(
+		{
+			"damage_threshold": _damage_threshold,
+			"fresh_target": not _trials.is_empty(),
+			"initial_health": _initial_health,
+			"phase": phase,
+			"trial_kind": TRIAL_KINDS[_trials.size()],
+		}
+	)
+
+
+func _emit_target_reset() -> void:
+	phase = "resetting_target"
+	_emit_state(
+		{
+			"damage_threshold": _damage_threshold,
+			"fresh_target": true,
+			"initial_health": _initial_health,
+			"phase": phase,
+			"previous_health": int(_last_state.get("health", _initial_health)),
+			"trial_kind": TRIAL_KINDS[_trials.size()],
+		}
+	)
 
 
 func _on_timeline_state_changed(state: Dictionary) -> void:
 	phase = state["phase"]
 	var view_state := state.duplicate(true)
+	view_state["damage_threshold"] = _damage_threshold
+	view_state["initial_health"] = _initial_health
 	view_state["trial_count"] = TRIAL_KINDS.size()
 	view_state["trial_index"] = _trials.size() - 1
 	_emit_state(view_state)

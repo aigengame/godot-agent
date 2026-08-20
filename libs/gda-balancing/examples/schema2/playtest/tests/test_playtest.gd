@@ -187,7 +187,7 @@ func _test_periodic_effect_timeline() -> void:
 				{"damage": 0, "effect_active": true, "health": 75, "phase": "pulse"},
 				{"damage": 0, "effect_active": false, "health": 75, "phase": "expire"},
 			],
-			"trial_kind": "reactive",
+			"trial_kind": "dynamic",
 		}
 	)
 	_expect(timeline.snapshot()["lifecycle_phase"] == "apply", "Effect starts at apply")

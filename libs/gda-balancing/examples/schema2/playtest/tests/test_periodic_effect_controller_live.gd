@@ -30,26 +30,46 @@ func _run() -> void:
 	var started: Dictionary = await controller.start()
 	_expect(started.get("ok", false), "Periodic Effect playtest prepares")
 	_expect(controller.current_state().get("phase") == "ready", "first curse is ready")
-	_expect(controller.current_state().get("trial_kind") == "reactive", "reactive trial is first")
+	_expect(controller.current_state().get("trial_kind") == "dynamic", "dynamic trial is first")
+	_expect(
+		controller.current_state().get("damage_threshold") == 85,
+		"player-facing damage cutoff comes from the maintained Experiment",
+	)
 	controller.primary_action()
-	_expect(await _wait_for_phase(controller, "timeline_step"), "reactive revision runs")
+	_expect(await _wait_for_phase(controller, "timeline_step"), "dynamic revision runs")
 	_expect(controller.current_state().get("lifecycle_phase") == "apply", "apply is visible")
 	_complete_trial(controller)
 	controller.primary_action()
-	_expect(controller.current_state().get("phase") == "ready", "locked curse is ready")
+	_expect(
+		controller.current_state().get("phase") == "resetting_target",
+		"the controller separates the two independent trials",
+	)
+	_expect(
+		controller.current_state().get("fresh_target") == true
+		and controller.current_state().get("previous_health") == 75
+		and controller.current_state().get("initial_health") == 100,
+		"the second trial explicitly resets the target instead of implying continuity",
+	)
 	controller.primary_action()
-	_expect(await _wait_for_phase(controller, "timeline_step"), "locked revision runs")
+	_expect(
+		controller.current_state().get("phase") == "resetting_target",
+		"gameplay cannot skip the visible target reset",
+	)
+	controller.target_reset_completed()
+	_expect(controller.current_state().get("phase") == "ready", "fixed curse is ready")
+	controller.primary_action()
+	_expect(await _wait_for_phase(controller, "timeline_step"), "fixed revision runs")
 	_complete_trial(controller)
 	controller.primary_action()
 	_expect(controller.current_state().get("phase") == "feedback", "trials reach feedback")
 	var payload := controller.submit_feedback(
-		"Reactive Hex", "Very clear", "Mostly clear", "Readable"
+		"Dynamic Curse", "Very clear", "Mostly clear", "Readable"
 	)
 	_expect(not payload.is_empty(), "Periodic Effect feedback saves")
 	_expect(payload.get("trials", []).size() == 2, "feedback retains both trials")
 	_expect(
 		payload.get("trials", [])[1].get("timeline", [])[-1].get("health") == 60,
-		"feedback retains the locked trial terminal health",
+		"feedback retains the fixed trial terminal health",
 	)
 	await controller.shutdown()
 	controller.queue_free()
