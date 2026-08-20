@@ -33,6 +33,9 @@ It passes an explicit executable to the game when one is found. Otherwise, the g
 its own `PATH` lookup. An invalid explicit path produces a visible retry action. It does not
 silently select another installation.
 
+See [scripts/ENV.md](scripts/ENV.md) for package setup, explicit-path examples, `PATH` fallback,
+and commands for all three applications.
+
 These are repository-local products. They do not embed Python, package a companion executable, or
 claim standalone export support.
 
