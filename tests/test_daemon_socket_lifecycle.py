@@ -29,7 +29,12 @@ from typing import cast
 import pytest
 
 from gda.commands.daemon import run_daemon_start_operation
-from gda.daemon.discovery import daemon_paths
+from gda.daemon.discovery import (
+    _pidfile_lock_held,
+    daemon_paths,
+    daemon_pid,
+    read_pidfile,
+)
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession
@@ -55,9 +60,9 @@ class _Proc:
 
 
 class _ServedSession:
-    """A fake session that serves every relayed op."""
+    """A fake session that serves every relayed op — a structural SessionHandle."""
 
-    log_file = None
+    log_file: "Path | None" = None
 
     def __init__(self) -> None:
         self.closed = False
@@ -151,14 +156,15 @@ def test_a_stale_slot_left_by_a_crash_is_reclaimed(
         assert reply is not None and reply["ok"] is True
 
 
-def test_a_double_start_loses_without_touching_the_live_daemons_sockets(
+def test_a_double_start_loses_without_touching_the_live_daemons_slot(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     # Two starts race; the pidfile's advisory lock decides. The LOSER must fail
-    # before it can unlink — or leave its cleanup to unlink — the winner's live
-    # socket files: a losing start that destroys the winner's sockets turns one
-    # daemon into zero (the winner keeps serving its open fd, but every new
-    # client connect hits an unlinked path and reads "not running").
+    # without disturbing ANY part of the winner's slot (ADR-0021): not its
+    # socket files (a losing start that unlinks them turns one daemon into zero
+    # reachable ones), and not its pidfile CONTENT either — a pre-lock
+    # truncation erases the winner's recorded identity, so status, attach, and
+    # stop all read the live daemon as not running (#723 review).
     paths = daemon_paths(_project(tmp_path))
     winner = DaemonServer(paths, godot="godot", launch=_no_launch)
 
@@ -170,6 +176,48 @@ def test_a_double_start_loses_without_touching_the_live_daemons_sockets(
         # The winner's slot is intact and still serves new connections.
         assert paths.cli_socket.exists()
         assert paths.harness_socket.exists()
+        reply = _request(paths, {"op": "__status__"})
+        assert reply is not None and reply["ok"] is True
+        # And its DISCOVERY identity survives: the recorded pid + project are
+        # untouched, so the liveness contract still reports the winner.
+        assert read_pidfile(paths) == (os.getpid(), paths.project)
+        assert daemon_pid(paths) == os.getpid()
+
+
+def test_cleanup_removes_the_slot_before_releasing_the_lock(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # The reverse half of the slot's critical section (#723 review): the lock is
+    # the slot's mutual exclusion (ADR-0021), so it must outlive the slot it
+    # guards. Released before the unlinks, a successor can acquire and bind a
+    # fresh slot inside the cleanup window — which the predecessor's remaining
+    # unlinks then destroy. Instrumenting unlink pins the order: every slot
+    # path must be removed while the lock is still held.
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_no_launch)
+    slot = {paths.cli_socket, paths.harness_socket, paths.pidfile}
+    held_at_unlink: dict = {}
+    real_unlink = os.unlink
+
+    def _recording_unlink(path, *args, **kwargs):
+        target = Path(path)
+        if target in slot:
+            held_at_unlink[target.name] = _pidfile_lock_held(paths.pidfile)
+        return real_unlink(path, *args, **kwargs)
+
+    with _serving(server, paths, monkeypatch) as thread:
+        monkeypatch.setattr(os, "unlink", _recording_unlink)
+        _request(paths, {"op": "__stop__"})
+        thread.join(timeout=5)
+
+    assert len(held_at_unlink) == 3
+    assert all(held_at_unlink.values()), held_at_unlink
+
+    # The handoff itself: a successor started after the stop owns a fresh slot
+    # and is the one the discovery contract reports.
+    successor = DaemonServer(paths, godot="godot", launch=_no_launch)
+    with _serving(successor, paths, monkeypatch):
+        assert daemon_pid(paths) == os.getpid()
         reply = _request(paths, {"op": "__status__"})
         assert reply is not None and reply["ok"] is True
 
@@ -259,7 +307,7 @@ def test_the_first_live_op_launches_the_session_lazily_and_reuses_it(
 
     def _launch(*args, **kwargs):
         calls["n"] += 1
-        return cast(EngineSession, session)
+        return session
 
     paths = daemon_paths(_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
@@ -310,7 +358,7 @@ def test_a_session_dying_mid_request_reports_disconnect_then_relaunches(
         launches.append(kwargs.get("log_file"))
         if len(launches) == 1:
             return dying
-        return cast(EngineSession, _ServedSession())
+        return _ServedSession()
 
     paths = daemon_paths(_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)

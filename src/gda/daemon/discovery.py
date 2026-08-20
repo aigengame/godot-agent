@@ -117,16 +117,25 @@ def acquire_pidfile(paths: DaemonPaths, pid: int):
     ``os.kill`` PID-liveness (which a reused PID could spoof). The OS releases the
     lock when the daemon exits or crashes, so liveness self-heals with no cleanup.
     Raises ``OSError`` if another live daemon already holds it (a start race).
+
+    Opened WITHOUT truncation, and truncated only AFTER the lock is won (#723
+    review): ``open("w")`` zeroed the file before ``flock`` could refuse, so a
+    LOSING start erased the live winner's recorded identity — ``daemon_pid``
+    then read the running daemon as not running.
     """
     import fcntl
 
     ensure_runtime_dir(paths)
-    handle = open(paths.pidfile, "w", encoding="utf-8")
+    handle = os.fdopen(
+        os.open(paths.pidfile, os.O_RDWR | os.O_CREAT, 0o644), "r+", encoding="utf-8"
+    )
     try:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         handle.close()
         raise
+    handle.seek(0)
+    handle.truncate()
     handle.write(f"{pid}\n{paths.project}\n")
     handle.flush()
     return handle

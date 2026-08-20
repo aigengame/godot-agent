@@ -18,7 +18,7 @@ import signal
 import socket
 import subprocess
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Optional
 
 from gda.daemon.protocol import error_reply, read_frame, write_message
 from gda.display import WindowedUnavailable
@@ -138,31 +138,6 @@ class EngineSession:
             except OSError:
                 pass
         _terminate(self._proc)
-
-
-class SessionLaunch(Protocol):
-    """The server↔session seam: the shape of :func:`launch_session` (#674).
-
-    :class:`gda.daemon.server.DaemonServer` takes one so unit tests can drive the
-    whole serve loop — lazy launch, launch failure, session death, relaunch —
-    against a fake session, with no Godot binary and no real engine. The default
-    is always the real :func:`launch_session`; the seam injects, it never
-    re-implements.
-    """
-
-    def __call__(
-        self,
-        project: Path,
-        binary: str,
-        harness_listener: socket.socket,
-        harness_socket: Path,
-        token: str,
-        log_file: Optional[Path] = None,
-        timeout: float = CONNECT_TIMEOUT,
-        windowed: bool = False,
-        scene: Optional[str] = None,
-        diagnostics: Optional[list[str]] = None,
-    ) -> Optional[EngineSession]: ...
 
 
 def launch_session(

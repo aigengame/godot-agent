@@ -12,15 +12,15 @@ import os
 import secrets
 import signal
 import socket
-from typing import Callable, Optional
+from pathlib import Path
+from typing import Callable, Optional, Protocol
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
 from gda.daemon.session import (
-    EngineSession,
+    CONNECT_TIMEOUT,
     SceneMismatch,
-    SessionLaunch,
     WindowedDisplayUnavailable,
     launch_session,
 )
@@ -38,6 +38,49 @@ STOP_OP = "__stop__"
 DIAG_ERRORS_OP = "diag-errors"
 LOGGER_TAIL_OP = "logger-tail"
 LOG_OPS = (DIAG_ERRORS_OP, LOGGER_TAIL_OP)
+
+
+class SessionHandle(Protocol):
+    """What the server consumes of a session (#723 review): a structural contract.
+
+    The server owns this — it names exactly the capabilities the serve loop
+    needs (liveness, one-op relay, the remembered log path, teardown) — so a
+    unit-test fake conforms by shape, with no cast at the seam.
+    :class:`gda.daemon.session.EngineSession` is the concrete implementation.
+    """
+
+    log_file: Optional[Path]
+
+    def alive(self) -> bool: ...
+
+    def request(self, operation: str, params: dict) -> dict: ...
+
+    def close(self) -> None: ...
+
+
+class SessionLaunch(Protocol):
+    """The server↔session seam: the shape of :func:`launch_session` (#674).
+
+    :class:`DaemonServer` takes one so unit tests can drive the whole serve
+    loop — lazy launch, launch failure, session death, relaunch — against a
+    fake :class:`SessionHandle`, with no Godot binary and no real engine. The
+    default is always the real :func:`launch_session`; the seam injects, it
+    never re-implements.
+    """
+
+    def __call__(
+        self,
+        project: Path,
+        binary: str,
+        harness_listener: socket.socket,
+        harness_socket: Path,
+        token: str,
+        log_file: Optional[Path] = None,
+        timeout: float = CONNECT_TIMEOUT,
+        windowed: bool = False,
+        scene: Optional[str] = None,
+        diagnostics: Optional[list[str]] = None,
+    ) -> Optional[SessionHandle]: ...
 
 
 class DaemonServer:
@@ -78,7 +121,7 @@ class DaemonServer:
         self._stopping = False
         self._listener: socket.socket | None = None
         self._harness_listener: socket.socket | None = None
-        self._session: EngineSession | None = None
+        self._session: SessionHandle | None = None
         self._pidfile_handle = None
 
     def serve(self) -> None:
@@ -265,7 +308,7 @@ class DaemonServer:
 
     def _ensure_session(
         self, diagnostics: list[str] | None = None
-    ) -> EngineSession | None:
+    ) -> SessionHandle | None:
         if self._session is not None and self._session.alive():
             return self._session
         if self._session is not None:
@@ -340,11 +383,6 @@ class DaemonServer:
     def _cleanup(self) -> None:
         if self._session is not None:
             self._session.close()
-        if self._pidfile_handle is not None:
-            try:
-                self._pidfile_handle.close()  # releases the advisory lock
-            except OSError:
-                pass
         for sock in (self._listener, self._harness_listener):
             if sock is not None:
                 try:
@@ -359,4 +397,15 @@ class DaemonServer:
             try:
                 os.unlink(path)
             except FileNotFoundError:
+                pass
+        # The advisory lock releases LAST (#723 review): it is the slot's mutual
+        # exclusion (ADR-0021), so it must outlive the slot it guards. Released
+        # before the unlinks above, a successor could acquire and bind a fresh
+        # slot inside this window — which the remaining unlinks would then
+        # destroy, leaving a serving daemon that discovery reports as not
+        # running.
+        if self._pidfile_handle is not None:
+            try:
+                self._pidfile_handle.close()  # releases the advisory lock
+            except OSError:
                 pass
