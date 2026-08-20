@@ -289,9 +289,10 @@ root-member order change are different semantic edits.
 The later Event does not read Snapshot 0. It reads the Snapshot that the earlier Event committed.
 Runtime does not infer defeat, interruption, or cancellation from health-like values. The selected
 `game.combat.eligible-cast-v1` Operation checks actor eligibility and publishes the explicit
-`target-defeated` outcome. It requires a non-negative defeat threshold before resource use, RNG, or
-state change. The raw cast entrypoints in section 8.3 prove that this policy comes from the package
-Operation, not Runtime.
+`target-defeated` outcome. It requires a non-negative defeat threshold before `actor_resource`
+spending, RNG, or gameplay state mutation. Execution still records the Operation's `event-steps`
+charge for threshold validation and actor eligibility. The raw cast entrypoints in section 8.3
+prove that this policy comes from the package Operation, not Runtime.
 
 Each independent scenario receives its own Snapshot 0, Event queue, and replication. Two scenarios
 cannot form a reciprocal exchange or observe each other's committed state.
@@ -621,9 +622,9 @@ additional eligible-cast outcomes:
 | admitted hit | `cast-resolved` / `success` | `commit` |
 | hit check fails | `miss` / `gameplay-alternative` | `rollback` |
 | actor resource below action cost | `insufficient-resource` / `gameplay-alternative` | `rollback` |
-| negative defeat threshold | `game.combat.reason.invalid-defeat-threshold` / refusal | no dispatch |
+| negative defeat threshold | `game.combat.reason.invalid-defeat-threshold` / refusal | Runtime refusal; current Event rolls back |
 | actor health at or below the defeat threshold | `actor-ineligible` / `gameplay-alternative` | `rollback` |
-| committed damage reaches the target defeat threshold | `target-defeated` / `success` | `commit` |
+| transaction-local post-cast target health is at or below the defeat threshold | `target-defeated` / `success` | `commit` |
 
 A one-way scenario contains only `player-attacks-enemy`. It also contains only that entrypoint's
 Scenario Input Contract. It is useful for outcome comparison, but it is not reciprocal combat.
@@ -640,12 +641,14 @@ jq '
   | .scenarios[0].assignments |= map(
       select(.target.name as $name
         | [
+            "defeat_threshold",
             "enemy_defense",
             "enemy_health",
             "player_accuracy",
             "player_action_cost",
             "player_base_damage",
             "player_critical_threshold",
+            "player_health",
             "player_mana"
           ]
         | index($name))
@@ -769,7 +772,7 @@ jq '
       select(.target.name != "defeat_threshold")
     )
   | .runtime.required_evaluator.instruction_nodes |= map(
-      select(. != "guard-block")
+      select(. != "guard-block" and . != "require")
     )
   | (.scenarios[0].assignments[]
       | select(.target.name == "enemy_health")
@@ -801,8 +804,9 @@ Experiment revisions with the maintained values. The actions are player, enemy, 
 player. The final player action caps its applied damage at the enemy's remaining `26` health,
 commits `enemy_health = 0`, and returns `target-defeated`. The duel loop stops there; no enemy
 revision follows it. A separately named boundary probe then maps that exact committed enemy-health
-value to the next actor-health input and proves `actor-ineligible` with no gameplay-resource, RNG,
-or state change:
+value to the next actor-health input and proves `actor-ineligible` without `actor_resource`
+spending, RNG, or gameplay state change. The probe still records an Operation charge of five
+`event-steps` units:
 
 ```bash
 uv run pytest \
@@ -812,7 +816,9 @@ uv run pytest \
 The installed-CLI tracer retains the same five-revision outcome sequence. The linked neutral
 package vectors provide the independent production/reference-consumer evidence for the defeat to
 ineligibility handoff. A negative defeat threshold produces
-`game.combat.reason.invalid-defeat-threshold` before resource use, RNG, or state change.
+`game.combat.reason.invalid-defeat-threshold` before `actor_resource` spending, RNG, or gameplay
+state mutation. The root Event is dispatched, the Operation records a charge of three
+`event-steps` units and refuses, and the current Event rolls back.
 
 This slice defines actor eligibility, not target eligibility. It does not distinguish a new
 threshold crossing from a target condition that was already satisfied. The application avoids that

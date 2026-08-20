@@ -1524,17 +1524,20 @@ issues own detailed observations, acceptance criteria, and live completion statu
 - **Explicit combat defeat and action eligibility
   ([#708](https://github.com/aigengame/godot-agent/issues/708))**
   - Architecture consequence: `game.combat` composes existing Runtime nodes into one eligible-cast
-    Operation. It requires a non-negative authored defeat threshold before resource spending or
-    RNG. It caps applied damage at current health and returns an explicit `target-defeated` outcome
-    when the committed target reaches the threshold. The raw cast remains available without this
-    policy.
+    Operation. It requires a non-negative authored defeat threshold before `actor_resource`
+    spending or RNG, while execution still records the Operation's `event-steps` charge. It caps
+    applied damage at current health, then compares transaction-local post-cast target health with
+    the threshold. If the comparison succeeds, the Operation completes with `target-defeated`;
+    that outcome's commit policy then commits the resulting Event state. The raw cast remains
+    available without this policy.
   - Validation consequence: Neutral Operation vectors cover an eligible action, a target-defeating
     boundary, an ineligible actor, and refusal of a negative threshold. Production and independent
     consumers must agree on outcome, result, state, RNG, effects, refusals, actual charge, and Event
     order. The maintained RPG tracer runs consecutive complete one-action Experiment revisions
     through the public local HTTP service and stops only on the explicit outcome. A linked boundary
     probe maps the committed defeated-target state to the later actor-health input and proves the
-    `actor-ineligible` path without gameplay-resource, RNG, or state changes.
+    `actor-ineligible` path without `actor_resource` spending, RNG, or gameplay state changes. The
+    neutral vectors still record the exact `event-steps` charge for both paths.
   - Open boundary: This slice does not add general Action lifecycle, turn order, revival storage,
     target eligibility, a distinct threshold-crossing rule, downed states, teams, encounters, or a
     host-side health rule. Callers stop on the explicit `target-defeated` outcome; the Operation
