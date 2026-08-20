@@ -46,7 +46,7 @@ Record:
 
 Combine several features only when the player must experience them together to make
 the required judgment. Do not design the UI from Kernel, Language Definition Bundle,
-Formula, Operation, Experiment Specification, or Standard Schema Artifact fields.
+Formula, Operation, Experiment Specification, or artifact fields.
 
 ## Use Familiar Player Language
 
@@ -116,7 +116,7 @@ Do not expose these concepts in player UI or gameplay System interfaces:
 - Kernel or Language Definition Bundle;
 - Model Source Package or Experiment Specification;
 - Formula, Runtime, Event queue, logical time, or Snapshot;
-- Metric, Standard Schema Artifact, identity, diagnostic, or provenance; and
+- Metric, artifact, identity, diagnostic, or provenance; and
 - HTTP, readiness record, process capability token, Execution session, or Experiment
   revision.
 
@@ -145,8 +145,8 @@ Apply these rules:
 - Do not copy those files into a CLI or playtest delivery directory.
 - Do not generate a fixed case-data layer for Godot.
 - Do not add a playtest-only configuration authority or partial-update format.
-- Write edited Experiment Specifications and generated Standard Schema Artifacts to a
-  temporary or run directory.
+- Write edited Experiment Specifications and generated artifacts to a temporary or
+  run directory.
 - For a player change to Experiment-owned input, derive a complete, immutable
   Experiment revision. Send the complete Experiment Specification value to the
   service, not an implicit patch.
@@ -264,8 +264,8 @@ state transitions, and gameplay phases that do not duplicate gda-balancing seman
 
 Systems must not:
 
-- parse Model Source Package, Experiment Specification, HTTP, or Standard Schema
-  Artifact values;
+- parse Model Source Package, Experiment Specification, HTTP, artifact, or artifact-set
+  values;
 - store revision, identity, or provenance data;
 - recalculate a result that gda-balancing already produced; or
 - accept a universal Dictionary that includes technical fields.
@@ -282,7 +282,7 @@ owns:
 - submission of a complete Model Source Package and initial Experiment Specification
   to create a new Execution session for model-definition changes;
 - Execution session, Experiment revision, and run coordination;
-- returned Standard Schema Artifact interpretation;
+- returned artifact-set interpretation;
 - validation of relationships that gameplay consumes;
 - projection into application-owned gameplay values;
 - atomic publication, failure, and retry flow;
