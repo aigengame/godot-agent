@@ -1,5 +1,7 @@
 # Structured values through Model build and Runtime
 
+[Schema 2.x examples](../README.md) · [CLI index](../cli/README.md)
+
 This tutorial runs one neutral selection flow through the public Standard Schema 2.x path:
 
 ```text

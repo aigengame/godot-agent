@@ -1,5 +1,8 @@
 # Reciprocal RPG combat through ordered Runtime Events
 
+[Schema 2.x examples](../README.md) · [CLI index](../cli/README.md) · [Arcane Duel
+playtest](../playtest/README.md#arcane-duel)
+
 This tutorial runs one Standard Schema 2.x combat example through the public CLI:
 
 ```text

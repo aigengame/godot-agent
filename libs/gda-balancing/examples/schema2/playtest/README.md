@@ -1,5 +1,7 @@
 # RPG playtest suite
 
+[Schema 2.x examples](../README.md) · [CLI index](../cli/README.md)
+
 This repository-local Godot project contains three small, player-facing applications:
 
 | Application | Player experience | Feature under test |
@@ -140,7 +142,9 @@ payload, or game-specific service route.
 
 ## Authoritative data path
 
-Each Content module reads its maintained Model Source and Experiment documents directly:
+Each Content module reads its maintained Model Source and Experiment documents directly from the
+shared feature directories. The [Schema 2.x example index](../README.md) owns the complete routing
+map between maintained sources, CLI tutorials, and player applications:
 
 | Application | Maintained source directory | Model Source input | Experiment input |
 | --- | --- | --- | --- |

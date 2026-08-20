@@ -1,5 +1,8 @@
 # One periodic Effect through the Runtime Event queue
 
+[Schema 2.x examples](../README.md) · [CLI index](../cli/README.md) · [Curse Timing
+playtest](../playtest/README.md#curse-timing)
+
 This tutorial runs one bounded periodic Effect through the public Standard Schema 2.x path:
 
 ```text

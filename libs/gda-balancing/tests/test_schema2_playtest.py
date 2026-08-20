@@ -3,7 +3,44 @@ import re
 from pathlib import Path
 
 
-_PLAYTEST = Path(__file__).parents[1] / "examples" / "schema2" / "playtest"
+_SCHEMA2_EXAMPLES = Path(__file__).parents[1] / "examples" / "schema2"
+_PLAYTEST = _SCHEMA2_EXAMPLES / "playtest"
+
+
+def test_schema2_delivery_entries_share_maintained_authoring_sources():
+    maintained_sources = {
+        "roguelike-reward-build": {"model-source.json", "experiment.json"},
+        "rpg-combat-cast": {
+            "model-source.json",
+            "experiment.json",
+            "multi-time-experiment.json",
+        },
+        "rpg-periodic-effect": {
+            "model-source.json",
+            "experiment.json",
+            "same-time-experiment.json",
+        },
+        "structured-selection": {"model-source.json", "experiment.json"},
+    }
+
+    example_index = (_SCHEMA2_EXAMPLES / "README.md").read_text(encoding="utf-8")
+    cli_index = (_SCHEMA2_EXAMPLES / "cli" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    for example, filenames in maintained_sources.items():
+        source_directory = _SCHEMA2_EXAMPLES / example
+        assert source_directory.is_dir()
+        assert filenames <= {path.name for path in source_directory.glob("*.json")}
+        assert f"{example}/" in example_index
+        assert f"../{example}/" in cli_index
+
+    for delivery_directory in (_SCHEMA2_EXAMPLES / "cli", _PLAYTEST):
+        copied_authorities = [
+            path
+            for path in delivery_directory.rglob("*.json")
+            if path.name == "model-source.json" or "experiment" in path.name
+        ]
+        assert copied_authorities == []
 
 
 def test_playtest_runtime_dependencies_point_downward():

@@ -1,5 +1,8 @@
 # Seeded Roguelike reward and build tuning
 
+[Schema 2.x examples](../README.md) · [CLI index](../cli/README.md) · [Reward Run
+playtest](../playtest/README.md#reward-run)
+
 This tutorial runs one reward-selection and build-replacement loop through the public Standard
 Schema 2.x path:
 
