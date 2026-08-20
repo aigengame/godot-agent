@@ -12,13 +12,14 @@ import os
 import secrets
 import signal
 import socket
-from typing import Callable, Optional
+from pathlib import Path
+from typing import Callable, Optional, Protocol
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
 from gda.daemon.session import (
-    EngineSession,
+    CONNECT_TIMEOUT,
     SceneMismatch,
     WindowedDisplayUnavailable,
     launch_session,
@@ -39,6 +40,49 @@ LOGGER_TAIL_OP = "logger-tail"
 LOG_OPS = (DIAG_ERRORS_OP, LOGGER_TAIL_OP)
 
 
+class SessionHandle(Protocol):
+    """What the server consumes of a session (#723 review): a structural contract.
+
+    The server owns this — it names exactly the capabilities the serve loop
+    needs (liveness, one-op relay, the remembered log path, teardown) — so a
+    unit-test fake conforms by shape, with no cast at the seam.
+    :class:`gda.daemon.session.EngineSession` is the concrete implementation.
+    """
+
+    log_file: Optional[Path]
+
+    def alive(self) -> bool: ...
+
+    def request(self, operation: str, params: dict) -> dict: ...
+
+    def close(self) -> None: ...
+
+
+class SessionLaunch(Protocol):
+    """The server↔session seam: the shape of :func:`launch_session` (#674).
+
+    :class:`DaemonServer` takes one so unit tests can drive the whole serve
+    loop — lazy launch, launch failure, session death, relaunch — against a
+    fake :class:`SessionHandle`, with no Godot binary and no real engine. The
+    default is always the real :func:`launch_session`; the seam injects, it
+    never re-implements.
+    """
+
+    def __call__(
+        self,
+        project: Path,
+        binary: str,
+        harness_listener: socket.socket,
+        harness_socket: Path,
+        token: str,
+        log_file: Optional[Path] = None,
+        timeout: float = CONNECT_TIMEOUT,
+        windowed: bool = False,
+        scene: Optional[str] = None,
+        diagnostics: Optional[list[str]] = None,
+    ) -> Optional[SessionHandle]: ...
+
+
 class DaemonServer:
     """Binds the per-project sockets and serves requests until stopped."""
 
@@ -49,6 +93,7 @@ class DaemonServer:
         windowed: bool = False,
         scene: str | None = None,
         display_check: Optional[Callable[[], Optional[WindowedUnavailable]]] = None,
+        launch: Optional[SessionLaunch] = None,
     ) -> None:
         self.paths = paths
         self.godot = godot
@@ -67,26 +112,33 @@ class DaemonServer:
         # so tests drive the guard without a real display; defaults to the shared
         # gda.display probe. Consulted only for a windowed session.
         self._display_check = display_check or windowed_unavailable
+        # The server↔session seam (#674): how an engine session is launched.
+        # Injectable so unit tests drive the whole serve loop against a fake
+        # session — no Godot binary, no real engine. Resolved at construction
+        # against the module global, so the default stays the real launch.
+        self._launch: SessionLaunch = launch or launch_session
         self._token = secrets.token_hex(16)
         self._stopping = False
         self._listener: socket.socket | None = None
         self._harness_listener: socket.socket | None = None
-        self._session: EngineSession | None = None
+        self._session: SessionHandle | None = None
         self._pidfile_handle = None
 
     def serve(self) -> None:
         ensure_runtime_dir(self.paths)
-        self._listener = self._bind(self.paths.cli_socket)
-        self._harness_listener = self._bind(self.paths.harness_socket)
-        # Hold the pidfile's advisory lock for our lifetime — that held lock is the
-        # liveness signal the CLI keys on (ADR-0021); bind first so the socket is
-        # present before we are reported live.
+        # The pidfile's advisory lock is the daemon's mutual exclusion AND its
+        # liveness signal (ADR-0021), so it is taken FIRST: a start that loses the
+        # race fails here, before it can unlink — or leave the cleanup below to
+        # unlink — the winner's live sockets (#674 socket-lifecycle test; binding
+        # first let a losing double-start destroy the winner's slot). Liveness as
+        # the CLI reads it needs the lock AND a bound socket, so the daemon is
+        # still not reported live until the binds below land.
         self._pidfile_handle = acquire_pidfile(self.paths, os.getpid())
-
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            signal.signal(sig, self._on_signal)
-
         try:
+            self._listener = self._bind(self.paths.cli_socket)
+            self._harness_listener = self._bind(self.paths.harness_socket)
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                signal.signal(sig, self._on_signal)
             self._accept_loop()
         finally:
             self._cleanup()
@@ -256,7 +308,7 @@ class DaemonServer:
 
     def _ensure_session(
         self, diagnostics: list[str] | None = None
-    ) -> EngineSession | None:
+    ) -> SessionHandle | None:
         if self._session is not None and self._session.alive():
             return self._session
         if self._session is not None:
@@ -289,13 +341,13 @@ class DaemonServer:
             if not (self.paths.project / rel).expanduser().is_file():
                 raise SceneMismatch(scene)
         assert self._harness_listener is not None
-        self._session = launch_session(
+        self._session = self._launch(
             self.paths.project,
             self.godot,
             self._harness_listener,
             self.paths.harness_socket,
             self._token,
-            log_file=self._session_log_path(),
+            log_file=self.paths.session_log,
             windowed=self.windowed,
             scene=self.scene,
             diagnostics=diagnostics,
@@ -307,9 +359,9 @@ class DaemonServer:
 
         Combines the child-liveness reason ``launch_session`` observed (the engine
         died by signal, or the harness never connected) with a tail of the daemon-
-        owned Session log, read via the DETERMINISTIC :meth:`_session_log_path` —
-        which needs no live session object, extending ADR-0022's read path to the
-        failed-launch case. NOTE: a windowed-no-``DisplayServer`` abort happens
+        owned Session log, read via the DETERMINISTIC ``DaemonPaths.session_log``
+        (#674) — which needs no live session object, extending ADR-0022's read
+        path to the failed-launch case. NOTE: a windowed-no-``DisplayServer`` abort happens
         BEFORE Godot installs its file logger, so this tail is usually EMPTY for that
         case (the child-signal reason carries it); it carries content for a
         post-logger crash.
@@ -323,31 +375,14 @@ class DaemonServer:
     def _read_session_log_tail(self, max_bytes: int = 2000) -> str:
         """The trailing bytes of the daemon-owned Session log, or "" if unreadable."""
         try:
-            data = self._session_log_path().read_bytes()
+            data = self.paths.session_log.read_bytes()
         except OSError:
             return ""
         return data.decode("utf-8", "replace").strip()[-max_bytes:]
 
-    def _session_log_path(self):
-        """The daemon-owned Session-log path for this project (#224).
-
-        Under the daemon's private runtime dir (NOT ``user://logs`` — that shared
-        path caused #180), keyed by the same project slug the sockets/pidfile use,
-        so the engine's ``--log-file`` writes the running game's errors/output to a
-        path the daemon can read back to serve ``gda diag``. ``RotatedFileLogger``
-        truncates it each launch, making it session-bound (ADR-0020).
-        """
-        slug = self.paths.cli_socket.name.split(".", 1)[0]
-        return self.paths.runtime_dir / f"{slug}.session.log"
-
     def _cleanup(self) -> None:
         if self._session is not None:
             self._session.close()
-        if self._pidfile_handle is not None:
-            try:
-                self._pidfile_handle.close()  # releases the advisory lock
-            except OSError:
-                pass
         for sock in (self._listener, self._harness_listener):
             if sock is not None:
                 try:
@@ -362,4 +397,15 @@ class DaemonServer:
             try:
                 os.unlink(path)
             except FileNotFoundError:
+                pass
+        # The advisory lock releases LAST (#723 review): it is the slot's mutual
+        # exclusion (ADR-0021), so it must outlive the slot it guards. Released
+        # before the unlinks above, a successor could acquire and bind a fresh
+        # slot inside this window — which the remaining unlinks would then
+        # destroy, leaving a serving daemon that discovery reports as not
+        # running.
+        if self._pidfile_handle is not None:
+            try:
+                self._pidfile_handle.close()  # releases the advisory lock
+            except OSError:
                 pass
