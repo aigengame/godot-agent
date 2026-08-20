@@ -110,6 +110,7 @@ def reference_execute_event(
     resolved_initialization_programs: list[dict[str, Any]] | None = None,
     language_bundle: dict[str, Any] | None = None,
     root_operation_coordinate: OperationCoordinate | None = None,
+    include_execution_evidence: bool = False,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
     numeric = runtime["numeric"]
@@ -289,6 +290,7 @@ def reference_execute_event(
     rng_indices: dict[str, int] = {}
     draws: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
+    executed_resource_charge = 0
     call_sites = {
         (row["parent_operation"]["id"], row["site"]): row
         for row in (resolved_call_sites or [])
@@ -413,6 +415,7 @@ def reference_execute_event(
         stack: tuple[OperationCoordinate, ...] = (),
         path: tuple[str, ...] = (),
     ) -> tuple[str, Any]:
+        nonlocal executed_resource_charge
         assert selected_coordinate not in stack
         locals_: dict[str, dict[str, Any]] = {}
         operation_results: dict[str, Any] = {}
@@ -447,6 +450,7 @@ def reference_execute_event(
         try:
             for instruction in selected["body"]:
                 node = nodes[instruction["node"]]
+                executed_resource_charge += node["resource_charge"]["amount"]
                 assert set(instruction) == set(node["required_members"])
                 semantics = node["semantics"]
                 operator = semantics["operator"]
@@ -749,7 +753,7 @@ def reference_execute_event(
             path=((resolved_entrypoint["id"],) if resolved_entrypoint else ()),
         )
     except _ReferenceRuntimeRefusal as refusal:
-        return {
+        refused_event = {
             "refusal": {
                 "reason": refusal.reason,
                 "operation": refusal.operation,
@@ -768,6 +772,17 @@ def reference_execute_event(
                 for name in sorted(state_cells)
             ],
         }
+        if include_execution_evidence:
+            refused_event["execution_evidence"] = {
+                "ordering_key": {
+                    "logical_time": 0,
+                    "phase": "transition",
+                    "priority": 0,
+                    "enqueue_sequence": 0,
+                },
+                "resource_charge": executed_resource_charge,
+            }
+        return refused_event
     outcome_definition = next(
         row for row in operation["outcomes"] if row["id"] == outcome
     )
@@ -816,4 +831,14 @@ def reference_execute_event(
             "identity": resolved_entrypoint["identity"],
         }
         event["calls"] = calls
+    if include_execution_evidence:
+        event["execution_evidence"] = {
+            "ordering_key": {
+                "logical_time": 0,
+                "phase": "transition",
+                "priority": 0,
+                "enqueue_sequence": 0,
+            },
+            "resource_charge": executed_resource_charge,
+        }
     return event

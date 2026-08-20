@@ -4175,11 +4175,13 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
         for entrypoint in cast(list[dict[str, Any]], rir["entrypoints"])
     ] == [
         "combat.enemy-attacks-player",
+        "combat.enemy-attacks-player-without-eligibility",
         "combat.player-attacks-enemy",
         "combat.player-attacks-enemy-and-cancels-counterattack",
+        "combat.player-attacks-enemy-without-eligibility",
         "combat.player-plans-attacks",
     ]
-    assert len(cast(list[Any], rir["call_sites"])) == 5
+    assert len(cast(list[Any], rir["call_sites"])) == 6
     assert admit_resolved_model(
         {
             name: reference[name]
@@ -4244,7 +4246,7 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
     assert damage_calls
     assert {
         cast(dict[str, Any], row["closure"])["resource_charge"] for row in damage_calls
-    } == {14}
+    } == {16}
 
 
 def test_operation_formula_dependency_closure_includes_guard_invocations():

@@ -20,8 +20,10 @@ The Model exposes two directional entrypoints:
 - `combat.player-attacks-enemy`
 - `combat.enemy-attacks-player`
 
-Both entrypoints bind the reusable `game.combat.cast-v1` Operation. The Model explicitly reverses
-the actor and target operands. Runtime and host code do not swap role names.
+Both entrypoints bind the reusable `game.combat.eligible-cast-v1` Operation. The Model explicitly
+reverses the actor and target operands. Runtime and host code do not swap role names. Two companion
+entrypoints bind the raw `game.combat.cast-v1` Operation so that section 8.3 can show the boundary
+between authored combat policy and Runtime execution.
 
 The Experiment admits both root Events at logical time `0`. Runtime derives the `transition` phase.
 It assigns an enqueue sequence and an `event_id` to each Event. Runtime then dispatches the Events
@@ -39,8 +41,9 @@ The files are:
 - `multi-time-experiment.json` — an external-input root, scheduled and canceled child Events, and
   multiple logical times.
 
-This example demonstrates one bounded reciprocal exchange. It does not define a complete RPG,
-Action, turn, interruption, defeat, Replay, Evidence, or general same-logical-time combat contract.
+This example demonstrates one bounded reciprocal exchange and explicit defeat/action-eligibility
+policy. It does not define a complete RPG, Action lifecycle, turn order, interruption, revival,
+Replay, Evidence, or general same-logical-time combat contract.
 
 ## 1. Prepare an isolated run
 
@@ -81,8 +84,8 @@ jq . examples/schema2/rpg-combat-cast/model-source.json
 ```
 
 The source selects `core.quantity@2.1.0` and `game.combat@2.1.0`. The selected closure supplies
-resource spending, hit and critical checks, deterministic Runtime behavior, and the directional
-cast Operation.
+resource spending, hit and critical checks, deterministic Runtime behavior, the raw cast, and the
+directional eligible-cast Operation.
 
 The important Symbols are:
 
@@ -91,9 +94,10 @@ The important Symbols are:
 | player | `player_mana`, `player_health` | `player_action_cost`, `player_accuracy`, `player_base_damage`, `player_critical_threshold`, `player_defense` | `player_effective_accuracy` | `player_damage_dealt` |
 | enemy | `enemy_mana`, `enemy_health` | `enemy_action_cost`, `enemy_accuracy`, `enemy_base_damage`, `enemy_critical_threshold`, `enemy_defense` | `enemy_effective_accuracy` | `enemy_damage_dealt` |
 
-The player entrypoint binds player resource and attack values to actor ports. It binds enemy defense
-and health to target ports. The enemy entrypoint uses the reverse binding. The compiler does not
-infer bindings from matching names.
+The player entrypoint binds player health, resource, and attack values to actor ports. It binds
+enemy defense and health to target ports. Both directions bind the shared `defeat_threshold`
+parameter. The enemy entrypoint uses the reverse binding. The compiler does not infer bindings from
+matching names.
 
 The same `effective-accuracy` Formula declaration binds to the player and enemy derived Symbols.
 The `mitigated-damage` Formula fills the `game.combat.damage-v1` `damage-policy` slot. Thus, both
@@ -283,8 +287,12 @@ gives the player attack sequence `0` and the enemy attack sequence `1`. A priori
 root-member order change are different semantic edits.
 
 The later Event does not read Snapshot 0. It reads the Snapshot that the earlier Event committed.
-Runtime does not infer defeat, interruption, or cancellation from health-like values. A package
-must define these policies with explicit Operations and outcomes.
+Runtime does not infer defeat, interruption, or cancellation from health-like values. The selected
+`game.combat.eligible-cast-v1` Operation checks actor eligibility and publishes the explicit
+`target-defeated` outcome. It requires a non-negative defeat threshold before `actor_resource`
+spending, RNG, or gameplay state mutation. Execution still records the Operation's `event-steps`
+charge for threshold validation and actor eligibility. The raw cast entrypoints in section 8.3
+prove that this policy comes from the package Operation, not Runtime.
 
 Each independent scenario receives its own Snapshot 0, Event queue, and replication. Two scenarios
 cannot form a reciprocal exchange or observe each other's committed state.
@@ -606,13 +614,17 @@ additional Runtime and package boundaries.
 
 ### 8.1 Compare ordinary, miss, and insufficient-resource outcomes
 
-`game.combat.cast-v1` defines three typed outcomes:
+`game.combat.cast-v1` defines three typed outcomes. The directional entrypoints wrap it with two
+additional eligible-cast outcomes:
 
 | Setup | Typed outcome | State policy |
 | --- | --- | --- |
 | admitted hit | `cast-resolved` / `success` | `commit` |
 | hit check fails | `miss` / `gameplay-alternative` | `rollback` |
 | actor resource below action cost | `insufficient-resource` / `gameplay-alternative` | `rollback` |
+| negative defeat threshold | `game.combat.reason.invalid-defeat-threshold` / refusal | Runtime refusal; current Event rolls back |
+| actor health at or below the defeat threshold | `actor-ineligible` / `gameplay-alternative` | `rollback` |
+| transaction-local post-cast target health is at or below the defeat threshold | `target-defeated` / `success` | `commit` |
 
 A one-way scenario contains only `player-attacks-enemy`. It also contains only that entrypoint's
 Scenario Input Contract. It is useful for outcome comparison, but it is not reciprocal combat.
@@ -629,12 +641,14 @@ jq '
   | .scenarios[0].assignments |= map(
       select(.target.name as $name
         | [
+            "defeat_threshold",
             "enemy_defense",
             "enemy_health",
             "player_accuracy",
             "player_action_cost",
             "player_base_damage",
             "player_critical_threshold",
+            "player_health",
             "player_mana"
           ]
         | index($name))
@@ -750,6 +764,16 @@ export ELIGIBILITY_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-no-infere
 
 jq '
   .id = "example.rpg-combat-cast.no-inferred-defeat"
+  | .scenarios[0].event_plan[0].entrypoint =
+      "combat.player-attacks-enemy-without-eligibility"
+  | .scenarios[0].event_plan[1].entrypoint =
+      "combat.enemy-attacks-player-without-eligibility"
+  | .scenarios[0].assignments |= map(
+      select(.target.name != "defeat_threshold")
+    )
+  | .runtime.required_evaluator.instruction_nodes |= map(
+      select(. != "guard-block" and . != "require")
+    )
   | (.scenarios[0].assignments[]
       | select(.target.name == "enemy_health")
       | .value) = 37
@@ -768,7 +792,40 @@ Runtime still dispatches the enemy attack. The Event reads `enemy_health = 0` fr
 Snapshot and returns `cast-resolved`. This result does not mean that a defeated actor should attack.
 It shows that Runtime does not own an undeclared defeat or eligibility policy.
 
-### 8.4 Run the multi-time scheduler companion
+### 8.4 Stop action revisions on the explicit defeat outcome
+
+For an interactive duel, run one complete one-action Experiment revision at a time. A player action
+uses `combat.player-attacks-enemy`. If its outcome is `cast-resolved`, run the enemy action as the
+next complete revision. If its outcome is `target-defeated`, stop. Do not compare health in the host
+to decide whether the enemy may act.
+
+The public real-service regression tracer creates one Execution session and admits five complete
+Experiment revisions with the maintained values. The actions are player, enemy, player, enemy, and
+player. The final player action caps its applied damage at the enemy's remaining `26` health,
+commits `enemy_health = 0`, and returns `target-defeated`. The duel loop stops there; no enemy
+revision follows it. A separately named boundary probe then maps that exact committed enemy-health
+value to the next actor-health input and proves `actor-ineligible` without `actor_resource`
+spending, RNG, or gameplay state change. The probe still records an Operation charge of five
+`event-steps` units:
+
+```bash
+uv run pytest \
+  tests/test_http_service.py::test_reciprocal_combat_service_stops_on_defeat_and_links_ineligibility
+```
+
+The installed-CLI tracer retains the same five-revision outcome sequence. The linked neutral
+package vectors provide the independent production/reference-consumer evidence for the defeat to
+ineligibility handoff. A negative defeat threshold produces
+`game.combat.reason.invalid-defeat-threshold` before `actor_resource` spending, RNG, or gameplay
+state mutation. The root Event is dispatched, the Operation records a charge of three
+`event-steps` units and refuses, and the current Event rolls back.
+
+This slice defines actor eligibility, not target eligibility. It does not distinguish a new
+threshold crossing from a target condition that was already satisfied. The application avoids that
+case by stopping on the explicit `target-defeated` outcome; adding target-selection or
+target-eligibility policy requires separate demonstrated gameplay demand.
+
+### 8.5 Run the multi-time scheduler companion
 
 The reciprocal baseline contains two attacks at the same logical time and six reciprocal Metric
 definitions. `multi-time-experiment.json` demonstrates additional Runtime behavior. It contains an

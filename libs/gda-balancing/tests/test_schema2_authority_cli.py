@@ -1382,6 +1382,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
         "game.combat.cast-and-cancel-v1",
         "game.combat.cast-v1",
         "game.combat.damage-v1",
+        "game.combat.eligible-cast-v1",
         "game.combat.plan-casts-v1",
     }
     cast = next(
@@ -2079,6 +2080,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("runtime.cancel_completed", "runtime"),
         ("runtime.cancel_unknown", "runtime"),
         ("game.build.invalid_plan", "runtime"),
+        ("game.combat.invalid_defeat_threshold", "runtime"),
         ("game.generation.invalid_fallback", "runtime"),
         ("game.generation.invalid_option", "runtime"),
         ("game.generation.selection_exhausted", "runtime"),

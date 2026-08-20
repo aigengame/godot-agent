@@ -4836,7 +4836,7 @@ def test_model_entrypoint_rejects_every_incompatible_formal_value_axis(
     cast_operation = next(
         row["definition"]
         for row in selected["operations"]
-        if row["definition"]["id"] == "game.combat.cast-v1"
+        if row["definition"]["id"] == "game.combat.eligible-cast-v1"
     )
     accuracy = next(
         port for port in cast_operation["inputs"] if port["id"] == "accuracy"
@@ -5320,6 +5320,7 @@ def test_rpg_entrypoints_export_a_separate_event_local_payload_contract():
         row["target"]["name"]: (row["cardinality"], row["value_source"])
         for row in entrypoint["event_local_payload_contract"]["targets"]
     } == {
+        "defeat_threshold": ("optional", "event-payload"),
         "enemy_defense": ("optional", "event-payload"),
         "player_accuracy": ("optional", "event-payload"),
         "player_action_cost": ("optional", "event-payload"),

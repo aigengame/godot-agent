@@ -397,7 +397,13 @@ def _rpg_model_source() -> dict[str, Any]:
         if binding["site"]["kind"] == "operation-slot"
         or binding["site"].get("symbol") == "player_effective_accuracy"
     ]
-    cast_entrypoint = deepcopy(source["entrypoints"][0])
+    cast_entrypoint = deepcopy(
+        next(
+            row
+            for row in source["entrypoints"]
+            if row["id"] == "combat.player-attacks-enemy-without-eligibility"
+        )
+    )
     cast_entrypoint["id"] = "combat.cast"
     plan_entrypoint = deepcopy(cast_entrypoint)
     plan_entrypoint["id"] = "combat.plan-casts"
@@ -6344,6 +6350,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
         if vector.get("kind") == "operation-execution"
     ]
     assert {vector["category"] for vector in vectors} == {
+        "boundary",
         "positive",
         "negative",
         "semantic-mutation",
@@ -6351,7 +6358,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
         "rollback-replay",
     }
 
-    observed = {}
+    expected_by_id = {}
     for vector in vectors:
         operation = operations[vector["operation"]]
         scenario = {
@@ -6370,10 +6377,6 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
                 if row["access"] == "read-write"
             },
         )
-        observations = operation_execution_observations(kernel, ldb, vector)
-        assert observations["production"] == observations["independent"]
-        assert observations["production"] == observations["expected"]
-        projection = observations["production"]
         replay = reference_execute_event(
             kernel,
             operation,
@@ -6387,20 +6390,82 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
             },
         )
         assert replay == event
-        observed[vector["id"]] = projection
+        # The candidate-graph gate executes every vector through both consumers.
+        # Keep this package test focused on replay and cross-vector relationships.
+        expected_by_id[vector["id"]] = vector["expect"]
 
     assert (
-        observed["game.combat.cast.positive"]["rng_draws"]
-        == observed["game.combat.cast.tuned-damage"]["rng_draws"]
+        expected_by_id["game.combat.cast.positive"]["rng_draws"]
+        == expected_by_id["game.combat.cast.tuned-damage"]["rng_draws"]
     )
     assert (
-        observed["game.combat.cast.positive"]["state_after"]
-        != observed["game.combat.cast.tuned-damage"]["state_after"]
+        expected_by_id["game.combat.cast.positive"]["state_after"]
+        != expected_by_id["game.combat.cast.tuned-damage"]["state_after"]
     )
-    assert observed["game.combat.cast.miss-rollback"]["state_after"] == [
+    assert expected_by_id["game.combat.cast.miss-rollback"]["state_after"] == [
         {"name": "actor_resource", "value": 30},
         {"name": "target_health", "value": 100},
     ]
+
+
+def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
+    kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.combat.eligible-cast-v1"
+    )
+    vectors = next(
+        vector_set["vector_definitions"]
+        for vector_set in ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == "game.combat"
+        and vector_set["package_version"] == "2.1.0"
+    )
+
+    assert {"actor_health", "defeat_threshold"} <= {
+        row["id"] for row in operation["inputs"]
+    }
+    assert {
+        (row["id"], row["kind"], row["state_policy"]) for row in operation["outcomes"]
+    } >= {
+        ("actor-ineligible", "gameplay-alternative", "rollback"),
+        ("target-defeated", "success", "commit"),
+    }
+    assert {
+        row["id"] for row in vectors if row.get("kind") == "operation-execution"
+    } >= {
+        "game.combat.cast.eligible-action",
+        "game.combat.cast.invalid-defeat-threshold",
+        "game.combat.cast.target-defeated",
+        "game.combat.cast.actor-ineligible",
+    }
+    assert "game.combat.reason.invalid-defeat-threshold" in operation["refusals"]
+
+    vectors_by_id = {vector["id"]: vector for vector in vectors}
+    defeated = vectors_by_id["game.combat.cast.target-defeated"]
+    ineligible = vectors_by_id["game.combat.cast.actor-ineligible"]
+    defeated_state = {
+        row["name"]: row["value"] for row in defeated["expect"]["state_after"]
+    }
+    ineligible_input = {
+        row["name"]: row["value"] for row in ineligible["input"]["values"]
+    }
+    assert defeated_state["target_health"] == ineligible_input["actor_health"]
+    assert ineligible["expect"]["rng_draws"] == []
+    assert ineligible["expect"]["state_after"] == [
+        {
+            "name": "actor_resource",
+            "value": ineligible_input["actor_resource"],
+        },
+        {
+            "name": "target_health",
+            "value": ineligible_input["target_health"],
+        },
+    ]
+    for vector in (defeated, ineligible):
+        observations = operation_execution_observations(kernel, ldb, vector)
+        assert observations["production"] == observations["independent"]
+        assert observations["production"] == observations["expected"]
 
 
 def test_neutral_structured_operation_vectors_cover_control_paths():
@@ -6689,11 +6754,64 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
     }
 
 
-def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
+def test_candidate_graph_executes_every_operation_vector_in_two_consumers(monkeypatch):
     kernel, ldb = mutable_authorities()
-    assert operation_execution_vectors(ldb)
+    vectors = operation_execution_vectors(ldb)
+    assert vectors
+    compile_harness = operation_conformance_module.compile_operation_execution_harness
+    compiled_coordinates = []
 
-    assert candidate_conformance_failures(kernel, ldb) == []
+    def tracked_compile_harness(context, coordinate, operation):
+        compiled_coordinates.append(coordinate)
+        return compile_harness(context, coordinate, operation)
+
+    monkeypatch.setattr(
+        operation_conformance_module,
+        "compile_operation_execution_harness",
+        tracked_compile_harness,
+    )
+
+    root_ordering_key = {
+        "logical_time": 0,
+        "phase": "transition",
+        "priority": 0,
+        "enqueue_sequence": 0,
+    }
+    assert (
+        candidate_conformance_failures(
+            kernel,
+            ldb,
+            execution_evidence_expectations={
+                ("game.combat", "2.1.0", "game.combat.cast.eligible-action"): {
+                    "ordering_key": root_ordering_key,
+                    "resource_charge": 30,
+                },
+                ("game.combat", "2.1.0", "game.combat.cast.target-defeated"): {
+                    "ordering_key": root_ordering_key,
+                    "resource_charge": 30,
+                },
+                ("game.combat", "2.1.0", "game.combat.cast.actor-ineligible"): {
+                    "ordering_key": root_ordering_key,
+                    "resource_charge": 5,
+                },
+                (
+                    "game.combat",
+                    "2.1.0",
+                    "game.combat.cast.invalid-defeat-threshold",
+                ): {
+                    "ordering_key": root_ordering_key,
+                    "resource_charge": 3,
+                },
+            },
+        )
+        == []
+    )
+    expected_coordinates = {
+        (package_id, package_version, vector["operation"])
+        for package_id, package_version, vector in vectors
+    }
+    assert len(compiled_coordinates) == len(set(compiled_coordinates))
+    assert set(compiled_coordinates) == expected_coordinates
 
 
 def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
@@ -6721,24 +6839,27 @@ def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
 
 def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
     kernel, ldb = mutable_authorities()
-    target = "structured.select.empty-outcome"
+    target = "game.combat.cast.eligible-action"
     package_id, package_version, _vector = next(
         candidate
         for candidate in operation_execution_vectors(ldb)
         if candidate[2]["id"] == target
     )
-    evaluate = operation_conformance_module.evaluate_operation_execution_vector
+    evaluate = (
+        operation_conformance_module.evaluate_operation_execution_vector_with_evidence
+    )
 
     def divergent_production(context, vector, **owner):
-        observation = deepcopy(evaluate(context, vector, **owner))
+        result = deepcopy(evaluate(context, vector, **owner))
         if vector["id"] == target:
-            completion = cast(dict[str, Any], observation["completion"])
+            completion = cast(dict[str, Any], result["observation"]["completion"])
             completion["id"] = "production-only-outcome"
-        return observation
+            result["execution_evidence"]["resource_charge"] += 1
+        return result
 
     monkeypatch.setattr(
         operation_conformance_module,
-        "evaluate_operation_execution_vector",
+        "evaluate_operation_execution_vector_with_evidence",
         divergent_production,
     )
 
@@ -6746,13 +6867,26 @@ def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
         kernel,
         ldb,
         vector_coordinates={(package_id, package_version, target)},
+        execution_evidence_expectations={
+            (package_id, package_version, target): {
+                "ordering_key": {
+                    "logical_time": 0,
+                    "phase": "transition",
+                    "priority": 0,
+                    "enqueue_sequence": 0,
+                },
+                "resource_charge": 30,
+            }
+        },
     )
 
-    assert len(failures) == 1
-    assert failures[0]["kind"] == "vector-divergence"
-    assert failures[0]["vector"] == target
-    assert failures[0]["production"] != failures[0]["independent"]
-    assert failures[0]["independent"] == failures[0]["expected"]
+    assert [failure["kind"] for failure in failures] == [
+        "vector-divergence",
+        "execution-evidence-divergence",
+    ]
+    assert all(failure["vector"] == target for failure in failures)
+    assert all(failure["production"] != failure["independent"] for failure in failures)
+    assert all(failure["independent"] == failure["expected"] for failure in failures)
 
 
 def test_operation_execution_projection_preserves_declared_state_order():
@@ -7870,11 +8004,13 @@ def test_metric_dataset_canonicalizer_orders_multiple_replications():
     ]
 
 
-def _assert_numeric_overflow_rolls_back_the_entire_current_event(
+def _assert_high_damage_event_behavior(
     tmp_path,
     run_cli,
     base_damage_value,
     extend_base_damage_domain,
+    *,
+    expected_capped_damage=None,
 ):
     source_value = _rpg_model_source()
     base_damage = next(
@@ -7928,6 +8064,23 @@ def _assert_numeric_overflow_rolls_back_the_entire_current_event(
         ]
     )
 
+    if expected_capped_damage is not None:
+        assert (exit_code, stderr) == (0, ""), stdout
+        event = _member(json.loads(stdout), "event-trace")["events"][0]
+        assert (
+            next(
+                row["integer"]
+                for row in event["facts"]
+                if row["name"] == "damage_dealt"
+            )
+            == expected_capped_damage
+        )
+        assert event["state_after"] == [
+            {"name": "actor_mana", "value": 22},
+            {"name": "target_health", "value": 0},
+        ]
+        return
+
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "runtime"
@@ -7978,7 +8131,7 @@ def _assert_numeric_overflow_rolls_back_the_entire_current_event(
 
 
 def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli):
-    _assert_numeric_overflow_rolls_back_the_entire_current_event(
+    _assert_high_damage_event_behavior(
         tmp_path,
         run_cli,
         1 << 62,
@@ -7986,15 +8139,13 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
     )
 
 
-def test_receiving_resource_domain_overflow_rolls_back_the_entire_current_event(
-    tmp_path,
-    run_cli,
-):
-    _assert_numeric_overflow_rolls_back_the_entire_current_event(
+def test_damage_caps_to_the_receiving_resource_domain(tmp_path, run_cli):
+    _assert_high_damage_event_behavior(
         tmp_path,
         run_cli,
         101,
         False,
+        expected_capped_damage=100,
     )
 
 
@@ -8169,7 +8320,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
             for row in production_event["facts"]
             if row["name"] == "damage_dealt"
         )
-        == 80
+        == 10
     )
     assert production_event["state_after"] == [
         {"name": "actor_mana", "value": 22},

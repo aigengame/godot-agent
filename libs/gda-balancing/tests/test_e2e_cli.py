@@ -26,6 +26,10 @@ from pathlib import Path
 import jsonschema
 
 from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
+from rpg_combat_test_support import (
+    combat_action_assignment_names,
+    one_action_experiment,
+)
 
 _RPG_COMBAT_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
@@ -35,24 +39,6 @@ _RPG_PERIODIC_EFFECT_EXAMPLE = (
 )
 _ROGUELIKE_REWARD_BUILD_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
-)
-_PLAYER_ATTACK_ASSIGNMENT_NAMES = frozenset(
-    {
-        "enemy_defense",
-        "enemy_health",
-        "player_accuracy",
-        "player_action_cost",
-        "player_base_damage",
-        "player_critical_threshold",
-        "player_mana",
-    }
-)
-_PLAYER_ATTACK_METRIC_IDS = frozenset(
-    {
-        "enemy_health_remaining",
-        "player_damage_dealt",
-        "player_resource_remaining",
-    }
 )
 
 
@@ -190,20 +176,11 @@ def _build_periodic_effect_example(
 
 
 def _one_way_variant(baseline: dict, identifier: str) -> dict:
-    variant = json.loads(json.dumps(baseline))
-    variant["id"] = identifier
-    variant["scenarios"][0]["event_plan"] = variant["scenarios"][0]["event_plan"][:1]
-    variant["scenarios"][0]["assignments"] = [
-        row
-        for row in variant["scenarios"][0]["assignments"]
-        if row["target"]["name"] in _PLAYER_ATTACK_ASSIGNMENT_NAMES
-    ]
-    variant["metrics"] = [
-        metric
-        for metric in variant["metrics"]
-        if metric["id"] in _PLAYER_ATTACK_METRIC_IDS
-    ]
-    return variant
+    return one_action_experiment(
+        baseline,
+        identifier,
+        root_event_ref="player-attacks-enemy",
+    )
 
 
 class TestEntryPoints:
@@ -487,6 +464,11 @@ class TestKeyUserPath:
             "combat.enemy-attacks-player": {
                 "package": "game.combat",
                 "version": "2.1.0",
+                "id": "game.combat.eligible-cast-v1",
+            },
+            "combat.enemy-attacks-player-without-eligibility": {
+                "package": "game.combat",
+                "version": "2.1.0",
                 "id": "game.combat.cast-v1",
             },
             "combat.player-attacks-enemy-and-cancels-counterattack": {
@@ -495,6 +477,11 @@ class TestKeyUserPath:
                 "id": "game.combat.cast-and-cancel-v1",
             },
             "combat.player-attacks-enemy": {
+                "package": "game.combat",
+                "version": "2.1.0",
+                "id": "game.combat.eligible-cast-v1",
+            },
+            "combat.player-attacks-enemy-without-eligibility": {
                 "package": "game.combat",
                 "version": "2.1.0",
                 "id": "game.combat.cast-v1",
@@ -515,6 +502,18 @@ class TestKeyUserPath:
         }
         assert directional_bindings == {
             "combat.enemy-attacks-player": {
+                "actor_health": "enemy_health",
+                "actor_resource": "enemy_mana",
+                "action_cost": "enemy_action_cost",
+                "accuracy": "enemy_effective_accuracy",
+                "base_damage": "enemy_base_damage",
+                "critical_threshold": "enemy_critical_threshold",
+                "hit_defense": "player_defense",
+                "damage_mitigation": "player_defense",
+                "defeat_threshold": "defeat_threshold",
+                "target_health": "player_health",
+            },
+            "combat.enemy-attacks-player-without-eligibility": {
                 "actor_resource": "enemy_mana",
                 "action_cost": "enemy_action_cost",
                 "accuracy": "enemy_effective_accuracy",
@@ -535,6 +534,18 @@ class TestKeyUserPath:
                 "target_health": "enemy_health",
             },
             "combat.player-attacks-enemy": {
+                "actor_health": "player_health",
+                "actor_resource": "player_mana",
+                "action_cost": "player_action_cost",
+                "accuracy": "player_effective_accuracy",
+                "base_damage": "player_base_damage",
+                "critical_threshold": "player_critical_threshold",
+                "hit_defense": "enemy_defense",
+                "damage_mitigation": "enemy_defense",
+                "defeat_threshold": "defeat_threshold",
+                "target_health": "enemy_health",
+            },
+            "combat.player-attacks-enemy-without-eligibility": {
                 "actor_resource": "player_mana",
                 "action_cost": "player_action_cost",
                 "accuracy": "player_effective_accuracy",
@@ -1840,6 +1851,23 @@ class TestKeyUserPath:
             (example / "experiment.json").read_text(encoding="utf-8")
         )
         no_cancellation["id"] = "example.rpg-combat-cast.no-inferred-defeat"
+        no_cancellation["scenarios"][0]["event_plan"][0]["entrypoint"] = (
+            "combat.player-attacks-enemy-without-eligibility"
+        )
+        no_cancellation["scenarios"][0]["event_plan"][1]["entrypoint"] = (
+            "combat.enemy-attacks-player-without-eligibility"
+        )
+        no_cancellation["scenarios"][0]["assignments"] = [
+            row
+            for row in no_cancellation["scenarios"][0]["assignments"]
+            if row["target"]["name"] != "defeat_threshold"
+        ]
+        no_cancellation["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "guard-block"
+        )
+        no_cancellation["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "require"
+        )
         enemy_health = next(
             row
             for row in no_cancellation["scenarios"][0]["assignments"]
@@ -1875,6 +1903,84 @@ class TestKeyUserPath:
             "player_health"
         ] == 86
 
+    def test_reciprocal_combat_revisions_stop_on_explicit_defeat(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example, build_receipt = _build_reciprocal_example(
+            tmp_path,
+            invocation_key="5" * 64,
+        )
+        baseline = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
+        _bind_experiment_to_build(baseline, build_receipt)
+        state = {
+            row["target"]["name"]: row["value"]
+            for row in baseline["scenarios"][0]["assignments"]
+        }
+        traces = []
+        outcomes = []
+        actions = ("player-attacks-enemy", "enemy-attacks-player")
+
+        for index in range(1, 7):
+            root_event_ref = actions[(index - 1) % 2]
+            revision = one_action_experiment(
+                baseline,
+                f"example.rpg-combat-cast.action-{index}",
+                root_event_ref=root_event_ref,
+                include_damage_metric=False,
+            )
+            for assignment in revision["scenarios"][0]["assignments"]:
+                assignment["value"] = state[assignment["target"]["name"]]
+            _receipt, trace = _run_experiment_variant(
+                tmp_path,
+                revision,
+                name=f"combat-action-{index}",
+                invocation_key="6789ab"[index - 1] * 64,
+            )
+            traces.append(trace)
+            transition = next(
+                event for event in trace["events"] if event["operation"] is not None
+            )
+            outcomes.append(transition["outcome"]["id"])
+            state.update(
+                {row["name"]: row["value"] for row in transition["state_after"]}
+            )
+            if transition["outcome"]["id"] == "target-defeated":
+                break
+
+        assert len(traces) == 5
+        assert outcomes == [
+            "cast-resolved",
+            "cast-resolved",
+            "cast-resolved",
+            "cast-resolved",
+            "target-defeated",
+        ]
+        terminal_event = next(
+            event for event in traces[-1]["events"] if event["operation"] is not None
+        )
+        assert {row["name"]: row["integer"] for row in terminal_event["facts"]}[
+            "player_damage_dealt"
+        ] == 26
+        assert state == {
+            "enemy_health": 0,
+            "enemy_mana": 16,
+            "player_health": 72,
+            "player_mana": 8,
+            "defeat_threshold": 0,
+            "enemy_accuracy": 1000,
+            "enemy_action_cost": 7,
+            "enemy_base_damage": 20,
+            "enemy_critical_threshold": 0,
+            "enemy_defense": 8,
+            "player_accuracy": 1000,
+            "player_action_cost": 9,
+            "player_base_damage": 45,
+            "player_critical_threshold": 0,
+            "player_defense": 6,
+        }
+
     def test_rpg_combat_example_distinguishes_one_way_and_alternative_outcomes(
         self, tmp_path, monkeypatch
     ):
@@ -1902,6 +2008,7 @@ class TestKeyUserPath:
         assert one_way_event["outcome"] == {"id": "cast-resolved", "kind": "success"}
         assert one_way_event["state_after"] == [
             {"name": "enemy_health", "value": 63},
+            {"name": "player_health", "value": 100},
             {"name": "player_mana", "value": 26},
         ]
 
@@ -2178,10 +2285,18 @@ class TestKeyUserPath:
         backward_time["scenarios"][0]["assignments"] = [
             row
             for row in backward_time["scenarios"][0]["assignments"]
-            if row["target"]["name"] in _PLAYER_ATTACK_ASSIGNMENT_NAMES
+            if row["target"]["name"]
+            in combat_action_assignment_names("player-attacks-enemy")
+            - {"defeat_threshold", "player_health"}
         ]
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].extend(
             ["cancel", "schedule"]
+        )
+        backward_time["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "guard-block"
+        )
+        backward_time["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "require"
         )
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].sort()
         backward_time["runtime"]["required_evaluator"]["effects"].extend(

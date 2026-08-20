@@ -37,10 +37,12 @@ from http_service_support import (
     request_json,
     running_execution_http_service,
 )
+from rpg_combat_test_support import one_action_experiment
 
 
 _PACKAGE_ROOT = Path(__file__).parents[1]
 _ROGUELIKE_EXAMPLE = _PACKAGE_ROOT / "examples" / "schema2" / "roguelike-reward-build"
+_RPG_COMBAT_EXAMPLE = _PACKAGE_ROOT / "examples" / "schema2" / "rpg-combat-cast"
 
 
 def _run_console(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -58,6 +60,17 @@ def _roguelike_documents() -> tuple[dict[str, Any], dict[str, Any]]:
         ),
         json.loads(
             (_ROGUELIKE_EXAMPLE / "experiment.json").read_text(encoding="utf-8")
+        ),
+    )
+
+
+def _rpg_combat_documents() -> tuple[dict[str, Any], dict[str, Any]]:
+    return (
+        json.loads(
+            (_RPG_COMBAT_EXAMPLE / "model-source.json").read_text(encoding="utf-8")
+        ),
+        json.loads(
+            (_RPG_COMBAT_EXAMPLE / "experiment.json").read_text(encoding="utf-8")
         ),
     )
 
@@ -228,6 +241,87 @@ def test_each_run_explicitly_selects_one_immutable_revision() -> None:
             later_run["artifacts"]["reproduction-receipt"]["experiment_identity"]
             == later_revision["revision_id"]
         )
+
+
+def test_reciprocal_combat_service_stops_on_defeat_and_links_ineligibility() -> None:
+    model_source, baseline = _rpg_combat_documents()
+    state = {
+        row["target"]["name"]: row["value"]
+        for row in baseline["scenarios"][0]["assignments"]
+    }
+    action_outcomes = []
+    actions = ("player-attacks-enemy", "enemy-attacks-player")
+
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, baseline)
+
+        for index in range(1, 7):
+            root_event_ref = actions[(index - 1) % 2]
+            revision = one_action_experiment(
+                baseline,
+                f"example.rpg-combat-cast.service-action-{index}",
+                root_event_ref=root_event_ref,
+                include_damage_metric=False,
+            )
+            for assignment in revision["scenarios"][0]["assignments"]:
+                assignment["value"] = state[assignment["target"]["name"]]
+            admitted = service.admit_revision(created["session_id"], revision)
+            assert admitted["outcome"] == "success", admitted
+            run = service.run(created["session_id"], admitted["revision_id"])
+            assert run["outcome"] == "success", run
+            transition = next(
+                event
+                for event in run["artifacts"]["event-trace"]["events"]
+                if event["operation"] is not None
+            )
+            action_outcomes.append(transition["outcome"]["id"])
+            state.update(
+                {row["name"]: row["value"] for row in transition["state_after"]}
+            )
+            if transition["outcome"]["id"] == "target-defeated":
+                break
+
+        assert action_outcomes == [
+            "cast-resolved",
+            "cast-resolved",
+            "cast-resolved",
+            "cast-resolved",
+            "target-defeated",
+        ]
+        assert state["enemy_health"] == 0
+
+        # This is a boundary probe, not another action in the stopped duel loop.
+        ineligible_revision = one_action_experiment(
+            baseline,
+            "example.rpg-combat-cast.service-ineligible-probe",
+            root_event_ref="enemy-attacks-player",
+            include_damage_metric=False,
+        )
+        for assignment in ineligible_revision["scenarios"][0]["assignments"]:
+            assignment["value"] = state[assignment["target"]["name"]]
+        admitted = service.admit_revision(
+            created["session_id"],
+            ineligible_revision,
+        )
+        assert admitted["outcome"] == "success", admitted
+        run = service.run(created["session_id"], admitted["revision_id"])
+        assert run["outcome"] == "success", run
+        ineligible = next(
+            event
+            for event in run["artifacts"]["event-trace"]["events"]
+            if event["operation"] is not None
+        )
+
+    assert ineligible["outcome"] == {
+        "id": "actor-ineligible",
+        "kind": "gameplay-alternative",
+    }
+    assert ineligible["state_after"] == ineligible["state_before"]
+    assert ineligible["rng_draws"] == []
+    assert "enemy_damage_dealt" not in {row["name"] for row in ineligible["facts"]}
+    assert {row["name"]: row["value"] for row in ineligible["state_after"]}[
+        "enemy_mana"
+    ] == state["enemy_mana"]
 
 
 def test_admitted_revisions_detach_from_caller_owned_values() -> None:
