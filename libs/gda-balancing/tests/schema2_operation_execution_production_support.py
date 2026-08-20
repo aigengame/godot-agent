@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, cast
 
 from gda_balancing.domain.authority.context import AdmittedAuthorityContext
@@ -21,6 +22,20 @@ from gda_balancing.domain.runtime.execution import (
 )
 
 OperationCoordinate = tuple[str, str, str]
+
+
+@dataclass(frozen=True)
+class OperationExecutionHarness:
+    """One compiled production harness shared by vectors for one Operation."""
+
+    operation_coordinate: OperationCoordinate
+    source: dict[str, Any]
+    checked_model: CheckedModel
+    artifacts: dict[str, dict[str, Any]]
+    result_name: str
+    requirements: dict[str, list[str]]
+    named_streams: list[str]
+    entrypoint_id: str
 
 
 def _operation_coordinate(reference: dict[str, Any]) -> OperationCoordinate:
@@ -363,7 +378,7 @@ def _candidate_model_source(
     context: AdmittedAuthorityContext,
     operation_coordinate: OperationCoordinate,
     operation: dict[str, Any],
-    vector: dict[str, Any],
+    entrypoint_id: str,
 ) -> tuple[dict[str, Any], str]:
     runtime = cast(dict[str, Any], context.kernel["meta_format"]["runtime_program"])
     numeric = cast(dict[str, int], runtime["numeric"])
@@ -451,7 +466,7 @@ def _candidate_model_source(
                 ],
                 "entrypoints": [
                     {
-                        "id": vector["id"],
+                        "id": entrypoint_id,
                         "operation": {
                             "package": operation_owner[0],
                             "version": operation_owner[1],
@@ -490,14 +505,15 @@ def _candidate_model_source(
     )
 
 
-def _checked_vector_experiment(
+def compile_operation_execution_harness(
     context: AdmittedAuthorityContext,
     operation_coordinate: OperationCoordinate,
     operation: dict[str, Any],
-    vector: dict[str, Any],
-) -> tuple[CheckedExperiment, str]:
+) -> OperationExecutionHarness:
+    """Compile the invariant Model and RIR for one Operation's vectors."""
+    entrypoint_id = cast(str, operation["id"])
     source, result_name = _candidate_model_source(
-        context, operation_coordinate, operation, vector
+        context, operation_coordinate, operation, entrypoint_id
     )
     checked_model = check_model_source_value(source, authority_context=context)
     if not isinstance(checked_model, CheckedModel):
@@ -521,9 +537,47 @@ def _checked_vector_experiment(
     )
     requirements, named_streams = derive_scenario_program_requirements(
         rir,
-        cast(str, vector["id"]),
+        entrypoint_id,
         profile,
         rng_algorithm,
+    )
+    return OperationExecutionHarness(
+        operation_coordinate=operation_coordinate,
+        source=source,
+        checked_model=checked_model,
+        artifacts=artifacts,
+        result_name=result_name,
+        requirements=requirements,
+        named_streams=named_streams,
+        entrypoint_id=entrypoint_id,
+    )
+
+
+def _checked_vector_experiment(
+    context: AdmittedAuthorityContext,
+    operation_coordinate: OperationCoordinate,
+    operation: dict[str, Any],
+    vector: dict[str, Any],
+    *,
+    harness: OperationExecutionHarness | None = None,
+) -> tuple[CheckedExperiment, str]:
+    resolved_harness = harness or compile_operation_execution_harness(
+        context, operation_coordinate, operation
+    )
+    if resolved_harness.operation_coordinate != operation_coordinate:
+        raise ValueError("operation execution harness coordinate does not match")
+    source = resolved_harness.source
+    checked_model = resolved_harness.checked_model
+    artifacts = resolved_harness.artifacts
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    result_name = resolved_harness.result_name
+    requirements = resolved_harness.requirements
+    named_streams = resolved_harness.named_streams
+    entrypoint_id = resolved_harness.entrypoint_id
+    profile = cast(str, operation["runtime_profile"])
+    rng_algorithm = cast(
+        str,
+        context.kernel["meta_format"]["runtime_program"]["named_rng"]["algorithm"],
     )
     values = {row["name"]: row["value"] for row in vector["input"]["values"]}
     assignments = [
@@ -576,7 +630,7 @@ def _checked_vector_experiment(
                         "root_event_ref": "vector",
                         "logical_time": 0,
                         "priority": 0,
-                        "entrypoint": vector["id"],
+                        "entrypoint": entrypoint_id,
                         "payload": [],
                     }
                 ],
@@ -633,14 +687,15 @@ def _fact_value(row: dict[str, Any]) -> JsonValue:
     raise ValueError("operation vector result fact has an unsupported kind")
 
 
-def evaluate_operation_execution_vector(
+def evaluate_operation_execution_vector_with_evidence(
     context: AdmittedAuthorityContext,
     vector: dict[str, Any],
     *,
     package_id: str | None = None,
     package_version: str | None = None,
-) -> dict[str, JsonValue]:
-    """Execute one admitted Package vector through the production evaluator."""
+    harness: OperationExecutionHarness | None = None,
+) -> dict[str, Any]:
+    """Execute one Package vector and retain its Runtime audit evidence."""
     if package_id is None or package_version is None:
         language = cast(dict[str, Any], context.language_bundle["language"])
         package_id, package_version = _operation_owner(
@@ -656,8 +711,16 @@ def evaluate_operation_execution_vector(
     if operation is None or vector.get("kind") != "operation-execution":
         raise ValueError("operation execution vector target is unavailable")
     checked, result_name = _checked_vector_experiment(
-        context, coordinate, operation, vector
+        context, coordinate, operation, vector, harness=harness
     )
+    resolved_operations = {
+        (
+            cast(str, row["package"]),
+            cast(str, row["definition"]["version"]),
+            cast(str, row["definition"]["id"]),
+        ): row["definition"]
+        for row in checked.rir["selected_semantics"]["operations"]
+    }
     evaluation = evaluate_experiment(checked)
     state_names = [
         row["id"] for row in operation["inputs"] if row["access"] == "read-write"
@@ -673,13 +736,20 @@ def evaluate_operation_execution_vector(
         if len(reasons) != 1:
             raise ValueError("operation vector refusal reason is not unique")
         return {
-            "completion": {"kind": "refusal", "reason": reasons[0]},
-            "result": {"kind": "not-produced"},
-            "rng_draws": [],
-            "state_after": [
-                {"name": name, "value": evaluation.state_after[name]}
-                for name in state_names
-            ],
+            "execution_evidence": {
+                "ordering_key": evaluation.refusing_ordering_key,
+                "resource_charge": evaluation.budget_counters["event_steps"],
+            },
+            "observation": {
+                "completion": {"kind": "refusal", "reason": reasons[0]},
+                "result": {"kind": "not-produced"},
+                "rng_draws": [],
+                "state_after": [
+                    {"name": name, "value": evaluation.state_after[name]}
+                    for name in state_names
+                ],
+            },
+            "resolved_operations": resolved_operations,
         }
     if isinstance(evaluation, Schema2RefusalReport):
         raise ValueError("operation vector failed before production dispatch")
@@ -687,6 +757,12 @@ def evaluate_operation_execution_vector(
         raise TypeError("operation vector returned an unknown production result")
     trace = evaluation.members["event-trace"].value
     event = next(row for row in trace["events"] if row["observation"] is None)
+    snapshots = evaluation.members["snapshot-series"].value["snapshots"]
+    snapshot_after = next(
+        row
+        for row in snapshots
+        if row["snapshot_identity"] == event["snapshot_after_identity"]
+    )
     outcome = event["outcome"]
     result: dict[str, JsonValue] = {"kind": "not-produced"}
     if outcome["kind"] == "success":
@@ -694,16 +770,41 @@ def evaluate_operation_execution_vector(
         result = {"kind": "value", "value": _fact_value(result_fact)}
     state_after = {row["name"]: row["value"] for row in event["state_after"]}
     return {
-        "completion": {"kind": "outcome", "id": outcome["id"]},
-        "result": result,
-        "rng_draws": [
-            {
-                member: draw[member]
-                for member in ("candidate_hex", "index", "stream", "value")
-            }
-            for draw in event["rng_draws"]
-        ],
-        "state_after": [
-            {"name": name, "value": state_after[name]} for name in state_names
-        ],
+        "execution_evidence": {
+            "ordering_key": event["ordering_key"],
+            "resource_charge": snapshot_after["continuation"]["resource_ledger"][
+                "event_steps"
+            ],
+        },
+        "observation": {
+            "completion": {"kind": "outcome", "id": outcome["id"]},
+            "result": result,
+            "rng_draws": [
+                {
+                    member: draw[member]
+                    for member in ("candidate_hex", "index", "stream", "value")
+                }
+                for draw in event["rng_draws"]
+            ],
+            "state_after": [
+                {"name": name, "value": state_after[name]} for name in state_names
+            ],
+        },
+        "resolved_operations": resolved_operations,
     }
+
+
+def evaluate_operation_execution_vector(
+    context: AdmittedAuthorityContext,
+    vector: dict[str, Any],
+    *,
+    package_id: str | None = None,
+    package_version: str | None = None,
+) -> dict[str, JsonValue]:
+    """Execute one admitted Package vector through the production evaluator."""
+    return evaluate_operation_execution_vector_with_evidence(
+        context,
+        vector,
+        package_id=package_id,
+        package_version=package_version,
+    )["observation"]

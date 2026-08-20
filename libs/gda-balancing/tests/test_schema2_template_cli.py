@@ -914,7 +914,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:43973866eabcb6c3618b1eff95727f064aa1b65bc29538b9ea78aac02d020d04"
+                    "sha256:edd22cdb681111d223e2da9eff549f50d277c429eb189555972ed3bb8eda10f9"
                 ),
             }
         ]
@@ -2559,9 +2559,8 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     scenario = experiment["scenarios"][0]
     scenario["event_plan"] = scenario["event_plan"][:1]
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 1}
-    experiment["runtime"]["required_evaluator"]["instruction_nodes"].remove(
-        "guard-block"
-    )
+    for node in ("guard-block", "require"):
+        experiment["runtime"]["required_evaluator"]["instruction_nodes"].remove(node)
     retained_assignments = {
         "enemy_defense",
         "enemy_health",

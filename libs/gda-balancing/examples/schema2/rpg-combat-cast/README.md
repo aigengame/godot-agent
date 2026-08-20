@@ -64,9 +64,9 @@ The player can restart or save feedback from that terminal screen.
 
 Combat Content reads this directory's `model-source.json` and `experiment.json` directly. It sends
 complete Experiment values to the local service and validates returned order, outcome, damage,
-health, and mana before it publishes an action to Godot. The System does not calculate combat. Technical
-artifact identities remain in Content and appear only as opaque maintainer provenance in the saved
-feedback payload.
+health, and mana before it publishes an action to Godot. The System does not calculate combat.
+Technical artifact identities remain in Content and appear only as opaque maintainer provenance in
+the saved feedback payload.
 
 Run the real player path with an isolated writable `user://` root:
 
@@ -327,8 +327,10 @@ root-member order change are different semantic edits.
 The later Event does not read Snapshot 0. It reads the Snapshot that the earlier Event committed.
 Runtime does not infer defeat, interruption, or cancellation from health-like values. The selected
 `game.combat.eligible-cast-v1` Operation checks actor eligibility and publishes the explicit
-`target-defeated` outcome. The raw cast entrypoints in section 8.3 prove that this policy comes from
-the package Operation, not Runtime.
+`target-defeated` outcome. It requires a non-negative defeat threshold before `actor_resource`
+spending, RNG, or gameplay state mutation. Execution still records the Operation's `event-steps`
+charge for threshold validation and actor eligibility. The raw cast entrypoints in section 8.3
+prove that this policy comes from the package Operation, not Runtime.
 
 Each independent scenario receives its own Snapshot 0, Event queue, and replication. Two scenarios
 cannot form a reciprocal exchange or observe each other's committed state.
@@ -658,8 +660,9 @@ additional eligible-cast outcomes:
 | admitted hit | `cast-resolved` / `success` | `commit` |
 | hit check fails | `miss` / `gameplay-alternative` | `rollback` |
 | actor resource below action cost | `insufficient-resource` / `gameplay-alternative` | `rollback` |
+| negative defeat threshold | `game.combat.reason.invalid-defeat-threshold` / refusal | Runtime refusal; current Event rolls back |
 | actor health at or below the defeat threshold | `actor-ineligible` / `gameplay-alternative` | `rollback` |
-| committed damage reaches the target defeat threshold | `target-defeated` / `success` | `commit` |
+| transaction-local post-cast target health is at or below the defeat threshold | `target-defeated` / `success` | `commit` |
 
 A one-way scenario contains only `player-attacks-enemy`. It also contains only that entrypoint's
 Scenario Input Contract. It is useful for outcome comparison, but it is not reciprocal combat.
@@ -676,12 +679,14 @@ jq '
   | .scenarios[0].assignments |= map(
       select(.target.name as $name
         | [
+            "defeat_threshold",
             "enemy_defense",
             "enemy_health",
             "player_accuracy",
             "player_action_cost",
             "player_base_damage",
             "player_critical_threshold",
+            "player_health",
             "player_mana"
           ]
         | index($name))
@@ -805,7 +810,7 @@ jq '
       select(.target.name != "defeat_threshold")
     )
   | .runtime.required_evaluator.instruction_nodes |= map(
-      select(. != "guard-block")
+      select(. != "guard-block" and . != "require")
     )
   | (.scenarios[0].assignments[]
       | select(.target.name == "enemy_health")
@@ -832,19 +837,31 @@ uses `combat.player-attacks-enemy`. If its outcome is `cast-resolved`, run the e
 next complete revision. If its outcome is `target-defeated`, stop. Do not compare health in the host
 to decide whether the enemy may act.
 
-The public regression tracer performs five revisions with the maintained values. The actions are
-player, enemy, player, enemy, and player. The final player action caps its applied damage at the
-enemy's remaining `26` health, commits `enemy_health = 0`, and returns `target-defeated`. No enemy
-revision follows it:
+The public real-service regression tracer creates one Execution session and admits five complete
+Experiment revisions with the maintained values. The actions are player, enemy, player, enemy, and
+player. The final player action caps its applied damage at the enemy's remaining `26` health,
+commits `enemy_health = 0`, and returns `target-defeated`. The duel loop stops there; no enemy
+revision follows it. A separately named boundary probe then maps that exact committed enemy-health
+value to the next actor-health input and proves `actor-ineligible` without `actor_resource`
+spending, RNG, or gameplay state change. The probe still records an Operation charge of five
+`event-steps` units:
 
 ```bash
 uv run pytest \
-  tests/test_e2e_cli.py::TestKeyUserPath::test_reciprocal_combat_revisions_stop_on_explicit_defeat
+  tests/test_http_service.py::test_reciprocal_combat_service_stops_on_defeat_and_links_ineligibility
 ```
 
-The neutral package vectors separately prove that a later attempt with actor health at the defeat
-threshold returns `actor-ineligible`, consumes no resource or RNG, and changes no state. The
-application does not need to execute that rejected action after it observes `target-defeated`.
+The installed-CLI tracer retains the same five-revision outcome sequence. The linked neutral
+package vectors provide the independent production/reference-consumer evidence for the defeat to
+ineligibility handoff. A negative defeat threshold produces
+`game.combat.reason.invalid-defeat-threshold` before `actor_resource` spending, RNG, or gameplay
+state mutation. The root Event is dispatched, the Operation records a charge of three
+`event-steps` units and refuses, and the current Event rolls back.
+
+This slice defines actor eligibility, not target eligibility. It does not distinguish a new
+threshold crossing from a target condition that was already satisfied. The application avoids that
+case by stopping on the explicit `target-defeated` outcome; adding target-selection or
+target-eligibility policy requires separate demonstrated gameplay demand.
 
 ### 8.5 Run the multi-time scheduler companion
 

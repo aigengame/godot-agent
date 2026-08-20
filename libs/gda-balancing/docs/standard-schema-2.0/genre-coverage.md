@@ -15,10 +15,16 @@ consumes only retrievable, rehashed, exactly bound public artifacts and authorit
 caller assertions, fixture labels, and expected-output records cannot authorize a claim.
 
 Issue #708 supplies partial executable evidence for the defeat part of `RPG-DEFENSE-01`:
-`game.combat.eligible-cast-v1` checks an authored defeat threshold, caps applied damage at current
-health, and returns explicit `target-defeated` and `actor-ineligible` outcomes. Its neutral vectors
-and maintained RPG tracer do not close the row. Ordered typed damage components, matching defenses,
-shield ordering, entity-owned defeat storage, and the row's reserved Golden scenario remain open.
+`game.combat.eligible-cast-v1` requires a non-negative authored defeat threshold, caps applied
+damage at current health, and returns explicit `target-defeated` and `actor-ineligible` outcomes.
+Its linked neutral boundary evidence maps the committed defeated-target value to the later
+actor-health input and proves no `actor_resource` spending, RNG, or gameplay state change on
+ineligibility. Each vector still records its exact `event-steps` charge. The public local-service
+tracer stops consecutive complete Experiment revisions on the explicit defeat outcome. This slice
+does not define target eligibility or distinguish a new threshold crossing from an
+already-satisfied target condition. The evidence does not close the row. Ordered typed damage
+components, matching defenses, shield ordering, entity-owned defeat storage, and the row's
+reserved Golden scenario remain open.
 
 `Tracer` rows are the first vertical implementation gate. `RPG` rows must close before a general
 RPG template-release claim. `Roguelike` rows add to all `Tracer` and `RPG` rows before a Roguelike

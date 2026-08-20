@@ -24,13 +24,20 @@ distribution contract and a falsifiable definition of genre completeness.
 
 > **Amendment (2026-08-18, #708):** `game.combat` owns explicit defeat transition policy and
 > combat-action eligibility. `game.combat.eligible-cast-v1` checks the authored actor-health and
-> defeat-threshold ports before it delegates to the ordinary cast. An ineligible actor completes
-> with `actor-ineligible`, consumes no resource or RNG, and changes no state. An eligible cast
-> applies no more damage than the target's current health. If the resulting target health reaches
-> the authored threshold, the wrapper commits the cast and completes with `target-defeated`.
-> Otherwise, it completes with `cast-resolved`. The raw `game.combat.cast-v1` Operation remains
-> available and continues to carry no implicit defeat or eligibility policy. Runtime evaluates
-> these authored Operations and outcomes; it never infers combat status from a health-like value.
+> non-negative defeat-threshold ports before it delegates to the ordinary cast. A negative
+> threshold produces a typed refusal before `actor_resource` spending, RNG, or gameplay state
+> mutation; execution still records three `event-steps` units. An ineligible actor completes with
+> `actor-ineligible` without `actor_resource` spending, RNG, or gameplay state change; execution
+> still records five `event-steps` units. An eligible cast applies no more damage than the target's
+> current health. If transaction-local post-cast target health is at or below the authored
+> threshold, the wrapper completes with `target-defeated`; that outcome's commit policy then
+> commits the resulting Event state. Otherwise, it completes with `cast-resolved`. The raw
+> `game.combat.cast-v1` Operation remains available and continues to carry no implicit defeat or
+> eligibility policy. Runtime evaluates these authored Operations and outcomes; it never infers
+> combat status from a health-like value.
+> This slice defines actor eligibility, not target eligibility, and it does not distinguish a new
+> threshold crossing from a target condition that was already satisfied. A caller stops subsequent
+> duel actions after it receives the explicit `target-defeated` outcome.
 
 > **Amendment (2026-08-13, #640):** `game.generation` owns one ordered eligible `RewardOption`
 > pool. Each option pairs its candidate and selection data. Its primary `RarityPolicyKind` remains

@@ -10,7 +10,9 @@ from schema2_bootstrap_conformance_support import _consumer_b
 from schema2_bootstrap_production_support import _consumer_a
 from schema2_operation_execution_independent_support import reference_execute_event
 from schema2_operation_execution_production_support import (
-    evaluate_operation_execution_vector,
+    OperationExecutionHarness,
+    compile_operation_execution_harness,
+    evaluate_operation_execution_vector_with_evidence,
 )
 
 
@@ -51,6 +53,8 @@ def independent_operation_execution_projection(
     package_id: str,
     package_version: str,
     vector: dict[str, Any],
+    *,
+    include_execution_evidence: bool = False,
 ) -> dict[str, Any]:
     """Project the independent adapter result to the canonical vector shape."""
     coordinate = (package_id, package_version, cast(str, vector["operation"]))
@@ -66,13 +70,14 @@ def independent_operation_execution_projection(
         },
         language_bundle=ldb,
         root_operation_coordinate=coordinate,
+        include_execution_evidence=include_execution_evidence,
     )
     state_after = {row["name"]: row["value"] for row in event["state_after"]}
     state_names = [
         row["id"] for row in operation["inputs"] if row["access"] == "read-write"
     ]
     if "refusal" in event:
-        return {
+        observation = {
             "completion": {"kind": "refusal", "reason": event["refusal"]["reason"]},
             "result": {"kind": "not-produced"},
             "rng_draws": [],
@@ -80,7 +85,13 @@ def independent_operation_execution_projection(
                 {"name": name, "value": state_after[name]} for name in state_names
             ],
         }
-    return {
+        if include_execution_evidence:
+            return {
+                "execution_evidence": event["execution_evidence"],
+                "observation": observation,
+            }
+        return observation
+    observation = {
         "completion": {"kind": "outcome", "id": event["outcome"]["id"]},
         "result": (
             {"kind": "value", "value": event["result"]}
@@ -97,6 +108,43 @@ def independent_operation_execution_projection(
         "state_after": [
             {"name": name, "value": state_after[name]} for name in state_names
         ],
+    }
+    if include_execution_evidence:
+        return {
+            "execution_evidence": event["execution_evidence"],
+            "observation": observation,
+        }
+    return observation
+
+
+def _operation_execution_results(
+    kernel: dict[str, Any],
+    ldb: Any,
+    vector: dict[str, Any],
+    *,
+    context: AdmittedAuthorityContext,
+    package_id: str,
+    package_version: str,
+    harness: OperationExecutionHarness | None = None,
+) -> dict[str, dict[str, Any]]:
+    production = evaluate_operation_execution_vector_with_evidence(
+        context,
+        vector,
+        package_id=package_id,
+        package_version=package_version,
+        harness=harness,
+    )
+    return {
+        "production": production,
+        "independent": independent_operation_execution_projection(
+            kernel,
+            ldb,
+            production["resolved_operations"],
+            package_id,
+            package_version,
+            vector,
+            include_execution_evidence=True,
+        ),
     }
 
 
@@ -122,23 +170,18 @@ def operation_execution_observations(
         if len(owners) != 1:
             raise ValueError("operation execution vector owner is not unique")
         package_id, package_version = owners[0]
-    resolved_operations = _operation_index(ldb)
+    results = _operation_execution_results(
+        kernel,
+        ldb,
+        vector,
+        context=resolved_context,
+        package_id=package_id,
+        package_version=package_version,
+    )
     return {
         "expected": vector["expect"],
-        "production": evaluate_operation_execution_vector(
-            resolved_context,
-            vector,
-            package_id=package_id,
-            package_version=package_version,
-        ),
-        "independent": independent_operation_execution_projection(
-            kernel,
-            ldb,
-            resolved_operations,
-            package_id,
-            package_version,
-            vector,
-        ),
+        "production": results["production"]["observation"],
+        "independent": results["independent"]["observation"],
     }
 
 
@@ -148,6 +191,8 @@ def candidate_conformance_failures(
     *,
     vector_overrides: dict[str, dict[str, Any]] | None = None,
     vector_coordinates: set[tuple[str, str, str]] | None = None,
+    execution_evidence_expectations: dict[tuple[str, str, str], dict[str, Any]]
+    | None = None,
 ) -> list[dict[str, Any]]:
     """Return bounded candidate-graph and execution-vector disagreements."""
     production_admission = _consumer_a(kernel, ldb)
@@ -170,20 +215,40 @@ def candidate_conformance_failures(
     context = admit_authority_context(kernel, ldb)
     assert isinstance(context, AdmittedAuthorityContext)
     failures: list[dict[str, Any]] = []
+    operations = _operation_index(ldb)
+    harnesses: dict[OperationCoordinate, OperationExecutionHarness] = {}
     overrides = vector_overrides or {}
     for package_id, package_version, declared in operation_execution_vectors(ldb):
         coordinate = (package_id, package_version, cast(str, declared["id"]))
         if vector_coordinates is not None and coordinate not in vector_coordinates:
             continue
         vector = overrides.get(declared["id"], declared)
-        observations = operation_execution_observations(
+        operation_coordinate = (
+            package_id,
+            package_version,
+            cast(str, vector["operation"]),
+        )
+        harness = harnesses.get(operation_coordinate)
+        if harness is None:
+            operation = operations[operation_coordinate]
+            harness = compile_operation_execution_harness(
+                context, operation_coordinate, operation
+            )
+            harnesses[operation_coordinate] = harness
+        results = _operation_execution_results(
             kernel,
             ldb,
             vector,
             context=context,
             package_id=package_id,
             package_version=package_version,
+            harness=harness,
         )
+        observations = {
+            "expected": vector["expect"],
+            "production": results["production"]["observation"],
+            "independent": results["independent"]["observation"],
+        }
         if (
             observations["production"] != observations["independent"]
             or observations["production"] != observations["expected"]
@@ -194,6 +259,22 @@ def candidate_conformance_failures(
                     "package": package_id,
                     "vector": vector["id"],
                     **observations,
+                }
+            )
+        evidence_expectation = (execution_evidence_expectations or {}).get(coordinate)
+        if evidence_expectation is not None and (
+            results["production"]["execution_evidence"]
+            != results["independent"]["execution_evidence"]
+            or results["production"]["execution_evidence"] != evidence_expectation
+        ):
+            failures.append(
+                {
+                    "kind": "execution-evidence-divergence",
+                    "package": package_id,
+                    "vector": vector["id"],
+                    "expected": evidence_expectation,
+                    "production": results["production"]["execution_evidence"],
+                    "independent": results["independent"]["execution_evidence"],
                 }
             )
     return failures

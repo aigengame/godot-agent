@@ -26,6 +26,10 @@ from pathlib import Path
 import jsonschema
 
 from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
+from rpg_combat_test_support import (
+    combat_action_assignment_names,
+    one_action_experiment,
+)
 
 _RPG_COMBAT_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
@@ -35,46 +39,6 @@ _RPG_PERIODIC_EFFECT_EXAMPLE = (
 )
 _ROGUELIKE_REWARD_BUILD_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
-)
-_PLAYER_ATTACK_ASSIGNMENT_NAMES = frozenset(
-    {
-        "enemy_defense",
-        "enemy_health",
-        "defeat_threshold",
-        "player_accuracy",
-        "player_action_cost",
-        "player_base_damage",
-        "player_critical_threshold",
-        "player_mana",
-        "player_health",
-    }
-)
-_PLAYER_ATTACK_METRIC_IDS = frozenset(
-    {
-        "enemy_health_remaining",
-        "player_damage_dealt",
-        "player_resource_remaining",
-    }
-)
-_ENEMY_ATTACK_ASSIGNMENT_NAMES = frozenset(
-    {
-        "defeat_threshold",
-        "enemy_accuracy",
-        "enemy_action_cost",
-        "enemy_base_damage",
-        "enemy_critical_threshold",
-        "enemy_health",
-        "enemy_mana",
-        "player_defense",
-        "player_health",
-    }
-)
-_ENEMY_ATTACK_METRIC_IDS = frozenset(
-    {
-        "enemy_damage_dealt",
-        "enemy_resource_remaining",
-        "player_health_remaining",
-    }
 )
 
 
@@ -211,39 +175,11 @@ def _build_periodic_effect_example(
     return json.loads(result.stdout)
 
 
-def _one_way_action_variant(
-    baseline: dict,
-    identifier: str,
-    *,
-    root_event_ref: str,
-    assignment_names: frozenset[str],
-    metric_ids: frozenset[str],
-) -> dict:
-    variant = json.loads(json.dumps(baseline))
-    variant["id"] = identifier
-    variant["scenarios"][0]["event_plan"] = [
-        event
-        for event in variant["scenarios"][0]["event_plan"]
-        if event["root_event_ref"] == root_event_ref
-    ]
-    variant["scenarios"][0]["assignments"] = [
-        row
-        for row in variant["scenarios"][0]["assignments"]
-        if row["target"]["name"] in assignment_names
-    ]
-    variant["metrics"] = [
-        metric for metric in variant["metrics"] if metric["id"] in metric_ids
-    ]
-    return variant
-
-
 def _one_way_variant(baseline: dict, identifier: str) -> dict:
-    return _one_way_action_variant(
+    return one_action_experiment(
         baseline,
         identifier,
         root_event_ref="player-attacks-enemy",
-        assignment_names=_PLAYER_ATTACK_ASSIGNMENT_NAMES,
-        metric_ids=_PLAYER_ATTACK_METRIC_IDS,
     )
 
 
@@ -1929,6 +1865,9 @@ class TestKeyUserPath:
         no_cancellation["runtime"]["required_evaluator"]["instruction_nodes"].remove(
             "guard-block"
         )
+        no_cancellation["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "require"
+        )
         enemy_health = next(
             row
             for row in no_cancellation["scenarios"][0]["assignments"]
@@ -1981,27 +1920,15 @@ class TestKeyUserPath:
         }
         traces = []
         outcomes = []
-        actions = (
-            (
-                "player-attacks-enemy",
-                _PLAYER_ATTACK_ASSIGNMENT_NAMES,
-                frozenset({"enemy_health_remaining", "player_resource_remaining"}),
-            ),
-            (
-                "enemy-attacks-player",
-                _ENEMY_ATTACK_ASSIGNMENT_NAMES,
-                frozenset({"enemy_resource_remaining", "player_health_remaining"}),
-            ),
-        )
+        actions = ("player-attacks-enemy", "enemy-attacks-player")
 
         for index in range(1, 7):
-            root_event_ref, assignment_names, metric_ids = actions[(index - 1) % 2]
-            revision = _one_way_action_variant(
+            root_event_ref = actions[(index - 1) % 2]
+            revision = one_action_experiment(
                 baseline,
                 f"example.rpg-combat-cast.action-{index}",
                 root_event_ref=root_event_ref,
-                assignment_names=assignment_names,
-                metric_ids=metric_ids,
+                include_damage_metric=False,
             )
             for assignment in revision["scenarios"][0]["assignments"]:
                 assignment["value"] = state[assignment["target"]["name"]]
@@ -2359,13 +2286,17 @@ class TestKeyUserPath:
             row
             for row in backward_time["scenarios"][0]["assignments"]
             if row["target"]["name"]
-            in _PLAYER_ATTACK_ASSIGNMENT_NAMES - {"defeat_threshold", "player_health"}
+            in combat_action_assignment_names("player-attacks-enemy")
+            - {"defeat_threshold", "player_health"}
         ]
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].extend(
             ["cancel", "schedule"]
         )
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].remove(
             "guard-block"
+        )
+        backward_time["runtime"]["required_evaluator"]["instruction_nodes"].remove(
+            "require"
         )
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].sort()
         backward_time["runtime"]["required_evaluator"]["effects"].extend(
