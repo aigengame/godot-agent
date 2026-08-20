@@ -84,8 +84,7 @@ def test_playtest_player_settings_have_explicit_defaults_and_translations():
     )
     assert (
         '[&"", &"EFFECT_FIXED_RULE"]: [&"本轮使用生命为 %d 的新目标。'
-        '伤害只在施放时计算一次；两次脉冲都重复该伤害。"]'
-        in effect_chinese
+        '伤害只在施放时计算一次；两次脉冲都重复该伤害。"]' in effect_chinese
     )
     assert "Reactive Hex" not in effect_english
     assert "Locked Hex" not in effect_english
