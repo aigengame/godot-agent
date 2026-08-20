@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d936b11c0b290e4aefe210d22d15d328f686c067a6ccccb1a5fdc328aa9f524d -->
+<!-- gda-readme-i18n: source=README.md sha256=6c49dbe1f8202e9cfa46bc8fd79e1c78060238936b0d52e56ec01fd4f2f53e70 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -382,7 +382,7 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `gda info`   | Informa la información de versión del motor Godot. Acepta `--project` como cualquier otro comando; la versión no depende de él. |
+| `gda info`   | Informa la información de versión del motor Godot. Acepta un `--project` explícito y validado (los demás metacomandos no lo aceptan); la versión no depende de él. |
 | `gda version` | Informa qué `gda` está instalado y de dónde viene — con `--json`, la procedencia completa de la instalación (la misma carga útil que `gda --version --json`). No se lanza Godot. |
 | `gda help`   | Muestra la ayuda de un comando (`gda help scene get`) o la de toda la CLI; con `--json` la devuelve como `{command, text}`. |
 | `gda schema` | Emite toda la superficie de comandos como un único manifiesto JSON legible por máquina. |
@@ -407,11 +407,16 @@ de un nodo que no puede resolver y aun así devuelve un árbol utilizable, así 
 muestra una escena sana cuyo script y textura han desaparecido (una dependencia rota desde un
 sub-resource todavía puede hacer fallar la carga entera). Las dos comprobaciones responden
 preguntas distintas. `scene validate` es **estática**: resuelve cada dependencia, compila cada
-script vinculado (referenciado o embebido) y comprueba que la base nativa de cada script pueda
-vincularse al nodo que lo lleva, todo sin instanciar nada, e informa un problema por archivo
+script vinculado (referenciado o embebido) y comprueba cada vínculo que el motor rechazaría,
+todo sin instanciar nada, e informa un problema por archivo problemático
 (`missing_resource`, `unloadable_resource` para un recurso que nunca se importó,
-`script_compile_failed`, o `incompatible_script` cuando compila pero el motor rechazaría el
-vínculo) junto con los nodos que lo referencian. `scene preflight` es
+`script_compile_failed`, o `incompatible_script` para un vínculo que el motor rechazaría: un
+script sobre un nodo fuera de su base, o un valor vinculado que no es un script) junto con los
+nodos que lo referencian. La comprobación es **escalonada**: cuando hay dependencias sin
+resolver, la escena no se carga, así que los problemas de compilación y de vínculo que solo la
+escena cargada puede revelar aparecen después de reparar las dependencias y volver a ejecutar
+validate — la lista de problemas es completa para la etapa alcanzada, no para ambas etapas a la
+vez. `scene preflight` es
 **dinámica**: arranca la escena, ejecuta su `_ready` y los autoloads del proyecto, la observa
 durante unos fotogramas e informa `status` (`ready` / `not_ready` / `timeout`) más los errores
 de script vistos durante el arranque; lee `started` como puerta de un solo booleano. Ejecuta ambas: una escena con todas sus dependencias resueltas
@@ -451,6 +456,7 @@ layout, así que define esas propiedades offset explícitamente.
 | `script delete` | Elimina un archivo de script e informa qué se eliminó. |
 | `script attach` | Adjunta un script `.gd` a un nodo (por ruta de nodo) en una escena. |
 | `script validate` | Comprueba la sintaxis/compilación de scripts `.gd`: varias PATH a la vez, o `--all` para todos los scripts del proyecto. |
+| `script run` | Ejecuta un script del proyecto en headless como punto de entrada de un solo uso, bajo un límite de reloj de pared. |
 
 `script validate` acepta un **lote**: pasa varias PATH y todas se validan en un único
 arranque del motor, así que los cuatro a seis scripts relacionados que toca un cambio
@@ -474,6 +480,18 @@ derivados de ellas, suele significar el proyecto equivocado y no un script roto.
 ruta *fuera* del proyecto resuelto rechaza el lote entero de entrada con
 `project_not_found`, nombrando tanto el archivo como el proyecto, en lugar de informar
 esos errores falsos; pasa `--project` con el proyecto al que pertenecen los archivos.
+
+`script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución tal
+cual**: el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de
+cero deliberado es un dato, no un fallo de gda — pasa `--strict` para convertirlo en un error
+`script_failed` para cadenas `&&` del shell) más su `stdout` y `stderr` capturados literalmente.
+`--timeout <s>` limita el reloj de pared de la ejecución; una ejecución que gda tiene que
+terminar informa `launch_timeout` **con la salida parcial capturada hasta entonces**, los
+segundos transcurridos y una fase de terminación. Declara `--completion-marker <line>` — una
+línea que tu script imprime cuando su trabajo termina — y una ejecución que encontró un error
+reconocido atribuible al script de entrada, aún no ha impreso el marcador, y luego queda en
+silencio en ambos flujos se termina en segundos en lugar de esperar al límite, informada como
+`script_aborted` con el error capturado.
 
 **`project`** — el proyecto en su conjunto (ajustes, autoloads, análisis estático)
 
@@ -647,6 +665,12 @@ parte del propio código del proyecto como parte de ello. En concreto:
   `_init` de cualquier script adjunto a un nodo en ella. Los comandos que solo leen los datos almacenados de la escena
   (`scene get`, `scene list`, `node list`) la recorren sin instanciar, así que no
   ejecutan esos scripts.
+- **`gda script run` ejecuta el script nombrado en su totalidad.** Ese es el propósito del
+  comando: el código de nivel superior del script y todo lo que llama se ejecutan hasta el
+  final bajo los límites declarados.
+- **`gda scene preflight` arranca la escena.** Instancia la escena y ejecuta su `_ready` más
+  los fotogramas de observación, así que cada script de la escena — y los autoloads del
+  proyecto — ejecutan su código de arranque.
 
 `gda` trata el proyecto objetivo como de confianza, por lo que esto es intencionado — consulta
 [ADR-0009](adr/0009-trust-boundary-trusted-project.md) para el modelo de confianza.

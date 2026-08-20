@@ -42,6 +42,8 @@ they are provenance, not status markers.
 | `gda info` | Report Godot engine version info | 1 |
 | `gda version` | Report `gda`'s own version | — (local) |
 | `gda help` | Usage help | — (local) |
+| `gda schema` | Emit the whole command surface as one JSON manifest (ADR-0012) | — (local) |
+| `gda skill` | Emit or install the bundled Agent Skill (ADR-0024) | — (local) |
 | `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) |
 
 > `--schema` is a per-command flag, not a command, and ships with **every** domain
@@ -112,11 +114,15 @@ they answer *different* ones:
   (present on disk but no `ResourceLoader` opens it — typically an asset that was never imported,
   which a non-editor engine cannot load at all), `script_compile_failed` (the same verdict
   `script validate` gives that file; an embedded script is named by its `::id` sub-resource path)
-  or `incompatible_script` (it compiles, but the engine would refuse to bind it — the same rule
-  `node script attach` enforces, asked statically). Each problem carries the declared `type` and
+  or `incompatible_script` (a binding the engine would refuse — a script on a node outside its
+  native base, the same rule `node script attach` enforces asked statically, or a value bound to
+  a `script` slot that is not a script at all). Each problem carries the declared `type` and
   the node paths referencing it, read from the file's own text because the engine drops an
   unresolvable reference from what it loads. A path declared twice is one problem with both nodes
-  listed.
+  listed. The verdict is **staged**: unresolved dependencies suppress the load, so the compile
+  and binding problems only the loaded scene can reveal appear after the dependencies are
+  repaired and validate is rerun — the problem list is complete for the stage it reached, not
+  across both stages at once.
 - `gda scene preflight PATH` is **dynamic**. It instantiates the scene, adds it under a one-shot
   engine's tree root — which runs its `_ready` and the project's autoloads — keeps it alive for
   `--frames` idle frames so startup work landing after `_ready` still prints, and reports
@@ -125,7 +131,8 @@ they answer *different* ones:
   recognized on stderr, which is the distinction the dogfooding note asks for (GDA-DF-030 —
   static validation passed while the first live launch rejected every assembly). Recognition is
   #651's closed set of engine failure sentences (a runtime error, a failed assertion, a script
-  that could not load), so project prose written with `push_error()` is not among them.
+  that could not load, a script binding the engine refused), so project prose written with
+  `push_error()` is not among them.
 
 `scene validate` takes a `.tscn` specifically, and refuses a binary `.scn` with `invalid_path`:
 its dependency set comes from the scene's own TEXT (which is also what attributes each dependency
@@ -134,8 +141,10 @@ could not read would be the worst thing a gate can do. `scene preflight` has no 
 it boots whatever loads.
 
 Both report an invalid/failed scene as a **successful operation** (exit `0`, verdict in the
-result), including preflight's `timeout` — "it did not come up within the bound" is the answer
-that command was asked for. Only addressing and environment problems fail: `path_not_found`,
+result), including preflight's `timeout` — "the complete preflight did not finish within its
+wall-clock bound" is the answer that command was asked for. A `_ready` that never returns is one
+cause; a healthy, already-ready scene whose `--frames` window outruns the ceiling is another —
+the params contract states the two bounds are not cross-checked. Only addressing and environment problems fail: `path_not_found`,
 `invalid_path`, `not_a_scene`, preflight's `missing_dependency` for a scene the engine cannot
 instantiate at all, and the shared binary/crash envelopes. One case that looks like a refusal but
 is a verdict: an unresolvable `[ext_resource]` referenced from a `[sub_resource]` (an
@@ -576,6 +585,19 @@ mismatch, pending the ADR-0006 amendment tracked in #697.
 | `gda script set` | Edit script (search-replace / line-range / full) |
 | `gda script attach` | Attach a script to a node in a scene |
 | `gda script validate` | Syntax/compile check (a batch of paths, or `--all`) |
+| `gda script run` | Run a project script one-shot under a bounded wall clock (ADR-0031) |
+
+**`script run`** (ADR-0031, #655) is the pass-through channel: its *success* result is the run
+itself — the script's own `exit_status` (a deliberate non-zero `quit()` is data, not a gda
+failure; `--strict` opts into a `script_failed` error for exit-code gates) plus the captured
+`stdout`/`stderr` verbatim. `--timeout <s>` bounds the wall clock; a run gda has to end reports
+`launch_timeout` carrying the captured partial output, the elapsed seconds and a termination
+phase (`launched` / `output_seen` / `aborted_on_error`), so a slow suite is distinguishable
+from a hang. `--completion-marker <line>` declares a liveness contract — the script prints that
+line when its work is done — and a run that hit a recognized error attributable to the entry
+script, has not printed the marker, and then goes silent on both streams is ended in seconds
+and reported as `script_aborted` with the captured error. The script executes in full, within
+the trusted-project assumption (ADR-0009).
 
 ### `project`
 

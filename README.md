@@ -371,7 +371,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 
 | Command | What it does |
 | ------- | ------------ |
-| `gda info`   | Report the Godot engine version info. Takes `--project` like any other command; the version does not depend on it. |
+| `gda info`   | Report the Godot engine version info. Accepts an explicit, validated `--project` (the other meta commands do not); the version does not depend on it. |
 | `gda version` | Report which `gda` is installed and where it came from — with `--json`, the full install provenance (the same payload as `gda --version --json`). No Godot is spawned. |
 | `gda help`   | Show a command's help (`gda help scene get`) or the whole CLI's; `--json` returns it as `{command, text}`. |
 | `gda schema` | Emit the whole command surface as one machine-readable JSON manifest. |
@@ -396,11 +396,15 @@ cannot resolve and still returns a usable tree, so `scene get` shows a healthy s
 script and texture are both gone (a dependency broken from inside a sub-resource can still
 fail the whole load). The two checks answer different questions.
 `scene validate` is **static** — it resolves every dependency, compiles every bound script
-(referenced or embedded), and checks each script's native base against the node that carries
-it, all without instantiating anything — reporting one problem per file (`missing_resource`,
+(referenced or embedded), and checks every binding the engine would refuse, all without
+instantiating anything — reporting one problem per problem file (`missing_resource`,
 `unloadable_resource` for an asset that was never imported, `script_compile_failed`, or
-`incompatible_script` for a script the engine would refuse to bind) with the nodes that
-reference it. `scene preflight` is **dynamic** —
+`incompatible_script` for a binding the engine would refuse: a script on a node outside its
+base, or a bound value that is not a script) with the nodes that reference it. The check is
+**staged**: when dependencies fail to resolve, the scene is not loaded, so the compile and
+binding problems of the loaded scene can only appear after the dependencies are repaired and
+validate is rerun — the problem list is complete for the stage it reached, not across both
+stages at once. `scene preflight` is **dynamic** —
 it boots the scene, runs its `_ready` and the project's autoloads, watches it for a few frames,
 and reports `status` (`ready` / `not_ready` / `timeout`) plus the script errors seen while it
 started; read `started` for the one-boolean gate. Run both: a scene whose dependencies all
@@ -440,6 +444,7 @@ offset properties explicitly instead.
 | `script delete` | Delete a script file and report what was removed. |
 | `script attach` | Attach a `.gd` script to a node (by node path) in a scene. |
 | `script validate` | Syntax/compile-check `.gd` scripts — several PATHs at once, or `--all` for every script in the project. |
+| `script run` | Run a project script headless as a one-shot entry point, under a bounded wall clock. |
 
 `script validate` takes a **batch**: pass several PATHs and they are all validated in
 one engine launch, so the four to six related scripts a change touches cost one
@@ -462,6 +467,17 @@ project rather than a broken script. A path *outside* the resolved project refus
 whole batch up front with `project_not_found`, naming both the file and the project,
 instead of reporting those false errors; pass `--project` for the project that owns the
 files.
+
+`script run` executes a named project script one-shot and **passes its run through**: the
+success result carries the script's own `exit_status` (a deliberate non-zero `quit()` is
+data, not a gda failure — pass `--strict` to turn it into a `script_failed` error for shell
+`&&` chains) plus its captured `stdout` and `stderr` verbatim. `--timeout <s>` bounds the
+run's wall clock; a run gda has to end reports `launch_timeout` **with the partial output
+captured so far**, the elapsed seconds and a termination phase. Declare
+`--completion-marker <line>` — a line your script prints when its work is done — and a run
+that hit a recognized error attributable to the entry script, has not printed the marker,
+and then goes silent on both streams is ended in seconds rather than at the ceiling,
+reported as `script_aborted` with the captured error.
 
 **`project`** — the project as a whole (settings, autoloads, static analysis)
 
@@ -633,6 +649,12 @@ some of the project's own code as part of that. Concretely:
   `_init` of any script attached to a node in it. Commands that only read the stored scene
   data (`scene get`, `scene list`, `node list`) walk it without instantiating, so they do not
   run those scripts.
+- **`gda script run` executes the named script in full.** That is the command's purpose: the
+  script's top-level code and everything it calls run to completion under the declared
+  bounds.
+- **`gda scene preflight` boots the scene.** It instantiates the scene and runs its `_ready`
+  plus the observation frames, so every script in the scene — and the project's autoloads —
+  execute their startup code.
 
 `gda` treats the target project as trusted, so this is by design — see
 [ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md) for the trust model.

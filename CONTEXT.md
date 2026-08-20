@@ -289,7 +289,8 @@ _Avoid_: tool, action
 
 **Meta command**:
 A top-level command about `gda` or the engine itself rather than a domain object
-(`gda info`, `gda version`, `gda help`); exempt from grouping.
+(`gda info`, `gda version`, `gda help`, `gda schema`, `gda skill`); exempt from
+grouping.
 _Avoid_: global command, system command
 
 **Command descriptor**:

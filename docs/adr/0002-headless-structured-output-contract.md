@@ -104,14 +104,19 @@ the standard build), and they never determine the outcome or a stable code.
 >   advisory stream rather than merely carrying it. The rule that matters is
 >   unchanged: an unrecognized line changes nothing, and the op's own verdict is
 >   never overridden — `status` is reported as the engine gave it.
-> - **The launch bound as a verdict, not `launch_timeout`.** A scene whose `_ready`
->   never returns blocks the engine before any frame runs, so no sentinel can ever
->   arrive; gda's own ceiling is the only thing that ends the run. That is reported
->   as a SUCCESS carrying `status: timeout` (with the captured diagnostics), not as
->   the `launch_timeout` envelope every other launch-backed channel reports. The
+> - **The launch bound as a verdict, not `launch_timeout`.** `status: timeout`
+>   means the complete preflight — startup plus the `--frames` observation
+>   window — did not finish within gda's wall-clock bound. A `_ready` that never
+>   returns is one possible cause (it blocks the engine before any frame runs, so
+>   no sentinel can ever arrive); a healthy, already-ready scene whose frame
+>   window outruns the ceiling is another — the params contract states the two
+>   bounds are not cross-checked. Either way the run is reported as a SUCCESS
+>   carrying `status: timeout` (with the captured diagnostics), not as the
+>   `launch_timeout` envelope every other launch-backed channel reports. The
 >   difference is what the timeout MEANS: elsewhere it means gda could not get you
->   an answer, while here the question was whether this scene comes up within the
->   bound — so the bound being reached IS the answer. Scoped to this command: an
+>   an answer, while here the question was whether this scene completes its
+>   preflight within the bound — so the bound being reached IS the answer. Scoped
+>   to this command: an
 >   unlaunchable binary, an unusable user-data placement, a signal death, and the
 >   op's own structured refusals stay the shared envelope.
 

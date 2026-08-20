@@ -338,7 +338,7 @@ added incrementally under ADR-0025 if a concrete need appears.
 > error can still finish is **not decidable by observation from outside the process**:
 > a GDScript runtime error aborts only the function that raised it, so a script can
 > survive one — *in the entry script itself* — and keep working; and working can look
-> exactly like death (blocked in `OS.execute` or a wait it consumes no CPU while alive;
+> exactly like death (blocked in `OS.execute` or a wait, the script consumes no CPU while alive;
 > during an `await` the main loop iterates just as an abandoned one does). Review
 > falsified both observational rules tried here on real paired runs: silence-plus-error
 > killed a script that completed without a marker, and a CPU-idleness probe both spared

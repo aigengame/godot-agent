@@ -173,6 +173,9 @@ semantics here, and deliberately scope out an overloaded interpretation.
   arguments/params), an `output` JSON Schema (the shape of its **success** `--json`
   result), and an `error` JSON Schema (the **uniform** failure envelope, #43). The
   contract is owned by `gda`; the flag only *emits*, it never *accepts*, a schema.
+  (The three-key shape is the original decision; the amendments above have since
+  grown the object — see the 2026-08-16 #667, 2026-08-18 #670 and 2026-08-18 #669
+  notes for the current key set.)
 
 - **`output` describes only the success result; `error` describes the failure
   envelope** (#43). `output` is the command's own success result model, exactly as

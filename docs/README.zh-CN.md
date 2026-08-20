@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d936b11c0b290e4aefe210d22d15d328f686c067a6ccccb1a5fdc328aa9f524d -->
+<!-- gda-readme-i18n: source=README.md sha256=6c49dbe1f8202e9cfa46bc8fd79e1c78060238936b0d52e56ec01fd4f2f53e70 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -369,7 +369,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `gda info`   | 报告 Godot 引擎的版本信息。与其他命令一样接受 `--project`；版本结果并不依赖它。 |
+| `gda info`   | 报告 Godot 引擎的版本信息。接受显式、经校验的 `--project`（其他 meta 命令不接受）；版本结果并不依赖它。 |
 | `gda version` | 报告当前安装的是哪个 `gda`、来自何处——加 `--json` 时给出完整的安装溯源信息（与 `gda --version --json` 同一份载荷）。不会启动 Godot。 |
 | `gda help`   | 显示某条命令的帮助（`gda help scene get`）或整个 CLI 的帮助；加 `--json` 时以 `{command, text}` 返回。 |
 | `gda schema` | 把整个命令界面作为一份机器可读的 JSON 清单输出。 |
@@ -393,14 +393,17 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 所以脚本与贴图都已丢失的场景，在 `scene get` 里看起来依然健康（但从 sub-resource 内部坏掉的依赖
 仍可能让整个加载失败）。这两个检查回答的是不同的问题。
 `scene validate` 是**静态的**——它不实例化任何东西，解析每一个依赖、编译每一个绑定脚本
-（引用的与内嵌的都算），并检查脚本的原生基类能否绑定挂载它的节点，为每个有问题的文件报告一条
+（引用的与内嵌的都算），并检查每一个引擎会拒绝的绑定，为每个有问题的文件报告一条
 problem（`missing_resource`、`unloadable_resource`（从未被导入的资源）、`script_compile_failed`
-或 `incompatible_script`（能编译但引擎会拒绝绑定）），同时给出引用它的节点。`scene preflight` 是**动态的**——
+或 `incompatible_script`（引擎会拒绝的绑定：脚本挂在其基类之外的节点上，或绑定的值根本不是脚本）），
+同时给出引用它的节点。这个检查是**分阶段的**：只要有依赖无法解析，场景就不会被加载，
+因此只有加载后的场景才能暴露的编译与绑定问题，要等依赖修好、重新运行 validate 之后才会出现——
+problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶段。`scene preflight` 是**动态的**——
 它启动场景，运行其 `_ready` 与项目的 autoload，观察若干帧，然后报告 `status`
 （`ready` / `not_ready` / `timeout`）以及启动过程中出现的脚本错误；只需读 `started` 这一个布尔值即可作为门禁。
 两者都要跑：依赖全部解析的场景仍可能在第一帧失败，而引用了从未导入的贴图的场景会“干净地”启动——只有静态检查会指出那个文件。
 两者都把有问题的场景报告为**成功的操作**（退出码 `0`，结论在结果里）——只有文件不存在、不是场景文件
-或环境失败才使用 Error 信封。
+或环境失败才使用 Error envelope。
 
 **`node`** — 场景文件内的节点
 
@@ -431,6 +434,7 @@ problem（`missing_resource`、`unloadable_resource`（从未被导入的资源�
 | `script delete` | 删除一个脚本文件并报告删除了什么。 |
 | `script attach` | 按节点路径把一个 `.gd` 脚本附加到场景里的某个节点上。 |
 | `script validate` | 对多个 `.gd` 脚本做语法 / 编译检查——可一次传入多个 PATH，或用 `--all` 检查项目里的全部脚本。 |
+| `script run` | 以一次性入口的方式 headless 运行一个项目脚本，受墙钟上限约束。 |
 
 `script validate` 接受**批量**输入：一次传入多个 PATH，它们会在同一次引擎启动中全部完成校验，
 因此一次改动通常涉及的四到六个相关脚本只需一个进程，而不是每个脚本各起一个。`--all` 则以同样
@@ -447,6 +451,15 @@ problem（`missing_resource`、`unloadable_resource`（从未被导入的资源�
 依赖以及由此派生的类型错误，通常说明项目选错了，而不是脚本本身有问题。位于所解析项目**之外**
 的路径会让整个批次被提前拒绝并返回 `project_not_found`，同时指明文件与项目，而不是报出那一连串
 假错误；此时请用 `--project` 指定真正拥有这些文件的项目。
+
+`script run` 一次性执行一个具名项目脚本，并**将这次运行原样透传**：成功结果携带脚本自己的
+`exit_status`（脚本有意的非零 `quit()` 是数据而不是 gda 失败——传 `--strict` 可把它变成
+`script_failed` 错误，供 shell `&&` 链使用），以及逐字捕获的 `stdout` 与 `stderr`。
+`--timeout <s>` 约束这次运行的墙钟；gda 不得不终止的运行会报告 `launch_timeout`，
+**并携带截至当时捕获的部分输出**、已耗秒数与一个终止阶段。声明
+`--completion-marker <line>`——你的脚本在工作完成时打印的一行——之后，一次已出现可归因于
+入口脚本的已识别错误、尚未打印标记行、且随后两个流都陷入沉默的运行，会在数秒内被终止，
+而不是等到墙钟上限，并报告 `script_aborted` 与捕获到的错误。
 
 **`project`** — 作为整体的项目（设置、autoload、静态分析）
 
@@ -613,6 +626,10 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
   都会加载并实例化该场景，这会构造每个节点，并运行其中任何附加在节点上的脚本的 `_init`。
   只读取已存储场景数据的命令（`scene get`、`scene list`、`node list`）只是遍历它而不实例化，
   所以不会运行那些脚本。
+- **`gda script run` 会完整执行指定的脚本。** 这正是该命令的用途：脚本的顶层代码及其调用的
+  一切都会在声明的约束之内运行到结束。
+- **`gda scene preflight` 会启动场景。** 它实例化场景并运行其 `_ready` 与观察帧，
+  因此场景中的每个脚本——以及项目的 autoload——都会执行其启动代码。
 
 `gda` 将目标项目视为可信，所以这是有意为之——信任模型参见
 [ADR-0009](adr/0009-trust-boundary-trusted-project.md)。
