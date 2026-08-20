@@ -6409,7 +6409,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
 
 
 def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
-    _kernel, ldb = mutable_authorities()
+    kernel, ldb = mutable_authorities()
     operation = next(
         row
         for row in ldb["language"]["operations"]
@@ -6440,6 +6440,32 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
         "game.combat.cast.actor-ineligible",
     }
     assert "game.combat.reason.invalid-defeat-threshold" in operation["refusals"]
+
+    vectors_by_id = {vector["id"]: vector for vector in vectors}
+    defeated = vectors_by_id["game.combat.cast.target-defeated"]
+    ineligible = vectors_by_id["game.combat.cast.actor-ineligible"]
+    defeated_state = {
+        row["name"]: row["value"] for row in defeated["expect"]["state_after"]
+    }
+    ineligible_input = {
+        row["name"]: row["value"] for row in ineligible["input"]["values"]
+    }
+    assert defeated_state["target_health"] == ineligible_input["actor_health"]
+    assert ineligible["expect"]["rng_draws"] == []
+    assert ineligible["expect"]["state_after"] == [
+        {
+            "name": "actor_resource",
+            "value": ineligible_input["actor_resource"],
+        },
+        {
+            "name": "target_health",
+            "value": ineligible_input["target_health"],
+        },
+    ]
+    for vector in (defeated, ineligible):
+        observations = operation_execution_observations(kernel, ldb, vector)
+        assert observations["production"] == observations["independent"]
+        assert observations["production"] == observations["expected"]
 
 
 def test_neutral_structured_operation_vectors_cover_control_paths():

@@ -1155,7 +1155,8 @@ The authored `game.combat` predicate that decides whether one combatant may exec
 Operation. The current eligible-cast contract compares actor health with the explicit defeat
 threshold before resource spending, RNG, or damage. The threshold must be non-negative. An
 ineligible actor returns the typed `actor-ineligible` outcome with no state change. This predicate
-does not define turn order or the eligible-responder order owned by `game.turn` (bADR-0017).
+does not define target eligibility, turn order, or the eligible-responder order owned by
+`game.turn` (bADR-0017).
 _Avoid_: UI can-act flag, host eligibility check, turn eligibility (when combat eligibility is meant)
 
 **Periodic Effect**:

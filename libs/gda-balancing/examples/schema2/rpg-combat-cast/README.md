@@ -796,21 +796,28 @@ uses `combat.player-attacks-enemy`. If its outcome is `cast-resolved`, run the e
 next complete revision. If its outcome is `target-defeated`, stop. Do not compare health in the host
 to decide whether the enemy may act.
 
-The public regression tracer performs five revisions with the maintained values. The actions are
-player, enemy, player, enemy, and player. The final player action caps its applied damage at the
-enemy's remaining `26` health, commits `enemy_health = 0`, and returns `target-defeated`. No enemy
-revision follows it:
+The public real-service regression tracer creates one Execution session and admits five complete
+Experiment revisions with the maintained values. The actions are player, enemy, player, enemy, and
+player. The final player action caps its applied damage at the enemy's remaining `26` health,
+commits `enemy_health = 0`, and returns `target-defeated`. The duel loop stops there; no enemy
+revision follows it. A separately named boundary probe then maps that exact committed enemy-health
+value to the next actor-health input and proves `actor-ineligible` with no gameplay-resource, RNG,
+or state change:
 
 ```bash
 uv run pytest \
-  tests/test_e2e_cli.py::TestKeyUserPath::test_reciprocal_combat_revisions_stop_on_explicit_defeat
+  tests/test_http_service.py::test_reciprocal_combat_service_stops_on_defeat_and_links_ineligibility
 ```
 
-The neutral package vectors separately prove two fail-closed paths. A negative defeat threshold
-produces `game.combat.reason.invalid-defeat-threshold` before resource use, RNG, or state change. A
-later attempt with actor health at the defeat threshold returns `actor-ineligible`, consumes no
-resource or RNG, and changes no state. The application does not need to execute that rejected action
-after it observes `target-defeated`.
+The installed-CLI tracer retains the same five-revision outcome sequence. The linked neutral
+package vectors provide the independent production/reference-consumer evidence for the defeat to
+ineligibility handoff. A negative defeat threshold produces
+`game.combat.reason.invalid-defeat-threshold` before resource use, RNG, or state change.
+
+This slice defines actor eligibility, not target eligibility. It does not distinguish a new
+threshold crossing from a target condition that was already satisfied. The application avoids that
+case by stopping on the explicit `target-defeated` outcome; adding target-selection or
+target-eligibility policy requires separate demonstrated gameplay demand.
 
 ### 8.5 Run the multi-time scheduler companion
 

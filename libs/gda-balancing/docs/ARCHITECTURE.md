@@ -1531,10 +1531,14 @@ issues own detailed observations, acceptance criteria, and live completion statu
   - Validation consequence: Neutral Operation vectors cover an eligible action, a target-defeating
     boundary, an ineligible actor, and refusal of a negative threshold. Production and independent
     consumers must agree on outcome, result, state, RNG, effects, refusals, actual charge, and Event
-    order. The maintained RPG tracer runs complete one-action Experiment revisions and stops only
-    on the explicit outcome.
+    order. The maintained RPG tracer runs consecutive complete one-action Experiment revisions
+    through the public local HTTP service and stops only on the explicit outcome. A linked boundary
+    probe maps the committed defeated-target state to the later actor-health input and proves the
+    `actor-ineligible` path without gameplay-resource, RNG, or state changes.
   - Open boundary: This slice does not add general Action lifecycle, turn order, revival storage,
-    downed states, teams, encounters, or a host-side health rule.
+    target eligibility, a distinct threshold-crossing rule, downed states, teams, encounters, or a
+    host-side health rule. Callers stop on the explicit `target-defeated` outcome; the Operation
+    does not independently reject an already-defeated target before the cast.
   - Evidence: [rpg-combat-cast](../examples/schema2/rpg-combat-cast/),
     [issue #708](https://github.com/aigengame/godot-agent/issues/708), and
     [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md).

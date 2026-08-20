@@ -32,6 +32,9 @@ distribution contract and a falsifiable definition of genre completeness.
 > Otherwise, it completes with `cast-resolved`. The raw `game.combat.cast-v1` Operation remains
 > available and continues to carry no implicit defeat or eligibility policy. Runtime evaluates
 > these authored Operations and outcomes; it never infers combat status from a health-like value.
+> This slice defines actor eligibility, not target eligibility, and it does not distinguish a new
+> threshold crossing from a target condition that was already satisfied. A caller stops subsequent
+> duel actions after it receives the explicit `target-defeated` outcome.
 
 > **Amendment (2026-08-13, #640):** `game.generation` owns one ordered eligible `RewardOption`
 > pool. Each option pairs its candidate and selection data. Its primary `RarityPolicyKind` remains
