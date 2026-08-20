@@ -17,12 +17,16 @@ one, so the two stay distinct.
 
 The group is a deliberate extension of ADR-0005's domain-object grouping to an
 infrastructure object (gda-daemon), not a top-level meta singleton. None of its
-operations is a sentinel op, so — like ``export run`` — each runs a recipe:
-``start`` gates the platform (live is UNIX-only, ADR-0021), performs the reported
-idempotent harness install (ADR-0018), spawns the detached daemon, and waits until
-it is accepting; ``stop`` asks it to shut down; ``status`` reports liveness from
-the pidfile; and ``install`` / ``uninstall`` are the harness half of the lifecycle
-on their own — the same install ``start`` folds in, and its paired removal.
+operations is a sentinel op. The lifecycle commands each run a recipe — like
+``export run``: ``start`` gates the platform (live is UNIX-only, ADR-0021),
+performs the reported idempotent harness install (ADR-0018), spawns the detached
+daemon, and waits until it is accepting; ``stop`` asks it to shut down;
+``status`` reports liveness from the pidfile; and ``install`` / ``uninstall``
+are the harness half of the lifecycle on their own — the same install ``start``
+folds in, and its paired removal. The ONE exception (#657, ADR-0040 amendment)
+is ``wait-ready``: ``kind = LIVE``, routed through the daemon socket and
+``classify_live`` like ``diag errors``, because its object is the engine session
+the running daemon holds — not the daemon process lifecycle.
 """
 
 import os
@@ -47,7 +51,12 @@ from gda.daemon.discovery import (
 )
 from gda.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.protocol import read_message, write_message
-from gda.daemon.server import STATUS_OP, STOP_OP, WAIT_READY_OP
+from gda.daemon.server import (
+    STATUS_OP,
+    STOP_OP,
+    WAIT_READY_OP,
+    WAIT_READY_TIMEOUT_MAX,
+)
 from gda.daemon.session import CONNECT_TIMEOUT
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import Failure, make_failure, unresolvable_binary_failure
@@ -204,23 +213,27 @@ class DaemonStatusResult(BaseModel):
 class DaemonWaitReadyParams(BaseModel):
     """The params of ``gda daemon wait-ready``: the bounded readiness wait (#657).
 
-    The daemon launches its engine session LAZILY on the first live op
-    (ADR-0017); this command is the explicit, bounded way to BE that first op.
-    ``timeout`` bounds the launch's harness-connect wait inside the daemon — not
-    a poll interval and not a sleep loop: one request, one launch, one answer.
+    The daemon launches its engine session LAZILY on the first operation that
+    requires one (ADR-0017); this command is the explicit, bounded way to BE
+    that operation. ``timeout`` bounds the launch's whole readiness handshake
+    inside the daemon — not a poll interval and not a sleep loop: one request,
+    one launch, one answer. The (0, 50] cap is the shared
+    ``gda.daemon.server.WAIT_READY_TIMEOUT_MAX``, which the daemon re-enforces
+    at its IPC boundary for non-gda clients.
     """
 
     timeout: float = Field(
         default=CONNECT_TIMEOUT,
         gt=0,
-        le=50,
+        le=WAIT_READY_TIMEOUT_MAX,
         allow_inf_nan=False,
         description=(
             "How many seconds to let the engine session's launch take — engine "
             "boot, the project's autoloads, and the in-game harness connecting "
-            "back. Bounds the wait inside the daemon; when exhausted the reply "
-            "is 'engine_session_not_running' carrying the launch diagnostics. "
-            "Must be a finite number in (0, 50]: the live channel bounds the "
+            "back and completing its handshake. Bounds the wait inside the "
+            "daemon; when exhausted the reply is 'engine_session_not_running' "
+            "carrying the launch diagnostics. Must be a finite number in "
+            f"(0, {int(WAIT_READY_TIMEOUT_MAX)}]: the live channel bounds the "
             "whole request round trip at 60s client-side, so the wait has to "
             f"resolve inside it. Defaults to {int(CONNECT_TIMEOUT)}."
         ),
@@ -242,7 +255,7 @@ class DaemonWaitReadyResult(BaseModel):
             "Whether THIS call launched the engine session (true), or one was "
             "already serving (false — idempotent, nothing was relaunched). "
             "Sessions stay lazily launched (ADR-0017); this command is the "
-            "documented way to be the first live op."
+            "documented way to trigger that launch explicitly."
         )
     )
 
@@ -1112,12 +1125,13 @@ def daemon_wait_ready(
 ) -> None:
     """Establish the engine session and wait, bounded, until live reads serve.
 
-    The daemon launches its engine session LAZILY on the first live op
-    (ADR-0017), so right after `gda daemon start` a read-only diagnostic like
-    `gda diag errors` reports `engine_session_not_running` — expected, not a
-    defect: a read must never be the thing that runs the project's code
-    (ADR-0022). This command is the documented way to be that first op
-    deliberately: it asks the daemon to launch the session — running the
+    The daemon launches its engine session LAZILY, on the first operation that
+    REQUIRES one (ADR-0017) — and a read-only diagnostic never does: right
+    after `gda daemon start`, `gda diag errors` reports
+    `engine_session_not_running` by design, because a read must never be the
+    thing that runs the project's code (ADR-0022). This command is the
+    documented way to trigger the launch explicitly: it asks the daemon to
+    launch the session — running the
     project's autoloads and its scene, inside the trusted-project assumption
     (ADR-0009) — and returns once the in-game harness has connected, after
     which live reads (including a first `diag errors`) serve. Idempotent while

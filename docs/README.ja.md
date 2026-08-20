@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=3c57da598896485491b50b52cd19a411aecd42efff28a1242fe06c190f8e4462 -->
+<!-- gda-readme-i18n: source=README.md sha256=ce484830762f3beaff4c979423c5ae400f9e443d077393808ea1b566fefce7ff -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -544,8 +544,8 @@ offset プロパティを明示的に設定してください。
 
 | コマンド | 機能 |
 | ------- | ------------ |
-| `daemon start` | プロジェクトごとのデーモンを起動し、ゲーム内ハーネスをインストールします。エンジンセッションは最初の Live 操作で起動します(`screen` キャプチャには `--windowed`)。 |
-| `daemon wait-ready` | 遅延起動されるエンジンセッションを確立し、Live 読み取りが応答するまで上限つきで待ちます — 「最初の Live 操作」になるための正規の方法で、`daemon start` 直後の最初の `diag errors` が `engine_session_not_running` を報告しなくなります。 |
+| `daemon start` | プロジェクトごとのデーモンを起動し、ゲーム内ハーネスをインストールします。エンジンセッションは、それを必要とする最初の操作で起動します(`screen` キャプチャには `--windowed`)。 |
+| `daemon wait-ready` | 遅延起動されるエンジンセッションを確立し、Live 読み取りが応答するまで上限つきで待ちます — セッション起動を明示的にトリガーする正規の方法です。読み取り専用の `diag`/`logger` はセッションを起動しないため、`daemon start` 直後の最初の `diag errors` は設計上 `engine_session_not_running` を報告します。 |
 | `daemon stop` | プロジェクトのデーモンと、実行中のエンジンセッションを停止します。 |
 | `daemon status` | デーモンの状態(実行中か、ウィンドウモードか、セッション)を報告します。 |
 | `daemon install` | デーモンを起動せずにゲーム内 `gda` harness をプロジェクトへインストールし、作成したパスとセクションをすべて報告します。冪等で、古い `gda` の harness は現行版に再同期されます。`daemon start` 自身がこれを行うため、その `project.godot` の変更を意図的に(レビューやコミットのために)行いたいときにだけ実行します。 |

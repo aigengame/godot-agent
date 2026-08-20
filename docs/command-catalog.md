@@ -842,10 +842,10 @@ headless is unaffected (4.4+, cross-platform).
 - **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status` /
   `wait-ready`, and `gda daemon install` / `uninstall` for the `gda harness` (ADR-0018).
   `daemon wait-ready` (`kind = LIVE`, #657) establishes the lazily-launched engine session
-  deterministically: sessions launch on the first live op (ADR-0017), and the read-only
-  diag/logger reads never launch one (ADR-0022), so a first `diag errors` right after start
-  reports `engine_session_not_running` by design — `wait-ready` is the documented, bounded
-  way to be that first op. `--timeout` bounds the launch's harness-connect wait inside the
+  deterministically: a session launches on the first operation that REQUIRES one (ADR-0017),
+  and the read-only diag/logger reads never do (ADR-0022), so a first `diag errors` right
+  after start reports `engine_session_not_running` by design — `wait-ready` is the
+  documented, bounded way to trigger that launch explicitly. `--timeout` bounds the launch's harness-connect wait inside the
   daemon (a finite number in (0, 50], under the live channel's 60s client-side round-trip
   bound); success (`{pid, launched}`) means subsequent live reads serve, and a repeat while
   the session is alive is idempotent (`launched: false`, nothing relaunched). `daemon start --windowed` additionally

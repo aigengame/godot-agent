@@ -135,10 +135,10 @@ refusal hints the command form) and a bare `gda --json` with no command (`Missin
 
 Prerequisites: run `gda daemon start` first (optionally `--scene <res://...>` to boot a
 specific scene instead of the project's main scene); the engine session launches lazily on
-the first live op. To establish the session deterministically, run `gda daemon wait-ready`
-(bounded by `--timeout`, idempotent while the session is alive) — success means live reads
-serve. This matters for the read-only diagnostics: `diag errors` / `logger tail` never
-launch a session themselves, so right after `daemon start` they report
+the first operation that requires one. To establish the session deterministically, run
+`gda daemon wait-ready` (bounded by `--timeout`, idempotent while the session is alive) —
+success means live reads serve. This matters for the read-only diagnostics: `diag errors` /
+`logger tail` never launch a session themselves, so right after `daemon start` they report
 `engine_session_not_running` by design — expected, not a defect; run `wait-ready` first.
 `screen capture` needs a windowed session
 (`gda daemon start --windowed`).
@@ -242,7 +242,7 @@ gda export run --preset "Linux/X11" --output "$PWD/game/build/game.zip" --projec
 Live: observe the running game, then tear down.
 
 ```bash
-gda daemon start --project game --json     # launches the session on the first live op
+gda daemon start --project game --json     # the session launches on the first op that needs one
 gda game tree --project game --json        # the runtime scene tree, after _ready
 gda daemon stop --project game --json
 ```

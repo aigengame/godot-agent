@@ -36,8 +36,8 @@ from gda.daemon.discovery import (
     read_pidfile,
 )
 from gda.daemon.protocol import read_message, write_message
-from gda.daemon.server import DaemonServer
-from gda.daemon.session import EngineSession
+from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
+from gda.daemon.session import EngineSession, launch_session
 from gda.errors import Failure
 from gda.parser import parse_result
 
@@ -423,3 +423,204 @@ def test_wait_ready_relays_the_typed_launch_failure(
     assert (
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
     )
+
+
+def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 review finding 1, at the launcher: ONE monotonic deadline spans
+    # accept, the token frame, and the verification frame. A peer that connects
+    # and then never speaks used to block the token read forever — here the
+    # REAL launch_session must give up within the bound and record why.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _Proc(code=None))
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    paths = daemon_paths(_project(tmp_path))
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(paths.harness_socket))
+    listener.listen()
+    silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    silent.connect(str(paths.harness_socket))  # queued for the launch's accept
+
+    diagnostics: list[str] = []
+    started = time.monotonic()
+    try:
+        outcome = launch_session(
+            paths.project,
+            "godot",
+            listener,
+            paths.harness_socket,
+            "expected-token",
+            timeout=0.3,
+            diagnostics=diagnostics,
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        silent.close()
+        listener.close()
+
+    assert outcome is None
+    assert elapsed < 3.0, f"the silent peer held the launch for {elapsed:.1f}s"
+    assert any("no auth token" in reason for reason in diagnostics)
+
+
+def test_a_stuck_handshake_does_not_freeze_the_daemon(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 review finding 1, end to end: the REAL launch_session runs inside the
+    # serve loop while a peer occupies the harness socket silently. wait-ready
+    # must come back typed within its bound, and — the daemon serving one
+    # request at a time — the NEXT control request must still be served.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _Proc(code=None))
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot")  # the real launch seam default
+
+    with _serving(server, paths, monkeypatch):
+        silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        silent.connect(str(paths.harness_socket))
+        try:
+            reply = _request(
+                paths,
+                {"op": "daemon-wait-ready", "params": {"timeout": 0.3}},
+                timeout=10.0,
+            )
+            assert reply is not None
+            assert (
+                parse_result(reply["stdout"])["error"]["code"]
+                == "engine_session_not_running"
+            )
+            status = _request(paths, {"op": "__status__"})
+            assert status is not None and status["ok"] is True
+        finally:
+            silent.close()
+
+
+def test_wait_ready_rebuilds_a_session_whose_channel_broke(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 review finding 2: a relay that hits a broken harness channel latches
+    # the session stale, so the NEXT wait-ready relaunches through the shared
+    # boundary instead of reporting a serving state (launched: false) that the
+    # very next read disproves — the engine process is still alive throughout.
+    # The relaunch path close()s the stale session, whose real _terminate needs
+    # a real process; the fake has none.
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    ours, theirs = socket.socketpair()
+    theirs.close()
+    zombie = EngineSession(cast(subprocess.Popen, _Proc(code=None)), conn=ours)
+
+    launches: list = []
+
+    def _launch(*args, **kwargs):
+        launches.append(1)
+        return zombie if len(launches) == 1 else _ServedSession()
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        first = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+        read = _request(paths, {"op": "game-tree", "params": {}})
+        second = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+        served = _request(paths, {"op": "game-tree", "params": {}})
+
+    assert first is not None and parse_result(first["stdout"])["launched"] is True
+    assert read is not None
+    assert parse_result(read["stdout"])["error"]["code"] == "engine_disconnected"
+    assert second is not None and parse_result(second["stdout"])["launched"] is True
+    assert served is not None and served["stdout"] == "served:game-tree"
+    assert len(launches) == 2
+
+
+def test_launched_is_reported_by_the_launch_owner(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 review finding 3 (TOCTOU): the launch fact travels WITH the launch
+    # decision. A liveness that flips between two samples must never yield a
+    # call that launched yet reported launched: false — the invariant is
+    # "launched == (a launch actually happened on this call)".
+    class _FlipSession(_ServedSession):
+        def __init__(self) -> None:
+            super().__init__()
+            self.polls = 0
+
+        def alive(self) -> bool:
+            self.polls += 1
+            return self.polls == 1  # alive at the first sample, gone at the next
+
+    launches: list = []
+    flip = _FlipSession()
+
+    def _launch(*args, **kwargs):
+        launches.append(1)
+        return flip if len(launches) == 1 else _ServedSession()
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        first = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+        second = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+
+    assert first is not None and parse_result(first["stdout"])["launched"] is True
+    assert second is not None
+    launched_second = parse_result(second["stdout"])["launched"]
+    assert launched_second == (len(launches) == 2), (
+        f"launched={launched_second} but launches={len(launches)} — the reported "
+        "fact desynced from what the launch owner actually did"
+    )
+
+
+def test_every_declared_daemon_served_op_is_intercepted_not_relayed(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 review finding 4: DAEMON_SERVED_OPS is the routing authority, so a
+    # mutation that declares an op daemon-served without intercepting it must
+    # fail HERE — every member is driven through the real loop with a session
+    # cached, and none may reach the session's relay.
+    class _RecordingSession(_ServedSession):
+        def __init__(self) -> None:
+            super().__init__()
+            self.relayed: list[str] = []
+
+        def request(self, operation: str, params: dict) -> dict:
+            self.relayed.append(operation)
+            return super().request(operation, params)
+
+    session = _RecordingSession()
+
+    def _launch(*args, **kwargs):
+        return session
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        primed = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+        assert primed is not None
+        for op in DAEMON_SERVED_OPS:
+            reply = _request(paths, {"op": op, "params": {}})
+            assert reply is not None, op
+
+    assert session.relayed == []
+
+
+def test_the_wire_boundary_re_enforces_the_wait_ready_bound(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 review finding 4: the finite (0, 50] rule holds at the IPC boundary
+    # too — this socket can be driven by clients other than gda's CLI, and an
+    # unbounded or non-finite value would defeat the bound the op promises.
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_no_launch)
+
+    with _serving(server, paths, monkeypatch):
+        for bad in (-1, 0, 1000, float("inf"), float("nan"), True, "10"):
+            reply = _request(
+                paths, {"op": "daemon-wait-ready", "params": {"timeout": bad}}
+            )
+            assert reply is not None, bad
+            assert parse_result(reply["stdout"])["error"]["code"] == "invalid_params", (
+                bad
+            )

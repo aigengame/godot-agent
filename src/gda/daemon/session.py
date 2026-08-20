@@ -17,6 +17,7 @@ import os
 import signal
 import socket
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -96,15 +97,23 @@ class EngineSession:
         self._proc = proc
         self._conn = conn
         self.log_file = log_file
+        self._channel_stale = False
 
     def alive(self) -> bool:
-        return self._proc.poll() is None
+        # Liveness is the PROCESS and the CHANNEL (#725 review): a session whose
+        # harness connection was observed broken cannot serve, however alive the
+        # engine process is — calling it alive made `daemon wait-ready` report a
+        # serving state the very next read disproved. Staleness is latched at
+        # the observation point (a failed relay in ``request``), so the next
+        # session-needing op rebuilds through the shared launch boundary.
+        return self._proc.poll() is None and not self._channel_stale
 
     def request(self, operation: str, params: dict) -> dict:
         """Relay one live op to the harness; return the CLI reply dict."""
         if self._conn is None:
             # A session whose harness never connected has no channel to relay on
             # — report it as a dropped connection rather than crash on ``None``.
+            self._channel_stale = True
             return error_reply(
                 "engine_disconnected", "the engine session has no live connection"
             )
@@ -113,15 +122,21 @@ class EngineSession:
             write_message(self._conn, {"op": operation, "params": params})
             reply = read_frame(self._conn)  # the raw ADR-0002 sentinel string
         except TimeoutError:
+            # Deliberately NOT latched stale: a slow op is not a broken channel,
+            # and relaunching on every live_timeout would turn one long frame
+            # into a session churn. (A late reply CAN leave the stream framing
+            # dirty; that recovery question predates this slice and stays open.)
             return error_reply(
                 "live_timeout",
                 f"the engine session did not return within {int(OP_TIMEOUT)}s",
             )
         except OSError:
+            self._channel_stale = True
             return error_reply(
                 "engine_disconnected", "the engine session dropped the connection"
             )
         if reply is None:
+            self._channel_stale = True
             return error_reply(
                 "engine_disconnected", "the engine session closed before replying"
             )
@@ -248,6 +263,17 @@ def launch_session(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    # ONE monotonic deadline for the WHOLE readiness handshake (#725 review):
+    # accept, the token frame, and the scene-verification frame all draw down the
+    # same budget. Bounding only the accept let a peer that connected and then
+    # went silent block the token read forever — and the daemon serves one
+    # request at a time, so that silence froze every later live and control
+    # request with it.
+    deadline = time.monotonic() + timeout
+
+    def _remaining() -> float:
+        return max(deadline - time.monotonic(), 0.001)
+
     harness_listener.settimeout(timeout)
     try:
         conn, _ = harness_listener.accept()
@@ -260,11 +286,19 @@ def launch_session(
         return None
 
     # The harness's first frame is the auth token.
+    conn.settimeout(_remaining())
     try:
         presented = read_frame(conn)
-    except OSError:
+    except OSError:  # includes the deadline expiring mid-read
         presented = None
-    if presented is None or presented.decode("utf-8", "replace") != token:
+    if presented is None:
+        _record(
+            "the harness connected but sent no auth token within the launch deadline"
+        )
+        _close(conn)
+        _terminate(proc)
+        return None
+    if presented.decode("utf-8", "replace") != token:
         _record("the harness connected but presented an invalid auth token")
         _close(conn)
         _terminate(proc)
@@ -275,6 +309,7 @@ def launch_session(
     # (#278). A mismatch — including Godot's silent main_scene fallback for a bad
     # uid — tears the session down and raises SceneMismatch so the daemon surfaces a
     # typed live_scene_not_found rather than serving the wrong scene.
+    conn.settimeout(_remaining())
     try:
         verify_frame = read_frame(conn)
     except OSError:

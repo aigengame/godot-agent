@@ -8,12 +8,13 @@ liveness, ``__stop__`` graceful shutdown); any other op is a project live op,
 served by the engine session, which is (re)launched lazily on demand.
 """
 
+import math
 import os
 import secrets
 import signal
 import socket
 from pathlib import Path
-from typing import Callable, Optional, Protocol
+from typing import Callable, NamedTuple, Optional, Protocol
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
@@ -42,13 +43,22 @@ LOG_OPS = (DIAG_ERRORS_OP, LOGGER_TAIL_OP)
 # The daemon-served readiness op (#657): `gda daemon wait-ready`. Like the LOG_OPS
 # it is answered by the daemon rather than relayed to the harness — but unlike
 # them it deliberately LAUNCHES the engine session (the documented, bounded way to
-# be ADR-0017's "first live op"), so it is not in their read-only family.
+# trigger ADR-0017's lazy launch), so it is not in their read-only family.
 WAIT_READY_OP = "daemon-wait-ready"
 
-# Every LIVE op the daemon answers ITSELF rather than relaying to the harness —
-# the single authority the cross-language op-table guard subtracts before
-# demanding a harness-side `const OP_…` mirror (PR #650 guards, #657).
+# Every LIVE op the daemon answers ITSELF rather than relaying to the harness.
+# The single membership authority (#725 review): production routing keys on this
+# tuple (`_handle` -> `_handle_daemon_served`), and the cross-language op-table
+# guard subtracts the same tuple before demanding a harness-side `const OP_…`
+# mirror (PR #650 guards, #657) — so the two cannot drift.
 DAEMON_SERVED_OPS = (*LOG_OPS, WAIT_READY_OP)
+
+# The wire contract's cap on a wait-ready launch bound (#657): the live channel
+# bounds one whole request round trip at 60s client-side
+# (gda.live_runner.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
+# comfortably inside it. One authority for both enforcement points: the CLI
+# params model (ADR-0015) and the daemon's own IPC-boundary check below.
+WAIT_READY_TIMEOUT_MAX = 50.0
 
 
 class SessionHandle(Protocol):
@@ -67,6 +77,19 @@ class SessionHandle(Protocol):
     def request(self, operation: str, params: dict) -> dict: ...
 
     def close(self) -> None: ...
+
+
+class _Established(NamedTuple):
+    """A serving session plus the fact of who launched it (#725 review).
+
+    ``launched`` is decided by the launch owner (``_ensure_session``) at the
+    moment it reuses or launches — never re-derived by a caller, whose separate
+    ``alive()`` sample raced the decision (a process exiting between the two
+    samples made a call that DID launch report ``launched: false``).
+    """
+
+    session: SessionHandle
+    launched: bool
 
 
 class SessionLaunch(Protocol):
@@ -216,61 +239,91 @@ class DaemonServer:
         if op == STOP_OP:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}
-        if op in LOG_OPS:
-            # `gda diag errors` / `gda logger tail` are daemon-served: the daemon
-            # reads the Session log it owns rather than relaying to the harness
-            # (#224, #281).
-            return self._handle_log(op, request.get("params", {}))
-        if op == WAIT_READY_OP:
-            # `gda daemon wait-ready` is daemon-served too (#657) — but unlike the
-            # LOG_OPS it deliberately LAUNCHES: it is the explicit, bounded way to
-            # establish the lazily-launched session (ADR-0017) so an agent's first
-            # real read serves.
-            return self._handle_wait_ready(request.get("params", {}))
+        if op in DAEMON_SERVED_OPS:
+            # Daemon-answered, never relayed. Membership is decided by the ONE
+            # tuple the cross-language guard also reads (#725 review), so an op
+            # declared daemon-served is intercepted here by construction.
+            return self._handle_daemon_served(op, request.get("params", {}))
         # A project live op. Serialized against the one session (single writer).
         outcome = self._session_or_refusal()
         if isinstance(outcome, dict):
             return outcome
-        return outcome.request(op, request.get("params", {}))
+        return outcome.session.request(op, request.get("params", {}))
+
+    def _handle_daemon_served(self, op: str, params: dict) -> dict:
+        """Dispatch one DAEMON_SERVED_OPS member to its daemon-side handler."""
+        if op in LOG_OPS:
+            # `gda diag errors` / `gda logger tail`: the daemon reads the Session
+            # log it owns rather than relaying to the harness (#224, #281).
+            return self._handle_log(op, params)
+        if op == WAIT_READY_OP:
+            # `gda daemon wait-ready` (#657) — unlike the LOG_OPS it deliberately
+            # LAUNCHES: the explicit, bounded way to establish the lazily-launched
+            # session (ADR-0017) so an agent's first real read serves.
+            return self._handle_wait_ready(params)
+        # A DAEMON_SERVED_OPS member with no handler is a gda defect: refuse it
+        # loudly rather than silently relaying it to a harness that never
+        # declared it. Unreachable while the tuple is composed from LOG_OPS and
+        # WAIT_READY_OP above; the parity test drives every member through here.
+        return error_reply(
+            "unknown_operation", f"daemon-served op {op!r} has no daemon handler"
+        )
 
     def _handle_wait_ready(self, params: dict) -> dict:
         """Establish the engine session and report readiness (#657).
 
         The bounded-wait half of ADR-0017's lazy launch: sessions still launch
-        lazily on the first live op, and THIS op is the explicit way to be that
-        first op — its success means the harness has connected and presented its
-        token, so subsequent live reads (including a first ``diag errors``, which
-        never launches) serve. ``timeout`` bounds the launch's harness-connect
-        wait; an already-serving session returns immediately with
-        ``launched: false`` and is never relaunched.
+        lazily on the first operation that requires one, and THIS op is the
+        explicit way to be that operation — its success means the harness has
+        connected and presented its token, so subsequent live reads (including a
+        first ``diag errors``, which never launches) serve. ``timeout`` bounds
+        the launch's whole readiness handshake; an already-serving session
+        returns immediately with ``launched: false`` and is never relaunched.
+        ``launched`` is reported by the launch owner (``_ensure_session``), not
+        inferred here — a pre-sampled ``alive()`` raced the launch decision and
+        could report ``false`` for a call that did launch (#725 review).
         """
-        already = self._session is not None and self._session.alive()
-        raw_timeout = params.get("timeout")
-        timeout = (
-            float(raw_timeout)
-            if isinstance(raw_timeout, (int, float))
-            and not isinstance(raw_timeout, bool)
-            else None
-        )
+        raw = params.get("timeout")
+        timeout: float | None = None
+        if raw is not None:
+            # The same finite (0, 50] rule the params model enforces (ADR-0015),
+            # re-checked at the IPC boundary (#725 review): this socket can be
+            # driven by clients other than gda's CLI, and an unbounded or
+            # non-finite value here would defeat the very bound this op promises.
+            if (
+                isinstance(raw, bool)
+                or not isinstance(raw, (int, float))
+                or not math.isfinite(raw)
+                or not 0 < raw <= WAIT_READY_TIMEOUT_MAX
+            ):
+                return error_reply(
+                    "invalid_params",
+                    "wait-ready timeout must be a finite number in "
+                    f"(0, {int(WAIT_READY_TIMEOUT_MAX)}]; got {raw!r}",
+                )
+            timeout = float(raw)
         outcome = self._session_or_refusal(timeout=timeout)
         if isinstance(outcome, dict):
             return outcome
-        return result_reply({"pid": os.getpid(), "launched": not already})
+        return result_reply({"pid": os.getpid(), "launched": outcome.launched})
 
     def _session_or_refusal(
         self, timeout: float | None = None
-    ) -> "SessionHandle | dict":
-        """The serving session, or the typed error reply for why there is none.
+    ) -> "_Established | dict":
+        """The serving session — with whether this call launched it — or the typed refusal.
 
         The one launch boundary every session-needing op goes through (#657
         extracted it from the live-op branch so ``wait-ready`` shares it exactly).
-        The scene selector is verified ONCE at launch (in the harness): a mismatch
-        is a typed live_scene_not_found, never a silent fall back to main_scene and
-        never a per-request re-check (#278, ADR-0017 amendment, ADR-0020).
+        ``launched`` travels with the session because only the launch owner knows
+        it (#725 review): sampling ``alive()`` before and after raced the
+        decision. The scene selector is verified ONCE at launch (in the harness):
+        a mismatch is a typed live_scene_not_found, never a silent fall back to
+        main_scene and never a per-request re-check (#278, ADR-0017 amendment,
+        ADR-0020).
         """
         launch_diagnostics: list[str] = []
         try:
-            session = self._ensure_session(launch_diagnostics, timeout=timeout)
+            established = self._ensure_session(launch_diagnostics, timeout=timeout)
         except SceneMismatch as mismatch:
             detail = (
                 f"no scene named {mismatch.requested!r} exists in the project"
@@ -304,14 +357,14 @@ class DaemonServer:
                 diagnostics=unavailable.reason,
                 probe=unavailable.verdict.probe,
             )
-        if session is None:
+        if established is None:
             return error_reply(
                 "engine_session_not_running",
                 "the gda-daemon could not launch an engine session (no Godot binary, "
                 "or the engine died / the harness did not connect)",
                 diagnostics=self._launch_failure_diagnostics(launch_diagnostics),
             )
-        return session
+        return established
 
     def _handle_log(self, op: str, params: dict) -> dict:
         """Serve a daemon-side log op from the Session log this daemon owns (#224, #281).
@@ -362,9 +415,9 @@ class DaemonServer:
 
     def _ensure_session(
         self, diagnostics: list[str] | None = None, timeout: float | None = None
-    ) -> SessionHandle | None:
+    ) -> "_Established | None":
         if self._session is not None and self._session.alive():
-            return self._session
+            return _Established(self._session, launched=False)
         if self._session is not None:
             self._session.close()
             self._session = None
@@ -402,14 +455,16 @@ class DaemonServer:
             self.paths.harness_socket,
             self._token,
             log_file=self.paths.session_log,
-            # A caller-bounded harness-connect wait (#657, `daemon wait-ready
+            # A caller-bounded readiness-handshake wait (#657, `daemon wait-ready
             # --timeout`); None keeps the launcher's own default.
             timeout=timeout if timeout is not None else CONNECT_TIMEOUT,
             windowed=self.windowed,
             scene=self.scene,
             diagnostics=diagnostics,
         )
-        return self._session
+        if self._session is None:
+            return None
+        return _Established(self._session, launched=True)
 
     def _launch_failure_diagnostics(self, child_diagnostics: list[str]) -> str:
         """Best-effort diagnostics for a failed engine-session launch (#345).

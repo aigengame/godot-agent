@@ -534,8 +534,8 @@ reported as `script_aborted` with the captured error.
 
 | Command | What it does |
 | ------- | ------------ |
-| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
-| `daemon wait-ready` | Establish the lazily-launched engine session and wait, bounded, until live reads serve — the documented way to be the first live op, so a first `diag errors` right after `daemon start` does not report `engine_session_not_running`. |
+| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first operation that requires one (`--windowed` for `screen` capture). |
+| `daemon wait-ready` | Establish the lazily-launched engine session and wait, bounded, until live reads serve — the documented way to trigger the session launch, since the read-only `diag`/`logger` reads never launch one and a first `diag errors` right after `daemon start` reports `engine_session_not_running` by design. |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
 | `daemon install` | Install the in-game `gda` harness into the project without starting a daemon, reporting every path and section it created. Idempotent, and re-syncs a harness from an older `gda`. `daemon start` does this itself, so run it only to make that `project.godot` change deliberately — to review or commit it. |
