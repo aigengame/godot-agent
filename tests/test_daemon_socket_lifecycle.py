@@ -190,18 +190,45 @@ def test_stop_op_unlinks_the_sockets_and_pidfile(
     assert not paths.pidfile.exists()
 
 
-def test_a_termination_signal_cleans_up_the_slot(
-    tmp_path, daemon_runtime_dir, monkeypatch
-):
-    # The handler serve() registers for SIGTERM/SIGINT: closing the listener
-    # unblocks the pending accept, the loop exits, cleanup unlinks the slot.
+def test_a_termination_signal_cleans_up_the_slot(tmp_path, daemon_runtime_dir):
+    # The REAL production signal path, in a forked child where serve() runs on
+    # the main thread exactly as the daemon does: SIGTERM interrupts the blocked
+    # accept (EINTR), the registered handler closes the listener and sets the
+    # stop flag, the loop exits, cleanup unlinks the slot. A worker-thread
+    # re-enactment is deliberately NOT used here — on Linux, closing a listener
+    # from another thread does not wake a blocked accept, which is a fact about
+    # threads, not about the signal path under test.
     paths = daemon_paths(_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_no_launch)
 
-    with _serving(server, paths, monkeypatch) as thread:
-        server._on_signal(signal.SIGTERM, None)
-        thread.join(timeout=5)
-        assert not thread.is_alive()
+    child = os.fork()
+    if child == 0:  # the daemon: serve until signalled, then leave pytest silently
+        try:
+            server.serve()
+        finally:
+            os._exit(0)
+
+    try:
+        _await_ready(paths)
+        os.kill(child, signal.SIGTERM)
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            done, _ = os.waitpid(child, os.WNOHANG)
+            if done == child:
+                break
+            time.sleep(0.02)
+        else:
+            os.kill(child, signal.SIGKILL)
+            os.waitpid(child, 0)
+            raise AssertionError("the daemon did not exit on SIGTERM")
+    except BaseException:
+        # Never leak the forked daemon into the rest of the suite.
+        try:
+            os.kill(child, signal.SIGKILL)
+            os.waitpid(child, 0)
+        except (OSError, ChildProcessError):
+            pass
+        raise
 
     assert not paths.cli_socket.exists()
     assert not paths.harness_socket.exists()
