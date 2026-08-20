@@ -49,6 +49,7 @@ The recognized sentences, verbatim from Godot 4.6.3::
     ERROR: Cannot open file 'res://missing.tres'.
     ERROR: Failed loading resource: res://missing.tres.
     ERROR: Script inherits from native type 'Resource', so it can't be assigned to an object of type 'Node2D'.
+    ERROR: Cannot set object script. Parameter should be null or a reference to a valid script.
 """
 
 import posixpath
@@ -111,6 +112,18 @@ _INCOMPATIBLE_BINDING = re.compile(
     r"assigned to an object of type '(?P<target>[^']*)'"
 )
 
+# `ERROR: Cannot set object script. Parameter should be null or a reference to a
+# valid script.` — the engine's OTHER bind-time refusal (object.cpp set_script):
+# the value bound to a `script` property is not a Script at all — a plain
+# Resource declared `type="Script"` in a scene (#709 review). Same family and
+# same consequence as _INCOMPATIBLE_BINDING (the object boots script-less), and
+# the sentence names neither a path nor a type, so the diagnostic carries only
+# the message.
+_NOT_A_SCRIPT_BINDING = re.compile(
+    r"^Cannot set object script\. Parameter should be null or a reference to a "
+    r"valid script"
+)
+
 # The two resource-load sentences (#651 review claim 4). Godot emits BOTH for one
 # failed `load()`/`preload()` of a non-script resource, from different layers:
 # `Cannot open file` from the format loader, `Failed loading resource` from
@@ -158,9 +171,9 @@ class ScriptErrorKind(str, Enum):
     that carry :class:`ScriptError`. Every kind except ``RUNTIME_ERROR`` and
     ``INCOMPATIBLE_SCRIPT`` reports that the named resource could **not be loaded
     or run**; ``RUNTIME_ERROR`` reports an error raised by a script that was
-    already executing, and ``INCOMPATIBLE_SCRIPT`` reports a script that loaded
-    and compiled but could not be BOUND to its object (it names no resource at
-    all — the engine's sentence names the two types).
+    already executing, and ``INCOMPATIBLE_SCRIPT`` reports a binding the engine
+    refused — a compiled script whose base cannot bind its object, or a bound
+    value that is not a Script at all (it names no resource either way).
 
     Whether such a failure ended the *run* depends on **which** resource it names:
     a load failure naming the entry script means the run never happened, while the
@@ -190,11 +203,13 @@ class ScriptErrorKind(str, Enum):
     #: (e.g. a ``.tres``), but the engine reports a missing script this way too,
     #: beside its more specific sentence.
     RESOURCE_LOAD_FAILED = "resource_load_failed"
-    #: A script that compiles but whose native base cannot bind the object it was
-    #: assigned to (e.g. an ``extends Resource`` script on a ``Node2D``): the
-    #: engine refuses the assignment and the object runs script-less. Carries no
-    #: ``path`` — the engine's sentence names the two types, not a file — so it
-    #: can never name an entry script and never decides a run verdict.
+    #: A script binding the engine refused at assignment time: a compiled script
+    #: whose native base cannot bind the object it was assigned to (e.g. an
+    #: ``extends Resource`` script on a ``Node2D``), or a bound value that is not
+    #: a Script at all (a plain Resource declared ``type="Script"`` in a scene).
+    #: Either way the object runs script-less. Carries no ``path`` — neither
+    #: sentence names a file — so it can never name an entry script and never
+    #: decides a run verdict.
     INCOMPATIBLE_SCRIPT = "incompatible_script"
 
 
@@ -243,9 +258,11 @@ class ScriptError(BaseModel):
             "Which known engine failure this line reports. Every kind except "
             "'runtime_error' and 'incompatible_script' means the named resource "
             "could not be loaded or run; 'runtime_error' means a script was "
-            "already executing when it raised, and 'incompatible_script' means a "
-            "compiled script could not be BOUND to its object (path is null: the "
-            "engine names the two types, not a file). Whether the RUN failed "
+            "already executing when it raised, and 'incompatible_script' means "
+            "the engine refused a script binding — a compiled script whose base "
+            "cannot bind its object, or a bound value that is not a Script at "
+            "all (path is null: neither sentence names a file). Whether the RUN "
+            "failed "
             "depends on whether 'path' is the entry script: a load failure naming "
             "something the running script merely tried to load is not a failed "
             "run."
@@ -402,10 +419,15 @@ def _engine_error(message: str) -> ScriptError | None:
         return _engine_diagnostic(
             ScriptErrorKind.LOAD_FAILED, message, cant_load.group("path")
         )
+    # The two bind-time refusals, both with no res:// address: one names the two
+    # incompatible TYPES, the other names nothing at all — so the diagnostic
+    # carries the message and honestly no path, keeping both out of every
+    # entry-verdict comparison.
     if _INCOMPATIBLE_BINDING.match(message) is not None:
-        # The one recognized sentence with no res:// address: the engine names the
-        # two incompatible TYPES, not a file, so the diagnostic carries the message
-        # and honestly no path — keeping it out of every entry-verdict comparison.
+        return ScriptError(
+            kind=ScriptErrorKind.INCOMPATIBLE_SCRIPT, message=message, path=None
+        )
+    if _NOT_A_SCRIPT_BINDING.match(message) is not None:
         return ScriptError(
             kind=ScriptErrorKind.INCOMPATIBLE_SCRIPT, message=message, path=None
         )

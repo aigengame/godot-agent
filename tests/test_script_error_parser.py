@@ -407,3 +407,31 @@ def test_an_incompatible_binding_never_fails_an_entry_verdict():
     # kind, by construction rather than by precedence ordering.
     errors = parse_script_errors(INCOMPATIBLE_BINDING_STDERR)
     assert entry_load_failure(errors, "res://entry.gd") is None
+
+
+# Captured verbatim from Godot 4.6.3 instantiating a scene whose `script`
+# property binds a plain Resource (`[ext_resource type="Script"
+# path="res://data.tres"]` where data.tres is not a script) — the #709 review's
+# false-positive preflight.
+NOT_A_SCRIPT_BINDING_STDERR = """\
+ERROR: Cannot set object script. Parameter should be null or a reference to a valid script.
+   at: set_script (core/object/object.cpp:1099)
+"""
+
+
+def test_a_non_script_binding_is_a_recognized_diagnostic():
+    # The engine's OTHER deterministic bind-time refusal: the bound value is not
+    # a Script at all. Same family as the base-mismatch sentence — the node
+    # boots script-less — and the sentence names neither a path nor a type, so
+    # the diagnostic carries only the message.
+    errors = parse_script_errors(NOT_A_SCRIPT_BINDING_STDERR)
+
+    assert len(errors) == 1
+    assert errors[0].kind is ScriptErrorKind.INCOMPATIBLE_SCRIPT
+    assert errors[0].path is None
+    assert "Cannot set object script" in errors[0].message
+
+
+def test_a_non_script_binding_never_fails_an_entry_verdict():
+    errors = parse_script_errors(NOT_A_SCRIPT_BINDING_STDERR)
+    assert entry_load_failure(errors, "res://entry.gd") is None

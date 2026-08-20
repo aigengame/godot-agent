@@ -828,7 +828,16 @@ def _spawn_streamed(
                 stderr=err_capture.drain(),
                 elapsed=elapsed,
             ):
-                aborted = True
+                # Re-polled AFTER the watch answered (#709 review): the child can
+                # exit on its own while ``observe()`` deliberates, and calling
+                # that exit ABORTED would synthesize a zero exit code over the
+                # real one — discarding, for ``script run``, the status the
+                # script's own ``quit()`` chose. Only a child that is still alive
+                # here is gda's to end; a natural exit falls through to the
+                # ordinary tail with its own code and its own clock.
+                aborted = proc.poll() is None
+                if not aborted:
+                    elapsed = time.monotonic() - started
                 break
             if elapsed >= timeout:
                 break

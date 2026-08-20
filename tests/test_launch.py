@@ -328,6 +328,50 @@ def test_streaming_lets_the_watch_end_the_run_before_the_timeout(tmp_path):
     assert result.elapsed_seconds is not None and result.elapsed_seconds < 10.0
 
 
+def test_a_natural_exit_during_the_watchs_deliberation_keeps_its_exit_status(
+    tmp_path, monkeypatch
+):
+    # THE #709 REVIEW'S RACE: the watch asks to end the run, but the child already
+    # exited on its own while ``observe()`` deliberated. Reporting that as ABORTED
+    # synthesized exit_code 0 over the real status — for ``script run``, discarding
+    # the status the script's own ``quit()`` chose. A run gda did not end must come
+    # back as the natural exit it was.
+    # A file handshake makes the interleaving exact: the child stays alive until
+    # the watch has SEEN the trigger (so the poll loop is still live and observe
+    # is the one deciding), then exits with its own status while the watch is
+    # still deliberating. Without it the child's exit wins the poll race and the
+    # loop ends naturally before observe ever sees the line.
+    release = tmp_path / "release"
+    engine = _fake_engine(
+        tmp_path,
+        "import os\n"
+        "print('SCRIPT ERROR: boom', file=sys.stderr, flush=True)\n"
+        f"while not os.path.exists({str(release)!r}):\n"
+        "    time.sleep(0.01)\n"
+        "sys.exit(7)\n",
+    )
+    spawned = _capture_popen(monkeypatch)
+
+    class _DeliberatingWatch:
+        stderr_seen = ""
+
+        def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
+            self.stderr_seen += stderr
+            if "SCRIPT ERROR" not in self.stderr_seen:
+                return False
+            # Let the child go, and only answer once it is PROVEN gone — the
+            # exit lands inside this very deliberation, deterministically.
+            release.write_text("go", encoding="utf-8")
+            spawned[0].wait(timeout=10)
+            return True
+
+    result = launch(engine, [], cwd=None, timeout=30.0, watch=_DeliberatingWatch())
+
+    assert result.launch_failure is None
+    assert result.exit_code == 7
+    assert "SCRIPT ERROR: boom" in result.stderr
+
+
 def test_streaming_passes_a_completed_run_through_with_its_own_exit_code(tmp_path):
     # A child that finishes inside the ceiling is NOT a launch failure: the engine's
     # own exit code is the result, launch_failure stays None, and the clock is still

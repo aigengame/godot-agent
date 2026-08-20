@@ -16,7 +16,6 @@ C# (.cs) is out of scope for now — it needs the .NET build of Godot (ADR-0003
 targets the standard build) and a dedicated decision.
 """
 
-import math
 import re
 from collections import deque
 from enum import Enum
@@ -2361,22 +2360,14 @@ def run_script(
     the following silence mean death; a script with long quiet stretches should
     print progress during them, or run without a marker.
     """
-    # A FINITE positive ceiling, checked on both input paths (ADR-0015): the model
-    # below enforces it for --params-json, this for argv. `inf` passes a bare `> 0`
-    # test on both routes and then makes `elapsed >= timeout` unsatisfiable, so the
-    # run gda promised to bound would never be bounded at all — the opposite of what
-    # this option is for. `math.isfinite` rejects `nan` too, which compares false
-    # against everything and fails the same way.
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise typer.BadParameter("--timeout must be a finite number greater than 0.")
-    # Blank (not merely empty) is refused: the marker is compared as a stripped
-    # whole line, so a whitespace-only one would equal every blank line the run
-    # prints and arm the abort on nothing.
-    if completion_marker is not None and not completion_marker.strip():
-        raise typer.BadParameter("--completion-marker must not be blank.")
+    # The params model is the single authority for the bounds (ADR-0015): the
+    # finite positive ceiling and the non-blank marker are its field constraints,
+    # enforced identically for --params-json — this argv body only translates a
+    # model refusal into the Click usage error (#709 review).
     dispatch_recipe(
         SCRIPT_RUN_COMMAND,
-        ScriptRunParams(
+        params_or_bad_parameter(
+            ScriptRunParams,
             path=path,
             strict=strict,
             timeout=timeout,

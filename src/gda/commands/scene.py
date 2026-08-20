@@ -11,7 +11,6 @@ the cross-command contract core (``gda.models``) and the shared render helpers
 reuses ``SceneNode`` / ``derive_scene_root_name``, ADR-0040 §5).
 """
 
-import math
 import sys
 from enum import Enum
 from pathlib import Path
@@ -22,7 +21,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from gda import dispatch
 from gda.binary import resolve_godot_binary
-from gda.dispatch import dispatch_domain, dispatch_recipe
+from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
     Failure,
     classify_run,
@@ -334,10 +333,12 @@ class SceneProblemKind(str, Enum):
     #: ``.gd`` file and an embedded ``[sub_resource type="GDScript"]``, which the
     #: dependency walk never sees (its ``path`` is the ``::id`` sub-resource form).
     SCRIPT_COMPILE_FAILED = "script_compile_failed"
-    #: A script that compiles but whose native base cannot bind the node that
-    #: carries it (an ``extends Resource`` script on a ``Node2D``): the engine
-    #: would refuse the assignment at runtime and the node would run script-less.
-    #: The same rule ``node script attach`` enforces, asked statically.
+    #: A script binding the engine would refuse at runtime, leaving the node
+    #: script-less: a script that compiles but whose native base cannot bind the
+    #: node that carries it (an ``extends Resource`` script on a ``Node2D`` — the
+    #: same rule ``node script attach`` enforces, asked statically), or a value
+    #: in the ``script`` slot that is not a Script at all (a plain resource
+    #: declared ``type="Script"``, #709 review).
     INCOMPATIBLE_SCRIPT = "incompatible_script"
 
 
@@ -901,7 +902,7 @@ def run_scene_preflight_operation(
             diagnostics=diagnostics,
             project_root=str(root) if root is not None else None,
         )
-    ended_early = _ended_before_the_verdict(raw)
+    ended_early = _ended_before_the_verdict(raw, params, diagnostics, root)
     if ended_early is not None:
         return ended_early
     outcome = classify_run(raw, binary, _ScenePreflightPayload)
@@ -919,8 +920,22 @@ def run_scene_preflight_operation(
     )
 
 
-def _ended_before_the_verdict(raw: RunResult) -> "Failure | None":
-    """The refusal for a run the PROJECT ended before the op could report (#664).
+# The op's readiness evidence line, mirrored from operations.gd
+# (PREFLIGHT_READY_EVIDENCE) in the same way the result sentinel is mirrored into
+# gda.parser: a cross-language constant each side spells once. It is NOT part of
+# the ADR-0002 result sentinel — it is a single bare marker line the op prints the
+# moment the scene reports ready, so the readiness fact survives a project that
+# ends the run before the result can be emitted (#709 review).
+_PREFLIGHT_READY_EVIDENCE = "<<<GDA:PREFLIGHT-READY>>>"
+
+
+def _ended_before_the_verdict(
+    raw: RunResult,
+    params: ScenePreflightParams,
+    diagnostics: list[ScriptError],
+    root: "Path | None",
+) -> "ScenePreflightResult | Failure | None":
+    """The verdict for a run the PROJECT ended before the op could report (#664).
 
     A booting scene — or one of the autoloads that start beside it — may call
     ``get_tree().quit()``; a splash scene that hands off does exactly that. The
@@ -936,9 +951,15 @@ def _ended_before_the_verdict(raw: RunResult) -> "Failure | None":
     ``operation_failed`` exactly as before. A clean ``0`` with no sentinel can
     therefore only be someone else's ``quit(0)``.
 
-    Reported as an operation failure rather than a startup verdict: gda saw the
-    scene neither reach ready nor fail to, so it has no verdict to give, and
-    inventing one would be the phantom success this whole command exists to prevent.
+    Whether gda still HAS a verdict depends on one more fact (#709 review): the op
+    prints readiness as its own evidence line the moment the scene reports ready,
+    ahead of the result sentinel. A quit that lands AFTER that line — a ``_ready``
+    calling ``get_tree().quit()``, the splash-scene shape — ended a run whose
+    startup verdict already exists, so it is reported as ``status=ready``, with
+    ``started`` still combining the captured diagnostics as everywhere else. A
+    quit with no evidence line means gda saw the scene neither reach ready nor
+    fail to; inventing a verdict there would be the phantom success this command
+    exists to prevent, so that stays an operation failure.
     """
     if raw.launch_failure is not None or raw.exit_code != 0:
         return None
@@ -950,12 +971,22 @@ def _ended_before_the_verdict(raw: RunResult) -> "Failure | None":
     # broken payload it is.
     if result_sentinel_start(raw.stdout) != -1:
         return None
+    if _PREFLIGHT_READY_EVIDENCE in raw.stdout:
+        return ScenePreflightResult(
+            path=params.path,
+            # The same two halves as the ordinary result: readiness is proven by
+            # the evidence line, so only the captured diagnostics can gate it.
+            started=not diagnostics,
+            status=SceneStartupStatus.READY,
+            diagnostics=diagnostics,
+            project_root=str(root) if root is not None else None,
+        )
     return make_failure(
         "operation_failed",
         "the engine exited before the preflight could report: the scene, or an "
-        "autoload starting beside it, ended the run (get_tree().quit()). gda's own "
-        "payload always exits non-zero when it cannot report, so a clean exit with "
-        "no result is the project's own.",
+        "autoload starting beside it, ended the run (get_tree().quit()) before the "
+        "scene reported ready. gda's own payload always exits non-zero when it "
+        "cannot report, so a clean exit with no result is the project's own.",
         raw.stderr,
     )
 
@@ -1222,18 +1253,15 @@ def preflight_scene(
     print() output is consumed with the rest of the engine's stdout. Use printerr()
     for anything a preflight should surface.
     """
-    # A FINITE positive ceiling and a positive frame budget, checked on both input
-    # paths (ADR-0015): the params model enforces them for --params-json, this for
-    # argv. `inf` passes a bare `> 0` test and then makes the ceiling unreachable, so
-    # the launch gda promised to bound would never be bounded — the opposite of what
-    # this option is for; `math.isfinite` rejects `nan` for the same reason.
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise typer.BadParameter("--timeout must be a finite number greater than 0.")
-    if frames < 1:
-        raise typer.BadParameter("--frames must be at least 1.")
+    # The params model is the single authority for the bounds (ADR-0015): the
+    # finite positive ceiling and the ≥1 frame budget are its field constraints,
+    # enforced identically for --params-json — this argv body only translates a
+    # model refusal into the Click usage error (#709 review).
     dispatch_recipe(
         SCENE_PREFLIGHT_COMMAND,
-        ScenePreflightParams(path=path, frames=frames, timeout=timeout),
+        params_or_bad_parameter(
+            ScenePreflightParams, path=path, frames=frames, timeout=timeout
+        ),
         json_output=json_output,
         godot=godot,
         project=project,

@@ -437,6 +437,68 @@ def test_a_project_that_quits_the_engine_is_not_blamed_on_gdas_contract(
     assert "ended the run" in error["message"]
 
 
+def test_a_quit_after_the_readiness_evidence_keeps_the_ready_verdict(
+    monkeypatch, tmp_path
+):
+    # The #709 review's lost readiness fact: a _ready that calls get_tree().quit()
+    # ends the run before the op can emit the result sentinel, but the op has
+    # already printed readiness as its own evidence line. That run has a startup
+    # verdict — the scene plainly came up — so it is reported as ready, not as an
+    # operation failure.
+    project = _project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3\n<<<GDA:PREFLIGHT-READY>>>\n",
+            stderr="handing control back\n",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["status"] == "ready"
+    assert data["started"] is True
+    assert data["diagnostics"] == []
+
+
+def test_a_quit_after_readiness_still_combines_the_captured_diagnostics(
+    monkeypatch, tmp_path
+):
+    # `started` keeps both halves of the contract on the synthesized verdict too:
+    # readiness is proven by the evidence line, and a recognized error captured
+    # before the quit still gates a clean start.
+    project = _project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(
+            stdout="<<<GDA:PREFLIGHT-READY>>>\n",
+            stderr=(
+                "ERROR: Cannot set object script. Parameter should be null or a "
+                "reference to a valid script.\n"
+                "   at: set_script (core/object/object.cpp:1099)\n"
+            ),
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["status"] == "ready"
+    assert data["started"] is False
+    assert data["diagnostics"][0]["kind"] == "incompatible_script"
+
+
 def test_a_payload_that_died_without_reporting_is_still_the_generic_failure(
     monkeypatch, tmp_path
 ):

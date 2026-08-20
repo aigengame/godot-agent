@@ -284,23 +284,25 @@ func _ready() -> void:
 
 
 @pytest.mark.e2e
-def test_a_scene_that_quits_the_engine_names_the_project_not_gdas_contract(
-    godot_project,
-):
-    # The engine exits cleanly with no verdict, which the shared classifier would
-    # otherwise report as gda's structured-output contract being violated (a PARSE
-    # failure, exit 5) — sending the reader to debug gda for what the scene did.
+def test_a_scene_that_quits_from_ready_still_gets_its_ready_verdict(godot_project):
+    # The #709 review's lost readiness fact: the quit ends the run before the op
+    # can emit the result sentinel, but the scene plainly came up — its _ready ran
+    # to the quit call. The op prints readiness as its own evidence line the
+    # moment the signal lands, so the verdict survives the project's exit instead
+    # of being misreported as an operation failure (the pre-#709 behavior).
     _scene(godot_project, "splash.tscn", "splash.gd", QUITTING_READY_SCRIPT)
     gda = _gda_project(godot_project)
 
     preflighted = gda("scene", "preflight", "res://splash.tscn", "--json")
 
-    assert preflighted.returncode == 4, preflighted.stdout + preflighted.stderr
-    error = json.loads(preflighted.stdout)["error"]
-    assert error["code"] == "operation_failed"
-    assert "ended the run" in error["message"]
-    # The scene's own line is still in the diagnostics, so the cause is visible.
-    assert "handing control back" in error["diagnostics"]
+    assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
+    data = json.loads(preflighted.stdout)
+    assert data["status"] == "ready"
+    assert data["started"] is True
+    assert data["diagnostics"] == []
+    # The scene's own stderr line is still forwarded verbatim, so the handoff is
+    # visible to a reader even though it is not a recognized diagnostic.
+    assert "handing control back" in preflighted.stderr
 
 
 # The PR #720 review's preflight false positive: a compiled `extends Resource`
@@ -339,6 +341,44 @@ def test_a_refused_script_binding_is_not_a_clean_start(godot_project):
     data = json.loads(preflighted.stdout)
     # The scene REACHES ready (the tree comes up), but the intended script never
     # bound: started must not call that clean.
+    assert data["started"] is False
+    kinds = [diag["kind"] for diag in data["diagnostics"]]
+    assert "incompatible_script" in kinds
+
+
+# A plain Resource declared `type="Script"` — the #709 review's counterexample.
+# Every file loads; the engine refuses the value at bind time ("Cannot set object
+# script") and the node boots script-less.
+PLAIN_RESOURCE_TRES = """\
+[gd_resource type="Resource" format=3]
+
+[resource]
+"""
+
+NOT_A_SCRIPT_BINDING_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data.tres" id="1"]
+
+[node name="Root" type="Node2D"]
+script = ExtResource("1")
+"""
+
+
+@pytest.mark.e2e
+def test_a_non_script_binding_is_not_a_clean_start(godot_project):
+    (godot_project / "data.tres").write_text(PLAIN_RESOURCE_TRES, encoding="utf-8")
+    (godot_project / "notascript.tscn").write_text(
+        NOT_A_SCRIPT_BINDING_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    preflighted = gda("scene", "preflight", "res://notascript.tscn", "--json")
+
+    assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
+    data = json.loads(preflighted.stdout)
+    # The tree comes up, but the node the script was meant for runs script-less:
+    # the engine's own refusal is the diagnostic that keeps started honest.
     assert data["started"] is False
     kinds = [diag["kind"] for diag in data["diagnostics"]]
     assert "incompatible_script" in kinds

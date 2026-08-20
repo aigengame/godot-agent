@@ -377,6 +377,80 @@ def test_a_broken_embedded_script_is_a_problem_not_a_pass(godot_project):
     assert problem["nodes"] == ["."]
 
 
+# A plain Resource declared `type="Script"` — the #709 review's counterexample.
+# Every file resolves and loads, but the value bound to the script slot is not a
+# Script, so the engine refuses the assignment at instance time ("Cannot set
+# object script") and the node boots script-less.
+PLAIN_RESOURCE_TRES = """\
+[gd_resource type="Resource" format=3]
+
+[resource]
+"""
+
+NOT_A_SCRIPT_BINDING_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data.tres" id="1"]
+
+[node name="Root" type="Node2D"]
+script = ExtResource("1")
+"""
+
+# The same shape reached through an EMBEDDED [sub_resource]: no [ext_resource]
+# line exists, so only the loaded scene's state can see it.
+EMBEDDED_NOT_A_SCRIPT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[sub_resource type="Resource" id="Resource_1"]
+
+[node name="Root" type="Node2D"]
+script = SubResource("Resource_1")
+"""
+
+
+@pytest.mark.e2e
+def test_a_non_script_resource_declared_as_script_is_a_problem_not_a_pass(
+    godot_project,
+):
+    (godot_project / "data.tres").write_text(PLAIN_RESOURCE_TRES, encoding="utf-8")
+    (godot_project / "notascript.tscn").write_text(
+        NOT_A_SCRIPT_BINDING_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://notascript.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    (problem,) = data["problems"]
+    assert problem["kind"] == "incompatible_script"
+    assert problem["path"] == "res://data.tres"
+    assert problem["nodes"] == ["."]
+    assert "not a Script" in problem["message"]
+
+
+@pytest.mark.e2e
+def test_an_embedded_non_script_bound_as_script_is_a_problem_not_a_pass(
+    godot_project,
+):
+    (godot_project / "embednotascript.tscn").write_text(
+        EMBEDDED_NOT_A_SCRIPT_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://embednotascript.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    (problem,) = data["problems"]
+    assert problem["kind"] == "incompatible_script"
+    assert problem["path"] == "res://embednotascript.tscn::Resource_1"
+    assert problem["nodes"] == ["."]
+    assert "not a Script" in problem["message"]
+
+
 @pytest.mark.e2e
 def test_a_tscn_that_is_not_a_scene_document_is_refused_not_diagnosed(godot_project):
     # A dependency finding must not bypass scene admission (#720 review): garbage

@@ -23,6 +23,12 @@ extends SceneTree
 
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
+# Preflight readiness as INDEPENDENT evidence, not part of the result sentinel
+# (#709 review): printed the moment the scene reports ready, so the fact that it
+# came up survives a project that ends the run (get_tree().quit() in _ready)
+# before the pending tick can emit the result. Mirrored in gda.commands.scene,
+# which reads it only off a clean exit that carried no result.
+const PREFLIGHT_READY_EVIDENCE := "<<<GDA:PREFLIGHT-READY>>>"
 
 const OP_ERROR_USAGE := "usage_error"
 const OP_ERROR_UNKNOWN_OPERATION := "unknown_operation"
@@ -695,7 +701,7 @@ func _is_loaded_scene(packed: PackedScene) -> bool:
 
 # One entry per SCRIPT the loaded scene binds that cannot actually serve its node
 # (#720 review). The dependency walk above proves each referenced FILE loads; this
-# walk asks the two questions only the loaded state can answer:
+# walk asks the questions only the loaded state can answer:
 #
 # - an EMBEDDED [sub_resource type="GDScript"] never appears as an [ext_resource],
 #   so a syntax error inside one is invisible to the text walk — here it shows up
@@ -704,7 +710,10 @@ func _is_loaded_scene(packed: PackedScene) -> bool:
 #   the node's native class is outside the script's base (an `extends Resource`
 #   script on a Node2D boots silently script-less). The compatibility rule is the
 #   one _op_script_attach enforces at attach time, asked statically: the node's
-#   type must be the script's base or inherit from it.
+#   type must be the script's base or inherit from it;
+# - a `script` slot can hold a value that is not a Script at all — an embedded
+#   [sub_resource] of another type (#709 review). The engine refuses that at
+#   bind time too ("Cannot set object script") and the node boots script-less.
 #
 # Reported per SCRIPT with the referencing nodes merged, the dependency walk's own
 # shape. A node without a type of its own (an instanced/inherited child) is
@@ -719,13 +728,22 @@ func _scene_binding_problems(packed: PackedScene) -> Array:
 		for j in state.get_node_property_count(i):
 			if String(state.get_node_property_name(i, j)) != "script":
 				continue
-			var script := state.get_node_property_value(i, j) as Script
-			if script == null:
+			var value: Variant = state.get_node_property_value(i, j)
+			if value == null:
 				continue
-			var problem: Variant = _script_binding_problem(script, node_type)
+			var problem: Variant
+			if value is Script:
+				problem = _script_binding_problem(value as Script, node_type)
+			else:
+				# A NON-Script value in the script slot — an embedded
+				# [sub_resource] that is not a script, or anything the dependency
+				# walk could not see. Discarding it silently (#709 review) turned
+				# the engine's deterministic bind-time refusal into a clean
+				# verdict.
+				problem = _non_script_binding_problem(value)
 			if problem == null:
 				continue
-			var key := script.resource_path + "|" + String((problem as Dictionary)["kind"])
+			var key := String((problem as Dictionary)["path"]) + "|" + String((problem as Dictionary)["kind"])
 			if not by_script.has(key):
 				(problem as Dictionary)["nodes"] = []
 				by_script[key] = problems.size()
@@ -764,6 +782,25 @@ func _script_binding_problem(script: Script, node_type: String) -> Variant:
 			+ node_type + " — the engine would refuse the assignment and the node "
 			+ "would run script-less. Bind it to a " + String(base)
 			+ "-compatible target, or change the script's extends")
+
+
+# The verdict for a `script` property whose value is not a Script at all (#709
+# review): the engine refuses the assignment at instantiate time ("Cannot set
+# object script. Parameter should be null or a reference to a valid script.",
+# object.cpp set_script) and the node boots script-less — the same consequence as
+# an incompatible base, so it is the same problem kind. The path names the bound
+# resource where it has one (a res:// file, or the ::id sub-resource form for an
+# embedded one); a non-resource value can only name its Variant type.
+func _non_script_binding_problem(value: Variant) -> Dictionary:
+	var shown := type_string(typeof(value))
+	var bound_path := ""
+	if value is Resource:
+		shown = (value as Resource).get_class()
+		bound_path = (value as Resource).resource_path
+	return _scene_problem(SCENE_PROBLEM_INCOMPATIBLE_SCRIPT, bound_path, "Script",
+			"the node's script property binds a " + shown + ", not a Script — the "
+			+ "engine would refuse the assignment (Cannot set object script) and "
+			+ "the node would run script-less")
 
 
 # One entry per DEPENDENCY the scene declares and gda could not resolve, in the
@@ -846,9 +883,20 @@ func _scene_dependency_problem(ref_path: String, declared_type: String) -> Varia
 					"the script does not compile: " + error_string(err)
 					+ " — run 'gda script validate " + ref_path + "' for the line and message")
 		return null
-	if ResourceLoader.load(ref_path) == null:
+	var resource := ResourceLoader.load(ref_path)
+	if resource == null:
 		return _scene_problem(SCENE_PROBLEM_UNLOADABLE_RESOURCE, ref_path, declared_type,
 				"the resource could not be loaded")
+	if declared_type == "Script" and not (resource is Script):
+		# Declared as a script but the file is not one — a plain .tres in an
+		# `[ext_resource type="Script"]` line (#709 review). The load alone cannot
+		# answer this: the loader returns the Resource it found, and the engine
+		# only refuses at bind time ("Cannot set object script"), when the node
+		# has already booted script-less.
+		return _scene_problem(SCENE_PROBLEM_INCOMPATIBLE_SCRIPT, ref_path, declared_type,
+				"the file loads as " + resource.get_class() + ", not a Script — the engine "
+				+ "would refuse the assignment (Cannot set object script) and the node "
+				+ "would run script-less")
 	return null
 
 
@@ -981,9 +1029,13 @@ func _op_scene_preflight(params: Dictionary) -> void:
 
 # The scene reported ready. Latched, never un-latched: what happens to the node
 # afterwards (it frees itself, it leaves the tree) does not unmake the fact that it
-# started.
+# started. The fact is also PRINTED immediately as its own evidence line: a _ready
+# that calls get_tree().quit() ends the run before the pending tick can emit the
+# result sentinel, and without this line the readiness it plainly reached would
+# leave the process with it (#709 review).
 func _on_preflight_ready() -> void:
 	_preflight_ready = true
+	print(PREFLIGHT_READY_EVIDENCE)
 
 
 # The frame budget of one preflight: a positive whole number of idle frames. Null
