@@ -1,11 +1,11 @@
 ---
 name: design-verifiable-playtest
 description: >-
-  Design and review player-facing Godot playtests that use gda-balancing as their
-  maintained data and execution foundation. Use when turning a balancing example,
-  CLI workflow, or mechanic proof into a small playable product that players can
-  understand, operate, observe, and evaluate. Do not use for a general Godot game or
-  a CLI-only tutorial.
+  Design and review player-facing Godot playtests that use a maintained Model Source
+  Package, Experiment Specifications, and gda-balancing execution. Use when turning a
+  balancing example, CLI workflow, or mechanic proof into a small playable product
+  that players can understand, operate, observe, and evaluate. Do not use for a
+  general Godot game or a CLI-only tutorial.
 ---
 
 # Design Verifiable Playtest
@@ -46,7 +46,7 @@ Record:
 
 Combine several features only when the player must experience them together to make
 the required judgment. Do not design the UI from Kernel, Language Definition Bundle,
-Formula, Operation, Experiment, or artifact fields.
+Formula, Operation, Experiment Specification, or Standard Schema Artifact fields.
 
 ## Use Familiar Player Language
 
@@ -116,24 +116,26 @@ Do not expose these concepts in player UI or gameplay System interfaces:
 - Kernel or Language Definition Bundle;
 - Model Source Package or Experiment Specification;
 - Formula, Runtime, Event queue, logical time, or Snapshot;
-- Metric, artifact, identity, diagnostic, or provenance; and
-- HTTP, readiness, capability token, session, or revision handle.
+- Metric, Standard Schema Artifact, identity, diagnostic, or provenance; and
+- HTTP, readiness record, process capability token, Execution session, or Experiment
+  revision.
 
 Add-ons and Content can use these concepts internally. UI and Systems must receive
 application-owned gameplay values.
 
 Show a player-facing problem and a next action when execution fails. Put detailed
-diagnostics in a maintainer log or opaque feedback provenance. Never copy credentials
-or complete readiness data into an error, log, Content value, or UI value.
+diagnostics and reproduction details in a maintainer log or a maintainer-only section
+of the feedback record. Never copy the process capability token or the complete
+readiness record into an error, log, Content value, or UI value.
 
 ## Keep One Authored Data Source
 
 Each maintained example owns one Model Source Package and the necessary Experiment
-Specifications. CLI and playtest are separate consumers of that source:
+Specifications. CLI and playtest are separate consumers of those authored sources:
 
 ```text
 CLI -------+
-           +--> Maintained Model Source + Experiment --> gda-balancing
+           +--> [Model Source Package + Experiment Specification] --> gda-balancing
 Playtest --+
 ```
 
@@ -143,9 +145,14 @@ Apply these rules:
 - Do not copy those files into a CLI or playtest delivery directory.
 - Do not generate a fixed case-data layer for Godot.
 - Do not add a playtest-only configuration authority or partial-update format.
-- Write edited Experiments and generated artifacts to a temporary or run directory.
-- Derive a complete, immutable Experiment revision for each player change.
-- Send the complete Experiment value to the service, not an implicit patch.
+- Write edited Experiment Specifications and generated Standard Schema Artifacts to a
+  temporary or run directory.
+- For a player change to Experiment-owned input, derive a complete, immutable
+  Experiment revision. Send the complete Experiment Specification value to the
+  service, not an implicit patch.
+- For a player change to a model definition, submit a complete Model Source Package
+  and an initial Experiment Specification to create a new Execution session. Do not
+  encode a model definition as an Experiment Specification override.
 - Store a named preset as a shared Experiment Specification when CLI and playtest
   both need that preset. Do not hard-code it in both consumers.
 
@@ -155,7 +162,7 @@ use the same maintained source.
 
 ## Use the gda-balancing Service Boundary
 
-Godot must use the public local gda-balancing Execution HTTP Interface for the live
+Godot must use the public local gda-balancing Execution HTTP API for the live
 data path.
 
 Do not:
@@ -166,11 +173,12 @@ Do not:
 - add game fields to the generic execution client; or
 - add a playtest-specific Runtime.
 
-Use the current public contract first. Do not treat complete Experiment runs as a
-permanent service limit. When a real application needs a new generic operation,
-extend the gda-balancing service as a separate capability and then consume it from
-the playtest. Do not hide the gap with a Godot special case. Do not add a speculative
-service extension without an application need.
+Use the current public contract first. Do not treat complete runs of an Experiment
+Specification as a permanent service limit. When a real application needs a new
+generic operation, extend the gda-balancing service as a separate capability and then
+consume it from the playtest. This rule also applies when a required Model Source
+Package change cannot use the current service. Do not hide the gap with a Godot
+special case. Do not add a speculative service extension without an application need.
 
 ### Local Process Boundary
 
@@ -178,12 +186,12 @@ The reusable execution Add-on owns:
 
 - executable discovery;
 - child-process startup and shutdown;
-- readiness and protocol compatibility;
-- capability credentials;
+- the readiness record and protocol compatibility;
+- the process capability token;
 - generic HTTP requests;
-- execution-session and revision handles;
+- Execution session and Experiment revision handles;
 - timeouts and forced cleanup; and
-- safe transport failures.
+- sanitized transport errors.
 
 Prefer an explicitly configured gda-balancing executable. Use the current `PATH` as
 the fallback. Do not guess a repository `.venv`. Do not silently replace an invalid
@@ -196,7 +204,7 @@ design.
 ## Apply the Godot Module Architecture
 
 Before you assign Godot responsibilities, read and apply
-`$design-godot-modular-architecture`. This skill adds the player-product and
+`$design-godot-modular-architecture`. This skill adds the player-facing product and
 gda-balancing boundaries; it does not replace the general Godot architecture skill.
 
 Use the established dependency direction:
@@ -227,11 +235,15 @@ playtest/
         `-- main.tscn
 ```
 
+`apps/` is an optional delivery directory for composition roots. It is not a fifth
+responsibility layer. All non-composition responsibilities still belong to Add-ons,
+Systems, Content, or UI.
+
 ### Application Bootstrap
 
-Give each playable an explicit, thin composition root. It creates the concrete View,
-Content controller, Systems, and Add-ons; injects dependencies; connects signals; and
-starts the application.
+Give each playable an explicit, thin composition root. It creates the concrete UI
+composition, Content entry point, Systems, and Add-ons; injects dependencies; connects
+signals; and starts the application.
 
 Keep source locations, document interpretation, gameplay rules, HTTP behavior, and
 retry flow out of the bootstrap.
@@ -248,12 +260,12 @@ feature Content still owns the questions and feedback meaning.
 ### Systems
 
 Systems receive only validated gameplay values. They can own reusable gameplay state,
-state application, and presentation phases that do not duplicate gda-balancing
-semantics.
+state transitions, and gameplay phases that do not duplicate gda-balancing semantics.
 
 Systems must not:
 
-- parse Model, Experiment, HTTP, or artifact values;
+- parse Model Source Package, Experiment Specification, HTTP, or Standard Schema
+  Artifact values;
 - store revision, identity, or provenance data;
 - recalculate a result that gda-balancing already produced; or
 - accept a universal Dictionary that includes technical fields.
@@ -265,9 +277,12 @@ owns:
 
 - maintained source selection;
 - document loading;
-- player-input projection into complete Experiment revisions;
-- session, revision, and run coordination;
-- returned-artifact interpretation;
+- classification of each player change by its authored authority;
+- projection of Experiment-owned input into complete Experiment revisions;
+- submission of a complete Model Source Package and initial Experiment Specification
+  to create a new Execution session for model-definition changes;
+- Execution session, Experiment revision, and run coordination;
+- returned Standard Schema Artifact interpretation;
 - validation of relationships that gameplay consumes;
 - projection into application-owned gameplay values;
 - atomic publication, failure, and retry flow;
@@ -306,7 +321,7 @@ Common candidates can include:
 - test-run support.
 
 Do not introduce a universal gameplay payload, application registry, central feature
-switch, generic Content controller, global event bus, or process-management framework
+switch, generic Content module, global event bus, or process-management framework
 without demonstrated consumers. Prefer small local duplication when similar code has
 different meaning.
 
@@ -320,15 +335,19 @@ the full screen.
 
 ### 2. Pin the Maintained Source
 
-Identify the exact Model Source, Experiment Specifications, CLI entry, and playtest
-Content loader. State how player input creates a complete revision and where temporary
-output goes. Remove any copied source or generated case authority.
+Identify the exact Model Source Package, Experiment Specifications, CLI entry, and
+playtest Content loader. Classify every adjustable value by its authored authority.
+State how Experiment-owned changes create complete Experiment revisions, how
+model-definition changes create a complete Model Source Package and a new Execution
+session with an initial Experiment Specification, and where temporary output goes.
+Remove any copied source or generated case authority.
 
 ### 3. Design the Modules and Data Path
 
-Apply `$design-godot-modular-architecture`. Assign each responsibility to Apps,
-Add-ons, Systems, Content, or UI. Trace the complete path from player input through the
-local service and back to validated gameplay state.
+Apply `$design-godot-modular-architecture`. Assign application responsibilities to
+Add-ons, Systems, Content, or UI. Then select an optional delivery directory for the
+thin composition root. Trace the complete path from player input through the local
+service and back to validated gameplay state.
 
 ### 4. Prove a Real Tracer
 
@@ -348,9 +367,11 @@ build a workaround.
 
 ### 5. Deliver a Playable Vertical Slice
 
-The first slice must include a real launch, one player action, one complete Experiment
-revision, one real service run, Content validation, System state application, visible
-UI feedback, and a natural continuation or completion point.
+The first slice must include a real launch, one player action, the authored source or
+declared input required for that action, one real service run, Content validation,
+System state application, visible UI feedback, and a natural continuation or
+completion point. Use an Experiment revision for Experiment-owned changes. Create a
+new Execution session when the Model Source Package changes.
 
 Add more choices, the complete flow, feedback, localization, and recovery in later
 working slices.
@@ -384,10 +405,11 @@ Select tests by risk. Do not add tests only to make a matrix look complete.
 
 Use the applicable evidence:
 
-- a source-authority check that rejects copied Model or Experiment files;
+- a source-authority check that rejects copied Model Source Package or Experiment
+  Specification files;
 - Godot dependency and scene-reference checks;
 - checks that UI and Systems do not receive technical terms or fields;
-- maintained-document loading and player-option projection tests;
+- tests that verify that each player option updates the correct authored authority;
 - System gameplay-state tests;
 - UI copy, controls, input guards, reset, and terminal-flow tests;
 - a real-service Add-on lifecycle test;
@@ -410,7 +432,7 @@ UI
   -> feedback
 ```
 
-Do not replace this path with a script-existence check, a fake client, a Controller-only
+Do not replace this path with a script-existence check, a fake client, a component-only
 test, schema validation, or a final-state assertion.
 
 ### Validate Relationships, Not Only Fields
@@ -447,28 +469,6 @@ Record:
 - the perceived difference between options; and
 - whether restart, retry, and feedback are easy to find.
 
-## Reject These Failure Patterns
-
-- A CLI diagnostics panel presented as game UI.
-- A generated fixed-case layer instead of the maintained source.
-- Separate CLI and playtest Experiments for the same authored facts.
-- Raw artifacts or maintainer provenance in Systems.
-- Raw service responses in UI.
-- Field validation without relationship validation.
-- GDScript calculations that duplicate gda-balancing semantics.
-- A fixed round count instead of a gameplay completion condition.
-- An invisible reset or accidental state carry-over.
-- Gameplay input during preparation.
-- An effect without its resource cost.
-- Invented terms that do not explain behavior.
-- Copy that disagrees with timing, count, or state inheritance.
-- One copied Godot project for each application.
-- A registry, provider, event bus, or framework before real consumers need it.
-- Executable discovery that guesses `.venv` or hides an invalid explicit path.
-- Credentials or readiness payloads outside the execution Add-on.
-- View, Controller, or fake-only evidence without a real main-scene path.
-- A standalone-export claim without a distribution and service-lifecycle design.
-
 ## Output
 
 For a new design, provide only the sections that the task needs. Cover:
@@ -477,9 +477,9 @@ For a new design, provide only the sections that the task needs. Cover:
 2. the player flow and natural completion condition;
 3. mechanic terms, key copy, and rules that need explanation;
 4. controls, visual hierarchy, and feedback;
-5. the shared Model Source, Experiment, CLI, and playtest map;
-6. Apps, Add-ons, Systems, Content, and UI ownership;
-7. the gda-balancing HTTP data path;
+5. the shared Model Source Package, Experiment Specification, CLI, and playtest map;
+6. Add-ons, Systems, Content, and UI ownership, plus the optional composition root;
+7. the gda-balancing Execution HTTP API data path;
 8. failure, retry, reset, and state carry-over;
 9. playable vertical slices;
 10. automated and human verification; and
