@@ -42,10 +42,16 @@ they are provenance, not status markers.
 | `gda info` | Report Godot engine version info | 1 |
 | `gda version` | Report `gda`'s own version | — (local) |
 | `gda help` | Usage help | — (local) |
+| `gda schema` | Emit the whole command surface as one JSON manifest (ADR-0012) | — (local) |
+| `gda skill` | Emit or install the bundled Agent Skill (ADR-0024) | — (local) |
 | `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) |
 
 > `--schema` is a per-command flag, not a command, and ships with **every** domain
 > command as a hard gate (ADR-0004). It is local introspection — no Godot process.
+> Alongside the schemas it emits `argv`: how each parameter is written on a command
+> line (positional and its position, or its `--option` spelling, plus whether it is
+> required, a valueless flag, or repeated), derived from the live command signature
+> so an agent builds argv from the contract instead of from `--help`.
 
 ---
 
@@ -60,6 +66,8 @@ they are provenance, not status markers.
 | `gda scene get` | Read a scene's structured tree from its file on disk |
 | `gda scene list` | Enumerate scenes in the project |
 | `gda scene get-exports` | List `@export` properties declared by a scene's nodes |
+| `gda scene validate` | Check statically that a scene's dependencies resolve and its scripts compile |
+| `gda scene preflight` | Boot a scene headless and report its startup verdict |
 
 **Static instance reporting** (established by #400): `scene get` reads the stored
 `SceneState` without instantiating the host scene, but an instanced node is still
@@ -87,6 +95,75 @@ a scene with no exported variables anywhere is a valid, empty listing (`nodes ==
 `path_not_found`, a non-scene file `not_a_scene` (both exit 4). It reads but does not save, so
 it skips the re-save mutation-integrity guard; instantiating still runs attached scripts'
 `_init` (the trust boundary of ADR-0009).
+
+**Two verdicts, neither replacing the other** (established by #664): `scene get` reports what a
+scene DECLARES, and reporting it survives most breakage — Godot substitutes null for a NODE's
+`[ext_resource]` it cannot resolve, prints an error to stderr, and still returns a usable
+`PackedScene`, so a scene whose script and texture are both gone reads as a healthy tree
+(dogfooding GDA-DF-040; a dependency broken from inside a `[sub_resource]` can instead fail the
+whole load, measured on Godot 4.6.3). The two validating commands answer the questions that read cannot, and
+they answer *different* ones:
+
+- `gda scene validate PATH` is **static**. It loads the scene without instantiating it, so none of
+  the scene's own node scripts run — no `_init`, no `_ready`, no frames (issue #30; the project's
+  autoloads still start, as they do for every `--project` op, and compiling a script executes its
+  static initializers). It resolves every dependency the `.tscn` declares, compiles every script
+  it binds — the referenced `.gd` files and the embedded `[sub_resource type="GDScript"]`s the
+  dependency walk never sees — and checks each script's native base against the node carrying it,
+  reporting one problem per file: `missing_resource` (the file is gone), `unloadable_resource`
+  (present on disk but no `ResourceLoader` opens it — typically an asset that was never imported,
+  which a non-editor engine cannot load at all), `script_compile_failed` (the same verdict
+  `script validate` gives that file; an embedded script is named by its `::id` sub-resource path)
+  or `incompatible_script` (a binding the engine would refuse — a script on a node outside its
+  native base, the same rule `node script attach` enforces asked statically, or a value bound to
+  a `script` slot that is not a script at all). Each problem carries the declared `type` and
+  the node paths referencing it, read from the file's own text because the engine drops an
+  unresolvable reference from what it loads. A path declared twice is one problem with both nodes
+  listed. The verdict is **staged**: unresolved dependencies suppress the load, so the compile
+  and binding problems only the loaded scene can reveal appear after the dependencies are
+  repaired and validate is rerun — the problem list is complete for the stage it reached, not
+  across both stages at once.
+- `gda scene preflight PATH` is **dynamic**. It instantiates the scene, adds it under a one-shot
+  engine's tree root — which runs its `_ready` and the project's autoloads — keeps it alive for
+  `--frames` idle frames so startup work landing after `_ready` still prints, and reports
+  `status` (`ready` / `not_ready` / `timeout`) plus the script errors gda recognized in the
+  engine's error stream. Read `started`: true only when the scene reached `_ready` AND nothing was
+  recognized on stderr, which is the distinction the dogfooding note asks for (GDA-DF-030 —
+  static validation passed while the first live launch rejected every assembly). Recognition is
+  #651's closed set of engine failure sentences (a runtime error, a failed assertion, a script
+  that could not load, a script binding the engine refused), so project prose written with
+  `push_error()` is not among them.
+
+`scene validate` takes a `.tscn` specifically, and refuses a binary `.scn` with `invalid_path`:
+its dependency set comes from the scene's own TEXT (which is also what attributes each dependency
+to the nodes using it), and a binary scene carries none — answering `valid: true` for a file it
+could not read would be the worst thing a gate can do. `scene preflight` has no such restriction:
+it boots whatever loads.
+
+Both report an invalid/failed scene as a **successful operation** (exit `0`, verdict in the
+result), including preflight's `timeout` — "the complete preflight did not finish within its
+wall-clock bound" is the answer that command was asked for. A `_ready` that never returns is one
+cause; a healthy, already-ready scene whose `--frames` window outruns the ceiling is another —
+the params contract states the two bounds are not cross-checked. Only addressing and environment problems fail: `path_not_found`,
+`invalid_path`, `not_a_scene`, preflight's `missing_dependency` for a scene the engine cannot
+instantiate at all, and the shared binary/crash envelopes. One case that looks like a refusal but
+is a verdict: an unresolvable `[ext_resource]` referenced from a `[sub_resource]` (an
+`AtlasTexture`'s atlas, a script-backed `Resource`) makes Godot fail the WHOLE scene load, so
+`scene validate` reports its own dependency finding rather than the `not_a_scene` the load alone
+would suggest. Both carry `project_root`, the root the `res://`
+dependencies resolved against — read it before trusting a bad verdict, since the wrong project
+reports everything as missing (the #658 rule).
+
+Neither command replaces the other, and the e2e suite pins why in both directions: a scene whose
+dependencies all resolve can still fail on its first frame, and a scene referencing a
+never-imported texture starts CLEAN — the engine builds the tree without it and says so in a
+sentence the recognized set does not cover, so only static validation names that file and the
+node holding it. (The two do overlap in between: a missing *script* produces sentences the parser
+knows, so both commands flag it — validate additionally saying which node and which declared
+type.) Preflight is a headless one-shot launch, not a live session —
+it needs no daemon and does not drive the scene (`gda game`, behind `gda daemon start`, is what
+does). It runs the project's code by construction, the widest such surface in the scene group,
+inside the same trusted-project assumption (ADR-0009).
 
 ### `node`
 
@@ -370,7 +447,12 @@ body cannot be mistaken for the declaration. `script get` additionally returns t
 its `res://` path and the `class_name`/`extends` parsed from the **raw text** (no compilation,
 issue #30) — null when the source declares neither, so the listing names every `.gd` it found.
 Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
-`--project`); an empty project is a valid, empty listing, not an error. `gda script delete`
+`--project`); an empty project is a valid, empty listing, not an error. The walk excludes exactly
+one directory — the engine's own cache at `res://.godot`, whose contents are import artefacts no
+agent authored. **Only that path**, not every directory named `.godot`: a nested one is authored
+content, and excluding it hid real scripts from the listing and let `script validate --all` report
+a valid aggregate for a project holding an invalid script (#663 review). Hidden entries are
+otherwise enumerated as promised (#54). `gda script delete`
 removes a script file and reports the removed script's `class_name`/`extends` (parsed before
 deletion), so the result names the content, not just the path. Delete honors the same addressing
 boundary as the rest of the group — only a `.gd` path is removed (a non-`.gd` target is refused
@@ -443,29 +525,49 @@ the scene, node, script, the attached script's `class_name` (null when it declar
 `replaced_script` (the displaced script, or null), verifiable by reading the saved `.tscn` back: the
 script now appears as an `ext_resource` the node references.
 
-**Validating** (established by #118): `gda script validate PATH` syntax/compile-checks a `.gd`
-script. **Mechanism**: it reads the file text, sets it on a fresh `GDScript`, and calls
-`reload()` — `OK` means the script compiles. It compiles the script (`reload` parses and
-compiles), but never **instantiates** it, so it does not run the script's instance code. Pass
-`--project` when the script `extends` a project `class_name` or preloads a project resource and so
-needs project context to compile; a self-contained `extends Node` script validates projectless.
+**Validating** (established by #118, batched by #663): `gda script validate PATH...`
+syntax/compile-checks one or more `.gd` scripts, and `--all` checks every script in the resolved
+project instead. **Mechanism**: for each script it reads the file text, sets it on a fresh
+`GDScript`, and calls `reload()` — `OK` means the script compiles. It compiles the script
+(`reload` parses and compiles), but never **instantiates** it, so it does not run the script's
+instance code. Pass `--project` when a script `extends` a project `class_name` or preloads a
+project resource and so needs project context to compile; a self-contained `extends Node` script
+validates projectless.
 
-A **`valid=false` result is a successful operation** — `validate` exits `0` with
-`{valid: false, error_string, diagnostics}` for a script that does not compile. The op only
-*fails* (non-zero, `invalid_path`/`path_not_found`) for op errors (empty/non-`.gd` path, missing
-or unreadable file). `diagnostics` are **best-effort advisory** `{line, message}` pairs: the line
-and message are not available from any bound API — only from the engine's stderr — so they are
-parsed Python-side and may carry only the **first** error. **`column` is always null** on the
-standard Godot build (the engine exposes no column for a parse error). `validate` reuses existing
-codes only (no new ones).
+**One launch per call, not per script** (#663): the whole batch is validated in a single headless
+process, which is what makes checking the four to six related scripts a change touches affordable.
+The result is `{valid, scripts, project_root}`: `valid` is the **aggregate** (false as soon as any
+entry fails) and `scripts` carries one `{path, valid, error_string, diagnostics}` entry per
+validated script, in requested order (under `--all`, in the engine's sorted enumeration order). A
+single path is a batch of one, so the shape never varies with the batch size. A repeated path is
+validated and reported once per occurrence — gda drops no input. `--all` needs a resolved project
+(`project_not_found` otherwise, as `script list` does), and an empty project is a vacuously valid
+empty batch. It enumerates through the same walk `script list` uses, so it sees the same set —
+including a nested `.godot` directory, and never the engine's own `res://.godot` cache.
+
+A **`valid=false` result is a successful operation** — `validate` exits `0` with the aggregate
+`valid: false` for a batch in which any script does not compile. The op only *fails* (non-zero,
+`invalid_path`/`path_not_found`) for op errors (a non-`.gd` path, a missing or unreadable file),
+and such an error **refuses the whole batch** before anything is compiled rather than becoming one
+script's verdict. `diagnostics` are **best-effort advisory** `{line, message}` pairs: the line and
+message are not available from any bound API — only from the engine's stderr — so they are parsed
+Python-side and may carry only the **first** error per script. Attribution across a batch works
+because `operations.gd` writes a `gda: validating: <path>` marker to stderr before each compile
+and the classifier splits the stream on it, which also drops engine startup noise (it precedes the
+first marker). **`column` is always null** on the standard Godot build (the engine exposes no
+column for a parse error). `validate` reuses existing codes only (no new ones).
 
 **Project context** (#658): the result carries `project_root` — the project the script was
 compiled against, i.e. the root its `res://` dependencies resolved to, absolute, and `null` when
-gda ran projectless. It is **required and nullable**, so every verdict carries the key. It exists
+gda ran projectless. It is **required and nullable**, and reported once per call rather than per
+script (ADR-0006 resolves one project per call), so every verdict carries the key. It exists
 because a script compiled against the wrong project reports every `res://` dependency as missing
 plus the type errors derived from them, which reads as a broken script; `project_root` is what
 tells the two apart. A target **outside** the resolved project is **refused before parsing** with
 `project_not_found` naming both the file and the project, rather than emitting that false cascade.
+The check applies to **every** path in a batch, and the first offender in requested order refuses
+the whole call (#663): one call has one project, so one outsider makes the requested set
+unservable. `--all` has nothing to check — the engine enumerates the resolved project's own tree.
 Containment follows the engine's own addressing: a relative path is anchored at the resolved
 project (not gda's cwd), an engine-virtual path (`res://`, `user://`, `uid://`) is inside by
 construction, and a file reached through a symlink into the project counts as inside — except when
@@ -482,7 +584,21 @@ mismatch, pending the ADR-0006 amendment tracked in #697.
 | `gda script list` | Enumerate scripts (with `class_name`/`extends` metadata) |
 | `gda script set` | Edit script (search-replace / line-range / full) |
 | `gda script attach` | Attach a script to a node in a scene |
-| `gda script validate` | Syntax/compile check |
+| `gda script validate` | Syntax/compile check (a batch of paths, or `--all`) |
+| `gda script run` | Run a project script one-shot under a bounded wall clock (ADR-0031) |
+
+**`script run`** (ADR-0031, #655) is the pass-through channel: its *success* result is the run
+itself — the script's own `exit_status` (a deliberate non-zero `quit()` is data, not a gda
+failure; `--strict` opts into a `script_failed` error for exit-code gates) plus the captured
+`stdout`/`stderr` verbatim. `--timeout <s>` bounds the wall clock; a run gda ends at that
+ceiling reports `launch_timeout` carrying the captured partial output, the elapsed seconds and
+a termination phase — `launched` (the engine wrote nothing at all) or `output_seen` (it was
+alive and did not finish) — so a slow suite is distinguishable from a hang.
+`--completion-marker <line>` declares a liveness contract — the script prints that line when
+its work is done — and a run that hit a recognized error attributable to the entry script, has
+not printed the marker, and then goes silent on both streams is ended in seconds and reported
+as `script_aborted` with the captured error and phase `aborted_on_error`. The script executes in full, within
+the trusted-project assumption (ADR-0009).
 
 ### `project`
 
@@ -684,7 +800,12 @@ headless is unaffected (4.4+, cross-platform).
   to decide are deferred to the harness: a key name the engine cannot resolve to a
   keycode is `live_invalid_key`, an action absent from the running `InputMap` is
   `live_unknown_action`; a sequence event whose type the harness does not recognize
-  is `live_invalid_event_spec`.
+  is `live_invalid_event_spec`. The per-event shape is a **discriminated union** on
+  `type`: each kind accepts only its own fields, so `--schema` publishes each kind's
+  required and forbidden fields rather than one flat shape. The press/release
+  spelling differs by kind — `pressed` belongs to `mouse_button` alone, an `action`
+  releases with `release`, a `key` with `released` — and a field from another kind is
+  refused with the spelling this kind uses instead.
 - **`screen` / capture:** running-game viewport screenshot, multi-frame capture.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf

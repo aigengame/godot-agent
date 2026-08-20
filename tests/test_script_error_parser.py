@@ -166,13 +166,16 @@ def test_a_parse_error_alone_still_fails_the_entry():
 
 
 def test_every_never_ran_kind_is_an_entry_failure_candidate():
-    # The enum's published description promises that five of the six kinds mean the
-    # script never ran. `entry_load_failure` is what acts on that promise, so the two
-    # must not drift: exactly `runtime_error` is excluded.
+    # `entry_load_failure` acts on the enum's published promise, so the two must
+    # not drift. Exactly two kinds are excluded, for different reasons the enum
+    # states: `runtime_error` proves the script DID run, and
+    # `incompatible_script` carries no path by construction, so it can never name
+    # the entry script and has no place in an entry-verdict precedence.
     from gda.script_errors import _ENTRY_FAILURE_PRECEDENCE
 
     assert set(ScriptErrorKind) - set(_ENTRY_FAILURE_PRECEDENCE) == {
-        ScriptErrorKind.RUNTIME_ERROR
+        ScriptErrorKind.RUNTIME_ERROR,
+        ScriptErrorKind.INCOMPATIBLE_SCRIPT,
     }
 
 
@@ -372,3 +375,63 @@ def test_clean_and_unrecognized_stderr_yield_no_diagnostics():
         )
         == []
     )
+
+
+# The engine refusing to bind a compiled script to a node whose native type is
+# outside the script's base — `godot --headless --path <proj> res://badbind.tscn`
+# where the scene attaches an `extends Resource` script to a Node2D (Godot 4.6.3,
+# exit status 0: the scene still boots, silently script-less). The PR #720 review
+# reproduced this as a preflight `started: true` false positive.
+INCOMPATIBLE_BINDING_STDERR = """\
+ERROR: Script inherits from native type 'Resource', so it can't be assigned to an object of type 'Node2D'.
+   at: instance_create (modules/gdscript/gdscript.cpp:415)
+"""
+
+
+def test_an_incompatible_binding_is_a_recognized_diagnostic():
+    # The deterministic engine refusal for a script whose native base cannot bind
+    # the node that references it. It carries no res:// path (the `at:` frame is a
+    # C++ file), so `path` is honestly null — which also keeps it out of every
+    # entry-verdict comparison: it can never name the entry script.
+    errors = parse_script_errors(INCOMPATIBLE_BINDING_STDERR)
+
+    assert len(errors) == 1
+    assert errors[0].kind is ScriptErrorKind.INCOMPATIBLE_SCRIPT
+    assert errors[0].path is None
+    assert "native type 'Resource'" in errors[0].message
+    assert "'Node2D'" in errors[0].message
+
+
+def test_an_incompatible_binding_never_fails_an_entry_verdict():
+    # No path means no entry match: `script run`'s verdict is unaffected by this
+    # kind, by construction rather than by precedence ordering.
+    errors = parse_script_errors(INCOMPATIBLE_BINDING_STDERR)
+    assert entry_load_failure(errors, "res://entry.gd") is None
+
+
+# Captured verbatim from Godot 4.6.3 instantiating a scene whose `script`
+# property binds a plain Resource (`[ext_resource type="Script"
+# path="res://data.tres"]` where data.tres is not a script) — the #709 review's
+# false-positive preflight.
+NOT_A_SCRIPT_BINDING_STDERR = """\
+ERROR: Cannot set object script. Parameter should be null or a reference to a valid script.
+   at: set_script (core/object/object.cpp:1099)
+"""
+
+
+def test_a_non_script_binding_is_a_recognized_diagnostic():
+    # The engine's OTHER deterministic bind-time refusal: the bound value is not
+    # a Script at all. Same family as the base-mismatch sentence — the node
+    # boots script-less — and the sentence names neither a path nor a type, so
+    # the diagnostic carries only the message.
+    errors = parse_script_errors(NOT_A_SCRIPT_BINDING_STDERR)
+
+    assert len(errors) == 1
+    assert errors[0].kind is ScriptErrorKind.INCOMPATIBLE_SCRIPT
+    assert errors[0].path is None
+    assert "Cannot set object script" in errors[0].message
+
+
+def test_a_non_script_binding_never_fails_an_entry_verdict():
+    errors = parse_script_errors(NOT_A_SCRIPT_BINDING_STDERR)
+    assert entry_load_failure(errors, "res://entry.gd") is None

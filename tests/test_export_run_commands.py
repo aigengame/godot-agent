@@ -663,7 +663,7 @@ def test_export_run_schema_emits_contract_without_engine(monkeypatch):
 
     assert result.exit_code == 0, result.stdout + result.stderr
     schema = json.loads(result.stdout)
-    assert set(schema) == {"input", "output", "error", "kind", "constraints"}
+    assert set(schema) == {"input", "output", "error", "kind", "constraints", "argv"}
     # export run is the one EXPORT-channel command (issue #230); its sibling
     # read-only export commands stay HEADLESS.
     assert schema["kind"] == "export"

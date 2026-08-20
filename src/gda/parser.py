@@ -20,9 +20,27 @@ RESULT_BEGIN = "<<<GDA:RESULT>>>"
 RESULT_END = "<<<GDA:END>>>"
 
 
+def result_sentinel_start(stdout: str) -> int:
+    """Where the payload BEGAN emitting a result in ``stdout``, or ``-1`` (#664).
+
+    The first question :func:`parse_result` asks, exposed so a channel that needs
+    only that answer does not restate the test. ``gda scene preflight`` is the
+    caller: a clean engine exit with no result at all means the project ended the
+    run before the op could report, while an exit that started a result and did not
+    finish one is a broken payload — two different failures, and telling them apart
+    needs exactly this boundary.
+
+    Deliberately answers "did it start", NOT "is there a valid result": a BEGIN
+    without its END is *started* here and REJECTED by :func:`parse_result`, so such
+    output stays a parse failure rather than being mistaken for a project quit. One
+    rule, one home — both readings come from this function.
+    """
+    return stdout.find(RESULT_BEGIN)
+
+
 def parse_result(stdout: str) -> Any:
     """Extract and parse the sentinel-delimited JSON result from ``stdout``."""
-    start = stdout.find(RESULT_BEGIN)
+    start = result_sentinel_start(stdout)
     if start == -1:
         raise ValueError("no GDA result sentinel found in stdout")
     payload_start = start + len(RESULT_BEGIN)

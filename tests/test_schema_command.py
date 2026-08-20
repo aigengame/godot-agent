@@ -634,8 +634,13 @@ def test_script_validate_schema_emits_model_derived_contract_without_other_args(
     assert doc["input"] == ScriptValidateParams.model_json_schema()
     assert doc["output"] == ScriptValidateResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    # The batch contract (#663): repeated paths in, one aggregate verdict plus one
+    # entry per script out.
+    assert doc["input"]["properties"]["paths"]["type"] == "array"
+    assert "all_scripts" in doc["input"]["properties"]
     assert "valid" in doc["output"]["properties"]
-    assert "diagnostics" in doc["output"]["properties"]
+    assert doc["output"]["properties"]["scripts"]["type"] == "array"
+    assert "diagnostics" in doc["output"]["$defs"]["ValidatedScript"]["properties"]
     # project_root is REQUIRED and nullable (#658): every emitted verdict carries
     # the key, so an agent reads it unconditionally rather than probing for it.
     assert "project_root" in doc["output"]["required"]
@@ -697,24 +702,44 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
     # The validate sample carries project_root: it is REQUIRED on the public
     # result (#658), because the CLI stamps the ADR-0006-resolved project onto
     # every emitted verdict. A payload without it is the engine's internal
-    # sentinel half, not something gda ever emits.
+    # sentinel half, not something gda ever emits. The BATCH shape (#663) is the
+    # only shape: one aggregate verdict over one entry per validated script.
     jsonschema.validate(
         instance={
-            "path": "res://broken.gd",
             "valid": False,
-            "error_string": "Parse error.",
-            "diagnostics": [{"line": 3, "column": None, "message": "Parse Error: ..."}],
+            "scripts": [
+                {
+                    "path": "res://ok.gd",
+                    "valid": True,
+                    "error_string": None,
+                    "diagnostics": [],
+                },
+                {
+                    "path": "res://broken.gd",
+                    "valid": False,
+                    "error_string": "Parse error.",
+                    "diagnostics": [
+                        {"line": 3, "column": None, "message": "Parse Error: ..."}
+                    ],
+                },
+            ],
             "project_root": "/work/game",
         },
         schema=validate_doc["output"],
     )
-    # ...and projectless still satisfies it, since the field is nullable.
+    # ...and a projectless batch of one still satisfies it, since the field is
+    # nullable and the shape does not vary with the batch size.
     jsonschema.validate(
         instance={
-            "path": "/work/standalone.gd",
             "valid": True,
-            "error_string": None,
-            "diagnostics": [],
+            "scripts": [
+                {
+                    "path": "/work/standalone.gd",
+                    "valid": True,
+                    "error_string": None,
+                    "diagnostics": [],
+                }
+            ],
             "project_root": None,
         },
         schema=validate_doc["output"],
@@ -1212,7 +1237,15 @@ def test_script_run_command_schema_is_model_derived():
         "diagnostics",
     }
     # `--strict` is a params field, so the JSON/MCP callers can opt in like argv (#651).
-    assert set(doc["input"]["properties"]) == {"path", "strict"}
+    # `timeout` / `completion_marker` are params for the same reason (#655): the
+    # per-invocation ceiling and the opt-in early-termination marker have to be
+    # reachable from a JSON/MCP caller, not only from argv (ADR-0015).
+    assert set(doc["input"]["properties"]) == {
+        "path",
+        "strict",
+        "timeout",
+        "completion_marker",
+    }
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -1370,16 +1403,27 @@ def test_input_commands_schema_report_kind_live_and_are_model_derived():
     events_description = sequence_input["properties"]["events"]["description"]
     assert "process-clock `frame`" in events_description
     assert "physics-clock `physics_frame`" in events_description
-    sequence_event_props = sequence_input["$defs"]["InputSequenceEvent"]["properties"]
-    sequence_event_types = sequence_input["$defs"]["InputEventType"]["enum"]
-    assert "mouse_button" in sequence_event_types
-    assert "harness/process-frame" in sequence_event_props["frame"]["description"]
-    assert "physics-frame" in sequence_event_props["physics_frame"]["description"]
+    # The event kinds are a discriminated union (#669): each kind's variant is
+    # reached through the discriminator mapping rather than one flat shape.
+    mapping = sequence_input["properties"]["events"]["items"]["discriminator"][
+        "mapping"
+    ]
+    assert "mouse_button" in mapping
+    variants = {
+        kind: sequence_input["$defs"][ref.rsplit("/", 1)[-1]]
+        for kind, ref in mapping.items()
+    }
+    key_props = variants["key"]["properties"]
+    assert "harness/process-frame" in key_props["frame"]["description"]
+    assert "physics-frame" in key_props["physics_frame"]["description"]
     assert (
         "engine-tracked mouse positions may remain stale"
-        in (sequence_event_props["x"]["description"])
+        in (variants["mouse_move"]["properties"]["x"]["description"])
     )
-    assert "mouse-button event" in sequence_event_props["pressed"]["description"]
+    assert (
+        "one of `pressed` or `release`"
+        in variants["mouse_button"]["properties"]["pressed"]["description"]
+    )
 
 
 def test_sample_input_results_validate_against_emitted_output_schemas():
@@ -1655,3 +1699,245 @@ def test_asset_file_schema_spawns_no_godot(monkeypatch):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0
         assert set(json.loads(result.stdout)) >= {"input", "output", "error"}
+
+
+# --- argv binding in --schema (issue #669, ADR-0004/ADR-0012/ADR-0023 §2) -----
+#
+# GDA-DF-003: the emitted schema stated a command's required fields but not how
+# to SPELL them on a command line — `screen capture` needs `--output` while
+# `input mouse-click` needs positional `x y` and `input action` a positional
+# ACTION it rejects as `--action`. The `argv` key answers that from the live
+# Typer/Click parameters (never a hand-maintained table, ADR-0023 §2).
+
+
+def _argv(command: list[str]) -> dict[str, dict]:
+    """The command's ``--schema`` argv bindings, keyed by binding name."""
+    result = CliRunner().invoke(app, [*command, "--schema"])
+    assert result.exit_code == 0, result.stdout
+    return {b["name"]: b for b in json.loads(result.stdout)["argv"]}
+
+
+def test_schema_argv_names_a_required_options_spelling():
+    # GDA-DF-003 case 1: `screen capture` takes its required `output` as an
+    # OPTION, so the schema must publish the `--output` spelling.
+    binding = _argv(["screen", "capture"])["output"]
+
+    assert binding["kind"] == "option"
+    assert binding["option"] == "--output"
+    assert binding["required"] is True
+    assert binding["position"] is None
+
+
+def test_schema_argv_places_positional_parameters_in_order():
+    # GDA-DF-003 case 2: `input mouse-click` takes `x y` POSITIONALLY — the
+    # schema publishes their order, and that they carry no option spelling.
+    bindings = _argv(["input", "mouse-click"])
+
+    assert bindings["x"]["kind"] == "argument"
+    assert bindings["x"]["position"] == 0
+    assert bindings["x"]["option"] is None
+    assert bindings["y"]["position"] == 1
+    assert bindings["x"]["required"] is True
+
+
+def test_schema_argv_reports_a_positional_that_has_no_option_form():
+    # GDA-DF-003 case 3: `input action` requires a positional ACTION and rejects
+    # `--action`; the schema says so, so no round-trip through `--help` is needed.
+    bindings = _argv(["input", "action"])
+
+    assert bindings["action"]["kind"] == "argument"
+    assert bindings["action"]["position"] == 0
+    assert bindings["action"]["option"] is None
+    assert "--action" not in {b["option"] for b in bindings.values()}
+
+
+def test_schema_argv_distinguishes_valueless_flags_from_repeatable_options():
+    # Constructing argv needs two more facts a JSON Schema cannot carry: a flag
+    # takes NO value (`--released`), and a repeatable option is REPEATED per
+    # value (`--modifiers shift --modifiers ctrl`).
+    bindings = _argv(["input", "key"])
+
+    assert bindings["released"]["flag"] is True
+    assert bindings["released"]["multiple"] is False
+    assert bindings["modifiers"]["flag"] is False
+    assert bindings["modifiers"]["multiple"] is True
+    assert bindings["modifiers"]["option"] == "--modifiers"
+
+
+def test_schema_argv_reports_a_variadic_positional_as_multiple():
+    # `script validate [PATHS]...` takes any number of positional paths (#663).
+    binding = _argv(["script", "validate"])["paths"]
+
+    assert binding["kind"] == "argument"
+    assert binding["multiple"] is True
+
+
+def test_schema_argv_omits_the_shared_cross_cutting_flags():
+    # `argv` describes the OPERATION parameters — the same set `--params-json`
+    # is mutually exclusive with (ADR-0015). The cross-cutting flags every
+    # command shares are not per-command information, so they stay out.
+    for command in (["scene", "create"], ["input", "key"], ["export", "run"]):
+        names = set(_argv(command))
+        assert names.isdisjoint(
+            {"json_output", "schema", "params_json", "godot", "project"}
+        )
+
+
+def test_schema_argv_links_a_binding_to_the_input_property_it_fills():
+    # The join that closes GDA-DF-003: an agent holding a REQUIRED input property
+    # can find its CLI spelling. The link is derived (never declared), so it is
+    # right even where the CLI spelling differs from the Python parameter name —
+    # `node add`'s `node_type` parameter is spelled `--type` and fills `type`.
+    binding = _argv(["node", "add"])["node_type"]
+
+    assert binding["option"] == "--type"
+    assert binding["input_property"] == "type"
+
+    # …and where the OPTION renames the property, the parameter carries the
+    # property's name so the link still holds: `project list --all` and
+    # `skill --dir` fill `include_defaults` / `install_dir`.
+    assert _argv(["project", "list"])["include_defaults"]["option"] == "--all"
+    assert _argv(["project", "list"])["include_defaults"]["input_property"] == (
+        "include_defaults"
+    )
+    assert _argv(["skill"])["install_dir"]["option"] == "--dir"
+    assert _argv(["skill"])["install_dir"]["input_property"] == "install_dir"
+
+
+def test_an_underivable_link_is_published_as_null_rather_than_guessed():
+    # `input_property` stays nullable BY CONTRACT for a parameter whose property
+    # neither its name nor its long option reveals — a wrong link would read as
+    # authoritative. No command on the surface is in that state (a guard in
+    # test_schema_aggregate holds that), so the rule is pinned on the derivation
+    # itself rather than through a command that would then have to stay broken.
+    from gda.headless import _bound_property
+
+    properties = {"include_defaults": {"type": "boolean"}}
+    assert _bound_property("all_settings", "--all", properties) is None
+    # The two derivations that DO resolve: by parameter name, and by the long
+    # option's spelling (`--type` fills `type` from a `node_type` parameter).
+    assert _bound_property("include_defaults", "--all", properties) == (
+        "include_defaults"
+    )
+    assert _bound_property("node_type", "--type", {"type": {}}) == "type"
+
+
+def test_schema_argv_covers_every_dispatch_channel():
+    # Several channels bypass the sentinel `cmd.emit` (EXPORT and LIVE by kind,
+    # the daemon lifecycle and screen by recipe). The binding is read off the
+    # live Click parameters, so it is present on all of them, not just the
+    # sentinel path.
+    assert _argv(["export", "run"])["preset"]["option"] == "--preset"
+    assert _argv(["daemon", "start"])["scene"]["option"] == "--scene"
+    assert _argv(["game", "get"])["node"]["kind"] == "argument"
+    assert _argv(["script", "run"])["path"]["kind"] == "argument"
+    # A command with no operation parameters carries an empty list, not a
+    # missing key.
+    result = CliRunner().invoke(app, ["info", "--schema"])
+    assert json.loads(result.stdout)["argv"] == []
+
+
+def test_schema_argv_reports_required_despite_the_relaxed_probe_parse():
+    # The `--schema` probe parses with every parameter's `required` RELAXED so a
+    # bare probe succeeds (issue #36). The published binding must report the
+    # DECLARED requirement, not the relaxed one.
+    assert _argv(["screen", "capture"])["output"]["required"] is True
+    assert _argv(["node", "connect-signal"])["from_node"]["required"] is True
+
+
+def test_the_argv_derivation_covers_every_parameter_shape_on_the_surface():
+    # The projection expresses a positional, an option, a valueless flag, a
+    # repeated value and a JSON-encoded value (#669). Click can spell three more
+    # shapes it would report WRONGLY: a `--x/--no-x` pair (the negative spelling
+    # would be dropped), an n-ary option (`nargs > 1`, which is neither single nor
+    # `multiple`), and a counting option (`count=True`, not a bare flag). None
+    # exists today. This guard fails the moment one is introduced, so the contract
+    # is extended deliberately instead of silently emitting a binding that cannot
+    # be written.
+    import typer as _typer
+
+    unsupported: list[str] = []
+
+    def walk(command, path):
+        subcommands = getattr(command, "commands", None)
+        if subcommands is not None:
+            for name, subcommand in subcommands.items():
+                walk(subcommand, [*path, name])
+            return
+        for param in command.params:
+            where = f"{' '.join(path)}: {param.name}"
+            if getattr(param, "secondary_opts", []):
+                unsupported.append(f"{where} (--x/--no-x pair)")
+            if getattr(param, "nargs", 1) not in (1, -1):
+                unsupported.append(f"{where} (nargs={param.nargs})")
+            if getattr(param, "count", False):
+                unsupported.append(f"{where} (counting option)")
+
+    walk(_typer.main.get_command(app), [])
+    assert not unsupported, "argv bindings cannot express:\n" + "\n".join(unsupported)
+
+
+def test_schema_argv_marks_a_json_encoded_value():
+    # `input sequence` takes an ARRAY property through a single `--events` token
+    # that carries its JSON. Without this key an agent reading `input` sees an
+    # array and writes one token per element, which the parser rejects — the
+    # encoding half of the same argv problem (#669).
+    binding = _argv(["input", "sequence"])["events"]
+
+    assert binding["json_value"] is True
+    assert binding["multiple"] is False
+    assert binding["option"] == "--events"
+    # A repeated option carries its values one token at a time instead, so it is
+    # NOT a JSON value; nor is a plain scalar.
+    assert _argv(["input", "key"])["modifiers"]["json_value"] is False
+    assert _argv(["screen", "capture"])["output"]["json_value"] is False
+
+
+def _is_compound(spec: dict) -> bool:
+    """Whether a property schema is an array/object, INCLUDING behind an anyOf."""
+    if spec.get("type") in ("array", "object"):
+        return True
+    branches = spec.get("anyOf") or spec.get("oneOf") or []
+    return any(_is_compound(branch) for branch in branches if isinstance(branch, dict))
+
+
+def test_no_parameter_needs_a_json_value_the_derivation_cannot_see():
+    # `json_value` is derived from the LINKED property's declared `type`, so it
+    # sees a bare `array`/`object` but not one behind an `anyOf` — the shape a
+    # nullable compound (`array | null`) takes. Such a parameter would silently
+    # publish `json_value: false` and send an agent to write its value as a plain
+    # token. None exists today, so the derivation is deliberately left narrow; this
+    # fails the moment one appears, forcing the extension rather than a wrong
+    # binding. Same guard shape as the unsupported-Click-shapes test above.
+    import typer as _typer
+
+    from gda.headless import command_argv_bindings
+
+    invisible: list[str] = []
+
+    def walk(command, path):
+        subcommands = getattr(command, "commands", None)
+        if subcommands is not None:
+            for name, subcommand in subcommands.items():
+                walk(subcommand, [*path, name])
+            return
+        input_model = getattr(command, "gda_input_model", None)
+        if input_model is None:
+            return
+        properties = input_model.model_json_schema().get("properties", {})
+        for binding in command_argv_bindings(command, input_model):
+            spec = properties.get(binding.input_property or "")
+            if not isinstance(spec, dict) or binding.multiple or binding.json_value:
+                continue
+            if _is_compound(spec):
+                invisible.append(f"{' '.join(path)}: {binding.name}")
+
+    walk(_typer.main.get_command(app), [])
+    assert not invisible, (
+        "compound properties taking one token that json_value cannot see:\n"
+        + "\n".join(invisible)
+    )
+    # …and the detector is not blind: it recognizes the nullable-compound shape it
+    # is meant to catch, so passing above means absence, not a broken predicate.
+    assert _is_compound({"anyOf": [{"type": "array"}, {"type": "null"}]})
+    assert not _is_compound({"type": "string"})

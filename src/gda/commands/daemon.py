@@ -1,7 +1,7 @@
 """The ``daemon`` command group: gda's own per-project daemon lifecycle (ADR-0017).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, the four lifecycle operations (formerly ``gda.daemon_ops``),
+params/result models, the five lifecycle operations (formerly ``gda.daemon_ops``),
 its human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe
 channels and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
@@ -16,12 +16,13 @@ import paths (``gda.daemon.discovery``, ``gda.commands.daemon``), never a relati
 one, so the two stay distinct.
 
 The group is a deliberate extension of ADR-0005's domain-object grouping to an
-infrastructure object (gda-daemon), not a top-level meta singleton. start / stop /
-status / uninstall manage the daemon PROCESS, so — like ``export run`` — each runs
-a recipe rather than the sentinel pipeline: ``start`` gates the platform (live is
-UNIX-only, ADR-0021), performs the reported idempotent harness install (ADR-0018),
-spawns the detached daemon, and waits until it is accepting; ``stop`` asks it to
-shut down; ``status`` reports liveness from the pidfile.
+infrastructure object (gda-daemon), not a top-level meta singleton. None of its
+operations is a sentinel op, so — like ``export run`` — each runs a recipe:
+``start`` gates the platform (live is UNIX-only, ADR-0021), performs the reported
+idempotent harness install (ADR-0018), spawns the detached daemon, and waits until
+it is accepting; ``stop`` asks it to shut down; ``status`` reports liveness from
+the pidfile; and ``install`` / ``uninstall`` are the harness half of the lifecycle
+on their own — the same install ``start`` folds in, and its paired removal.
 """
 
 import os
@@ -30,6 +31,7 @@ import socket
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -194,6 +196,56 @@ class DaemonStatusResult(BaseModel):
             "**null** when the mode is undetermined: either no daemon is running "
             "(alongside `running: false`), or a daemon is running (`running: true`) "
             "but its bounded STATUS_OP round trip missed transiently."
+        ),
+    )
+
+
+class DaemonInstallParams(BaseModel):
+    """The params of ``gda daemon install``: none (the project is the --project context)."""
+
+
+class DaemonInstallResult(BaseModel):
+    """The result of ``gda daemon install``: the harness install it performed (ADR-0018).
+
+    The same five facts ``daemon start`` reports about its folded-in install, from the
+    same ``install_harness`` call — so an agent reads one shape whether the install
+    happened on its own or as part of a start.
+    """
+
+    installed_harness: bool = Field(
+        description=(
+            "Whether this call installed or updated the harness autoload; False is "
+            "the idempotent no-op when the current version was already installed."
+        )
+    )
+    harness_synced: bool = Field(
+        default=False,
+        description=(
+            "Whether an ALREADY-installed harness was re-materialized because it "
+            "declared an older version — true only on a real stale->current rewrite, "
+            "never on a first install (#225, ADR-0018)."
+        ),
+    )
+    harness_version: str = Field(
+        description="The gda harness version now installed in the project (#225)."
+    )
+    created_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `res://` paths this call CREATED in the project (outermost directory "
+            "first), so the install is an auditable mutation rather than a silent "
+            "write into a tracked project (#654). Empty on an idempotent repeat and "
+            "on a version resync — those rewrite the harness (`harness_synced`) but "
+            "create nothing new. Reversed by `gda daemon uninstall`, except "
+            "`res://addons` itself."
+        ),
+    )
+    created_sections: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `project.godot` sections this call CREATED — `[autoload]` when the "
+            "project had none. Empty when the harness entry joined a section that "
+            "already existed, which `gda daemon uninstall` then leaves in place (#654)."
         ),
     )
 
@@ -381,25 +433,59 @@ def _await_gone(paths: DaemonPaths, pid: int, timeout: float = _STOP_TIMEOUT) ->
 _START_FAILED = "the gda-daemon did not start (it never began accepting on its socket)"
 
 
-def _restore_start_install(
-    snapshot: HarnessSnapshot,
-) -> "tuple[str, ...] | OSError":
-    """Undo a failed start's harness install; the undone set, or the error that stopped it.
+@dataclass(frozen=True)
+class _RestoreOutcome:
+    """What undoing a failed harness install achieved, and what it left behind.
 
-    Takes ONLY the snapshot: the restore must work for a start that failed at any
+    Exactly one of the two is meaningful: ``residue`` is the sentence naming the
+    rollback failure AND the paths still differing from their pre-install state (files
+    and created directories, measured off the snapshot); ``undone`` is what came back
+    when there was no such failure — empty when the operation had written nothing to
+    undo. Kept as one value so the two callers below decide only HOW to report it,
+    never how to phrase it.
+    """
+
+    undone: tuple[str, ...] = ()
+    residue: Optional[str] = None
+
+
+def _restore_harness_install(snapshot: HarnessSnapshot) -> _RestoreOutcome:
+    """Undo a failed harness install, and describe the outcome for the caller to report.
+
+    Takes ONLY the snapshot: the restore must work for an operation that failed at any
     point after the snapshot was taken, including PART WAY THROUGH the install itself
     (a read-only ``project.godot`` makes ``install_harness`` raise after it has
     already materialized the harness), where no receipt exists to consult (PR #680
     recheck 2).
 
-    Never raises: a restore failure must not replace the start failure the caller is
+    Never raises: a restore failure must not replace the failure the caller is
     already reporting — it is reported ALONGSIDE it, as the mutation the user now has
-    to clean up by hand.
+    to clean up by hand. Measuring the residue must not throw either, so the whole
+    sentence is built here, once, for both ways it is reported.
     """
     try:
-        return snapshot.restore()
+        return _RestoreOutcome(undone=snapshot.restore())
     except OSError as exc:
-        return exc
+        return _RestoreOutcome(
+            residue=(
+                f"the harness install could NOT be rolled back ({exc}); these paths "
+                f"still differ from their pre-install state: "
+                f"{', '.join(snapshot.pending())}"
+            )
+        )
+
+
+def _note_failed_restore(exc: BaseException, snapshot: HarnessSnapshot) -> None:
+    """Roll the harness install back, and annotate ``exc`` if the rollback also failed.
+
+    The exception arm shared by the two operations that install the harness
+    (``daemon start`` and ``daemon install``): the ORIGINAL error stays the primary
+    failure, and only when the restore itself fails does the residue ride along as a
+    note. Silently dropping it would hide residue ADR-0018 requires reporting.
+    """
+    outcome = _restore_harness_install(snapshot)
+    if outcome.residue is not None:
+        exc.add_note(f"additionally, {outcome.residue}")
 
 
 def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
@@ -407,24 +493,18 @@ def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
 
     Carries the harness install's fate in the ``diagnostics`` prose (ADR-0004 shape
     unchanged, no new error code): what was restored, or — when the restore itself
-    failed — the paths (files AND created directories) that still differ from their
-    pre-start state, measured off the snapshot rather than predicted from a receipt.
+    failed — the residue the same rollback reports to the exception arm above. The
+    two spellings of "what happened to the install" are one sentence, built once.
     """
-    outcome = _restore_start_install(snapshot)
-    if isinstance(outcome, OSError):
-        pending = ", ".join(snapshot.pending())
-        return make_failure(
-            "daemon_not_running",
-            _START_FAILED,
-            f"the harness install could NOT be rolled back ({outcome}); these paths "
-            f"still differ from their pre-start state: {pending}",
-        )
-    if not outcome:
+    outcome = _restore_harness_install(snapshot)
+    if outcome.residue is not None:
+        return make_failure("daemon_not_running", _START_FAILED, outcome.residue)
+    if not outcome.undone:
         return make_failure("daemon_not_running", _START_FAILED, "")
     return make_failure(
         "daemon_not_running",
         _START_FAILED,
-        f"rolled back this start's harness install: {', '.join(outcome)}",
+        f"rolled back this start's harness install: {', '.join(outcome.undone)}",
     )
 
 
@@ -552,24 +632,16 @@ def run_daemon_start_operation(
     # The restore is driven by the SNAPSHOT alone, never by the install's receipt: a
     # receipt cannot describe how to undo an install that re-materialized a stale
     # body or re-pointed an existing entry (both CREATE nothing), and a half-finished
-    # install has no receipt at all. The exception arm re-raises the ORIGINAL error
-    # as the primary failure; when the restore itself also fails, that outcome and
-    # the measured residual paths ride along as an exception note (PR #688 review) —
-    # silently dropping them would hide residue ADR-0018 requires reporting.
+    # install has no receipt at all. The exception arm re-raises the ORIGINAL error as
+    # the primary failure and reports a restore that also failed alongside it — the
+    # arm `daemon install` shares (`_note_failed_restore`).
     snapshot = HarnessSnapshot.capture(project)
     try:
         installed = install_harness(project)
         (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
         pid = _await_ready(paths)
     except BaseException as exc:
-        outcome = _restore_start_install(snapshot)
-        if isinstance(outcome, OSError):
-            pending = ", ".join(snapshot.pending())
-            exc.add_note(
-                f"additionally, the harness install could NOT be rolled back "
-                f"({outcome}); these paths still differ from their pre-start "
-                f"state: {pending}"
-            )
+        _note_failed_restore(exc, snapshot)
         raise
     if pid is None:
         return _failed_start_failure(snapshot)
@@ -624,6 +696,41 @@ def run_daemon_status_operation(
         pid=pid,
         socket_path=str(paths.cli_socket),
         windowed=windowed,
+    )
+
+
+def run_daemon_install_operation(
+    project: Optional[Path],
+) -> "DaemonInstallResult | Failure":
+    """Install (or re-sync) the harness autoload in the project (ADR-0018, #670).
+
+    The install ``daemon start`` folds in, made runnable on its own — the SAME
+    ``install_harness`` seam, never a second implementation — so an agent can put the
+    project in the state a live session needs, and see what that did, without starting
+    a daemon. Idempotent: a repeat over a current install writes nothing.
+
+    Unlike ``uninstall`` it is NOT refused while a daemon runs: installing over a live
+    daemon is exactly what a repeat ``daemon start`` already does, and it takes nothing
+    away from the running session. It is transactional for the same reason ``start``
+    is: the install is multi-step, so a config write that fails must not leave the
+    materialized harness behind.
+    """
+    checked = _lifecycle_preconditions(project)
+    if isinstance(checked, Failure):
+        return checked
+    project = checked
+    snapshot = HarnessSnapshot.capture(project)
+    try:
+        installed = install_harness(project)
+    except BaseException as exc:
+        _note_failed_restore(exc, snapshot)
+        raise
+    return DaemonInstallResult(
+        installed_harness=installed.changed,
+        harness_synced=installed.synced,
+        harness_version=installed.version,
+        created_paths=list(installed.created_paths),
+        created_sections=list(installed.created_sections),
     )
 
 
@@ -690,6 +797,32 @@ def render_daemon_status(status: "DaemonStatusResult") -> str:
     return "daemon not running"
 
 
+def render_daemon_install(installed: "DaemonInstallResult") -> str:
+    """Render a `gda daemon install` outcome for humans.
+
+    Naming what changed is the point of running it explicitly, so the line reports
+    which of the three things happened — a resync, a no-op, or a real install — and,
+    for the install, the same mutation set the JSON result enumerates (mirroring
+    `daemon uninstall`).
+    """
+    if installed.harness_synced:
+        return f"harness synced to v{installed.harness_version}"
+    if not installed.installed_harness:
+        return f"harness already installed (v{installed.harness_version})"
+    created = [
+        *installed.created_paths,
+        *(f"{section} in project.godot" for section in installed.created_sections),
+    ]
+    if not created:
+        # The entry was all that was missing: the files were already in place and the
+        # section already existed, so nothing was created — name the entry instead.
+        return (
+            f"harness installed (v{installed.harness_version}): the GdaHarness "
+            "autoload entry in project.godot"
+        )
+    return f"harness installed (v{installed.harness_version}): " + ", ".join(created)
+
+
 def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
     """Render a `gda daemon uninstall` outcome for humans.
 
@@ -740,6 +873,10 @@ def _daemon_status_recipe(params, *, project, godot):
     return run_daemon_status_operation(project)
 
 
+def _daemon_install_recipe(params, *, project, godot):
+    return run_daemon_install_operation(project)
+
+
 def _daemon_uninstall_recipe(params, *, project, godot):
     return run_daemon_uninstall_operation(project)
 
@@ -766,6 +903,14 @@ DAEMON_STATUS_COMMAND: HeadlessCommand[DaemonStatusResult] = HeadlessCommand(
     output_model=DaemonStatusResult,
     render=render_daemon_status,
     recipe=_daemon_status_recipe,
+)
+
+DAEMON_INSTALL_COMMAND: HeadlessCommand[DaemonInstallResult] = HeadlessCommand(
+    operation="daemon-install",
+    input_model=DaemonInstallParams,
+    output_model=DaemonInstallResult,
+    render=render_daemon_install,
+    recipe=_daemon_install_recipe,
 )
 
 DAEMON_UNINSTALL_COMMAND: HeadlessCommand[DaemonUninstallResult] = HeadlessCommand(
@@ -875,6 +1020,38 @@ def daemon_status(
     dispatch_recipe(
         DAEMON_STATUS_COMMAND,
         DaemonStatusParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="install", cls=DAEMON_INSTALL_COMMAND.command_class())
+def daemon_install(
+    json_output: bool = json_option(),
+    schema: bool = DAEMON_INSTALL_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Install the gda harness autoload into the project, without starting a daemon.
+
+    The setup step for live operations, made explicit (ADR-0018, #670): it writes the
+    harness into `project.godot`'s autoload section and reports exactly what it
+    created, so the one mutation gda makes to a tracked project is visible before a
+    session runs. `gda daemon start` performs the same install itself, so this is
+    never a prerequisite for it — it is for putting the project in that state
+    deliberately (to review or commit the change), or for checking what is installed.
+
+    Idempotent: a repeat over a current install writes nothing and reports
+    `installed_harness: false`; a harness from an older gda is re-materialized and
+    reported as `harness_synced`. Allowed while a daemon is running, unlike
+    `gda daemon uninstall`, which takes the autoload away from a live session. The
+    platform precondition is the structured `constraints` field of `--schema`.
+    """
+    dispatch_recipe(
+        DAEMON_INSTALL_COMMAND,
+        DaemonInstallParams(),
         json_output=json_output,
         godot=godot,
         project=project,

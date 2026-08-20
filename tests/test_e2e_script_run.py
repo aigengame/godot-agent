@@ -65,6 +65,7 @@ headless one-shot script controls its own exit code.
 
 import json
 import subprocess
+import time
 
 import pytest
 
@@ -655,3 +656,340 @@ def test_script_run_unlaunchable_binary_is_binary_not_found(godot_project):
     err = json.loads(run.stdout)["error"]
     assert err["code"] == "binary_not_found"
     assert err["category"] == "environment"
+
+
+# --- #655: the three arms only a real engine can prove. Each keeps its wall clock to
+# a few seconds by choosing a small `--timeout`, never the 120s default.
+#
+# What a fixture-driven test could NOT establish, and these do: that Godot really
+# keeps running after a script error aborts `_initialize` before its `quit()` (so the
+# run really does hang rather than fail); that its stdout and stderr really arrive
+# incrementally rather than at process exit (so the capture really is preserved and
+# the error really is visible before the ceiling); and that gda's own `--log-file`
+# injection does not divert the error stream it reads.
+
+# A script whose entry point dies before its own quit(): the runtime error aborts
+# `_initialize`, so `quit()` is never reached and the engine falls through to its
+# main loop and idles forever. The marker is what it WOULD have printed.
+ABORTS_BEFORE_QUIT_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tprint("SUITE START")
+\tvar d = null
+\td.missing_method()
+\tprint("SUITE DONE")
+\tquit(0)
+"""
+
+# A healthy suite that simply takes longer than the ceiling it is given. It prints
+# as it goes, which is what makes its partial output worth preserving.
+SLOW_BUT_HEALTHY_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tprint("SUITE START")
+\tvar t := Time.get_ticks_msec()
+\twhile Time.get_ticks_msec() - t < 30000:
+\t\tpass
+\tprint("SUITE DONE")
+\tquit(0)
+"""
+
+
+@pytest.mark.e2e
+def test_script_run_returns_the_captured_error_of_an_aborted_run(godot_project):
+    # THE #655 AC (GDA-DF-012): a script whose runtime error prevents quit() returns
+    # the captured script error within a stated bound in SECONDS, not the full
+    # timeout, when a completion marker is declared. The generous --timeout is the
+    # point: the run must be ended by the marker rule, so a pass proves the abort
+    # fired rather than the ceiling.
+    (godot_project / "aborts.gd").write_text(ABORTS_BEFORE_QUIT_GD, encoding="utf-8")
+
+    started = time.monotonic()
+    run = _run_gda(
+        "script",
+        "run",
+        "res://aborts.gd",
+        "--completion-marker",
+        "SUITE DONE",
+        "--timeout",
+        "60",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+    elapsed = time.monotonic() - started
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_aborted"
+    assert err["category"] == "operation"
+    # In seconds, and nowhere near the ceiling it was given.
+    assert elapsed < 30.0, f"the abort took {elapsed:.1f}s"
+    assert "60.0s was not reached" in err["message"]
+    # The engine's own error — the thing the old envelope discarded — is back, both as
+    # the classified line and verbatim in the labelled stderr section.
+    assert "Nonexistent function 'missing_method'" in err["diagnostics"]
+    assert "runtime_error: res://aborts.gd:6" in err["diagnostics"]
+    # And so is the output the run produced before it died.
+    assert "SUITE START" in err["diagnostics"]
+
+
+@pytest.mark.e2e
+def test_script_run_timeout_returns_partial_output_elapsed_and_a_phase(godot_project):
+    # THE #655 AC (GDA-DF-032): a run exceeding --timeout returns the captured partial
+    # output with the cap stated, the elapsed seconds, and one enumerated termination
+    # phase — so a suite that is merely slow is no longer indistinguishable from a
+    # hang. No marker is declared here, so this is the plain timeout path.
+    (godot_project / "slow.gd").write_text(SLOW_BUT_HEALTHY_GD, encoding="utf-8")
+
+    run = _run_gda(
+        "script",
+        "run",
+        "res://slow.gd",
+        "--timeout",
+        "4",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    assert run.returncode == 124, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "launch_timeout"
+    assert err["category"] == "environment"
+    # The ceiling that was reached, the wall clock, and the phase — all in the message.
+    assert "--timeout of 4.0s" in err["message"]
+    assert "elapsed 4." in err["message"]
+    assert "termination phase 'output_seen'" in err["message"]
+    assert "16384 UTF-8 bytes (16 KiB)" in err["message"]
+    # The partial output the engine had already written, which the buffered capture
+    # used to discard. It got as far as SUITE START and no further.
+    assert "SUITE START" in err["diagnostics"]
+    assert "SUITE DONE" not in err["diagnostics"]
+    # A healthy suite has a clean error stream, and saying so is the diagnosis.
+    assert "no recognized script errors" in err["diagnostics"]
+
+
+@pytest.mark.e2e
+def test_script_run_without_a_marker_waits_out_the_timeout_but_still_captures(
+    godot_project,
+):
+    # The marker is OPT-IN (ADR-0031 rejected imposing a gda-owned sentinel on a user
+    # script), so the SAME aborting script with no marker declared must run to the
+    # ceiling — never ended early on gda's own initiative. It still comes back with
+    # the captured error, which is the half of the fix that needs no opt-in at all.
+    (godot_project / "aborts.gd").write_text(ABORTS_BEFORE_QUIT_GD, encoding="utf-8")
+
+    started = time.monotonic()
+    run = _run_gda(
+        "script",
+        "run",
+        "res://aborts.gd",
+        "--timeout",
+        "5",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+    elapsed = time.monotonic() - started
+
+    assert run.returncode == 124, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "launch_timeout"
+    # It waited: the ceiling, not the ~3s the marker rule would have taken.
+    assert elapsed >= 5.0, f"the run ended early at {elapsed:.1f}s without a marker"
+    # And the error Godot printed at ~0.5s is in the envelope regardless.
+    assert "runtime_error: res://aborts.gd:6" in err["diagnostics"]
+    assert "SUITE START" in err["diagnostics"]
+
+
+# A script that survives a RECOVERABLE runtime error and then works QUIETLY before
+# printing its marker. The error aborts only `_recoverable`, so `_initialize` carries
+# on — and it prints nothing for well over the abort's silence window. Whether such a
+# run can still finish is NOT observable from outside the process (review falsified
+# both a silence-only rule and a CPU-idleness probe on this very shape), so what
+# happens to it is decided by the caller's declaration, and this pair of tests pins
+# BOTH sides of that contract.
+QUIET_SURVIVOR_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tprint("SUITE START")
+\t_recoverable()
+\tvar acc := 0.0
+\tvar t := Time.get_ticks_msec()
+\twhile Time.get_ticks_msec() - t < 6000:
+\t\tacc += sqrt(float(Time.get_ticks_usec() % 977))
+\tprint("SUITE DONE acc=", acc)
+\tquit(0)
+
+func _recoverable() -> void:
+\tvar d = null
+\td.missing_method()
+"""
+
+# The compliant shape of the same survivor: it keeps saying it is alive while it
+# works, which resets the silence window, and then prints its marker. This is the
+# escape hatch the contract names for scripts with long quiet stretches.
+PROGRESS_SURVIVOR_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tprint("SUITE START")
+\t_recoverable()
+\tvar acc := 0.0
+\tvar t := Time.get_ticks_msec()
+\tvar last := t
+\twhile Time.get_ticks_msec() - t < 6000:
+\t\tacc += sqrt(float(Time.get_ticks_usec() % 977))
+\t\tif Time.get_ticks_msec() - last >= 1500:
+\t\t\tlast = Time.get_ticks_msec()
+\t\t\tprint("still working...")
+\tprint("SUITE DONE acc=", acc)
+\tquit(0)
+
+func _recoverable() -> void:
+\tvar d = null
+\td.missing_method()
+"""
+
+
+@pytest.mark.e2e
+def test_script_run_ends_a_silent_survivor_by_the_declared_contract(godot_project):
+    # THE CONTRACT'S PRICE, against the real engine, stated rather than hidden: with a
+    # marker declared, an entry-attributable error followed by a full silence window
+    # ends this run even though it would have finished (the test below proves it
+    # finishes untouched without the marker). Declaring the marker asserts the script
+    # keeps printing until the marker line — this script does not, so ending it is the
+    # DECLARED semantics, deterministic on every platform, not a detection error. The
+    # observational rescues review falsified (silence-only, CPU idleness) must not
+    # come back: this pin and the progress-survivor pin below are the pair that keeps
+    # the contract honest in both directions.
+    (godot_project / "survivor.gd").write_text(QUIET_SURVIVOR_GD, encoding="utf-8")
+
+    started = time.monotonic()
+    run = _run_gda(
+        "script",
+        "run",
+        "res://survivor.gd",
+        "--completion-marker",
+        "SUITE DONE",
+        "--timeout",
+        "60",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+    elapsed = time.monotonic() - started
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_aborted"
+    # Within the contract's bound, not the compute time and nowhere near the ceiling.
+    assert elapsed < 30.0, f"the contract abort took {elapsed:.1f}s"
+    # The envelope says WHY: the contract, and the caller's two ways out.
+    assert "print progress" in err["message"]
+    assert "runtime_error: res://survivor.gd" in err["diagnostics"]
+
+
+@pytest.mark.e2e
+def test_script_run_leaves_the_same_survivor_alone_without_a_marker(godot_project):
+    # The other half of the pair — the run really WOULD have finished: without the
+    # marker gda never ends a run on its own initiative, so the same script completes
+    # untouched. This is the no-marker escape hatch the contract names for a script
+    # gda must not judge.
+    (godot_project / "survivor.gd").write_text(QUIET_SURVIVOR_GD, encoding="utf-8")
+
+    run = _run_gda(
+        "script",
+        "run",
+        "res://survivor.gd",
+        "--timeout",
+        "60",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert "error" not in data
+    assert data["exit_status"] == 0
+    assert "SUITE DONE" in data["stdout"]
+    # The survived error is still surfaced — as a classified diagnostic on a
+    # successful run, which is where a recoverable failure belongs (#651).
+    assert any(d["kind"] == "runtime_error" for d in data["diagnostics"])
+
+
+@pytest.mark.e2e
+def test_script_run_spares_a_survivor_that_prints_progress(godot_project):
+    # The compliant escape hatch, against the real engine: the same survivable error
+    # and the same slow work, but the script keeps saying it is alive. Every progress
+    # line resets the silence window, so the marker is reached and the run succeeds —
+    # WITH the marker declared. This is the pin that proves the contract is
+    # satisfiable by a quiet-working script, not a trap.
+    (godot_project / "progress.gd").write_text(PROGRESS_SURVIVOR_GD, encoding="utf-8")
+
+    run = _run_gda(
+        "script",
+        "run",
+        "res://progress.gd",
+        "--completion-marker",
+        "SUITE DONE",
+        "--timeout",
+        "60",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert "error" not in data
+    assert data["exit_status"] == 0
+    assert "SUITE DONE" in data["stdout"]
+    assert "still working..." in data["stdout"]
+    assert any(d["kind"] == "runtime_error" for d in data["diagnostics"])
+
+
+@pytest.mark.e2e
+def test_script_run_abort_still_lands_within_its_stated_bound(godot_project):
+    # The GDA-DF-012 case must keep its speed under the contract rule: the engine
+    # really does go quiet when the entry dies, so the abort lands around one silence
+    # window plus startup — nowhere near the ceiling it was given.
+    (godot_project / "aborts.gd").write_text(ABORTS_BEFORE_QUIT_GD, encoding="utf-8")
+
+    started = time.monotonic()
+    run = _run_gda(
+        "script",
+        "run",
+        "res://aborts.gd",
+        "--completion-marker",
+        "SUITE DONE",
+        "--timeout",
+        "120",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+    elapsed = time.monotonic() - started
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    assert json.loads(run.stdout)["error"]["code"] == "script_aborted"
+    assert elapsed < 10.0, f"the abort took {elapsed:.1f}s against a 120s ceiling"

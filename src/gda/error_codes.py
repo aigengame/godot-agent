@@ -29,6 +29,7 @@ from gda.exit_codes import (
     EXIT_OPERATION,
     EXIT_PARSE,
     EXIT_TIMEOUT,
+    EXIT_USAGE,
     EXIT_VERSION,
 )
 from gda.models import ErrorCategory
@@ -98,6 +99,33 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         # to fix the wrong directory; the diagnostics name which one it was.
         "The log or user-data placement for the launch could not be made usable, "
         "so the launch was refused.",
+    ),
+    # The USAGE category (#670): gda could not resolve WHAT was asked for, so no
+    # operation was ever identified — the stage before every other code here. Both
+    # rows are classifier-source (the CLI decides them; no GDScript operation can
+    # report one, so neither is mirrored) and both exit 2, the code every CLI parser
+    # already uses for a usage error: gda's structured refusal is that same failure
+    # reported better, not a different one, so the exit an agent already keys on is
+    # unchanged. They are kept apart from each other because the remedy differs — an
+    # unknown COMMAND sends the caller to `gda schema` / `gda --help`, an unknown
+    # OPTION to that command's own `--help` / `--schema`.
+    ErrorCodeSpec(
+        "unknown_command",
+        ErrorCategory.USAGE,
+        EXIT_USAGE,
+        ErrorCodeSource.CLASSIFIER,
+        "gda has no such command; discover the surface with `gda schema` or "
+        "`gda --help`. A recognized near miss also carries the supported "
+        "invocation in the envelope's `hint`.",
+    ),
+    ErrorCodeSpec(
+        "unknown_option",
+        ErrorCategory.USAGE,
+        EXIT_USAGE,
+        ErrorCodeSource.CLASSIFIER,
+        "The command exists but has no such option; read its options with "
+        "`--help` or its input contract with `--schema`. A recognized near miss "
+        "also carries the supported invocation in the envelope's `hint`.",
     ),
     ErrorCodeSpec(
         "unsupported_version",
@@ -419,6 +447,32 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A `script run --strict` script ran to completion and chose a non-zero exit "
         "status; strict mode maps that opted-in failure onto the uniform error "
         "envelope. Never reported without --strict (ADR-0031).",
+    ),
+    # `script run`'s early-abort verdict (#655, dogfooding GDA-DF-012). Minted
+    # rather than reused, because no registered code names this condition:
+    #
+    # - `launch_timeout` says "Godot did not return before the timeout". Here gda
+    #   DECIDED not to wait — the timeout was never reached — so reporting it would
+    #   be untrue, and would hide the very distinction the abort exists to make.
+    # - `script_failed` says "the script ran to completion and chose a non-zero
+    #   status", is documented as never reported without `--strict`, and leads an
+    #   agent to read an exit status. Here the script never completed and there is
+    #   no status to read; the remedy is the error it died on.
+    # - `script_compile_failed` / `script_not_found` say the entry never LOADED.
+    #   Here it loaded and ran, then hit an error partway.
+    #
+    # CLASSIFIER-source and so NOT GDScript-mirrored, like the rest of `script
+    # run`'s verdicts: the entry script is the user's own and emits no ADR-0002
+    # sentinel, so gda decides this from the engine's error stream.
+    ErrorCodeSpec(
+        "script_aborted",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A `script run` was ended early, before its --timeout: a script error "
+        "appeared on stderr, the caller's declared --completion-marker did not, "
+        "and the run then went silent. Reported only when --completion-marker is "
+        "declared (#655).",
     ),
     ErrorCodeSpec(
         "incompatible_script_type",

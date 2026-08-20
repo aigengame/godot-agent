@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4690a415ebcff975162adcdeb87ea78a23afdcd40a7f80c578a11fad3570559a -->
+<!-- gda-readme-i18n: source=README.md sha256=6c49dbe1f8202e9cfa46bc8fd79e1c78060238936b0d52e56ec01fd4f2f53e70 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -69,7 +69,8 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
   加上实时控制能力，用的还是同一套 CLI 语法。
 - **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错；引擎卡死则会触发超时处理。
   这些错误都会映射为一个**稳定的非零退出码**，并附带一个结构化的 `{"error": {…}}` 信封——这样 shell 或 agent
-  无需解析自然语言文本，就能按失败类别分支处理。
+  无需解析自然语言文本，就能按失败类别分支处理。`gda` 不认识的命令或选项同样以结构化方式拒绝，
+  并在 `hint` 中给出应当改用的调用方式。
 
 ---
 
@@ -368,7 +369,9 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `gda info`   | 报告 Godot 引擎的版本信息。 |
+| `gda info`   | 报告 Godot 引擎的版本信息。接受显式、经校验的 `--project`（其他 meta 命令不接受）；版本结果并不依赖它。 |
+| `gda version` | 报告当前安装的是哪个 `gda`、来自何处——加 `--json` 时给出完整的安装溯源信息（与 `gda --version --json` 同一份载荷）。不会启动 Godot。 |
+| `gda help`   | 显示某条命令的帮助（`gda help scene get`）或整个 CLI 的帮助；加 `--json` 时以 `{command, text}` 返回。 |
 | `gda schema` | 把整个命令界面作为一份机器可读的 JSON 清单输出。 |
 | `gda skill`  | 输出或安装随包附带的 Agent Skill（`SKILL.md`），它教 agent 如何操控 `gda`。 |
 
@@ -383,6 +386,24 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `scene list` | 枚举已解析项目中的 `.tscn` 场景。 |
 | `scene get-exports` | 列出场景里各节点脚本声明的 `@export` 属性。 |
 | `scene delete` | 删除一个场景文件并报告删除了什么。 |
+| `scene validate` | 静态检查场景的依赖能否解析、其挂载脚本能否编译。 |
+| `scene preflight` | 以 headless 方式启动场景，等待 `_ready`，并报告启动结论。 |
+
+读取场景能扛住大多数损坏：Godot 会把节点上无法解析的引用替换为 null 并仍返回一棵可用的树，
+所以脚本与贴图都已丢失的场景，在 `scene get` 里看起来依然健康（但从 sub-resource 内部坏掉的依赖
+仍可能让整个加载失败）。这两个检查回答的是不同的问题。
+`scene validate` 是**静态的**——它不实例化任何东西，解析每一个依赖、编译每一个绑定脚本
+（引用的与内嵌的都算），并检查每一个引擎会拒绝的绑定，为每个有问题的文件报告一条
+problem（`missing_resource`、`unloadable_resource`（从未被导入的资源）、`script_compile_failed`
+或 `incompatible_script`（引擎会拒绝的绑定：脚本挂在其基类之外的节点上，或绑定的值根本不是脚本）），
+同时给出引用它的节点。这个检查是**分阶段的**：只要有依赖无法解析，场景就不会被加载，
+因此只有加载后的场景才能暴露的编译与绑定问题，要等依赖修好、重新运行 validate 之后才会出现——
+problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶段。`scene preflight` 是**动态的**——
+它启动场景，运行其 `_ready` 与项目的 autoload，观察若干帧，然后报告 `status`
+（`ready` / `not_ready` / `timeout`）以及启动过程中出现的脚本错误；只需读 `started` 这一个布尔值即可作为门禁。
+两者都要跑：依赖全部解析的场景仍可能在第一帧失败，而引用了从未导入的贴图的场景会“干净地”启动——只有静态检查会指出那个文件。
+两者都把有问题的场景报告为**成功的操作**（退出码 `0`，结论在结果里）——只有文件不存在、不是场景文件
+或环境失败才使用 Error envelope。
 
 **`node`** — 场景文件内的节点
 
@@ -412,17 +433,33 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `script set` | 通过搜索替换、行范围或整体覆写来编辑一个脚本。 |
 | `script delete` | 删除一个脚本文件并报告删除了什么。 |
 | `script attach` | 按节点路径把一个 `.gd` 脚本附加到场景里的某个节点上。 |
-| `script validate` | 对一个 `.gd` 脚本做语法 / 编译检查。 |
+| `script validate` | 对多个 `.gd` 脚本做语法 / 编译检查——可一次传入多个 PATH，或用 `--all` 检查项目里的全部脚本。 |
+| `script run` | 以一次性入口的方式 headless 运行一个项目脚本，受墙钟上限约束。 |
 
-对 `script validate --json`，要读取结果对象里的 `valid` 字段。脚本编译失败仍然算一次成功操作：
-退出码为 `0`，没有顶层 `error`，并以 `valid: false` 携带 `error_string` / `diagnostics`。
-缺失文件等操作层问题仍然采用标准的 Error envelope。
+`script validate` 接受**批量**输入：一次传入多个 PATH，它们会在同一次引擎启动中全部完成校验，
+因此一次改动通常涉及的四到六个相关脚本只需一个进程，而不是每个脚本各起一个。`--all` 则以同样
+的方式校验所解析项目里的每一个 `.gd` 脚本。
 
-结果还会报告 `project_root`：脚本编译时所针对的项目，也就是其 `res://` 依赖解析到的根目录
+对 `script validate --json`，要读取结果对象里的 `valid` 字段——它是**汇总**结论，只要有任何一个
+脚本未通过就是 `false`。每个脚本各自的结论是 `scripts` 里的一个条目，携带其 `path`、`valid`、
+`error_string` 与 `diagnostics`。传入单个 PATH 就是批量为一的情形，所以结构不会随批量大小变化。
+脚本编译失败仍然算一次成功操作：退出码为 `0`，没有顶层 `error`，并给出 `valid: false`。缺失文件
+等操作层问题仍然采用标准的 Error envelope，而且会拒绝整个批次，而不是变成某条结论。
+
+结果还会报告 `project_root`：这些脚本编译时所针对的项目，也就是其 `res://` 依赖解析到的根目录
 （未解析到项目时为 `null`）。在处理 `valid: false` 之前请先读它——若诊断里满是缺失的 `res://`
 依赖以及由此派生的类型错误，通常说明项目选错了，而不是脚本本身有问题。位于所解析项目**之外**
-的脚本会被提前拒绝并返回 `project_not_found`，同时指明文件与项目，而不是报出那一连串假错误；
-此时请用 `--project` 指定真正拥有该文件的项目。
+的路径会让整个批次被提前拒绝并返回 `project_not_found`，同时指明文件与项目，而不是报出那一连串
+假错误；此时请用 `--project` 指定真正拥有这些文件的项目。
+
+`script run` 一次性执行一个具名项目脚本，并**将这次运行原样透传**：成功结果携带脚本自己的
+`exit_status`（脚本有意的非零 `quit()` 是数据而不是 gda 失败——传 `--strict` 可把它变成
+`script_failed` 错误，供 shell `&&` 链使用），以及逐字捕获的 `stdout` 与 `stderr`。
+`--timeout <s>` 约束这次运行的墙钟；gda 不得不终止的运行会报告 `launch_timeout`，
+**并携带截至当时捕获的部分输出**、已耗秒数与一个终止阶段。声明
+`--completion-marker <line>`——你的脚本在工作完成时打印的一行——之后，一次已出现可归因于
+入口脚本的已识别错误、尚未打印标记行、且随后两个流都陷入沉默的运行，会在数秒内被终止，
+而不是等到墙钟上限，并报告 `script_aborted` 与捕获到的错误。
 
 **`project`** — 作为整体的项目（设置、autoload、静态分析）
 
@@ -482,6 +519,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话会在第一个 Live 操作时启动（`screen` 截图需加 `--windowed`）。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
+| `daemon install` | 在不启动 daemon 的情况下把游戏内 `gda` harness 安装进项目，并报告它创建的每个路径与配置段。幂等，并会把旧版 `gda` 装下的 harness 同步为当前版本。`daemon start` 自己就会执行这一步，因此只有在你想显式地做出这次 `project.godot` 改动（例如便于审阅或提交）时才需要它。 |
 | `daemon uninstall` | 从项目中移除游戏内 `gda` harness（autoload 条目 + 文件）——一次显式的开发工具卸载；`gda export run` 在导出产物时已经会自动剥离它。 |
 
 **`game`** — 正在运行的游戏的运行时场景图
@@ -588,6 +626,10 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
   都会加载并实例化该场景，这会构造每个节点，并运行其中任何附加在节点上的脚本的 `_init`。
   只读取已存储场景数据的命令（`scene get`、`scene list`、`node list`）只是遍历它而不实例化，
   所以不会运行那些脚本。
+- **`gda script run` 会完整执行指定的脚本。** 这正是该命令的用途：脚本的顶层代码及其调用的
+  一切都会在声明的约束之内运行到结束。
+- **`gda scene preflight` 会启动场景。** 它实例化场景并运行其 `_ready` 与观察帧，
+  因此场景中的每个脚本——以及项目的 autoload——都会执行其启动代码。
 
 `gda` 将目标项目视为可信，所以这是有意为之——信任模型参见
 [ADR-0009](adr/0009-trust-boundary-trusted-project.md)。
@@ -620,6 +662,7 @@ Headless 的 Godot 会把它的横幅、警告和 `print()` 输出混在 stdout 
 | 退出码 | 类别      | 何时                                                                  |
 | --------- | ------------- | --------------------------------------------------------------------- |
 | `0`       | —             | 成功。                                                              |
+| `2`       | `usage`       | `gda` 无法解析你的请求——命令或选项无法识别。若属于已知的近似写法，信封的 `hint` 会给出应当改用的调用方式。 |
 | `127`     | `environment` | Godot 二进制文件无法启动（shell 惯例：not found）。 |
 | `124`     | `environment` | Godot 启动了，但在 runner 超时之前没有返回（shell 惯例：timed out）。 |
 | `3`       | `version`     | 检测到的 Godot 版本低于受支持的最低版本。            |

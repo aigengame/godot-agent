@@ -59,6 +59,18 @@ simulation, viewport capture, performance/signal monitoring). Served through
 context (UndoRedo, the editor's open-scene tree) is out of scope (ADR-0017).
 _Avoid_: realtime op, online op
 
+**Startup preflight**:
+A `Headless operation` that BOOTS a scene to find out whether it comes up: it
+instantiates the scene into a one-shot engine's tree, observes it for a bounded
+number of frames, and reports a startup verdict (`gda scene preflight`, #664). It is
+the dynamic counterpart of static scene validation, which checks a scene without
+instantiating or running the TARGET scene — the project's autoloads still start and
+script compilation still runs static initializers, as on every `--project` op
+(ADR-0009) — so a scene can pass that and still fail on its first frame. Despite booting the game's code it is NOT a `Live operation`: nothing
+drives or observes the scene from outside, there is no `Engine session` and no
+`gda-daemon`, and the process ends with the verdict.
+_Avoid_: smoke test, dry run, live check
+
 **Engine session**:
 A single transient run of a gda-owned Godot game, launched and held by `gda-daemon`
 with the `gda harness` injected, against which `Live operation`s are served. The
@@ -76,14 +88,24 @@ _Avoid_: consistency, coherence, sync
 
 **Headless launch**:
 The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
-the sentinel op-dispatch runner, the native-export runner, and the `gda script run`
-user-script runner (ADR-0031). Given the binary, an argv tail, an optional working
+the sentinel op-dispatch runner, the native-export runner, the `gda script run`
+user-script runner (ADR-0031), and the `gda scene preflight` runner, which
+dispatches an ordinary sentinel op but calls the primitive itself for its
+streaming capture (#664). Given the binary, an argv tail, an optional working
 directory, and a timeout, it builds `[binary, --headless, --log-file <gda-owned
 path>, *args]`, captures bytes with the timeout, and normalizes the outcome into a
 `Raw run` (the single home of the spawn / timeout / launch-failure / UTF-8-decode
 handling). Each channel contributes only its argv tail and the export-only cwd. It
 also owns the launch's `User-data placement` — resolved and preflighted here, once,
-so no channel plumbs it (#653).
+so no channel plumbs it (#653). It offers two **capture strategies**, differing only
+in how the child is read: **buffered** (the sentinel-runner and export channels),
+which discards the child's output when the timeout expires and reports the wait
+instead; and **streaming** (`gda script run`, and `gda scene preflight` — which
+dispatches a sentinel op but calls the primitive itself precisely for this
+capture), which reads both pipes as they arrive, so the output survives a timeout,
+times the launch, and lets the channel end the run early through a caller-supplied
+watch. Both share one timeout / launch-failure mapping
+(#655).
 _Avoid_: spawn helper, subprocess wrapper
 
 **User-data placement**:
@@ -104,16 +126,39 @@ _Avoid_: log redirect, user dir, sandbox
 
 **Raw run**:
 The normalized outcome a `Headless launch` returns — `{stdout, stderr, exit_code,
-launch_failure}`, unparsed — before any classification. `launch_failure` is set
-only when the primitive synthesized the result (binary missing, timed out, or the
-`User-data placement` was refused) rather than the engine returning one, so the
-classifier keys environment failures on that typed reason, not on the overloaded
-exit code. Those launch-backed channels
-all return the one `RunResult` shape. Normally internal, it is **promoted to a
-public result by `gda script run`** — the one operation whose success result *is*
-a Raw run (minus `launch_failure`, which is lifted out into an `Error envelope`),
-so its `exit_status` can be non-zero on success (ADR-0031).
+launch_failure, elapsed_seconds}`, unparsed — before any classification.
+`launch_failure` is set only when the primitive synthesized the result (binary
+missing, timed out, the `User-data placement` was refused, or a watch ended the run)
+rather than the engine returning one, so the classifier keys environment failures on
+that typed reason, not on the overloaded exit code. Under the streaming capture
+strategy the streams hold **what the run had already produced** rather than a gda
+notice, and `elapsed_seconds` carries the wall clock; under the buffered strategy they
+are empty on a timeout and `elapsed_seconds` is `None` (#655). Those launch-backed
+channels all return the one `RunResult` shape. Normally internal, it is **promoted to
+a public result by `gda script run`** — the one operation whose success result *is* a
+Raw run (minus `launch_failure`, `elapsed_seconds`, and the streams' timeout
+semantics, all of which are lifted out into an `Error envelope`), so its
+`exit_status` can be non-zero on success (ADR-0031).
 _Avoid_: run output, export output
+
+**Completion marker**:
+The line a `gda script run` caller **declares** its own script prints when the
+script's work is done (`--completion-marker`). A declared **liveness contract**, not a
+death detector: whether a run that printed an error can still finish is not observable
+from outside the process, so declaring the marker is the caller asserting the script
+keeps producing output until the marker line says it finished. With one declared, gda
+ends a run early — reporting `script_aborted` with the captured error, in seconds
+instead of at `--timeout`, identically on every platform — when **all three** hold:
+stderr shows a recognized error *attributable to the entry script*, the marker has not
+appeared, and neither stream then produces output for a fixed window (#655). The
+contract cuts both ways: a script that goes silent past the window after such an error
+is ended by declaration even if it would have finished — print progress during quiet
+stretches, or omit the marker and wait the ceiling out. Matched by **whole-line
+equality**, not as a substring. Opt-in and never imposed: gda requires nothing of the
+script and injects nothing into it (ADR-0031 rejected a gda-owned sentinel wrapper).
+**Not** the ADR-0002 op-dispatch sentinel, which is gda's own contract with its own
+`operations.gd` payload; a marker is an arbitrary caller line read for one boolean.
+_Avoid_: sentinel, done marker, quit marker
 
 **Session log**:
 The per-`Engine session` capture of the running game's output and error stream,
@@ -155,14 +200,28 @@ the operation understood and chose to report.
 _Avoid_: script error code, raw engine error
 
 **Classifier error code**:
-A `Gda error code` assigned by `gda` after classifying a runner, parser,
-version, crash, or fallback operation failure.
+A `Gda error code` assigned by `gda` itself rather than reported by an operation —
+after classifying a runner, parser, version, crash, or fallback operation failure,
+or before any operation is identified at all, when the invocation names no command
+or option gda has (#670).
 _Avoid_: wrapper error code, Python error code
 
 **Error envelope**:
 The structured failure result that distinguishes a failed command from a
 successful result.
 _Avoid_: error blob, failure JSON
+
+**Near-miss hint**:
+The corrected invocation gda returns when it RECOGNIZES a wrong one — an unknown
+command or option it holds a curated entry for (`gda scene inspect` → `gda scene
+get`, `gda --schema` → `gda schema`). It rides the `Error envelope` as the optional
+`hint` key, so an agent re-issues the corrected command without parsing prose; the
+human error carries the same correction in its message. Curated, never a
+string-similarity guess: similarity is silent whenever the spelling is not close
+and the nearest string can be a different — even opposite — operation. One table
+(`src/gda/hints.py`) is the authority, kept honest by a test that re-resolves every
+hint against the live command tree (#670).
+_Avoid_: did-you-mean, suggestion, autocorrect
 
 ### Trust model
 
@@ -180,10 +239,14 @@ constructs (a `class_name` node via `node add`, a script-backed `class_name`
 Resource via `resource create`, or every script inside a **scene composed as an
 instanced child** via `node add --instance`, #399), the `_init` of a
 **script-backed Resource loaded as a value** assigned to an Object-typed
-property (`node set` / `resource set --value res://…`, ADR-0033), and — via
-`gda script run` (ADR-0031) — the **full execution of a named project script**.
-All stay within the `Trusted project` assumption (ADR-0009); `script run` and the
-loaded-value assignment (ADR-0033) widen this surface without adding a new trust axis.
+property (`node set` / `resource set --value res://…`, ADR-0033), the **full
+execution of a named project script** via `gda script run` (ADR-0031), and — via
+`gda scene preflight` (#664) — the **startup of a whole scene**: every script it
+carries runs its `_init` and `_ready` and keeps running for a bounded number of
+frames, beside the autoloads. That last point is the widest on this list.
+All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
+loaded-value assignment (ADR-0033) and the startup preflight widen this surface
+without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:
@@ -226,7 +289,8 @@ _Avoid_: tool, action
 
 **Meta command**:
 A top-level command about `gda` or the engine itself rather than a domain object
-(`gda info`, `gda version`, `gda help`); exempt from grouping.
+(`gda info`, `gda version`, `gda help`, `gda schema`, `gda skill`); exempt from
+grouping.
 _Avoid_: global command, system command
 
 **Command descriptor**:

@@ -15,6 +15,7 @@ from typing import Any, Generic, NoReturn, Optional, TypeVar
 
 import typer
 from pydantic import BaseModel, ValidationError
+from typer._click import Context as ClickContext
 from typer.core import TyperCommand
 
 from gda.binary import resolve_godot_binary
@@ -27,7 +28,13 @@ from gda.errors import (
     unresolvable_binary_failure,
 )
 from gda.execution import ExecutionKind, live_stack_constraints
-from gda.models import CommandSchema, GdaErrorEnvelope, LiveStackConstraints
+from gda.models import (
+    ArgvBinding,
+    ArgvKind,
+    CommandSchema,
+    GdaErrorEnvelope,
+    LiveStackConstraints,
+)
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
@@ -96,13 +103,19 @@ def set_root_json(ctx: typer.Context, value: bool) -> None:
     ctx.meta[ROOT_JSON_META_KEY] = bool(value)
 
 
-def root_json(ctx: typer.Context) -> bool:
+def root_json(ctx: ClickContext) -> bool:
     """Whether a root ``--json`` was recorded for this invocation (#659).
 
-    The read half of the same contract, for the ONE reader that is not a command:
-    the root's own ``--version``, which renders either a human line or the
-    structured provenance payload and so must ask the same question a command's
-    inherited flag asks — without re-deriving where the answer is kept.
+    The read half of the same contract, for the readers that are not a command: the
+    root's own ``--version``, which renders either a human line or the structured
+    provenance payload and so must ask the same question a command's inherited flag
+    asks; and the unknown-invocation refusal (``gda.hints``, #670), which must answer
+    in the channel the caller asked for. Neither re-derives where the answer is kept.
+
+    ``ctx`` is typed as the click ``Context`` Typer builds on, not ``typer.Context``,
+    because the refusal is decided inside the click group class and holds that one;
+    ``typer.Context`` is a subclass, so every existing caller still fits, and this
+    function only ever reads ``ctx.meta``.
     """
     return bool(ctx.meta.get(ROOT_JSON_META_KEY, False))
 
@@ -218,6 +231,95 @@ def _from_command_line(ctx: typer.Context, name: str) -> bool:
     return source is not None and source.name == "COMMANDLINE"
 
 
+def command_argv_bindings(
+    command: object, input_model: type[BaseModel]
+) -> list[ArgvBinding]:
+    """Project ``command``'s live Click parameters into their CLI spelling (#669).
+
+    The one place a command's argv form is derived, shared by the per-command
+    ``--schema`` here and the aggregate manifest builder (``gda.surface``) so the
+    two forms cannot drift — the same shape :func:`command_constraints` gives the
+    live-stack precondition. The rationale, the boundaries and the case inventory
+    live in the ADR-0004 amendment (#669); this is the derivation.
+
+    Which parameters are operational reuses a rule this module already owns:
+    :data:`_GLOBAL_OPTION_NAMES`, the same set ``--params-json`` treats as
+    cross-cutting (ADR-0015). The ``expose_value`` arm has no case on today's
+    surface — Click appends its own ``--help`` in ``get_params``, not here — and
+    guards a future unexposed parameter, which by definition reaches no params
+    model.
+
+    Click is duck-typed through ``getattr``, as the surface walker does: it is a
+    transitive dependency through Typer, not a direct one.
+    """
+    properties = input_model.model_json_schema().get("properties", {})
+    bindings: list[ArgvBinding] = []
+    position = 0
+    for param in getattr(command, "params", []):
+        if not getattr(param, "expose_value", True):
+            continue
+        name = getattr(param, "name", None)
+        if not isinstance(name, str) or name in _GLOBAL_OPTION_NAMES:
+            continue
+        opts = [str(opt) for opt in getattr(param, "opts", [])]
+        is_argument = getattr(param, "param_type_name", "") == "argument"
+        long_opts = [opt for opt in opts if opt.startswith("--")]
+        option = None if is_argument else next(iter(long_opts or opts), None)
+        # A variadic positional (``nargs=-1``) is repeated the same way a
+        # repeatable option is, so both report ``multiple``: Click spells the
+        # two differently, an argv author writes both by repeating.
+        nargs = getattr(param, "nargs", 1)
+        multiple = bool(getattr(param, "multiple", False)) or nargs == -1
+        bound = _bound_property(name, option, properties)
+        bindings.append(
+            ArgvBinding(
+                name=name,
+                input_property=bound,
+                kind=ArgvKind.ARGUMENT if is_argument else ArgvKind.OPTION,
+                option=option,
+                position=position if is_argument else None,
+                required=bool(getattr(param, "required", False)),
+                flag=bool(getattr(param, "is_flag", False)),
+                multiple=multiple,
+                json_value=_takes_a_json_value(bound, properties, multiple),
+            )
+        )
+        if is_argument:
+            position += 1
+    return bindings
+
+
+def _bound_property(
+    name: str, option: Optional[str], properties: "dict[str, Any]"
+) -> Optional[str]:
+    """The ``input`` property this parameter fills, or ``None`` if undecidable."""
+    if name in properties:
+        return name
+    if option is not None:
+        spelled = option.lstrip("-").replace("-", "_")
+        if spelled in properties:
+            return spelled
+    return None
+
+
+def _takes_a_json_value(
+    bound: Optional[str], properties: "dict[str, Any]", multiple: bool
+) -> bool:
+    """Whether the parameter's one token is the property's JSON encoding (#669).
+
+    A compound property reaches argv as a REPEATED token, which ``multiple``
+    already reports, or as a single token carrying its JSON. ``False`` without a
+    property link: unknown, and a wrong ``true`` would send a caller to encode a
+    plain string. Reads a DECLARED ``type`` only, so a compound behind an
+    ``anyOf`` is not seen — no case exists, and a registration test fails if one
+    appears (``tests/test_schema_command.py``).
+    """
+    spec = properties.get(bound or "")
+    if not isinstance(spec, dict) or multiple:
+        return False
+    return spec.get("type") in ("array", "object")
+
+
 def schema_command_class(
     input_model: type[BaseModel],
     output_model: type[BaseModel],
@@ -276,12 +378,20 @@ def schema_command_class(
                 # ``kind`` + ``operation`` — wrapped into the model here so the
                 # per-command ``--schema`` and the aggregate manifest agree.
                 constraints = command_constraints(command)
+                # The CLI spelling of this command's parameters (#669), read off
+                # THIS command object's live Click parameters — the same single
+                # derivation the aggregate manifest uses. Taken after the relaxed
+                # parse above has restored each parameter's declared ``required``,
+                # so the published binding reports the real requirement rather
+                # than the probe's relaxation (issue #36).
+                argv = command_argv_bindings(self, input_model)
                 typer.echo(
                     CommandSchema.of(
                         input_model,
                         output_model,
                         kind=kind,
                         constraints=constraints,
+                        argv=argv,
                     ).model_dump_json()
                 )
                 raise typer.Exit()
@@ -403,13 +513,22 @@ class HeadlessCommand(Generic[M]):
     # means the command runs through ``emit`` with its ``kind``-selected runner — so a
     # single ``recipe is None`` test selects the channel, no identity table.
     recipe: "Recipe | None" = None
-    # A projectless recipe is a pure meta emitter (ADR-0024/0005, e.g. ``gda skill``):
-    # it takes no ``--project`` and resolves none, so the recipe dispatcher must NOT
-    # resolve a project for it — otherwise an inherited ``$GDA_PROJECT`` that is not a
-    # project would make a projectless meta command fail (#353/#357). Project-using
-    # recipes leave this ``False`` and receive a resolved project (or a structured
-    # ``project_not_found``). Meaningless for the sentinel channel (``recipe is None``).
-    projectless: bool = False
+    # Whether the command INHERITS a project context ($GDA_PROJECT, then the cwd)
+    # when no explicit ``--project`` is given. This field decides inheritance and
+    # NOTHING else. A meta command (ADR-0005/0024 — ``skill``, ``version``,
+    # ``help``, ``info``) sets it ``False``: it is about ``gda`` or the engine
+    # itself, so an inherited value that is not a project must not break the
+    # commands an agent reaches for FIRST when something is wrong (#353/#357).
+    # Whether a command ACCEPTS an explicit ``--project`` is its CLI signature's
+    # decision, not this field's: ``gda info`` declares the option for uniform
+    # orchestration argv and has it validated like anywhere else (#670), while
+    # ``skill``/``version``/``help`` declare none, so a passed ``--project`` is
+    # the usual unknown-option refusal there. Project-using commands leave this
+    # ``True`` and receive the fully resolved project (or a structured
+    # ``project_not_found``). Read by every dispatch tail
+    # (``gda.dispatch._project_context``), so it applies to the sentinel channel
+    # as much as to a recipe.
+    inherits_project: bool = True
 
     def schema_option(self) -> bool:
         """Return the Typer ``--schema`` flag for this command."""

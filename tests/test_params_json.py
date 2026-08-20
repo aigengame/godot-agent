@@ -536,7 +536,16 @@ def test_an_unexpandable_tilde_is_structured_on_a_sibling_command(
         monkeypatch,
         RunResult(
             stdout=sentinel(
-                {"path": _UNEXPANDABLE, "valid": True, "error_string": None}
+                {
+                    "valid": True,
+                    "scripts": [
+                        {
+                            "path": _UNEXPANDABLE,
+                            "valid": True,
+                            "error_string": None,
+                        }
+                    ],
+                }
             ),
             stderr="",
             exit_code=0,
@@ -546,7 +555,7 @@ def test_an_unexpandable_tilde_is_structured_on_a_sibling_command(
     argv += (
         [_UNEXPANDABLE]
         if channel == "argv"
-        else ["--params-json", json.dumps({"path": _UNEXPANDABLE})]
+        else ["--params-json", json.dumps({"paths": [_UNEXPANDABLE]})]
     )
 
     result = CliRunner().invoke(app, [*argv, "--project", str(tmp_path), "--json"])
@@ -554,7 +563,7 @@ def test_an_unexpandable_tilde_is_structured_on_a_sibling_command(
     assert "Traceback" not in (result.stderr or ""), result.stderr
     assert result.exception is None or result.exit_code != 1, result.exception
     # It reached the operation with the tilde intact, rather than dying in validation.
-    assert json.loads(result.stdout)["path"] == _UNEXPANDABLE
+    assert json.loads(result.stdout)["scripts"][0]["path"] == _UNEXPANDABLE
 
 
 @pytest.mark.parametrize(

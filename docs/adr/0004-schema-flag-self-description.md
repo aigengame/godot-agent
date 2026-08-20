@@ -74,6 +74,95 @@ status: accepted
 > omitted when absent, so every other live reply and every headless envelope is
 > byte-identical to before.
 
+> **Amendment (2026-08-18, #670):** the uniform failure envelope gains a SECOND
+> optional key — `hint`, a string naming the supported invocation to run instead
+> (`"gda scene get"`, `"gda schema"`, `"gda script run <path>"`). Motivation: an
+> unrecognized command or option used to leave this contract entirely, as prose on
+> stderr, so an agent that mistyped had nothing to branch on and no pointer at the
+> working sibling (dogfooding GDA-DF-024/025/032/033/041). The correction is the one
+> thing such a caller has to retype, so it is carried as a value rather than embedded
+> only in a sentence.
+>
+> It is additive on the same three properties the #667 amendment above established,
+> and deliberately mirrors them:
+>
+> - **Optional and OMITTED, never `null`** — the same `exclude_none` emit path, so
+>   every failure that sets no hint emits byte-identically to before.
+> - **The stable trio is untouched.** `hint` is guidance ABOUT the refusal, never a
+>   substitute for branching on `code`; `gda-mcp` passes the envelope through
+>   unchanged (ADR-0012).
+> - **Schema-derived, zero per-command cost** — still the one shared
+>   `GdaErrorEnvelope` schema, changed once for all.
+>
+> Two boundaries. **It is set only where gda RECOGNIZES the mistake**, from the
+> curated table in `src/gda/hints.py` — never from a string-similarity guess, which is
+> silent when the spelling is not close and can name a different operation than the one
+> meant. And it stays on the **CLI-side** envelope: neither GDScript surface emits or
+> reads it, so `OperationError` stays `extra="forbid"` and the live `LiveError` is
+> unchanged. The registry side of the same change — the `usage` category, `EXIT_USAGE`,
+> and the two codes that carry a hint — is recorded in
+> [ADR-0002's scope note](0002-headless-structured-output-contract.md) with its table
+> rows; this note is the envelope-shape half.
+>
+> **Scope boundary with #687** is unchanged by this: `hint` is CLI-layer guidance for
+> an invocation gda could not resolve, not operation-scoped typed EVIDENCE of a failure
+> an operation reported. The two compose under the same omitted-when-absent rule, and
+> #687 stays free to decide its axis on its own merits.
+
+> **Amendment (2026-08-18, #669):** the per-command `--schema` object gains a SIXTH,
+> additive key — `argv`, the list of `ArgvBinding`s naming how each parameter `input`
+> describes is written on a command line (`kind` positional/option, `position` or
+> `option` spelling, `required`, `flag`, `multiple`, `json_value`, and the
+> `input_property` it fills). Motivation: the contract stated a command's required fields but not their
+> CLI spelling, so an agent could not build argv from it — `screen capture` takes its
+> required output as `--output`, `input mouse-click` takes `x y` positionally, and
+> `input action` takes a positional ACTION it rejects as `--action` (dogfooding
+> GDA-DF-003). The self-description was accurate and still insufficient.
+>
+> It is additive on the same properties the notes above establish:
+>
+> - **A sibling of the schema halves, never a key inside them.** Adding the key
+>   leaves `input` / `output` byte-identical — a test emits each command's contract
+>   with and without the bindings and requires both halves to match — so gda-mcp's
+>   `input_schema` / `output_schema` are unchanged by it and it needs no adapter
+>   work; it maps only `input` / `output` / `description` (ADR-0012). Measured
+>   across the whole surface at the time of the change, exactly one `input` differs
+>   for an unrelated reason (`input sequence`, whose own params model became a
+>   per-kind union in the same PR), and no `output` / `error` / `description` /
+>   `kind` / `constraints` differs at all.
+> - **Derived, never declared.** The bindings are read off the LIVE Typer/Click
+>   parameters at emission time, through one projection shared by the per-command
+>   `--schema` and the aggregate manifest (ADR-0012's live-tree walk, ADR-0023 §2).
+>   An `argv` field on the `HeadlessCommand` descriptor was rejected: a
+>   hand-maintained spelling table is a second authority for a fact the Typer
+>   signature already owns, and it would silently rot the moment a signature changed.
+>   Reading the registered parameters also makes it correct on every dispatch channel
+>   at once — the sentinel path, the EXPORT / LIVE kinds, and the recipe commands.
+> - **Zero per-command cost**, like the halves it joins: a new command's spelling
+>   appears because it registered parameters, not because anyone wrote it down. The
+>   binding expresses a positional, an option, a valueless flag, a repeated value
+>   and a JSON-encoded one; a registration test fails if the surface ever grows a
+>   Click shape it cannot write (a `--x/--no-x` pair, an n-ary option, a counting
+>   option), so the contract is extended deliberately rather than emitting a
+>   binding no caller can follow.
+>
+> Two boundaries. `argv` covers the OPERATION parameters — the same set
+> `--params-json` treats as exclusive of the individual arguments (ADR-0015) — so the
+> cross-cutting flags every command shares (`--json` / `--schema` / `--params-json` /
+> `--godot` / `--project`) stay out; they are not per-command information. And
+> `input_property` is `null`, not guessed, where a parameter's property is revealed
+> by neither its name nor its long option: a wrong link would read as authoritative.
+> The surface has **no such parameter** — where an option renames the property it
+> fills (`project list --all` → `include_defaults`, `skill --dir` → `install_dir`)
+> the Python parameter carries the property's name, so the link resolves — and a
+> test holds that every **directly supplyable** property has a binding. The nullable
+> value stays part of the contract for a future parameter that cannot be resolved,
+> rather than being forced into a guess. The one exemption from that guard is a
+> property the CLI COMPUTES rather than takes (`script set`'s and `shader set`'s
+> `mode`, from `--replace` / `--search`), which its own description declares. On the
+> aggregate entry the `argv` key is required, its list possibly empty — the same
+> "key always present" guarantee `constraints` has.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 
@@ -84,6 +173,11 @@ semantics here, and deliberately scope out an overloaded interpretation.
   arguments/params), an `output` JSON Schema (the shape of its **success** `--json`
   result), and an `error` JSON Schema (the **uniform** failure envelope, #43). The
   contract is owned by `gda`; the flag only *emits*, it never *accepts*, a schema.
+  (The three-key shape is the original decision. The outcome notes above have
+  since grown the object to six top-level keys — `{input, output, error, kind,
+  constraints, argv}`: `kind` from #230, `constraints` from #233, `argv` from
+  #669. The #667 and #670 amendments evolve fields *nested inside* the `error`
+  envelope — `probe` and `hint` — and add no top-level key.)
 
 - **`output` describes only the success result; `error` describes the failure
   envelope** (#43). `output` is the command's own success result model, exactly as

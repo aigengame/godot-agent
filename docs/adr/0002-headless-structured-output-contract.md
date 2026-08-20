@@ -88,6 +88,52 @@ into the result's `diagnostics`. This stays within the contract: the diagnostics
 are advisory (they may hold only the first error, and `column` is unavailable on
 the standard build), and they never determine the outcome or a stable code.
 
+> **Scope note (2026-08-19, #664) — a verdict command may put the same recognized
+> sentences in a result FIELD, and may report its own bound as a verdict.**
+> `scene preflight` boots a scene and reports how far it got, so two of its answers
+> come from outside the stdout sentinel. Neither loosens the rules above; both are
+> stated here because a reader will otherwise see them as exceptions.
+>
+> - **A verdict field derived from stderr.** The op's sentinel reports readiness;
+>   whether the scene started *cleanly* also depends on the engine's error stream,
+>   which the command reads with the SAME recognized-sentence parser #651 owns (no
+>   free-text matching, no second parser) and publishes as `diagnostics`. The
+>   success/failure OUTCOME — which envelope is emitted, and every stable code —
+>   still comes only from the exit code plus the sentinel, exactly as above. What is
+>   new is that a *field of a success result* (`started`) is derived from the
+>   advisory stream rather than merely carrying it. The rule that matters is
+>   unchanged: an unrecognized line changes nothing, and the op's own verdict is
+>   never overridden — `status` is reported as the engine gave it.
+> - **The launch bound as a verdict, not `launch_timeout`.** `status: timeout`
+>   means the complete preflight — startup plus the `--frames` observation
+>   window — did not finish within gda's wall-clock bound. A `_ready` that never
+>   returns is one possible cause (it blocks the engine before any frame runs, so
+>   no sentinel can ever arrive); a healthy, already-ready scene whose frame
+>   window outruns the ceiling is another — the params contract states the two
+>   bounds are not cross-checked. Either way the run is reported as a SUCCESS
+>   carrying `status: timeout` (with the captured diagnostics), not as the
+>   `launch_timeout` envelope every other launch-backed channel reports. The
+>   difference is what the timeout MEANS: elsewhere it means gda could not get you
+>   an answer, while here the question was whether this scene completes its
+>   preflight within the bound — so the bound being reached IS the answer. Scoped
+>   to this command: an
+>   unlaunchable binary, an unusable user-data placement, a signal death, and the
+>   op's own structured refusals stay the shared envelope.
+
+> **Scope note (2026-08-18, #663) — one operation, several scripts: the advisory
+> stream needs a delimiter.** `script validate` now validates a BATCH of scripts in
+> one op (#663), so the stderr it parses carries several scripts' errors in one
+> stream and "which script is this about?" has no answer in the engine's output that
+> gda can rely on. The op therefore writes its own `gda: validating: <path>` line to
+> stderr before each compile, and the classifier splits the stream on those markers
+> to attach each script's `line`/`message` pairs to its own entry. This stays inside
+> the rule above rather than widening it: the markers are gda's own diagnostics on
+> the advisory channel, they carry no verdict (`valid` still comes only from the
+> stdout sentinel), and a stream that ever failed to line up leaves the affected
+> entry with empty `diagnostics` rather than another script's. It does add a
+> cross-language contract — the marker is written in GDScript and read in Python —
+> which a test pins on both sides.
+
 > **Scope note (2026-08-15, #651) — the two rules above presuppose the sentinel
 > channel, which ADR-0031's `script run` does not have.** Both the "stderr is never
 > parsed for the outcome" rule and the "copies stderr into diagnostics" wrapper
@@ -137,6 +183,31 @@ the standard build), and they never determine the outcome or a stable code.
 > meaning, not a change to the contract. `src/gda/error_codes.py`'s module
 > docstring is the single home of this definition.
 
+> **Scope note (2026-08-18, #670) — a failure stage that precedes the sentinel: the
+> `usage` category, and the envelope's optional `hint`.** Everything above describes
+> failures of an operation gda has already identified. Dogfooding kept producing an
+> earlier one: gda could not resolve WHAT was asked for — `gda scene inspect`,
+> `gda --schema`, `gda script run --script …` — and that failure left the contract
+> entirely, as prose on stderr with nothing to branch on (GDA-DF-024/025/032/033/041).
+> It now reports through this same envelope, with three consequences recorded here:
+>
+> - **A sixth category, `usage`**, rather than folding into `operation`: no engine was
+>   launched and no operation was named, so `operation`'s meaning ("a launched engine
+>   failed to deliver a result") would have been false. It is the one category whose
+>   codes cannot be reported by any operation — both are classifier-source and neither
+>   is GDScript-mirrored.
+> - **Exit `2`, which gda did not choose.** It is the exit every CLI parser already
+>   uses for a usage error, and it is what these invocations already exited with, so
+>   registering it changes no observable exit code — it only makes the envelope's
+>   `exit_code` and the process's agree. `exit_codes.py` gains `EXIT_USAGE` for it.
+> - **An optional `hint` on `GdaError`**, the supported invocation to run instead. It
+>   joins `probe` on the optional-context axis under the same rule — OMITTED, never
+>   `null`, so every envelope emitted before is byte-identical — and it is set only
+>   where gda RECOGNIZES the mistake, from a curated table (`src/gda/hints.py`), never
+>   from a string-similarity guess that can name a different operation than the one
+>   meant. This widens no cross-language contract: neither GDScript surface emits or
+>   reads `hint`, and `OperationErrorEnvelope` stays `extra="forbid"`.
+
 ## `GdaError.code` registry
 
 `GdaError.code` values are a public ABI for agents. Their authoritative source is
@@ -153,8 +224,10 @@ operation, and parse codes the CLI assigns).
 | Code | Category | Source | Exit Code | Meaning |
 | --- | --- | --- | --- | --- |
 | `binary_not_found` | `environment` | `runner` | `127` | The Godot binary could not be launched. |
-| `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. |
+| `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. One command does not report it — see the 2026-08-19 scope note (#664). |
 | `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
+| `unknown_command` | `usage` | `classifier` | `2` | gda has no such command; discover the surface with `gda schema` or `gda --help`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
+| `unknown_option` | `usage` | `classifier` | `2` | The command exists but has no such option; read its options with `--help` or its input contract with `--schema`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
 | `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
 | `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |
@@ -194,6 +267,7 @@ operation, and parse codes the CLI assigns).
 | `script_compile_failed` | `operation` | `operation` | `4` | A script does not compile, so the requested work could not proceed: `script attach` refuses to bind it to a node, and `script run` reports that the entry script (or a dependency it preloads) never ran (#651). |
 | `script_not_found` | `operation` | `classifier` | `4` | A `script run` entry script does not exist in the project, so the engine never ran it — read from stderr, since the engine still exits 0 (#651). |
 | `script_failed` | `operation` | `classifier` | `4` | A `script run --strict` script ran to completion and chose a non-zero exit status; strict mode maps that opted-in failure onto the uniform error envelope. Never reported without `--strict` (ADR-0031 amendment, #651). |
+| `script_aborted` | `operation` | `classifier` | `4` | A `script run` was ended early, before its `--timeout`: a script error appeared on stderr, the caller's declared `--completion-marker` did not, and the run then went silent. Reported only when `--completion-marker` is declared (ADR-0031 amendment, #655). |
 | `incompatible_script_type` | `operation` | `operation` | `4` | A script compiles but its base type is incompatible with the requested use: `script attach`'s target node type, or `script run`'s requirement that a one-shot entry script extend `SceneTree`/`MainLoop` (#651). |
 | `signal_not_found` | `operation` | `operation` | `4` | A requested signal does not exist on the source node. |
 | `already_connected` | `operation` | `operation` | `4` | A signal is already connected to the target node's method. |

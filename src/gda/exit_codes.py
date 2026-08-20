@@ -23,8 +23,16 @@ glance and new codes cannot silently collide.
   session, or a live timeout (ADR-0017, ADR-0021). Like ``operation`` and
   ``parse`` it spans several ``GdaError.code``s that the ``code`` field tells
   apart.
+- ``EXIT_USAGE`` (exit ``2``) is the ``usage`` category: gda could not resolve
+  what was asked for — an unrecognized command or option (#670). It is the ONE
+  value here gda did not choose: ``2`` is the exit every CLI parser (click's
+  included) already uses for a usage error, and gda's structured refusal is the
+  same failure reported better, not a different one. Registering it therefore
+  changes no observable exit code; it makes an exit gda already produced part of
+  the registry so the envelope's ``exit_code`` and the process's agree.
 """
 
+EXIT_USAGE = 2
 EXIT_NOT_FOUND = 127
 EXIT_TIMEOUT = 124
 EXIT_VERSION = 3

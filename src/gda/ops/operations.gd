@@ -23,6 +23,12 @@ extends SceneTree
 
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
+# Preflight readiness as INDEPENDENT evidence, not part of the result sentinel
+# (#709 review): printed the moment the scene reports ready, so the fact that it
+# came up survives a project that ends the run (get_tree().quit() in _ready)
+# before the pending tick can emit the result. Mirrored in gda.commands.scene,
+# which reads it only off a clean exit that carried no result.
+const PREFLIGHT_READY_EVIDENCE := "<<<GDA:PREFLIGHT-READY>>>"
 
 const OP_ERROR_USAGE := "usage_error"
 const OP_ERROR_UNKNOWN_OPERATION := "unknown_operation"
@@ -75,6 +81,49 @@ const OP_ERROR_INVALID_KEY := "invalid_key"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
+# The prefix every gda diagnostic line carries on stderr (see _diag), so a reader
+# can tell gda's own lines from the engine's. A const rather than an inline
+# literal because one diagnostic — VALIDATE_MARKER below — is PARSED by gda, not
+# merely displayed, which makes this prefix half of a cross-language contract.
+const DIAG_PREFIX := "gda: "
+
+# The per-script delimiter script-validate writes before each compile (#663), so
+# gda can attribute a batch's advisory stderr diagnostics to individual files.
+# The full line is DIAG_PREFIX + this + the script path, and that composition is
+# mirrored Python-side by gda.commands.script.VALIDATE_MARKER_PREFIX. A test pins
+# these two VALUES against that constant, so the contract survives any change to
+# how or where the line is written.
+const VALIDATE_MARKER := "validating: "
+
+# The problem kinds scene-validate reports, one per unresolvable dependency of a
+# scene (#664). Values, not free prose: gda projects them into a closed enum on
+# the published result, so an agent branches on the kind instead of matching a
+# message. SCENE_PROBLEM_SCRIPT_COMPILE_FAILED deliberately spells the same string
+# as the script_compile_failed error code — it is the same condition, reported as
+# a verdict here rather than as a refusal.
+const SCENE_PROBLEM_MISSING_RESOURCE := "missing_resource"
+const SCENE_PROBLEM_UNLOADABLE_RESOURCE := "unloadable_resource"
+const SCENE_PROBLEM_SCRIPT_COMPILE_FAILED := "script_compile_failed"
+# Deliberately the same word OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE's remedy speaks:
+# the script compiles but its native base cannot bind the node that carries it.
+const SCENE_PROBLEM_INCOMPATIBLE_SCRIPT := "incompatible_script"
+
+# The startup verdicts scene-preflight reports (#664). The third one an agent can
+# read, `timeout`, is gda's own: only the CLI knows the launch outran its bound,
+# because an engine stuck inside a scene's `_ready` never reaches the frame loop
+# below to report anything at all.
+const SCENE_STARTUP_READY := "ready"
+const SCENE_STARTUP_NOT_READY := "not_ready"
+
+# The ONE directory a res:// walk excludes: the engine's own import/cache tree at
+# the project root. Compared as a full path, never as a directory NAME, because a
+# `.godot` deeper in the tree is not the engine's — it is user content (an addon
+# vendoring a sample project, a test fixture tree) and its scripts are the
+# project's like any other. Excluding those made `script validate --all` report a
+# valid aggregate for a project holding an invalid script (#663 review), and hid
+# them from `script list` too.
+const ENGINE_CACHE_DIR := "res://.godot"
+
 # The project-info settings (issue #111), read with a default so a project that
 # never wrote them still reports a sensible value rather than failing: a new
 # Godot 4 project has no explicit main_scene and inherits viewport defaults.
@@ -109,6 +158,23 @@ var _exit_code := 1
 var _project_class_index: Dictionary = {}
 var _project_class_index_built := false
 
+# The multi-frame tail of an operation that cannot answer inside _initialize
+# (#664). Every other operation finishes in one call and quits on the first idle
+# frame; scene-preflight has to keep the main loop running so the scene it booted
+# actually gets frames. `_pending_tick` is called once per idle frame with the
+# 1-based frame number and returns true when it has recorded its outcome.
+var _pending_tick := Callable()
+var _pending_frames := 0
+var _pending_frame_limit := 0
+
+# scene-preflight's own state across those frames: the scene it booted, the path
+# it reports, and whether the booted root was EVER observed ready. Latched rather
+# than sampled at the end, so a scene that frees itself after starting is still
+# reported as having started.
+var _preflight_instance: Node = null
+var _preflight_path := ""
+var _preflight_ready := false
+
 
 func _initialize() -> void:
 	# Everything after `--` on the Godot command line — i.e. <operation>
@@ -136,6 +202,10 @@ func _initialize() -> void:
 			_op_scene_list(params)
 		"scene-delete":
 			_op_scene_delete(params)
+		"scene-validate":
+			_op_scene_validate(params)
+		"scene-preflight":
+			_op_scene_preflight(params)
 		"node-add":
 			_op_node_add(params)
 		"node-list":
@@ -220,9 +290,28 @@ func _initialize() -> void:
 
 # Quit on the first idle frame, whatever happened during _initialize — this is
 # the single exit point and the watchdog against a hung main loop (issue #31).
+#
+# An operation that declared a pending tail (_begin_pending, #664) keeps the loop
+# running until its tick says it is done. The watchdog survives that: the frame is
+# COUNTED and CAPPED before the tick runs, so a tick aborted by an uncaught runtime
+# error — which makes this function return its default `false` and be called again
+# next frame — still ends the run at the cap instead of erroring forever. The op's
+# own budget is the cap, so a tick that never records an outcome quits non-zero
+# (the generic operation_failed) rather than spinning.
 func _process(_delta: float) -> bool:
+	if _pending_tick.is_valid():
+		_pending_frames += 1
+		if _pending_frames <= _pending_frame_limit and not _pending_tick.call(_pending_frames):
+			return false
 	quit(_exit_code)
 	return true
+
+
+# Keep the main loop running for up to `frames` idle frames, calling `tick` on
+# each with the 1-based frame number until it returns true (#664).
+func _begin_pending(tick: Callable, frames: int) -> void:
+	_pending_tick = tick
+	_pending_frame_limit = frames
 
 
 # Parse the optional params JSON into a Dictionary; null signals a recorded
@@ -484,6 +573,520 @@ func _op_scene_delete(params: Dictionary) -> void:
 		"root_name": root_name,
 		"root_type": root_type,
 	})
+
+
+# scene-validate: report whether a scene's external dependencies resolve and its
+# attached scripts compile (#664, dogfooding GDA-DF-040).
+#
+# STATIC, like scene-get and for the same reason (issue #30): the scene is loaded
+# but never INSTANTIATED, so none of the scene's own node scripts run — no _init, no
+# _ready, no frames. (The project's autoloads still start, as they do for every
+# --project op; and compiling a script executes its static initializers, which is
+# why the compile check below asks the loaded script first.) That is the boundary
+# against scene-preflight below, which boots the scene on purpose.
+#
+# It exists because loading a scene SUCCEEDS whatever is broken inside it: the
+# engine substitutes null for an ext_resource it cannot resolve, prints an error to
+# stderr, and hands back a perfectly usable PackedScene — so scene-get reports a
+# healthy-looking tree for a scene whose script and texture are both gone. This op
+# is the verdict scene-get does not give.
+#
+# An INVALID scene is a SUCCESSFUL operation (valid=false + problems), exactly as
+# script-validate reports a script that does not compile. Only the shared
+# addressing ladder refuses: a missing file is path_not_found and a file that does
+# not load as a scene at all is not_a_scene — the same failures every other scene
+# op reports for them, so the group's ladder does not fork here.
+func _op_scene_validate(params: Dictionary) -> void:
+	_diag("running operation: scene-validate")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	# The addressing boundary this op does NOT share with the rest of the group, and
+	# the reason is not tidiness: the dependency set is read from the scene's TEXT,
+	# and a binary .scn carries none — so the walk would find nothing and report a
+	# vacuously VALID verdict for a scene with definitively broken dependencies. A
+	# validation gate that answers "yes" to a file it could not read is the worst
+	# failure mode it has, so the target is refused instead (the same shape
+	# _require_existing_script gives a non-.gd script).
+	if not _is_scene_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "scene path must end in .tscn: " + path
+				+ " — validate reads the scene's own text to find its dependencies, which a binary .scn does not carry")
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "scene file does not exist: " + path)
+		return
+	# Scene-identity admission, decided from the file's own text BEFORE any
+	# diagnosis (#720 review): a .tscn that is not a scene document at all must be
+	# refused as not_a_scene, not diagnosed — a dependency finding inside garbage
+	# text would otherwise skip the load below and convert the garbage into a
+	# scene VERDICT. The header is the text format's own discriminator, so this
+	# admission needs no load. A COMPLETE header, not a prefix: the section name
+	# must BE "gd_scene" — `[gd_scene]` or `[gd_scene <attrs>…]` — or a
+	# `[gd_scenery]` would pass a bare prefix test (#720 recheck).
+	var text := FileAccess.get_file_as_string(path)
+	if not _has_scene_header(text):
+		_fail(OP_ERROR_NOT_A_SCENE, "not a scene document (no [gd_scene] header): " + path)
+		return
+
+	# The dependency scan runs BEFORE the load, and its answer OUTRANKS a load
+	# failure. Godot tolerates an unresolvable [ext_resource] referenced from a NODE
+	# (it substitutes null and the scene still loads) but hard-fails the whole load
+	# when the same reference sits in a [sub_resource] — an AtlasTexture's atlas, a
+	# script-backed custom Resource (verified against Godot 4.6.3). Gating on the load
+	# would answer `not_a_scene` for exactly the broken dependency this command exists
+	# to report, and about a file that IS a scene.
+	var problems := _scene_dependency_problems(path)
+	if problems.is_empty():
+		# The load is only ASKED when the scan found nothing: a scene already known
+		# broken needs no second opinion, and loading it would only add the engine's
+		# own cascade to stderr. Nothing found and nothing loadable is the group's
+		# ordinary not-a-scene, reported in its words.
+		var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
+		if not _is_loaded_scene(packed):
+			_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
+			return
+		# The BINDING scan (#720 review): the dependency walk proves each referenced
+		# file loads, but not that a script can bind the node that carries it, and
+		# it never sees an EMBEDDED [sub_resource type="GDScript"] at all. Both are
+		# read off the loaded scene's state, so this runs only when the load did.
+		problems = _scene_binding_problems(packed)
+
+	_succeed({
+		"path": path,
+		"valid": problems.is_empty(),
+		"problems": problems,
+	})
+
+
+# Whether the text OPENS with a complete, CLOSED `[gd_scene …]` section header
+# (#720 recheck ×2). Two requirements, each defeating a real bypass:
+#
+# - the section NAME must be exactly "gd_scene" — after the tag comes the
+#   closing bracket or the whitespace before attributes, or "[gd_scenery]"
+#   would pass a bare prefix test;
+# - the header LINE must close with "]" — an unclosed "[gd_scene load_steps=2"
+#   is not a header, and the load cannot be relied on to catch it: when the
+#   dependency walk finds problems the load is deliberately skipped, so
+#   admission must be decided here, completely.
+#
+# Leading whitespace and a UTF-8 BOM are tolerated. The question is identity,
+# not well-formedness — a closed header over a broken body is still admitted,
+# and the load has the final word only on that admitted case.
+func _has_scene_header(text: String) -> bool:
+	var stripped := text.lstrip(" \t\r\n" + String.chr(0xFEFF))
+	const TAG := "[gd_scene"
+	if not stripped.begins_with(TAG):
+		return false
+	var line_end := stripped.find("\n")
+	var line := stripped if line_end == -1 else stripped.substr(0, line_end)
+	line = line.strip_edges()
+	# The shortest admitted header is "[gd_scene]", so a line that closes always
+	# has a character after the tag.
+	if not line.ends_with("]") or line.length() <= TAG.length():
+		return false
+	var next := line[TAG.length()]
+	return next == "]" or next == " " or next == "\t"
+
+
+# Whether a load produced a scene with a root — the two conditions _load_scene
+# refuses separately, asked as one question by the validate path, which only needs
+# to know whether the file is a scene at all.
+func _is_loaded_scene(packed: PackedScene) -> bool:
+	if packed == null:
+		return false
+	var state := packed.get_state()
+	return state != null and state.get_node_count() > 0
+
+
+# One entry per SCRIPT the loaded scene binds that cannot actually serve its node
+# (#720 review). The dependency walk above proves each referenced FILE loads; this
+# walk asks the questions only the loaded state can answer:
+#
+# - an EMBEDDED [sub_resource type="GDScript"] never appears as an [ext_resource],
+#   so a syntax error inside one is invisible to the text walk — here it shows up
+#   as a script that cannot instantiate, named by its ::id sub-resource path;
+# - a script that compiles can still be REFUSED by the engine at bind time when
+#   the node's native class is outside the script's base (an `extends Resource`
+#   script on a Node2D boots silently script-less). The compatibility rule is the
+#   one _op_script_attach enforces at attach time, asked statically: the node's
+#   type must be the script's base or inherit from it;
+# - a `script` slot can hold a value that is not a Script at all — an embedded
+#   [sub_resource] of another type (#709 review). The engine refuses that at
+#   bind time too ("Cannot set object script") and the node boots script-less.
+#
+# Reported per SCRIPT with the referencing nodes merged, the dependency walk's own
+# shape. A node without a type of its own (an instanced/inherited child) is
+# skipped honestly: its real class lives in another scene, and guessing it would
+# turn this into the false positive it exists to remove.
+func _scene_binding_problems(packed: PackedScene) -> Array:
+	var state := packed.get_state()
+	var problems: Array = []
+	var by_script := {}
+	for i in state.get_node_count():
+		var node_type := String(state.get_node_type(i))
+		for j in state.get_node_property_count(i):
+			if String(state.get_node_property_name(i, j)) != "script":
+				continue
+			var value: Variant = state.get_node_property_value(i, j)
+			if value == null:
+				continue
+			var problem: Variant
+			if value is Script:
+				problem = _script_binding_problem(value as Script, node_type)
+			else:
+				# A NON-Script value in the script slot — an embedded
+				# [sub_resource] that is not a script, or anything the dependency
+				# walk could not see. Discarding it silently (#709 review) turned
+				# the engine's deterministic bind-time refusal into a clean
+				# verdict.
+				problem = _non_script_binding_problem(value)
+			if problem == null:
+				continue
+			var key := String((problem as Dictionary)["path"]) + "|" + String((problem as Dictionary)["kind"])
+			if not by_script.has(key):
+				(problem as Dictionary)["nodes"] = []
+				by_script[key] = problems.size()
+				problems.append(problem)
+			var nodes: Array = (problems[int(by_script[key])] as Dictionary)["nodes"]
+			var node_path := String(state.get_node_path(i))
+			if not nodes.has(node_path):
+				nodes.append(node_path)
+	return problems
+
+
+# One bound script's verdict against one node type: a problem Dictionary (without
+# its `nodes`, the caller owns attribution), or null when the binding is sound.
+func _script_binding_problem(script: Script, node_type: String) -> Variant:
+	if not script.can_instantiate():
+		# The scene loaded with the script attached, but the script itself never
+		# compiled — the embedded-GDScript case (an external one is caught by the
+		# dependency walk before the load is even asked). reload() on a script
+		# that never compiled retries the compile and runs no project code.
+		var err := script.reload()
+		if err == OK and script.can_instantiate():
+			return null
+		return _scene_problem(SCENE_PROBLEM_SCRIPT_COMPILE_FAILED,
+				script.resource_path, "Script",
+				"the script does not compile: " + error_string(err))
+	var base := script.get_instance_base_type()
+	if String(base).is_empty() or node_type.is_empty():
+		return null
+	if not ClassDB.class_exists(node_type):
+		return null
+	if node_type == String(base) or ClassDB.is_parent_class(node_type, base):
+		return null
+	return _scene_problem(SCENE_PROBLEM_INCOMPATIBLE_SCRIPT,
+			script.resource_path, "Script",
+			"the script extends " + String(base) + ", which cannot bind a node of type "
+			+ node_type + " — the engine would refuse the assignment and the node "
+			+ "would run script-less. Bind it to a " + String(base)
+			+ "-compatible target, or change the script's extends")
+
+
+# The verdict for a `script` property whose value is not a Script at all (#709
+# review): the engine refuses the assignment at instantiate time ("Cannot set
+# object script. Parameter should be null or a reference to a valid script.",
+# object.cpp set_script) and the node boots script-less — the same consequence as
+# an incompatible base, so it is the same problem kind. The path names the bound
+# resource where it has one (a res:// file, or the ::id sub-resource form for an
+# embedded one); a non-resource value can only name its Variant type.
+func _non_script_binding_problem(value: Variant) -> Dictionary:
+	var shown := type_string(typeof(value))
+	var bound_path := ""
+	if value is Resource:
+		shown = (value as Resource).get_class()
+		bound_path = (value as Resource).resource_path
+	return _scene_problem(SCENE_PROBLEM_INCOMPATIBLE_SCRIPT, bound_path, "Script",
+			"the node's script property binds a " + shown + ", not a Script — the "
+			+ "engine would refuse the assignment (Cannot set object script) and "
+			+ "the node would run script-less")
+
+
+# One entry per DEPENDENCY the scene declares and gda could not resolve, in the
+# order the .tscn declares them (#664).
+#
+# The dependency set is read from the file's [ext_resource] lines as text, not
+# from the loaded PackedScene: the engine drops a reference it could not resolve,
+# so the loaded object no longer knows the path that was asked for — which is the
+# one thing a report has to name. Reading the text is also what attributes each
+# dependency to the nodes that use it.
+#
+# A path declared twice (two ids for one file) is checked ONCE and reported once,
+# with the referencing nodes merged: it is one broken file, not two problems.
+func _scene_dependency_problems(path: String) -> Array:
+	var text := FileAccess.get_file_as_string(path)
+	if text.is_empty():
+		return []
+	var nodes_by_id := _scene_ext_resource_nodes_by_id(text)
+	var problems: Array = []
+	# ref_path -> the index of its problem, or -1 when the dependency is fine. The
+	# -1 rows matter as much as the others: they are what keeps a healthy path
+	# declared twice from being re-checked (and re-loaded) on its second id.
+	var checked := {}
+	for entry in _ext_resource_entries_from_text(text, path.get_base_dir()):
+		var ref_path := String(entry["normalized_path"])
+		if not checked.has(ref_path):
+			var problem: Variant = _scene_dependency_problem(ref_path, String(entry.get("type", "")))
+			if problem == null:
+				checked[ref_path] = -1
+			else:
+				(problem as Dictionary)["nodes"] = []
+				checked[ref_path] = problems.size()
+				problems.append(problem)
+		var at: int = int(checked[ref_path])
+		if at >= 0:
+			var nodes: Array = (problems[at] as Dictionary)["nodes"]
+			for node_path in nodes_by_id.get(String(entry["id"]), []):
+				if not nodes.has(node_path):
+					nodes.append(node_path)
+	return problems
+
+
+# One dependency's verdict: a problem Dictionary, or null when it resolves (#664).
+# `declared_type` is the type= the [ext_resource] line names ("Script",
+# "Texture2D", …), reported back so a reader can tell WHAT was expected there.
+#
+# The three kinds answer three different questions, and the split is not cosmetic:
+# a missing file needs the file, an unimported asset needs an import, and a broken
+# script needs an edit.
+func _scene_dependency_problem(ref_path: String, declared_type: String) -> Variant:
+	if not ResourceLoader.exists(ref_path):
+		# ResourceLoader.exists() is the loadability question, not the file
+		# question: an asset that was never imported (a .png with no import
+		# artifacts) is present on disk yet has no loader in a non-editor run, and
+		# the game would lose it at runtime exactly as this scene does. So the two
+		# are told apart rather than both called missing.
+		if FileAccess.file_exists(ref_path):
+			return _scene_problem(SCENE_PROBLEM_UNLOADABLE_RESOURCE, ref_path, declared_type,
+					"the file exists but no ResourceLoader can open it — typically an asset that was never imported")
+		return _scene_problem(SCENE_PROBLEM_MISSING_RESOURCE, ref_path, declared_type,
+				"the referenced file does not exist")
+	if _is_script_path(ref_path):
+		# Ask the ALREADY-loaded script first (the scene's own load brought it in, so
+		# this costs nothing and runs nothing): a script that compiled can be
+		# instantiated, and one that did not reports an empty base type. Only when
+		# that first answer is negative is a fresh compile run, which both confirms
+		# the verdict and yields the Error the message quotes. Order matters for a
+		# reason beyond speed: GDScript.reload() executes a script's STATIC
+		# INITIALIZERS, so compiling every healthy script a second time would run
+		# project code twice per validate.
+		var loaded := ResourceLoader.load(ref_path) as GDScript
+		if loaded == null:
+			return _scene_problem(SCENE_PROBLEM_UNLOADABLE_RESOURCE, ref_path, declared_type,
+					"the script file could not be loaded")
+		if loaded.can_instantiate():
+			return null
+		var err := _script_compile_error(ref_path)
+		if err != OK:
+			return _scene_problem(SCENE_PROBLEM_SCRIPT_COMPILE_FAILED, ref_path, declared_type,
+					"the script does not compile: " + error_string(err)
+					+ " — run 'gda script validate " + ref_path + "' for the line and message")
+		return null
+	var resource := ResourceLoader.load(ref_path)
+	if resource == null:
+		return _scene_problem(SCENE_PROBLEM_UNLOADABLE_RESOURCE, ref_path, declared_type,
+				"the resource could not be loaded")
+	if declared_type == "Script" and not (resource is Script):
+		# Declared as a script but the file is not one — a plain .tres in an
+		# `[ext_resource type="Script"]` line (#709 review). The load alone cannot
+		# answer this: the loader returns the Resource it found, and the engine
+		# only refuses at bind time ("Cannot set object script"), when the node
+		# has already booted script-less.
+		return _scene_problem(SCENE_PROBLEM_INCOMPATIBLE_SCRIPT, ref_path, declared_type,
+				"the file loads as " + resource.get_class() + ", not a Script — the engine "
+				+ "would refuse the assignment (Cannot set object script) and the node "
+				+ "would run script-less")
+	return null
+
+
+func _scene_problem(kind: String, ref_path: String, declared_type: String, message: String) -> Dictionary:
+	return {
+		"kind": kind,
+		"path": ref_path,
+		"type": null if declared_type.is_empty() else declared_type,
+		"message": message,
+	}
+
+
+# Whether a .gd compiles, as an Error — the SAME check script-validate makes, so
+# "does not compile" means one thing across the two commands (#664).
+#
+# Loading a script that does not compile still hands back a GDScript object
+# (verified against Godot 4.6.3), so the loaded object cannot produce the ERROR; a
+# fresh compile can, which is why the caller falls back to this once the cheap check
+# has already said something is wrong. take_over_path is what makes the script's own
+# relative preloads resolve as in-engine (issue #131); it displaces the cached copy
+# for the rest of this one-shot process, which nothing after this reads.
+func _script_compile_error(ref_path: String) -> int:
+	var script := GDScript.new()
+	script.source_code = FileAccess.get_file_as_string(ref_path)
+	script.take_over_path(ref_path)
+	return script.reload()
+
+
+# node_path -> the ext_resource ids it references, inverted: id -> node paths
+# (#664). Attribution is by TEXT because that is where the binding is still
+# visible — the engine drops an unresolvable reference from the loaded scene.
+#
+# A [node ...] header opens a block and any other [section] closes it, so property
+# lines are attributed to the node above them. The header line itself is scanned
+# too: an instanced sub-scene carries its reference there (instance=ExtResource(…)).
+# Every ExtResource(...) occurrence in a line counts, so a reference inside an
+# array or dictionary value is attributed like a plain one.
+#
+# Best-effort, and the one known gap is worth naming: a MULTI-LINE property value
+# whose continuation line starts with `[` (an array literal broken across lines)
+# closes the block early, so later references in that node lose their attribution.
+# Attribution only — the dependency itself is still found and reported, because the
+# problems are read from the [ext_resource] lines, not from here.
+func _scene_ext_resource_nodes_by_id(text: String) -> Dictionary:
+	var by_id := {}
+	var node_path := ""
+	for line in text.split("\n"):
+		var stripped := line.strip_edges()
+		if stripped.begins_with("["):
+			node_path = _scene_node_path_from_header(stripped) if stripped.begins_with("[node ") else ""
+		if node_path.is_empty():
+			continue
+		for id in _ext_resource_ids_in_line(stripped):
+			if not by_id.has(id):
+				by_id[id] = []
+			var nodes: Array = by_id[id]
+			if not nodes.has(node_path):
+				nodes.append(node_path)
+	return by_id
+
+
+# Every ext_resource id an ExtResource("...") call in one line names, in order.
+func _ext_resource_ids_in_line(line: String) -> Array:
+	var ids: Array = []
+	var needle := "ExtResource("
+	var at := line.find(needle)
+	while at != -1:
+		var id := _first_quoted_after(line, at + needle.length())
+		if not id.is_empty():
+			ids.append(id)
+		at = line.find(needle, at + needle.length())
+	return ids
+
+
+# scene-preflight: boot the scene and report how far it got (#664, dogfooding
+# GDA-DF-030).
+#
+# The dynamic twin of scene-validate, and the reason both exist: a scene whose
+# dependencies all resolve and whose scripts all compile can still fail the moment
+# it runs. This op instantiates the scene, adds it under the tree root — which is
+# what runs its _ready — and keeps the loop alive for `frames` idle frames so
+# startup work that lands AFTER _ready (a deferred call, a _process, an awaited
+# signal) gets to run and to print its errors. The verdict is the engine's own
+# readiness; the errors themselves are read off stderr by gda, which owns that
+# parser (#651).
+#
+# It runs the scene's code by construction — every script in it, plus the project's
+# autoloads — which stays inside the Trusted project assumption (ADR-0009) and is
+# the widest project-code surface of any scene op. That is the point of a preflight,
+# and it is why scene-validate stays static.
+func _op_scene_preflight(params: Dictionary) -> void:
+	_diag("running operation: scene-preflight")
+	var frames: Variant = _preflight_frames(params)
+	if frames == null:
+		return  # _preflight_frames already recorded the failure
+	var packed: PackedScene = _load_scene(params)
+	if packed == null:
+		return  # _load_scene already recorded the failure
+	var path := _string_param(params, "path")
+
+	var instance: Node = packed.instantiate()
+	if instance == null:
+		# The same refusal scene-get-exports reports for the same condition, in the
+		# same words: a scene that cannot be built at all is an addressing/dependency
+		# failure, not a startup verdict, and the group already has a code for it.
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: " + path
+				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
+		return
+
+	_preflight_path = path
+	_preflight_instance = instance
+	# add_child does NOT run _ready here. An op runs inside MainLoop::initialize,
+	# which SceneTree calls BEFORE it puts its own root into the tree, so the scene
+	# is not in a tree yet and nothing propagates readiness (verified against Godot
+	# 4.6.3: is_node_ready() is false on the next line). Propagation happens as the
+	# tree finishes initializing — after this function returns, and still before the
+	# first idle frame.
+	root.add_child(instance)
+	# So the verdict is LATCHED from the signal rather than sampled later. Sampling
+	# it on the first frame was wrong for a scene that hands off in its own _ready
+	# (a splash or bootstrap scene calling queue_free): by then the node is gone,
+	# the poll below cannot read it, and a scene that plainly started was reported
+	# as not_ready. The connection is made after add_child and still lands before
+	# the signal, because the propagation above has not happened yet.
+	instance.ready.connect(_on_preflight_ready)
+	# A _ready that never returns blocks the engine before any of that — no frame
+	# ever runs, nothing more is printed, and only gda's own launch bound ends it.
+	_begin_pending(_preflight_tick, int(frames))
+
+
+# The scene reported ready. Latched, never un-latched: what happens to the node
+# afterwards (it frees itself, it leaves the tree) does not unmake the fact that it
+# started. The fact is also PRINTED immediately as its own evidence line: a _ready
+# that calls get_tree().quit() ends the run before the pending tick can emit the
+# result sentinel, and without this line the readiness it plainly reached would
+# leave the process with it (#709 review).
+func _on_preflight_ready() -> void:
+	_preflight_ready = true
+	print(PREFLIGHT_READY_EVIDENCE)
+
+
+# The frame budget of one preflight: a positive whole number of idle frames. Null
+# after recording the failure (the caller must stop). Checked as a raw Variant
+# before coercion for the reason _validate_target_paths states: int() on arbitrary
+# JSON raises, which would abort _initialize before any sentinel is printed.
+#
+# REQUIRED, with no default of its own. The window's default belongs to gda's params
+# model, which every CLI invocation goes through; inventing a second one here would
+# be a second authority for one fact — and an unreachable one, so it could disagree
+# with the real default indefinitely without anyone noticing. A caller driving the
+# payload directly states its own window.
+func _preflight_frames(params: Dictionary) -> Variant:
+	if not params.has("frames"):
+		_fail(OP_ERROR_INVALID_PARAMS, "frames is required: the observation window, in idle frames")
+		return null
+	var raw: Variant = params.get("frames")
+	if not (raw is float or raw is int):
+		_fail(OP_ERROR_INVALID_PARAMS, "frames must be a number: " + str(raw))
+		return null
+	# JSON numbers arrive as floats; only a mathematically integral one names a
+	# frame count. int(raw) would silently truncate 1.5 to a one-frame window
+	# (#720 review), and a silent shrink of an observation window is a verdict
+	# changer, not a rounding detail.
+	if raw is float and raw != floorf(raw):
+		_fail(OP_ERROR_INVALID_PARAMS, "frames must be a whole number: " + str(raw))
+		return null
+	var frames := int(raw)
+	if frames < 1:
+		_fail(OP_ERROR_INVALID_PARAMS, "frames must be at least 1: " + str(frames))
+		return null
+	return frames
+
+
+# One idle frame of a running preflight; true once the verdict is recorded (#664).
+#
+# The readiness signal above is what normally latches the verdict; this poll is the
+# backstop for a node that became ready without emitting to this connection, and it
+# costs one call per frame. is_instance_valid guards the node the signal case cares
+# about: reading a property off a freed node would abort this tick, and a
+# verdict-reporting path must not throw.
+func _preflight_tick(frame: int) -> bool:
+	if is_instance_valid(_preflight_instance) and _preflight_instance.is_node_ready():
+		_preflight_ready = true
+	if frame < _pending_frame_limit:
+		return false
+	_succeed({
+		"path": _preflight_path,
+		"status": SCENE_STARTUP_READY if _preflight_ready else SCENE_STARTUP_NOT_READY,
+	})
+	return true
 
 
 # node-add: load a .tscn, add a child node under a parent node path, pack and
@@ -1532,19 +2135,38 @@ func _op_script_attach(params: Dictionary) -> void:
 	})
 
 
-# script-validate: syntax/compile-check a .gd script (issue #118). Read the file
-# text, set it on a fresh GDScript at the script's REAL res:// path, and reload()
-# it: err == OK means it compiles. Validating an INVALID script is a SUCCESSFUL
-# operation — the op exits 0 with valid=false; the op only FAILS (non-zero) for op
-# errors (empty/non-.gd path → invalid_path, missing/unreadable file →
-# path_not_found).
+# script-validate: syntax/compile-check a BATCH of .gd scripts (issue #118, #663).
+# For each script: read the file text, set it on a fresh GDScript at the script's
+# REAL res:// path, and reload() it — err == OK means it compiles. Validating an
+# INVALID script is a SUCCESSFUL operation — the op exits 0 with the script's
+# valid=false; the op only FAILS (non-zero) for op errors (non-.gd path →
+# invalid_path, missing/unreadable file → path_not_found).
 #
-# Unlike the other script-file ops, validate DOES compile the script (reload
+# ONE call validates N scripts (#663), because a change usually touches four to
+# six related scripts and one script per invocation cost one engine launch each.
+# The result carries one entry per script plus the aggregate `valid` — false as
+# soon as any entry is invalid. Two selectors, exactly one of them given (the CLI
+# enforces that on both its input paths): `paths` names the batch, while
+# `all_scripts` validates every .gd in the project, enumerated the way script-list
+# enumerates them — and so, like script-list, it needs a real res:// tree and
+# refuses projectless with project_not_found rather than reporting a vacuously
+# valid empty batch.
+#
+# ADDRESSING IS CHECKED FIRST, for the whole batch, before anything is compiled:
+# an unaddressable path refuses the call rather than becoming a verdict (a missing
+# file is not an invalid script), and checking up front makes that refusal
+# independent of where the bad path sits in the batch.
+#
+# Unlike the other script-file ops, validate DOES compile each script (reload
 # parses and compiles it), but it never INSTANTIATES it, so it does not run the
 # script's instance code. The line/message of a compile error are not available
 # from any bound API (is_valid() is not even callable from GDScript) — only from
-# the engine's stderr — so the op emits just {path, valid, error_string} in the
-# sentinel and gda parses the advisory line/message diagnostics from stderr.
+# the engine's stderr — so the op emits just {path, valid, error_string} per script
+# and gda parses the advisory line/message diagnostics from stderr. With several
+# scripts compiled into ONE stream, gda needs to know where each script's errors
+# begin: the `validating: <path>` diagnostic below is that delimiter, so the marker
+# and gda's parser are two halves of one contract (a test pins the spelling on both
+# sides).
 #
 # The compile context must match how the engine actually loads the file (issue
 # #131). Compiling an ANONYMOUS in-memory GDScript gives it a synthetic
@@ -1563,30 +2185,109 @@ func _op_script_attach(params: Dictionary) -> void:
 # frame the diagnostics parser pairs (the frame now names the real res:// path).
 func _op_script_validate(params: Dictionary) -> void:
 	_diag("running operation: script-validate")
-	var path := _string_param(params, "path")
-	if path.is_empty():
-		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
-		return
-	if not _require_existing_script(path):
-		return  # _require_existing_script already recorded the failure
+	var paths: Variant = _validate_target_paths(params)
+	if paths == null:
+		return  # _validate_target_paths already recorded the failure
 
-	var source: Variant = _read_script_source(path)
-	if source == null:
-		return  # _read_script_source already recorded the failure
+	# The whole batch's addressing boundary, checked before any compile.
+	for path in paths:
+		if not _require_existing_script(path):
+			return  # _require_existing_script already recorded the failure
 
-	# Compile-check without instantiating: set the source on a fresh GDScript at the
-	# script's real res:// path and reload() it. The reload error (and its
-	# diagnostics on stderr) is the verdict; the real path makes relative preloads
-	# resolve as in-engine (issue #131).
-	var script := GDScript.new()
-	script.source_code = source
-	script.take_over_path(path)
-	var err := script.reload()
+	var scripts: Array = []
+	var aggregate := true
+	for path in paths:
+		# The per-script delimiter gda splits the engine's stderr on, so each
+		# script's advisory diagnostics are attributed to it and not to the batch.
+		_diag(VALIDATE_MARKER + path)
+		var source: Variant = _read_script_source(path)
+		if source == null:
+			return  # _read_script_source already recorded the failure
+
+		# Compile-check without instantiating: set the source on a fresh GDScript at
+		# the script's real res:// path and reload() it. The reload error (and its
+		# diagnostics on stderr) is the verdict; the real path makes relative
+		# preloads resolve as in-engine (issue #131).
+		var script := GDScript.new()
+		script.source_code = source
+		script.take_over_path(path)
+		var err := script.reload()
+		if err != OK:
+			aggregate = false
+		scripts.append({
+			"path": path,
+			"valid": err == OK,
+			"error_string": null if err == OK else error_string(err),
+		})
+
 	_succeed({
-		"path": path,
-		"valid": err == OK,
-		"error_string": null if err == OK else error_string(err),
+		"valid": aggregate,
+		"scripts": scripts,
 	})
+
+
+# The script paths one script-validate call must compile: the requested batch, or
+# every .gd in the project under `all_scripts` (#663). Returns null after recording
+# the failure (the caller must stop), so the two selectors' error handling stays
+# out of the operation body.
+#
+# EXACTLY ONE selector, enforced here as well as at the CLI. gda's own CLI refuses
+# a contradictory selection before it ever reaches the engine, so this arm is not
+# reachable through `gda script validate` — but the op is a contract in its own
+# right (ADR-0002), and a contract that documents "both is a contradiction, not a
+# precedence question" must not quietly pick a winner when both arrive. Silently
+# discarding a caller's explicit `paths` because `all_scripts` was also set would
+# report a verdict for a set they did not ask for.
+#
+# The refusals split by WHAT is wrong, so the codes mean the same thing on both
+# sides of the wire: a params SHAPE problem — a non-array `paths`, a non-string
+# entry, both selectors, or neither — is invalid_params, the same code the Python
+# model reports for the identical selections; a path VALUE problem (an empty
+# string, which is a well-typed path naming nothing) is invalid_path, like every
+# other unusable path in this file.
+func _validate_target_paths(params: Dictionary) -> Variant:
+	var requested: Variant = params.get("paths", [])
+	if not (requested is Array):
+		_fail(OP_ERROR_INVALID_PARAMS, "paths must be a JSON array of .gd script paths")
+		return null
+	# Type-check the raw Variant before coercing it. `bool(value)` is not total in
+	# GDScript: a null, a String or an Array makes it raise, which aborts
+	# _initialize BEFORE any sentinel is printed — so a malformed payload came back
+	# as the generic operation_failed instead of ADR-0002's structured
+	# invalid_params. Same reason the `paths` shape is checked above, and the same
+	# hazard issue #31 named for a typed assignment on arbitrary JSON.
+	var raw_all: Variant = params.get("all_scripts", false)
+	if not (raw_all is bool):
+		_fail(OP_ERROR_INVALID_PARAMS, "all_scripts must be a boolean: " + str(raw_all))
+		return null
+	var all_scripts: bool = raw_all
+	if all_scripts and not (requested as Array).is_empty():
+		_fail(OP_ERROR_INVALID_PARAMS, "paths and all_scripts are mutually exclusive: all_scripts already covers every script in the project")
+		return null
+	if all_scripts:
+		if not _has_project():
+			_fail(OP_ERROR_PROJECT_NOT_FOUND, "script validate --all requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+			return null
+		var found: Array[String] = []
+		_collect_script_paths("res://", found)
+		# Sorted so a project-wide run reports a stable order across invocations,
+		# exactly as script-list does — the enumeration order of a directory is not.
+		found.sort()
+		return found
+
+	var paths: Array[String] = []
+	for entry in requested:
+		if not (entry is String):
+			_fail(OP_ERROR_INVALID_PARAMS, "each entry of paths must be a string: " + str(entry))
+			return null
+		if String(entry).is_empty():
+			_fail(OP_ERROR_INVALID_PATH, "script path must not be empty")
+			return null
+		paths.append(entry)
+	if paths.is_empty():
+		_fail(OP_ERROR_INVALID_PARAMS, "give at least one path, or set all_scripts")
+		return null
+	return paths
 
 
 # resource-create: instantiate a Resource of the requested type and save it as a
@@ -3424,6 +4125,15 @@ func _is_class_name_declaration_of(line: String, target_class: String) -> bool:
 	return _first_token(line.substr("class_name ".length())) == target_class
 
 
+# Whether a path names a scene file in the TEXT form gda authors and reads: a
+# .tscn. Only scene-validate asks, because it is the only op whose answer comes
+# from the file's own text rather than from the loaded resource — see the refusal
+# it raises. Every other scene op keys on loadability instead, so a .scn that
+# loads is served there as before.
+func _is_scene_path(path: String) -> bool:
+	return path.get_extension().to_lower() == "tscn"
+
+
 # Whether a path names a script file the script group operates on: a .gd
 # (GDScript) file. Script-file addressing is by extension, the same way scene
 # addressing keys on .tscn. C# (.cs) is out of scope for now — it needs the .NET
@@ -3583,11 +4293,12 @@ func _scene_summary(path: String) -> Dictionary:
 
 
 # Recursively collect every .gd script under res:// (issue #117), skipping only
-# the engine's own res://.godot cache directory. Mirrors _collect_scene_paths
-# (issue #54): hidden entries are enumerated (a .hidden.gd, or a script under a
-# dot-prefixed directory), navigational entries stay off, and the skip is scoped
-# to res://.godot alone. Paths are returned as res:// paths so they round-trip
-# into other script commands.
+# the engine's own res://.godot cache directory. Hidden entries are enumerated (a
+# .hidden.gd, or a script under a dot-prefixed directory) and navigational entries
+# stay off. The skip is the ROOT cache path exactly (ENGINE_CACHE_DIR), not any
+# directory named `.godot`: an earlier name test also swallowed a nested one,
+# which is authored content — see that const. Paths are returned as res:// paths
+# so they round-trip into other script commands.
 func _collect_script_paths(dir_path: String, out: Array[String]) -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
@@ -3598,7 +4309,7 @@ func _collect_script_paths(dir_path: String, out: Array[String]) -> void:
 	while not entry.is_empty():
 		var child := dir_path.path_join(entry)
 		if dir.current_is_dir():
-			if entry != ".godot":
+			if child != ENGINE_CACHE_DIR:
 				_collect_script_paths(child, out)
 		elif entry.get_extension().to_lower() == "gd":
 			out.append(child)
@@ -5142,7 +5853,11 @@ func _raw_ext_resource_entries_from_text(text: String) -> Array:
 		var id := _quoted_named_attr(stripped, "id")
 		if ref_path.is_empty() or id.is_empty():
 			continue
-		entries.append({"path": ref_path, "id": id})
+		# `type` is the class the line DECLARES for the reference ("Script",
+		# "Texture2D", …); "" when the line names none. Carried so scene-validate can
+		# report what was expected at a path that did not resolve (#664) — the
+		# id/path consumers ignore it.
+		entries.append({"path": ref_path, "id": id, "type": _quoted_named_attr(stripped, "type")})
 	return entries
 
 
@@ -5154,6 +5869,7 @@ func _ext_resource_entries_from_text(text: String, base_dir: String) -> Array:
 			"path": ref_path,
 			"normalized_path": _normalize_ext_resource_path(ref_path, base_dir),
 			"id": String(entry["id"]),
+			"type": String(entry.get("type", "")),
 		})
 	return entries
 
@@ -5283,7 +5999,7 @@ func _succeed(payload: Dictionary) -> void:
 
 
 func _diag(message: String) -> void:
-	printerr("gda: " + message)
+	printerr(DIAG_PREFIX + message)
 
 
 # Record a structured failure through the ADR-0002 sentinel contract. The

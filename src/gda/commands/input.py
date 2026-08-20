@@ -30,7 +30,7 @@ reached the harness without passing the model (a direct daemon caller).
 
 import json
 from enum import Enum
-from typing import Optional
+from typing import Annotated, Any, Literal, Optional, get_args
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -277,162 +277,343 @@ class InputEventType(str, Enum):
     MOUSE_MOVE = "mouse_move"
     ACTION = "action"
 
+    def __repr__(self) -> str:
+        # These members are the union's discriminator tags (#669), and the
+        # unknown-tag refusal renders the expected ones with repr() — where the
+        # default enum repr would put "<InputEventType.KEY: 'key'>" into a public
+        # error message, naming a Python symbol the caller cannot type. Report the
+        # wire value, which is what the caller writes.
+        return repr(self.value)
 
-class InputSequenceEvent(BaseModel):
-    """One event in a ``gda input sequence``, applied at its relative clock offset.
 
-    A tagged union over the single-frame ops: ``type`` selects the event shape and
-    either ``frame`` or ``physics_frame`` places it within the window. ``frame`` is
-    the original harness/process-frame clock, advanced by the harness ``_process``
-    loop; it is not Godot's fixed physics clock. ``physics_frame`` is the explicit
-    physics-clock offset, advanced by Godot ``_physics_process`` ticks, for sequences
-    that need deterministic simulation-duration input holds. Events due at the same
-    clock index are applied together. The type-specific fields mirror the
-    single-frame params — ``key``/``modifiers``/``released`` for a key, ``x``/``y``/
-    ``button``/``double`` for a mouse click, ``x``/``y``/``button`` plus exactly one
-    ``pressed``/``release`` phase for a mouse-button event, ``x``/``y`` for a mouse
-    move, ``action``/``release``/``strength`` for an action. The required fields per
-    type and the shared bounds (modifier set, button enum, strength range) are
-    validated model-side (ADR-0015) so a malformed event is rejected before the
-    harness runs.
-    Mouse event coordinates are reliable as the event's ``position``; engine-tracked
-    mouse positions may remain stale for sequence mouse events too.
+# The press/release synonyms a sequence event may spell its phase with. Each kind
+# uses exactly the one its single-frame op uses (`released` for a key, `release`
+# for an action, `pressed`/`release` for the sequence-only mouse-button phase),
+# and the flat shape they used to share made a foreign one silently inert — a
+# `release` on a key event PRESSED the key. Declared once here so the rejection
+# can NAME the kind's own spelling instead of only refusing the wrong one; which
+# kind uses which is read off the variant models themselves, never restated. A
+# test holds this list to the fields the variants actually declare, so renaming
+# one cannot silently drop the message back to the generic branch.
+_PHASE_FIELDS = ("pressed", "released", "release")
+
+# The shared field descriptions, written once for the whole union: each variant
+# repeats only the fields it accepts, and the manifest repeats every variant per
+# command, so a per-class copy would multiply the same sentence.
+_FRAME_DESC = (
+    "The 0-based relative harness/process-frame offset to apply this event at. "
+    "This is the original `input sequence` clock, driven by the harness "
+    "`_process` loop; it is not Godot's fixed physics clock. Omit both `frame` "
+    "and `physics_frame` to use process frame 0."
+)
+_PHYSICS_FRAME_DESC = (
+    "The 0-based relative physics-frame offset to apply this event at, driven by "
+    "Godot `_physics_process` ticks. Use this instead of `frame` when an input "
+    "hold must map to a deterministic physics simulation duration."
+)
+_MOUSE_X_DESC = (
+    "The event's x position in the viewport. Read it from the event; "
+    "engine-tracked mouse positions may remain stale."
+)
+_MOUSE_Y_DESC = (
+    "The event's y position in the viewport. Read it from the event; "
+    "engine-tracked mouse positions may remain stale."
+)
+# Nullable although it always has a value: the flat shape these variants replace
+# defaulted `button` to null and let the harness read that as left, so a producer
+# that dumped an event and replayed it sent an explicit null. Refusing it now
+# would break a caller that was never wrong. Null is normalized back to left, so
+# the payload the harness receives always names a button.
+_BUTTON_DESC = "Which button: left, right, or middle (null means left)."
+
+
+def _left_when_null(
+    event: "MouseClickSequenceEvent | MouseButtonSequenceEvent",
+) -> None:
+    """Normalize an explicit ``button: null`` to the left button, in place."""
+    if event.button is None:
+        event.button = MouseButton.LEFT
+
+
+def _event_kind(model: type[BaseModel]) -> str:
+    """The ``type`` value that selects ``model`` from the union, or ``""``.
+
+    Read off the variant's own ``Literal`` discriminator annotation, so the kind
+    name has ONE source: the class that declares it.
+
+    TOTAL — it answers ``""`` for a model that declares no discriminator rather
+    than raising. It is only ever called to BUILD A REFUSAL MESSAGE, and a
+    reporting path that throws replaces a structured error with a traceback: the
+    shared base carries no ``type``, so a direct validation of it (which no caller
+    does today, but which is one refactor away) would otherwise die inside the
+    handler meant to explain the mistake.
+    """
+    field = model.model_fields.get("type")
+    members = get_args(field.annotation) if field is not None else ()
+    return str(members[0].value) if members else ""
+
+
+def _kinds_accepting(field: str, exclude: type[BaseModel]) -> list[str]:
+    """The other event kinds that DO accept ``field`` (derived from the union)."""
+    return [
+        _event_kind(model)
+        for model in _SEQUENCE_EVENT_MODELS
+        if model is not exclude and field in model.model_fields
+    ]
+
+
+def _foreign_field_message(model: type[BaseModel], field: str) -> str:
+    """Explain a field that belongs to another event kind, naming what to use here.
+
+    The rejection itself is not the gap — a foreign field was already refused —
+    the gap is that refusing ``pressed`` on an action event never mentioned
+    ``release`` (dogfooding GDA-DF-037). Every part of the sentence is derived
+    from the variant models, so it cannot drift from what they accept.
+    """
+    kind = _event_kind(model)
+    # "an 'action' event", not "a 'action' event": the kind names come from the
+    # union, so the article is computed rather than written into a sentence.
+    article = "an" if kind[:1] and kind[0] in "aeiou" else "a"
+    if field in _PHASE_FIELDS:
+        own = [name for name in _PHASE_FIELDS if name in model.model_fields]
+        advice = (
+            f"{article} {kind!r} event spells its press/release phase "
+            + " or ".join(repr(name) for name in own)
+            if own
+            else f"{article} {kind!r} event has no press/release phase"
+        )
+    else:
+        accepted = ", ".join(repr(name) for name in model.model_fields)
+        advice = f"{article} {kind!r} event accepts {accepted}"
+    elsewhere = _kinds_accepting(field, model)
+    seen = f"; {field!r} is accepted on: {', '.join(elsewhere)}" if elsewhere else ""
+    return (
+        f"{field!r} is not valid on {article} {kind!r} sequence event: {advice}{seen}."
+    )
+
+
+class _SequenceEvent(BaseModel):
+    """The clock half every ``gda input sequence`` event shares (#221, #391).
+
+    The union's base: it owns the two relative-offset fields and the one-clock
+    rule, so each kind below declares only the fields it actually accepts. That is
+    what makes a kind's FIELD SET checkable — its variant schema lists exactly the
+    fields it requires and forbids every other kind's — where one flat shape could
+    only describe the per-kind rules in prose (GDA-DF-037). The one-clock rule
+    itself stays a model-side check, as it was: it is a relation between two
+    nullable fields, and expressing it in schema would reject
+    ``{"frame": 1, "physics_frame": null}``, which is well formed.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    type: InputEventType = Field(description="The event kind.")
-    frame: int | None = Field(
-        default=None,
-        ge=0,
-        description=(
-            "The 0-based relative harness/process-frame offset to apply this event at. "
-            "This is the original `input sequence` clock, driven by the harness "
-            "`_process` loop; it is not Godot's fixed physics clock. Omit both "
-            "`frame` and `physics_frame` to use process frame 0."
-        ),
-    )
+    frame: int | None = Field(default=None, ge=0, description=_FRAME_DESC)
     physics_frame: int | None = Field(
-        default=None,
-        ge=0,
-        description=(
-            "The 0-based relative physics-frame offset to apply this event at, driven "
-            "by Godot `_physics_process` ticks. Use this instead of `frame` when an "
-            "input hold must map to a deterministic physics simulation duration."
-        ),
-    )
-    # key fields
-    key: str | None = Field(default=None, description="A key event's key name.")
-    modifiers: list[str] = Field(
-        default_factory=list, description="A key event's modifier keys."
-    )
-    released: bool = Field(
-        default=False, description="A key event: inject a release instead of a press."
-    )
-    # mouse fields
-    x: float | None = Field(
-        default=None,
-        description=(
-            "A mouse event's x position. Read it from the event; engine-tracked "
-            "mouse positions may remain stale."
-        ),
-    )
-    y: float | None = Field(
-        default=None,
-        description=(
-            "A mouse event's y position. Read it from the event; engine-tracked "
-            "mouse positions may remain stale."
-        ),
-    )
-    button: MouseButton | None = Field(
-        default=None,
-        description=(
-            "A mouse-click or mouse-button event's button; defaults to left for "
-            "mouse-button events."
-        ),
-    )
-    double: bool = Field(
-        default=False, description="A mouse-click event: mark it a double click."
-    )
-    pressed: bool | None = Field(
-        default=None,
-        description=(
-            "A mouse-button event: press the button. Use exactly one of `pressed` "
-            "or `release`."
-        ),
-    )
-    # action fields
-    action: str | None = Field(
-        default=None, description="An action event's action name."
-    )
-    release: bool = Field(
-        default=False,
-        description=(
-            "An action event: release instead of press. A mouse-button event: "
-            "release the button; use exactly one of `pressed` or `release`."
-        ),
-    )
-    strength: float = Field(
-        default=1.0,
-        ge=0.0,
-        le=1.0,
-        description="An action event's press strength, 0..1.",
+        default=None, ge=0, description=_PHYSICS_FRAME_DESC
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _explain_foreign_fields(cls, data: object) -> object:
+        # Runs BEFORE pydantic's own extra="forbid" refusal, which reports only
+        # "Extra inputs are not permitted" and so leaves the caller to guess this
+        # kind's spelling. Non-dict input (an already-built model) passes through.
+        if not isinstance(data, dict):
+            return data
+        foreign = [key for key in data if key not in cls.model_fields]
+        if foreign:
+            raise ValueError(
+                " ".join(_foreign_field_message(cls, key) for key in foreign)
+            )
+        return data
+
     @model_validator(mode="after")
-    def _check_event_shape(self) -> "InputSequenceEvent":
+    def _check_clock(self) -> "_SequenceEvent":
         # Each event uses exactly one clock. No supplied clock keeps the original
-        # shorthand: process frame 0. Enforced model-side (ADR-0015) so argv JSON and
-        # --params-json reject the same malformed event before it reaches the harness.
+        # shorthand: process frame 0. Enforced model-side (ADR-0015) so argv JSON
+        # and --params-json reject the same malformed event before the harness.
         if self.frame is not None and self.physics_frame is not None:
             raise ValueError(
                 "a sequence event cannot set both 'frame' and 'physics_frame'."
             )
         if self.frame is None and self.physics_frame is None:
             self.frame = 0
-        if self.type is not InputEventType.MOUSE_BUTTON and self.pressed is not None:
-            raise ValueError(
-                "'pressed' is only valid on a 'mouse_button' sequence event."
-            )
-        # Each event type requires its own fields; the shared bounds (modifier set,
-        # strength range, button enum) are enforced by the fields above.
-        if self.type is InputEventType.KEY:
-            if not self.key:
-                raise ValueError("a 'key' sequence event requires 'key'.")
-            _validate_modifiers(self.modifiers)
-        elif self.type is InputEventType.MOUSE_CLICK:
-            if self.x is None or self.y is None:
-                raise ValueError("a 'mouse_click' sequence event requires 'x' and 'y'.")
-        elif self.type is InputEventType.MOUSE_BUTTON:
-            if self.x is None or self.y is None:
-                raise ValueError(
-                    "a 'mouse_button' sequence event requires 'x' and 'y'."
-                )
-            if self.pressed is None and not self.release:
-                raise ValueError(
-                    "a 'mouse_button' sequence event requires 'pressed' or 'release'."
-                )
-            if self.pressed is False:
-                raise ValueError(
-                    "a 'mouse_button' sequence event uses 'pressed: true' to press; "
-                    "use 'release: true' to release."
-                )
-            if self.pressed is True and self.release:
-                raise ValueError(
-                    "a 'mouse_button' sequence event cannot set both 'pressed' and "
-                    "'release'."
-                )
-            if self.release:
-                self.pressed = False
-            if self.button is None:
-                self.button = MouseButton.LEFT
-        elif self.type is InputEventType.MOUSE_MOVE:
-            if self.x is None or self.y is None:
-                raise ValueError("a 'mouse_move' sequence event requires 'x' and 'y'.")
-        elif self.type is InputEventType.ACTION:
-            if not self.action:
-                raise ValueError("an 'action' sequence event requires 'action'.")
         return self
+
+
+class KeySequenceEvent(_SequenceEvent):
+    """A key event in a sequence: the ``gda input key`` shape at a clock offset.
+
+    Pushes an ``InputEventKey`` for ``key`` (with any ``modifiers``) into the
+    running game's root viewport. It presses by default and releases with
+    ``released`` — the action kind's ``release`` is NOT accepted here.
+    """
+
+    type: Literal[InputEventType.KEY] = Field(description="The event kind.")
+    key: str = Field(min_length=1, description="The key name to inject (e.g. Right).")
+    modifiers: list[str] = Field(
+        default_factory=list,
+        description="Modifier keys held with the key, any of: shift, ctrl, alt, meta.",
+    )
+    released: bool = Field(
+        default=False, description="Inject a key RELEASE instead of a press."
+    )
+
+    @model_validator(mode="after")
+    def _check_modifiers(self) -> "KeySequenceEvent":
+        _validate_modifiers(self.modifiers)
+        return self
+
+
+class MouseClickSequenceEvent(_SequenceEvent):
+    """A whole mouse click in a sequence: press and release at one clock offset.
+
+    Use :class:`MouseButtonSequenceEvent` instead when the press and the release
+    must sit at different offsets (a drag).
+    """
+
+    type: Literal[InputEventType.MOUSE_CLICK] = Field(description="The event kind.")
+    x: float = Field(description=_MOUSE_X_DESC)
+    y: float = Field(description=_MOUSE_Y_DESC)
+    button: MouseButton | None = Field(
+        default=MouseButton.LEFT, description=_BUTTON_DESC
+    )
+    double: bool = Field(default=False, description="Mark the event a double click.")
+
+    @model_validator(mode="after")
+    def _default_button(self) -> "MouseClickSequenceEvent":
+        _left_when_null(self)
+        return self
+
+
+# The press/release phase, stated as a JSON-Schema rule so a client can CHECK it
+# rather than read it (#669). It mirrors ``_check_phase`` below, which stays the
+# enforcing authority — the two are held together by a test that runs one corpus
+# through both the emitted schema and the model and requires the same verdict.
+# Without it the one kind an agent reaches for to build a drag published its
+# fields but not the rule that makes them a press or a release, so the drag path
+# still cost the failed invocation GDA-DF-037 reported.
+_MOUSE_BUTTON_PHASE_SCHEMA: dict[str, Any] = {
+    "oneOf": [
+        # The press: `pressed: true`, and no release on the same event.
+        {
+            "required": ["pressed"],
+            "properties": {"pressed": {"const": True}, "release": {"const": False}},
+        },
+        # The release: `release: true`, with `pressed` left unset (absent or null).
+        {
+            "required": ["release"],
+            "properties": {"release": {"const": True}, "pressed": {"type": "null"}},
+        },
+    ]
+}
+
+
+class MouseButtonSequenceEvent(_SequenceEvent):
+    """One PHASE of a mouse button in a sequence: the press or the release alone.
+
+    The sequence-only kind, for press-drag-release gestures: it carries the held
+    button mask onto the motion events in between. It is the ONE kind that spells
+    a phase with ``pressed``; exactly one of ``pressed: true`` / ``release: true``
+    is required, and that rule is published as schema, not only as prose.
+    """
+
+    model_config = ConfigDict(json_schema_extra=_MOUSE_BUTTON_PHASE_SCHEMA)
+
+    type: Literal[InputEventType.MOUSE_BUTTON] = Field(description="The event kind.")
+    x: float = Field(description=_MOUSE_X_DESC)
+    y: float = Field(description=_MOUSE_Y_DESC)
+    button: MouseButton | None = Field(
+        default=MouseButton.LEFT, description=_BUTTON_DESC
+    )
+    double: bool = Field(default=False, description="Mark the event a double click.")
+    pressed: bool | None = Field(
+        default=None,
+        description="Press the button. Use exactly one of `pressed` or `release`.",
+    )
+    release: bool = Field(
+        default=False,
+        description="Release the button. Use exactly one of `pressed` or `release`.",
+    )
+
+    @model_validator(mode="after")
+    def _check_phase(self) -> "MouseButtonSequenceEvent":
+        _left_when_null(self)
+        if self.pressed is None and not self.release:
+            raise ValueError(
+                "a 'mouse_button' sequence event requires 'pressed' or 'release'."
+            )
+        if self.pressed is False:
+            raise ValueError(
+                "a 'mouse_button' sequence event uses 'pressed: true' to press; "
+                "use 'release: true' to release."
+            )
+        if self.pressed is True and self.release:
+            raise ValueError(
+                "a 'mouse_button' sequence event cannot set both 'pressed' and "
+                "'release'."
+            )
+        if self.release:
+            self.pressed = False
+        return self
+
+
+class MouseMoveSequenceEvent(_SequenceEvent):
+    """A mouse motion event in a sequence: the ``gda input mouse-move`` shape."""
+
+    type: Literal[InputEventType.MOUSE_MOVE] = Field(description="The event kind.")
+    x: float = Field(description=_MOUSE_X_DESC)
+    y: float = Field(description=_MOUSE_Y_DESC)
+
+
+class ActionSequenceEvent(_SequenceEvent):
+    """An input action in a sequence: the ``gda input action`` shape.
+
+    Drives ``Input.action_press`` / ``action_release`` for ``action``, which must
+    be declared in the running ``InputMap``. It presses by default and releases
+    with ``release`` — the mouse-button kind's ``pressed`` is NOT accepted here,
+    so a hold is a press event and a later ``release: true`` event.
+    """
+
+    type: Literal[InputEventType.ACTION] = Field(description="The event kind.")
+    action: str = Field(
+        min_length=1, description="The action name (must be in the InputMap)."
+    )
+    release: bool = Field(
+        default=False, description="Release the action instead of pressing it."
+    )
+    strength: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="The analog press strength, 0..1."
+    )
+
+
+# One event of a `gda input sequence`, as a DISCRIMINATED union on `type` (#669).
+# The emitted schema is a `oneOf` with a `type` discriminator mapping, so each
+# kind's field set — what it requires and what it forbids — is machine-checkable:
+# a client validates a candidate event against the published contract instead of
+# learning the per-kind fields from prose or from a failed invocation
+# (GDA-DF-037/GDA-DF-032). The CROSS-FIELD rules are a narrower story: the
+# mouse-button phase is published too (`_MOUSE_BUTTON_PHASE_SCHEMA`), while the
+# one-clock rule, the modifier vocabulary and the window ceiling stay enforced
+# model-side only, as they were before this union.
+InputSequenceEvent = Annotated[
+    KeySequenceEvent
+    | MouseClickSequenceEvent
+    | MouseButtonSequenceEvent
+    | MouseMoveSequenceEvent
+    | ActionSequenceEvent,
+    Field(discriminator="type"),
+]
+
+# The union's members, READ OFF the union itself rather than re-listed: the
+# per-kind rejection asks which kinds accept a given field, and a hand-kept tuple
+# beside the union would be a second membership list — a sixth variant added to
+# one and not the other would vanish from every "is accepted on:" hint while every
+# test still passed. `InputSequenceEvent` is `Annotated[<union>, Field(...)]`, so
+# the first `get_args` unwraps the annotation and the second yields the members.
+_SEQUENCE_EVENT_MODELS: tuple[type[_SequenceEvent], ...] = get_args(
+    get_args(InputSequenceEvent)[0]
+)
 
 
 class InputSequenceParams(BaseModel):
@@ -768,13 +949,28 @@ def input_sequence(
         ...,
         "--events",
         help=(
+            # Both examples are spelled with a space after each ':' and ',' so the
+            # help renderer WRAPS them instead of ellipsizing an unbreakable
+            # word: the one-line form used to be cut off mid-example, which is
+            # not copyable. JSON ignores the extra whitespace.
             "The events to inject, as a JSON array of event objects, each with a "
-            "'type' (key/mouse_click/mouse_button/mouse_move/action), either a relative "
-            "'frame' harness/process-frame offset or a 'physics_frame' physics-clock "
-            "offset, and the type's fields (e.g. "
-            '\'[{"type":"mouse_button","x":10,"y":10,"pressed":true},'
-            '{"type":"mouse_move","x":40,"y":20,"frame":1},'
-            '{"type":"mouse_button","x":40,"y":20,"release":true,"frame":2}]\').'
+            "'type' (key, mouse_click, mouse_button, mouse_move or action), "
+            "either a "
+            "relative 'frame' harness/process-frame offset or a 'physics_frame' "
+            "physics-clock offset, and that type's own fields (--schema publishes "
+            "each type's required and forbidden fields). "
+            "Drag: "
+            '\'[{"type": "mouse_button", "x": 10, "y": 10, "pressed": true}, '
+            '{"type": "mouse_move", "x": 40, "y": 20, "frame": 1}, '
+            '{"type": "mouse_button", "x": 40, "y": 20, "release": true, '
+            '"frame": 2}]\'. '
+            # The action pair the mouse-only example left an agent to infer: an
+            # action presses by default and releases with 'release', never with
+            # the mouse-button kind's 'pressed' (GDA-DF-032).
+            "Action held for 10 process frames: "
+            '\'[{"type": "action", "action": "jump", "frame": 0}, '
+            '{"type": "action", "action": "jump", "release": true, '
+            '"frame": 10}]\'.'
         ),
     ),
     json_output: bool = json_option(),

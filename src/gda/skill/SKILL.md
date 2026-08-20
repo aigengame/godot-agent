@@ -17,7 +17,8 @@ gda <group> <command> [options] --json
 
 Exactly one JSON result is printed to **stdout**; all engine noise (warnings,
 progress, the engine banner) goes to **stderr**. Read stdout, ignore stderr unless
-debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
+debugging. `info` / `version` / `help` / `schema` / `skill` are top-level meta
+commands (no group).
 
 ## Setup
 
@@ -25,8 +26,11 @@ debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
 - **Project** — resolved by `--project DIR` → `$GDA_PROJECT` → the current
   directory; the directory must contain `project.godot`. Resolving a project runs
   that project's autoloads at engine startup.
-- **Projectless** — meta commands and file-path-only operations run with no
-  project; they resolve filesystem paths but not `res://`.
+- **Projectless** — file-path-only operations run with no project; they resolve
+  filesystem paths but not `res://`. Meta commands never *inherit* a project
+  (`$GDA_PROJECT`/cwd is ignored, so an invalid one cannot break them); `gda
+  info` still accepts an explicit `--project`, validated as anywhere else, while
+  the other meta commands take none.
 - **Provenance** — `gda --version --json` reports which `gda` is running: its
   version, the executable and interpreter paths, `package_path` (the directory the
   running code was imported from), `install_kind` (`wheel`, `editable`, or
@@ -60,6 +64,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | Exit | Meaning |
 | ---- | ------- |
 | `0`   | success |
+| `2`   | gda could not resolve what you asked for: `unknown_command`, `unknown_option` |
 | `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied` |
 | `124` | engine timed out |
 | `3`   | engine version too old |
@@ -67,40 +72,59 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | `5`   | could not parse the engine's output |
 | `6`   | live operation failed (e.g. `daemon_not_running`) |
 
+A command or option gda does not recognize is reported the same way — an
+`unknown_command` / `unknown_option` envelope at exit `2` — and when gda recognizes
+the mistake the envelope carries a `hint` naming the invocation to run instead
+(`{"error": {"code": "unknown_command", "hint": "gda scene get", …}}`). Re-issue the
+`hint`; when there is none, `gda schema` lists every command and
+`gda help <command>` describes one.
+
 Some commands carry a verdict inside a successful result. For
-`gda script validate --json`, read the result's `valid` field: a script that does
-not compile exits `0` with no top-level `error`, and reports `valid=false` plus
-`error_string` / `diagnostics`. Do not treat exit `0` or the absence of an Error
-envelope as a pass for this command. Check the result's `project_root` before you
-act on a `valid=false`: it names the project the script was compiled against, and
-a verdict full of missing-`res://` errors (plus the type errors derived from them)
-usually means the wrong project, not a broken script — `null` means no project was
-resolved at all. Pass `--project` for the project that owns the file and re-read
-the verdict.
+`gda script validate --json`, read the result's `valid` field: it is the AGGREGATE
+verdict over every script the call validated, `false` as soon as one of them fails.
+Each script's own verdict is an entry under `scripts` (`path`, `valid`,
+`error_string`, `diagnostics`). A script that does not compile exits `0` with no
+top-level `error`, so do not treat exit `0` or the absence of an Error envelope as a
+pass for this command. Validate the whole set you changed in ONE call —
+`gda script validate a.gd b.gd c.gd --json` uses a single engine launch, and
+`--all` validates every script in the project. Check the result's `project_root`
+before you act on a `valid=false`: it names the project the scripts were compiled
+against, and a verdict full of missing-`res://` errors (plus the type errors derived
+from them) usually means the wrong project, not a broken script — `null` means no
+project was resolved at all. Pass `--project` for the project that owns the files
+and re-read the verdict.
 
 ## Discovery
 
 - `gda --help` — every group.
 - `gda <group> --help` — a group's commands.
+- `gda help <group> <command>` — the same help from the command form; with `--json` it
+  comes back as `{command, text}`.
 - `gda <group> <command> --schema` — one command's input/output/error JSON Schema
-  (no Godot spawned).
-- `gda schema` — the **whole** surface as one JSON manifest.
+  (no Godot spawned), plus `argv`: how each parameter is written on a command line
+  (`kind` positional or option, its `position` or `--option` spelling, whether it is
+  `required`, a valueless `flag`, `multiple` — repeat it per value — or a
+  `json_value` — one token carrying the value's JSON). Build the command line from
+  `argv`; `input_property` links each binding to the input property it fills.
+- `gda schema` — the **whole** surface as one JSON manifest, `argv` included.
+- `gda version --json` — which `gda` is installed and where from; `gda info` — the
+  engine's version.
 
 **`--json` placement.** `gda --json <group> <command>` and `gda <group> <command> --json` mean the
 same thing — a root `--json` applies to the command it invokes — so either spelling works, as does
 both at once. `gda schema --json` is accepted too, and idempotent: the manifest is already JSON.
-Two limits: help output is always TEXT (`gda --json --help` returns the same help, never JSON), and
-two spellings are still usage errors (exit `2`) — `gda <group> --json` (a group's parser takes only
-`--help`; pass the flag to the command) and a bare `gda --json` with no command
-(`Missing command.`).
+Two limits: the `--help` FLAG always renders TEXT (`gda --json --help` returns the same help, never
+JSON — use `gda help <command> --json` for a structured payload), and two spellings are still usage
+errors (exit `2`) — `gda <group> --json` (a group's parser takes only `--help`; the structured
+refusal hints the command form) and a bare `gda --json` with no command (`Missing command.`).
 
 ## Headless commands (Godot 4.4+, all platforms)
 
 | Group | Commands |
 | ----- | -------- |
-| `scene` | `create`, `get`, `list`, `get-exports`, `delete` (`.tscn` files) |
+| `scene` | `create`, `get`, `list`, `get-exports`, `delete`, `validate`, `preflight` (`.tscn` files; `validate` is the STATIC verdict `get` does not give — a scene loads fine with its script and texture missing, so check dependencies resolve and attached scripts compile before trusting it; invalid exits 0 with `valid: false` plus one problem per problem file — staged: unresolved dependencies suppress the script compile/binding pass, so repair them and rerun for the rest. `preflight` is the DYNAMIC one: it boots the scene headless, waits for `_ready`, and reports `status` (`ready`/`not_ready`/`timeout`) plus the script errors seen during startup — read `started`. Passing `validate` is not "it works": check both) |
 | `node` | `add`, `get`, `list`, `set`, `remove`, `duplicate`, `move`, `connect-signal`, `disconnect-signal` (nodes within a scene) |
-| `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails) |
+| `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `validate` takes SEVERAL paths at once — one engine launch for the whole batch, one aggregate `valid` plus a per-file entry under `scripts` — or `--all` for every script in the project; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails; `--timeout <s>` sets the ceiling (default 120) and a run that reaches it fails with `launch_timeout` carrying the captured partial output, the elapsed seconds and a termination phase; add `--completion-marker <line>` naming a line your script prints when its work is done — a caller-declared liveness contract, not a death detector: gda ends the run once it observes a recognized error attributable to the entry script, no marker line yet, and then silence on both streams — `script_aborted` (exit 4) with the captured error, in seconds rather than at the ceiling; declaring the marker asserts the script keeps printing until that line, so have it print progress during quiet stretches longer than ~3s, or omit the marker) |
 | `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
 | `resource` | `create`, `get`, `set`, `delete`, `uid` (`.tres` files) |
 | `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
@@ -135,13 +159,19 @@ already-running daemon's lazy Engine-session launch; only the outer
 
 | Group | Commands |
 | ----- | -------- |
-| `daemon` | `start`, `stop`, `status`, `uninstall` (lifecycle; installs the in-game harness) |
+| `daemon` | `start`, `stop`, `status`, `install`, `uninstall` (lifecycle; `start` installs the in-game harness itself, so `install` is only for doing that step deliberately — e.g. to review or commit the `project.godot` change — and `uninstall` reverses it) |
 | `game` | `tree`, `get`, `rect`, `set` (the running game's runtime scene graph) |
 | `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |
 | `perf` | `monitors`, `monitor` (counters now / a property-or-signal timeline) |
 | `input` | `key`, `mouse-click`, `mouse-move`, `action`, `sequence` |
 | `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`) |
+
+`gda input sequence` events are a discriminated union on `type`: each kind accepts
+only its own fields, and `gda input sequence --schema` publishes them per kind. The
+press/release spelling differs by kind — `pressed` belongs to `mouse_button` alone,
+an `action` releases with `release`, a `key` with `released` — so read the kind's
+variant rather than assuming a shared shape.
 
 For `gda input sequence`, event `frame` offsets are the original
 harness/process-frame clock from the harness `_process` loop; they are not Godot's

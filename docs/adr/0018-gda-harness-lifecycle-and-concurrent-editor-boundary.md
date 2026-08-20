@@ -146,6 +146,30 @@ so two instances can touch the project at once.
 > its snapshot file list from the installer, so widening the uninstall does not make
 > `gda export run` delete a file its restore never puts back.
 
+> **Outcome (2026-08-18, #670) — `gda daemon install` exists after all; the
+> 2026-06-23 note above is superseded, and the lifecycle is symmetric again.** That
+> note removed the command on the grounds that there is no install-without-start use
+> case. Dogfooding found one that is not about starting anything (GDA-DF-024): an
+> agent looking for the harness step types the command decision 1 names, is told "no
+> such command", and cannot tell from the surface that gda installs a harness at all
+> — while `daemon start`'s own help mentions it only in passing. Two more reasons the
+> earlier note did not weigh: the install is the ONE mutation gda makes to a tracked
+> `project.godot`, and #654 made it self-reporting, so being able to perform and read
+> that mutation deliberately — to review or commit it — is a use of its own; and
+> `daemon uninstall` had no counterpart, which is what made the surface unguessable.
+>
+> The command is the same `install_harness` call `daemon start` performs, never a
+> second implementation, and it reports the same five facts (`installed_harness` /
+> `harness_synced` / `harness_version` / `created_paths` / `created_sections`). It is
+> transactional at its own boundary for the reason the #654 note gives for `start`:
+> the install is multi-step, so a config write that fails must not leave the
+> materialized harness behind. It is NOT refused while a daemon runs — installing over
+> a live daemon is exactly what a repeat `daemon start` does, and it takes nothing away
+> from the running session — which keeps the asymmetry that matters: `uninstall` alone
+> is refused there, because it yanks an autoload out from under a live session.
+> `daemon start` is unchanged and still installs implicitly, so nothing has to run
+> `install` first.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles

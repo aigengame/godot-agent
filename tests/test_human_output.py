@@ -104,6 +104,17 @@ HUMAN_CASES = [
         "deleted /tmp/proj/old.tscn (root old: Node2D)",
     ),
     (
+        # scene validate: the short form of the verdict. A VALID scene renders one
+        # line and no project — the root only ever explains a failure — which is also
+        # why this case needs no project fixture (#664). The invalid form, where the
+        # project line and the per-problem blocks appear, is pinned in
+        # tests/test_scene_validate_commands.py against a resolved project.
+        "scene-validate-valid",
+        ["scene", "validate", "/tmp/proj/main.tscn"],
+        {"path": "/tmp/proj/main.tscn", "valid": True, "problems": []},
+        "valid /tmp/proj/main.tscn",
+    ),
+    (
         # scene get-exports: a `path (Type)` header per node, then each export as
         # `name (Type) = value` — the value via format_value (float scalar, and
         # a Vector2 -> [x, y]).
@@ -389,7 +400,12 @@ HUMAN_CASES = [
         # script validate valid (already human-pinned elsewhere; for uniformity).
         "script-validate-valid",
         ["script", "validate", "/tmp/proj/ok.gd"],
-        {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None},
+        {
+            "valid": True,
+            "scripts": [
+                {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
+            ],
+        },
         "valid /tmp/proj/ok.gd",
     ),
     # --- export group -------------------------------------------------------

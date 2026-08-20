@@ -111,3 +111,144 @@ def test_script_set_dispatches_on_the_explicit_mode_not_param_presence(tmp_path)
     assert payload["extends"] == "Node2D"
     # The file was fully overwritten (full mode honored), not line-range edited.
     assert script.read_text(encoding="utf-8") == "class_name Hero\nextends Node2D\n"
+
+
+# --- script-validate's selector contract, below the CLI (#663) ---
+#
+# gda's own CLI refuses these selections before the engine is reached (the params
+# model owns the rule, ADR-0015), so these arms drive `operations.gd` directly —
+# which is what this module is for. The op is a contract in its own right
+# (ADR-0002): another caller of the payload must get the same refusal gda's CLI
+# gives, and with the same code, or the two sides of the wire disagree about what
+# a selection means.
+
+
+def _validate_failure(params: dict) -> Failure:
+    from gda.commands.script import ScriptValidateResult
+
+    result = SubprocessGodotRunner(GODOT).run("script-validate", params)
+    outcome = classify_run(result, GODOT, ScriptValidateResult)
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.category.value == "operation"
+    return outcome
+
+
+@pytest.mark.e2e
+def test_script_validate_refuses_both_selectors_at_the_op():
+    # "Both" is a contradiction, not a precedence question: all_scripts already
+    # covers every script, so silently letting it win would report a verdict for a
+    # set the caller did not ask for while discarding the one they named.
+    outcome = _validate_failure({"paths": ["res://a.gd"], "all_scripts": True})
+
+    assert outcome.error.code == "invalid_params"
+    assert "mutually exclusive" in outcome.error.message
+
+
+@pytest.mark.e2e
+def test_script_validate_refuses_an_empty_selection_at_the_op():
+    # The same failure the params model reports for the same selection, under the
+    # same code — one condition, one code, on both sides of the wire.
+    outcome = _validate_failure({"paths": [], "all_scripts": False})
+
+    assert outcome.error.code == "invalid_params"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("all_scripts", [None, "yes", [], {}, 1])
+def test_script_validate_refuses_a_non_boolean_all_scripts_at_the_op(all_scripts):
+    # GDScript's `bool(value)` is not total: a null, a String, an Array or a
+    # Dictionary makes it RAISE, which aborts _initialize before any sentinel is
+    # printed — so the caller got the generic operation_failed instead of a
+    # structured refusal naming the shape. The op type-checks the raw Variant
+    # first, exactly as it does for `paths`. (`1` is included because an int IS
+    # coercible: it must still be refused, since accepting one spelling of a
+    # boolean and not another is the kind of drift the wire contract exists to
+    # prevent.)
+    outcome = _validate_failure({"paths": [], "all_scripts": all_scripts})
+
+    assert outcome.error.code == "invalid_params"
+    assert "all_scripts" in outcome.error.message
+
+
+@pytest.mark.e2e
+def test_script_validate_separates_a_bad_params_shape_from_a_bad_path_value():
+    # The split the codes carry: a non-string entry is a params SHAPE problem
+    # (invalid_params, which is also what pydantic reports for it), while an empty
+    # string is a well-typed path VALUE that names nothing (invalid_path, like
+    # every other unusable path).
+    shape = _validate_failure({"paths": [123]})
+    value = _validate_failure({"paths": [""]})
+
+    assert shape.error.code == "invalid_params"
+    assert value.error.code == "invalid_path"
+
+
+# The scene-preflight frame budget, driven at the op (#664). gda's own CLI and its
+# params model refuse a non-positive budget before the engine is reached (ADR-0015),
+# so these arms drive `operations.gd` directly — the same reason the script-validate
+# selectors above are pinned here. The budget is the op's bound on its own main loop,
+# so a caller that could smuggle a nonsensical one past the refusal would be handing
+# the payload's frame cap a value it cannot honour.
+
+
+def _preflight_failure(params: dict) -> Failure:
+    from gda.commands.scene import ScenePreflightResult
+
+    result = SubprocessGodotRunner(GODOT).run("scene-preflight", params)
+    outcome = classify_run(result, GODOT, ScenePreflightResult)
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.category.value == "operation"
+    return outcome
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("frames", [None, "ten", [], {}, True])
+def test_scene_preflight_refuses_a_non_numeric_frame_budget_at_the_op(frames):
+    # GDScript's `int(value)` is not total either — and where it IS total it lies:
+    # `int("ten")` is 0, not an error, which would silently become a budget of zero
+    # frames. So the raw Variant is type-checked before coercion, exactly as
+    # script-validate does for `all_scripts`. (`true` is included for the same reason
+    # `1` is there: a bool coerces to 1 and must still be refused, since accepting a
+    # second spelling of a number is the drift the wire contract exists to prevent.)
+    outcome = _preflight_failure({"path": "res://any.tscn", "frames": frames})
+
+    assert outcome.error.code == "invalid_params"
+    assert "frames" in outcome.error.message
+
+
+@pytest.mark.e2e
+def test_scene_preflight_refuses_a_fractional_frame_budget_at_the_op():
+    # `int(1.5)` would silently truncate to a ONE-frame window (#720 review) — a
+    # silent shrink of the observation window is a verdict changer, not a rounding
+    # detail. Only a mathematically integral number names a frame count.
+    outcome = _preflight_failure({"path": "res://any.tscn", "frames": 1.5})
+
+    assert outcome.error.code == "invalid_params"
+    assert "whole number" in outcome.error.message
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("frames", [0, -1])
+def test_scene_preflight_refuses_a_non_positive_frame_budget_at_the_op(frames):
+    # A budget below one frame is a well-typed value that leaves the op with no way
+    # to answer at all: the verdict is recorded by the per-frame tick, and the frame
+    # cap is checked BEFORE the tick runs, so a zero-frame window quits without ever
+    # emitting a sentinel — the caller would get the generic operation_failed instead
+    # of a verdict or a reason. Refused up front rather than answered that way.
+    outcome = _preflight_failure({"path": "res://any.tscn", "frames": frames})
+
+    assert outcome.error.code == "invalid_params"
+    assert "frames" in outcome.error.message
+
+
+@pytest.mark.e2e
+def test_scene_preflight_requires_a_frame_budget_at_the_op():
+    # The window's default belongs to gda's params model, which every CLI invocation
+    # goes through. A second default here would be a second authority for one fact —
+    # and an unreachable one, free to disagree with the real default indefinitely. So
+    # the op requires the key instead of inventing a window for a caller that omitted
+    # it.
+    outcome = _preflight_failure({"path": "res://any.tscn"})
+
+    assert outcome.error.code == "invalid_params"
+    assert "frames is required" in outcome.error.message
