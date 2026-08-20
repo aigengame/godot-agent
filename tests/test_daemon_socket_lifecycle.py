@@ -374,3 +374,52 @@ def test_a_session_dying_mid_request_reports_disconnect_then_relaunches(
     assert len(launches) == 2
     # Every launch was asked to log to the one DaemonPaths-derived path (#674).
     assert launches == [paths.session_log, paths.session_log]
+
+
+def test_wait_ready_launches_once_and_reports_the_bounded_wait(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #657 over the real socket: the wait-ready op IS the first live op — it
+    # launches through the seam with the caller's bound as the harness-connect
+    # timeout and reports launched=true; a repeat while the session is alive is
+    # idempotent (launched=false, no relaunch).
+    launches: list = []
+    session = _ServedSession()
+
+    def _launch(*args, **kwargs):
+        launches.append(kwargs.get("timeout"))
+        return session
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        first = _request(paths, {"op": "daemon-wait-ready", "params": {"timeout": 7.5}})
+        again = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+
+    assert first is not None
+    verdict = parse_result(first["stdout"])
+    assert verdict == {"pid": os.getpid(), "launched": True}
+    assert again is not None
+    assert parse_result(again["stdout"])["launched"] is False
+    assert launches == [7.5]  # one launch, bounded by the caller's timeout
+
+
+def test_wait_ready_relays_the_typed_launch_failure(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # The wait shares the live ops' one launch boundary, so a failed launch is
+    # the same typed refusal a live op gets — not a bespoke wait-ready error.
+    def _launch(*args, **kwargs):
+        return None
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        reply = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+
+    assert reply is not None
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )

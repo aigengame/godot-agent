@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6c49dbe1f8202e9cfa46bc8fd79e1c78060238936b0d52e56ec01fd4f2f53e70 -->
+<!-- gda-readme-i18n: source=README.md sha256=3c57da598896485491b50b52cd19a411aecd42efff28a1242fe06c190f8e4462 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -549,6 +549,7 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 | Comando | Qué hace |
 | ------- | ------------ |
 | `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza en la primera operación live (`--windowed` para la captura de `screen`). |
+| `daemon wait-ready` | Establece la sesión del motor de lanzamiento perezoso y espera, con límite, hasta que las lecturas live sirvan — la forma documentada de ser la primera operación live, para que un primer `diag errors` justo después de `daemon start` no informe `engine_session_not_running`. |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
 | `daemon install` | Instala el harness `gda` dentro del proyecto sin iniciar un daemon, informando cada ruta y sección que creó. Idempotente, y resincroniza un harness de un `gda` anterior. `daemon start` ya lo hace por su cuenta, así que ejecútalo solo para realizar ese cambio en `project.godot` de forma deliberada — para revisarlo o confirmarlo. |

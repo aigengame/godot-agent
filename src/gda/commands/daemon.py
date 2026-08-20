@@ -47,10 +47,11 @@ from gda.daemon.discovery import (
 )
 from gda.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.protocol import read_message, write_message
-from gda.daemon.server import STATUS_OP, STOP_OP
-from gda.dispatch import dispatch_recipe
+from gda.daemon.server import STATUS_OP, STOP_OP, WAIT_READY_OP
+from gda.daemon.session import CONNECT_TIMEOUT
+from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import Failure, make_failure, unresolvable_binary_failure
-from gda.execution import MIN_LIVE_VERSION
+from gda.execution import MIN_LIVE_VERSION, ExecutionKind
 from gda.harness.install import (
     HarnessSnapshot,
     install_harness,
@@ -197,6 +198,52 @@ class DaemonStatusResult(BaseModel):
             "(alongside `running: false`), or a daemon is running (`running: true`) "
             "but its bounded STATUS_OP round trip missed transiently."
         ),
+    )
+
+
+class DaemonWaitReadyParams(BaseModel):
+    """The params of ``gda daemon wait-ready``: the bounded readiness wait (#657).
+
+    The daemon launches its engine session LAZILY on the first live op
+    (ADR-0017); this command is the explicit, bounded way to BE that first op.
+    ``timeout`` bounds the launch's harness-connect wait inside the daemon — not
+    a poll interval and not a sleep loop: one request, one launch, one answer.
+    """
+
+    timeout: float = Field(
+        default=CONNECT_TIMEOUT,
+        gt=0,
+        le=50,
+        allow_inf_nan=False,
+        description=(
+            "How many seconds to let the engine session's launch take — engine "
+            "boot, the project's autoloads, and the in-game harness connecting "
+            "back. Bounds the wait inside the daemon; when exhausted the reply "
+            "is 'engine_session_not_running' carrying the launch diagnostics. "
+            "Must be a finite number in (0, 50]: the live channel bounds the "
+            "whole request round trip at 60s client-side, so the wait has to "
+            f"resolve inside it. Defaults to {int(CONNECT_TIMEOUT)}."
+        ),
+    )
+
+
+class DaemonWaitReadyResult(BaseModel):
+    """The result of ``gda daemon wait-ready``: the engine session serves (#657).
+
+    Success IS the readiness contract: the session's harness has connected and
+    presented its token, so subsequent live reads — including a first ``gda diag
+    errors``, which deliberately never launches a session itself (ADR-0022) —
+    serve without a warm-up read.
+    """
+
+    pid: int = Field(description="The serving gda-daemon's process id.")
+    launched: bool = Field(
+        description=(
+            "Whether THIS call launched the engine session (true), or one was "
+            "already serving (false — idempotent, nothing was relaunched). "
+            "Sessions stay lazily launched (ADR-0017); this command is the "
+            "documented way to be the first live op."
+        )
     )
 
 
@@ -797,6 +844,12 @@ def render_daemon_status(status: "DaemonStatusResult") -> str:
     return "daemon not running"
 
 
+def render_daemon_wait_ready(ready: "DaemonWaitReadyResult") -> str:
+    """Render a `gda daemon wait-ready` outcome for humans."""
+    state = "launched now" if ready.launched else "already serving"
+    return f"engine session ready ({state}; daemon pid {ready.pid})"
+
+
 def render_daemon_install(installed: "DaemonInstallResult") -> str:
     """Render a `gda daemon install` outcome for humans.
 
@@ -903,6 +956,19 @@ DAEMON_STATUS_COMMAND: HeadlessCommand[DaemonStatusResult] = HeadlessCommand(
     output_model=DaemonStatusResult,
     render=render_daemon_status,
     recipe=_daemon_status_recipe,
+)
+
+# `wait-ready` is the group's one `kind = LIVE` command (#657): it routes through
+# the live channel — the daemon socket, `classify_live`, the 60s client bound —
+# like `diag errors` does, and is daemon-served rather than harness-relayed. The
+# rest of the group stays the recipe-run lifecycle family (ADR-0017); this one is
+# about the SESSION the daemon holds, which is exactly the live channel's object.
+DAEMON_WAIT_READY_COMMAND: HeadlessCommand[DaemonWaitReadyResult] = HeadlessCommand(
+    operation=WAIT_READY_OP,
+    input_model=DaemonWaitReadyParams,
+    output_model=DaemonWaitReadyResult,
+    render=render_daemon_wait_ready,
+    kind=ExecutionKind.LIVE,
 )
 
 DAEMON_INSTALL_COMMAND: HeadlessCommand[DaemonInstallResult] = HeadlessCommand(
@@ -1020,6 +1086,51 @@ def daemon_status(
     dispatch_recipe(
         DAEMON_STATUS_COMMAND,
         DaemonStatusParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="wait-ready", cls=DAEMON_WAIT_READY_COMMAND.command_class())
+def daemon_wait_ready(
+    timeout: float = typer.Option(
+        CONNECT_TIMEOUT,
+        "--timeout",
+        help=(
+            "Seconds to let the session launch take (engine boot + autoloads + "
+            "harness connect) before the daemon reports "
+            "'engine_session_not_running' with the launch diagnostics. A finite "
+            f"number in (0, 50]; defaults to {int(CONNECT_TIMEOUT)}."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = DAEMON_WAIT_READY_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Establish the engine session and wait, bounded, until live reads serve.
+
+    The daemon launches its engine session LAZILY on the first live op
+    (ADR-0017), so right after `gda daemon start` a read-only diagnostic like
+    `gda diag errors` reports `engine_session_not_running` — expected, not a
+    defect: a read must never be the thing that runs the project's code
+    (ADR-0022). This command is the documented way to be that first op
+    deliberately: it asks the daemon to launch the session — running the
+    project's autoloads and its scene, inside the trusted-project assumption
+    (ADR-0009) — and returns once the in-game harness has connected, after
+    which live reads (including a first `diag errors`) serve. Idempotent while
+    a session is alive: `launched: false`, nothing relaunched. With no daemon
+    it reports `daemon_not_running`; a launch that cannot complete within
+    `--timeout` reports `engine_session_not_running` with the launch
+    diagnostics.
+    """
+    # The params model owns the bounds (ADR-0015); this argv body only
+    # translates a model refusal into the Click usage error.
+    dispatch_domain(
+        DAEMON_WAIT_READY_COMMAND,
+        params_or_bad_parameter(DaemonWaitReadyParams, timeout=timeout),
         json_output=json_output,
         godot=godot,
         project=project,

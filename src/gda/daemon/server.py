@@ -39,6 +39,17 @@ DIAG_ERRORS_OP = "diag-errors"
 LOGGER_TAIL_OP = "logger-tail"
 LOG_OPS = (DIAG_ERRORS_OP, LOGGER_TAIL_OP)
 
+# The daemon-served readiness op (#657): `gda daemon wait-ready`. Like the LOG_OPS
+# it is answered by the daemon rather than relayed to the harness — but unlike
+# them it deliberately LAUNCHES the engine session (the documented, bounded way to
+# be ADR-0017's "first live op"), so it is not in their read-only family.
+WAIT_READY_OP = "daemon-wait-ready"
+
+# Every LIVE op the daemon answers ITSELF rather than relaying to the harness —
+# the single authority the cross-language op-table guard subtracts before
+# demanding a harness-side `const OP_…` mirror (PR #650 guards, #657).
+DAEMON_SERVED_OPS = (*LOG_OPS, WAIT_READY_OP)
+
 
 class SessionHandle(Protocol):
     """What the server consumes of a session (#723 review): a structural contract.
@@ -210,13 +221,56 @@ class DaemonServer:
             # reads the Session log it owns rather than relaying to the harness
             # (#224, #281).
             return self._handle_log(op, request.get("params", {}))
+        if op == WAIT_READY_OP:
+            # `gda daemon wait-ready` is daemon-served too (#657) — but unlike the
+            # LOG_OPS it deliberately LAUNCHES: it is the explicit, bounded way to
+            # establish the lazily-launched session (ADR-0017) so an agent's first
+            # real read serves.
+            return self._handle_wait_ready(request.get("params", {}))
         # A project live op. Serialized against the one session (single writer).
-        # The scene selector is verified ONCE at launch (in the harness): a mismatch
-        # is a typed live_scene_not_found, never a silent fall back to main_scene and
-        # never a per-request re-check (#278, ADR-0017 amendment, ADR-0020).
+        outcome = self._session_or_refusal()
+        if isinstance(outcome, dict):
+            return outcome
+        return outcome.request(op, request.get("params", {}))
+
+    def _handle_wait_ready(self, params: dict) -> dict:
+        """Establish the engine session and report readiness (#657).
+
+        The bounded-wait half of ADR-0017's lazy launch: sessions still launch
+        lazily on the first live op, and THIS op is the explicit way to be that
+        first op — its success means the harness has connected and presented its
+        token, so subsequent live reads (including a first ``diag errors``, which
+        never launches) serve. ``timeout`` bounds the launch's harness-connect
+        wait; an already-serving session returns immediately with
+        ``launched: false`` and is never relaunched.
+        """
+        already = self._session is not None and self._session.alive()
+        raw_timeout = params.get("timeout")
+        timeout = (
+            float(raw_timeout)
+            if isinstance(raw_timeout, (int, float))
+            and not isinstance(raw_timeout, bool)
+            else None
+        )
+        outcome = self._session_or_refusal(timeout=timeout)
+        if isinstance(outcome, dict):
+            return outcome
+        return result_reply({"pid": os.getpid(), "launched": not already})
+
+    def _session_or_refusal(
+        self, timeout: float | None = None
+    ) -> "SessionHandle | dict":
+        """The serving session, or the typed error reply for why there is none.
+
+        The one launch boundary every session-needing op goes through (#657
+        extracted it from the live-op branch so ``wait-ready`` shares it exactly).
+        The scene selector is verified ONCE at launch (in the harness): a mismatch
+        is a typed live_scene_not_found, never a silent fall back to main_scene and
+        never a per-request re-check (#278, ADR-0017 amendment, ADR-0020).
+        """
         launch_diagnostics: list[str] = []
         try:
-            session = self._ensure_session(launch_diagnostics)
+            session = self._ensure_session(launch_diagnostics, timeout=timeout)
         except SceneMismatch as mismatch:
             detail = (
                 f"no scene named {mismatch.requested!r} exists in the project"
@@ -257,7 +311,7 @@ class DaemonServer:
                 "or the engine died / the harness did not connect)",
                 diagnostics=self._launch_failure_diagnostics(launch_diagnostics),
             )
-        return session.request(op, request.get("params", {}))
+        return session
 
     def _handle_log(self, op: str, params: dict) -> dict:
         """Serve a daemon-side log op from the Session log this daemon owns (#224, #281).
@@ -307,7 +361,7 @@ class DaemonServer:
         return result_reply({"records": records})
 
     def _ensure_session(
-        self, diagnostics: list[str] | None = None
+        self, diagnostics: list[str] | None = None, timeout: float | None = None
     ) -> SessionHandle | None:
         if self._session is not None and self._session.alive():
             return self._session
@@ -348,6 +402,9 @@ class DaemonServer:
             self.paths.harness_socket,
             self._token,
             log_file=self.paths.session_log,
+            # A caller-bounded harness-connect wait (#657, `daemon wait-ready
+            # --timeout`); None keeps the launcher's own default.
+            timeout=timeout if timeout is not None else CONNECT_TIMEOUT,
             windowed=self.windowed,
             scene=self.scene,
             diagnostics=diagnostics,

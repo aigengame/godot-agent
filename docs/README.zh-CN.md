@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6c49dbe1f8202e9cfa46bc8fd79e1c78060238936b0d52e56ec01fd4f2f53e70 -->
+<!-- gda-readme-i18n: source=README.md sha256=3c57da598896485491b50b52cd19a411aecd42efff28a1242fe06c190f8e4462 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -517,6 +517,7 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | 命令 | 作用 |
 | ------- | ------------ |
 | `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话会在第一个 Live 操作时启动（`screen` 截图需加 `--windowed`）。 |
+| `daemon wait-ready` | 建立惰性启动的引擎会话并在有界等待内等到 Live 读取可服务——这是“第一个 Live 操作”的规范做法，如此 `daemon start` 之后的第一次 `diag errors` 就不会报 `engine_session_not_running`。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
 | `daemon install` | 在不启动 daemon 的情况下把游戏内 `gda` harness 安装进项目，并报告它创建的每个路径与配置段。幂等，并会把旧版 `gda` 装下的 harness 同步为当前版本。`daemon start` 自己就会执行这一步，因此只有在你想显式地做出这次 `project.godot` 改动（例如便于审阅或提交）时才需要它。 |

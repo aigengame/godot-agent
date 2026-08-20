@@ -839,8 +839,16 @@ headless is unaffected (4.4+, cross-platform).
   as a verbatim `info` record (the superseded `diag log` view, still `LogRecord[]`). Daemon-served
   and crash-survivable like `diag` (ADR-0022). The opt-in rich `gda_log()` protocol layers on in a
   follow-up slice (#282).
-- **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status`, and `gda daemon
-  install` / `uninstall` for the `gda harness` (ADR-0018). `daemon start --windowed` additionally
+- **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status` /
+  `wait-ready`, and `gda daemon install` / `uninstall` for the `gda harness` (ADR-0018).
+  `daemon wait-ready` (`kind = LIVE`, #657) establishes the lazily-launched engine session
+  deterministically: sessions launch on the first live op (ADR-0017), and the read-only
+  diag/logger reads never launch one (ADR-0022), so a first `diag errors` right after start
+  reports `engine_session_not_running` by design — `wait-ready` is the documented, bounded
+  way to be that first op. `--timeout` bounds the launch's harness-connect wait inside the
+  daemon (a finite number in (0, 50], under the live channel's 60s client-side round-trip
+  bound); success (`{pid, launched}`) means subsequent live reads serve, and a repeat while
+  the session is alive is idempotent (`launched: false`, nothing relaunched). `daemon start --windowed` additionally
   requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
   `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two
