@@ -45,6 +45,13 @@ def test_daemon_paths_are_deterministic_and_canonical_per_project(tmp_path):
     assert paths.cli_socket.parent == tmp_path / "run" / "gda"
     assert paths.pidfile.parent == tmp_path / "run" / "gda"
 
+    # The Session log is part of the same on-disk identity (#674): derived here
+    # beside the sockets — same runtime dir, same slug — so no consumer ever
+    # re-derives it from a socket filename.
+    assert paths.session_log.parent == tmp_path / "run" / "gda"
+    slug = paths.cli_socket.name.removesuffix(".cli.sock")
+    assert paths.session_log.name == f"{slug}.session.log"
+
 
 @pytest.mark.skipif(os.name != "posix", reason="pidfile liveness uses flock (UNIX)")
 def test_daemon_pid_requires_recorded_path_socket_and_held_lock(tmp_path):

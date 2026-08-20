@@ -368,7 +368,7 @@ def test_failed_launch_diagnostics_excludes_stale_session_log(
     # must NOT leak into the current failure's diagnostics. launch_session truncates
     # the log BEFORE spawning, so the tail reads EMPTY for a pre-logger abort.
     server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
-    log_path = server._session_log_path()
+    log_path = server.paths.session_log
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("STALE-PREVIOUS-SESSION-OUTPUT", encoding="utf-8")
 
