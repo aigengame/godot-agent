@@ -759,11 +759,12 @@ class ScriptRunParams(BaseModel):
             f"{DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS}s; lower it to fail fast. The "
             "envelope reports the value that was reached, the elapsed wall clock, "
             "the captured output (tail-capped, cap stated), and one termination "
-            "phase from the closed set 'launched' (the engine wrote nothing at "
-            "all), 'output_seen' (it was alive and did not finish) and "
-            "'aborted_on_error' (ended early by the rule below) — so a "
-            "slow-but-live run is distinguishable from a hang. Reported as prose "
-            "in the message, not as envelope fields (#655)."
+            "phase — 'launched' (the engine wrote nothing at all) or "
+            "'output_seen' (it was alive and did not finish) — so a "
+            "slow-but-live run is distinguishable from a hang. A run ended EARLY "
+            "by the completion-marker rule below is not this envelope: it "
+            "reports 'script_aborted', whose phase is 'aborted_on_error'. "
+            "Reported as prose in the message, not as envelope fields (#655)."
         ),
     )
     completion_marker: str | None = Field(
@@ -2277,10 +2278,11 @@ def run_script(
         help=(
             "Seconds to let the run take before gda ends it and reports "
             "'launch_timeout' with the captured output, the elapsed time and one "
-            "termination phase: 'launched' (the engine wrote nothing), "
-            "'output_seen' (alive but unfinished) or 'aborted_on_error' (ended by "
-            "--completion-marker). Raise it for a suite that outgrew the default; "
-            "lower it to fail fast."
+            "termination phase: 'launched' (the engine wrote nothing) or "
+            "'output_seen' (alive but unfinished). A run ended early by "
+            "--completion-marker reports 'script_aborted' (phase "
+            "'aborted_on_error') instead. Raise it for a suite that outgrew the "
+            "default; lower it to fail fast."
         ),
     ),
     completion_marker: Optional[str] = typer.Option(

@@ -590,13 +590,14 @@ mismatch, pending the ADR-0006 amendment tracked in #697.
 **`script run`** (ADR-0031, #655) is the pass-through channel: its *success* result is the run
 itself — the script's own `exit_status` (a deliberate non-zero `quit()` is data, not a gda
 failure; `--strict` opts into a `script_failed` error for exit-code gates) plus the captured
-`stdout`/`stderr` verbatim. `--timeout <s>` bounds the wall clock; a run gda has to end reports
-`launch_timeout` carrying the captured partial output, the elapsed seconds and a termination
-phase (`launched` / `output_seen` / `aborted_on_error`), so a slow suite is distinguishable
-from a hang. `--completion-marker <line>` declares a liveness contract — the script prints that
-line when its work is done — and a run that hit a recognized error attributable to the entry
-script, has not printed the marker, and then goes silent on both streams is ended in seconds
-and reported as `script_aborted` with the captured error. The script executes in full, within
+`stdout`/`stderr` verbatim. `--timeout <s>` bounds the wall clock; a run gda ends at that
+ceiling reports `launch_timeout` carrying the captured partial output, the elapsed seconds and
+a termination phase — `launched` (the engine wrote nothing at all) or `output_seen` (it was
+alive and did not finish) — so a slow suite is distinguishable from a hang.
+`--completion-marker <line>` declares a liveness contract — the script prints that line when
+its work is done — and a run that hit a recognized error attributable to the entry script, has
+not printed the marker, and then goes silent on both streams is ended in seconds and reported
+as `script_aborted` with the captured error and phase `aborted_on_error`. The script executes in full, within
 the trusted-project assumption (ADR-0009).
 
 ### `project`

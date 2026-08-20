@@ -320,8 +320,9 @@ added incrementally under ADR-0025 if a concrete need appears.
 > through at 3-4x the intended size, so a bound meant to keep the payload small did not) —
 > under the same `--- script stdout ---` /
 > `--- script stderr ---` labels `--strict` uses, plus the elapsed wall clock, one
-> **termination phase** from a closed set (`launched` / `output_seen` /
-> `aborted_on_error`), and the recognized script errors. Those errors are read with the
+> **termination phase** (`launched` / `output_seen` — the third phase of the closed
+> set, `aborted_on_error`, travels only on point 4's `script_aborted`, never on this
+> envelope), and the recognized script errors. Those errors are read with the
 > **existing** parser stack (`gda.engine_log` through `gda.script_errors`), so the lines
 > an agent sees on a timeout are the lines it sees on a completed run; nothing is parsed
 > twice in two ways. A capture whose errors would satisfy the point-1 never-ran verdict is
