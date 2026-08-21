@@ -131,6 +131,12 @@ separate release trains, and no hand-edited version anywhere.**
 > invisible to release-please's changelog. The first member release therefore
 > gets **hand-authored release notes** describing the schema core as a one-time
 > cost of the old discipline; every release after it is fully generated.
+>
+> **First-release changelog outcome (2026-08-21, #528):** the generated
+> `gda-balancing` 0.1.0 notes initially listed only the first releasing change,
+> #579. Closeout for #528 backfilled the repository changelog and the published
+> GitHub Release notes with the #502/#504 foundation summary promised above.
+> The tag, package artifacts, version, and release date did not change.
 
 
 - One ledger now spans both packages; neither `pyproject.toml`, the manifest,
