@@ -115,7 +115,7 @@ Do not expose these concepts in player UI or gameplay System interfaces:
 - Kernel or Language Definition Bundle;
 - Model Source Package or Experiment Specification;
 - Formula, Runtime, Event queue, logical time, or Snapshot;
-- Metric, artifact, identity, diagnostic, or provenance; and
+- Metric, artifact identity, content identity, diagnostic, or maintainer provenance; and
 - HTTP, readiness record, process capability token, Execution session, or Experiment
   revision.
 
@@ -144,8 +144,11 @@ Apply these rules:
 - Do not copy those files into a CLI or playtest delivery directory.
 - Do not generate a fixed case-data layer for Godot.
 - Do not add a playtest-only configuration authority or partial-update format.
-- Write edited Experiment Specifications and generated artifacts to a temporary or
-  run directory.
+- Keep player-derived Experiment Specification values, admitted Experiment revisions,
+  and returned artifact sets in memory by default on the live HTTP path.
+- If a playtest maintainer needs a persisted copy of a derived specification or
+  returned artifact for inspection, write it to a temporary or run directory. Do not
+  treat the copy as another authored authority.
 - For a player change to Experiment-owned input, derive a complete, immutable
   Experiment revision. Send the complete Experiment Specification value to the
   service, not an implicit patch.
@@ -253,8 +256,8 @@ Place reusable technical capabilities in Add-ons. Keep the gda-balancing client 
 neutral. Its public interface must not contain Reward, Combat, Effect, or other
 feature fields.
 
-A generic feedback-file Add-on can write JSON and return an absolute path. The
-feature Content still owns the questions and feedback meaning.
+A generic feedback-file Add-on can write an opaque JSON value and return an absolute
+path. It does not define or interpret feedback fields.
 
 ### Systems
 
@@ -265,9 +268,13 @@ Systems must not:
 
 - parse Model Source Package, Experiment Specification, HTTP, artifact, or artifact-set
   values;
-- store revision, identity, or provenance data;
+- store artifact identities, content identities, Execution handles, or maintainer
+  provenance;
 - recalculate a result that gda-balancing already produced; or
 - accept a universal Dictionary that includes technical fields.
+
+Content can project application-owned gameplay identifiers, such as actor, item, or
+reward keys. These identifiers are gameplay values, not Standard Schema identities.
 
 ### Content
 
@@ -285,7 +292,7 @@ owns:
 - validation of relationships that gameplay consumes;
 - projection into application-owned gameplay values;
 - atomic publication, failure, and retry flow;
-- feature-specific feedback; and
+- feature-specific feedback record shape and semantic mapping; and
 - maintainer provenance that remains hidden from players.
 
 Validate the complete relationship before Content publishes gameplay state. Field
@@ -294,8 +301,8 @@ presence and wire types do not prove that returned values agree with each other.
 ### UI
 
 UI owns player presentation and interaction: controls, state displays, copy,
-localization, input hints, settings, Tweens, feedback questions, and player-facing
-failure states.
+localization, input hints, settings, Tweens, feedback question wording and options,
+and player-facing failure states.
 
 Send application-changing actions through Content. Do not call the HTTP client from
 UI. Do not interpret Standard Schema data in UI.
@@ -417,16 +424,27 @@ Use the applicable evidence:
 - feedback file, clipboard, and absolute-path checks; and
 - a critical end-to-end test that starts from the real main scene.
 
-The critical path is:
+The bootstrap runs once:
+
+```text
+application bootstrap
+  -> create modules
+  -> inject dependencies
+  -> connect signals
+  -> hand off to Content
+```
+
+The runtime critical path is:
 
 ```text
 UI
-  -> application bootstrap
   -> Content
   -> gda-balancing Add-on
-  -> real local HTTP service
   -> exact Experiment revision
-  -> validated gameplay values
+  -> real local HTTP service
+  -> returned artifact set
+  -> Content relationship validation
+  -> application-owned gameplay values
   -> System and UI
   -> feedback
 ```
