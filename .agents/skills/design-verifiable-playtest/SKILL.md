@@ -149,9 +149,10 @@ Apply these rules:
 - If a playtest maintainer needs a persisted copy of a derived specification or
   returned artifact for inspection, write it to a temporary or run directory. Do not
   treat the copy as another authored authority.
-- For a player change to Experiment-owned input, derive a complete, immutable
-  Experiment revision. Send the complete Experiment Specification value to the
-  service, not an implicit patch.
+- For a player change to Experiment-owned input, derive and submit one complete,
+  immutable Experiment Specification value, not an implicit patch. Use the exact
+  Experiment revision returned by service admission for the later run. Do not derive
+  the revision identity in the client.
 - For a player change to a model definition, submit a complete Model Source Package
   and an initial Experiment Specification to create a new Execution session. Do not
   encode a model definition as an Experiment Specification override.
@@ -284,7 +285,8 @@ owns:
 - maintained source selection;
 - document loading;
 - classification of each player change by its authored authority;
-- projection of Experiment-owned input into complete Experiment revisions;
+- projection of Experiment-owned input into complete Experiment Specification values
+  for service admission;
 - submission of a complete Model Source Package and initial Experiment Specification
   to create a new Execution session for model-definition changes;
 - Execution session, Experiment revision, and run coordination;
@@ -343,10 +345,11 @@ the full screen.
 
 Identify the exact Model Source Package, Experiment Specifications, CLI entry, and
 playtest Content loader. Classify every adjustable value by its authored authority.
-State how Experiment-owned changes create complete Experiment revisions, how
-model-definition changes create a complete Model Source Package and a new Execution
-session with an initial Experiment Specification, and where temporary output goes.
-Remove any copied source or generated case authority.
+State how Experiment-owned changes create complete Experiment Specification values,
+how service admission returns exact Experiment revisions, how model-definition changes
+create a complete Model Source Package and a new Execution session with an initial
+Experiment Specification, and where temporary output goes. Remove any copied source
+or generated case authority.
 
 ### 3. Design the Modules and Data Path
 
@@ -376,8 +379,9 @@ build a workaround.
 The first slice must include a real launch, one player action, the authored source or
 declared input required for that action, one real service run, Content validation,
 System state application, visible UI feedback, and a natural continuation or
-completion point. Use an Experiment revision for Experiment-owned changes. Create a
-new Execution session when the Model Source Package changes.
+completion point. For an Experiment-owned change, create a complete Experiment
+Specification for admission, and run the exact Experiment revision that the service
+returns. Create a new Execution session when the Model Source Package changes.
 
 Add more choices, the complete flow, feedback, localization, and recovery in later
 working slices.
@@ -439,9 +443,11 @@ The runtime critical path is:
 ```text
 UI
   -> Content
+  -> complete Experiment Specification
   -> gda-balancing Add-on
+  -> real local service admission
   -> exact Experiment revision
-  -> real local HTTP service
+  -> real local service run
   -> returned artifact set
   -> Content relationship validation
   -> application-owned gameplay values
