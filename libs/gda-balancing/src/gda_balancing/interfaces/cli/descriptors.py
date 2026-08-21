@@ -67,6 +67,10 @@ class ConformanceFixtures:
     reaches a stable domain refusal without requiring a document fixture.
     Artifact-set sinks and invocation keys remain harness-projected.
 
+    ``prepare_args`` supplies a complete prepared option tail for a command
+    with several explicit input files. The callback receives the refusal-row
+    flag so one fixture authority can prepare both paths.
+
     ``valid_document`` and ``refusing_document`` are the Design-document
     fixtures for a document-taking command, given as **JSON document content,
     never a file path**: the harness materializes each to a tmp file and
@@ -88,6 +92,9 @@ class ConformanceFixtures:
     # declared public prerequisites inside the isolated conformance store.
     prepare_valid_document: Callable[[Path, int], str] | None = None
     prepare_verdict_document: Callable[[Path, int], str] | None = None
+    # Commands with several explicit file inputs may prepare their complete
+    # option tail instead of pretending one input is a privileged document.
+    prepare_args: Callable[[Path, int, bool], tuple[str, ...]] | None = None
     # A foreground descriptor supplies one valid readiness value for the
     # registry-walking lifecycle row. The real process/server path remains an
     # end-to-end test; this fixture proves descriptor dispatch and projection.

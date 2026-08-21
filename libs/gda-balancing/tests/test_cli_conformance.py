@@ -201,6 +201,7 @@ class TestPerDescriptorRows:
         if (
             descriptor.fixtures.refusing_document is None
             and not descriptor.fixtures.refusing_args
+            and descriptor.fixtures.prepare_args is None
         ):
             pytest.skip("no descriptor-owned refusing fixture")
         exit_code, stdout, stderr = run_cli(invocation(descriptor, refusing=True))
