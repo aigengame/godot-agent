@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://apps/combat_cast/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://ui/combat_cast/combat_cast_view.gd" id="2_view"]
+
+[node name="CombatCastApp" type="Node"]
+script = ExtResource("1_main")
+
+[node name="CombatCastView" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 0
+script = ExtResource("2_view")

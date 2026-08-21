@@ -2,6 +2,16 @@ extends Control
 
 const PlaytestShell = preload("res://ui/playtest_shell.gd")
 const RewardRunController = preload("res://content/reward_run/reward_run_controller.gd")
+const ENGLISH_TRANSLATION = preload(
+	"res://ui/reward_run/localization/reward_run.en.tres"
+)
+const CHINESE_TRANSLATION = preload(
+	"res://ui/reward_run/localization/reward_run.zh_CN.tres"
+)
+const TRIAL_OPTION_KEYS: Array[String] = ["TRIAL_1", "TRIAL_2", "NO_DIFFERENCE"]
+const TRIAL_OPTION_VALUES: Array[String] = ["Trial 1", "Trial 2", "No difference"]
+const CLARITY_OPTION_KEYS: Array[String] = ["VERY_CLEAR", "MOSTLY_CLEAR", "UNCLEAR"]
+const CLARITY_OPTION_VALUES: Array[String] = ["Very clear", "Mostly clear", "Unclear"]
 
 var _controller: RewardRunController
 var _last_phase := ""
@@ -22,9 +32,17 @@ var _player_block: ColorRect
 var _reward_panel: PanelContainer
 var _reward_name: Label
 var _reward_detail: Label
+var _preference_label: Label
+var _stronger_label: Label
+var _clarity_label: Label
+var _preference: OptionButton
+var _stronger: OptionButton
+var _clarity: OptionButton
 
 
 func _ready() -> void:
+	TranslationServer.add_translation(ENGLISH_TRANSLATION)
+	TranslationServer.add_translation(CHINESE_TRANSLATION)
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_shell = PlaytestShell.new()
 	_shell.name = "PlaytestShell"
@@ -32,13 +50,12 @@ func _ready() -> void:
 	_shell.setup(
 		"APP_TITLE",
 		"APP_SUBTITLE",
-		"FEEDBACK_STRONGER",
-		"FEEDBACK_CLARITY",
 	)
 	_shell.primary_action_requested.connect(_on_primary_action)
-	_shell.feedback_submitted.connect(_on_feedback_submitted)
+	_shell.feedback_save_requested.connect(_on_feedback_save_requested)
 	_shell.locale_changed.connect(_on_locale_changed)
 	_build_reward_presentation(_shell.feature_content())
+	_build_reward_feedback(_shell.feedback_content())
 
 
 func bind(controller: RewardRunController) -> void:
@@ -130,6 +147,22 @@ func _build_frequency_control(content: VBoxContainer) -> void:
 	_frequency_value.custom_minimum_size = Vector2(72, 36)
 	_frequency_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(_frequency_value)
+
+
+func _build_reward_feedback(content: VBoxContainer) -> void:
+	_preference_label = _make_label("", 15, Color("9fb0ca"))
+	content.add_child(_preference_label)
+	_preference = _make_options(TRIAL_OPTION_KEYS, TRIAL_OPTION_VALUES)
+	content.add_child(_preference)
+	_stronger_label = _make_label("", 15, Color("9fb0ca"))
+	content.add_child(_stronger_label)
+	_stronger = _make_options(TRIAL_OPTION_KEYS, TRIAL_OPTION_VALUES)
+	content.add_child(_stronger)
+	_clarity_label = _make_label("", 15, Color("9fb0ca"))
+	content.add_child(_clarity_label)
+	_clarity = _make_options(CLARITY_OPTION_KEYS, CLARITY_OPTION_VALUES)
+	content.add_child(_clarity)
+	_refresh_feedback_translations()
 
 
 func _render(state: Dictionary) -> void:
@@ -259,17 +292,12 @@ func _on_primary_action() -> void:
 			_controller.primary_action()
 
 
-func _on_feedback_submitted(
-	preference: String,
-	stronger_reward: String,
-	change_clarity: String,
-	notes: String,
-) -> void:
+func _on_feedback_save_requested(notes: String) -> void:
 	if _controller != null:
 		_controller.submit_feedback(
-			preference,
-			stronger_reward,
-			change_clarity,
+			str(_preference.get_item_metadata(_preference.selected)),
+			str(_stronger.get_item_metadata(_stronger.selected)),
+			str(_clarity.get_item_metadata(_clarity.selected)),
 			notes,
 		)
 
@@ -281,8 +309,20 @@ func _on_feedback_saved(payload: Dictionary, path: String) -> void:
 func _on_locale_changed(_locale_id: String) -> void:
 	_player_label.text = tr("PLAYER_LABEL")
 	_frequency_label.text = tr("FREQUENCY_LABEL")
+	_refresh_feedback_translations()
 	if not _last_state.is_empty():
 		_render(_last_state)
+
+
+func _refresh_feedback_translations() -> void:
+	if _preference_label == null:
+		return
+	_preference_label.text = tr("FEEDBACK_PREFERENCE")
+	_stronger_label.text = tr("FEEDBACK_STRONGER")
+	_clarity_label.text = tr("FEEDBACK_CLARITY")
+	_populate_options(_preference, TRIAL_OPTION_KEYS, TRIAL_OPTION_VALUES, 2)
+	_populate_options(_stronger, TRIAL_OPTION_KEYS, TRIAL_OPTION_VALUES, 2)
+	_populate_options(_clarity, CLARITY_OPTION_KEYS, CLARITY_OPTION_VALUES, 2)
 
 
 func _on_frequency_changed(value: float) -> void:
@@ -340,6 +380,31 @@ func _make_label(text: String, size: int, color: Color) -> Label:
 	label.modulate = color
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return label
+
+
+func _make_options(keys: Array[String], values: Array[String]) -> OptionButton:
+	var options := OptionButton.new()
+	_populate_options(options, keys, values, values.size() - 1)
+	return options
+
+
+func _populate_options(
+	options: OptionButton,
+	keys: Array[String],
+	values: Array[String],
+	default_index: int,
+) -> void:
+	var selected_value := ""
+	if options.item_count > 0 and options.selected >= 0:
+		selected_value = str(options.get_item_metadata(options.selected))
+	options.clear()
+	for index in range(keys.size()):
+		options.add_item(tr(keys[index]))
+		options.set_item_metadata(index, values[index])
+		if values[index] == selected_value:
+			options.selected = index
+	if selected_value.is_empty():
+		options.selected = default_index
 
 
 func _make_panel(color: Color) -> PanelContainer:

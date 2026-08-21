@@ -2,18 +2,9 @@ extends Control
 
 signal primary_action_requested
 signal locale_changed(locale_id: String)
-signal feedback_submitted(
-	preference: String,
-	stronger_choice: String,
-	change_clarity: String,
-	notes: String,
-)
+signal feedback_save_requested(notes: String)
 
 const PlaytestPreferences = preload("res://ui/playtest_preferences.gd")
-const TRIAL_OPTION_KEYS: Array[String] = ["TRIAL_1", "TRIAL_2", "NO_DIFFERENCE"]
-const TRIAL_OPTION_VALUES: Array[String] = ["Trial 1", "Trial 2", "No difference"]
-const CLARITY_OPTION_KEYS: Array[String] = ["VERY_CLEAR", "MOSTLY_CLEAR", "UNCLEAR"]
-const CLARITY_OPTION_VALUES: Array[String] = ["Very clear", "Mostly clear", "Unclear"]
 
 var _built := false
 var _preferences := PlaytestPreferences.new()
@@ -29,12 +20,7 @@ var _instruction: Label
 var _primary_button: Button
 var _feedback_panel: PanelContainer
 var _feedback_heading: Label
-var _preference_label: Label
-var _stronger_label: Label
-var _clarity_label: Label
-var _preference: OptionButton
-var _stronger: OptionButton
-var _clarity: OptionButton
+var _feedback_content: VBoxContainer
 var _notes_label: Label
 var _notes: TextEdit
 var _save_feedback_button: Button
@@ -42,8 +28,6 @@ var _feedback_status: Label
 var _input_hint: Label
 var _title_key := ""
 var _subtitle_key := ""
-var _stronger_question_key := ""
-var _clarity_question_key := ""
 var _mode := "play"
 var _feedback_path := ""
 
@@ -59,21 +43,21 @@ func _ready() -> void:
 func setup(
 	title_key: String,
 	subtitle_key: String,
-	stronger_question_key: String,
-	clarity_question_key: String,
 ) -> void:
 	_ensure_built()
 	_title_key = title_key
 	_subtitle_key = subtitle_key
-	_stronger_question_key = stronger_question_key
-	_clarity_question_key = clarity_question_key
-	_build_feedback_panel()
 	_refresh_translations()
 
 
 func feature_content() -> VBoxContainer:
 	_ensure_built()
 	return _feature_content
+
+
+func feedback_content() -> VBoxContainer:
+	_ensure_built()
+	return _feedback_content
 
 
 func show_play(
@@ -219,6 +203,7 @@ func _ensure_built() -> void:
 	_feedback_panel.name = "FeedbackPanel"
 	_feedback_panel.visible = false
 	column.add_child(_feedback_panel)
+	_build_feedback_panel()
 
 	_feedback_status = _make_label("", 15, Color("59d7c6"))
 	_feedback_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -282,18 +267,10 @@ func _build_feedback_panel() -> void:
 	_feedback_heading = _make_label("", 24, Color("ffffff"))
 	_feedback_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(_feedback_heading)
-	_preference_label = _make_label("", 15, Color("9fb0ca"))
-	column.add_child(_preference_label)
-	_preference = _make_options(TRIAL_OPTION_KEYS, TRIAL_OPTION_VALUES)
-	column.add_child(_preference)
-	_stronger_label = _make_label("", 15, Color("9fb0ca"))
-	column.add_child(_stronger_label)
-	_stronger = _make_options(TRIAL_OPTION_KEYS, TRIAL_OPTION_VALUES)
-	column.add_child(_stronger)
-	_clarity_label = _make_label("", 15, Color("9fb0ca"))
-	column.add_child(_clarity_label)
-	_clarity = _make_options(CLARITY_OPTION_KEYS, CLARITY_OPTION_VALUES)
-	column.add_child(_clarity)
+	_feedback_content = VBoxContainer.new()
+	_feedback_content.name = "FeatureFeedback"
+	_feedback_content.add_theme_constant_override("separation", 10)
+	column.add_child(_feedback_content)
 	_notes_label = _make_label("", 15, Color("9fb0ca"))
 	column.add_child(_notes_label)
 	_notes = TextEdit.new()
@@ -306,41 +283,10 @@ func _build_feedback_panel() -> void:
 	_save_feedback_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_save_feedback_button.pressed.connect(_submit_feedback)
 	column.add_child(_save_feedback_button)
-	_refresh_translations()
 
 
 func _submit_feedback() -> void:
-	feedback_submitted.emit(
-		str(_preference.get_item_metadata(_preference.selected)),
-		str(_stronger.get_item_metadata(_stronger.selected)),
-		str(_clarity.get_item_metadata(_clarity.selected)),
-		_notes.text,
-	)
-
-
-func _make_options(keys: Array[String], values: Array[String]) -> OptionButton:
-	var options := OptionButton.new()
-	_populate_options(options, keys, values, values.size() - 1)
-	return options
-
-
-func _populate_options(
-	options: OptionButton,
-	keys: Array[String],
-	values: Array[String],
-	default_index: int,
-) -> void:
-	var selected_value := ""
-	if options.item_count > 0 and options.selected >= 0:
-		selected_value = str(options.get_item_metadata(options.selected))
-	options.clear()
-	for index in range(keys.size()):
-		options.add_item(tr(keys[index]))
-		options.set_item_metadata(index, values[index])
-		if values[index] == selected_value:
-			options.selected = index
-	if selected_value.is_empty():
-		options.selected = default_index
+	feedback_save_requested.emit(_notes.text)
 
 
 func _on_resolution_selected(index: int) -> void:
@@ -371,15 +317,9 @@ func _refresh_translations() -> void:
 		_progress_label.text = tr("TRIAL_LABEL")
 	if _feedback_heading != null:
 		_feedback_heading.text = tr("FEEDBACK_HEADING")
-		_preference_label.text = tr("FEEDBACK_PREFERENCE")
-		_stronger_label.text = tr(_stronger_question_key)
-		_clarity_label.text = tr(_clarity_question_key)
 		_notes_label.text = tr("OPTIONAL_NOTES")
 		_notes.placeholder_text = tr("NOTES_PLACEHOLDER")
 		_save_feedback_button.text = tr("SAVE_COPY_FEEDBACK")
-		_populate_options(_preference, TRIAL_OPTION_KEYS, TRIAL_OPTION_VALUES, 2)
-		_populate_options(_stronger, TRIAL_OPTION_KEYS, TRIAL_OPTION_VALUES, 2)
-		_populate_options(_clarity, CLARITY_OPTION_KEYS, CLARITY_OPTION_VALUES, 2)
 	if _mode == "play":
 		_input_hint.text = tr("MOUSE_PLAY_HINT")
 	elif _mode == "feedback":

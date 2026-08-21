@@ -1,9 +1,11 @@
 extends "res://tests/playtest_test_case.gd"
 
-const RewardFeedbackRecorder = preload(
-	"res://content/reward_run/reward_feedback_recorder.gd"
+const PlaytestFeedbackFile = preload(
+	"res://addons/playtest_feedback_file/playtest_feedback_file.gd"
 )
 const RewardRun = preload("res://systems/reward_run.gd")
+const CombatDuel = preload("res://systems/combat_duel.gd")
+const PeriodicEffectTimeline = preload("res://systems/periodic_effect_timeline.gd")
 const PlaytestPreferences = preload("res://ui/playtest_preferences.gd")
 
 func _init() -> void:
@@ -13,6 +15,8 @@ func _init() -> void:
 	_test_feedback([rare_trial, common_trial])
 	_test_reward_run(rare_trial, 1)
 	_test_reward_run(common_trial, 3)
+	_test_combat_duel()
+	_test_periodic_effect_timeline()
 	_test_player_preferences()
 	_finish()
 
@@ -81,19 +85,20 @@ func _test_player_preferences() -> void:
 
 
 func _test_feedback(trials: Array[Dictionary]) -> void:
-	var feedback := RewardFeedbackRecorder.new(
-		"user://reward_run_feedback_test.json"
-	)
+	var feedback := PlaytestFeedbackFile.new()
 	var result := feedback.save(
+		"user://reward_run_feedback_test.json",
 		{
 			"change_clarity": "Very clear",
+			"created_at": "2026-08-17T00:00:00Z",
 			"feedback_kind": "hitl-product-feedback",
 			"notes": "Readable",
 			"preference": "Trial 1",
+			"schema_version": 1,
 			"stronger_reward": "Trial 1",
 			"tracking_issue": 585,
+			"trials": trials,
 		},
-		trials,
 	)
 	_expect(not result.is_empty(), "feedback is persisted")
 	_expect(result.get("payload", {}).get("schema_version") == 1, "feedback is framed")
@@ -119,3 +124,82 @@ func _test_reward_run(trial: Dictionary, expected_reward_hits: int) -> void:
 	for unused in expected_reward_hits:
 		run.primary_action()
 	_expect(run.snapshot()["phase"] == "run_complete", "reward clears second target")
+
+
+func _test_combat_duel() -> void:
+	var duel := CombatDuel.new()
+	duel.start(
+		{
+			"enemy_health": 100,
+			"enemy_mana": 30,
+			"player_health": 100,
+			"player_mana": 35,
+		}
+	)
+	_expect(duel.snapshot()["phase"] == "ready", "duel starts ready")
+	duel.present_action(
+		{
+			"actor": "player",
+			"damage": 37,
+			"mana_cost": 9,
+			"terminal": {
+				"enemy_health": 63,
+				"enemy_mana": 30,
+				"player_health": 100,
+				"player_mana": 26,
+			},
+		}
+	)
+	_expect(duel.snapshot()["mana_cost"] == 9, "duel presents the validated mana cost")
+	_expect(
+		duel.snapshot()["combatants"]["enemy_health"] == 63,
+		"duel presents the validated player result",
+	)
+	duel.present_action(
+		{
+			"actor": "enemy",
+			"damage": 14,
+			"mana_cost": 7,
+			"terminal": {
+				"enemy_health": 63,
+				"enemy_mana": 23,
+				"player_health": 86,
+				"player_mana": 26,
+			},
+		}
+	)
+	_expect(
+		duel.snapshot()["combatants"]["player_health"] == 86,
+		"duel presents the validated enemy result",
+	)
+	_expect(duel.snapshot()["phase"] == "enemy_resolved", "duel continues")
+	_expect(not duel.snapshot().has("provenance"), "duel owns gameplay values only")
+
+
+func _test_periodic_effect_timeline() -> void:
+	var timeline := PeriodicEffectTimeline.new()
+	timeline.start(
+		{
+			"timeline": [
+				{"damage": 0, "effect_active": true, "health": 100, "phase": "apply"},
+				{"damage": 15, "effect_active": true, "health": 85, "phase": "pulse"},
+				{"damage": 10, "effect_active": true, "health": 75, "phase": "attack"},
+				{"damage": 0, "effect_active": true, "health": 75, "phase": "pulse"},
+				{"damage": 0, "effect_active": false, "health": 75, "phase": "expire"},
+			],
+			"trial_kind": "dynamic",
+		}
+	)
+	_expect(timeline.snapshot()["lifecycle_phase"] == "apply", "Effect starts at apply")
+	for expected in ["pulse", "attack", "pulse", "expire"]:
+		timeline.primary_action()
+		_expect(
+			timeline.snapshot()["lifecycle_phase"] == expected,
+			"Effect presents the validated %s step" % expected,
+		)
+	timeline.primary_action()
+	_expect(timeline.snapshot()["phase"] == "trial_complete", "Effect trial completes")
+	_expect(
+		not timeline.snapshot().has("provenance"),
+		"Effect timeline owns gameplay values only",
+	)

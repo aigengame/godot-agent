@@ -8,8 +8,8 @@ const RewardRunDocuments = preload(
 	"res://content/reward_run/reward_run_documents.gd"
 )
 const RewardTrial = preload("res://content/reward_run/reward_trial.gd")
-const RewardFeedbackRecorder = preload(
-	"res://content/reward_run/reward_feedback_recorder.gd"
+const PlaytestFeedbackFile = preload(
+	"res://addons/playtest_feedback_file/playtest_feedback_file.gd"
 )
 const RewardRun = preload("res://systems/reward_run.gd")
 const FEEDBACK_PATH := "user://reward_run_feedback.json"
@@ -25,8 +25,8 @@ var last_feedback_path := ""
 var _client: Node
 var _executable_path := ""
 var _documents := RewardRunDocuments.new()
-var _feedback := RewardFeedbackRecorder.new(FEEDBACK_PATH)
-var _run := RewardRun.new()
+var _feedback := PlaytestFeedbackFile.new()
+var _run: RewardRun
 var _model_source: Dictionary = {}
 var _baseline_experiment: Dictionary = {}
 var _reward_frequency: Dictionary = {}
@@ -37,16 +37,15 @@ var _last_state: Dictionary = {}
 var _busy := false
 
 
-func _init() -> void:
-	_run.state_changed.connect(_on_run_state_changed)
-
-
 func configure(
 	client: Node,
 	executable_path: String,
+	run: RewardRun,
 ) -> void:
 	_client = client
 	_executable_path = executable_path
+	_run = run
+	_run.state_changed.connect(_on_run_state_changed)
 
 
 func start() -> Dictionary:
@@ -175,15 +174,18 @@ func submit_feedback(
 	for trial in _trials:
 		trial_records.append(trial.feedback_record())
 	var result := _feedback.save(
+		FEEDBACK_PATH,
 		{
 			"change_clarity": change_clarity,
+			"created_at": Time.get_datetime_string_from_system(true),
 			"feedback_kind": "hitl-product-feedback",
 			"notes": notes.strip_edges(),
 			"preference": preference,
+			"schema_version": 1,
 			"stronger_reward": stronger_reward,
 			"tracking_issue": 585,
+			"trials": trial_records.duplicate(true),
 		},
-		trial_records,
 	)
 	if result.is_empty():
 		return {}

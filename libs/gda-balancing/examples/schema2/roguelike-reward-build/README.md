@@ -1,5 +1,8 @@
 # Seeded Roguelike reward and build tuning
 
+[Schema 2.x examples](../README.md) · [CLI index](../cli/README.md) · [Reward Run
+playtest](../playtest/README.md#reward-run)
+
 This tutorial runs one reward-selection and build-replacement loop through the public Standard
 Schema 2.x path:
 
@@ -31,9 +34,31 @@ template-support, Core Extension Invariance, or cross-genre claim.
 ## Player-facing playtest
 
 This CLI tutorial remains the exact maintainer workflow and provenance source. Players use the
-[Reward Run Godot product](../playtest/README.md) instead. The playable product presents the same
-baseline and tuned reward/build outcomes as two short trials without exposing Standard Schema or
-CLI concepts.
+[Reward Run Godot application](../playtest/README.md#reward-run) instead. The playable presents the
+same baseline and tuned reward/build outcomes as two short trials without exposing Standard Schema
+or CLI concepts. From `libs/gda-balancing`, run:
+
+```bash
+GDA_GODOT=/absolute/path/to/godot \
+  examples/schema2/playtest/scripts/run_reward_run.sh
+```
+
+Reward Content reads this directory's `model-source.json` and `experiment.json` directly. Each
+frequency change creates and submits a complete Experiment value. Content validates the returned
+reward and build relationships before it publishes gameplay values. The System does not select a
+reward or calculate build power. Technical artifact identities remain in Content and appear only
+as opaque maintainer provenance in the saved feedback payload.
+
+Run the real player path with an isolated writable `user://` root:
+
+```bash
+export PLAYTEST_USER_DATA_ROOT="$(mktemp -d /tmp/gda-playtest-reward.XXXXXX)"
+PATH="$PWD/.venv/bin:$PATH" \
+  uv run --directory ../.. --frozen gda \
+  --user-data-root "$PLAYTEST_USER_DATA_ROOT" \
+  script run res://tests/test_reward_run_main_live.gd \
+  --project "$PWD/examples/schema2/playtest" --json
+```
 
 ## 1. Prepare an isolated run
 

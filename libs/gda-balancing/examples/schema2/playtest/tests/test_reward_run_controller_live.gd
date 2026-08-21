@@ -6,6 +6,7 @@ const GdaExecutionClient = preload(
 const RewardRunController = preload(
 	"res://content/reward_run/reward_run_controller.gd"
 )
+const RewardRun = preload("res://systems/reward_run.gd")
 
 func _init() -> void:
 	super()
@@ -21,6 +22,7 @@ func _run() -> void:
 	controller.configure(
 		client,
 		executable,
+		RewardRun.new(),
 	)
 	var started: Dictionary = await controller.start()
 	_expect(started.get("ok", false), "live Reward Run prepares")

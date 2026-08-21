@@ -1,5 +1,8 @@
 # Reciprocal RPG combat through ordered Runtime Events
 
+[Schema 2.x examples](../README.md) · [CLI index](../cli/README.md) · [Arcane Duel
+playtest](../playtest/README.md#arcane-duel)
+
 This tutorial runs one Standard Schema 2.x combat example through the public CLI:
 
 ```text
@@ -44,6 +47,44 @@ The files are:
 This example demonstrates one bounded reciprocal exchange and explicit defeat/action-eligibility
 policy. It does not define a complete RPG, Action lifecycle, turn order, interruption, revival,
 Replay, Evidence, or general same-logical-time combat contract.
+
+## Player-facing playtest
+
+This document remains the exact maintainer workflow. Players can experience the same reciprocal
+combat through the [Arcane Duel Godot application](../playtest/README.md#arcane-duel). From
+`libs/gda-balancing`, run:
+
+```bash
+GDA_GODOT=/absolute/path/to/godot \
+  examples/schema2/playtest/scripts/run_combat_cast.sh
+```
+
+The player selects a spell style and rival strength, then trades casts until one mage is defeated.
+Every cast is a complete Experiment revision that starts from the prior validated health and mana.
+The UI shows red HP bars, blue MP bars, returned damage, and MP cost. It enters the terminal screen
+only when the authored combat Operation returns `target-defeated`; it does not calculate defeat.
+The player can restart or save feedback from that terminal screen.
+
+Combat Content reads this directory's `model-source.json` and `experiment.json` directly. It sends
+complete Experiment values to the local service and validates returned order, outcome, damage,
+health, and mana before it publishes an action to Godot. The System does not calculate combat.
+Technical artifact identities remain in Content and appear only as opaque maintainer provenance in
+the saved feedback payload.
+
+Run the real player path with an isolated writable `user://` root:
+
+```bash
+export PLAYTEST_USER_DATA_ROOT="$(mktemp -d /tmp/gda-playtest-combat.XXXXXX)"
+PATH="$PWD/.venv/bin:$PATH" \
+  uv run --directory ../.. --frozen gda \
+  --user-data-root "$PLAYTEST_USER_DATA_ROOT" \
+  script run res://tests/test_combat_cast_main_live.gd \
+  --project "$PWD/examples/schema2/playtest" --json
+```
+
+The consecutive-revision tracer is
+`res://tests/test_combat_consecutive_revisions_live.gd`. It proves the exact state handoff before
+the UI path consumes it.
 
 ## 1. Prepare an isolated run
 

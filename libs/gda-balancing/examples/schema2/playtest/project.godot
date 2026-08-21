@@ -10,8 +10,8 @@ config_version=5
 
 [application]
 
-config/name="Reward Run"
-run/main_scene="res://main.tscn"
+config/name="gda-balancing Playtests"
+run/main_scene="res://apps/reward_run/main.tscn"
 config/features=PackedStringArray("4.6")
 
 [display]
