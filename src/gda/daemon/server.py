@@ -13,6 +13,7 @@ import os
 import secrets
 import signal
 import socket
+import time
 from pathlib import Path
 from typing import Callable, NamedTuple, Optional, Protocol
 
@@ -76,7 +77,7 @@ class SessionHandle(Protocol):
 
     def request(self, operation: str, params: dict) -> dict: ...
 
-    def close(self) -> None: ...
+    def close(self, grace: float = ...) -> None: ...
 
 
 class _Established(NamedTuple):
@@ -418,8 +419,21 @@ class DaemonServer:
     ) -> "_Established | None":
         if self._session is not None and self._session.alive():
             return _Established(self._session, launched=False)
+        # ONE deadline for everything this boundary does on the caller's clock
+        # (#725 re-review): retiring the session it is replacing AND launching the
+        # replacement. Retirement is not free — a stale session's engine may ignore
+        # SIGTERM — and charging it to nobody let a `wait-ready --timeout 0.3` spend
+        # 5s here before the launch it was bounding even began, with the
+        # single-threaded serve loop blocked for all of it. Each phase gets only
+        # what the previous one left.
+        budget = timeout if timeout is not None else CONNECT_TIMEOUT
+        deadline = time.monotonic() + budget
+
+        def _left() -> float:
+            return max(deadline - time.monotonic(), 0.0)
+
         if self._session is not None:
-            self._session.close()
+            self._session.close(_left())
             self._session = None
         if not self.godot:
             return None
@@ -456,8 +470,9 @@ class DaemonServer:
             self._token,
             log_file=self.paths.session_log,
             # A caller-bounded readiness-handshake wait (#657, `daemon wait-ready
-            # --timeout`); None keeps the launcher's own default.
-            timeout=timeout if timeout is not None else CONNECT_TIMEOUT,
+            # --timeout`); None means the launcher's own default is the budget.
+            # What arrives here is what retiring the previous session left of it.
+            timeout=max(_left(), 0.001),
             windowed=self.windowed,
             scene=self.scene,
             diagnostics=diagnostics,

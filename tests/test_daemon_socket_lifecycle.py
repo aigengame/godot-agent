@@ -36,19 +36,46 @@ from gda.daemon.discovery import (
     daemon_pid,
     read_pidfile,
 )
-from gda.daemon.protocol import read_message, write_message
+from gda.daemon.protocol import read_message, write_frame, write_message
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
-from gda.daemon.session import EngineSession, launch_session
+from gda.daemon.session import EngineSession, _terminate, launch_session
 from gda.errors import Failure
 from gda.parser import parse_result
+from tests.support import no_engine_teardown
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
+_REAL_POPEN = subprocess.Popen
+
 
 # A stand-in engine that survives SIGTERM, so a teardown's escalation is observable.
+# It announces itself: the handler is installed by the CHILD, so a SIGTERM that
+# arrives during interpreter startup still kills it by the default disposition —
+# a teardown test that raced the startup would exercise the ordinary path and
+# prove nothing (observed: `_terminate` 1ms after spawn returned -15, not -9).
 _IGNORES_SIGTERM = (
-    "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+    "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+    "print('ready', flush=True); time.sleep(60)"
 )
+
+
+def _stubborn_child(**kwargs) -> subprocess.Popen:
+    """Spawn the SIGTERM-ignoring stand-in and return it only once it IS stubborn.
+
+    Bound to the REAL ``Popen``: a test that fakes the launch spawn patches
+    ``subprocess.Popen`` itself, and spawning through the patched name would
+    recurse.
+    """
+    kwargs.pop("stdout", None)
+    proc = _REAL_POPEN(
+        [sys.executable, "-c", _IGNORES_SIGTERM],
+        stdout=subprocess.PIPE,
+        text=True,
+        **kwargs,
+    )
+    assert proc.stdout is not None
+    assert proc.stdout.readline().strip() == "ready"
+    return proc
 
 
 def _project(tmp_path: Path) -> Path:
@@ -80,8 +107,9 @@ class _ServedSession:
     def request(self, operation: str, params: dict) -> dict:
         return {"stdout": f"served:{operation}", "stderr": "", "exit_code": 0}
 
-    def close(self) -> None:
+    def close(self, grace: float = 0.0) -> None:
         self.closed = True
+        self.close_grace = grace
 
 
 def _request(paths, payload: dict, timeout: float = 5.0):
@@ -409,7 +437,12 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
     assert verdict == {"pid": os.getpid(), "launched": True}
     assert again is not None
     assert parse_result(again["stdout"])["launched"] is False
-    assert launches == [7.5]  # one launch, bounded by the caller's timeout
+    # One launch, bounded by the caller's timeout — and by no more than it: what
+    # reaches the launcher is what the shared deadline has left after retiring the
+    # session being replaced (#725 re-review), which here is nearly all of it
+    # because there was nothing to retire.
+    assert len(launches) == 1
+    assert 7.4 < launches[0] <= 7.5
 
 
 def test_wait_ready_relays_the_typed_launch_failure(
@@ -440,7 +473,7 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     # and then never speaks used to block the token read forever — here the
     # REAL launch_session must give up within the bound and record why.
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _Proc(code=None))
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc, grace=0.0: None)
+    no_engine_teardown(monkeypatch)
     paths = daemon_paths(_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -471,6 +504,136 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     assert any("no auth token" in reason for reason in diagnostics)
 
 
+@pytest.mark.parametrize("frame", ["token", "verification"])
+def test_a_trickling_handshake_peer_cannot_hold_the_launch_past_the_deadline(
+    tmp_path, daemon_runtime_dir, monkeypatch, frame
+):
+    # #725 re-review finding 1: silence is not the only way to hold the reader.
+    # A socket timeout bounds each recv, so a peer that sends ONE BYTE just
+    # inside it restarts the clock on every chunk and the frame never ends. Both
+    # handshake frames are read in chunks, so both are exposed; the deadline has
+    # to be recomputed per recv, not set once per frame. Measured before the fix
+    # at a 0.04s/byte trickle on a 0.05s bound: 0.7s for the token frame, 2.1s
+    # for the verification frame — and the trickle rate is the peer's to choose.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _Proc(code=None))
+    no_engine_teardown(monkeypatch)
+    paths = daemon_paths(_project(tmp_path))
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(paths.harness_socket))
+    listener.listen()
+    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    peer.connect(str(paths.harness_socket))
+
+    def _trickle() -> None:
+        if frame == "verification":
+            write_frame(peer, b"expected-token")  # the token frame arrives whole
+            body = b'{"scene_ok": true, "current": "res://main.tscn"}'
+        else:
+            body = b"expected-token"
+        wire = len(body).to_bytes(4, "big") + body
+        for byte in wire:  # each byte lands inside the 0.05s bound, resetting it
+            try:
+                peer.sendall(bytes([byte]))
+            except OSError:
+                return
+            time.sleep(0.04)
+
+    trickler = threading.Thread(target=_trickle, daemon=True)
+    trickler.start()
+    started = time.monotonic()
+    try:
+        outcome = launch_session(
+            paths.project,
+            "godot",
+            listener,
+            paths.harness_socket,
+            "expected-token",
+            timeout=0.05,
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        peer.close()
+        listener.close()
+        trickler.join(timeout=5)
+
+    assert outcome is None
+    assert elapsed < 0.5, f"the trickling peer held the launch for {elapsed:.2f}s"
+
+
+def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 re-review finding 2: the launch boundary retires the session it is
+    # replacing, and that retirement is work on the CALLER's clock. A stale
+    # session whose engine ignores SIGTERM used to be closed on its own
+    # five-second grace before the bounded launch even began — 5.0s for a
+    # `wait-ready --timeout 0.3`, with the serve loop blocked throughout. NOTE:
+    # no `no_engine_teardown` here on purpose — the real teardown IS the subject,
+    # and mocking it is exactly what hid this interaction.
+    monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
+    stubborn = _stubborn_child(start_new_session=True)
+    ours, silent_harness = socket.socketpair()
+    stale = EngineSession(stubborn, conn=ours)
+
+    launches: list = []
+
+    def _launch(*args, **kwargs):
+        launches.append(kwargs.get("timeout"))
+        return stale if len(launches) == 1 else None
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    try:
+        with _serving(server, paths, monkeypatch):
+            assert (
+                _request(paths, {"op": "daemon-wait-ready", "params": {}}) is not None
+            )
+            timed_out = _request(paths, {"op": "game-tree", "params": {}})
+            started = time.monotonic()
+            reply = _request(
+                paths,
+                {"op": "daemon-wait-ready", "params": {"timeout": 0.3}},
+                timeout=20.0,
+            )
+            elapsed = time.monotonic() - started
+            behind = time.monotonic()
+            status = _request(paths, {"op": "__status__"})
+            queued = time.monotonic() - behind
+    finally:
+        silent_harness.close()
+        stubborn.kill()
+
+    assert timed_out is not None
+    assert parse_result(timed_out["stdout"])["error"]["code"] == "live_timeout"
+    assert reply is not None
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+    assert elapsed < 2.0, f"retiring the stale session took {elapsed:.1f}s"
+    assert status is not None and status["ok"] is True
+    assert queued < 1.0, f"the next control request waited {queued:.1f}s"
+    # The replacement launch got what retirement left of the same 0.3s, never a
+    # fresh budget of its own.
+    assert len(launches) == 2 and launches[1] is not None and launches[1] <= 0.3
+
+
+def test_a_killed_engine_is_reaped_by_the_teardown_that_killed_it(monkeypatch):
+    # #725 re-review finding 3: after the grace expires the child is SIGKILLed,
+    # and teardown must finish what it started. Without the reap `returncode`
+    # stayed None and the exited child was left for whatever happened to call
+    # poll() next — in a long-lived daemon, possibly nothing.
+    stubborn = _stubborn_child(start_new_session=True)
+    try:
+        _terminate(stubborn, grace=0.05)
+        assert stubborn.returncode is not None, "the killed child was never reaped"
+        assert stubborn.returncode < 0  # ended by a signal, not by its own exit
+    finally:
+        if stubborn.poll() is None:
+            stubborn.kill()
+
+
 def test_a_stuck_handshake_does_not_freeze_the_daemon(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
@@ -479,7 +642,7 @@ def test_a_stuck_handshake_does_not_freeze_the_daemon(
     # must come back typed within its bound, and — the daemon serving one
     # request at a time — the NEXT control request must still be served.
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _Proc(code=None))
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc, grace=0.0: None)
+    no_engine_teardown(monkeypatch)
     paths = daemon_paths(_project(tmp_path))
     server = DaemonServer(paths, godot="godot")  # the real launch seam default
 
@@ -512,7 +675,7 @@ def test_wait_ready_rebuilds_a_session_whose_channel_broke(
     # very next read disproves — the engine process is still alive throughout.
     # The relaunch path close()s the stale session, whose real _terminate needs
     # a real process; the fake has none.
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc, grace=0.0: None)
+    no_engine_teardown(monkeypatch)
     ours, theirs = socket.socketpair()
     theirs.close()
     zombie = EngineSession(cast(subprocess.Popen, _Proc(code=None)), conn=ours)
@@ -548,7 +711,7 @@ def test_wait_ready_rebuilds_a_session_whose_relay_timed_out(
     # so wait-ready must NOT certify it. Before the fix the daemon reported
     # `launched: false` over that channel and the next read went back to it.
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc, grace=0.0: None)
+    no_engine_teardown(monkeypatch)
     ours, silent_harness = socket.socketpair()
     desynced = EngineSession(cast(subprocess.Popen, _Proc(code=None)), conn=ours)
 
@@ -586,11 +749,10 @@ def test_a_teardown_cannot_outlast_the_readiness_deadline(
     # after the readiness budget was already spent — a measured 5.3s for
     # `--timeout 0.3` — and the daemon serves one request at a time, so the whole
     # round trip and every request behind it waited it out.
-    real_popen = subprocess.Popen
     spawned: list = []
 
     def _spawn_stubborn_child(argv, **kwargs):
-        proc = real_popen([sys.executable, "-c", _IGNORES_SIGTERM], **kwargs)
+        proc = _stubborn_child(**kwargs)
         spawned.append(proc)
         return proc
 

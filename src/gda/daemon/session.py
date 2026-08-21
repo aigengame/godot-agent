@@ -34,6 +34,9 @@ OP_TIMEOUT = 30.0
 # when the caller set no deadline of its own (``EngineSession.close``). A launch
 # teardown draws its grace from the launch deadline instead (#725 re-review).
 TERMINATE_GRACE = 5.0
+# The formality after a SIGKILL: long enough to reap a process the kernel has
+# already stopped, short enough that it is never a wait anyone notices.
+_REAP_GRACE = 0.5
 
 
 class SceneMismatch(Exception):
@@ -123,9 +126,15 @@ class EngineSession:
                 "engine_disconnected", "the engine session has no live connection"
             )
         try:
+            # ONE absolute deadline for the whole relay, not a per-recv inactivity
+            # timeout (#725 re-review): the reply is read in as many chunks as the
+            # peer chooses to send, and a socket timeout restarts on each of them,
+            # so a trickled reply would hold this single-threaded daemon far past
+            # the ``live_timeout`` the message promises.
+            deadline = time.monotonic() + OP_TIMEOUT
             self._conn.settimeout(OP_TIMEOUT)
             write_message(self._conn, {"op": operation, "params": params})
-            reply = read_frame(self._conn)  # the raw ADR-0002 sentinel string
+            reply = read_frame(self._conn, deadline)  # the raw ADR-0002 sentinel
         except TimeoutError:
             # Latched stale too (#725 re-review). The earlier reading — "a slow op
             # is not a broken channel" — priced only the churn of relaunching. The
@@ -161,13 +170,22 @@ class EngineSession:
             "exit_code": 0,
         }
 
-    def close(self) -> None:
+    def close(self, grace: float = TERMINATE_GRACE) -> None:
+        """Drop the channel and end the engine, within ``grace`` (#725 re-review).
+
+        The grace is a budget the CALLER may shorten, because retiring a session
+        is work done on someone's clock: ``_ensure_session`` retires a stale one
+        before launching its replacement, and a `daemon wait-ready --timeout 0.3`
+        that spends five seconds here has not honoured its bound, whatever the
+        launch after it does. The default stands for the callers with no clock of
+        their own — daemon shutdown, and the tests.
+        """
         if self._conn is not None:
             try:
                 self._conn.close()
             except OSError:
                 pass
-        _terminate(self._proc)
+        _terminate(self._proc, grace=grace)
 
 
 def launch_session(
@@ -286,9 +304,6 @@ def launch_session(
     # request with it.
     deadline = time.monotonic() + timeout
 
-    def _remaining() -> float:
-        return max(deadline - time.monotonic(), 0.001)
-
     def _teardown() -> None:
         # Teardown draws from the SAME deadline (#725 re-review). A failure path
         # is reached with the budget already spent, so a child that ignores
@@ -308,10 +323,13 @@ def launch_session(
         _teardown()
         return None
 
-    # The harness's first frame is the auth token.
-    conn.settimeout(_remaining())
+    # The harness's first frame is the auth token. The frame is read against the
+    # ABSOLUTE deadline, not a relative socket timeout: a socket timeout bounds
+    # each ``recv``, so a peer trickling one byte at a time restarts it on every
+    # chunk (#725 re-review — a 0.05s bound was held for 0.7s, and the trickle
+    # rate is the peer's to choose).
     try:
-        presented = read_frame(conn)
+        presented = read_frame(conn, deadline)
     except OSError:  # includes the deadline expiring mid-read
         presented = None
     if presented is None:
@@ -332,9 +350,8 @@ def launch_session(
     # (#278). A mismatch — including Godot's silent main_scene fallback for a bad
     # uid — tears the session down and raises SceneMismatch so the daemon surfaces a
     # typed live_scene_not_found rather than serving the wrong scene.
-    conn.settimeout(_remaining())
     try:
-        verify_frame = read_frame(conn)
+        verify_frame = read_frame(conn, deadline)
     except OSError:
         verify_frame = None
     if verify_frame is None:
@@ -397,6 +414,15 @@ def _terminate(proc: subprocess.Popen, grace: float = TERMINATE_GRACE) -> None:
     immediate; the diagnostics that failure path reads are unaffected, because
     Godot's file logger flushes every error, and every print in a debug build
     (``core/io/logger.cpp``, ``application/run/flush_stdout_on_print.debug``).
+
+    A killed child is then REAPED before returning, so teardown finishes what it
+    started: without it ``returncode`` stayed ``None`` and the exited child was
+    left for whatever happened to call ``poll()`` next — in a long-lived daemon,
+    possibly nothing (#725 re-review). ``_REAP_GRACE`` is the only interval this
+    function spends outside the caller's budget, and it is deliberately tiny: a
+    SIGKILL'd process is reapable in microseconds, so the wait is a formality
+    rather than a wait, and a child that somehow outlasts even that is left
+    unreaped rather than allowed to block the serve loop.
     """
     if proc.poll() is not None:
         return
@@ -413,4 +439,8 @@ def _terminate(proc: subprocess.Popen, grace: float = TERMINATE_GRACE) -> None:
         try:
             proc.kill()
         except OSError:
+            pass
+        try:
+            proc.wait(timeout=_REAP_GRACE)
+        except (subprocess.TimeoutExpired, OSError):
             pass

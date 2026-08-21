@@ -846,8 +846,10 @@ headless is unaffected (4.4+, cross-platform).
   and the read-only diag/logger reads never do (ADR-0022), so a first `diag errors` right
   after start reports `engine_session_not_running` by design — `wait-ready` is the
   documented, bounded way to trigger that launch explicitly. `--timeout` bounds the whole
-  daemon-side readiness attempt — the harness connect, the token and scene-verification
-  frames, and the teardown of a failed launch (a finite number in (0, 50], under the live
+  daemon-side readiness attempt on ONE deadline — retiring the session being replaced, the
+  harness connect, the token and scene-verification frames (each read against the deadline,
+  not a per-chunk inactivity timeout), and the teardown of a failed launch (a finite number
+  in (0, 50], under the live
   channel's 60s client-side round-trip bound); success (`{pid, launched}`) means subsequent
   live reads serve, and a repeat while the session is alive is idempotent (`launched:
   false`, nothing relaunched). A session stops serving when its harness channel breaks OR

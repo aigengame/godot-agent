@@ -130,6 +130,15 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > re-review). A stale session is rebuilt through the same lazy-launch boundary, so `live_timeout`
 > costs a relaunch and, per ADR-0020, the runtime state does not survive it. Correlating replies
 > instead would change the cross-language harness protocol and is left to its own decision.
+>
+> **One deadline, owned by the launch boundary.** Everything that boundary does on a caller's
+> clock draws from a single deadline: retiring the session being replaced, the connect, each
+> handshake frame, and the teardown of a failed launch. Two consequences are not obvious. A
+> socket timeout bounds *inactivity*, so a frame read in chunks must recompute the remaining
+> budget per read or a trickling peer holds the reader indefinitely — the daemon serves one
+> request at a time, so that is every later request too. And retirement is not free: an engine
+> that ignores `SIGTERM` is escalated with what the deadline has left, not with a fresh grace
+> of its own.
 
 ## Decision
 
