@@ -2,10 +2,9 @@
 name: design-verifiable-playtest
 description: >-
   Design and review player-facing Godot playtests that use a maintained Model Source
-  Package, Experiment Specifications, and gda-balancing execution. Use when turning a
-  balancing example, CLI workflow, or mechanic proof into a small playable product
-  that players can understand, operate, observe, and evaluate. Do not use for a
-  general Godot game or a CLI-only tutorial.
+  Package, Experiment Specifications, and gda-balancing execution. Use when game
+  balance or a gameplay mechanic needs a small playable product for direct player
+  testing and feedback. Do not use for a general Godot game or a CLI-only tutorial.
 ---
 
 # Design Verifiable Playtest
