@@ -1686,7 +1686,7 @@ and deduplication, and explicit truncation before aggregation runs.
 
 #### First candidate/open evidence-verification slice
 
-Issue #541 plans the first executable `evidence verify` judgment. This slice validates the exact
+Issue #541 delivers the first executable `evidence verify` judgment. This slice validates the exact
 artifact graph for the LDB-owned `evaluable` claim kind. A successful result is only
 `candidate`/open. It does not issue an Evidence assertion, authenticate an independent Verifier, or
 close a claim.

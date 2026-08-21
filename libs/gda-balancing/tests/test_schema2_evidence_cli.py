@@ -22,8 +22,8 @@ def test_public_cli_returns_one_open_evaluable_candidate(run_cli, invocation) ->
         "model_source_identity",
         "resolved_model_identity",
         "experiment_identity",
-        "runtime_profile_identity",
-        "evaluator_manifest_identity",
+        "resolved_runtime_profile_identity",
+        "evaluator_capability_manifest_identity",
         "model_build_receipt_identity",
         "experiment_outcome_receipt_identity",
     }

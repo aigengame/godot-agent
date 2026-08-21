@@ -56,8 +56,8 @@ class EvidenceVerifyResult(BaseModel):
     model_source_identity: str
     resolved_model_identity: str
     experiment_identity: str
-    runtime_profile_identity: str
-    evaluator_manifest_identity: str
+    resolved_runtime_profile_identity: str
+    evaluator_capability_manifest_identity: str
     model_build_receipt_identity: str
     experiment_outcome_receipt_identity: str
 
@@ -124,8 +124,10 @@ def run_evidence_verify(
         model_source_identity=identities["model-source"],
         resolved_model_identity=identities["resolved-model"],
         experiment_identity=identities["experiment"],
-        runtime_profile_identity=identities["resolved-runtime-profile"],
-        evaluator_manifest_identity=identities["evaluator-capability-manifest"],
+        resolved_runtime_profile_identity=identities["resolved-runtime-profile"],
+        evaluator_capability_manifest_identity=identities[
+            "evaluator-capability-manifest"
+        ],
         model_build_receipt_identity=identities["model-build-receipt"],
         experiment_outcome_receipt_identity=identities["experiment-outcome-receipt"],
     )

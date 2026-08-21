@@ -1,6 +1,7 @@
 """Schema 2.0 Evidence candidate verification."""
 
 import json
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -17,6 +18,11 @@ from gda_balancing.application.experiment_run import (
     run_experiment,
 )
 from gda_balancing.application.model_build import MODEL_BUILD_ARTIFACT_SET
+from gda_balancing.domain.artifacts import (
+    identified_artifact,
+    verify_artifact,
+    wire_schema_identity,
+)
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from gda_balancing.domain.diagnostics import (
@@ -32,6 +38,11 @@ from gda_balancing.domain.evidence_verification import (
     EvidenceVerificationIssue,
     evaluate_evidence_candidate,
 )
+from gda_balancing.domain.publication import (
+    publish_artifact_set,
+    read_authenticated_artifact_set,
+)
+from gda_balancing.domain.publication_types import PublicationMember
 from gda_balancing.interfaces.cli.experiment_fixtures import (
     prepare_runtime_refusal_experiment,
     prepare_valid_experiment,
@@ -508,7 +519,7 @@ def test_application_refuses_an_outcome_bound_to_another_experiment(
     )
     assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
     assert result.diagnostics[0].primary.pointer == (
-        "/prerequisites/experiment-outcome-receipt"
+        "/prerequisites/experiment-outcome-receipt/experiment"
     )
 
 
@@ -520,10 +531,8 @@ def test_application_verifies_one_real_verdict_publication(tmp_path: Path) -> No
     assert result.producing_outcome == "verdict"
 
 
-def test_application_verifies_one_real_post_dispatch_refusal_publication(
-    tmp_path: Path,
-) -> None:
-    specification_value = prepare_runtime_refusal_experiment(tmp_path, 545)
+def _prepare_runtime_refusal_input(tmp_path: Path, token: int) -> EvidenceVerifyInput:
+    specification_value = prepare_runtime_refusal_experiment(tmp_path, token)
     specification_path = tmp_path / "experiment.json"
     specification_path.write_text(specification_value, encoding="utf-8")
     outcome_receipt_path = tmp_path / "experiment-outcome-receipt.json"
@@ -542,17 +551,95 @@ def test_application_verifies_one_real_post_dispatch_refusal_publication(
     outcome_receipt_path.write_bytes(
         canonical_bytes(cast(JsonValue, refusal.terminal_audit))
     )
-
-    result = _verify(
-        EvidenceVerifyInput(
-            claim_kind="evaluable",
-            source=str(tmp_path / "experiment-model-545.json"),
-            specification=str(specification_path),
-            model_build_receipt=str(tmp_path / "experiment-model-545-receipt.json"),
-            experiment_outcome_receipt=str(outcome_receipt_path),
-        )
+    return EvidenceVerifyInput(
+        claim_kind="evaluable",
+        source=str(tmp_path / f"experiment-model-{token}.json"),
+        specification=str(specification_path),
+        model_build_receipt=str(tmp_path / f"experiment-model-{token}-receipt.json"),
+        experiment_outcome_receipt=str(outcome_receipt_path),
     )
+
+
+def test_application_verifies_one_real_post_dispatch_refusal_publication(
+    tmp_path: Path,
+) -> None:
+    result = _verify(_prepare_runtime_refusal_input(tmp_path, 545))
 
     assert isinstance(result, EvidenceCandidate)
     assert result.claim_state == "candidate"
     assert result.producing_outcome == "runtime-refusal"
+
+
+def test_application_refuses_an_authenticated_incomplete_terminal_audit(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_runtime_refusal_input(tmp_path, 550)
+    artifact_set = EXPERIMENT_RUN.refusal_artifact_sets[0].members
+    admitted = read_authenticated_artifact_set(
+        inp.experiment_outcome_receipt,
+        descriptor_identity(EXPERIMENT_RUN),
+        artifact_set,
+    )
+    values = deepcopy(admitted.artifacts)
+    audit = values["runtime-terminal-audit"]
+    audit_payload = {
+        key: value
+        for key, value in audit.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    audit_payload["reproduction_receipt_identity"] = "sha256:" + "0" * 64
+    values["runtime-terminal-audit"] = cast(
+        dict[str, Any],
+        identified_artifact(
+            admitted.authority_context.language_bundle,
+            "runtime-terminal-audit",
+            cast(dict[str, JsonValue], audit_payload),
+        ),
+    )
+    members = {
+        name: PublicationMember(
+            value=value,
+            artifact_kind=cast(str, value["artifact_kind"]),
+            wire_schema_identity=wire_schema_identity(
+                admitted.authority_context.language_bundle,
+                cast(str, value["artifact_kind"]),
+            ),
+            content_identity=cast(str, value["content_identity"]),
+        )
+        for name, value in values.items()
+    }
+    malformed_receipt = publish_artifact_set(
+        members,
+        str(tmp_path / "malformed-runtime-refusal.json"),
+        "a" * 64,
+        descriptor_identity(EXPERIMENT_RUN),
+        "sha256:" + "1" * 64,
+        admitted.authority_context.language_bundle,
+        artifact_set,
+        lambda _name, value: verify_artifact(
+            value, admitted.authority_context.language_bundle
+        ),
+    )
+    malformed_receipt_path = tmp_path / "malformed-runtime-refusal-receipt.json"
+    malformed_receipt_path.write_bytes(
+        canonical_bytes(cast(JsonValue, malformed_receipt))
+    )
+
+    result = _verify(
+        replace(
+            inp,
+            experiment_outcome_receipt=str(malformed_receipt_path),
+        )
+    )
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "evaluation"
+    assert result.diagnostics[0].code == (
+        "evaluation.evaluable_mismatched_prerequisite"
+    )

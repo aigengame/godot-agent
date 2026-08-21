@@ -200,23 +200,6 @@ def verify_evidence(
         )
     except PublicationAdmissionError as error:
         return ingress_refusal(error.code, error.subject, error.message)
-    if not validate_experiment_artifact_set(
-        checked_experiment, outcome_publication.artifacts
-    ):
-        issue = EvidenceVerificationIssue(
-            reason="evaluation.reason.evaluable-mismatched-prerequisite",
-            subject="experiment-outcome-receipt",
-            message="Experiment outcome publication does not bind the admitted Experiment",
-        )
-        return _refusal_for_issues(
-            (issue,),
-            outcome_publication.authority_context.language_bundle,
-            {
-                "experiment-outcome-receipt": cast(
-                    str, outcome_publication.receipt["content_identity"]
-                )
-            },
-        )
     logical_names = {member.logical_name for member in artifact_set}
     if "evaluation-run" in logical_names:
         producing_outcome = "success"
@@ -228,24 +211,71 @@ def verify_evidence(
         producing_outcome = "runtime-refusal"
         runtime_refusal_variant = "post-dispatch"
     artifacts = outcome_publication.artifacts
+    build_record = model_publication.artifacts["build-receipt"]
+    resolved_model = model_publication.artifacts["resolved-model"]
+    evaluator_manifest = artifacts["evaluator-capability-manifest"]
+    runtime_profile = artifacts["resolved-runtime-profile"]
+    reproduction_receipt = artifacts["reproduction-receipt"]
     identities = {
         "kernel": cast(str, checked_model.kernel["content_identity"]),
         "language-bundle": cast(str, checked_model.language_bundle["content_identity"]),
         "model-source": checked_model.source_identity,
-        "resolved-model": cast(
-            str, model_publication.artifacts["resolved-model"]["content_identity"]
-        ),
+        "resolved-model": cast(str, resolved_model["content_identity"]),
         "model-build-receipt": cast(str, model_publication.receipt["content_identity"]),
         "experiment": checked_experiment.content_identity,
         "evaluator-capability-manifest": cast(
-            str, artifacts["evaluator-capability-manifest"]["content_identity"]
+            str, evaluator_manifest["content_identity"]
         ),
-        "resolved-runtime-profile": cast(
-            str, artifacts["resolved-runtime-profile"]["content_identity"]
-        ),
+        "resolved-runtime-profile": cast(str, runtime_profile["content_identity"]),
         "experiment-outcome-receipt": cast(
             str, outcome_publication.receipt["content_identity"]
         ),
+    }
+    experiment_model = cast(dict[str, Any], checked_experiment.value["model"])
+    model_receipt_binding = cast(str, experiment_model["build_receipt_identity"])
+    if model_receipt_binding == build_record["content_identity"]:
+        model_receipt_binding = identities["model-build-receipt"]
+    observed_bindings = {
+        "language-bundle": {
+            "kernel": checked_model.language_bundle["kernel_identity"],
+        },
+        "resolved-model": {
+            "kernel": resolved_model["kernel_identity"],
+            "language-bundle": resolved_model["language_bundle_identity"],
+            "model-source": build_record["source_identity"],
+        },
+        "model-build-receipt": {
+            "model-source": build_record["source_identity"],
+            "resolved-model": build_record["resolved_model_identity"],
+        },
+        "experiment": {
+            "kernel": checked_experiment.value["kernel_identity"],
+            "language-bundle": checked_experiment.value["language_bundle_identity"],
+            "resolved-model": experiment_model["resolved_model_identity"],
+        },
+        "evaluator-capability-manifest": {
+            "kernel": evaluator_manifest["kernel_identity"],
+            "language-bundle": evaluator_manifest["language_bundle_identity"],
+        },
+        "resolved-runtime-profile": {
+            "kernel": runtime_profile["kernel_identity"],
+            "language-bundle": runtime_profile["language_bundle_identity"],
+            "resolved-model": runtime_profile["resolved_model_identity"],
+            "experiment": runtime_profile["experiment_identity"],
+            "evaluator-capability-manifest": runtime_profile[
+                "evaluator_manifest_identity"
+            ],
+        },
+        "experiment-outcome-receipt": {
+            "model-build-receipt": model_receipt_binding,
+            "experiment": reproduction_receipt["experiment_identity"],
+            "resolved-runtime-profile": reproduction_receipt[
+                "resolved_runtime_profile_identity"
+            ],
+            "evaluator-capability-manifest": reproduction_receipt[
+                "evaluator_manifest_identity"
+            ],
+        },
     }
     graph = EvidenceGraph(
         subjects=tuple(
@@ -257,7 +287,13 @@ def verify_evidence(
                 subject=cast(str, edge["subject"]),
                 subject_identity=identities[cast(str, edge["subject"])],
                 prerequisite=cast(str, edge["prerequisite"]),
-                prerequisite_identity=identities[cast(str, edge["prerequisite"])],
+                prerequisite_identity=cast(
+                    str,
+                    observed_bindings.get(cast(str, edge["subject"]), {}).get(
+                        cast(str, edge["prerequisite"]),
+                        "unresolved",
+                    ),
+                ),
             )
             for edge in cast(list[dict[str, Any]], claim_kind["prerequisite_edges"])
         ),
@@ -268,4 +304,17 @@ def verify_evidence(
     result = evaluate_evidence_candidate(claim_kind, graph)
     if isinstance(result, tuple):
         return _refusal_for_issues(result, checked_model.language_bundle, identities)
+    if not validate_experiment_artifact_set(
+        checked_experiment, outcome_publication.artifacts
+    ):
+        issue = EvidenceVerificationIssue(
+            reason="evaluation.reason.evaluable-mismatched-prerequisite",
+            subject="experiment-outcome-receipt",
+            message="Experiment outcome publication does not bind the admitted Experiment",
+        )
+        return _refusal_for_issues(
+            (issue,),
+            outcome_publication.authority_context.language_bundle,
+            {"experiment-outcome-receipt": identities["experiment-outcome-receipt"]},
+        )
     return result
