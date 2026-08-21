@@ -143,7 +143,8 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > indefinitely — the daemon serves one request at a time, so that is every later request too.
 > Retirement is not free: an engine that ignores `SIGTERM` is escalated with what the deadline
 > has left, not with a fresh grace. Collecting a killed child is a duty but not the caller's
-> time, so it is neither charged nor dropped — it happens in the background. And the spawn is
+> time, so it happens in the background — best-effort, since SIGKILL cannot be caught and the
+> cost of a rare miss is one process-table entry the daemon's own exit clears. And the spawn is
 > the one step that cannot be interrupted once begun: the deadline is checked before it and
 > governs everything after, so a spawn that outruns the budget ends in a refusal rather than in
 > a session that came up late.

@@ -59,6 +59,19 @@ _SCHEDULING_SLACK = 0.35
 # arrives during interpreter startup still kills it by the default disposition —
 # a teardown test that raced the startup would exercise the ordinary path and
 # prove nothing (observed: `_terminate` 1ms after spawn returned -15, not -9).
+# The same stand-in, plus a descendant inside its process group that is just as
+# stubborn — so an escalation that reaches only the leader is observable.
+_IGNORES_SIGTERM_WITH_CHILD = (
+    "import signal, subprocess, sys, time;"
+    "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
+    "child = subprocess.Popen([sys.executable, '-c',"
+    ' "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN);'
+    ' print(chr(120), flush=True); time.sleep(120)"'
+    "], stdout=subprocess.PIPE,"
+    " text=True);"
+    "child.stdout.readline();"
+    "print(child.pid, flush=True); time.sleep(120)"
+)
 _IGNORES_SIGTERM = (
     "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
     "print('ready', flush=True); time.sleep(60)"
@@ -113,9 +126,9 @@ class _ServedSession:
     def request(self, operation: str, params: dict) -> dict:
         return {"stdout": f"served:{operation}", "stderr": "", "exit_code": 0}
 
-    def close(self, grace: float = 0.0) -> None:
+    def close(self, deadline: "float | None" = None) -> None:
         self.closed = True
-        self.close_grace = grace
+        self.close_deadline = deadline
 
 
 def _request(paths, payload: dict, timeout: float = 5.0):
@@ -613,6 +626,97 @@ def test_a_slow_spawn_cannot_revive_the_callers_expired_deadline(
     assert outcome is None
 
 
+def test_launch_preparation_that_crosses_the_deadline_spawns_nothing(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 fourth re-review: the deadline was gated BEFORE the Session-log
+    # truncation but not after it. That truncation is a filesystem write and can
+    # block, so a 0.12s write against a 0.05s deadline still reached `Popen` —
+    # 0.076s past the bound. The gate belongs at the last interruptible point.
+    spawned: list = []
+
+    def _record_spawn(argv, **kwargs):
+        spawned.append(time.monotonic())
+        return _Proc(code=None)
+
+    real_write = Path.write_bytes
+
+    def _slow_write(self, data):
+        time.sleep(0.12)
+        return real_write(self, data)
+
+    monkeypatch.setattr(subprocess, "Popen", _record_spawn)
+    monkeypatch.setattr(Path, "write_bytes", _slow_write)
+    no_engine_teardown(monkeypatch)
+    paths = daemon_paths(_project(tmp_path))
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(paths.harness_socket))
+    listener.listen()
+
+    diagnostics: list[str] = []
+    try:
+        outcome = launch_session(
+            paths.project,
+            "godot",
+            listener,
+            paths.harness_socket,
+            "expected-token",
+            log_file=paths.session_log,
+            deadline=time.monotonic() + 0.05,
+            diagnostics=diagnostics,
+        )
+    finally:
+        listener.close()
+
+    assert outcome is None
+    assert not spawned, "the engine was started after the deadline had passed"
+    assert any("preparing the launch" in reason for reason in diagnostics), diagnostics
+
+
+def test_a_deadline_spent_by_the_spawn_is_not_blamed_on_the_harness(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 fourth re-review: the spawn is the one uninterruptible step, so it CAN
+    # outrun the budget — but the refusal has to say so. It used to fall through
+    # and report that the harness sent no auth token, which is a different
+    # failure and plainly false here: the token is already queued.
+    def _slow_popen(argv, **kwargs):
+        time.sleep(0.12)
+        return _Proc(code=None)
+
+    monkeypatch.setattr(subprocess, "Popen", _slow_popen)
+    no_engine_teardown(monkeypatch)
+    paths = daemon_paths(_project(tmp_path))
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(paths.harness_socket))
+    listener.listen()
+    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    peer.connect(str(paths.harness_socket))
+    write_frame(peer, b"expected-token")
+    write_frame(peer, b'{"scene_ok": true, "current": "res://main.tscn"}')
+
+    diagnostics: list[str] = []
+    try:
+        outcome = launch_session(
+            paths.project,
+            "godot",
+            listener,
+            paths.harness_socket,
+            "expected-token",
+            deadline=time.monotonic() + 0.05,
+            diagnostics=diagnostics,
+        )
+    finally:
+        peer.close()
+        listener.close()
+
+    assert outcome is None
+    assert any("while the engine was starting" in r for r in diagnostics), diagnostics
+    assert not any("auth token" in r for r in diagnostics), diagnostics
+
+
 def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
@@ -720,6 +824,74 @@ class _SlowToCollect:
         return self._proc.wait()
 
 
+def test_the_termination_wait_is_measured_when_it_begins(monkeypatch):
+    # #725 fourth re-review: the deadline reached teardown as a DURATION, so the
+    # work before the only blocking step — the caller's channel close, the poll,
+    # the signal — was spent and then the full original grace was handed to
+    # `wait()` anyway. Probed at 0.08s of pre-wait work against a 0.05s budget:
+    # `wait()` still received 0.05. The remainder is recomputed where it is used.
+    given: list = []
+
+    class _SlowPoll:
+        pid = 1
+
+        def __init__(self) -> None:
+            self.polls = 0
+
+        def poll(self):
+            self.polls += 1
+            if self.polls == 1:
+                time.sleep(0.08)  # pre-wait work that outlives the whole budget
+            return None
+
+        def terminate(self) -> None: ...
+
+        def kill(self) -> None: ...
+
+        def wait(self, timeout=None):
+            given.append(timeout)
+            raise subprocess.TimeoutExpired("engine", timeout or 0)
+
+    monkeypatch.setattr(os, "getpgid", lambda pid: 1)
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: None)
+    _terminate(cast(subprocess.Popen, _SlowPoll()), time.monotonic() + 0.05)
+
+    assert given, "the engine was never waited on"
+    assert given[0] == 0, f"the wait was given a revived {given[0]}s budget"
+
+
+def test_the_escalation_covers_the_group_the_engine_owns(monkeypatch):
+    # #725 fourth re-review: SIGTERM went to the process group, SIGKILL only to
+    # the leader — so a descendant that also ignored SIGTERM was left alive and
+    # orphaned. The session is spawned with `start_new_session=True`, so gda owns
+    # that group; the escalation must match the signal that preceded it.
+    leader = _REAL_POPEN(
+        [sys.executable, "-c", _IGNORES_SIGTERM_WITH_CHILD],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert leader.stdout is not None
+    descendant = int(leader.stdout.readline().strip())
+    try:
+        _terminate(leader, time.monotonic() + 0.05)
+        end = time.monotonic() + 5.0
+        while time.monotonic() < end:
+            try:
+                os.kill(descendant, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError(f"the descendant {descendant} outlived the group kill")
+    finally:
+        for pid in (descendant, leader.pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
 def test_teardown_does_not_wait_for_the_kernel_to_collect_the_child(monkeypatch):
     # #725 third re-review: the escalation to SIGKILL is reached with the budget
     # ALREADY spent, so ANY fixed allowance after it is time the caller never
@@ -729,7 +901,7 @@ def test_teardown_does_not_wait_for_the_kernel_to_collect_the_child(monkeypatch)
     slow = _SlowToCollect(_stubborn_child(start_new_session=True))
     try:
         started = time.monotonic()
-        _terminate(cast(subprocess.Popen, slow), grace=0.05)
+        _terminate(cast(subprocess.Popen, slow), time.monotonic() + 0.05)
         elapsed = time.monotonic() - started
         assert elapsed < 0.05 + _SCHEDULING_SLACK, (
             f"teardown spent {elapsed:.2f}s waiting past a 0.05s grace"
@@ -745,7 +917,7 @@ def test_a_killed_engine_is_still_collected(monkeypatch):
     # long-lived daemon, possibly nothing.
     stubborn = _stubborn_child(start_new_session=True)
     try:
-        _terminate(stubborn, grace=0.05)
+        _terminate(stubborn, time.monotonic() + 0.05)
         # `returncode` is read directly, never through `poll()` — poll() would
         # collect the child itself and pass with no reaper at all.
         end = time.monotonic() + 10.0
@@ -883,9 +1055,21 @@ def test_a_teardown_cannot_outlast_the_readiness_deadline(
     monkeypatch.setattr(subprocess, "Popen", _spawn_stubborn_child)
     paths = daemon_paths(_project(tmp_path))
     server = DaemonServer(paths, godot="godot")  # the real launch + teardown
+    queued: list = []
+
+    def _control_request_behind_it() -> None:
+        # Enqueued WHILE wait-ready is being served, so this measures what a
+        # caller behind the bounded one actually waits — not what it waits once
+        # the bounded one has already returned.
+        time.sleep(0.05)
+        at = time.monotonic()
+        reply = _request(paths, {"op": "__status__"}, timeout=20.0)
+        queued.append((reply, time.monotonic() - at))
 
     try:
         with _serving(server, paths, monkeypatch):
+            behind = threading.Thread(target=_control_request_behind_it, daemon=True)
+            behind.start()
             started = time.monotonic()
             reply = _request(
                 paths,
@@ -893,9 +1077,7 @@ def test_a_teardown_cannot_outlast_the_readiness_deadline(
                 timeout=20.0,
             )
             elapsed = time.monotonic() - started
-            behind = time.monotonic()
-            status = _request(paths, {"op": "__status__"})
-            queued = time.monotonic() - behind
+            behind.join(timeout=20.0)
     finally:
         for proc in spawned:
             proc.kill()
@@ -904,9 +1086,14 @@ def test_a_teardown_cannot_outlast_the_readiness_deadline(
     assert (
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
     )
-    assert elapsed < 2.0, f"teardown held the round trip for {elapsed:.1f}s"
+    assert elapsed < 0.3 + _SCHEDULING_SLACK, (
+        f"a 0.3s-bounded wait-ready took {elapsed:.2f}s"
+    )
+    status, waited = queued[0]
     assert status is not None and status["ok"] is True
-    assert queued < 1.0, f"the next control request waited {queued:.1f}s"
+    assert waited < 0.3 + _SCHEDULING_SLACK, (
+        f"the request queued behind it waited {waited:.2f}s"
+    )
 
 
 def test_launched_is_reported_by_the_launch_owner(

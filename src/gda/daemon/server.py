@@ -77,7 +77,7 @@ class SessionHandle(Protocol):
 
     def request(self, operation: str, params: dict) -> dict: ...
 
-    def close(self, grace: float = ...) -> None: ...
+    def close(self, deadline: float | None = ...) -> None: ...
 
 
 class _Established(NamedTuple):
@@ -417,21 +417,21 @@ class DaemonServer:
     def _ensure_session(
         self, diagnostics: list[str] | None = None, timeout: float | None = None
     ) -> "_Established | None":
-        if self._session is not None and self._session.alive():
-            return _Established(self._session, launched=False)
-        # ONE deadline — an absolute instant, held HERE — for everything this
-        # boundary does on the caller's clock (#725 re-review): retiring the session
-        # it is replacing AND launching the replacement. Retirement is not free (a
-        # stale session's engine may ignore SIGTERM) and neither is a spawn, so
-        # charging either to nobody made the bound a per-phase allowance rather than
-        # a bound. Phases receive the INSTANT, never a duration: a duration restarts
-        # whatever clock it lands on, which is how an exhausted budget came back as
-        # a fresh one for the launch.
+        # ONE deadline — an absolute instant, taken at ENTRY — for everything this
+        # boundary does on the caller's clock (#725 re-review): the liveness check,
+        # retiring the session it is replacing, and launching the replacement.
+        # Retirement is not free (a stale session's engine may ignore SIGTERM) and
+        # neither is a spawn, so charging either to nobody made the bound a
+        # per-phase allowance rather than a bound. Every phase receives the INSTANT,
+        # never a duration: a duration is a fresh budget to whatever receives it,
+        # which is how an exhausted one came back whole one layer down.
         deadline = time.monotonic() + (
             timeout if timeout is not None else CONNECT_TIMEOUT
         )
+        if self._session is not None and self._session.alive():
+            return _Established(self._session, launched=False)
         if self._session is not None:
-            self._session.close(max(deadline - time.monotonic(), 0.0))
+            self._session.close(deadline)
             self._session = None
         if not self.godot:
             return None

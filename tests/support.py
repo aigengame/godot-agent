@@ -127,7 +127,9 @@ def no_engine_teardown(monkeypatch) -> None:
     only ever mocks it cannot see that. A test that exercises teardown itself takes
     a real child and must NOT call this.
     """
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc, grace=0.0: None)
+    monkeypatch.setattr(
+        "gda.daemon.session._terminate", lambda proc, deadline=None: None
+    )
 
 
 def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:

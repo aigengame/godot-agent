@@ -168,22 +168,27 @@ class EngineSession:
             "exit_code": 0,
         }
 
-    def close(self, grace: float = TERMINATE_GRACE) -> None:
-        """Drop the channel and end the engine, within ``grace`` (#725 re-review).
+    def close(self, deadline: Optional[float] = None) -> None:
+        """Drop the channel and end the engine, by ``deadline`` (#725 re-review).
 
-        The grace is a budget the CALLER may shorten, because retiring a session
-        is work done on someone's clock: ``_ensure_session`` retires a stale one
-        before launching its replacement, and a `daemon wait-ready --timeout 0.3`
-        that spends five seconds here has not honoured its bound, whatever the
-        launch after it does. The default stands for the callers with no clock of
-        their own — daemon shutdown, and the tests.
+        An absolute instant, because retiring a session is work done on someone's
+        clock: ``_ensure_session`` retires a stale one before launching its
+        replacement, and a `daemon wait-ready --timeout 0.3` that spends five
+        seconds here has not honoured its bound, whatever the launch after it
+        does. An instant rather than a duration, because a duration is a fresh
+        budget to whatever receives it — closing the channel and signalling the
+        engine take time too, and a grace measured from before them is not the
+        bound the caller was given. A caller with no clock of its own — daemon
+        shutdown, the tests — mints one here.
         """
+        if deadline is None:
+            deadline = time.monotonic() + TERMINATE_GRACE
         if self._conn is not None:
             try:
                 self._conn.close()
             except OSError:
                 pass
-        _terminate(self._proc, grace=grace)
+        _terminate(self._proc, deadline)
 
 
 def launch_session(
@@ -270,11 +275,6 @@ def launch_session(
         return max(deadline - time.monotonic(), 0.0)
 
     if _left() <= 0:
-        # Nothing left to launch WITHIN, so nothing is spawned. The spawn is the
-        # one step here that cannot be interrupted once begun — the deadline is
-        # checked before it and drives everything after it, so a spawn that
-        # outruns the budget ends in this refusal rather than in a session that
-        # came up past the caller's bound.
         _record("the readiness deadline expired before the engine was launched")
         return None
 
@@ -300,6 +300,17 @@ def launch_session(
     # The harness tail also carries the selector (empty string when none) so the
     # harness can verify the loaded scene against it at launch (#278).
     requested_scene = scene if scene is not None else ""
+    if _left() <= 0:
+        # Re-checked immediately before the spawn (#725 re-review). The preparation
+        # above is not free — truncating the Session log is a filesystem write that
+        # can block — and a gate that only ran before it let the deadline pass and
+        # the engine start anyway, 0.076s late in a probe. This is the LAST
+        # interruptible point: after this line the spawn is committed.
+        _record(
+            "the readiness deadline expired while preparing the launch; "
+            "the engine was not started"
+        )
+        return None
     proc = subprocess.Popen(
         [
             str(binary),
@@ -331,7 +342,21 @@ def launch_session(
         # used to add a fresh five-second grace ON TOP of the caller's bound — 5.3s
         # for a `wait-ready --timeout 0.3` — with the serve loop blocked for all of
         # it. Nothing left means kill now.
-        _terminate(proc, grace=_left())
+        _terminate(proc, deadline)
+
+    if _left() <= 0:
+        # The spawn itself outran the budget — the one step that cannot be
+        # interrupted once begun. Reported as WHAT HAPPENED (#725 re-review):
+        # falling through would refuse a moment later blaming the harness for
+        # sending no auth token, which is a different failure and can be plainly
+        # false — the token may already be queued on a connection that was made
+        # while the engine was still starting.
+        _record(
+            "the readiness deadline expired while the engine was starting; "
+            "the session was torn down"
+        )
+        _teardown()
+        return None
 
     harness_listener.settimeout(_left())
     try:
@@ -424,40 +449,63 @@ def _close(conn: socket.socket) -> None:
         pass
 
 
-def _terminate(proc: subprocess.Popen, grace: float = TERMINATE_GRACE) -> None:
-    """SIGTERM the engine, then SIGKILL it if it has not exited within ``grace``.
+def _terminate(proc: subprocess.Popen, deadline: Optional[float] = None) -> None:
+    """SIGTERM the engine group, then SIGKILL it if it has not exited by ``deadline``.
 
-    ``grace`` is a BUDGET, not a fixed pause: the launch paths pass what remains
-    of their readiness deadline (#725 re-review), because the daemon serves one
-    request at a time and a child that ignores SIGTERM used to start a fresh
-    five-second wait AFTER the caller's budget was already spent — a 0.3s-bounded
-    ``daemon wait-ready`` measured 5.3s. With nothing left the escalation is
-    immediate; the diagnostics that failure path reads are unaffected, because
-    Godot's file logger flushes every error, and every print in a debug build
-    (``core/io/logger.cpp``, ``application/run/flush_stdout_on_print.debug``).
+    ``deadline`` is an absolute instant, and the wait is measured from it at the
+    moment the wait begins — not from whenever the caller decided (#725
+    re-review). The daemon serves one request at a time, so a child that ignores
+    SIGTERM used to add a fresh five-second wait AFTER the caller's budget was
+    spent (a 0.3s-bounded ``daemon wait-ready`` measured 5.3s); converting the
+    instant to a duration up front had the same shape one layer down, since
+    closing the channel and signalling the engine consume the budget too. A
+    caller with no clock of its own mints one from ``TERMINATE_GRACE``.
 
-    A killed child is still REAPED — teardown finishes what it started, rather
-    than leaving an exited child with no ``returncode`` for whatever happens to
-    poll it next — but off this clock: see :func:`_reap_in_background` (#725
-    re-review). So this function never returns later than ``grace``.
+    The escalation covers the ENGINE'S PROCESS GROUP, matching the SIGTERM that
+    preceded it. The session is launched with ``start_new_session=True``, so gda
+    owns that group and everything the engine started inside it; killing only
+    the leader left a descendant that also ignored SIGTERM alive and orphaned.
+
+    An immediate escalation costs no diagnostics: Godot's file logger flushes
+    every error, and every print in a debug build (``core/io/logger.cpp``,
+    ``application/run/flush_stdout_on_print.debug``).
+
+    A killed child is still collected — rather than left with no ``returncode``
+    for whatever happens to poll it next — but off this clock, best-effort: see
+    :func:`_reap_in_background`. So this function never returns later than
+    ``deadline``.
     """
+    if deadline is None:
+        deadline = time.monotonic() + TERMINATE_GRACE
     if proc.poll() is not None:
         return
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        group = os.getpgid(proc.pid)
     except OSError:
+        group = None
+    _signal_engine(proc, group, signal.SIGTERM)
+    try:
+        # Recomputed HERE, immediately before the only blocking step: everything
+        # above — the caller's channel close, the poll, the signal — spent from
+        # the same budget.
+        proc.wait(timeout=max(deadline - time.monotonic(), 0.0))
+    except subprocess.TimeoutExpired:
+        _signal_engine(proc, group, signal.SIGKILL)
+        _reap_in_background(proc)
+
+
+def _signal_engine(proc: subprocess.Popen, group: Optional[int], sig: int) -> None:
+    """Signal the engine's whole process group, or the child alone if it has none."""
+    if group is not None:
         try:
-            proc.terminate()
+            os.killpg(group, sig)
+            return
         except OSError:
             pass
     try:
-        proc.wait(timeout=max(grace, 0.0))
-    except subprocess.TimeoutExpired:
-        try:
-            proc.kill()
-        except OSError:
-            pass
-        _reap_in_background(proc)
+        proc.terminate() if sig == signal.SIGTERM else proc.kill()
+    except OSError:
+        pass
 
 
 def _reap_in_background(proc: subprocess.Popen) -> "threading.Thread":
@@ -467,11 +515,15 @@ def _reap_in_background(proc: subprocess.Popen) -> "threading.Thread":
     briefly — is time the caller did not agree to and, in the daemon, time every
     queued request waits too: a fixed half-second allowance turned a 0.01s-bounded
     `wait-ready` into 0.5s. But a child that is never collected stays a zombie with
-    no ``returncode``, so the duty cannot simply be dropped. It is neither
-    charged nor dropped: one short-lived thread owns the collection and this
-    function returns at once. The thread is a daemon thread — a killed engine must
-    never keep gda alive — and it ends when the child does, which SIGKILL
-    guarantees.
+    no ``returncode``, so the duty is not dropped either: one short-lived thread
+    owns the collection and this function returns at once.
+
+    BEST-EFFORT, deliberately. The thread is a daemon thread — a killed engine must
+    never keep gda alive — so it is not drained at shutdown, and a collection that
+    fails is swallowed rather than reported. Giving it a managed lifecycle would buy
+    a guarantee nothing needs: SIGKILL cannot be caught, so the wait ends on its own
+    in every case anyone has observed, and the cost of the rare miss is one entry in
+    a process table that the daemon's own exit clears.
     """
     reaper = threading.Thread(
         target=_reap, args=(proc,), name=f"gda-reap-{proc.pid}", daemon=True
