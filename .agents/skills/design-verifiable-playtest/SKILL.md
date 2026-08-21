@@ -447,8 +447,10 @@ Use the applicable evidence:
   Specification files;
 - Godot dependency and scene-reference checks;
 - checks that gameplay values delivered to UI and Systems do not contain technical
-  terms or fields, apart from a complete feedback payload passed as opaque clipboard
-  data when that option is offered;
+  terms or fields;
+- when clipboard copying is offered, checks that only UI receives the complete
+  Content-produced feedback payload, solely as opaque clipboard data; UI does not
+  inspect or display its provenance, and Systems never receive that payload;
 - tests that verify that each player option updates the correct authored authority;
 - System gameplay-state tests when a System exists;
 - UI copy, controls, input guards, reset, and terminal-flow tests;
