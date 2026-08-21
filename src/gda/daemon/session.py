@@ -35,6 +35,8 @@ OP_TIMEOUT = 30.0
 # when the caller set no deadline of its own (``EngineSession.close``). A launch
 # teardown draws its grace from the launch deadline instead (#725 re-review).
 TERMINATE_GRACE = 5.0
+# How often teardown re-checks whether the engine's process group has emptied.
+_RETIRE_POLL = 0.005
 
 
 class SceneMismatch(Exception):
@@ -98,11 +100,19 @@ class EngineSession:
         proc: subprocess.Popen,
         conn: socket.socket | None,
         log_file: Optional[Path] = None,
+        group: Optional[int] = None,
     ) -> None:
         self._proc = proc
         self._conn = conn
         self.log_file = log_file
         self._channel_stale = False
+        # The process group gda owns for this session, captured at spawn and
+        # REMEMBERED (#725 re-review). It cannot be rediscovered at teardown:
+        # ``alive()`` polls the leader, which reaps it, and a reaped leader has
+        # no pid to read a group from — after which nothing retires whatever the
+        # engine started. A pid can also be reused; the id captured at spawn is
+        # the only one known to be this session's.
+        self._group = group
 
     def alive(self) -> bool:
         # Liveness is the PROCESS and the CHANNEL (#725 review): a session whose
@@ -188,7 +198,7 @@ class EngineSession:
                 self._conn.close()
             except OSError:
                 pass
-        _terminate(self._proc, deadline)
+        _terminate(self._proc, deadline, group=self._group)
 
 
 def launch_session(
@@ -336,13 +346,17 @@ def launch_session(
     # Bounding only the accept let a peer that connected and then went silent block
     # the token read forever — and the daemon serves one request at a time, so that
     # silence froze every later live and control request with it (#725 review).
+    # Captured immediately after the spawn, while the leader certainly holds its
+    # pid, and validated against gda's own group (#725 re-review).
+    group = _own_group(proc)
+
     def _teardown() -> None:
         # Teardown draws from the same deadline (#725 re-review). A failure path is
         # reached with the budget already spent, so a child that ignores SIGTERM
         # used to add a fresh five-second grace ON TOP of the caller's bound — 5.3s
         # for a `wait-ready --timeout 0.3` — with the serve loop blocked for all of
         # it. Nothing left means kill now.
-        _terminate(proc, deadline)
+        _terminate(proc, deadline, group=group)
 
     if _left() <= 0:
         # The spawn itself outran the budget — the one step that cannot be
@@ -414,7 +428,7 @@ def launch_session(
         _close(conn)
         _teardown()
         raise SceneMismatch(scene if scene is not None else "", str(current))
-    return EngineSession(proc, conn, log_file=log_file)
+    return EngineSession(proc, conn, log_file=log_file, group=group)
 
 
 def _child_exit_diagnostic(proc: subprocess.Popen, budget: float) -> str:
@@ -449,7 +463,11 @@ def _close(conn: socket.socket) -> None:
         pass
 
 
-def _terminate(proc: subprocess.Popen, deadline: Optional[float] = None) -> None:
+def _terminate(
+    proc: subprocess.Popen,
+    deadline: Optional[float] = None,
+    group: Optional[int] = None,
+) -> None:
     """SIGTERM the engine group, then SIGKILL it if it has not exited by ``deadline``.
 
     ``deadline`` is an absolute instant, and the wait is measured from it at the
@@ -463,13 +481,20 @@ def _terminate(proc: subprocess.Popen, deadline: Optional[float] = None) -> None
 
     What is retired is the ENGINE'S PROCESS GROUP, not the engine process. The
     session is launched with ``start_new_session=True``, so gda owns that group
-    and everything the engine started inside it, and the leader's fate does not
-    decide the group's: a leader that OBEYED the group SIGTERM used to end the
-    teardown while a descendant that ignored it kept running, orphaned (#725
-    re-review). The group is therefore signalled again — SIGKILL — once the
-    leader is gone, whatever ended it, and even when it had already exited before
-    this call. The group id is read once, up front, from the leader while it
-    still holds its pid.
+    and everything the engine started inside it, and the leader's fate decides
+    neither when the group is done nor how it ends (#725 re-review): a leader
+    that OBEYED the group SIGTERM used to end the teardown while a descendant
+    that ignored it kept running, orphaned — and a leader that exited on its own
+    used to end it while its descendant had not been signalled at all.
+
+    So the wait is for the GROUP to empty, within the same deadline, and only a
+    group still standing when the deadline arrives is escalated to SIGKILL. That
+    order matters both ways: a descendant given SIGTERM may legitimately still be
+    finishing (killing it the instant the leader exits truncates that), and a
+    descendant that ignores SIGTERM must not outlive the session (letting the
+    leader's exit end the teardown orphaned it). ``group`` comes from the OWNER —
+    captured at spawn — because it cannot be recovered here: polling the leader
+    reaps it, and a reaped leader has no pid to read a group from.
 
     An immediate escalation costs no diagnostics: Godot's file logger flushes
     every error, and every print in a debug build (``core/io/logger.cpp``,
@@ -483,34 +508,55 @@ def _terminate(proc: subprocess.Popen, deadline: Optional[float] = None) -> None
     """
     if deadline is None:
         deadline = time.monotonic() + TERMINATE_GRACE
-    # Read BEFORE anything can reap the leader: the group id is the leader's pid,
-    # and a reaped leader has neither.
-    try:
-        group = os.getpgid(proc.pid)
-    except OSError:
-        group = None
-    if group is not None and group == os.getpgrp():
-        # Never signal our own group — that would take the daemon down with the
-        # engine. Only reachable if the launch did not get its own session.
-        group = None
+    if group is None:
+        # No owner told us, so recover what can still be recovered — accurate for
+        # a leader that has not been reaped, ``None`` once it has.
+        group = _own_group(proc)
     if proc.poll() is None:
         _signal_engine(proc, group, signal.SIGTERM)
-        try:
-            # Recomputed HERE, immediately before the only blocking step:
-            # everything above — the caller's channel close, the poll, the signal
-            # — spent from the same budget.
-            proc.wait(timeout=max(deadline - time.monotonic(), 0.0))
-        except subprocess.TimeoutExpired:
-            _signal_engine(proc, group, signal.SIGKILL)
-            _reap_in_background(proc)
+    while time.monotonic() < deadline:
+        # Polled rather than blocked on the leader: the leader exiting is not the
+        # group being done, and blocking on it cannot observe the difference.
+        # ``poll`` also reaps the leader, keeping its ``returncode`` honest.
+        proc.poll()
+        if not _group_standing(group, proc):
             return
-    # The leader is gone — by its own exit, by the SIGTERM, or before gda arrived.
-    # The GROUP is not gone with it, and gda owns it.
-    if group is not None:
+        time.sleep(min(_RETIRE_POLL, max(deadline - time.monotonic(), 0.0)))
+    # The deadline arrived with the session still standing.
+    if proc.poll() is None:
+        _signal_engine(proc, group, signal.SIGKILL)
+        _reap_in_background(proc)
+    elif group is not None:
         try:
             os.killpg(group, signal.SIGKILL)
         except OSError:
-            pass  # an empty group is the normal case: nothing left to retire
+            pass  # already empty: nothing left to retire
+
+
+def _group_standing(group: Optional[int], proc: subprocess.Popen) -> bool:
+    """Whether anything gda owns for this session is still running."""
+    if group is None:
+        return proc.poll() is None
+    try:
+        os.killpg(group, 0)
+    except OSError:
+        return False  # no members left
+    return True
+
+
+def _own_group(proc: subprocess.Popen) -> Optional[int]:
+    """The process group gda owns for ``proc``, or ``None`` if there is none.
+
+    ``None`` when the leader is already reaped (its pid, and so its group id, is
+    gone) and when the group turns out to be gda's OWN — signalling that would
+    take the daemon down with the engine, and it means the launch never got its
+    own session.
+    """
+    try:
+        group = os.getpgid(proc.pid)
+    except OSError:
+        return None
+    return None if group == os.getpgrp() else group
 
 
 def _signal_engine(proc: subprocess.Popen, group: Optional[int], sig: int) -> None:

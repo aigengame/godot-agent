@@ -215,9 +215,9 @@ class DaemonWaitReadyParams(BaseModel):
 
     The daemon launches its engine session LAZILY on the first operation that
     requires one (ADR-0017); this command is the explicit, bounded way to BE
-    that operation. ``timeout`` bounds the launch's whole readiness handshake
-    inside the daemon — not a poll interval and not a sleep loop: one request,
-    one launch, one answer. The (0, 50] cap is the shared
+    that operation. ``timeout`` is the daemon-side budget for the launch — every
+    wait in it draws from one instant and none is renewed — not a poll interval
+    and not a sleep loop: one request, one launch, one answer. The (0, 50] cap is the shared
     ``gda.daemon.server.WAIT_READY_TIMEOUT_MAX``, which the daemon re-enforces
     at its IPC boundary for non-gda clients.
     """

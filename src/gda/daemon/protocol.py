@@ -53,9 +53,14 @@ def write_message(sock: socket.socket, obj: Any) -> None:
     write_frame(sock, json.dumps(obj).encode("utf-8"))
 
 
-def read_message(sock: socket.socket) -> Any | None:
-    """Read one length-prefixed JSON frame, or ``None`` if the peer closed."""
-    body = read_frame(sock)
+def read_message(sock: socket.socket, deadline: float | None = None) -> Any | None:
+    """Read one length-prefixed JSON frame, or ``None`` if the peer closed.
+
+    ``deadline`` bounds the whole frame the way :func:`read_frame` documents; a
+    caller that promises a round-trip ceiling passes the instant that ceiling
+    expires, since the socket's own timeout would only bound inactivity.
+    """
+    body = read_frame(sock, deadline)
     if body is None:
         return None
     return json.loads(body.decode("utf-8"))

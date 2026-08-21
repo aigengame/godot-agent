@@ -38,9 +38,15 @@ from gda.daemon.discovery import (
 )
 from gda.daemon.protocol import read_message, write_frame, write_message
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
-from gda.daemon.session import EngineSession, _terminate, launch_session
+from gda.daemon.session import (
+    EngineSession,
+    _own_group,
+    _terminate,
+    launch_session,
+)
 from gda.errors import Failure
-from gda.parser import parse_result
+from gda.live_runner import DaemonRunner
+from gda.parser import build_result, parse_result
 from tests.support import no_engine_teardown
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
@@ -84,6 +90,39 @@ _OBEYS_SIGTERM_WITH_STUBBORN_CHILD = (
     "child.stdout.readline();"
     "print(child.pid, flush=True); time.sleep(120)"
 )
+# A leader that EXITS AT ONCE, leaving a stubborn descendant in its group —
+# so the group must survive the leader being reaped by a liveness check.
+_EXITS_LEAVING_STUBBORN_CHILD = (
+    "import subprocess, sys;"
+    "child = subprocess.Popen([sys.executable, '-c',"
+    ' "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN);'
+    ' print(chr(120), flush=True); time.sleep(120)"'
+    "], stdout=subprocess.PIPE,"
+    " text=True);"
+    "child.stdout.readline(); print(child.pid, flush=True)"
+)
+# A leader that obeys SIGTERM, whose descendant handles SIGTERM by doing 0.2s of
+# work and touching a marker — so a teardown that kills the group the instant
+# the leader exits is observable as a MISSING marker.
+_CLEANING_CHILD = (
+    "import signal, time\n"
+    "def _cleanup(sig, frame):\n"
+    "    time.sleep(0.2)\n"
+    "    open({marker!r}, 'w').close()\n"
+    "    raise SystemExit(0)\n"
+    "signal.signal(signal.SIGTERM, _cleanup)\n"
+    "print('ready', flush=True)\n"
+    "time.sleep(120)\n"
+)
+_OBEYS_SIGTERM_WITH_CLEANING_CHILD = (
+    "import subprocess, sys, time\n"
+    "source = '''" + _CLEANING_CHILD + "'''\n"
+    "child = subprocess.Popen([sys.executable, '-c', source],"
+    " stdout=subprocess.PIPE, text=True)\n"
+    "child.stdout.readline()\n"
+    "print(child.pid, flush=True)\n"
+    "time.sleep(120)\n"
+)
 _IGNORES_SIGTERM = (
     "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
     "print('ready', flush=True); time.sleep(60)"
@@ -123,16 +162,11 @@ class _Proc:
     def poll(self):
         return self.code
 
-    @property
-    def pid(self) -> int:
-        # Deliberately absent rather than invented: teardown reads the pid to
-        # retire the engine's process GROUP, and a made-up one resolves to some
-        # unrelated process that would then be signalled. A test whose stand-in
-        # reaches real teardown wants `no_engine_teardown`.
-        raise AssertionError(
-            "this stand-in engine process has no pid; a test that lets it reach "
-            "the real teardown must request no_engine_teardown"
-        )
+    # gda's OWN pid, deliberately: teardown reads the pid to find the process
+    # group it owns, and the own-group guard then resolves this stand-in to no
+    # group at all. An invented pid would instead resolve to whichever real
+    # process holds it — which a test would then signal.
+    pid = os.getpid()
 
 
 class _ServedSession:
@@ -848,16 +882,17 @@ class _SlowToCollect:
         return self._proc.wait()
 
 
-def test_the_termination_wait_is_measured_when_it_begins(monkeypatch):
-    # #725 fourth re-review: the deadline reached teardown as a DURATION, so the
-    # work before the only blocking step — the caller's channel close, the poll,
-    # the signal — was spent and then the full original grace was handed to
-    # `wait()` anyway. Probed at 0.08s of pre-wait work against a 0.05s budget:
-    # `wait()` still received 0.05. The remainder is recomputed where it is used.
-    given: list = []
+def test_teardown_adds_no_waiting_after_work_that_spent_the_deadline(monkeypatch):
+    # #725 re-review: the deadline reached teardown as a DURATION, so the work
+    # before the wait — the caller's channel close, the poll, the signal — was
+    # spent and the full original grace was handed to the wait anyway (probed at
+    # 0.08s of pre-wait work against a 0.05s budget: the wait still got 0.05).
+    # The remainder is re-read where it is used, so work that already spent the
+    # budget is followed by no waiting at all — only by the escalation.
+    killed: list = []
 
     class _SlowPoll:
-        pid = 1
+        pid = os.getpid()  # resolves to gda's own group, so no signal escapes
 
         def __init__(self) -> None:
             self.polls = 0
@@ -870,18 +905,20 @@ def test_the_termination_wait_is_measured_when_it_begins(monkeypatch):
 
         def terminate(self) -> None: ...
 
-        def kill(self) -> None: ...
+        def kill(self) -> None:
+            killed.append(time.monotonic())
 
         def wait(self, timeout=None):
-            given.append(timeout)
             raise subprocess.TimeoutExpired("engine", timeout or 0)
 
-    monkeypatch.setattr(os, "getpgid", lambda pid: 1)
-    monkeypatch.setattr(os, "killpg", lambda pgid, sig: None)
+    started = time.monotonic()
     _terminate(cast(subprocess.Popen, _SlowPoll()), time.monotonic() + 0.05)
+    elapsed = time.monotonic() - started
 
-    assert given, "the engine was never waited on"
-    assert given[0] == 0, f"the wait was given a revived {given[0]}s budget"
+    assert killed, "the engine was never escalated"
+    assert elapsed < 0.08 + _SCHEDULING_SLACK, (
+        f"teardown waited {elapsed:.2f}s after a budget already spent"
+    )
 
 
 def _leader_with_descendant(source: str) -> "tuple[subprocess.Popen, int]":
@@ -913,6 +950,89 @@ def _reap_group(*pids: int) -> None:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+
+
+def test_the_live_clients_ceiling_covers_the_whole_round_trip(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 re-review: the client set the socket timeout once and read the reply
+    # in as many chunks as the daemon sent, so its published 60s was a per-recv
+    # INACTIVITY timeout, not a round-trip ceiling — a trickling daemon could
+    # hold the CLI indefinitely. Same absolute-instant rule as every other read.
+    monkeypatch.setattr("gda.live_runner.LIVE_REQUEST_TIMEOUT", 0.3)
+    paths = daemon_paths(_project(tmp_path))
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(paths.cli_socket))
+    listener.listen()
+
+    def _trickle() -> None:
+        conn, _ = listener.accept()
+        read_message(conn)
+        body = build_result({"ok": True}).encode("utf-8")
+        wire = len(body).to_bytes(4, "big") + body
+        for byte in wire:  # each byte lands inside the bound, resetting it
+            try:
+                conn.sendall(bytes([byte]))
+            except OSError:
+                return
+            time.sleep(0.2)
+
+    daemon = threading.Thread(target=_trickle, daemon=True)
+    daemon.start()
+    started = time.monotonic()
+    try:
+        # The request leg itself: daemon discovery is not what is under test.
+        result = DaemonRunner(paths.project)._request(paths.cli_socket, "game-tree", {})
+        elapsed = time.monotonic() - started
+    finally:
+        listener.close()
+        daemon.join(timeout=5)
+
+    assert elapsed < 0.3 + _SCHEDULING_SLACK, (
+        f"the trickled reply held the CLI for {elapsed:.2f}s"
+    )
+    assert parse_result(result.stdout)["error"]["code"] == "live_timeout"
+
+
+def test_the_owner_keeps_the_group_a_reaped_leader_cannot_name(tmp_path):
+    # #725 re-review: the group id is the LEADER'S pid, and `EngineSession.alive()`
+    # polls the leader — which reaps it. Rediscovering the group at teardown then
+    # returned nothing and the engine's descendants were never retired (probed:
+    # leader exited 0, group unrecoverable, descendant alive). The owner captures
+    # the group at spawn and keeps it.
+    leader, descendant = _leader_with_descendant(_EXITS_LEAVING_STUBBORN_CHILD)
+    group = _own_group(leader)
+    session = EngineSession(leader, conn=None, group=group)
+    try:
+        end = time.monotonic() + 5.0
+        while session.alive() and time.monotonic() < end:
+            time.sleep(0.01)  # the liveness check that reaps the leader
+        assert not session.alive()
+        assert _own_group(leader) is None, "the reaped leader still names a group"
+        session.close(time.monotonic() + 5.0)
+        _assert_gone(descendant, "descendant")
+    finally:
+        _reap_group(descendant, leader.pid)
+
+
+def test_a_descendant_may_finish_its_own_cleanup_inside_the_deadline(tmp_path):
+    # #725 re-review, the other side of group ownership: SIGKILL used to follow
+    # the moment the LEADER exited, so a descendant still running its own SIGTERM
+    # handler was truncated even with the whole budget left. The wait is for the
+    # group, so a descendant that completes within the deadline gets to.
+    marker = tmp_path / "cleanup-done"
+    leader, descendant = _leader_with_descendant(
+        _OBEYS_SIGTERM_WITH_CLEANING_CHILD.format(marker=str(marker))
+    )
+    try:
+        started = time.monotonic()
+        _terminate(leader, time.monotonic() + 5.0, group=_own_group(leader))
+        elapsed = time.monotonic() - started
+        assert marker.exists(), "the descendant's cleanup was cut short"
+        assert elapsed < 5.0, "teardown waited out the whole deadline"
+    finally:
+        _reap_group(descendant, leader.pid)
 
 
 def test_the_group_is_retired_even_when_the_leader_obeys_sigterm(monkeypatch):

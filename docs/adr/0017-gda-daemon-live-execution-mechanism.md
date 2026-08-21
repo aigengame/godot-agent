@@ -138,9 +138,8 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > which is how an exhausted budget came back whole for a replacement launch.
 >
 > What the instant is, precisely: a **budget for waiting and for committing to new work**, not a
-> hard wall clock. It cannot be the latter — nothing here can interrupt a synchronous system
-> call already in flight, and gda is not going to introduce threads and cancellation to pretend
-> otherwise. So the guarantee is stated as three rules. No phase gets a fresh grace. Every timed
+> hard wall clock. A hard wall-clock limit would require cancellation around synchronous calls;
+> this design does not add that mechanism, so the guarantee is stated as three rules instead. No phase gets a fresh grace. Every timed
 > wait uses what remains, computed where the wait begins rather than where it was decided. And
 > once the instant has passed, the boundary **commits to nothing further** — it does not launch,
 > and a launch already committed is torn down. A slow liveness check, a slow filesystem write, a

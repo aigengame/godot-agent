@@ -38,6 +38,12 @@ class _FakeProc:
     def poll(self):
         return self.returncode
 
+    # gda's OWN pid, deliberately: teardown reads the pid to find the process
+    # group it owns, and the own-group guard then resolves this stand-in to no
+    # group at all. An invented pid would instead resolve to whichever real
+    # process holds it — which a test would then signal.
+    pid = os.getpid()
+
 
 def _project(tmp_path):
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
