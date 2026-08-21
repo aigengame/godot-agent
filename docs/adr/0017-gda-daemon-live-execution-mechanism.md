@@ -116,7 +116,8 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > and `gda logger tail` are live operations the daemon serves from the Session log it owns, and they
 > deliberately launch nothing (ADR-0022). The precise rule, and the wording every public surface
 > uses, is that a session launches on **the first operation that REQUIRES an Engine session**.
-> `gda daemon wait-ready` is the explicit, bounded way to BE that operation — the documented
+> `gda daemon wait-ready` is the explicit way to BE that operation, with one daemon-side
+> wait/commit budget — the documented
 > alternative to firing a throwaway read — so an agent can establish the session up front and have
 > its first real read serve, including a first `diag errors`. It is one command in the `daemon`
 > group carried on the live channel (`kind = LIVE`, the `diag errors` precedent); the group-module
@@ -139,7 +140,8 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 >
 > What the instant is, precisely: a **budget for waiting and for committing to new work**, not a
 > hard wall clock. A hard wall-clock limit would require cancellation around synchronous calls;
-> this design does not add that mechanism, so the guarantee is stated as three rules instead. No phase gets a fresh grace. Every timed
+> this design does not add that mechanism, so the guarantee is stated as three rules instead.
+> No phase gets a fresh grace. Every timed
 > wait uses what remains, computed where the wait begins rather than where it was decided. And
 > once the instant has passed, the boundary **commits to nothing further** — it does not launch,
 > and a launch already committed is torn down. A slow liveness check, a slow filesystem write, a

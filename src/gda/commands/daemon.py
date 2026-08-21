@@ -211,13 +211,15 @@ class DaemonStatusResult(BaseModel):
 
 
 class DaemonWaitReadyParams(BaseModel):
-    """The params of ``gda daemon wait-ready``: the bounded readiness wait (#657).
+    """The params of ``gda daemon wait-ready``: the readiness budget (#657).
 
     The daemon launches its engine session LAZILY on the first operation that
-    requires one (ADR-0017); this command is the explicit, bounded way to BE
-    that operation. ``timeout`` is the daemon-side budget for the launch — every
-    wait in it draws from one instant and none is renewed — not a poll interval
-    and not a sleep loop: one request, one launch, one answer. The (0, 50] cap is the shared
+    requires one (ADR-0017); this command is the explicit way to BE that
+    operation. ``timeout`` is the daemon-side budget for the launch — every wait
+    and new-work decision draws from one instant and none is renewed — not a poll
+    interval and not a sleep loop: one request, one launch, one answer. A
+    synchronous call already in flight can delay when expiry is observed. The
+    (0, 50] cap is the shared
     ``gda.daemon.server.WAIT_READY_TIMEOUT_MAX``, which the daemon re-enforces
     at its IPC boundary for non-gda clients.
     """
@@ -228,11 +230,13 @@ class DaemonWaitReadyParams(BaseModel):
         le=WAIT_READY_TIMEOUT_MAX,
         allow_inf_nan=False,
         description=(
-            "How many seconds to let the engine session's launch take — engine "
-            "boot, the project's autoloads, and the in-game harness connecting "
-            "back and completing its handshake. Bounds the wait inside the "
-            "daemon; when exhausted the reply is 'engine_session_not_running' "
-            "carrying the launch diagnostics. Must be a finite number in "
+            "The daemon-side budget, in seconds, shared by the engine launch's "
+            "waits and new-work decisions: engine boot, the project's autoloads, "
+            "and the in-game harness connecting back and completing its handshake. "
+            "A synchronous call already in flight can delay when expiry is "
+            "observed. When the budget is exhausted, the reply is "
+            "'engine_session_not_running' carrying the launch diagnostics. Must "
+            "be a finite number in "
             f"(0, {int(WAIT_READY_TIMEOUT_MAX)}]: the live channel bounds the "
             "whole request round trip at 60s client-side, so the wait has to "
             f"resolve inside it. Defaults to {int(CONNECT_TIMEOUT)}."
@@ -1111,8 +1115,10 @@ def daemon_wait_ready(
         CONNECT_TIMEOUT,
         "--timeout",
         help=(
-            "Seconds to let the session launch take (engine boot + autoloads + "
-            "harness connect) before the daemon reports "
+            "Daemon-side budget for the session launch's waits and new-work "
+            "decisions (engine boot + autoloads + harness connect). A synchronous "
+            "call already in flight can delay when expiry is observed. When the "
+            "budget is exhausted, the daemon reports "
             "'engine_session_not_running' with the launch diagnostics. A finite "
             f"number in (0, 50]; defaults to {int(CONNECT_TIMEOUT)}."
         ),
@@ -1123,7 +1129,7 @@ def daemon_wait_ready(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Establish the engine session and wait, bounded, until live reads serve.
+    """Establish the engine session under one budget until live reads serve.
 
     The daemon launches its engine session LAZILY, on the first operation that
     REQUIRES one (ADR-0017) — and a read-only diagnostic never does: right
@@ -1136,9 +1142,10 @@ def daemon_wait_ready(
     (ADR-0009) — and returns once the in-game harness has connected, after
     which live reads (including a first `diag errors`) serve. Idempotent while
     a session is alive: `launched: false`, nothing relaunched. With no daemon
-    it reports `daemon_not_running`; a launch that cannot complete within
-    `--timeout` reports `engine_session_not_running` with the launch
-    diagnostics.
+    it reports `daemon_not_running`; when the daemon-side `--timeout` budget is
+    exhausted, it reports `engine_session_not_running` with the launch
+    diagnostics. The budget governs waits and new-work decisions, not the wall
+    time of a synchronous call already in flight.
     """
     # The params model owns the bounds (ADR-0015); this argv body only
     # translates a model refusal into the Click usage error.

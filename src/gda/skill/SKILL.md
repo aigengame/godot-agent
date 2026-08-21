@@ -136,8 +136,9 @@ refusal hints the command form) and a bare `gda --json` with no command (`Missin
 Prerequisites: run `gda daemon start` first (optionally `--scene <res://...>` to boot a
 specific scene instead of the project's main scene); the engine session launches lazily on
 the first operation that requires one. To establish the session deterministically, run
-`gda daemon wait-ready` (bounded by `--timeout`, idempotent while the session is alive) —
-success means live reads serve. This matters for the read-only diagnostics: `diag errors` /
+`gda daemon wait-ready` (`--timeout` budgets daemon waits and new-work decisions;
+a synchronous launch call can delay expiry observation; idempotent while the session is
+alive) — success means live reads serve. This matters for the read-only diagnostics: `diag errors` /
 `logger tail` never launch a session themselves, so right after `daemon start` they report
 `engine_session_not_running` by design — expected, not a defect; run `wait-ready` first.
 A `live_timeout` discards the session (its late reply can no longer be attributed), so the
@@ -166,7 +167,7 @@ already-running daemon's lazy Engine-session launch; only the outer
 
 | Group | Commands |
 | ----- | -------- |
-| `daemon` | `start`, `wait-ready`, `stop`, `status`, `install`, `uninstall` (lifecycle; `start` installs the in-game harness itself, so `install` is only for doing that step deliberately — e.g. to review or commit the `project.godot` change — and `uninstall` reverses it; `wait-ready` establishes the lazily-launched engine session, bounded by `--timeout`, so a first `diag errors` serves instead of reporting `engine_session_not_running`) |
+| `daemon` | `start`, `wait-ready`, `stop`, `status`, `install`, `uninstall` (lifecycle; `start` installs the in-game harness itself, so `install` is only for doing that step deliberately — e.g. to review or commit the `project.godot` change — and `uninstall` reverses it; `wait-ready` establishes the lazily-launched engine session, with `--timeout` shared by its waits and new-work decisions, so a first `diag errors` serves instead of reporting `engine_session_not_running`) |
 | `game` | `tree`, `get`, `rect`, `set` (the running game's runtime scene graph) |
 | `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |

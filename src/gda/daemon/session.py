@@ -100,7 +100,7 @@ class EngineSession:
         proc: subprocess.Popen,
         conn: socket.socket | None,
         log_file: Optional[Path] = None,
-        group: Optional[int] = None,
+        owned_pgid: Optional[int] = None,
     ) -> None:
         self._proc = proc
         self._conn = conn
@@ -112,7 +112,7 @@ class EngineSession:
         # no pid to read a group from — after which nothing retires whatever the
         # engine started. A pid can also be reused; the id captured at spawn is
         # the only one known to be this session's.
-        self._group = group
+        self._owned_pgid = owned_pgid
 
     def alive(self) -> bool:
         # Liveness is the PROCESS and the CHANNEL (#725 review): a session whose
@@ -140,8 +140,7 @@ class EngineSession:
             # so a trickled reply would hold this single-threaded daemon far past
             # the ``live_timeout`` the message promises.
             deadline = time.monotonic() + OP_TIMEOUT
-            self._conn.settimeout(OP_TIMEOUT)
-            write_message(self._conn, {"op": operation, "params": params})
+            write_message(self._conn, {"op": operation, "params": params}, deadline)
             reply = read_frame(self._conn, deadline)  # the raw ADR-0002 sentinel
         except TimeoutError:
             # Latched stale too (#725 re-review). The earlier reading — "a slow op
@@ -198,7 +197,7 @@ class EngineSession:
                 self._conn.close()
             except OSError:
                 pass
-        _terminate(self._proc, deadline, group=self._group)
+        _terminate(self._proc, deadline, owned_pgid=self._owned_pgid)
 
 
 def launch_session(
@@ -347,8 +346,9 @@ def launch_session(
     # the token read forever — and the daemon serves one request at a time, so that
     # silence froze every later live and control request with it (#725 review).
     # Captured immediately after the spawn, while the leader certainly holds its
-    # pid, and validated against gda's own group (#725 re-review).
-    group = _own_group(proc)
+    # pid, and validated as the leader of a group other than gda's (#725
+    # re-review).
+    owned_pgid = _capture_owned_pgid(proc)
 
     def _teardown() -> None:
         # Teardown draws from the same deadline (#725 re-review). A failure path is
@@ -356,7 +356,7 @@ def launch_session(
         # used to add a fresh five-second grace ON TOP of the caller's bound — 5.3s
         # for a `wait-ready --timeout 0.3` — with the serve loop blocked for all of
         # it. Nothing left means kill now.
-        _terminate(proc, deadline, group=group)
+        _terminate(proc, deadline, owned_pgid=owned_pgid)
 
     if _left() <= 0:
         # The spawn itself outran the budget — the one step that cannot be
@@ -428,7 +428,7 @@ def launch_session(
         _close(conn)
         _teardown()
         raise SceneMismatch(scene if scene is not None else "", str(current))
-    return EngineSession(proc, conn, log_file=log_file, group=group)
+    return EngineSession(proc, conn, log_file=log_file, owned_pgid=owned_pgid)
 
 
 def _child_exit_diagnostic(proc: subprocess.Popen, budget: float) -> str:
@@ -466,7 +466,7 @@ def _close(conn: socket.socket) -> None:
 def _terminate(
     proc: subprocess.Popen,
     deadline: Optional[float] = None,
-    group: Optional[int] = None,
+    owned_pgid: Optional[int] = None,
 ) -> None:
     """SIGTERM the engine group, then SIGKILL it if it has not exited by ``deadline``.
 
@@ -492,9 +492,10 @@ def _terminate(
     order matters both ways: a descendant given SIGTERM may legitimately still be
     finishing (killing it the instant the leader exits truncates that), and a
     descendant that ignores SIGTERM must not outlive the session (letting the
-    leader's exit end the teardown orphaned it). ``group`` comes from the OWNER —
-    captured at spawn — because it cannot be recovered here: polling the leader
-    reaps it, and a reaped leader has no pid to read a group from.
+    leader's exit end the teardown orphaned it). ``owned_pgid`` comes from the
+    OWNER — captured and validated at spawn — because it cannot be recovered
+    here: polling the leader reaps it, and a reaped leader has no pid to read a
+    group from.
 
     An immediate escalation costs no diagnostics: Godot's file logger flushes
     every error, and every print in a debug build (``core/io/logger.cpp``,
@@ -508,62 +509,71 @@ def _terminate(
     """
     if deadline is None:
         deadline = time.monotonic() + TERMINATE_GRACE
-    if group is None:
+    if owned_pgid is None:
         # No owner told us, so recover what can still be recovered — accurate for
         # a leader that has not been reaped, ``None`` once it has.
-        group = _own_group(proc)
-    if proc.poll() is None:
-        _signal_engine(proc, group, signal.SIGTERM)
+        owned_pgid = _capture_owned_pgid(proc)
+    leader_running = proc.poll() is None
+    if owned_pgid is not None or leader_running:
+        # Group ownership is independent of leader liveness. A preceding
+        # `alive()` or launch diagnostic may already have reaped the leader, but
+        # its descendants still need the graceful signal before the deadline.
+        _signal_engine(proc, owned_pgid, signal.SIGTERM)
     while time.monotonic() < deadline:
         # Polled rather than blocked on the leader: the leader exiting is not the
         # group being done, and blocking on it cannot observe the difference.
         # ``poll`` also reaps the leader, keeping its ``returncode`` honest.
         proc.poll()
-        if not _group_standing(group, proc):
+        if not _group_standing(owned_pgid, proc):
             return
         time.sleep(min(_RETIRE_POLL, max(deadline - time.monotonic(), 0.0)))
     # The deadline arrived with the session still standing.
     if proc.poll() is None:
-        _signal_engine(proc, group, signal.SIGKILL)
+        _signal_engine(proc, owned_pgid, signal.SIGKILL)
         _reap_in_background(proc)
-    elif group is not None:
+    elif owned_pgid is not None:
         try:
-            os.killpg(group, signal.SIGKILL)
+            os.killpg(owned_pgid, signal.SIGKILL)
         except OSError:
             pass  # already empty: nothing left to retire
 
 
-def _group_standing(group: Optional[int], proc: subprocess.Popen) -> bool:
+def _group_standing(owned_pgid: Optional[int], proc: subprocess.Popen) -> bool:
     """Whether anything gda owns for this session is still running."""
-    if group is None:
+    if owned_pgid is None:
         return proc.poll() is None
     try:
-        os.killpg(group, 0)
-    except OSError:
+        os.killpg(owned_pgid, 0)
+    except ProcessLookupError:
         return False  # no members left
+    except OSError:
+        # Permission and transient signal failures do not prove absence. Waiting
+        # to the existing deadline is safer than declaring a live group empty.
+        return True
     return True
 
 
-def _own_group(proc: subprocess.Popen) -> Optional[int]:
-    """The process group gda owns for ``proc``, or ``None`` if there is none.
+def _capture_owned_pgid(proc: subprocess.Popen) -> Optional[int]:
+    """The process-group id led and owned by ``proc``, or ``None``.
 
     ``None`` when the leader is already reaped (its pid, and so its group id, is
-    gone) and when the group turns out to be gda's OWN — signalling that would
-    take the daemon down with the engine, and it means the launch never got its
-    own session.
+    gone), when ``proc`` is only a member of somebody else's group, and when the
+    group turns out to be gda's OWN. Only ``pgid == pid`` proves the ownership
+    established by ``Popen(start_new_session=True)``; signalling any other group
+    could terminate unrelated processes.
     """
     try:
-        group = os.getpgid(proc.pid)
+        pgid = os.getpgid(proc.pid)
     except OSError:
         return None
-    return None if group == os.getpgrp() else group
+    return pgid if pgid == proc.pid and pgid != os.getpgrp() else None
 
 
-def _signal_engine(proc: subprocess.Popen, group: Optional[int], sig: int) -> None:
+def _signal_engine(proc: subprocess.Popen, owned_pgid: Optional[int], sig: int) -> None:
     """Signal the engine's whole process group, or the child alone if it has none."""
-    if group is not None:
+    if owned_pgid is not None:
         try:
-            os.killpg(group, sig)
+            os.killpg(owned_pgid, sig)
             return
         except OSError:
             pass

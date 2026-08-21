@@ -48,9 +48,17 @@ def read_frame(sock: socket.socket, deadline: float | None = None) -> bytes | No
     return _recv_exactly(sock, length, deadline)
 
 
-def write_message(sock: socket.socket, obj: Any) -> None:
-    """Send ``obj`` as one length-prefixed JSON frame."""
-    write_frame(sock, json.dumps(obj).encode("utf-8"))
+def write_message(sock: socket.socket, obj: Any, deadline: float | None = None) -> None:
+    """Send one JSON frame, optionally within an absolute ``deadline``.
+
+    Serialization happens before the timed write. If it spends the budget, no
+    bytes are committed; otherwise ``sendall`` receives only the time left on
+    the caller's round-trip instant.
+    """
+    payload = json.dumps(obj).encode("utf-8")
+    if deadline is not None:
+        _set_timeout_from_deadline(sock, deadline)
+    write_frame(sock, payload)
 
 
 def read_message(sock: socket.socket, deadline: float | None = None) -> Any | None:
@@ -81,16 +89,21 @@ def _recv_exactly(
     remaining = count
     while remaining > 0:
         if deadline is not None:
-            left = deadline - time.monotonic()
-            if left <= 0:
-                raise TimeoutError("the frame did not arrive before the deadline")
-            sock.settimeout(left)
+            _set_timeout_from_deadline(sock, deadline)
         chunk = sock.recv(remaining)
         if not chunk:
             return None
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
+
+
+def _set_timeout_from_deadline(sock: socket.socket, deadline: float) -> None:
+    """Give the next socket operation only the time left on ``deadline``."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise TimeoutError("the frame deadline has expired")
+    sock.settimeout(left)
 
 
 def result_reply(payload: Any) -> dict:

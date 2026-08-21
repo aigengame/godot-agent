@@ -845,7 +845,8 @@ headless is unaffected (4.4+, cross-platform).
   deterministically: a session launches on the first operation that REQUIRES one (ADR-0017),
   and the read-only diag/logger reads never do (ADR-0022), so a first `diag errors` right
   after start reports `engine_session_not_running` by design — `wait-ready` is the
-  documented, bounded way to trigger that launch explicitly. `--timeout` is ONE deadline over the whole
+  documented way to trigger that launch explicitly, with one daemon-side wait/commit budget.
+  `--timeout` is ONE deadline over the whole
   daemon-side readiness attempt — retiring the session being replaced, the
   spawn, the harness connect, the token and scene-verification frames (each read against the
   deadline, not a per-chunk inactivity timeout), and the teardown of a failed launch (a finite

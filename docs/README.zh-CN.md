@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ce484830762f3beaff4c979423c5ae400f9e443d077393808ea1b566fefce7ff -->
+<!-- gda-readme-i18n: source=README.md sha256=8cb5ae07a2d875db3554b7840b6fc90efdca5fa1bd84da220a2de393f6871949 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -517,7 +517,7 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | 命令 | 作用 |
 | ------- | ------------ |
 | `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话会在第一个需要它的操作时启动（`screen` 截图需加 `--windowed`）。 |
-| `daemon wait-ready` | 建立惰性启动的引擎会话并在有界等待内等到 Live 读取可服务——这是显式触发会话启动的规范做法：只读的 `diag`/`logger` 读取从不启动会话，所以 `daemon start` 之后的第一次 `diag errors` 按设计会报 `engine_session_not_running`。 |
+| `daemon wait-ready` | 建立惰性启动的引擎会话，使 Live 读取可服务。`--timeout` 是 daemon 端由启动等待和新工作决策共享的预算；正在执行的同步启动调用可能延后过期状态的观察。这是显式触发会话启动的规范做法：只读的 `diag`/`logger` 读取从不启动会话，所以 `daemon start` 之后的第一次 `diag errors` 按设计会报 `engine_session_not_running`。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
 | `daemon install` | 在不启动 daemon 的情况下把游戏内 `gda` harness 安装进项目，并报告它创建的每个路径与配置段。幂等，并会把旧版 `gda` 装下的 harness 同步为当前版本。`daemon start` 自己就会执行这一步，因此只有在你想显式地做出这次 `project.godot` 改动（例如便于审阅或提交）时才需要它。 |

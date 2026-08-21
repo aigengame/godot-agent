@@ -128,7 +128,8 @@ def no_engine_teardown(monkeypatch) -> None:
     a real child and must NOT call this.
     """
     monkeypatch.setattr(
-        "gda.daemon.session._terminate", lambda proc, deadline=None, group=None: None
+        "gda.daemon.session._terminate",
+        lambda proc, deadline=None, owned_pgid=None: None,
     )
 
 

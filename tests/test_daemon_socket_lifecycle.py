@@ -40,7 +40,8 @@ from gda.daemon.protocol import read_message, write_frame, write_message
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
 from gda.daemon.session import (
     EngineSession,
-    _own_group,
+    _capture_owned_pgid,
+    _group_standing,
     _terminate,
     launch_session,
 )
@@ -122,6 +123,14 @@ _OBEYS_SIGTERM_WITH_CLEANING_CHILD = (
     "child.stdout.readline()\n"
     "print(child.pid, flush=True)\n"
     "time.sleep(120)\n"
+)
+_EXITS_LEAVING_CLEANING_CHILD = (
+    "import subprocess, sys\n"
+    "source = '''" + _CLEANING_CHILD + "'''\n"
+    "child = subprocess.Popen([sys.executable, '-c', source],"
+    " stdout=subprocess.PIPE, text=True)\n"
+    "child.stdout.readline()\n"
+    "print(child.pid, flush=True)\n"
 )
 _IGNORES_SIGTERM = (
     "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
@@ -921,7 +930,9 @@ def test_teardown_adds_no_waiting_after_work_that_spent_the_deadline(monkeypatch
     )
 
 
-def _leader_with_descendant(source: str) -> "tuple[subprocess.Popen, int]":
+def _leader_with_descendant(
+    source: str,
+) -> "tuple[subprocess.Popen, int, int | None]":
     """Spawn a group leader that reports its descendant's pid, and both are up."""
     leader = _REAL_POPEN(
         [sys.executable, "-c", source],
@@ -929,8 +940,11 @@ def _leader_with_descendant(source: str) -> "tuple[subprocess.Popen, int]":
         text=True,
         start_new_session=True,
     )
+    # Match production: ownership is captured immediately after Popen, not after
+    # reading output from a leader whose source may already have exited.
+    owned_pgid = _capture_owned_pgid(leader)
     assert leader.stdout is not None
-    return leader, int(leader.stdout.readline().strip())
+    return leader, int(leader.stdout.readline().strip()), owned_pgid
 
 
 def _assert_gone(pid: int, what: str) -> None:
@@ -995,25 +1009,113 @@ def test_the_live_clients_ceiling_covers_the_whole_round_trip(
     assert parse_result(result.stdout)["error"]["code"] == "live_timeout"
 
 
+def test_the_live_client_write_uses_only_the_round_trip_budget_left(monkeypatch):
+    # #725 re-review: passing the absolute instant only to the reply read left
+    # connect and request send on independent full socket timeouts. Work in the
+    # first leg therefore gave the second a fresh grace, despite the published
+    # whole-round-trip ceiling.
+    send_timeouts: list[float] = []
+
+    class _AccumulatingSocket:
+        timeout = 0.0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def settimeout(self, timeout: float) -> None:
+            self.timeout = timeout
+
+        def connect(self, path: str) -> None:
+            time.sleep(0.06)
+
+        def sendall(self, data: bytes) -> None:
+            send_timeouts.append(self.timeout)
+            time.sleep(self.timeout)
+            raise TimeoutError
+
+    monkeypatch.setattr("gda.live_runner.LIVE_REQUEST_TIMEOUT", 0.1)
+    monkeypatch.setattr(
+        "gda.live_runner.socket.socket", lambda *args, **kwargs: _AccumulatingSocket()
+    )
+    started = time.monotonic()
+    result = DaemonRunner(Path("."))._request(Path("unused.sock"), "game-tree", {})
+    elapsed = time.monotonic() - started
+
+    assert send_timeouts, "the request was never written"
+    assert 0 < send_timeouts[0] < 0.08, (
+        f"the write received a fresh {send_timeouts[0]:.3f}s timeout"
+    )
+    assert elapsed < 0.1 + _SCHEDULING_SLACK
+    assert parse_result(result.stdout)["error"]["code"] == "live_timeout"
+
+
 def test_the_owner_keeps_the_group_a_reaped_leader_cannot_name(tmp_path):
     # #725 re-review: the group id is the LEADER'S pid, and `EngineSession.alive()`
     # polls the leader — which reaps it. Rediscovering the group at teardown then
     # returned nothing and the engine's descendants were never retired (probed:
     # leader exited 0, group unrecoverable, descendant alive). The owner captures
     # the group at spawn and keeps it.
-    leader, descendant = _leader_with_descendant(_EXITS_LEAVING_STUBBORN_CHILD)
-    group = _own_group(leader)
-    session = EngineSession(leader, conn=None, group=group)
+    leader, descendant, owned_pgid = _leader_with_descendant(
+        _EXITS_LEAVING_STUBBORN_CHILD
+    )
+    session = EngineSession(leader, conn=None, owned_pgid=owned_pgid)
     try:
         end = time.monotonic() + 5.0
         while session.alive() and time.monotonic() < end:
             time.sleep(0.01)  # the liveness check that reaps the leader
         assert not session.alive()
-        assert _own_group(leader) is None, "the reaped leader still names a group"
+        assert _capture_owned_pgid(leader) is None, (
+            "the reaped leader still names a group"
+        )
         session.close(time.monotonic() + 5.0)
         _assert_gone(descendant, "descendant")
     finally:
         _reap_group(descendant, leader.pid)
+
+
+def test_a_reaped_leader_does_not_prevent_descendant_cleanup(tmp_path):
+    # Capturing the group fixed its identity after `alive()` reaped the leader,
+    # but teardown still gated SIGTERM on that leader being alive. The stored
+    # group must receive its graceful signal independently of the leader.
+    marker = tmp_path / "cleanup-after-leader"
+    leader, descendant, owned_pgid = _leader_with_descendant(
+        _EXITS_LEAVING_CLEANING_CHILD.format(marker=str(marker))
+    )
+    session = EngineSession(leader, conn=None, owned_pgid=owned_pgid)
+    try:
+        end = time.monotonic() + 5.0
+        while session.alive() and time.monotonic() < end:
+            time.sleep(0.01)
+        assert not session.alive()
+        started = time.monotonic()
+        session.close(time.monotonic() + 1.0)
+        elapsed = time.monotonic() - started
+        assert marker.exists(), "the reaped leader prevented the group SIGTERM"
+        assert elapsed < 1.0, "teardown waited out the whole deadline"
+    finally:
+        _reap_group(descendant, leader.pid)
+
+
+def test_only_a_process_group_leader_can_be_claimed_as_owned(monkeypatch):
+    class _GroupMember:
+        pid = 1234
+
+    monkeypatch.setattr(os, "getpgid", lambda pid: 1200)
+    monkeypatch.setattr(os, "getpgrp", lambda: 1100)
+
+    assert _capture_owned_pgid(cast(subprocess.Popen, _GroupMember())) is None
+
+
+def test_a_permission_error_does_not_mean_the_group_is_empty(monkeypatch):
+    def _permission_denied(group: int, sig: int) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(os, "killpg", _permission_denied)
+
+    assert _group_standing(1234, cast(subprocess.Popen, _Proc()))
 
 
 def test_a_descendant_may_finish_its_own_cleanup_inside_the_deadline(tmp_path):
@@ -1022,12 +1124,16 @@ def test_a_descendant_may_finish_its_own_cleanup_inside_the_deadline(tmp_path):
     # handler was truncated even with the whole budget left. The wait is for the
     # group, so a descendant that completes within the deadline gets to.
     marker = tmp_path / "cleanup-done"
-    leader, descendant = _leader_with_descendant(
+    leader, descendant, owned_pgid = _leader_with_descendant(
         _OBEYS_SIGTERM_WITH_CLEANING_CHILD.format(marker=str(marker))
     )
     try:
         started = time.monotonic()
-        _terminate(leader, time.monotonic() + 5.0, group=_own_group(leader))
+        _terminate(
+            leader,
+            time.monotonic() + 5.0,
+            owned_pgid=owned_pgid,
+        )
         elapsed = time.monotonic() - started
         assert marker.exists(), "the descendant's cleanup was cut short"
         assert elapsed < 5.0, "teardown waited out the whole deadline"
@@ -1041,9 +1147,11 @@ def test_the_group_is_retired_even_when_the_leader_obeys_sigterm(monkeypatch):
     # succeeded, the SIGKILL branch was skipped — while a descendant that
     # ignored it kept running, orphaned (probed: leader -15 in 0.001s,
     # descendant alive). gda owns the group, so the group is what gets retired.
-    leader, descendant = _leader_with_descendant(_OBEYS_SIGTERM_WITH_STUBBORN_CHILD)
+    leader, descendant, owned_pgid = _leader_with_descendant(
+        _OBEYS_SIGTERM_WITH_STUBBORN_CHILD
+    )
     try:
-        _terminate(leader, time.monotonic() + 5.0)
+        _terminate(leader, time.monotonic() + 5.0, owned_pgid=owned_pgid)
         assert leader.returncode == -signal.SIGTERM  # the leader DID obey
         _assert_gone(descendant, "descendant")
     finally:
@@ -1055,9 +1163,11 @@ def test_the_escalation_covers_the_group_the_engine_owns(monkeypatch):
     # the leader — so a descendant that also ignored SIGTERM was left alive and
     # orphaned. The session is spawned with `start_new_session=True`, so gda owns
     # that group; the escalation must match the signal that preceded it.
-    leader, descendant = _leader_with_descendant(_IGNORES_SIGTERM_WITH_CHILD)
+    leader, descendant, owned_pgid = _leader_with_descendant(
+        _IGNORES_SIGTERM_WITH_CHILD
+    )
     try:
-        _terminate(leader, time.monotonic() + 0.05)
+        _terminate(leader, time.monotonic() + 0.05, owned_pgid=owned_pgid)
         _assert_gone(descendant, "descendant")
     finally:
         _reap_group(descendant, leader.pid)
