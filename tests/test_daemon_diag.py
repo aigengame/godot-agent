@@ -14,6 +14,7 @@ import json
 import os
 import socket
 import subprocess
+import time
 from typing import cast
 
 import pytest
@@ -80,7 +81,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
         tmp_path / "h.sock",
         "tok",
         log_file=log_file,
-        timeout=0.1,
+        deadline=time.monotonic() + 0.1,
     )
 
     argv = captured["argv"]
@@ -129,7 +130,7 @@ def _capture_launch_argv(monkeypatch, project, **launch_kw):
         cast(socket.socket, _NoAcceptListener()),
         project / "h.sock",
         "tok",
-        timeout=0.1,
+        deadline=time.monotonic() + 0.1,
         **launch_kw,
     )
     return captured["argv"]
@@ -223,7 +224,7 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
             cast(socket.socket, _OneShotListener(daemon_end)),
             tmp_path / "h.sock",
             token,
-            timeout=1.0,
+            deadline=time.monotonic() + 1.0,
             scene=scene,
         )
     finally:
@@ -285,7 +286,7 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
             cast(socket.socket, _OneShotListener(daemon_end)),
             tmp_path / "h.sock",
             "tok",
-            timeout=1.0,
+            deadline=time.monotonic() + 1.0,
             scene="res://B.tscn",
         )
     finally:
@@ -325,7 +326,7 @@ def test_failed_launch_records_signal_death_when_child_already_died(
         cast(socket.socket, _NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
-        timeout=0.1,
+        deadline=time.monotonic() + 0.1,
         diagnostics=diagnostics,
     )
 
@@ -351,7 +352,7 @@ def test_failed_launch_records_harness_hung_when_child_still_alive(
         cast(socket.socket, _NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
-        timeout=0.1,
+        deadline=time.monotonic() + 0.1,
         diagnostics=diagnostics,
     )
 

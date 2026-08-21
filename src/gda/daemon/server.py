@@ -111,7 +111,7 @@ class SessionLaunch(Protocol):
         harness_socket: Path,
         token: str,
         log_file: Optional[Path] = None,
-        timeout: float = CONNECT_TIMEOUT,
+        deadline: Optional[float] = None,
         windowed: bool = False,
         scene: Optional[str] = None,
         diagnostics: Optional[list[str]] = None,
@@ -419,23 +419,31 @@ class DaemonServer:
     ) -> "_Established | None":
         if self._session is not None and self._session.alive():
             return _Established(self._session, launched=False)
-        # ONE deadline for everything this boundary does on the caller's clock
-        # (#725 re-review): retiring the session it is replacing AND launching the
-        # replacement. Retirement is not free — a stale session's engine may ignore
-        # SIGTERM — and charging it to nobody let a `wait-ready --timeout 0.3` spend
-        # 5s here before the launch it was bounding even began, with the
-        # single-threaded serve loop blocked for all of it. Each phase gets only
-        # what the previous one left.
-        budget = timeout if timeout is not None else CONNECT_TIMEOUT
-        deadline = time.monotonic() + budget
-
-        def _left() -> float:
-            return max(deadline - time.monotonic(), 0.0)
-
+        # ONE deadline — an absolute instant, held HERE — for everything this
+        # boundary does on the caller's clock (#725 re-review): retiring the session
+        # it is replacing AND launching the replacement. Retirement is not free (a
+        # stale session's engine may ignore SIGTERM) and neither is a spawn, so
+        # charging either to nobody made the bound a per-phase allowance rather than
+        # a bound. Phases receive the INSTANT, never a duration: a duration restarts
+        # whatever clock it lands on, which is how an exhausted budget came back as
+        # a fresh one for the launch.
+        deadline = time.monotonic() + (
+            timeout if timeout is not None else CONNECT_TIMEOUT
+        )
         if self._session is not None:
-            self._session.close(_left())
+            self._session.close(max(deadline - time.monotonic(), 0.0))
             self._session = None
         if not self.godot:
+            return None
+        if time.monotonic() >= deadline:
+            # Retirement used the whole budget. Launching now would be launching
+            # past the bound, so this is a refusal, reported like any other failed
+            # launch — with the reason, since an empty one reads as a mystery.
+            if diagnostics is not None:
+                diagnostics.append(
+                    "the readiness deadline expired while the previous engine "
+                    "session was retired; no replacement was launched"
+                )
             return None
         # The AUTHORITATIVE no-display guard (#345): a windowed session needs a usable
         # host DisplayServer, else a windowed Godot aborts during DisplayServer
@@ -469,10 +477,11 @@ class DaemonServer:
             self.paths.harness_socket,
             self._token,
             log_file=self.paths.session_log,
-            # A caller-bounded readiness-handshake wait (#657, `daemon wait-ready
-            # --timeout`); None means the launcher's own default is the budget.
-            # What arrives here is what retiring the previous session left of it.
-            timeout=max(_left(), 0.001),
+            # The caller's own deadline (#657 `daemon wait-ready --timeout`, #725
+            # re-review), not a duration derived from it: the launcher spends what
+            # is left of THIS instant on the spawn, the connect, the handshake
+            # frames, and its teardown.
+            deadline=deadline,
             windowed=self.windowed,
             scene=self.scene,
             diagnostics=diagnostics,

@@ -847,10 +847,12 @@ headless is unaffected (4.4+, cross-platform).
   after start reports `engine_session_not_running` by design — `wait-ready` is the
   documented, bounded way to trigger that launch explicitly. `--timeout` bounds the whole
   daemon-side readiness attempt on ONE deadline — retiring the session being replaced, the
-  harness connect, the token and scene-verification frames (each read against the deadline,
-  not a per-chunk inactivity timeout), and the teardown of a failed launch (a finite number
-  in (0, 50], under the live
-  channel's 60s client-side round-trip bound); success (`{pid, launched}`) means subsequent
+  spawn, the harness connect, the token and scene-verification frames (each read against the
+  deadline, not a per-chunk inactivity timeout), and the teardown of a failed launch (a finite
+  number in (0, 50], under the live channel's 60s client-side round-trip bound). A deadline
+  already spent is a refusal, not a fresh budget: nothing is launched past it. The one step
+  gda cannot interrupt is the spawn itself, so a spawn that outruns the budget ends in that
+  same refusal; success (`{pid, launched}`) means subsequent
   live reads serve, and a repeat while the session is alive is idempotent (`launched:
   false`, nothing relaunched). A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a

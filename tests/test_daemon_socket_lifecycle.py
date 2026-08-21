@@ -47,6 +47,12 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 
 _REAL_POPEN = subprocess.Popen
 
+# What a bounded round trip may add on top of the bound itself: IPC, thread
+# scheduling, and the daemon's own accept. Small on purpose — these assertions
+# exist to pin the PUBLIC bound, so slack that swallows a restored full-duration
+# wait would pin nothing.
+_SCHEDULING_SLACK = 0.35
+
 
 # A stand-in engine that survives SIGTERM, so a teardown's escalation is observable.
 # It announces itself: the handler is installed by the CHILD, so a SIGTERM that
@@ -422,13 +428,14 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
     session = _ServedSession()
 
     def _launch(*args, **kwargs):
-        launches.append(kwargs.get("timeout"))
+        launches.append(kwargs.get("deadline"))
         return session
 
     paths = daemon_paths(_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
+        asked = time.monotonic()
         first = _request(paths, {"op": "daemon-wait-ready", "params": {"timeout": 7.5}})
         again = _request(paths, {"op": "daemon-wait-ready", "params": {}})
 
@@ -437,12 +444,14 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
     assert verdict == {"pid": os.getpid(), "launched": True}
     assert again is not None
     assert parse_result(again["stdout"])["launched"] is False
-    # One launch, bounded by the caller's timeout — and by no more than it: what
-    # reaches the launcher is what the shared deadline has left after retiring the
-    # session being replaced (#725 re-review), which here is nearly all of it
-    # because there was nothing to retire.
+    # One launch, and what reaches the launcher is the caller's own DEADLINE —
+    # an instant it cannot outlive, not a duration it could restart (#725
+    # re-review). It is no later than 7.5s after the request was made, and (with
+    # nothing to retire here) not meaningfully earlier either.
     assert len(launches) == 1
-    assert 7.4 < launches[0] <= 7.5
+    # The slack is the request's own transit: the daemon starts the clock when it
+    # RECEIVES the call, so the instant is 7.5s from there, not from here.
+    assert asked < launches[0] <= asked + 7.5 + _SCHEDULING_SLACK
 
 
 def test_wait_ready_relays_the_typed_launch_failure(
@@ -491,7 +500,7 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
             listener,
             paths.harness_socket,
             "expected-token",
-            timeout=0.3,
+            deadline=time.monotonic() + 0.3,
             diagnostics=diagnostics,
         )
         elapsed = time.monotonic() - started
@@ -549,7 +558,7 @@ def test_a_trickling_handshake_peer_cannot_hold_the_launch_past_the_deadline(
             listener,
             paths.harness_socket,
             "expected-token",
-            timeout=0.05,
+            deadline=time.monotonic() + 0.05,
         )
         elapsed = time.monotonic() - started
     finally:
@@ -561,6 +570,49 @@ def test_a_trickling_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     assert elapsed < 0.5, f"the trickling peer held the launch for {elapsed:.2f}s"
 
 
+def test_a_slow_spawn_cannot_revive_the_callers_expired_deadline(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 third re-review: the launcher used to take a DURATION and start its own
+    # clock with it — after truncating the log and spawning the engine. So the
+    # spawn was charged to nobody and an exhausted budget came back whole: a
+    # 0.05s-bounded launch whose spawn alone took 0.12s still SUCCEEDED, with both
+    # handshake frames already queued. It takes the caller's absolute instant now,
+    # so a spawn that outruns the budget ends in a refusal, not a session.
+    no_engine_teardown(monkeypatch)
+
+    def _slow_popen(argv, **kwargs):
+        time.sleep(0.12)  # a spawn that costs more than the whole budget
+        return _Proc(code=None)
+
+    monkeypatch.setattr(subprocess, "Popen", _slow_popen)
+    paths = daemon_paths(_project(tmp_path))
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(paths.harness_socket))
+    listener.listen()
+    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    peer.connect(str(paths.harness_socket))
+    # Both frames are ALREADY waiting, so nothing but the clock can refuse this.
+    write_frame(peer, b"expected-token")
+    write_frame(peer, b'{"scene_ok": true, "current": "res://main.tscn"}')
+
+    try:
+        outcome = launch_session(
+            paths.project,
+            "godot",
+            listener,
+            paths.harness_socket,
+            "expected-token",
+            deadline=time.monotonic() + 0.05,
+        )
+    finally:
+        peer.close()
+        listener.close()
+
+    assert outcome is None
+
+
 def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
@@ -568,9 +620,11 @@ def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
     # replacing, and that retirement is work on the CALLER's clock. A stale
     # session whose engine ignores SIGTERM used to be closed on its own
     # five-second grace before the bounded launch even began — 5.0s for a
-    # `wait-ready --timeout 0.3`, with the serve loop blocked throughout. NOTE:
-    # no `no_engine_teardown` here on purpose — the real teardown IS the subject,
-    # and mocking it is exactly what hid this interaction.
+    # `wait-ready --timeout 0.3`, with the serve loop blocked throughout. When
+    # retirement uses the whole budget there is nothing left to launch WITHIN, so
+    # the boundary refuses instead of reviving the bound for a replacement.
+    # NOTE: no `no_engine_teardown` here on purpose — the real teardown IS the
+    # subject, and mocking it is exactly what hid this interaction.
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     stubborn = _stubborn_child(start_new_session=True)
     ours, silent_harness = socket.socketpair()
@@ -579,11 +633,21 @@ def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
     launches: list = []
 
     def _launch(*args, **kwargs):
-        launches.append(kwargs.get("timeout"))
+        launches.append(kwargs.get("deadline"))
         return stale if len(launches) == 1 else None
 
     paths = daemon_paths(_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
+    queued: list = []
+
+    def _control_request_behind_it() -> None:
+        # Enqueued WHILE wait-ready is being served, not after it returns: the
+        # daemon serves one request at a time, so this is what a caller behind the
+        # bounded one actually waits.
+        time.sleep(0.05)
+        at = time.monotonic()
+        reply = _request(paths, {"op": "__status__"}, timeout=20.0)
+        queued.append((reply, time.monotonic() - at))
 
     try:
         with _serving(server, paths, monkeypatch):
@@ -591,6 +655,8 @@ def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
                 _request(paths, {"op": "daemon-wait-ready", "params": {}}) is not None
             )
             timed_out = _request(paths, {"op": "game-tree", "params": {}})
+            behind = threading.Thread(target=_control_request_behind_it, daemon=True)
+            behind.start()
             started = time.monotonic()
             reply = _request(
                 paths,
@@ -598,9 +664,7 @@ def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
                 timeout=20.0,
             )
             elapsed = time.monotonic() - started
-            behind = time.monotonic()
-            status = _request(paths, {"op": "__status__"})
-            queued = time.monotonic() - behind
+            behind.join(timeout=20.0)
     finally:
         silent_harness.close()
         stubborn.kill()
@@ -611,26 +675,86 @@ def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
     assert (
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
     )
-    assert elapsed < 2.0, f"retiring the stale session took {elapsed:.1f}s"
+    assert elapsed < 0.3 + _SCHEDULING_SLACK, (
+        f"a 0.3s-bounded wait-ready took {elapsed:.2f}s"
+    )
+    # Retirement used the whole budget, so no replacement was launched past it.
+    assert len(launches) == 1
+    status, waited = queued[0]
     assert status is not None and status["ok"] is True
-    assert queued < 1.0, f"the next control request waited {queued:.1f}s"
-    # The replacement launch got what retirement left of the same 0.3s, never a
-    # fresh budget of its own.
-    assert len(launches) == 2 and launches[1] is not None and launches[1] <= 0.3
+    assert waited < 0.3 + _SCHEDULING_SLACK, (
+        f"the request queued behind it waited {waited:.2f}s"
+    )
 
 
-def test_a_killed_engine_is_reaped_by_the_teardown_that_killed_it(monkeypatch):
-    # #725 re-review finding 3: after the grace expires the child is SIGKILLed,
-    # and teardown must finish what it started. Without the reap `returncode`
-    # stayed None and the exited child was left for whatever happened to call
-    # poll() next — in a long-lived daemon, possibly nothing.
+class _SlowToCollect:
+    """A killed child the kernel has not made reapable yet — the worst case.
+
+    A real SIGKILL is collectable in microseconds, so only a stand-in shows what a
+    fixed post-kill allowance costs when collection is NOT instant (a child in
+    uninterruptible I/O, a loaded host). It wraps a real child so the signalling
+    is real; only the collection blocks, until the test releases it.
+    """
+
+    def __init__(self, proc: subprocess.Popen) -> None:
+        self._proc = proc
+        self.released = threading.Event()
+        self.returncode = None
+
+    @property
+    def pid(self) -> int:
+        return self._proc.pid
+
+    def poll(self):
+        return self._proc.poll()
+
+    def terminate(self) -> None:
+        self._proc.terminate()
+
+    def kill(self) -> None:
+        self._proc.kill()
+
+    def wait(self, timeout=None):
+        if not self.released.wait(timeout):
+            raise subprocess.TimeoutExpired("engine", timeout or 0)
+        return self._proc.wait()
+
+
+def test_teardown_does_not_wait_for_the_kernel_to_collect_the_child(monkeypatch):
+    # #725 third re-review: the escalation to SIGKILL is reached with the budget
+    # ALREADY spent, so ANY fixed allowance after it is time the caller never
+    # agreed to — and in the daemon, time every queued request waits too. A
+    # half-second one turned a 0.01s-bounded wait-ready into 0.5s. Collection is
+    # now a background duty, so teardown returns as soon as it has killed.
+    slow = _SlowToCollect(_stubborn_child(start_new_session=True))
+    try:
+        started = time.monotonic()
+        _terminate(cast(subprocess.Popen, slow), grace=0.05)
+        elapsed = time.monotonic() - started
+        assert elapsed < 0.05 + _SCHEDULING_SLACK, (
+            f"teardown spent {elapsed:.2f}s waiting past a 0.05s grace"
+        )
+    finally:
+        slow.released.set()
+        slow.kill()
+
+
+def test_a_killed_engine_is_still_collected(monkeypatch):
+    # The other half: not waiting must not become not collecting. An uncollected
+    # child keeps a None returncode for whatever happens to poll it next — in a
+    # long-lived daemon, possibly nothing.
     stubborn = _stubborn_child(start_new_session=True)
     try:
         _terminate(stubborn, grace=0.05)
-        assert stubborn.returncode is not None, "the killed child was never reaped"
+        # `returncode` is read directly, never through `poll()` — poll() would
+        # collect the child itself and pass with no reaper at all.
+        end = time.monotonic() + 10.0
+        while stubborn.returncode is None and time.monotonic() < end:
+            time.sleep(0.01)
+        assert stubborn.returncode is not None, "the killed child was never collected"
         assert stubborn.returncode < 0  # ended by a signal, not by its own exit
     finally:
-        if stubborn.poll() is None:
+        if stubborn.returncode is None:
             stubborn.kill()
 
 

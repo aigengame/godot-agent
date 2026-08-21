@@ -132,13 +132,27 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > instead would change the cross-language harness protocol and is left to its own decision.
 >
 > **One deadline, owned by the launch boundary.** Everything that boundary does on a caller's
-> clock draws from a single deadline: retiring the session being replaced, the connect, each
-> handshake frame, and the teardown of a failed launch. Two consequences are not obvious. A
-> socket timeout bounds *inactivity*, so a frame read in chunks must recompute the remaining
-> budget per read or a trickling peer holds the reader indefinitely — the daemon serves one
-> request at a time, so that is every later request too. And retirement is not free: an engine
-> that ignores `SIGTERM` is escalated with what the deadline has left, not with a fresh grace
-> of its own.
+> clock draws from a single deadline: retiring the session being replaced, the spawn, the
+> connect, each handshake frame, and the teardown of a failed launch. It travels as an
+> **absolute instant**, never as a duration — a duration restarts whatever clock receives it,
+> which is how an exhausted budget came back whole for a replacement launch. When the instant
+> has passed, the boundary REFUSES rather than launching past it.
+>
+> Four consequences are not obvious. A socket timeout bounds *inactivity*, so a frame read in
+> chunks must recompute the remaining budget per read or a trickling peer holds the reader
+> indefinitely — the daemon serves one request at a time, so that is every later request too.
+> Retirement is not free: an engine that ignores `SIGTERM` is escalated with what the deadline
+> has left, not with a fresh grace. Collecting a killed child is a duty but not the caller's
+> time, so it is neither charged nor dropped — it happens in the background. And the spawn is
+> the one step that cannot be interrupted once begun: the deadline is checked before it and
+> governs everything after, so a spawn that outruns the budget ends in a refusal rather than in
+> a session that came up late.
+>
+> The same rule applies to the op relay's own `live_timeout` ceiling, which had the same
+> inactivity shape. Accepted deliberately, and beyond what the `wait-ready` slice needed: a
+> trickled reply now reaches that ceiling where before it completed, and since a timed-out relay
+> marks the channel stale, the consequence is a relaunch and the loss of runtime state. The
+> alternative was to keep publishing a bound that was not one.
 
 ## Decision
 
