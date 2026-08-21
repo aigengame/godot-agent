@@ -1,0 +1,231 @@
+"""Pure Evidence prerequisite-graph and candidate judgments."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Mapping, cast
+
+
+@dataclass(frozen=True)
+class EvidenceSubject:
+    """One exact subject identity in an Evidence prerequisite graph."""
+
+    role: str
+    identity: str
+
+
+@dataclass(frozen=True)
+class EvidencePrerequisite:
+    """One exact directed prerequisite binding between graph subjects."""
+
+    subject: str
+    subject_identity: str
+    prerequisite: str
+    prerequisite_identity: str
+
+
+@dataclass(frozen=True)
+class EvidenceGraph:
+    """The exact graph and producing outcome presented for judgment."""
+
+    subjects: tuple[EvidenceSubject, ...]
+    prerequisites: tuple[EvidencePrerequisite, ...]
+    producing_outcome: str
+    runtime_dispatch: str
+    runtime_refusal_variant: str
+
+
+@dataclass(frozen=True)
+class EvidenceCandidate:
+    """An open candidate judgment; this value is not Evidence."""
+
+    claim_kind: str
+    claim_state: str
+    producing_outcome: str
+    subjects: tuple[EvidenceSubject, ...]
+
+
+@dataclass(frozen=True)
+class EvidenceVerificationIssue:
+    """One LDB-addressable fault in a candidate judgment."""
+
+    reason: str
+    subject: str
+    message: str
+
+
+def _issue(kind: str, subject: str, message: str) -> EvidenceVerificationIssue:
+    return EvidenceVerificationIssue(
+        reason=f"evaluation.reason.evaluable-{kind}-prerequisite",
+        subject=subject,
+        message=message,
+    )
+
+
+def _cyclic_roles(edges: set[tuple[str, str]]) -> set[str]:
+    dependencies: dict[str, set[str]] = {}
+    for subject, prerequisite in edges:
+        dependencies.setdefault(subject, set()).add(prerequisite)
+        dependencies.setdefault(prerequisite, set())
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    cyclic: set[str] = set()
+
+    def visit(role: str, path: tuple[str, ...]) -> None:
+        if role in visiting:
+            start = path.index(role)
+            cyclic.update(path[start:])
+            return
+        if role in visited:
+            return
+        visiting.add(role)
+        for prerequisite in sorted(dependencies.get(role, ())):
+            visit(prerequisite, (*path, prerequisite))
+        visiting.remove(role)
+        visited.add(role)
+
+    for role in sorted(dependencies):
+        visit(role, (role,))
+    return cyclic
+
+
+def _graph_issues(
+    claim_kind: Mapping[str, Any], graph: EvidenceGraph
+) -> tuple[EvidenceVerificationIssue, ...]:
+    expected_roles = tuple(cast(list[str], claim_kind["subject_roles"]))
+    expected_role_set = set(expected_roles)
+    subjects: dict[str, EvidenceSubject] = {}
+    issues: list[EvidenceVerificationIssue] = []
+    for subject in graph.subjects:
+        if subject.role in subjects:
+            issues.append(
+                _issue(
+                    "mismatched",
+                    subject.role,
+                    "Evidence prerequisite graph repeats one subject role",
+                )
+            )
+            continue
+        subjects[subject.role] = subject
+    for role in sorted(expected_role_set - set(subjects)):
+        issues.append(
+            _issue(
+                "missing",
+                role,
+                "Evidence prerequisite graph is missing one required subject",
+            )
+        )
+    for role in sorted(set(subjects) - expected_role_set):
+        issues.append(
+            _issue(
+                "extra",
+                role,
+                "Evidence prerequisite graph contains an undeclared subject",
+            )
+        )
+
+    expected_edges = {
+        (cast(str, edge["subject"]), cast(str, edge["prerequisite"]))
+        for edge in cast(list[dict[str, Any]], claim_kind["prerequisite_edges"])
+    }
+    actual_edges = {(edge.subject, edge.prerequisite) for edge in graph.prerequisites}
+    for subject, prerequisite in sorted(expected_edges - actual_edges):
+        issues.append(
+            _issue(
+                "missing",
+                f"{subject}->{prerequisite}",
+                "Evidence prerequisite graph is missing one required edge",
+            )
+        )
+    for subject, prerequisite in sorted(actual_edges - expected_edges):
+        issues.append(
+            _issue(
+                "extra",
+                f"{subject}->{prerequisite}",
+                "Evidence prerequisite graph contains an undeclared edge",
+            )
+        )
+    for edge in graph.prerequisites:
+        subject = subjects.get(edge.subject)
+        prerequisite = subjects.get(edge.prerequisite)
+        if subject is None or prerequisite is None:
+            issues.append(
+                _issue(
+                    "unresolved",
+                    f"{edge.subject}->{edge.prerequisite}",
+                    "Evidence prerequisite edge does not resolve to graph subjects",
+                )
+            )
+            continue
+        if (
+            edge.subject_identity != subject.identity
+            or edge.prerequisite_identity != prerequisite.identity
+        ):
+            issues.append(
+                _issue(
+                    "mismatched",
+                    f"{edge.subject}->{edge.prerequisite}",
+                    "Evidence prerequisite edge does not bind the subject identities",
+                )
+            )
+    resolved_edges = {
+        (edge.subject, edge.prerequisite)
+        for edge in graph.prerequisites
+        if edge.subject in subjects and edge.prerequisite in subjects
+    }
+    cycle = _cyclic_roles(resolved_edges)
+    if cycle:
+        issues.append(
+            _issue(
+                "cyclic",
+                ",".join(sorted(cycle)),
+                "Evidence prerequisite graph contains a cycle",
+            )
+        )
+    return tuple(sorted(set(issues), key=lambda issue: (issue.reason, issue.subject)))
+
+
+def evaluate_evidence_candidate(
+    claim_kind: Mapping[str, Any], graph: EvidenceGraph
+) -> EvidenceCandidate | tuple[EvidenceVerificationIssue, ...]:
+    """Evaluate one graph under its admitted LDB claim-kind definition."""
+    issues = _graph_issues(claim_kind, graph)
+    if issues:
+        return issues
+    eligibility = cast(Mapping[str, Any], claim_kind["eligibility"])
+    producing_outcomes = set(cast(list[str], eligibility.get("producing_outcomes", [])))
+    runtime_refusal_variant = cast(str, eligibility.get("runtime_refusal_variant", ""))
+    eligible = (
+        graph.producing_outcome in producing_outcomes
+        and (
+            eligibility.get("runtime_dispatch") != "required"
+            or graph.runtime_dispatch == "reached"
+        )
+        and (
+            (
+                graph.producing_outcome == "runtime-refusal"
+                and graph.runtime_refusal_variant == runtime_refusal_variant
+            )
+            or (
+                graph.producing_outcome != "runtime-refusal"
+                and graph.runtime_refusal_variant == "not-applicable"
+            )
+        )
+    )
+    if not eligible:
+        return (
+            EvidenceVerificationIssue(
+                reason="evaluation.reason.evaluable-ineligible-outcome",
+                subject=graph.producing_outcome,
+                message=(
+                    "Producing outcome did not reach the LDB-required Runtime "
+                    "dispatch boundary"
+                ),
+            ),
+        )
+    return EvidenceCandidate(
+        claim_kind=cast(str, claim_kind["id"]),
+        claim_state=cast(str, eligibility["claim_state"]),
+        producing_outcome=graph.producing_outcome,
+        subjects=graph.subjects,
+    )
