@@ -85,8 +85,10 @@ Follow established interaction and visual conventions when they fit the feature:
 - End on a real gameplay outcome, not an internal sample count or run count.
 - Offer restart and feedback as separate choices after the terminal outcome.
 - Show a visible retry action after a recoverable failure.
-- Show the absolute feedback-file path after a successful save.
-- Copy the same feedback JSON that the application saves.
+- Choose a feedback transport that fits the playtest and delivery context.
+- When local-file feedback is used, show the absolute path after a successful save.
+- When clipboard copying is offered, copy the complete Content-produced feedback
+  payload without changing it.
 
 Accept gameplay input only when the action is visible and enabled. Content must also
 reject actions outside the allowed gameplay phases. A hidden button is not a complete
@@ -95,7 +97,7 @@ input guard.
 Add adjustable options only when they help answer the player question. Do not add
 settings only to make the application look more interactive.
 
-## Use a Readable MVP Presentation
+## Use a Readable Blockout Presentation
 
 Prefer a low-cost presentation unless visual fidelity is part of the question:
 
@@ -119,8 +121,11 @@ Do not expose these concepts in player UI or gameplay System interfaces:
 - HTTP, readiness record, process capability token, Execution session, or Experiment
   revision.
 
-Add-ons and Content can use these concepts internally. UI and Systems must receive
-application-owned gameplay values.
+Add-ons and Content can use these concepts internally. Gameplay interfaces into UI and
+Systems must receive only application-owned gameplay values. UI can receive a complete
+Content-produced feedback payload solely as opaque clipboard data when clipboard
+copying is offered. UI must not inspect or display maintainer provenance from that
+payload.
 
 Show a player-facing problem and a next action when execution fails. Put detailed
 diagnostics and reproduction details in a maintainer log or a maintainer-only section
@@ -183,6 +188,21 @@ consume it from the playtest. This rule also applies when a required Model Sourc
 Package change cannot use the current service. Do not hide the gap with a Godot
 special case. Do not add a speculative service extension without an application need.
 
+### Complete-run Lifecycle
+
+Each run creates a new Runtime. An Execution session binds a Model and its admitted
+Experiment revisions, but it does not carry Runtime state from one run to the next.
+
+For sequential gameplay, Content takes only validated terminal gameplay state from a
+completed returned artifact set and projects it into the next complete Experiment
+Specification before admission. This explicit projection is the state transition; it
+is not implicit Runtime carry-over.
+
+After process loss, discard the old child-process, Execution session, and Experiment
+revision handles. Do not infer whether an ambiguous in-flight request succeeded. Only
+an explicit retry action can restart the service, recreate the session, readmit complete
+inputs, and run again. Never automatically replay an ambiguous request.
+
 ### Local Process Boundary
 
 The reusable execution Add-on owns:
@@ -219,6 +239,10 @@ Godot Engine <- Add-ons <- Systems <- Content <- UI
 Use direct calls for downward requests and signals for upward notifications. Keep
 same-layer dependencies explicit and acyclic.
 
+Omit a layer root when it has no responsibility. A simple playtest can connect Content
+directly to Add-ons and deliver validated gameplay values directly to UI. Do not create
+a pass-through System only to complete the layer diagram.
+
 A multi-playtest project commonly has this shape:
 
 ```text
@@ -240,13 +264,13 @@ playtest/
 
 `apps/` is an optional delivery directory for composition roots. It is not a fifth
 responsibility layer. All non-composition responsibilities still belong to Add-ons,
-Systems, Content, or UI.
+Systems when present, Content, or UI.
 
 ### Application Bootstrap
 
 Give each playable an explicit, thin composition root. It creates the concrete UI
-composition, Content entry point, Systems, and Add-ons; injects dependencies; connects
-signals; and starts the application.
+composition, Content entry point, required Add-ons, and any Systems with a demonstrated
+responsibility; injects dependencies; connects signals; and starts the application.
 
 Keep source locations, document interpretation, gameplay rules, HTTP behavior, and
 retry flow out of the bootstrap.
@@ -262,8 +286,9 @@ path. It does not define or interpret feedback fields.
 
 ### Systems
 
-Systems receive only validated gameplay values. They can own reusable gameplay state,
-state transitions, and gameplay phases that do not duplicate gda-balancing semantics.
+Create a System only when it owns reusable gameplay state, state transitions, or
+gameplay phases that do not duplicate gda-balancing semantics. A simple playtest can
+have no System. When a System exists, it receives only validated gameplay values.
 
 Systems must not:
 
@@ -363,12 +388,14 @@ service and back to validated gameplay state.
 Before you build a large UI, run the smallest real-service path that covers the risky
 semantic boundary. Typical risks include:
 
-- state transfer between consecutive revisions;
+- validated terminal gameplay state projected into the next complete Experiment
+  Specification, with a new Runtime and no implicit carry-over;
 - explicit reset between independent comparison trials;
 - player-option projection;
 - cost, effect, and terminal-outcome agreement;
 - refusal atomicity; and
-- process failure and retry.
+- process failure, old-handle invalidation, explicit retry, and ambiguous-request
+  non-replay.
 
 Use the real local service. A fake is not sufficient as the only integration evidence.
 If the tracer finds a missing generic capability, evaluate that service gap before you
@@ -378,10 +405,11 @@ build a workaround.
 
 The first slice must include a real launch, one player action, the authored source or
 declared input required for that action, one real service run, Content validation,
-System state application, visible UI feedback, and a natural continuation or
-completion point. For an Experiment-owned change, create a complete Experiment
-Specification for admission, and run the exact Experiment revision that the service
-returns. Create a new Execution session when the Model Source Package changes.
+application-owned gameplay values delivered to UI, System state application when a
+System owns that state, visible UI feedback, and a natural continuation or completion
+point. For an Experiment-owned change, create a complete Experiment Specification for
+admission, and run the exact Experiment revision that the service returns. Create a new
+Execution session when the Model Source Package changes.
 
 Add more choices, the complete flow, feedback, localization, and recovery in later
 working slices.
@@ -418,14 +446,19 @@ Use the applicable evidence:
 - a source-authority check that rejects copied Model Source Package or Experiment
   Specification files;
 - Godot dependency and scene-reference checks;
-- checks that UI and Systems do not receive technical terms or fields;
+- checks that gameplay values delivered to UI and Systems do not contain technical
+  terms or fields, apart from a complete feedback payload passed as opaque clipboard
+  data when that option is offered;
 - tests that verify that each player option updates the correct authored authority;
-- System gameplay-state tests;
+- System gameplay-state tests when a System exists;
 - UI copy, controls, input guards, reset, and terminal-flow tests;
 - a real-service Add-on lifecycle test;
-- refusal, process failure, invalid-path, and retry tests;
+- consecutive-run projection tests;
+- refusal, process failure, old-handle invalidation, explicit retry, session recreation,
+  ambiguous-request non-replay, and invalid-path tests;
 - localization-key parity checks;
-- feedback file, clipboard, and absolute-path checks; and
+- checks for the selected feedback transport, including payload integrity and, for a
+  local-file transport, the saved absolute path and any offered clipboard copy; and
 - a critical end-to-end test that starts from the real main scene.
 
 The bootstrap runs once:
@@ -451,7 +484,7 @@ UI
   -> returned artifact set
   -> Content relationship validation
   -> application-owned gameplay values
-  -> System and UI
+  -> UI and any System that owns gameplay state
   -> feedback
 ```
 
@@ -501,7 +534,8 @@ For a new design, provide only the sections that the task needs. Cover:
 3. mechanic terms, key copy, and rules that need explanation;
 4. controls, visual hierarchy, and feedback;
 5. the shared Model Source Package, Experiment Specification, CLI, and playtest map;
-6. Add-ons, Systems, Content, and UI ownership, plus the optional composition root;
+6. Add-ons, Content, UI, any justified Systems (or `Systems: none`), and the optional
+   composition root;
 7. the gda-balancing Execution HTTP API data path;
 8. failure, retry, reset, and state carry-over;
 9. playable vertical slices;
