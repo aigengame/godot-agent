@@ -648,7 +648,7 @@ policy from domain-neutral storage mechanisms.
 | Domain | Model compiler | Parse and check source, lower it to RIR, and build exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |
 | Domain | Runtime and evaluator | Admit exact runtime capabilities and execute atomic Events | Resolved Runtime profile, Snapshots, gameplay outcomes, Refusals, and terminal-audit artifact sets |
 | Domain | Experiment semantics | Apply scenarios, inputs, Metric definitions, statistical policy, and acceptance intent | Metric datasets and Evaluation runs |
-| Domain | Evidence validator | Validate comparisons and prerequisite graphs | Evidence assertions |
+| Domain | Evidence validation and issuance | Validate comparisons and prerequisite graphs; derive candidate/open judgments; issue assertions only after all issuance prerequisites pass | Candidate/open judgments and Evidence assertions |
 | Domain | Artifact policy | Define artifact identity, set completeness, publication, retrieval, and recovery | Artifact envelopes, Locators, and Receipts |
 | Infrastructure | Input and resource access | Read bounded input, packaged resources, and distribution metadata | Bytes, technical metadata, or explicit I/O failures |
 | Infrastructure | Atomic filesystem mechanisms | Lock, stage, materialize, and atomically commit files | Atomic file-operation outcomes |
@@ -1389,7 +1389,7 @@ The Standard Schema 2.x CLI follows artifact ownership rather than internal impl
 | `model` | `check`, `build`, `inspect`, `diff`, `migrate` | Validate and resolve model artifacts |
 | `template` | `list`, `get`, `instantiate` | Distribute and instantiate starter sources |
 | `experiment` | `check`, `run`, `replay`, `compare` | Validate and execute evaluation intent |
-| `evidence` | `inspect`, `verify` | Inspect and independently validate Evidence graphs |
+| `evidence` | `inspect`, `verify` | Inspect or validate immutable Evidence graphs and content identities |
 | `calibration`, `approval` | Reserved | Future surfaces; absence is explicit |
 | meta | `version`, `manifest`, `serve`, `help` | Product discovery and local service lifecycle |
 
