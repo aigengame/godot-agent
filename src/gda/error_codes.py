@@ -644,7 +644,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
         "A live operation did not return from the engine session before the"
-        " daemon's timeout.",
+        " daemon's timeout. The session is discarded: its reply is no longer"
+        " attributable, so the next operation relaunches it and runtime state"
+        " does not survive.",
     ),
     # The harness-lifecycle refusal (#225, ADR-0018): `gda daemon uninstall`
     # removes the harness autoload + files, which would yank the autoload out from

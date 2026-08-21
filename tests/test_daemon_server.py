@@ -12,6 +12,7 @@ from typing import cast
 import pytest
 
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.protocol import read_message, write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession
 from gda.display import WindowedUnavailable
@@ -21,7 +22,7 @@ from gda.commands.daemon import (
     run_daemon_stop_operation,
 )
 from gda.errors import Failure
-from gda.parser import parse_result
+from gda.parser import build_result, parse_result
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -414,6 +415,30 @@ def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
     finally:
         daemon_end.close()
         silent_harness.close()
+
+
+def test_a_timed_out_relay_leaves_the_session_dead_to_the_daemon(monkeypatch):
+    # #725 re-review finding 1: this protocol carries no request id and a
+    # timed-out frame is never drained, so a LATE reply is indistinguishable
+    # from the next op's reply. Reproduced before the fix: op A times out, the
+    # harness answers late, op B returns A's payload as its own. A channel that
+    # can answer with another operation's result is not serving — the timeout
+    # must latch it stale (with the engine PROCESS still alive throughout) so
+    # the next session-needing op rebuilds it through the launch boundary.
+    monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
+    daemon_end, harness = socket.socketpair()
+    proc = _FakeProc()
+    session = EngineSession(cast(subprocess.Popen, proc), daemon_end)
+    try:
+        first = session.request("game-tree", {})
+        assert parse_result(first["stdout"])["error"]["code"] == "live_timeout"
+        assert read_message(harness) == {"op": "game-tree", "params": {}}
+        write_frame(harness, build_result({"answer": "late"}).encode("utf-8"))
+        assert proc.poll() is None  # the engine itself never died
+        assert session.alive() is False
+    finally:
+        daemon_end.close()
+        harness.close()
 
 
 def test_daemon_status_on_non_unix_is_live_unsupported_platform(monkeypatch, tmp_path):

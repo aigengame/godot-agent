@@ -140,6 +140,8 @@ the first operation that requires one. To establish the session deterministicall
 success means live reads serve. This matters for the read-only diagnostics: `diag errors` /
 `logger tail` never launch a session themselves, so right after `daemon start` they report
 `engine_session_not_running` by design — expected, not a defect; run `wait-ready` first.
+A `live_timeout` discards the session (its late reply can no longer be attributed), so the
+next operation starts a fresh game and the runtime state you had set is gone.
 `screen capture` needs a windowed session
 (`gda daemon start --windowed`).
 

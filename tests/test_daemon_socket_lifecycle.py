@@ -20,6 +20,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -42,6 +43,12 @@ from gda.errors import Failure
 from gda.parser import parse_result
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+
+
+# A stand-in engine that survives SIGTERM, so a teardown's escalation is observable.
+_IGNORES_SIGTERM = (
+    "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+)
 
 
 def _project(tmp_path: Path) -> Path:
@@ -433,7 +440,7 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     # and then never speaks used to block the token read forever — here the
     # REAL launch_session must give up within the bound and record why.
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _Proc(code=None))
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc, grace=0.0: None)
     paths = daemon_paths(_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -472,7 +479,7 @@ def test_a_stuck_handshake_does_not_freeze_the_daemon(
     # must come back typed within its bound, and — the daemon serving one
     # request at a time — the NEXT control request must still be served.
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _Proc(code=None))
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc, grace=0.0: None)
     paths = daemon_paths(_project(tmp_path))
     server = DaemonServer(paths, godot="godot")  # the real launch seam default
 
@@ -505,7 +512,7 @@ def test_wait_ready_rebuilds_a_session_whose_channel_broke(
     # very next read disproves — the engine process is still alive throughout.
     # The relaunch path close()s the stale session, whose real _terminate needs
     # a real process; the fake has none.
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc, grace=0.0: None)
     ours, theirs = socket.socketpair()
     theirs.close()
     zombie = EngineSession(cast(subprocess.Popen, _Proc(code=None)), conn=ours)
@@ -531,6 +538,89 @@ def test_wait_ready_rebuilds_a_session_whose_channel_broke(
     assert second is not None and parse_result(second["stdout"])["launched"] is True
     assert served is not None and served["stdout"] == "served:game-tree"
     assert len(launches) == 2
+
+
+def test_wait_ready_rebuilds_a_session_whose_relay_timed_out(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 re-review finding 1, through the daemon: a relay that times out leaves
+    # the channel response-ambiguous (no request id, the frame is never drained),
+    # so wait-ready must NOT certify it. Before the fix the daemon reported
+    # `launched: false` over that channel and the next read went back to it.
+    monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc, grace=0.0: None)
+    ours, silent_harness = socket.socketpair()
+    desynced = EngineSession(cast(subprocess.Popen, _Proc(code=None)), conn=ours)
+
+    launches: list = []
+
+    def _launch(*args, **kwargs):
+        launches.append(1)
+        return desynced if len(launches) == 1 else _ServedSession()
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    try:
+        with _serving(server, paths, monkeypatch):
+            first = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+            timed_out = _request(paths, {"op": "game-tree", "params": {}})
+            second = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+            served = _request(paths, {"op": "game-tree", "params": {}})
+    finally:
+        silent_harness.close()
+
+    assert first is not None and parse_result(first["stdout"])["launched"] is True
+    assert timed_out is not None
+    assert parse_result(timed_out["stdout"])["error"]["code"] == "live_timeout"
+    assert second is not None and parse_result(second["stdout"])["launched"] is True
+    assert served is not None and served["stdout"] == "served:game-tree"
+    assert len(launches) == 2
+
+
+def test_a_teardown_cannot_outlast_the_readiness_deadline(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #725 re-review finding 2: teardown draws from the caller's deadline. An
+    # engine child that ignores SIGTERM used to start a FRESH five-second grace
+    # after the readiness budget was already spent — a measured 5.3s for
+    # `--timeout 0.3` — and the daemon serves one request at a time, so the whole
+    # round trip and every request behind it waited it out.
+    real_popen = subprocess.Popen
+    spawned: list = []
+
+    def _spawn_stubborn_child(argv, **kwargs):
+        proc = real_popen([sys.executable, "-c", _IGNORES_SIGTERM], **kwargs)
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", _spawn_stubborn_child)
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot")  # the real launch + teardown
+
+    try:
+        with _serving(server, paths, monkeypatch):
+            started = time.monotonic()
+            reply = _request(
+                paths,
+                {"op": "daemon-wait-ready", "params": {"timeout": 0.3}},
+                timeout=20.0,
+            )
+            elapsed = time.monotonic() - started
+            behind = time.monotonic()
+            status = _request(paths, {"op": "__status__"})
+            queued = time.monotonic() - behind
+    finally:
+        for proc in spawned:
+            proc.kill()
+
+    assert reply is not None
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+    assert elapsed < 2.0, f"teardown held the round trip for {elapsed:.1f}s"
+    assert status is not None and status["ok"] is True
+    assert queued < 1.0, f"the next control request waited {queued:.1f}s"
 
 
 def test_launched_is_reported_by_the_launch_owner(

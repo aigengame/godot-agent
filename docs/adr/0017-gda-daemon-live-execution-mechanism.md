@@ -27,7 +27,8 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > session is **launched lazily on the first live op**, not eagerly at `daemon start` —
 > consistent with this ADR's "(re)launched per feedback-loop iteration"; `daemon start`
 > brings up the persistent daemon and the harness install, and the session follows on
-> demand.
+> demand. (Since #224 not every live op needs a session; the 2026-08-21 amendment below
+> restates the trigger precisely.)
 
 > **Outcome (2026-06-22, #220) — live op-errors are minted LIVE-category,
 > classifier-source codes, one family per live op.** When `game get` / `game set`
@@ -86,7 +87,8 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 >
 > **Public surface — `gda daemon start --scene <path|UID>`.** It is a **start-time daemon option**:
 > the daemon holds the value and passes it to the engine as `--scene <path|UID>` (an engine option,
-> before `--path`) when the session is **lazily launched on the first live op** (the #7 note above).
+> before `--path`) when the session is **lazily launched** (the #7 note above, restated precisely by
+> the 2026-08-21 amendment: on the first operation that requires a session).
 > With no `--scene`, behaviour is unchanged (runs `main_scene`). The selector accepts a scene **path
 > or UID** (per Godot's `--scene`). Any `scene play` / `game run` ergonomic wrapper is a **separate
 > follow-up**, not part of this amendment.
@@ -105,6 +107,29 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > gda-owned game, headless by default, same harness and live surface (ADR-0019 / 0020), only with a
 > chosen entry scene. The selector-less default is unchanged. Realized by the run-a-scene slice
 > (#278); the surface-inclusion rationale (why `run` is in scope at all) is recorded in ADR-0025.
+
+> **Amendment (2026-08-21, #657) — when a session is launched, and when it is still serving.**
+> Two clarifications; the lazy-launch decision itself is unchanged.
+>
+> **Launch trigger — say "requires", not "live op".** The #7 note above reads "launched lazily on
+> the first live op", true when every live op needed a session. It no longer is: `gda diag errors`
+> and `gda logger tail` are live operations the daemon serves from the Session log it owns, and they
+> deliberately launch nothing (ADR-0022). The precise rule, and the wording every public surface
+> uses, is that a session launches on **the first operation that REQUIRES an Engine session**.
+> `gda daemon wait-ready` is the explicit, bounded way to BE that operation — the documented
+> alternative to firing a throwaway read — so an agent can establish the session up front and have
+> its first real read serve, including a first `diag errors`. It is one command in the `daemon`
+> group carried on the live channel (`kind = LIVE`, the `diag errors` precedent); the group-module
+> consequence is recorded on ADR-0040.
+>
+> **Serving state — the process AND the channel.** A session is serving only while its harness
+> channel can still answer the operation that asked. The daemon therefore marks the channel stale
+> on a dropped or closed connection AND on a relay that timed out: this ADR's one-op-at-a-time RPC
+> carries no request id and a timed-out frame is not drained, so a late reply would be read as the
+> NEXT operation's reply — a validly-framed, semantically wrong answer (reproduced in #725's
+> re-review). A stale session is rebuilt through the same lazy-launch boundary, so `live_timeout`
+> costs a relaunch and, per ADR-0020, the runtime state does not survive it. Correlating replies
+> instead would change the cross-language harness protocol and is left to its own decision.
 
 ## Decision
 

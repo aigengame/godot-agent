@@ -30,6 +30,10 @@ CONNECT_TIMEOUT = 25.0
 # Bounds one live op against the harness so a stuck op cannot hang the daemon
 # forever; surfaced as the registered ``live_timeout`` (ADR-0021).
 OP_TIMEOUT = 30.0
+# How long a SIGTERM'd engine may take to exit before it is escalated to SIGKILL,
+# when the caller set no deadline of its own (``EngineSession.close``). A launch
+# teardown draws its grace from the launch deadline instead (#725 re-review).
+TERMINATE_GRACE = 5.0
 
 
 class SceneMismatch(Exception):
@@ -101,9 +105,10 @@ class EngineSession:
 
     def alive(self) -> bool:
         # Liveness is the PROCESS and the CHANNEL (#725 review): a session whose
-        # harness connection was observed broken cannot serve, however alive the
-        # engine process is — calling it alive made `daemon wait-ready` report a
-        # serving state the very next read disproved. Staleness is latched at
+        # harness channel was observed broken — dropped, closed, or left
+        # response-ambiguous by a timed-out relay — cannot serve, however alive
+        # the engine process is; calling it alive made `daemon wait-ready` report
+        # a serving state the very next read disproved. Staleness is latched at
         # the observation point (a failed relay in ``request``), so the next
         # session-needing op rebuilds through the shared launch boundary.
         return self._proc.poll() is None and not self._channel_stale
@@ -122,10 +127,20 @@ class EngineSession:
             write_message(self._conn, {"op": operation, "params": params})
             reply = read_frame(self._conn)  # the raw ADR-0002 sentinel string
         except TimeoutError:
-            # Deliberately NOT latched stale: a slow op is not a broken channel,
-            # and relaunching on every live_timeout would turn one long frame
-            # into a session churn. (A late reply CAN leave the stream framing
-            # dirty; that recovery question predates this slice and stays open.)
+            # Latched stale too (#725 re-review). The earlier reading — "a slow op
+            # is not a broken channel" — priced only the churn of relaunching. The
+            # real price is worse: this protocol carries no request id and the
+            # timed-out frame is NOT drained, so a late reply is indistinguishable
+            # from the NEXT op's reply. Reproduced on the pre-fix head: op A times
+            # out, op B reads A's late payload and returns it as B's result — a
+            # validly-framed, semantically WRONG answer. A channel that can answer
+            # with another operation's result cannot serve, so the session is dead
+            # to the daemon from here; the next session-needing op rebuilds it
+            # through the shared launch boundary. The cost is a relaunch after an
+            # op that outran OP_TIMEOUT (state does not survive it — CONTEXT.md
+            # "State consistency"); correlating replies instead would change the
+            # cross-language harness protocol and belongs to its own decision.
+            self._channel_stale = True
             return error_reply(
                 "live_timeout",
                 f"the engine session did not return within {int(OP_TIMEOUT)}s",
@@ -274,6 +289,14 @@ def launch_session(
     def _remaining() -> float:
         return max(deadline - time.monotonic(), 0.001)
 
+    def _teardown() -> None:
+        # Teardown draws from the SAME deadline (#725 re-review). A failure path
+        # is reached with the budget already spent, so a child that ignores
+        # SIGTERM used to add a fresh five-second grace ON TOP of the caller's
+        # bound — 5.3s for a `wait-ready --timeout 0.3` — with the single-threaded
+        # serve loop blocked for all of it. Nothing left means kill now.
+        _terminate(proc, grace=max(deadline - time.monotonic(), 0.0))
+
     harness_listener.settimeout(timeout)
     try:
         conn, _ = harness_listener.accept()
@@ -282,7 +305,7 @@ def launch_session(
         # down: this is where a windowed-no-DisplayServer abort (child died by
         # signal) is told apart from a genuinely hung harness (child still alive).
         _record(_child_exit_diagnostic(proc, timeout))
-        _terminate(proc)
+        _teardown()
         return None
 
     # The harness's first frame is the auth token.
@@ -296,12 +319,12 @@ def launch_session(
             "the harness connected but sent no auth token within the launch deadline"
         )
         _close(conn)
-        _terminate(proc)
+        _teardown()
         return None
     if presented.decode("utf-8", "replace") != token:
         _record("the harness connected but presented an invalid auth token")
         _close(conn)
-        _terminate(proc)
+        _teardown()
         return None
 
     # The harness's second frame is the launch-time scene verification: it reports
@@ -317,7 +340,7 @@ def launch_session(
     if verify_frame is None:
         _record("the harness connected but closed before the scene-verification frame")
         _close(conn)
-        _terminate(proc)
+        _teardown()
         return None
     try:
         verify = json.loads(verify_frame.decode("utf-8", "replace"))
@@ -326,7 +349,7 @@ def launch_session(
     if not isinstance(verify, dict) or not verify.get("scene_ok", False):
         current = verify.get("current", "") if isinstance(verify, dict) else ""
         _close(conn)
-        _terminate(proc)
+        _teardown()
         raise SceneMismatch(scene if scene is not None else "", str(current))
     return EngineSession(proc, conn, log_file=log_file)
 
@@ -363,7 +386,18 @@ def _close(conn: socket.socket) -> None:
         pass
 
 
-def _terminate(proc: subprocess.Popen) -> None:
+def _terminate(proc: subprocess.Popen, grace: float = TERMINATE_GRACE) -> None:
+    """SIGTERM the engine, then SIGKILL it if it has not exited within ``grace``.
+
+    ``grace`` is a BUDGET, not a fixed pause: the launch paths pass what remains
+    of their readiness deadline (#725 re-review), because the daemon serves one
+    request at a time and a child that ignores SIGTERM used to start a fresh
+    five-second wait AFTER the caller's budget was already spent — a 0.3s-bounded
+    ``daemon wait-ready`` measured 5.3s. With nothing left the escalation is
+    immediate; the diagnostics that failure path reads are unaffected, because
+    Godot's file logger flushes every error, and every print in a debug build
+    (``core/io/logger.cpp``, ``application/run/flush_stdout_on_print.debug``).
+    """
     if proc.poll() is not None:
         return
     try:
@@ -374,7 +408,7 @@ def _terminate(proc: subprocess.Popen) -> None:
         except OSError:
             pass
     try:
-        proc.wait(timeout=5)
+        proc.wait(timeout=max(grace, 0.0))
     except subprocess.TimeoutExpired:
         try:
             proc.kill()
