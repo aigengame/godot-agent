@@ -1389,7 +1389,7 @@ The Standard Schema 2.x CLI follows artifact ownership rather than internal impl
 | `model` | `check`, `build`, `inspect`, `diff`, `migrate` | Validate and resolve model artifacts |
 | `template` | `list`, `get`, `instantiate` | Distribute and instantiate starter sources |
 | `experiment` | `check`, `run`, `replay`, `compare` | Validate and execute evaluation intent |
-| `evidence` | `inspect`, `verify` | Inspect or validate immutable Evidence graphs and content identities |
+| `evidence` | `inspect`, `verify` | Inspect Evidence assertions or validate Evidence prerequisite graphs and content identities |
 | `calibration`, `approval` | Reserved | Future surfaces; absence is explicit |
 | meta | `version`, `manifest`, `serve`, `help` | Product discovery and local service lifecycle |
 
@@ -1710,10 +1710,10 @@ support it. The judgment does not establish execution success, Metric-target suc
 reproducibility, cross-evaluator conformance, or Claim closure.
 
 This is an initial delivery boundary, not a permanent restriction. A later application can justify
-explicit external Kernel/LDB input, independent Verifier authentication, durable receipts, or
-claim aggregation. Add those capabilities when the application supplies the required authority and
-trust boundaries. Do not add download, cache, dynamic bootstrap, credential, signing, revocation,
-or aggregation mechanisms before that need exists.
+explicit external Kernel/LDB input, independent Verifier authentication, durable Verifier receipts,
+or claim aggregation. Add those capabilities when the application supplies the required authority
+and trust boundaries. Do not add download, cache, dynamic bootstrap, credential, signing,
+revocation, or aggregation mechanisms before that need exists.
 
 ### Gate 3 — production RPG tracer
 
