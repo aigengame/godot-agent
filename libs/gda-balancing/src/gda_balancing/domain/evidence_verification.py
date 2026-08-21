@@ -36,6 +36,21 @@ class EvidenceGraph:
 
 
 @dataclass(frozen=True)
+class EvidenceGraphProjectionInput:
+    """Exact admitted artifacts from which the Domain projects one Evidence graph."""
+
+    kernel: Mapping[str, Any]
+    language_bundle: Mapping[str, Any]
+    model_source_identity: str
+    model_build_receipt_identity: str
+    model_artifacts: Mapping[str, Mapping[str, Any]]
+    experiment_identity: str
+    experiment: Mapping[str, Any]
+    experiment_outcome_receipt_identity: str
+    outcome_artifacts: Mapping[str, Mapping[str, Any]]
+
+
+@dataclass(frozen=True)
 class EvidenceCandidate:
     """An open candidate judgment; this value is not Evidence."""
 
@@ -59,6 +74,127 @@ def _issue(kind: str, subject: str, message: str) -> EvidenceVerificationIssue:
         reason=f"evaluation.reason.evaluable-{kind}-prerequisite",
         subject=subject,
         message=message,
+    )
+
+
+def evidence_claim_kind(
+    language_bundle: Mapping[str, Any], claim_kind: str
+) -> Mapping[str, Any] | None:
+    """Select one exact LDB-owned Evidence claim kind."""
+    language = cast(Mapping[str, Any], language_bundle["language"])
+    matches = [
+        item
+        for item in cast(
+            list[Mapping[str, Any]],
+            language["evidence_claim_kinds"],
+        )
+        if item["id"] == claim_kind
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def project_evidence_graph(
+    claim_kind: Mapping[str, Any],
+    inp: EvidenceGraphProjectionInput,
+) -> EvidenceGraph:
+    """Project exact admitted artifact bindings into one Evidence graph."""
+    model_build_record = inp.model_artifacts["build-receipt"]
+    resolved_model = inp.model_artifacts["resolved-model"]
+    evaluator_manifest = inp.outcome_artifacts["evaluator-capability-manifest"]
+    runtime_profile = inp.outcome_artifacts["resolved-runtime-profile"]
+    reproduction_receipt = inp.outcome_artifacts["reproduction-receipt"]
+    if "evaluation-run" in inp.outcome_artifacts:
+        producing_outcome = "success"
+        runtime_refusal_variant = "not-applicable"
+    elif "experiment-verdict" in inp.outcome_artifacts:
+        producing_outcome = "verdict"
+        runtime_refusal_variant = "not-applicable"
+    else:
+        producing_outcome = "runtime-refusal"
+        runtime_refusal_variant = "post-dispatch"
+
+    identities = {
+        "kernel": cast(str, inp.kernel["content_identity"]),
+        "language-bundle": cast(str, inp.language_bundle["content_identity"]),
+        "model-source": inp.model_source_identity,
+        "resolved-model": cast(str, resolved_model["content_identity"]),
+        "model-build-receipt": inp.model_build_receipt_identity,
+        "experiment": inp.experiment_identity,
+        "evaluator-capability-manifest": cast(
+            str, evaluator_manifest["content_identity"]
+        ),
+        "resolved-runtime-profile": cast(str, runtime_profile["content_identity"]),
+        "experiment-outcome-receipt": inp.experiment_outcome_receipt_identity,
+    }
+    experiment_model = cast(Mapping[str, Any], inp.experiment["model"])
+    model_receipt_binding = cast(str, experiment_model["build_receipt_identity"])
+    if model_receipt_binding == model_build_record["content_identity"]:
+        model_receipt_binding = inp.model_build_receipt_identity
+    observed_bindings = {
+        "language-bundle": {
+            "kernel": inp.language_bundle["kernel_identity"],
+        },
+        "resolved-model": {
+            "kernel": resolved_model["kernel_identity"],
+            "language-bundle": resolved_model["language_bundle_identity"],
+            "model-source": model_build_record["source_identity"],
+        },
+        "model-build-receipt": {
+            "model-source": model_build_record["source_identity"],
+            "resolved-model": model_build_record["resolved_model_identity"],
+        },
+        "experiment": {
+            "kernel": inp.experiment["kernel_identity"],
+            "language-bundle": inp.experiment["language_bundle_identity"],
+            "resolved-model": experiment_model["resolved_model_identity"],
+        },
+        "evaluator-capability-manifest": {
+            "kernel": evaluator_manifest["kernel_identity"],
+            "language-bundle": evaluator_manifest["language_bundle_identity"],
+        },
+        "resolved-runtime-profile": {
+            "kernel": runtime_profile["kernel_identity"],
+            "language-bundle": runtime_profile["language_bundle_identity"],
+            "resolved-model": runtime_profile["resolved_model_identity"],
+            "experiment": runtime_profile["experiment_identity"],
+            "evaluator-capability-manifest": runtime_profile[
+                "evaluator_manifest_identity"
+            ],
+        },
+        "experiment-outcome-receipt": {
+            "model-build-receipt": model_receipt_binding,
+            "experiment": reproduction_receipt["experiment_identity"],
+            "resolved-runtime-profile": reproduction_receipt[
+                "resolved_runtime_profile_identity"
+            ],
+            "evaluator-capability-manifest": reproduction_receipt[
+                "evaluator_manifest_identity"
+            ],
+        },
+    }
+    return EvidenceGraph(
+        subjects=tuple(
+            EvidenceSubject(role=role, identity=identities[role])
+            for role in cast(list[str], claim_kind["subject_roles"])
+        ),
+        prerequisites=tuple(
+            EvidencePrerequisite(
+                subject=cast(str, edge["subject"]),
+                subject_identity=identities[cast(str, edge["subject"])],
+                prerequisite=cast(str, edge["prerequisite"]),
+                prerequisite_identity=cast(
+                    str,
+                    observed_bindings.get(cast(str, edge["subject"]), {}).get(
+                        cast(str, edge["prerequisite"]),
+                        "unresolved",
+                    ),
+                ),
+            )
+            for edge in cast(list[Mapping[str, Any]], claim_kind["prerequisite_edges"])
+        ),
+        producing_outcome=producing_outcome,
+        runtime_dispatch="reached",
+        runtime_refusal_variant=runtime_refusal_variant,
     )
 
 

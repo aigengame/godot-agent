@@ -75,6 +75,14 @@ def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> N
         "model_build_receipt",
         "experiment_outcome_receipt",
     ]
+    success_properties = schema["success"]["properties"]
+    assert success_properties["claim_kind"]["const"] == "evaluable"
+    assert success_properties["claim_state"]["const"] == "candidate"
+    assert success_properties["producing_outcome"]["enum"] == [
+        "success",
+        "verdict",
+        "runtime-refusal",
+    ]
     assert "verdict" not in schema
     assert (help_exit, help_stderr) == (0, "")
     for option in (

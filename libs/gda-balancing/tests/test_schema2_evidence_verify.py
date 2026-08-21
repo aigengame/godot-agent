@@ -31,12 +31,15 @@ from gda_balancing.domain.diagnostics import (
     reason_by_id,
 )
 from gda_balancing.domain.evidence_verification import (
+    EvidenceGraphProjectionInput,
     EvidenceCandidate,
     EvidenceGraph,
     EvidencePrerequisite,
     EvidenceSubject,
     EvidenceVerificationIssue,
+    evidence_claim_kind,
     evaluate_evidence_candidate,
+    project_evidence_graph,
 )
 from gda_balancing.domain.publication import (
     publish_artifact_set,
@@ -303,6 +306,82 @@ def test_complete_success_graph_is_an_open_evaluable_candidate() -> None:
     assert result.subjects == _complete_graph().subjects
 
 
+def test_domain_projects_exact_artifacts_into_the_evaluable_graph() -> None:
+    complete = _complete_graph()
+    identities = {subject.role: subject.identity for subject in complete.subjects}
+    claim_kind = evidence_claim_kind(
+        packaged_authority_context().language_bundle,
+        "evaluable",
+    )
+    assert claim_kind is not None
+
+    graph = project_evidence_graph(
+        claim_kind,
+        EvidenceGraphProjectionInput(
+            kernel={"content_identity": identities["kernel"]},
+            language_bundle={
+                "content_identity": identities["language-bundle"],
+                "kernel_identity": identities["kernel"],
+            },
+            model_source_identity=identities["model-source"],
+            model_build_receipt_identity=identities["model-build-receipt"],
+            model_artifacts={
+                "resolved-model": {
+                    "content_identity": identities["resolved-model"],
+                    "kernel_identity": identities["kernel"],
+                    "language_bundle_identity": identities["language-bundle"],
+                },
+                "build-receipt": {
+                    "content_identity": "sha256:" + "a" * 64,
+                    "source_identity": identities["model-source"],
+                    "resolved_model_identity": identities["resolved-model"],
+                },
+            },
+            experiment_identity=identities["experiment"],
+            experiment={
+                "kernel_identity": identities["kernel"],
+                "language_bundle_identity": identities["language-bundle"],
+                "model": {
+                    "resolved_model_identity": identities["resolved-model"],
+                    "build_receipt_identity": "sha256:" + "a" * 64,
+                },
+            },
+            experiment_outcome_receipt_identity=identities[
+                "experiment-outcome-receipt"
+            ],
+            outcome_artifacts={
+                "evaluation-run": {},
+                "evaluator-capability-manifest": {
+                    "content_identity": identities["evaluator-capability-manifest"],
+                    "kernel_identity": identities["kernel"],
+                    "language_bundle_identity": identities["language-bundle"],
+                },
+                "resolved-runtime-profile": {
+                    "content_identity": identities["resolved-runtime-profile"],
+                    "kernel_identity": identities["kernel"],
+                    "language_bundle_identity": identities["language-bundle"],
+                    "resolved_model_identity": identities["resolved-model"],
+                    "experiment_identity": identities["experiment"],
+                    "evaluator_manifest_identity": identities[
+                        "evaluator-capability-manifest"
+                    ],
+                },
+                "reproduction-receipt": {
+                    "experiment_identity": identities["experiment"],
+                    "resolved_runtime_profile_identity": identities[
+                        "resolved-runtime-profile"
+                    ],
+                    "evaluator_manifest_identity": identities[
+                        "evaluator-capability-manifest"
+                    ],
+                },
+            },
+        ),
+    )
+
+    assert graph == complete
+
+
 def test_graph_judgment_reports_all_structural_fault_classes_in_order() -> None:
     complete = _complete_graph()
     subjects = tuple(
@@ -514,12 +593,16 @@ def test_application_refuses_an_outcome_bound_to_another_experiment(
 
     assert isinstance(result, Schema2RefusalReport)
     assert result.stage == "evaluation"
-    assert result.diagnostics[0].code == (
+    assert {diagnostic.code for diagnostic in result.diagnostics} == {
         "evaluation.evaluable_mismatched_prerequisite"
-    )
-    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
-    assert result.diagnostics[0].primary.pointer == (
-        "/prerequisites/experiment-outcome-receipt/experiment"
+    }
+    artifact_locations = {
+        diagnostic.primary.pointer
+        for diagnostic in result.diagnostics
+        if isinstance(diagnostic.primary, ArtifactLocation)
+    }
+    assert "/prerequisites/experiment-outcome-receipt/experiment" in (
+        artifact_locations
     )
 
 

@@ -1,7 +1,7 @@
 """CLI adapter for exact Evidence candidate verification."""
 
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -48,9 +48,9 @@ class EvidenceVerifyInput(BaseModel):
 class EvidenceVerifyResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    claim_kind: str
-    claim_state: str
-    producing_outcome: str
+    claim_kind: Literal["evaluable"]
+    claim_state: Literal["candidate"]
+    producing_outcome: Literal["success", "verdict", "runtime-refusal"]
     kernel_identity: str
     language_bundle_identity: str
     model_source_identity: str
@@ -116,9 +116,12 @@ def run_evidence_verify(
     assert isinstance(result, EvidenceCandidate)
     identities = {subject.role: subject.identity for subject in result.subjects}
     return EvidenceVerifyResult(
-        claim_kind=result.claim_kind,
-        claim_state=result.claim_state,
-        producing_outcome=result.producing_outcome,
+        claim_kind=cast(Literal["evaluable"], result.claim_kind),
+        claim_state=cast(Literal["candidate"], result.claim_state),
+        producing_outcome=cast(
+            Literal["success", "verdict", "runtime-refusal"],
+            result.producing_outcome,
+        ),
         kernel_identity=identities["kernel"],
         language_bundle_identity=identities["language-bundle"],
         model_source_identity=identities["model-source"],
