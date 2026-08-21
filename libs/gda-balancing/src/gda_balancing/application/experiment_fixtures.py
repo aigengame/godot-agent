@@ -10,16 +10,18 @@ from gda_balancing.application.model_build import (
     ModelBuildReceipt,
     build_model,
 )
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from gda_balancing.domain.experiment import derive_scenario_program_requirements
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.authority.graph import LanguageBundleIndex
 
 
-def prepare_valid_experiment(
+def _prepare_experiment(
     root: Path,
     token: int,
     *,
     model_build_descriptor_identity: str,
+    runtime_refusal: bool,
 ) -> str:
     """Materialize conformance from package-owned source and runtime vectors."""
     context = packaged_authority_context()
@@ -35,6 +37,14 @@ def prepare_valid_experiment(
     if source_fixture["mode"] != "literal":
         raise RuntimeError("Experiment conformance source fixture is not literal")
     source_value = deepcopy(source_fixture["source"])
+    if runtime_refusal:
+        target_defense = next(
+            row
+            for module in source_value["modules"]
+            for row in module["symbols"]
+            if row["symbol"] == "target_defense"
+        )
+        target_defense["domain"]["minimum"] = -(1 << 63)
     source = root / f"experiment-model-{token}.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     built = build_model(
@@ -47,6 +57,9 @@ def prepare_valid_experiment(
     if not isinstance(built, ModelBuildReceipt):
         raise RuntimeError("Experiment conformance prerequisite was refused")
     receipt = built.root
+    (root / f"experiment-model-{token}-receipt.json").write_bytes(
+        canonical_bytes(cast(JsonValue, receipt))
+    )
 
     def member(logical_name: str) -> dict[str, Any]:
         locator = next(
@@ -98,6 +111,11 @@ def prepare_valid_experiment(
         {"target": target, "value": value}
         for target, value in (assigned[key] for key in sorted(assigned))
     ]
+    if runtime_refusal:
+        target_defense_assignment = next(
+            row for row in assignments if row["target"]["name"] == "target_defense"
+        )
+        target_defense_assignment["value"] = -(1 << 63)
     result = entrypoint["result"]
     if result["kind"] != "symbol":
         raise RuntimeError("Experiment conformance entrypoint result is not observable")
@@ -162,6 +180,36 @@ def prepare_valid_experiment(
         "acceptance": {"policy": "all-metrics-within-target"},
     }
     return json.dumps(specification)
+
+
+def prepare_valid_experiment(
+    root: Path,
+    token: int,
+    *,
+    model_build_descriptor_identity: str,
+) -> str:
+    """Materialize one Experiment that completes successfully."""
+    return _prepare_experiment(
+        root,
+        token,
+        model_build_descriptor_identity=model_build_descriptor_identity,
+        runtime_refusal=False,
+    )
+
+
+def prepare_runtime_refusal_experiment(
+    root: Path,
+    token: int,
+    *,
+    model_build_descriptor_identity: str,
+) -> str:
+    """Materialize one Experiment that refuses after runtime dispatch."""
+    return _prepare_experiment(
+        root,
+        token,
+        model_build_descriptor_identity=model_build_descriptor_identity,
+        runtime_refusal=True,
+    )
 
 
 def prepare_verdict_experiment(

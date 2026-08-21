@@ -1,11 +1,29 @@
 """Schema 2.0 Evidence candidate verification."""
 
+import json
+from dataclasses import replace
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
+from gda_balancing.application.evidence_verify import (
+    EvidenceVerifyInput,
+    verify_evidence,
+)
+from gda_balancing.application.experiment_run import (
+    ExperimentRunPublication,
+    ExperimentVerdictPublication,
+    run_experiment,
+)
+from gda_balancing.application.model_build import MODEL_BUILD_ARTIFACT_SET
 from gda_balancing.domain.authority.context import packaged_authority_context
-from gda_balancing.domain.diagnostics import reason_by_id
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes
+from gda_balancing.domain.diagnostics import (
+    ArtifactLocation,
+    Schema2RefusalReport,
+    reason_by_id,
+)
 from gda_balancing.domain.evidence_verification import (
     EvidenceCandidate,
     EvidenceGraph,
@@ -14,6 +32,14 @@ from gda_balancing.domain.evidence_verification import (
     EvidenceVerificationIssue,
     evaluate_evidence_candidate,
 )
+from gda_balancing.interfaces.cli.experiment_fixtures import (
+    prepare_runtime_refusal_experiment,
+    prepare_valid_experiment,
+    prepare_verdict_experiment,
+)
+from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
+from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
+from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
 def _evaluable_claim_kind() -> dict[str, Any]:
@@ -44,6 +70,55 @@ def _complete_graph() -> EvidenceGraph:
         producing_outcome="success",
         runtime_dispatch="reached",
         runtime_refusal_variant="not-applicable",
+    )
+
+
+def _verify(inp: EvidenceVerifyInput) -> EvidenceCandidate | Schema2RefusalReport:
+    runtime_refusal_set = EXPERIMENT_RUN.refusal_artifact_sets[0].members
+    return verify_evidence(
+        inp,
+        model_build_descriptor_identity=descriptor_identity(MODEL_BUILD),
+        experiment_run_descriptor_identity=descriptor_identity(EXPERIMENT_RUN),
+        model_build_artifact_set=MODEL_BUILD_ARTIFACT_SET,
+        experiment_outcome_artifact_sets=(
+            EXPERIMENT_RUN.artifact_set,
+            cast(tuple[Any, ...], EXPERIMENT_RUN.verdict_artifact_set),
+            runtime_refusal_set,
+        ),
+    )
+
+
+def _prepare_outcome_input(
+    tmp_path: Path, token: int, *, verdict: bool = False
+) -> EvidenceVerifyInput:
+    prepare = prepare_verdict_experiment if verdict else prepare_valid_experiment
+    specification_value = prepare(tmp_path, token)
+    specification_path = tmp_path / "experiment.json"
+    specification_path.write_text(specification_value, encoding="utf-8")
+    outcome_path = tmp_path / "experiment-outcome.json"
+    outcome_receipt_path = tmp_path / "experiment-outcome-receipt.json"
+    publication = run_experiment(
+        str(specification_path),
+        str(outcome_path),
+        "e" * 64,
+        descriptor_identity(EXPERIMENT_RUN),
+        EXPERIMENT_RUN.artifact_set,
+        cast(tuple[Any, ...], EXPERIMENT_RUN.verdict_artifact_set),
+        EXPERIMENT_RUN.refusal_artifact_sets[0].members,
+    )
+    expected_type = (
+        ExperimentVerdictPublication if verdict else ExperimentRunPublication
+    )
+    assert isinstance(publication, expected_type)
+    outcome_receipt_path.write_bytes(
+        canonical_bytes(cast(JsonValue, publication.receipt))
+    )
+    return EvidenceVerifyInput(
+        claim_kind="evaluable",
+        source=str(tmp_path / f"experiment-model-{token}.json"),
+        specification=str(specification_path),
+        model_build_receipt=str(tmp_path / f"experiment-model-{token}-receipt.json"),
+        experiment_outcome_receipt=str(outcome_receipt_path),
     )
 
 
@@ -333,3 +408,151 @@ def test_evaluable_faults_use_ldb_owned_evaluation_reasons() -> None:
         assert reason["diagnostic"] == "evaluation.evaluable_" + suffix.replace(
             "-", "_"
         )
+
+
+def test_application_verifies_one_real_success_publication(
+    tmp_path: Path,
+) -> None:
+    result = _verify(_prepare_outcome_input(tmp_path, 541))
+
+    assert isinstance(result, EvidenceCandidate)
+    assert result.claim_kind == "evaluable"
+    assert result.claim_state == "candidate"
+    assert result.producing_outcome == "success"
+
+
+def test_application_uses_outcome_neutral_publication_diagnostics(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 542)
+    invalid_receipt = tmp_path / "invalid-outcome-receipt.json"
+    invalid_receipt.write_text("not JSON", encoding="utf-8")
+
+    result = _verify(replace(inp, experiment_outcome_receipt=str(invalid_receipt)))
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "ingress"
+    assert result.diagnostics[0].message == (
+        "Artifact-set receipt is not an admissible JSON artifact"
+    )
+
+
+def test_application_refuses_an_unknown_evidence_claim_kind(tmp_path: Path) -> None:
+    inp = _prepare_outcome_input(tmp_path, 543)
+
+    result = _verify(replace(inp, claim_kind="unsupported"))
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "evaluation"
+    assert result.diagnostics[0].code == "evaluation.unknown_evidence_claim_kind"
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.pointer == "/claim_kind"
+
+
+def test_application_refuses_a_source_changed_after_model_build(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 546)
+    source_path = Path(inp.source)
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source["manifest"]["id"] = "example.changed-after-build"
+    source_path.write_text(json.dumps(source), encoding="utf-8")
+
+    result = _verify(inp)
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "evaluation"
+    assert result.diagnostics[0].code == (
+        "evaluation.evaluable_mismatched_prerequisite"
+    )
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.pointer == (
+        "/prerequisites/model-build-receipt"
+    )
+
+
+def test_application_refuses_an_unauthenticated_outcome_receipt(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 547)
+    receipt_path = Path(inp.experiment_outcome_receipt)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["content_identity"] = "sha256:" + "0" * 64
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    result = _verify(inp)
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "ingress"
+    assert result.diagnostics[0].code == "kernel.identity_mismatch"
+    assert result.diagnostics[0].message == (
+        "Artifact-set receipt failed exact-authority admission"
+    )
+
+
+def test_application_refuses_an_outcome_bound_to_another_experiment(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 548)
+    specification_path = Path(inp.specification)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    specification["metrics"][0]["target"]["maximum"] = 999
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    result = _verify(inp)
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "evaluation"
+    assert result.diagnostics[0].code == (
+        "evaluation.evaluable_mismatched_prerequisite"
+    )
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.pointer == (
+        "/prerequisites/experiment-outcome-receipt"
+    )
+
+
+def test_application_verifies_one_real_verdict_publication(tmp_path: Path) -> None:
+    result = _verify(_prepare_outcome_input(tmp_path, 544, verdict=True))
+
+    assert isinstance(result, EvidenceCandidate)
+    assert result.claim_state == "candidate"
+    assert result.producing_outcome == "verdict"
+
+
+def test_application_verifies_one_real_post_dispatch_refusal_publication(
+    tmp_path: Path,
+) -> None:
+    specification_value = prepare_runtime_refusal_experiment(tmp_path, 545)
+    specification_path = tmp_path / "experiment.json"
+    specification_path.write_text(specification_value, encoding="utf-8")
+    outcome_receipt_path = tmp_path / "experiment-outcome-receipt.json"
+    refusal = run_experiment(
+        str(specification_path),
+        str(tmp_path / "runtime-refusal.json"),
+        "f" * 64,
+        descriptor_identity(EXPERIMENT_RUN),
+        EXPERIMENT_RUN.artifact_set,
+        cast(tuple[Any, ...], EXPERIMENT_RUN.verdict_artifact_set),
+        EXPERIMENT_RUN.refusal_artifact_sets[0].members,
+    )
+    assert isinstance(refusal, Schema2RefusalReport)
+    assert refusal.variant == "post-dispatch"
+    assert refusal.terminal_audit is not None
+    outcome_receipt_path.write_bytes(
+        canonical_bytes(cast(JsonValue, refusal.terminal_audit))
+    )
+
+    result = _verify(
+        EvidenceVerifyInput(
+            claim_kind="evaluable",
+            source=str(tmp_path / "experiment-model-545.json"),
+            specification=str(specification_path),
+            model_build_receipt=str(tmp_path / "experiment-model-545-receipt.json"),
+            experiment_outcome_receipt=str(outcome_receipt_path),
+        )
+    )
+
+    assert isinstance(result, EvidenceCandidate)
+    assert result.claim_state == "candidate"
+    assert result.producing_outcome == "runtime-refusal"
