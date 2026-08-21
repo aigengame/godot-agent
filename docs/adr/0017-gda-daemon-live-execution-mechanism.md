@@ -135,19 +135,27 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > clock draws from a single deadline: retiring the session being replaced, the spawn, the
 > connect, each handshake frame, and the teardown of a failed launch. It travels as an
 > **absolute instant**, never as a duration — a duration restarts whatever clock receives it,
-> which is how an exhausted budget came back whole for a replacement launch. When the instant
-> has passed, the boundary REFUSES rather than launching past it.
+> which is how an exhausted budget came back whole for a replacement launch.
+>
+> What the instant is, precisely: a **budget for waiting and for committing to new work**, not a
+> hard wall clock. It cannot be the latter — nothing here can interrupt a synchronous system
+> call already in flight, and gda is not going to introduce threads and cancellation to pretend
+> otherwise. So the guarantee is stated as three rules. No phase gets a fresh grace. Every timed
+> wait uses what remains, computed where the wait begins rather than where it was decided. And
+> once the instant has passed, the boundary **commits to nothing further** — it does not launch,
+> and a launch already committed is torn down. A slow liveness check, a slow filesystem write, a
+> slow spawn: each can delay *when* expiry is observed, and none of them earns a new budget.
 >
 > Four consequences are not obvious. A socket timeout bounds *inactivity*, so a frame read in
 > chunks must recompute the remaining budget per read or a trickling peer holds the reader
 > indefinitely — the daemon serves one request at a time, so that is every later request too.
 > Retirement is not free: an engine that ignores `SIGTERM` is escalated with what the deadline
 > has left, not with a fresh grace. Collecting a killed child is a duty but not the caller's
-> time, so it happens in the background — best-effort, since SIGKILL cannot be caught and the
-> cost of a rare miss is one process-table entry the daemon's own exit clears. And the spawn is
-> the one step that cannot be interrupted once begun: the deadline is checked before it and
-> governs everything after, so a spawn that outruns the budget ends in a refusal rather than in
-> a session that came up late.
+> time, so it happens in the background — best-effort, since SIGKILL cannot be caught and a rare
+> miss leaves one process-table entry that the OS clears when the daemon exits and the child is
+> reparented. And retirement is of the engine's **process group**, not of the engine process:
+> gda owns the group (`start_new_session=True`), so the leader's fate does not decide the
+> group's.
 >
 > The same rule applies to the op relay's own `live_timeout` ceiling, which had the same
 > inactivity shape. Accepted deliberately, and beyond what the `wait-ready` slice needed: a

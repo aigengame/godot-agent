@@ -461,10 +461,15 @@ def _terminate(proc: subprocess.Popen, deadline: Optional[float] = None) -> None
     closing the channel and signalling the engine consume the budget too. A
     caller with no clock of its own mints one from ``TERMINATE_GRACE``.
 
-    The escalation covers the ENGINE'S PROCESS GROUP, matching the SIGTERM that
-    preceded it. The session is launched with ``start_new_session=True``, so gda
-    owns that group and everything the engine started inside it; killing only
-    the leader left a descendant that also ignored SIGTERM alive and orphaned.
+    What is retired is the ENGINE'S PROCESS GROUP, not the engine process. The
+    session is launched with ``start_new_session=True``, so gda owns that group
+    and everything the engine started inside it, and the leader's fate does not
+    decide the group's: a leader that OBEYED the group SIGTERM used to end the
+    teardown while a descendant that ignored it kept running, orphaned (#725
+    re-review). The group is therefore signalled again — SIGKILL — once the
+    leader is gone, whatever ended it, and even when it had already exited before
+    this call. The group id is read once, up front, from the leader while it
+    still holds its pid.
 
     An immediate escalation costs no diagnostics: Godot's file logger flushes
     every error, and every print in a debug build (``core/io/logger.cpp``,
@@ -472,26 +477,40 @@ def _terminate(proc: subprocess.Popen, deadline: Optional[float] = None) -> None
 
     A killed child is still collected — rather than left with no ``returncode``
     for whatever happens to poll it next — but off this clock, best-effort: see
-    :func:`_reap_in_background`. So this function never returns later than
-    ``deadline``.
+    :func:`_reap_in_background`. What this function guarantees about the deadline
+    is that it starts no fresh blocking wait after it; a synchronous call already
+    in flight can still delay the return.
     """
     if deadline is None:
         deadline = time.monotonic() + TERMINATE_GRACE
-    if proc.poll() is not None:
-        return
+    # Read BEFORE anything can reap the leader: the group id is the leader's pid,
+    # and a reaped leader has neither.
     try:
         group = os.getpgid(proc.pid)
     except OSError:
         group = None
-    _signal_engine(proc, group, signal.SIGTERM)
-    try:
-        # Recomputed HERE, immediately before the only blocking step: everything
-        # above — the caller's channel close, the poll, the signal — spent from
-        # the same budget.
-        proc.wait(timeout=max(deadline - time.monotonic(), 0.0))
-    except subprocess.TimeoutExpired:
-        _signal_engine(proc, group, signal.SIGKILL)
-        _reap_in_background(proc)
+    if group is not None and group == os.getpgrp():
+        # Never signal our own group — that would take the daemon down with the
+        # engine. Only reachable if the launch did not get its own session.
+        group = None
+    if proc.poll() is None:
+        _signal_engine(proc, group, signal.SIGTERM)
+        try:
+            # Recomputed HERE, immediately before the only blocking step:
+            # everything above — the caller's channel close, the poll, the signal
+            # — spent from the same budget.
+            proc.wait(timeout=max(deadline - time.monotonic(), 0.0))
+        except subprocess.TimeoutExpired:
+            _signal_engine(proc, group, signal.SIGKILL)
+            _reap_in_background(proc)
+            return
+    # The leader is gone — by its own exit, by the SIGTERM, or before gda arrived.
+    # The GROUP is not gone with it, and gda owns it.
+    if group is not None:
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except OSError:
+            pass  # an empty group is the normal case: nothing left to retire
 
 
 def _signal_engine(proc: subprocess.Popen, group: Optional[int], sig: int) -> None:
@@ -522,8 +541,8 @@ def _reap_in_background(proc: subprocess.Popen) -> "threading.Thread":
     never keep gda alive — so it is not drained at shutdown, and a collection that
     fails is swallowed rather than reported. Giving it a managed lifecycle would buy
     a guarantee nothing needs: SIGKILL cannot be caught, so the wait ends on its own
-    in every case anyone has observed, and the cost of the rare miss is one entry in
-    a process table that the daemon's own exit clears.
+    in every case anyone has observed, and the cost of a rare miss is one process-table
+    entry — when the daemon exits, the child is reparented to init and reaped there.
     """
     reaper = threading.Thread(
         target=_reap, args=(proc,), name=f"gda-reap-{proc.pid}", daemon=True

@@ -72,6 +72,18 @@ _IGNORES_SIGTERM_WITH_CHILD = (
     "child.stdout.readline();"
     "print(child.pid, flush=True); time.sleep(120)"
 )
+# A leader that OBEYS SIGTERM, whose descendant does not — the asymmetric case,
+# where the leader's own death used to end the teardown with the group alive.
+_OBEYS_SIGTERM_WITH_STUBBORN_CHILD = (
+    "import subprocess, sys, time;"
+    "child = subprocess.Popen([sys.executable, '-c',"
+    ' "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN);'
+    ' print(chr(120), flush=True); time.sleep(120)"'
+    "], stdout=subprocess.PIPE,"
+    " text=True);"
+    "child.stdout.readline();"
+    "print(child.pid, flush=True); time.sleep(120)"
+)
 _IGNORES_SIGTERM = (
     "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
     "print('ready', flush=True); time.sleep(60)"
@@ -110,6 +122,17 @@ class _Proc:
 
     def poll(self):
         return self.code
+
+    @property
+    def pid(self) -> int:
+        # Deliberately absent rather than invented: teardown reads the pid to
+        # retire the engine's process GROUP, and a made-up one resolves to some
+        # unrelated process that would then be signalled. A test whose stand-in
+        # reaches real teardown wants `no_engine_teardown`.
+        raise AssertionError(
+            "this stand-in engine process has no pid; a test that lets it reach "
+            "the real teardown must request no_engine_teardown"
+        )
 
 
 class _ServedSession:
@@ -401,6 +424,7 @@ def test_a_session_dying_mid_request_reports_disconnect_then_relaunches(
     # connection breaks during the relay (the real EngineSession.request maps
     # that to engine_disconnected), the engine process then dies, and the NEXT
     # live op relaunches through the seam and serves.
+    no_engine_teardown(monkeypatch)  # the dying session is a stand-in, not a child
     ours, theirs = socket.socketpair()
     theirs.close()  # the harness end is gone: the relay write breaks mid-request
     proc = _Proc(code=None)  # alive at the pre-request liveness check
@@ -860,36 +884,63 @@ def test_the_termination_wait_is_measured_when_it_begins(monkeypatch):
     assert given[0] == 0, f"the wait was given a revived {given[0]}s budget"
 
 
-def test_the_escalation_covers_the_group_the_engine_owns(monkeypatch):
-    # #725 fourth re-review: SIGTERM went to the process group, SIGKILL only to
-    # the leader — so a descendant that also ignored SIGTERM was left alive and
-    # orphaned. The session is spawned with `start_new_session=True`, so gda owns
-    # that group; the escalation must match the signal that preceded it.
+def _leader_with_descendant(source: str) -> "tuple[subprocess.Popen, int]":
+    """Spawn a group leader that reports its descendant's pid, and both are up."""
     leader = _REAL_POPEN(
-        [sys.executable, "-c", _IGNORES_SIGTERM_WITH_CHILD],
+        [sys.executable, "-c", source],
         stdout=subprocess.PIPE,
         text=True,
         start_new_session=True,
     )
     assert leader.stdout is not None
-    descendant = int(leader.stdout.readline().strip())
+    return leader, int(leader.stdout.readline().strip())
+
+
+def _assert_gone(pid: int, what: str) -> None:
+    end = time.monotonic() + 5.0
+    while time.monotonic() < end:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"the {what} {pid} outlived the group retirement")
+
+
+def _reap_group(*pids: int) -> None:
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def test_the_group_is_retired_even_when_the_leader_obeys_sigterm(monkeypatch):
+    # #725 fifth re-review: the escalation was decided from the LEADER alone, so
+    # a leader that obeyed the group SIGTERM ended the teardown — `wait()`
+    # succeeded, the SIGKILL branch was skipped — while a descendant that
+    # ignored it kept running, orphaned (probed: leader -15 in 0.001s,
+    # descendant alive). gda owns the group, so the group is what gets retired.
+    leader, descendant = _leader_with_descendant(_OBEYS_SIGTERM_WITH_STUBBORN_CHILD)
+    try:
+        _terminate(leader, time.monotonic() + 5.0)
+        assert leader.returncode == -signal.SIGTERM  # the leader DID obey
+        _assert_gone(descendant, "descendant")
+    finally:
+        _reap_group(descendant, leader.pid)
+
+
+def test_the_escalation_covers_the_group_the_engine_owns(monkeypatch):
+    # #725 fourth re-review: SIGTERM went to the process group, SIGKILL only to
+    # the leader — so a descendant that also ignored SIGTERM was left alive and
+    # orphaned. The session is spawned with `start_new_session=True`, so gda owns
+    # that group; the escalation must match the signal that preceded it.
+    leader, descendant = _leader_with_descendant(_IGNORES_SIGTERM_WITH_CHILD)
     try:
         _terminate(leader, time.monotonic() + 0.05)
-        end = time.monotonic() + 5.0
-        while time.monotonic() < end:
-            try:
-                os.kill(descendant, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(0.01)
-        else:
-            raise AssertionError(f"the descendant {descendant} outlived the group kill")
+        _assert_gone(descendant, "descendant")
     finally:
-        for pid in (descendant, leader.pid):
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+        _reap_group(descendant, leader.pid)
 
 
 def test_teardown_does_not_wait_for_the_kernel_to_collect_the_child(monkeypatch):
