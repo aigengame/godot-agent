@@ -985,7 +985,7 @@ _Avoid_: config file, JSON flags, alternate command API
 A caller-supplied idempotency key of 64 lowercase hexadecimal digits encoding 32 octets, required by
 every artifact-producing 2.x command and exposed identically as `--invocation-key` and
 `invocation_key` in structured params. The publication index binds it to one Command descriptor
-identity, canonical command-input identity, and committed outcome receipt. The canonical input
+identity, canonical command-input identity, and committed Artifact-set receipt. The canonical input
 identity excludes the Invocation key and presentation-only output locator. The key is
 command-delivery metadata, never model/RIR semantics; recovery retries the original command with
 the same key and input (bADR-0021).

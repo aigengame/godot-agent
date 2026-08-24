@@ -1,6 +1,7 @@
 """Public Evidence verification CLI contract."""
 
 import json
+from pathlib import Path
 from typing import Any, cast
 
 from gda_balancing.interfaces.cli.evidence_verify import EVIDENCE_VERIFY
@@ -17,7 +18,7 @@ def test_descriptor_owns_the_exact_artifact_set_inputs() -> None:
 
     assert inputs == {
         "model_build_artifact_set_receipt": MODEL_BUILD,
-        "experiment_outcome_receipt": EXPERIMENT_RUN,
+        "experiment_run_artifact_set_receipt": EXPERIMENT_RUN,
     }
     rows = cast(
         list[dict[str, Any]],
@@ -37,7 +38,9 @@ def test_descriptor_owns_the_exact_artifact_set_inputs() -> None:
     ] == [member.logical_name for member in MODEL_BUILD.artifact_set]
     assert [
         [member["logical_name"] for member in artifact_set]
-        for artifact_set in projected["experiment_outcome_receipt"]["artifact_sets"]
+        for artifact_set in projected["experiment_run_artifact_set_receipt"][
+            "artifact_sets"
+        ]
     ] == [
         [member.logical_name for member in EXPERIMENT_RUN.artifact_set],
         [member.logical_name for member in EXPERIMENT_RUN.verdict_artifact_set],
@@ -68,7 +71,7 @@ def test_public_cli_returns_one_open_evaluable_candidate(run_cli, invocation) ->
         "resolved_runtime_profile_identity",
         "evaluator_capability_manifest_identity",
         "model_build_artifact_set_receipt_identity",
-        "experiment_outcome_receipt_identity",
+        "experiment_run_artifact_set_receipt_identity",
     }
     assert all(
         value.startswith("sha256:")
@@ -103,6 +106,25 @@ def test_public_cli_refuses_an_unknown_claim_kind(run_cli, invocation) -> None:
     ]
 
 
+def test_public_cli_reports_an_unreadable_input_before_an_unknown_claim_kind(
+    run_cli, invocation, tmp_path: Path
+) -> None:
+    argv = list(invocation(EVIDENCE_VERIFY, refusing=True))
+    for option in (
+        "--specification",
+        "--model-build-artifact-set-receipt",
+        "--experiment-run-artifact-set-receipt",
+    ):
+        argv[argv.index(option) + 1] = str(
+            tmp_path / f"missing-{option.removeprefix('--')}.json"
+        )
+
+    exit_code, stdout, stderr = run_cli(argv)
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "unreadable_input"
+
+
 def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> None:
     schema_exit, schema_stdout, schema_stderr = run_cli(
         ["evidence", "verify", "--schema"]
@@ -116,7 +138,7 @@ def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> N
         "source",
         "specification",
         "model_build_artifact_set_receipt",
-        "experiment_outcome_receipt",
+        "experiment_run_artifact_set_receipt",
     ]
     success_properties = schema["success"]["properties"]
     assert success_properties["claim_kind"]["const"] == "evaluable"
@@ -133,7 +155,7 @@ def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> N
         "--source",
         "--specification",
         "--model-build-artifact-set-receipt",
-        "--experiment-outcome-receipt",
+        "--experiment-run-artifact-set-receipt",
     ):
         assert option in help_stdout
     assert "<document>" not in help_stdout

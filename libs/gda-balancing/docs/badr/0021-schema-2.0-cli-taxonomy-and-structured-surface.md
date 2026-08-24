@@ -162,7 +162,7 @@ structured-params adapter part of the first vertical tracer.
   Command descriptor requires a caller-supplied `invocation_key` of 64 lowercase hexadecimal digits
   encoding 32 octets, exposed as `--invocation-key` and through the same structured input model. The
   publication index binds `(descriptor identity, invocation_key)` to one canonical command-input
-  identity and committed outcome receipt. That canonical input excludes `invocation_key` and
+  identity and committed Artifact-set receipt. That canonical input excludes `invocation_key` and
   presentation-only output locators. Reuse with different canonical input is an
   `invocation_key_conflict` usage error and never dispatches; retrying the original command with the
   same key/input after commit re-emits the stored outcome without executing.

@@ -28,7 +28,10 @@ from gda_balancing.domain.model import (
     project_compiled_model_binding,
     validate_compiled_artifacts,
 )
-from gda_balancing.domain.publication import read_authenticated_artifact_set
+from gda_balancing.domain.publication import (
+    read_authenticated_artifact_set,
+    read_authenticated_declared_artifact_set,
+)
 from gda_balancing.domain.publication_types import PublicationAdmissionError
 
 
@@ -40,26 +43,7 @@ class EvidenceVerifyInput:
     source: str
     specification: str
     model_build_artifact_set_receipt: str
-    experiment_outcome_receipt: str
-
-
-def _authenticate_outcome(
-    receipt_path: str,
-    descriptor_identity: str,
-    artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
-):
-    last_error: PublicationAdmissionError | None = None
-    for artifact_set in artifact_sets:
-        try:
-            return read_authenticated_artifact_set(
-                receipt_path,
-                descriptor_identity,
-                artifact_set,
-            )
-        except PublicationAdmissionError as error:
-            last_error = error
-    assert last_error is not None
-    raise last_error
+    experiment_run_artifact_set_receipt: str
 
 
 def verify_evidence(
@@ -68,19 +52,13 @@ def verify_evidence(
     model_build_descriptor_identity: str,
     experiment_run_descriptor_identity: str,
     model_build_artifact_set: tuple[ArtifactSetMemberSpec, ...],
-    experiment_outcome_artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+    experiment_run_artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
 ) -> EvidenceCandidate | Schema2RefusalReport:
     """Re-admit exact publications and derive one candidate/open judgment."""
     checked_model = check_model_source(inp.source)
     if isinstance(checked_model, Schema2RefusalReport):
         return checked_model
     assert isinstance(checked_model, CheckedModel)
-    claim_kind = evidence_claim_kind(checked_model.language_bundle, inp.claim_kind)
-    if claim_kind is None:
-        return unknown_evidence_claim_kind_refusal(
-            checked_model.language_bundle,
-            inp.claim_kind,
-        )
     try:
         model_publication = read_authenticated_artifact_set(
             inp.model_build_artifact_set_receipt,
@@ -123,13 +101,19 @@ def verify_evidence(
         return checked_experiment
     assert isinstance(checked_experiment, CheckedExperiment)
     try:
-        outcome_publication = _authenticate_outcome(
-            inp.experiment_outcome_receipt,
+        outcome_publication = read_authenticated_declared_artifact_set(
+            inp.experiment_run_artifact_set_receipt,
             experiment_run_descriptor_identity,
-            experiment_outcome_artifact_sets,
+            experiment_run_artifact_sets,
         )
     except PublicationAdmissionError as error:
         return ingress_refusal(error.code, error.subject, error.message)
+    claim_kind = evidence_claim_kind(checked_model.language_bundle, inp.claim_kind)
+    if claim_kind is None:
+        return unknown_evidence_claim_kind_refusal(
+            checked_model.language_bundle,
+            inp.claim_kind,
+        )
     graph = project_evidence_graph(
         claim_kind,
         EvidenceGraphProjectionInput(
@@ -142,7 +126,7 @@ def verify_evidence(
             model_artifacts=model_publication.artifacts,
             experiment_identity=checked_experiment.content_identity,
             experiment=checked_experiment.value,
-            experiment_outcome_receipt_identity=cast(
+            experiment_run_artifact_set_receipt_identity=cast(
                 str, outcome_publication.receipt["content_identity"]
             ),
             outcome_artifacts=outcome_publication.artifacts,
@@ -159,12 +143,16 @@ def verify_evidence(
     ):
         issue = evidence_verification_issue(
             "mismatched",
-            subject="experiment-outcome-receipt",
+            subject="experiment-run-artifact-set-receipt",
             message="Experiment outcome publication does not bind the admitted Experiment",
         )
         return evidence_verification_refusal(
             (issue,),
             outcome_publication.authority_context.language_bundle,
-            {"experiment-outcome-receipt": identities["experiment-outcome-receipt"]},
+            {
+                "experiment-run-artifact-set-receipt": identities[
+                    "experiment-run-artifact-set-receipt"
+                ]
+            },
         )
     return result

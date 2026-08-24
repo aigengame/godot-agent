@@ -93,17 +93,15 @@ def _complete_graph() -> EvidenceGraph:
 def _verify(inp: EvidenceVerifyInput) -> EvidenceCandidate | Schema2RefusalReport:
     inputs = {item.receipt_field: item for item in EVIDENCE_VERIFY.input_artifact_sets}
     model_build_input = inputs["model_build_artifact_set_receipt"]
-    experiment_outcome_input = inputs["experiment_outcome_receipt"]
+    experiment_run_input = inputs["experiment_run_artifact_set_receipt"]
     return verify_evidence(
         inp,
         model_build_descriptor_identity=descriptor_identity(model_build_input.producer),
         experiment_run_descriptor_identity=descriptor_identity(
-            experiment_outcome_input.producer
+            experiment_run_input.producer
         ),
         model_build_artifact_set=artifact_sets_for_input(model_build_input)[0],
-        experiment_outcome_artifact_sets=artifact_sets_for_input(
-            experiment_outcome_input
-        ),
+        experiment_run_artifact_sets=artifact_sets_for_input(experiment_run_input),
     )
 
 
@@ -115,7 +113,7 @@ def _prepare_outcome_input(
     specification_path = tmp_path / "experiment.json"
     specification_path.write_text(specification_value, encoding="utf-8")
     outcome_path = tmp_path / "experiment-outcome.json"
-    outcome_receipt_path = tmp_path / "experiment-outcome-receipt.json"
+    run_receipt_path = tmp_path / "experiment-run-artifact-set-receipt.json"
     publication = run_experiment(
         str(specification_path),
         str(outcome_path),
@@ -129,9 +127,7 @@ def _prepare_outcome_input(
         ExperimentVerdictPublication if verdict else ExperimentRunPublication
     )
     assert isinstance(publication, expected_type)
-    outcome_receipt_path.write_bytes(
-        canonical_bytes(cast(JsonValue, publication.receipt))
-    )
+    run_receipt_path.write_bytes(canonical_bytes(cast(JsonValue, publication.receipt)))
     return EvidenceVerifyInput(
         claim_kind="evaluable",
         source=str(tmp_path / f"experiment-model-{token}.json"),
@@ -139,7 +135,7 @@ def _prepare_outcome_input(
         model_build_artifact_set_receipt=str(
             tmp_path / f"experiment-model-{token}-receipt.json"
         ),
-        experiment_outcome_receipt=str(outcome_receipt_path),
+        experiment_run_artifact_set_receipt=str(run_receipt_path),
     )
 
 
@@ -159,7 +155,7 @@ def test_packaged_ldb_owns_the_complete_evaluable_claim_kind() -> None:
                 "experiment",
                 "evaluator-capability-manifest",
                 "resolved-runtime-profile",
-                "experiment-outcome-receipt",
+                "experiment-run-artifact-set-receipt",
             ],
             "prerequisite_edges": [
                 {"subject": "language-bundle", "prerequisite": "kernel"},
@@ -209,19 +205,19 @@ def test_packaged_ldb_owns_the_complete_evaluable_claim_kind() -> None:
                     "prerequisite": "evaluator-capability-manifest",
                 },
                 {
-                    "subject": "experiment-outcome-receipt",
+                    "subject": "experiment-run-artifact-set-receipt",
                     "prerequisite": "model-build-artifact-set-receipt",
                 },
                 {
-                    "subject": "experiment-outcome-receipt",
+                    "subject": "experiment-run-artifact-set-receipt",
                     "prerequisite": "experiment",
                 },
                 {
-                    "subject": "experiment-outcome-receipt",
+                    "subject": "experiment-run-artifact-set-receipt",
                     "prerequisite": "resolved-runtime-profile",
                 },
                 {
-                    "subject": "experiment-outcome-receipt",
+                    "subject": "experiment-run-artifact-set-receipt",
                     "prerequisite": "evaluator-capability-manifest",
                 },
             ],
@@ -383,8 +379,8 @@ def test_domain_projects_exact_artifacts_into_the_evaluable_graph() -> None:
                     "build_receipt_identity": "sha256:" + "a" * 64,
                 },
             },
-            experiment_outcome_receipt_identity=identities[
-                "experiment-outcome-receipt"
+            experiment_run_artifact_set_receipt_identity=identities[
+                "experiment-run-artifact-set-receipt"
             ],
             outcome_artifacts={
                 "evaluation-run": {},
@@ -604,16 +600,38 @@ def test_application_uses_outcome_neutral_publication_diagnostics(
     tmp_path: Path,
 ) -> None:
     inp = _prepare_outcome_input(tmp_path, 542)
-    invalid_receipt = tmp_path / "invalid-outcome-receipt.json"
+    invalid_receipt = tmp_path / "invalid-experiment-run-artifact-set-receipt.json"
     invalid_receipt.write_text("not JSON", encoding="utf-8")
 
-    result = _verify(replace(inp, experiment_outcome_receipt=str(invalid_receipt)))
+    result = _verify(
+        replace(inp, experiment_run_artifact_set_receipt=str(invalid_receipt))
+    )
 
     assert isinstance(result, Schema2RefusalReport)
     assert result.stage == "ingress"
     assert result.diagnostics[0].message == (
         "Artifact-set receipt is not an admissible JSON artifact"
     )
+
+
+def test_application_reports_a_malformed_input_before_an_unknown_claim_kind(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 553)
+    invalid_receipt = tmp_path / "invalid-experiment-run-artifact-set-receipt.json"
+    invalid_receipt.write_text("not JSON", encoding="utf-8")
+
+    result = _verify(
+        replace(
+            inp,
+            claim_kind="unsupported",
+            experiment_run_artifact_set_receipt=str(invalid_receipt),
+        )
+    )
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "ingress"
+    assert result.diagnostics[0].code == "kernel.identity_mismatch"
 
 
 def test_application_refuses_an_unknown_evidence_claim_kind(tmp_path: Path) -> None:
@@ -650,11 +668,11 @@ def test_application_refuses_a_source_changed_after_model_build(
     )
 
 
-def test_application_refuses_an_unauthenticated_outcome_receipt(
+def test_application_refuses_an_unauthenticated_experiment_run_artifact_set_receipt(
     tmp_path: Path,
 ) -> None:
     inp = _prepare_outcome_input(tmp_path, 547)
-    receipt_path = Path(inp.experiment_outcome_receipt)
+    receipt_path = Path(inp.experiment_run_artifact_set_receipt)
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     receipt["content_identity"] = "sha256:" + "0" * 64
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
@@ -667,6 +685,29 @@ def test_application_refuses_an_unauthenticated_outcome_receipt(
     assert result.diagnostics[0].message == (
         "Artifact-set receipt failed exact-authority admission"
     )
+
+
+def test_application_preserves_the_success_member_admission_diagnostic(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 554)
+    receipt = json.loads(
+        Path(inp.experiment_run_artifact_set_receipt).read_text(encoding="utf-8")
+    )
+    evaluation_run = next(
+        item["locator"]
+        for item in receipt["member_locators"]
+        if item["logical_name"] == "evaluation-run"
+    )
+    Path(evaluation_run).write_text("{}", encoding="utf-8")
+
+    result = _verify(inp)
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "ingress"
+    assert result.diagnostics[0].code == "kernel.binding_mismatch"
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.pointer == "/evaluation-run"
 
 
 def test_application_refuses_an_outcome_bound_to_another_experiment(
@@ -690,7 +731,7 @@ def test_application_refuses_an_outcome_bound_to_another_experiment(
         for diagnostic in result.diagnostics
         if isinstance(diagnostic.primary, ArtifactLocation)
     }
-    assert "/prerequisites/experiment-outcome-receipt/experiment" in (
+    assert "/prerequisites/experiment-run-artifact-set-receipt/experiment" in (
         artifact_locations
     )
 
@@ -703,11 +744,34 @@ def test_application_verifies_one_real_verdict_publication(tmp_path: Path) -> No
     assert result.producing_outcome == "verdict"
 
 
+def test_application_preserves_the_verdict_member_admission_diagnostic(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 555, verdict=True)
+    receipt = json.loads(
+        Path(inp.experiment_run_artifact_set_receipt).read_text(encoding="utf-8")
+    )
+    experiment_verdict = next(
+        item["locator"]
+        for item in receipt["member_locators"]
+        if item["logical_name"] == "experiment-verdict"
+    )
+    Path(experiment_verdict).write_text("{}", encoding="utf-8")
+
+    result = _verify(inp)
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "ingress"
+    assert result.diagnostics[0].code == "kernel.binding_mismatch"
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.pointer == "/experiment-verdict"
+
+
 def _prepare_runtime_refusal_input(tmp_path: Path, token: int) -> EvidenceVerifyInput:
     specification_value = prepare_runtime_refusal_experiment(tmp_path, token)
     specification_path = tmp_path / "experiment.json"
     specification_path.write_text(specification_value, encoding="utf-8")
-    outcome_receipt_path = tmp_path / "experiment-outcome-receipt.json"
+    run_receipt_path = tmp_path / "experiment-run-artifact-set-receipt.json"
     refusal = run_experiment(
         str(specification_path),
         str(tmp_path / "runtime-refusal.json"),
@@ -720,7 +784,7 @@ def _prepare_runtime_refusal_input(tmp_path: Path, token: int) -> EvidenceVerify
     assert isinstance(refusal, Schema2RefusalReport)
     assert refusal.variant == "post-dispatch"
     assert refusal.terminal_audit is not None
-    outcome_receipt_path.write_bytes(
+    run_receipt_path.write_bytes(
         canonical_bytes(cast(JsonValue, refusal.terminal_audit))
     )
     return EvidenceVerifyInput(
@@ -730,7 +794,7 @@ def _prepare_runtime_refusal_input(tmp_path: Path, token: int) -> EvidenceVerify
         model_build_artifact_set_receipt=str(
             tmp_path / f"experiment-model-{token}-receipt.json"
         ),
-        experiment_outcome_receipt=str(outcome_receipt_path),
+        experiment_run_artifact_set_receipt=str(run_receipt_path),
     )
 
 
@@ -744,13 +808,36 @@ def test_application_verifies_one_real_post_dispatch_refusal_publication(
     assert result.producing_outcome == "runtime-refusal"
 
 
+def test_application_preserves_the_runtime_refusal_member_admission_diagnostic(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_runtime_refusal_input(tmp_path, 556)
+    receipt = json.loads(
+        Path(inp.experiment_run_artifact_set_receipt).read_text(encoding="utf-8")
+    )
+    terminal_audit = next(
+        item["locator"]
+        for item in receipt["member_locators"]
+        if item["logical_name"] == "runtime-terminal-audit"
+    )
+    Path(terminal_audit).write_text("{}", encoding="utf-8")
+
+    result = _verify(inp)
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "ingress"
+    assert result.diagnostics[0].code == "kernel.binding_mismatch"
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.pointer == "/runtime-terminal-audit"
+
+
 def test_application_refuses_an_authenticated_incomplete_terminal_audit(
     tmp_path: Path,
 ) -> None:
     inp = _prepare_runtime_refusal_input(tmp_path, 550)
     artifact_set = EXPERIMENT_RUN.refusal_artifact_sets[0].members
     admitted = read_authenticated_artifact_set(
-        inp.experiment_outcome_receipt,
+        inp.experiment_run_artifact_set_receipt,
         descriptor_identity(EXPERIMENT_RUN),
         artifact_set,
     )
@@ -808,7 +895,7 @@ def test_application_refuses_an_authenticated_incomplete_terminal_audit(
     result = _verify(
         replace(
             inp,
-            experiment_outcome_receipt=str(malformed_receipt_path),
+            experiment_run_artifact_set_receipt=str(malformed_receipt_path),
         )
     )
 

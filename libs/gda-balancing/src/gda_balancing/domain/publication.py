@@ -353,6 +353,35 @@ def read_authenticated_artifact_set(
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
 ) -> AuthenticatedArtifactSet:
     """Authenticate and load all members of one committed artifact set."""
+    return _read_authenticated_artifact_set(
+        receipt_path,
+        expected_descriptor_identity,
+        (artifact_set,),
+    )
+
+
+def read_authenticated_declared_artifact_set(
+    receipt_path: str,
+    expected_descriptor_identity: str,
+    artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+) -> AuthenticatedArtifactSet:
+    """Authenticate one publication against its producer-declared member sets."""
+    if not artifact_sets:
+        raise ValueError(
+            "an authenticated publication requires a declared artifact set"
+        )
+    return _read_authenticated_artifact_set(
+        receipt_path,
+        expected_descriptor_identity,
+        artifact_sets,
+    )
+
+
+def _read_authenticated_artifact_set(
+    receipt_path: str,
+    expected_descriptor_identity: str,
+    artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+) -> AuthenticatedArtifactSet:
     path = _normalized_absolute_path(receipt_path)
     receipt = _read_receipt_input(path)
     context = packaged_authority_context()
@@ -456,6 +485,20 @@ def read_authenticated_artifact_set(
             "manifest.members",
             "Artifact-set publication has no closed member map",
         )
+    actual_names = [row.get("logical_name") for row in members if isinstance(row, dict)]
+    matching_sets = tuple(
+        artifact_set
+        for artifact_set in artifact_sets
+        if len(members) == len(artifact_set)
+        and actual_names == [member.logical_name for member in artifact_set]
+    )
+    if len(matching_sets) != 1:
+        raise PublicationAdmissionError(
+            "kernel.member_set_mismatch",
+            "manifest.members",
+            "Publication does not match a producer-declared artifact set",
+        )
+    artifact_set = matching_sets[0]
     expected_names = [member.logical_name for member in artifact_set]
     expected_kinds = {
         member.logical_name: member.artifact_kind for member in artifact_set
@@ -467,12 +510,7 @@ def read_authenticated_artifact_set(
         }
         for name in expected_names
     ]
-    if (
-        [row.get("logical_name") for row in members if isinstance(row, dict)]
-        != expected_names
-        or len(members) != len(expected_names)
-        or locators != expected_locators
-    ):
+    if locators != expected_locators:
         raise PublicationAdmissionError(
             "kernel.member_set_mismatch",
             "manifest.members",

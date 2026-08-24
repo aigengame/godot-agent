@@ -44,7 +44,7 @@ class EvidenceVerifyInput(BaseModel):
     source: str
     specification: str
     model_build_artifact_set_receipt: str
-    experiment_outcome_receipt: str
+    experiment_run_artifact_set_receipt: str
 
 
 class EvidenceVerifyResult(BaseModel):
@@ -61,7 +61,7 @@ class EvidenceVerifyResult(BaseModel):
     resolved_runtime_profile_identity: str
     evaluator_capability_manifest_identity: str
     model_build_artifact_set_receipt_identity: str
-    experiment_outcome_receipt_identity: str
+    experiment_run_artifact_set_receipt_identity: str
 
 
 _EVIDENCE_REFUSAL_REASONS = (
@@ -98,25 +98,25 @@ def run_evidence_verify(
 ) -> EvidenceVerifyResult | Schema2RefusalReport:
     try:
         model_build_input = _artifact_set_input("model_build_artifact_set_receipt")
-        experiment_outcome_input = _artifact_set_input("experiment_outcome_receipt")
+        experiment_run_input = _artifact_set_input(
+            "experiment_run_artifact_set_receipt"
+        )
         result = verify_evidence(
             ApplicationInput(
                 claim_kind=inp.claim_kind,
                 source=inp.source,
                 specification=inp.specification,
                 model_build_artifact_set_receipt=inp.model_build_artifact_set_receipt,
-                experiment_outcome_receipt=inp.experiment_outcome_receipt,
+                experiment_run_artifact_set_receipt=inp.experiment_run_artifact_set_receipt,
             ),
             model_build_descriptor_identity=descriptor_identity(
                 model_build_input.producer
             ),
             experiment_run_descriptor_identity=descriptor_identity(
-                experiment_outcome_input.producer
+                experiment_run_input.producer
             ),
             model_build_artifact_set=artifact_sets_for_input(model_build_input)[0],
-            experiment_outcome_artifact_sets=artifact_sets_for_input(
-                experiment_outcome_input
-            ),
+            experiment_run_artifact_sets=artifact_sets_for_input(experiment_run_input),
         )
     except InputReadError as err:
         raise UnreadableInputError("cannot read an Evidence input document") from err
@@ -143,7 +143,9 @@ def run_evidence_verify(
         model_build_artifact_set_receipt_identity=identities[
             "model-build-artifact-set-receipt"
         ],
-        experiment_outcome_receipt_identity=identities["experiment-outcome-receipt"],
+        experiment_run_artifact_set_receipt_identity=identities[
+            "experiment-run-artifact-set-receipt"
+        ],
     )
 
 
@@ -161,8 +163,8 @@ def _prepare_evidence_args(root: Path, token: int, refusing: bool) -> tuple[str,
     )
     if not isinstance(outcome, ExperimentRunResult):
         raise RuntimeError("Evidence fixture prerequisite run did not succeed")
-    outcome_receipt_path = root / f"evidence-outcome-{token}-receipt.json"
-    outcome_receipt_path.write_bytes(
+    run_receipt_path = root / f"evidence-outcome-{token}-receipt.json"
+    run_receipt_path.write_bytes(
         canonical_bytes(cast(JsonValue, outcome.model_dump(mode="json")))
     )
     return (
@@ -174,8 +176,8 @@ def _prepare_evidence_args(root: Path, token: int, refusing: bool) -> tuple[str,
         str(specification_path),
         "--model-build-artifact-set-receipt",
         str(root / f"experiment-model-{token}-receipt.json"),
-        "--experiment-outcome-receipt",
-        str(outcome_receipt_path),
+        "--experiment-run-artifact-set-receipt",
+        str(run_receipt_path),
     )
 
 
@@ -193,7 +195,7 @@ EVIDENCE_VERIFY = CommandDescriptor(
             producer=MODEL_BUILD,
         ),
         ArtifactSetInputSpec(
-            receipt_field="experiment_outcome_receipt",
+            receipt_field="experiment_run_artifact_set_receipt",
             producer=EXPERIMENT_RUN,
         ),
     ),

@@ -54,7 +54,7 @@ class EvidenceGraphProjectionInput:
     model_artifacts: Mapping[str, Mapping[str, Any]]
     experiment_identity: str
     experiment: Mapping[str, Any]
-    experiment_outcome_receipt_identity: str
+    experiment_run_artifact_set_receipt_identity: str
     outcome_artifacts: Mapping[str, Mapping[str, Any]]
 
 
@@ -190,7 +190,7 @@ def project_evidence_graph(
             str, evaluator_manifest["content_identity"]
         ),
         "resolved-runtime-profile": cast(str, runtime_profile["content_identity"]),
-        "experiment-outcome-receipt": inp.experiment_outcome_receipt_identity,
+        "experiment-run-artifact-set-receipt": inp.experiment_run_artifact_set_receipt_identity,
     }
     experiment_model = cast(Mapping[str, Any], inp.experiment["model"])
     experiment_build_receipt_member_identity = cast(
@@ -233,7 +233,7 @@ def project_evidence_graph(
                 "evaluator_manifest_identity"
             ],
         },
-        "experiment-outcome-receipt": {
+        "experiment-run-artifact-set-receipt": {
             "model-build-artifact-set-receipt": (
                 observed_model_build_artifact_set_receipt_identity
             ),
