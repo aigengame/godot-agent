@@ -5,9 +5,9 @@ description: Use PITFALLS.md to prevent repeated environment, tool, permission, 
 
 # Pitfalls
 
-Use the root `PITFALLS.md` before and during work, and maintain it after work. The
-catalog helps an agent avoid a verified tool-call failure without treating one harness's
-limits as universal project policy.
+Use `PITFALLS.md` before and during work, and maintain it after work. The catalog helps
+an agent avoid a verified tool-call failure without treating one harness's limits as
+universal project policy.
 
 ## Workflow
 
