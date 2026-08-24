@@ -678,6 +678,24 @@ PERF_MONITOR_SIGNAL_RESULT = {
     ],
 }
 
+# A ``perf-sample`` WIRE reply (#662) — what the harness returns: raw per-frame
+# rows only. Statistics and budget verdicts are computed CLI-side by the recipe,
+# so the values here are chosen to make the aggregates exactly checkable:
+# fps sorted = [55, 58, 60, 60, 62] -> mean 59, p50 60, p95 62 (nearest-rank);
+# draw_calls sorted = [90, 95, 100, 110, 120] -> mean 103, p50 100, p95 120.
+PERF_SAMPLE_REPLY = {
+    "kind": "sample",
+    "frames": 5,
+    "monitors": ["fps", "draw_calls"],
+    "samples": [
+        {"frame": 0, "timestamp": 100, "values": {"fps": 60.0, "draw_calls": 100.0}},
+        {"frame": 1, "timestamp": 116, "values": {"fps": 55.0, "draw_calls": 120.0}},
+        {"frame": 2, "timestamp": 132, "values": {"fps": 62.0, "draw_calls": 90.0}},
+        {"frame": 3, "timestamp": 148, "values": {"fps": 58.0, "draw_calls": 110.0}},
+        {"frame": 4, "timestamp": 164, "values": {"fps": 60.0, "draw_calls": 95.0}},
+    ],
+}
+
 # Sample ``gda input`` results — the events the gda harness injected into the
 # running game, served LIVE through gda-daemon (#221). Shared by the input-command
 # success/schema tests. A key echoes the resolved keycode + modifiers; a mouse

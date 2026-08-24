@@ -291,3 +291,90 @@ def test_perf_monitors_without_a_daemon_reports_daemon_not_running(tmp_path):
     error = json.loads(proc.stdout)["error"]
     assert error["code"] == "daemon_not_running"
     assert "gda daemon start" in error["message"]
+
+
+@pytest.mark.e2e
+def test_perf_sample_collects_a_bounded_window_with_stats_and_verdicts(
+    tmp_path, daemon_runtime_dir
+):
+    # The #662 DoD: a real daemon -> engine session -> `perf sample` collects the
+    # selected ENGINE monitors over a bounded window and the CLI reports the
+    # aggregates, the raw samples, the echoed ceiling, and — with a budget — the
+    # per-monitor verdicts. The budget pairs one rule that must pass on any live
+    # session (node_count of this tiny scene stays far under 1e6) with one that
+    # must fail (fps min 1e6), so `passed` is deterministically false while the
+    # command still exits 0 (the verdict is data).
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    budget = tmp_path / "budget.json"
+    budget.write_text(
+        '{"node_count": {"stat": "max", "max": 1000000},'
+        ' "fps": {"stat": "min", "min": 1000000}}',
+        encoding="utf-8",
+    )
+
+    env = {**os.environ}
+
+    def run(*args):
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=90,
+        )
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        sampled = run(
+            "perf",
+            "sample",
+            "--frames",
+            "30",
+            "--monitor",
+            "fps",
+            "--monitor",
+            "node_count",
+            "--budget",
+            str(budget),
+        )
+        assert sampled.returncode == 0, sampled.stdout + sampled.stderr
+        data = json.loads(sampled.stdout)
+
+        # The bounded window, its echoed ceiling, and the raw samples.
+        assert data["frames"] == 30
+        assert data["max_frames"] == 600
+        assert len(data["samples"]) == 30
+        assert all(
+            set(row["values"]) == {"fps", "node_count"} for row in data["samples"]
+        )
+        frames = [row["frame"] for row in data["samples"]]
+        assert frames == list(range(30))
+
+        # The aggregates cover exactly the selected monitors, over all 30 rows.
+        assert set(data["monitors"]) == {"fps", "node_count"}
+        for stats in data["monitors"].values():
+            assert stats["count"] == 30
+            assert stats["min"] <= stats["p50"] <= stats["p95"] <= stats["max"]
+
+        # The budget verdicts: the generous rule passes, the absurd one fails,
+        # so the overall verdict is false — as DATA, with exit code 0.
+        assert data["budget"]["node_count"]["passed"] is True
+        assert data["budget"]["fps"]["passed"] is False
+        assert data["passed"] is False
+
+        # The one-frame snapshot remains available beside the window (#662 AC).
+        snapshot = run("perf", "monitors")
+        assert snapshot.returncode == 0, snapshot.stdout + snapshot.stderr
+        assert "fps" in json.loads(snapshot.stdout)["monitors"]
+    finally:
+        run("daemon", "stop")

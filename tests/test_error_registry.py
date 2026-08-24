@@ -295,6 +295,29 @@ def test_max_window_frames_mirrors_the_harness_const():
     assert int(match.group(1)) == MAX_WINDOW_FRAMES
 
 
+# The harness's `_perf_monitors` table keys: every `"name": Performance.X,` row
+# inside the dict literal assigned in _ready. The names are gda-owned constants
+# (not engine-queried), so the CLI mirrors them (gda.commands.perf
+# PERF_MONITOR_NAMES) to validate `perf sample --monitor` model-side (ADR-0015).
+HARNESS_PERF_MONITOR_TABLE = re.compile(r"_perf_monitors = \{(.*?)\}", re.DOTALL)
+HARNESS_PERF_MONITOR_NAME = re.compile(r'"([a-z0-9_]+)": Performance\.')
+
+
+def test_perf_monitor_names_mirror_the_harness_table():
+    # `perf sample --monitor` is bounded model-side by PERF_MONITOR_NAMES,
+    # mirroring the harness's `_perf_monitors` table so an unknown name is a
+    # usage/invalid_params error before it costs a live round trip — and so a
+    # monitor added harness-side cannot silently stay unreachable from the CLI.
+    from gda.commands.perf import PERF_MONITOR_NAMES
+
+    harness = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    table = HARNESS_PERF_MONITOR_TABLE.search(harness)
+    assert table is not None, "_perf_monitors table missing from gda_harness.gd"
+    harness_names = HARNESS_PERF_MONITOR_NAME.findall(table.group(1))
+    assert harness_names, "no monitor rows parsed from the _perf_monitors table"
+    assert list(PERF_MONITOR_NAMES) == harness_names
+
+
 HARNESS_LOG_MARKER = re.compile(r'^const LOG_MARKER := "(.*)"$', re.MULTILINE)
 
 

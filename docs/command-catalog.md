@@ -843,6 +843,21 @@ headless is unaffected (4.4+, cross-platform).
   node is `live_perf_node_not_found`, an absent property `live_perf_property_not_found`,
   an absent signal `live_perf_signal_not_found`; a genuinely stalled engine is caught
   by the daemon-level `live_timeout`.
+  `perf sample [--frames N] [--monitor NAME ...] [--budget FILE]` (shipped, #662) is
+  the windowed counterpart of the one-frame snapshot: the harness reads every
+  selected ENGINE monitor once per frame over the window (all monitors when no
+  `--monitor` is given) and returns the raw timestamped samples; the CLI — a
+  recipe command, the `screen` pattern (ADR-0023) — computes count/min/max/mean/
+  p50/p95 per monitor (percentiles are nearest-rank) and, with `--budget`, a
+  per-monitor pass/fail verdict plus an overall `passed`. The budget file is a
+  JSON object of `{monitor: {stat, min?, max?}}` entries (`stat` one of min, max,
+  mean, p50, p95; at least one bound), validated BEFORE dispatch so a bad budget
+  never costs a live window; a budget for a monitor outside the sampled selection
+  is refused. A failed budget is data — the command still exits 0. Monitor names
+  are bounded model-side against a CLI mirror of the harness's monitor table (a
+  sync test holds the two identical), the `--frames` bound inherits the same
+  1..600 per-window ceiling (stated in help and echoed as `max_frames` in the
+  result), and the one-frame `perf monitors` snapshot stays as it is.
 - **`diag` (diagnostics):** runtime errors of the running game (shipped, #224; callstacks #283). `gda diag errors`
   reads the running game's runtime errors as structured `{level, message, function?, file?, line?, callstack}`
   (warnings included, distinguished by `level`), with `--limit N`. `callstack` is an ordered

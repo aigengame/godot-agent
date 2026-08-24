@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9412ce784d9839d437daa861f8b097a788f8e401dbb36130c2180b323b78350f -->
+<!-- gda-readme-i18n: source=README.md sha256=8924756d76fa1008feb565864baeeb2500f62b7fc0dc3eb7e70d8ed577dbda28 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -589,6 +589,7 @@ variables de script getter-only/no-op o controles edge-triggered.
 | ------- | ------------ |
 | `perf monitors` | Toma una instantánea de los contadores de rendimiento del motor (fps, memoria, nodos, …). |
 | `perf monitor` | Muestrea una propiedad o señal de nodo a lo largo de una ventana de frames (línea de tiempo). |
+| `perf sample` | Muestrea los monitores del motor a lo largo de una ventana de frames: estadísticas agregadas y veredictos de presupuesto. |
 
 **`input`** — simulación de entrada
 
