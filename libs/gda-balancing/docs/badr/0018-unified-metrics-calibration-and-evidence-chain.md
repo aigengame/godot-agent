@@ -41,6 +41,11 @@ append-only evidence graph.
 > `experiment-verdict` member and without relabeling either outcome. The mismatch is a completed
 > negative Verdict. A match returns `claim_state: candidate` in the command result, but the
 > comparison artifact contains only comparison facts. It carries no Evidence claim.
+> `standard.experiment@1.1.0` owns `exact-replay-v1` under the Kernel-admitted
+> `language.replay_comparison_policies` collection. Domain Comparison semantics consumes the exact
+> admitted definition, complete authenticated observation inputs, and no ambient store state. It
+> produces and independently validates the Replay comparison. Artifact policy owns set publication;
+> Evidence validation only consumes an already published comparison.
 
 ## Decision
 

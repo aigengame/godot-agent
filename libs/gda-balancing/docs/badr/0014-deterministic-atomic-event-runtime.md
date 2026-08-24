@@ -72,7 +72,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > override a tolerance. Runtime preparation produces the Evaluator Capability Manifest, Resolved
 > Runtime profile, and Reproduction receipt without Event dispatch. Replay compares these prepared
 > values with the authenticated original Evaluation run and dispatches only after all preconditions
-> match. The prepared value is internal. It is not a new authority or public artifact.
+> match. `standard.experiment@1.1.0` owns the policy under
+> `language.replay_comparison_policies`. Domain Comparison semantics consumes the admitted policy and
+> the complete original and Replay observations; it performs no implicit store lookup. The prepared
+> values and comparison inputs are internal. They are not new authorities or public artifacts.
 
 ## Decision
 
