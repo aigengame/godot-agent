@@ -5,23 +5,44 @@ constraints. Apply an entry only when its **Applies when** condition matches the
 environment. Check the current execution environment first when that check is practical;
 another environment can have different capabilities._
 
-## Writable `uv` and `uvx` paths in a managed sandbox
+## Writable `uv`, `uvx`, and project environment paths in a managed sandbox
 
-- **Applies when:** A managed environment reports that the default `uv` cache or tool
-  directory is not writable before the requested command starts.
-- **Symptom:** `uv` reports that it failed to initialize its cache, or `uvx` fails while
-  it prepares a tool environment.
-- **Cause:** The default cache or tool directory is outside the execution environment's
-  writable paths.
+- **Applies when:** A managed environment reports that the default `uv` cache, tool
+  directory, or project environment is not writable before the requested command
+  starts.
+- **Symptom:** `uv` reports that it failed to initialize its cache or acquire the
+  project environment lock, or `uvx` fails while it prepares a tool environment.
+- **Cause:** The default cache, tool directory, or project environment is outside the
+  execution environment's writable paths.
 - **Prevention:** Consider a task-scoped writable cache such as
   `UV_CACHE_DIR=<writable-temp-dir>/<task>-uv-cache`. An `uvx` command that installs a
-  tool may also need `UV_TOOL_DIR=<writable-temp-dir>/<task>-uv-tools`. On macOS or Linux,
-  `/tmp/...` can be a suitable writable temporary location. Commands can reuse one task
-  cache.
-- **Recovery:** Rerun once with writable, task-scoped paths. If the rerun reaches the
-  requested command, treat the first failure as environment evidence rather than a
-  product or test failure.
+  tool may also need `UV_TOOL_DIR=<writable-temp-dir>/<task>-uv-tools`. When the
+  project environment is not writable, consider a unique absolute
+  `UV_PROJECT_ENVIRONMENT=<writable-temp-dir>/<task>-venv`; do not share that environment
+  between projects. On macOS or Linux, `/tmp/...` can be a suitable writable temporary
+  location. Commands can reuse one task cache and project environment.
+- **Recovery:** Rerun once with writable, task-scoped paths. For a read-only validation
+  that does not need dependency synchronization, an existing environment's executable
+  can be called directly after confirming that it belongs to the exact checkout. If the
+  rerun reaches the requested command, treat the first failure as environment evidence
+  rather than a product or test failure.
 - **Last verified:** 2026-08-24 in a managed Codex desktop environment.
+
+## Pytest cache in a read-only worktree
+
+- **Applies when:** Pytest runs from a checkout or worktree that is readable but does
+  not allow writes below its project root.
+- **Symptom:** Tests can pass, but pytest reports `PytestCacheWarning` because it cannot
+  write a path below `.pytest_cache`.
+- **Cause:** The built-in cache provider stores node ids, failure state, and related
+  data in `.pytest_cache` by default.
+- **Prevention:** If the cache is not needed, consider disabling the provider with
+  `-p no:cacheprovider`. This also disables pytest's stepwise plugin. If the cache or
+  stepwise behavior is needed, set a task-scoped writable location with
+  `-o cache_dir=<writable-temp-dir>/<task>-pytest-cache`.
+- **Recovery:** Rerun with the cache disabled or redirected when a warning-free result
+  is required. A cache-write warning by itself does not prove that the test failed.
+- **Last verified:** 2026-08-24 with pytest in a managed read-only review worktree.
 
 ## Writable GitHub CLI cache for run evidence
 
