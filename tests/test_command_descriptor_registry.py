@@ -183,10 +183,12 @@ _RECIPE_OPERATIONS = {
     "daemon-uninstall",
     "screen-capture",
     "screen-frames",
-    # `perf sample` computes its statistics and budget verdicts CLI-side from the
-    # harness's raw samples (#662, the `screen` pattern): the public result is
-    # assembled here, not relayed verbatim, so it carries a recipe.
-    "perf-sample",
+    # `perf monitors` carries both the snapshot and the #662 window mode on one
+    # surface (the issue's triage decision); the window statistics and budget
+    # verdicts are computed CLI-side from the harness's raw samples (the
+    # `screen` pattern), so the command carries a recipe that still runs the
+    # sentinel ops.
+    "perf-monitors",
     # `gda skill` is a pure local emitter meta command (ADR-0024): it reads the
     # in-package SKILL.md and emits/installs it, spawning no Godot, so it is
     # fulfilled by a CLI-side recipe like export run / the daemon lifecycle.

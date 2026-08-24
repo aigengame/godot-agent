@@ -843,21 +843,29 @@ headless is unaffected (4.4+, cross-platform).
   node is `live_perf_node_not_found`, an absent property `live_perf_property_not_found`,
   an absent signal `live_perf_signal_not_found`; a genuinely stalled engine is caught
   by the daemon-level `live_timeout`.
-  `perf sample [--frames N] [--monitor NAME ...] [--budget FILE]` (shipped, #662) is
-  the windowed counterpart of the one-frame snapshot: the harness reads every
-  selected ENGINE monitor once per frame over the window (all monitors when no
-  `--monitor` is given) and returns the raw timestamped samples; the CLI — a
-  recipe command, the `screen` pattern (ADR-0023) — computes count/min/max/mean/
-  p50/p95 per monitor (percentiles are nearest-rank) and, with `--budget`, a
-  per-monitor pass/fail verdict plus an overall `passed`. The budget file is a
-  JSON object of `{monitor: {stat, min?, max?}}` entries (`stat` one of min, max,
-  mean, p50, p95; at least one bound), validated BEFORE dispatch so a bad budget
-  never costs a live window; a budget for a monitor outside the sampled selection
-  is refused. A failed budget is data — the command still exits 0. Monitor names
-  are bounded model-side against a CLI mirror of the harness's monitor table (a
-  sync test holds the two identical), the `--frames` bound inherits the same
-  1..600 per-window ceiling (stated in help and echoed as `max_frames` in the
-  result), and the one-frame `perf monitors` snapshot stays as it is.
+  `perf monitors` also has a WINDOW mode (shipped, #662; the issue's triage
+  decision put it on the existing command — no third near-homonym). With
+  `--frames N`, the harness reads every selected engine monitor once per frame
+  over the window. All monitors are read when no `--monitor` is given. The
+  harness returns only the raw timestamped samples. The CLI computes the
+  statistics — count, min, max, mean, p50, p95 per monitor; percentiles are
+  nearest-rank — because the command is a recipe (ADR-0023, the `screen`
+  pattern). With `--budget FILE`, the CLI also evaluates one pass/fail verdict
+  per budgeted monitor, plus an overall `passed`. A failed budget is data: the
+  command still exits 0. The budget file is a JSON object of
+  `{monitor: {stat, min?, max?}}` entries. `stat` is required (one of min, max,
+  mean, p50, p95) and at least one bound must be set. Admission is strict:
+  UTF-8 only, unique keys at every depth, finite numbers only. The budget is
+  validated before dispatch, so a bad file never costs a live window; a budget
+  for a monitor outside the sampled selection is refused. Monitor names are
+  bounded model-side against a CLI mirror of the harness's monitor table (a
+  sync test holds the two identical). The reply is correlated with the request:
+  a self-consistent reply for a different window or selection classifies as
+  `contract_violation`. The `--frames` bound inherits the same 1..600
+  per-window ceiling, stated in help and echoed as `max_frames` in the result.
+  The result names its mode (`kind: snapshot | window`); `--monitor` and
+  `--budget` require `--frames`, and the no-flag snapshot behavior is
+  unchanged.
 - **`diag` (diagnostics):** runtime errors of the running game (shipped, #224; callstacks #283). `gda diag errors`
   reads the running game's runtime errors as structured `{level, message, function?, file?, line?, callstack}`
   (warnings included, distinguished by `level`), with `--limit N`. `callstack` is an ordered

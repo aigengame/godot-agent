@@ -696,6 +696,28 @@ PERF_SAMPLE_REPLY = {
     ],
 }
 
+
+def perf_sample_reply_all_monitors(names) -> dict:
+    """A 1-frame ``perf-sample`` reply covering EVERY mirrored monitor name.
+
+    The default (empty) selection samples ALL monitors, and the recipe
+    correlates the reply's monitor list with that expectation — so the fake
+    reply must cover the whole table for the default-selection test.
+    """
+    return {
+        "kind": "sample",
+        "frames": 1,
+        "monitors": list(names),
+        "samples": [
+            {
+                "frame": 0,
+                "timestamp": 100,
+                "values": {name: 1.0 for name in names},
+            }
+        ],
+    }
+
+
 # Sample ``gda input`` results — the events the gda harness injected into the
 # running game, served LIVE through gda-daemon (#221). Shared by the input-command
 # success/schema tests. A key echoes the resolved keycode + modifiers; a mouse

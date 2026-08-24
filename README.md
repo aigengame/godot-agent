@@ -573,9 +573,8 @@ edge-triggered controls.
 
 | Command | What it does |
 | ------- | ------------ |
-| `perf monitors` | Snapshot the engine's performance counters (fps, memory, nodes, …). |
+| `perf monitors` | Snapshot the engine's counters — or, with `--frames`, sample a window with statistics and budget verdicts. |
 | `perf monitor` | Sample a node property or signal over a frame window (timeline). |
-| `perf sample` | Sample engine monitors over a frame window: statistics + budget verdicts. |
 
 **`input`** — input simulation
 

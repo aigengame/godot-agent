@@ -11,16 +11,17 @@ cross-command contract core (``gda.models``, which keeps the multi-group
 shared render helper (``gda.render``) — and is imported by nothing but the
 composition root (``gda.cli``).
 
-All commands are LIVE (``kind = LIVE``), served through ``gda-daemon`` against
-the engine session it holds: ``perf monitors`` snapshots the engine's
-``Performance`` counters in one frame; ``perf monitor`` collects a per-frame
-property/signal timeline for ONE NODE over N frames (the time-windowed
-multi-frame harness base, ADR-0020); ``perf sample`` (#662) collects the ENGINE
-monitors per frame over a bounded window and adds aggregate statistics — and,
-with a budget file, per-monitor pass/fail verdicts. ``perf sample`` runs a
-CLI-side recipe (ADR-0023, the ``screen`` pattern): the harness returns only the
-raw timestamped samples; the statistics and budget verdicts are computed here,
-where their numeric semantics are unit-testable without an engine.
+Both commands are LIVE (``kind = LIVE``), served through ``gda-daemon`` against
+the engine session it holds. ``perf monitors`` has two modes on one surface
+(#662's triage decision — no third command): with no ``--frames`` it snapshots
+the engine's ``Performance`` counters in one frame; with ``--frames N`` it
+samples the selected monitors once per frame over a bounded window, and the
+CLI computes aggregate statistics plus — with a budget file — per-monitor
+pass/fail verdicts. That window mode runs as a CLI-side recipe (ADR-0023, the
+``screen`` pattern): the harness returns only the raw timestamped samples, and
+the numeric semantics stay unit-testable without an engine. ``perf monitor``
+collects a per-frame property/signal timeline for ONE NODE over N frames (the
+time-windowed multi-frame harness base, ADR-0020).
 """
 
 import json
@@ -43,7 +44,7 @@ from gda.headless import (
     project_option,
 )
 from gda.live_runner import make_daemon_runner
-from gda.models import MAX_WINDOW_FRAMES, RUNTIME_NODE_DESC
+from gda.models import MAX_WINDOW_FRAMES, RUNTIME_NODE_DESC, NormalizedPath
 from gda.render import format_value
 from gda.runner import GodotRunner
 
@@ -62,30 +63,9 @@ class PerfMonitor(BaseModel):
     value: Any = Field(description="The monitor's value as JSON.")
 
 
-class PerfMonitorsParams(BaseModel):
-    """The params of ``gda perf monitors``: none — snapshot all monitors at once.
-
-    Empty: ``perf monitors`` reads the whole instantaneous monitor set of the
-    engine session held by ``gda-daemon`` in a single frame (frame-coherent,
-    ADR-0020); there is nothing to select.
-    """
-
-
-class PerfMonitorsResult(BaseModel):
-    """The result of ``gda perf monitors``: a one-frame performance snapshot (#223).
-
-    The running game's instantaneous ``Performance`` counters — timing, memory,
-    object/node counts, render stats, active physics/navigation objects — keyed by
-    monitor name, plus the engine ``timestamp`` (ms since session start) the
-    snapshot was taken at. Read in one frame, so the values are mutually coherent.
-    """
-
-    timestamp: int = Field(
-        description="Engine time the snapshot was taken (ms, Time.get_ticks_msec)."
-    )
-    monitors: dict[str, PerfMonitor] = Field(
-        description="The performance monitors, keyed by name."
-    )
+# `perf monitors`' params and result live BELOW the windowed-mode models they
+# reference (#662): one command carries both the one-frame snapshot and the
+# bounded window, per the issue's triage decision (no third command).
 
 
 class PerfMonitorParams(BaseModel):
@@ -226,41 +206,55 @@ _FRAMES_DESC = (
 )
 
 
-class PerfSampleParams(BaseModel):
-    """The params of ``gda perf sample``: sample engine monitors over a window (#662).
+class PerfMonitorsParams(BaseModel):
+    """The params of ``gda perf monitors``: a snapshot, or a bounded window (#223, #662).
 
-    The windowed counterpart of the one-frame ``perf monitors`` snapshot (which
-    stays as it is): the gda harness reads every selected monitor once per frame
-    over ``frames`` frames (frame-coherent, ADR-0020) and returns the raw
-    timestamped samples in one blocking payload; the CLI computes the aggregate
+    One command, two modes, per #662's triage decision (no third command; the
+    snapshot is the degenerate one-sample window). With no ``frames``, the
+    original behavior: the whole instantaneous monitor set, read in a single
+    frame (frame-coherent, ADR-0020). With ``frames``, the WINDOW mode: the gda
+    harness reads every selected monitor once per frame over the window and
+    returns the raw timestamped samples; the CLI computes the aggregate
     statistics and, when ``budget`` is supplied, the per-monitor pass/fail
-    verdicts. An empty ``monitors`` selection samples ALL monitors. Monitor
-    names and the ``frames`` bound are enforced model-side (ADR-0015).
+    verdicts. An empty ``monitors`` selection samples ALL monitors;
+    ``monitors`` and ``budget`` require ``frames`` (refused by name otherwise —
+    a silently inert selection would be worse). Monitor names and the
+    ``frames`` bound are enforced model-side (ADR-0015).
     """
 
-    frames: int = Field(
-        default=60, ge=1, le=MAX_WINDOW_FRAMES, description=_FRAMES_DESC
+    frames: Optional[int] = Field(
+        default=None, ge=1, le=MAX_WINDOW_FRAMES, description=_FRAMES_DESC
     )
     monitors: list[str] = Field(
         default_factory=list,
         description=(
-            "The performance monitors to sample (repeatable); empty samples ALL "
-            f"monitors. Known names: {', '.join(PERF_MONITOR_NAMES)}."
+            "The performance monitors to sample (repeatable; window mode only); "
+            f"empty samples ALL monitors. Known names: {', '.join(PERF_MONITOR_NAMES)}."
         ),
     )
-    budget: Optional[str] = Field(
+    budget: Optional[NormalizedPath] = Field(
         default=None,
         description=(
-            "Path to a JSON budget file: an object of {monitor: {stat, min?, "
-            "max?}} entries, where stat is one of min, max, mean, p50, p95 and "
-            "at least one bound is set. Each budgeted monitor gets a pass/fail "
-            "verdict against the chosen statistic; the verdict is data (the "
-            "command still exits 0)."
+            "Path to a JSON budget file (window mode only): an object of "
+            "{monitor: {stat, min?, max?}} entries, where stat is one of min, "
+            "max, mean, p50, p95, at least one bound is set, keys are unique, "
+            "and bounds are finite numbers. Each budgeted monitor gets a "
+            "pass/fail verdict against the chosen statistic; the verdict is "
+            "data (the command still exits 0)."
         ),
     )
 
     @model_validator(mode="after")
-    def _known_monitors(self) -> "PerfSampleParams":
+    def _check_modes(self) -> "PerfMonitorsParams":
+        if self.frames is None and self.monitors:
+            raise ValueError(
+                "'monitors' selects what a WINDOW samples; pass 'frames' to "
+                "open one (a snapshot always reads all monitors)."
+            )
+        if self.frames is None and self.budget is not None:
+            raise ValueError(
+                "'budget' gates a WINDOW's statistics; pass 'frames' to open one."
+            )
         unknown = [name for name in self.monitors if name not in PERF_MONITOR_NAMES]
         if unknown:
             raise ValueError(
@@ -278,7 +272,11 @@ class PerfBudget(BaseModel):
 
     ``stat`` is REQUIRED — a defaulted statistic would let a release gate pass
     against a number nobody chose. The rule passes when the statistic is >= the
-    ``min`` bound (if set) and <= the ``max`` bound (if set).
+    ``min`` bound (if set) and <= the ``max`` bound (if set). Bounds must be
+    FINITE: an infinity (a JSON ``Infinity`` literal, or an exponent-overflow
+    like ``1e999``) or a ``NaN`` is not a representable gate — a rule that can
+    only ever pass (or never) is a misconfiguration, and the public result
+    could not even serialize the bound (JSON has no infinity).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -288,9 +286,14 @@ class PerfBudget(BaseModel):
     max: float | None = None
 
     @model_validator(mode="after")
-    def _at_least_one_bound(self) -> "PerfBudget":
+    def _bounds_are_usable(self) -> "PerfBudget":
         if self.min is None and self.max is None:
             raise ValueError("a budget entry needs 'min' and/or 'max'.")
+        for label, bound in (("min", self.min), ("max", self.max)):
+            if bound is not None and not math.isfinite(bound):
+                raise ValueError(
+                    f"budget bound '{label}' must be a finite number, not {bound!r}."
+                )
         return self
 
 
@@ -333,32 +336,63 @@ class PerfBudgetVerdict(BaseModel):
     passed: bool = Field(description="Whether the value satisfied both bounds.")
 
 
-class PerfSampleResult(BaseModel):
-    """The result of ``gda perf sample``: window statistics, raw samples, verdicts (#662).
+class PerfMonitorsResult(BaseModel):
+    """The result of ``gda perf monitors``: a snapshot, or a window's statistics (#223, #662).
 
-    ``monitors`` carries the per-monitor aggregate statistics; ``samples`` the
-    raw timestamped per-frame rows the statistics were computed from. With a
-    budget file, ``budget`` carries one verdict per budgeted monitor and
-    ``passed`` whether ALL of them passed; both are null otherwise. ``max_frames``
-    echoes the per-window ceiling the ``frames`` bound inherits.
+    ``kind`` names the mode. A ``snapshot`` (no ``--frames``) carries
+    ``timestamp`` + ``monitors`` — the original one-frame shape, values mutually
+    coherent. A ``window`` carries ``frames`` (sampled), ``max_frames`` (the
+    per-window ceiling the bound inherits), ``stats`` (aggregates per monitor),
+    ``samples`` (the raw timestamped rows the aggregates were computed from),
+    and — with a budget — ``budget`` verdicts plus the overall ``passed``. Each
+    mode's field set is VALIDATED, not merely described: a payload mixing the
+    modes fails output validation rather than passing through.
     """
 
-    frames: int = Field(description="The number of frames the window sampled.")
-    max_frames: int = Field(
+    kind: Literal["snapshot", "window"] = Field(
+        description="The mode: 'snapshot' (one frame) or 'window' (a bounded window)."
+    )
+    timestamp: int | None = Field(
+        default=None,
+        description=(
+            "Engine time the snapshot was taken (ms, Time.get_ticks_msec); "
+            "null in window mode."
+        ),
+    )
+    monitors: dict[str, PerfMonitor] | None = Field(
+        default=None,
+        description=(
+            "The snapshot's performance monitors, keyed by name; null in window mode."
+        ),
+    )
+    frames: int | None = Field(
+        default=None,
+        description="The number of frames the window sampled; null in snapshot mode.",
+    )
+    max_frames: int | None = Field(
+        default=None,
         description=(
             "The per-window ceiling the frames bound inherits (the gda "
-            "harness's MAX_WINDOW_FRAMES)."
-        )
+            "harness's MAX_WINDOW_FRAMES); null in snapshot mode."
+        ),
     )
-    monitors: dict[str, PerfSampleStats] = Field(
-        description="Aggregate statistics per sampled monitor, keyed by name."
+    stats: dict[str, PerfSampleStats] | None = Field(
+        default=None,
+        description=(
+            "Aggregate statistics per sampled monitor, keyed by name; null in "
+            "snapshot mode."
+        ),
     )
-    samples: list[PerfSampleFrame] = Field(
-        description="The raw timestamped per-frame samples."
+    samples: list[PerfSampleFrame] | None = Field(
+        default=None,
+        description=("The raw timestamped per-frame samples; null in snapshot mode."),
     )
     budget: dict[str, PerfBudgetVerdict] | None = Field(
         default=None,
-        description="Per-monitor budget verdicts; null when no budget was supplied.",
+        description=(
+            "Per-monitor budget verdicts; null when no budget was supplied "
+            "(and always null in snapshot mode)."
+        ),
     )
     passed: bool | None = Field(
         default=None,
@@ -368,6 +402,36 @@ class PerfSampleResult(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _mode_fields(self) -> "PerfMonitorsResult":
+        snapshot_fields = (self.timestamp, self.monitors)
+        window_fields = (self.frames, self.max_frames, self.stats, self.samples)
+        if self.kind == "snapshot":
+            if any(field is None for field in snapshot_fields):
+                raise ValueError("a snapshot carries 'timestamp' and 'monitors'.")
+            if any(field is not None for field in window_fields) or (
+                self.budget is not None or self.passed is not None
+            ):
+                raise ValueError("a snapshot carries no window fields.")
+        else:
+            if any(field is None for field in window_fields):
+                raise ValueError(
+                    "a window carries 'frames', 'max_frames', 'stats', and 'samples'."
+                )
+            if any(field is not None for field in snapshot_fields):
+                raise ValueError("a window carries no snapshot fields.")
+            if (self.budget is None) != (self.passed is None):
+                raise ValueError(
+                    "'budget' and 'passed' are set together or not at all."
+                )
+        return self
+
+
+# The wire op the window mode dispatches (#662). Named once: the recipe sends
+# it, and tests/test_live_contract_guards.py counts it into the relayed-op
+# mirror — `perf monitors`' descriptor operation is the snapshot op, so this is
+# the one harness op a recipe reaches beside its descriptor's own.
+PERF_SAMPLE_OP = "perf-sample"
 
 # The LIVE runner factory seam, the same shape ``gda.dispatch.make_live_runner``
 # has (the ``screen`` pattern), so a test's ``inject_live_runner`` binds without
@@ -375,14 +439,28 @@ class PerfSampleResult(BaseModel):
 LiveRunnerFactory = Callable[[Optional[Path], Optional[Path]], GodotRunner]
 
 
+class _SnapshotReply(BaseModel):
+    """The wire shape ``perf-monitors`` returns: the original one-frame snapshot.
+
+    Not the public result — the recipe wraps it into the two-mode
+    :class:`PerfMonitorsResult` with ``kind: "snapshot"``.
+    """
+
+    timestamp: int
+    monitors: dict[str, PerfMonitor]
+
+
 class _SampleReply(BaseModel):
     """The wire shape ``perf-sample`` returns: the raw samples, pre-statistics.
 
-    Not the public result — that is :class:`PerfSampleResult`, assembled
-    CLI-side. The reply's coherence is VALIDATED (the #732 lesson): the declared
-    window length matches the rows, and every row carries exactly the declared
-    monitors, so a drifted harness classifies as ``contract_violation`` instead
-    of producing statistics over partial data.
+    Not the public result — the recipe assembles :class:`PerfMonitorsResult`
+    CLI-side. The reply's SELF-consistency is validated here (the #732 lesson):
+    the declared window length matches the rows, the rows are exactly frames
+    0..N-1 in order, the declared monitors are unique, and every row carries
+    exactly them — so a drifted harness classifies as ``contract_violation``
+    instead of producing statistics over partial data. Correlation with the
+    REQUEST (the frame count and selection actually asked for) is the recipe's
+    check, since only it holds the params.
     """
 
     kind: Literal["sample"]
@@ -394,6 +472,10 @@ class _SampleReply(BaseModel):
     def _coherent(self) -> "_SampleReply":
         if self.frames != len(self.samples):
             raise ValueError("frames must equal the number of sample rows.")
+        if [sample.frame for sample in self.samples] != list(range(self.frames)):
+            raise ValueError("sample rows must be exactly frames 0..N-1, in order.")
+        if len(set(self.monitors)) != len(self.monitors):
+            raise ValueError("the declared monitors must be unique.")
         declared = set(self.monitors)
         for sample in self.samples:
             if set(sample.values) != declared:
@@ -426,20 +508,61 @@ def _stats_over(values: list[float]) -> PerfSampleStats:
     )
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Refuse a JSON object with a repeated key, at any nesting depth.
+
+    ``json.loads`` silently resolves duplicates last-key-wins, which would let a
+    budget file that first sets a real bound and then repeats the key with a
+    vacuous one pass a release gate nobody wrote. Applied via
+    ``object_pairs_hook``, so nested objects (a budget entry) are covered too.
+    """
+    obj: dict[str, object] = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError(f"duplicate key {key!r} in a JSON object")
+        obj[key] = value
+    return obj
+
+
+def _reject_json_constants(constant: str) -> float:
+    """Refuse the JSON-extension constants ``Infinity`` / ``-Infinity`` / ``NaN``.
+
+    They are not JSON, and a non-finite bound is not a representable gate; the
+    finite-bound rule itself lives on :class:`PerfBudget` (which also catches an
+    exponent-overflow like ``1e999`` that arrives as an ordinary float).
+    """
+    raise ValueError(f"non-finite JSON constant {constant!r} is not allowed")
+
+
 def _load_budgets(path: Path) -> "dict[str, PerfBudget] | Failure":
     """Read and validate a budget file, or the structured ``invalid_params``.
 
     The file is read here — in the recipe, shared by the argv and
-    ``--params-json`` paths — so a missing, unreadable, or malformed budget is
-    the same structured error on both (ADR-0015's intent for a file-borne input).
+    ``--params-json`` paths — so a missing, unreadable, mis-encoded, or
+    malformed budget is the same structured error on both (ADR-0015's intent
+    for a file-borne input). Admission is strict: UTF-8 only, unique keys at
+    every depth, no non-finite numbers.
     """
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        text = path.read_bytes().decode("utf-8")
     except OSError as exc:
         return make_failure(
             "invalid_params", f"cannot read the budget file {path}: {exc}", ""
         )
-    except json.JSONDecodeError as exc:
+    except UnicodeDecodeError as exc:
+        return make_failure(
+            "invalid_params",
+            f"the budget file {path} is not valid UTF-8: {exc}",
+            "",
+        )
+    try:
+        raw = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_json_constants,
+        )
+    except ValueError as exc:
+        # JSONDecodeError and the two admission hooks above all raise ValueError.
         return make_failure(
             "invalid_params", f"the budget file {path} is not valid JSON: {exc}", ""
         )
@@ -484,19 +607,34 @@ def _evaluate_budgets(
     return verdicts, all(verdict.passed for verdict in verdicts.values())
 
 
-def run_perf_sample_operation(
+def run_perf_monitors_operation(
     project: Optional[Path],
-    params: PerfSampleParams,
+    params: PerfMonitorsParams,
     *,
     make_runner: Optional[LiveRunnerFactory] = None,
-) -> "PerfSampleResult | Failure":
-    """Sample the engine monitors over a window; aggregate and gate CLI-side (#662).
+) -> "PerfMonitorsResult | Failure":
+    """Snapshot the monitors, or sample them over a window with statistics (#223, #662).
 
-    The recipe: validate the budget FIRST (a bad budget must not cost a live
-    window), run the ``perf-sample`` live op, surface any LIVE failure via
-    ``classify_live``, then compute the statistics from the raw samples and
-    evaluate the budget against them.
+    The recipe behind ``perf monitors``' two modes. No ``frames``: run the
+    original ``perf-monitors`` snapshot op and wrap it. With ``frames``:
+    validate the budget FIRST (a bad budget must not cost a live window), run
+    the ``perf-sample`` window op, CORRELATE the reply with the request (a
+    self-consistent reply for a different request is still a
+    ``contract_violation``), then compute the statistics from the raw samples
+    and evaluate the budget against them.
     """
+    runner = (make_runner or _default_runner)(None, project)
+    if params.frames is None:
+        result = runner.run("perf-monitors", {})
+        snapshot = classify_live(result, None, _SnapshotReply)
+        if isinstance(snapshot, Failure):
+            return snapshot
+        return PerfMonitorsResult(
+            kind="snapshot",
+            timestamp=snapshot.timestamp,
+            monitors=snapshot.monitors,
+        )
+
     budgets: dict[str, PerfBudget] | None = None
     if params.budget is not None:
         loaded = _load_budgets(Path(params.budget))
@@ -512,13 +650,30 @@ def run_perf_sample_operation(
                 f"{outside}; add them to --monitor or drop them from the budget.",
                 "",
             )
-    runner = (make_runner or _default_runner)(None, project)
     result = runner.run(
-        "perf-sample", {"frames": params.frames, "monitors": params.monitors}
+        PERF_SAMPLE_OP, {"frames": params.frames, "monitors": params.monitors}
     )
     reply = classify_live(result, None, _SampleReply)
     if isinstance(reply, Failure):
         return reply
+    # Correlate the (self-consistent) reply with THIS request: the harness must
+    # have sampled the asked-for window over the asked-for selection. Only the
+    # recipe holds the params, so this check cannot live on the reply model.
+    if reply.frames != params.frames:
+        return make_failure(
+            "contract_violation",
+            f"the harness sampled {reply.frames} frames for a "
+            f"{params.frames}-frame request.",
+            "",
+        )
+    expected = params.monitors or list(PERF_MONITOR_NAMES)
+    if reply.monitors != expected:
+        return make_failure(
+            "contract_violation",
+            f"the harness sampled monitors {reply.monitors} for a request "
+            f"selecting {expected}.",
+            "",
+        )
     stats = {
         name: _stats_over([sample.values[name] for sample in reply.samples])
         for name in reply.monitors
@@ -526,41 +681,62 @@ def run_perf_sample_operation(
     budget_verdicts: dict[str, PerfBudgetVerdict] | None = None
     passed: bool | None = None
     if budgets is not None:
-        missing = [name for name in budgets if name not in stats]
-        if missing:
-            return make_failure(
-                "contract_violation",
-                f"the harness reply omitted budgeted monitor(s): {missing}.",
-                "",
-            )
         budget_verdicts, passed = _evaluate_budgets(budgets, stats)
-    return PerfSampleResult(
+    return PerfMonitorsResult(
+        kind="window",
         frames=reply.frames,
         max_frames=MAX_WINDOW_FRAMES,
-        monitors=stats,
+        stats=stats,
         samples=reply.samples,
         budget=budget_verdicts,
         passed=passed,
     )
 
 
-def _perf_sample_recipe(params, *, project, godot):
-    return run_perf_sample_operation(
+def _perf_monitors_recipe(params, *, project, godot):
+    return run_perf_monitors_operation(
         project, params, make_runner=dispatch.make_live_runner
     )
 
 
-def render_perf_monitors(snapshot: "PerfMonitorsResult") -> str:
-    """Render a performance-monitor snapshot as one ``name = value`` line each (#223).
+def render_perf_monitors(outcome: "PerfMonitorsResult") -> str:
+    """Render a snapshot as ``name = value`` lines, or a window as its statistics.
 
-    A flat list of the running game's monitors, sorted by name for a stable
-    human-facing order, headed by the snapshot timestamp.
+    Snapshot mode (#223): a flat list of the running game's monitors, sorted by
+    name, headed by the snapshot timestamp. Window mode (#662): one statistics
+    line per monitor, plus the budget verdicts when a budget was supplied.
     """
-    header = f"perf @ {snapshot.timestamp}ms"
+    if outcome.kind == "snapshot":
+        assert outcome.monitors is not None  # the mode validator guarantees it
+        header = f"perf @ {outcome.timestamp}ms"
+        lines = [
+            f"  {name} = {format_value(monitor.value)}"
+            for name, monitor in sorted(outcome.monitors.items())
+        ]
+        return "\n".join([header, *lines])
+    assert outcome.stats is not None  # the mode validator guarantees it
+    header = (
+        f"perf window: {outcome.frames} frames, {len(outcome.stats)} monitors "
+        f"(ceiling {outcome.max_frames})"
+    )
     lines = [
-        f"  {name} = {format_value(monitor.value)}"
-        for name, monitor in sorted(snapshot.monitors.items())
+        f"  {name}: mean {format_value(stats.mean)}, p50 {format_value(stats.p50)}, "
+        f"p95 {format_value(stats.p95)}, min {format_value(stats.min)}, "
+        f"max {format_value(stats.max)} ({stats.count} samples)"
+        for name, stats in sorted(outcome.stats.items())
     ]
+    if outcome.budget is not None:
+        lines.append(f"  budget: {'PASS' if outcome.passed else 'FAIL'}")
+        for name, verdict in sorted(outcome.budget.items()):
+            bounds = "".join(
+                f" {label} {format_value(bound)}"
+                for label, bound in (("min", verdict.min), ("max", verdict.max))
+                if bound is not None
+            )
+            lines.append(
+                f"    {'PASS' if verdict.passed else 'FAIL'} {name} "
+                f"{verdict.stat} {format_value(verdict.value)} (bounds:{bounds})"
+            )
     return "\n".join([header, *lines])
 
 
@@ -581,39 +757,20 @@ def render_perf_monitor(timeline: "PerfMonitorResult") -> str:
     return "\n".join([header, *rows])
 
 
-def render_perf_sample(sampled: "PerfSampleResult") -> str:
-    """Render a sampled window as one stats line per monitor, plus the verdicts (#662)."""
-    header = (
-        f"perf sample: {sampled.frames} frames, {len(sampled.monitors)} monitors "
-        f"(ceiling {sampled.max_frames})"
-    )
-    lines = [
-        f"  {name}: mean {format_value(stats.mean)}, p50 {format_value(stats.p50)}, "
-        f"p95 {format_value(stats.p95)}, min {format_value(stats.min)}, "
-        f"max {format_value(stats.max)} ({stats.count} samples)"
-        for name, stats in sorted(sampled.monitors.items())
-    ]
-    if sampled.budget is not None:
-        lines.append(f"  budget: {'PASS' if sampled.passed else 'FAIL'}")
-        for name, verdict in sorted(sampled.budget.items()):
-            bounds = "".join(
-                f" {label} {format_value(bound)}"
-                for label, bound in (("min", verdict.min), ("max", verdict.max))
-                if bound is not None
-            )
-            lines.append(
-                f"    {'PASS' if verdict.passed else 'FAIL'} {name} "
-                f"{verdict.stat} {format_value(verdict.value)} (bounds:{bounds})"
-            )
-    return "\n".join([header, *lines])
-
-
+# `perf monitors` is LIVE but runs a CLI-side recipe (the `screen` pattern,
+# ADR-0023): one command carries both modes (#662's triage decision — no third
+# command), and the window mode's statistics and budget verdicts are computed
+# CLI-side, so the public result is assembled here rather than relayed
+# verbatim. The recipe still runs the sentinel ops (`perf-monitors` /
+# `perf-sample`), like `script validate` does. `kind = LIVE` stays a
+# descriptor fact so "kind":"live" appears in --schema.
 PERF_MONITORS_COMMAND: HeadlessCommand[PerfMonitorsResult] = HeadlessCommand(
     operation="perf-monitors",
     input_model=PerfMonitorsParams,
     output_model=PerfMonitorsResult,
     render=render_perf_monitors,
     kind=ExecutionKind.LIVE,
+    recipe=_perf_monitors_recipe,
 )
 
 
@@ -623,20 +780,6 @@ PERF_MONITOR_COMMAND: HeadlessCommand[PerfMonitorResult] = HeadlessCommand(
     output_model=PerfMonitorResult,
     render=render_perf_monitor,
     kind=ExecutionKind.LIVE,
-)
-
-
-# `perf sample` is LIVE but runs a CLI-side recipe (the `screen` pattern,
-# ADR-0023): the harness returns only the raw per-frame samples, and the CLI
-# computes the statistics and budget verdicts before it has the public result.
-# `kind = LIVE` stays a descriptor fact so "kind":"live" appears in --schema.
-PERF_SAMPLE_COMMAND: HeadlessCommand[PerfSampleResult] = HeadlessCommand(
-    operation="perf-sample",
-    input_model=PerfSampleParams,
-    output_model=PerfSampleResult,
-    render=render_perf_sample,
-    kind=ExecutionKind.LIVE,
-    recipe=_perf_sample_recipe,
 )
 
 
@@ -654,23 +797,62 @@ _app = typer.Typer(
 
 @_app.command(name="monitors", cls=PERF_MONITORS_COMMAND.command_class())
 def perf_monitors(
+    frames: Optional[int] = typer.Option(
+        None,
+        "--frames",
+        min=1,
+        max=MAX_WINDOW_FRAMES,
+        help=(
+            f"Sample over a window of this many frames, 1..{MAX_WINDOW_FRAMES} "
+            "(the gda harness's per-window ceiling); omit for the one-frame "
+            "snapshot."
+        ),
+    ),
+    monitors: list[str] = typer.Option(
+        [],
+        "--monitor",
+        help=(
+            "A performance monitor to sample (repeatable; window mode only); "
+            "omit to sample ALL monitors. Unknown names are rejected before "
+            "dispatch."
+        ),
+    ),
+    budget: Optional[str] = typer.Option(
+        None,
+        "--budget",
+        help=(
+            "Path to a JSON budget file (window mode only): {monitor: {stat, "
+            "min?, max?}}, stat one of min, max, mean, p50, p95; unique keys, "
+            "finite bounds. Adds per-monitor pass/fail verdicts; a failed "
+            "budget is data (exit stays 0)."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = PERF_MONITORS_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Snapshot the running game's performance monitors (live).
+    """Snapshot the performance monitors, or sample them over a frame window (live).
 
-    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017): the
-    instantaneous Performance counters — fps, frame timing, memory, object/node
-    counts, render stats, active physics/navigation objects — read in one frame, so
-    the values are mutually coherent (ADR-0020). Live ops need a running daemon:
-    with none, it reports `daemon_not_running`.
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017).
+    Without `--frames`: the original snapshot — the instantaneous Performance
+    counters (fps, frame timing, memory, object/node counts, render stats,
+    active physics/navigation objects) read in one frame, mutually coherent
+    (ADR-0020). With `--frames N`: the WINDOW mode (#662) — the gda harness
+    reads every selected monitor once per frame over the window (up to the
+    per-window ceiling stated above) and the CLI computes count, min, max,
+    mean, p50, and p95 per monitor (percentiles are nearest-rank), plus — with
+    `--budget` — a per-monitor pass/fail verdict and an overall `passed`.
+    `--monitor` and `--budget` require `--frames`. Live ops need a running
+    daemon: with none, it reports `daemon_not_running`.
     """
-    dispatch_domain(
+    params = params_or_bad_parameter(
+        PerfMonitorsParams, frames=frames, monitors=monitors, budget=budget
+    )
+    dispatch_recipe(
         PERF_MONITORS_COMMAND,
-        PerfMonitorsParams(),
+        params,
         json_output=json_output,
         godot=godot,
         project=project,
@@ -731,64 +913,6 @@ def perf_monitor(
     dispatch_domain(
         PERF_MONITOR_COMMAND,
         PerfMonitorParams(node=node, property=property, signal=signal, frames=frames),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@_app.command(name="sample", cls=PERF_SAMPLE_COMMAND.command_class())
-def perf_sample(
-    frames: int = typer.Option(
-        60,
-        "--frames",
-        min=1,
-        max=MAX_WINDOW_FRAMES,
-        help=(
-            f"The number of frames to sample over, 1..{MAX_WINDOW_FRAMES} (the "
-            "gda harness's per-window ceiling)."
-        ),
-    ),
-    monitors: list[str] = typer.Option(
-        [],
-        "--monitor",
-        help=(
-            "A performance monitor to sample (repeatable); omit to sample ALL "
-            "monitors. Unknown names are rejected before dispatch."
-        ),
-    ),
-    budget: Optional[str] = typer.Option(
-        None,
-        "--budget",
-        help=(
-            "Path to a JSON budget file: {monitor: {stat, min?, max?}}, stat "
-            "one of min, max, mean, p50, p95. Adds per-monitor pass/fail "
-            "verdicts; a failed budget is data (exit stays 0)."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = PERF_SAMPLE_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Sample engine performance monitors over a frame window, with statistics (live).
-
-    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017): the
-    gda harness reads every selected monitor once per frame over `--frames`
-    frames (up to the per-window ceiling stated above) and returns the raw
-    timestamped samples; the CLI computes count, min, max, mean, p50, and p95
-    per monitor (percentiles are nearest-rank) and, with `--budget`, a
-    per-monitor pass/fail verdict plus an overall `passed`. The one-frame
-    snapshot stays `perf monitors`; the per-node timeline stays `perf monitor`.
-    With no daemon it reports `daemon_not_running`.
-    """
-    params = params_or_bad_parameter(
-        PerfSampleParams, frames=frames, monitors=monitors, budget=budget
-    )
-    dispatch_recipe(
-        PERF_SAMPLE_COMMAND,
-        params,
         json_output=json_output,
         godot=godot,
         project=project,

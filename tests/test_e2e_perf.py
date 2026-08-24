@@ -294,16 +294,17 @@ def test_perf_monitors_without_a_daemon_reports_daemon_not_running(tmp_path):
 
 
 @pytest.mark.e2e
-def test_perf_sample_collects_a_bounded_window_with_stats_and_verdicts(
+def test_perf_monitors_window_collects_bounded_stats_and_verdicts(
     tmp_path, daemon_runtime_dir
 ):
-    # The #662 DoD: a real daemon -> engine session -> `perf sample` collects the
-    # selected ENGINE monitors over a bounded window and the CLI reports the
-    # aggregates, the raw samples, the echoed ceiling, and — with a budget — the
-    # per-monitor verdicts. The budget pairs one rule that must pass on any live
-    # session (node_count of this tiny scene stays far under 1e6) with one that
-    # must fail (fps min 1e6), so `passed` is deterministically false while the
-    # command still exits 0 (the verdict is data).
+    # The #662 DoD: a real daemon -> engine session -> `perf monitors --frames`
+    # samples the selected ENGINE monitors over a bounded window; the CLI
+    # reports the aggregates, the raw samples, the echoed ceiling, and — with a
+    # budget — the per-monitor verdicts. The budget pairs one rule that must
+    # pass on any live session (node_count of this tiny scene stays far under
+    # 1e6) with one that must fail (fps min 1e6), so `passed` is
+    # deterministically false while the command still exits 0 (the verdict is
+    # data). The plain snapshot is asserted afterwards on the SAME surface.
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
     budget = tmp_path / "budget.json"
@@ -337,7 +338,7 @@ def test_perf_sample_collects_a_bounded_window_with_stats_and_verdicts(
 
         sampled = run(
             "perf",
-            "sample",
+            "monitors",
             "--frames",
             "30",
             "--monitor",
@@ -350,7 +351,8 @@ def test_perf_sample_collects_a_bounded_window_with_stats_and_verdicts(
         assert sampled.returncode == 0, sampled.stdout + sampled.stderr
         data = json.loads(sampled.stdout)
 
-        # The bounded window, its echoed ceiling, and the raw samples.
+        # The window mode, its echoed ceiling, and the raw samples.
+        assert data["kind"] == "window"
         assert data["frames"] == 30
         assert data["max_frames"] == 600
         assert len(data["samples"]) == 30
@@ -361,8 +363,8 @@ def test_perf_sample_collects_a_bounded_window_with_stats_and_verdicts(
         assert frames == list(range(30))
 
         # The aggregates cover exactly the selected monitors, over all 30 rows.
-        assert set(data["monitors"]) == {"fps", "node_count"}
-        for stats in data["monitors"].values():
+        assert set(data["stats"]) == {"fps", "node_count"}
+        for stats in data["stats"].values():
             assert stats["count"] == 30
             assert stats["min"] <= stats["p50"] <= stats["p95"] <= stats["max"]
 
@@ -372,9 +374,11 @@ def test_perf_sample_collects_a_bounded_window_with_stats_and_verdicts(
         assert data["budget"]["fps"]["passed"] is False
         assert data["passed"] is False
 
-        # The one-frame snapshot remains available beside the window (#662 AC).
+        # The snapshot mode remains available on the same surface (#662 AC).
         snapshot = run("perf", "monitors")
         assert snapshot.returncode == 0, snapshot.stdout + snapshot.stderr
-        assert "fps" in json.loads(snapshot.stdout)["monitors"]
+        snap = json.loads(snapshot.stdout)
+        assert snap["kind"] == "snapshot"
+        assert "fps" in snap["monitors"]
     finally:
         run("daemon", "stop")
