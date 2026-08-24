@@ -36,6 +36,7 @@ const OP_GAME_RECT := "game-rect"
 const OP_GAME_SET := "game-set"
 const OP_PERF_MONITORS := "perf-monitors"
 const OP_PERF_MONITOR := "perf-monitor"
+const OP_PERF_SAMPLE := "perf-sample"
 const OP_INPUT_KEY := "input-key"
 const OP_INPUT_MOUSE_CLICK := "input-mouse-click"
 const OP_INPUT_MOUSE_MOVE := "input-mouse-move"
@@ -357,6 +358,8 @@ func _run(request) -> Variant:
 			return _handle_perf_monitors()
 		OP_PERF_MONITOR:
 			return _handle_perf_monitor(params)
+		OP_PERF_SAMPLE:
+			return _handle_perf_sample(params)
 		OP_INPUT_KEY:
 			return _handle_input_key(params)
 		OP_INPUT_MOUSE_CLICK:
@@ -601,6 +604,48 @@ func _handle_perf_monitors() -> String:
 		"timestamp": Time.get_ticks_msec(),
 		"monitors": monitors,
 	})
+
+
+# perf sample: collect the ENGINE performance monitors per frame over a bounded
+# window (#662) — the windowed counterpart of the one-frame `perf monitors`
+# snapshot, on the same time-windowed base `perf monitor` uses (#223). Each
+# selected-clock frame the sampler reads every SELECTED monitor (all of them
+# when the selection is empty), frame-coherently (ADR-0020), and the reply
+# carries the raw timestamped samples. The harness stays dumb on purpose: the
+# aggregate statistics and any budget verdicts are computed CLI-side, where the
+# numeric semantics are unit-testable without an engine. The frame count is
+# bounded model-side (ADR-0015); the unknown-monitor arm below is defensive
+# only (the CLI validates names against its mirrored table before dispatch).
+func _handle_perf_sample(params: Dictionary) -> Variant:
+	var frames := _int_param(params, "frames", 60)
+	var raw_names: Variant = params.get("monitors", [])
+	var names: Array = raw_names if typeof(raw_names) == TYPE_ARRAY else []
+	if names.is_empty():
+		names = _perf_monitors.keys()
+	for name in names:
+		if not _perf_monitors.has(String(name)):
+			return _error("operation_failed",
+					"unknown performance monitor: " + String(name))
+	var frame_box := {"n": 0}
+	var sample := func() -> Variant:
+		var values := {}
+		for name in names:
+			values[String(name)] = Performance.get_monitor(_perf_monitors[String(name)])
+		var entry := {
+			"frame": int(frame_box["n"]),
+			"timestamp": Time.get_ticks_msec(),
+			"values": values,
+		}
+		frame_box["n"] = int(frame_box["n"]) + 1
+		return entry
+	var finalize := func(samples: Array) -> String:
+		return _ok({
+			"kind": "sample",
+			"frames": samples.size(),
+			"monitors": names,
+			"samples": samples,
+		})
+	return _begin_window(frames, sample, finalize)
 
 
 # perf monitor: collect a per-frame timeline over a window (#223) — either a

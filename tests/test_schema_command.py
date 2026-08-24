@@ -1356,7 +1356,37 @@ def test_sample_perf_results_validate_against_emitted_output_schemas():
         CliRunner().invoke(app, ["perf", "monitor", "--schema"]).stdout
     )
 
-    jsonschema.validate(instance=PERF_MONITORS_RESULT, schema=monitors_doc["output"])
+    jsonschema.validate(
+        instance={"kind": "snapshot", **PERF_MONITORS_RESULT},
+        schema=monitors_doc["output"],
+    )
+    window_instance = {
+        "kind": "window",
+        "frames": 1,
+        "max_frames": 600,
+        "stats": {
+            "fps": {
+                "count": 1,
+                "min": 60.0,
+                "max": 60.0,
+                "mean": 60.0,
+                "p50": 60.0,
+                "p95": 60.0,
+            }
+        },
+        "samples": [{"frame": 0, "timestamp": 100, "values": {"fps": 60.0}}],
+        "budget": {
+            "fps": {
+                "stat": "p50",
+                "value": 60.0,
+                "min": 60.0,
+                "max": None,
+                "passed": True,
+            }
+        },
+        "passed": True,
+    }
+    jsonschema.validate(instance=window_instance, schema=monitors_doc["output"])
     jsonschema.validate(
         instance=PERF_MONITOR_PROPERTY_RESULT, schema=monitor_doc["output"]
     )

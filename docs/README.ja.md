@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9412ce784d9839d437daa861f8b097a788f8e401dbb36130c2180b323b78350f -->
+<!-- gda-readme-i18n: source=README.md sha256=281f548e47e86237aacdb1a48124e333b1fa94287c3281d0963a5699b073b87b -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -582,7 +582,7 @@ Live の `game set --property position` は `node set` と同じ `Control` ポ�
 
 | コマンド | 機能 |
 | ------- | ------------ |
-| `perf monitors` | エンジンのパフォーマンスカウンタ(fps、メモリ、ノード数など)のスナップショットを取得します。 |
+| `perf monitors` | エンジンのカウンタのスナップショットを取得します。`--frames` を付けるとフレームウィンドウをサンプリングし、集計統計とバジェット判定を出力します。 |
 | `perf monitor` | ノードのプロパティまたはシグナルを、フレームのウィンドウ(タイムライン)にわたってサンプリングします。 |
 
 **`input`** — 入力シミュレーション

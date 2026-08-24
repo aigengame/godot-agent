@@ -117,7 +117,14 @@ def test_relayed_live_ops_mirror_the_harness_op_table():
     # reads and the wait-ready launch, #657) must be an op the GDScript harness
     # declares, and vice versa. A one-sided rename here is invisible to the
     # unit suite otherwise: the CLI would ask for an op the harness never answers.
-    relayed = _live_operations() - set(DAEMON_SERVED_OPS)
+    from gda.commands.perf import PERF_SAMPLE_OP
+
+    # `perf monitors`' recipe dispatches a SECOND harness op beside its
+    # descriptor operation (#662: the snapshot op is the descriptor's, the
+    # window op is recipe-reached). Counted from the source-side constant, so
+    # the mirror still has one authority per name.
+    recipe_relayed = {PERF_SAMPLE_OP}
+    relayed = (_live_operations() | recipe_relayed) - set(DAEMON_SERVED_OPS)
     harness_ops = _harness_operations()
 
     unserved = relayed - harness_ops

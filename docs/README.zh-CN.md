@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9412ce784d9839d437daa861f8b097a788f8e401dbb36130c2180b323b78350f -->
+<!-- gda-readme-i18n: source=README.md sha256=281f548e47e86237aacdb1a48124e333b1fa94287c3281d0963a5699b073b87b -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -554,7 +554,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `perf monitors` | 对引擎的性能计数器拍一张快照（fps、内存、节点数等）。 |
+| `perf monitors` | 对引擎计数器拍快照——或配合 `--frames` 在一个帧窗口内采样，输出聚合统计与预算判定。 |
 | `perf monitor` | 在一个帧窗口内对某个节点属性或信号采样（时间线）。 |
 
 **`input`** — 输入模拟
