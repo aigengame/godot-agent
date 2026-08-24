@@ -41,6 +41,7 @@ from gda_balancing.domain.evidence_verification import (
     evaluate_evidence_candidate,
     project_evidence_graph,
 )
+from gda_balancing.domain.model import ExactResolvedModelBindingError
 from gda_balancing.domain.publication import (
     publish_artifact_set,
     read_authenticated_artifact_set,
@@ -536,6 +537,34 @@ def test_application_does_not_relabel_an_unexpected_model_validation_error(
         match="unexpected compiled-artifact validator defect",
     ):
         _verify(inp)
+
+
+def test_application_maps_an_expected_exact_model_binding_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 552)
+
+    def reject_binding(*_args, **_kwargs) -> None:
+        raise ExactResolvedModelBindingError(
+            "member-set-mismatch",
+            "package-lock",
+            "exact Model binding member set is not closed",
+        )
+
+    monkeypatch.setattr(
+        evidence_verify_module,
+        "project_compiled_model_binding",
+        reject_binding,
+    )
+
+    result = _verify(inp)
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "evaluation"
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "evaluation.evaluable_mismatched_prerequisite"
+    ]
 
 
 def test_application_uses_outcome_neutral_publication_diagnostics(
