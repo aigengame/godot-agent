@@ -169,6 +169,24 @@ class RefusalArtifactSetSpec:
 
 
 @dataclass(frozen=True)
+class ArtifactSetInputSpec:
+    """One receipt field that accepts a producer's declared artifact sets."""
+
+    receipt_field: str
+    producer: "CommandDescriptor"
+
+    def __post_init__(self) -> None:
+        if not self.receipt_field:
+            raise ValueError("artifact-set input receipt field must be non-empty")
+        if not (
+            self.producer.artifact_set
+            or self.producer.verdict_artifact_set
+            or self.producer.refusal_artifact_sets
+        ):
+            raise ValueError("artifact-set input producer publishes no artifact set")
+
+
+@dataclass(frozen=True)
 class CommandDescriptor:
     """Everything the surface needs to run, describe, and test one command."""
 
@@ -215,6 +233,9 @@ class CommandDescriptor:
     # ``artifact_sink`` dispatch tail.
     artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
     verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
+    # Receipt fields and accepted member sets are derived from their producer
+    # descriptors. A consumer cannot maintain a parallel artifact-role list.
+    input_artifact_sets: tuple[ArtifactSetInputSpec, ...] = field(default=())
     # The active surface is Standard Schema 2.x. Standard Schema 1.x is
     # consumed only by the Model migration application flow.
     schema_major: Literal[2] = field(default=2)
@@ -279,6 +300,14 @@ class CommandDescriptor:
                 raise ValueError(
                     f"{outcome} artifact set must declare exactly one primary member"
                 )
+        input_receipt_fields = [item.receipt_field for item in self.input_artifact_sets]
+        if len(input_receipt_fields) != len(set(input_receipt_fields)):
+            raise ValueError("artifact-set input receipt fields must be unique")
+        if any(
+            receipt_field not in self.input_model.model_fields
+            for receipt_field in input_receipt_fields
+        ):
+            raise ValueError("artifact-set input names no declared receipt field")
         if self.verdict_model is None and (
             self.verdict_artifact_set or self.verdict_schema is not None
         ):
@@ -407,6 +436,22 @@ class CommandDescriptor:
             raise ValueError("refusal variant belongs to an unreachable stage")
         if any(item.stage not in stages for item in self.refusal_artifact_sets):
             raise ValueError("refusal artifact set belongs to an unreachable stage")
+
+
+def artifact_sets_for_input(
+    item: ArtifactSetInputSpec,
+) -> tuple[tuple[ArtifactSetMemberSpec, ...], ...]:
+    """Derive every accepted member set from one producer descriptor."""
+    producer = item.producer
+    return tuple(
+        members
+        for members in (
+            producer.artifact_set,
+            producer.verdict_artifact_set,
+            *(spec.members for spec in producer.refusal_artifact_sets),
+        )
+        if members
+    )
 
 
 def build_registry(*descriptors: CommandDescriptor) -> tuple[CommandDescriptor, ...]:

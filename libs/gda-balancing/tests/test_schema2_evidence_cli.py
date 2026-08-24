@@ -1,8 +1,51 @@
 """Public Evidence verification CLI contract."""
 
 import json
+from typing import Any, cast
 
 from gda_balancing.interfaces.cli.evidence_verify import EVIDENCE_VERIFY
+from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
+from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
+from gda_balancing.interfaces.cli.surface import descriptor_identity, surface_manifest
+
+
+def test_descriptor_owns_the_exact_artifact_set_inputs() -> None:
+    inputs = {
+        item.receipt_field: item.producer
+        for item in EVIDENCE_VERIFY.input_artifact_sets
+    }
+
+    assert inputs == {
+        "model_build_receipt": MODEL_BUILD,
+        "experiment_outcome_receipt": EXPERIMENT_RUN,
+    }
+    rows = cast(
+        list[dict[str, Any]],
+        surface_manifest((EVIDENCE_VERIFY,))["commands"],
+    )
+    row = rows[0]
+    projected = {
+        item["receipt_field"]: item
+        for item in cast(list[dict[str, Any]], row["input_artifact_sets"])
+    }
+    assert projected["model_build_receipt"]["producer_descriptor_identity"] == (
+        descriptor_identity(MODEL_BUILD)
+    )
+    assert [
+        member["logical_name"]
+        for member in projected["model_build_receipt"]["artifact_sets"][0]
+    ] == [member.logical_name for member in MODEL_BUILD.artifact_set]
+    assert [
+        [member["logical_name"] for member in artifact_set]
+        for artifact_set in projected["experiment_outcome_receipt"]["artifact_sets"]
+    ] == [
+        [member.logical_name for member in EXPERIMENT_RUN.artifact_set],
+        [member.logical_name for member in EXPERIMENT_RUN.verdict_artifact_set],
+        [
+            member.logical_name
+            for member in EXPERIMENT_RUN.refusal_artifact_sets[0].members
+        ],
+    ]
 
 
 def test_public_cli_returns_one_open_evaluable_candidate(run_cli, invocation) -> None:

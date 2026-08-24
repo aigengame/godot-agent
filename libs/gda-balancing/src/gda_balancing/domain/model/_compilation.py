@@ -37,6 +37,10 @@ from gda_balancing.domain.model._admission import (
 )
 
 
+class CompiledArtifactAdmissionError(RuntimeError):
+    """A compiled artifact set failed an expected semantic admission check."""
+
+
 def compile_checked_model(
     checked: CheckedModel,
 ) -> dict[str, dict[str, JsonValue]]:
@@ -91,7 +95,9 @@ def validate_compiled_artifacts(
     if not admit_resolved_model(
         semantic_artifacts, authority_context=authority_context
     ).admitted:
-        raise RuntimeError("Resolved Model failed exact-authority admission")
+        raise CompiledArtifactAdmissionError(
+            "Resolved Model failed exact-authority admission"
+        )
     lock = artifacts["package-lock"]
     rir = artifacts["rir-semantic-payload"]
     resolved = artifacts["resolved-model"]
@@ -99,14 +105,18 @@ def validate_compiled_artifacts(
     output_member = lowering.get("output_member")
     declarations = rir.get(output_member) if isinstance(output_member, str) else None
     if not isinstance(declarations, list):
-        raise RuntimeError("RIR declaration output is not an admitted list")
+        raise CompiledArtifactAdmissionError(
+            "RIR declaration output is not an admitted list"
+        )
     if artifacts["capability-manifest"] != _capability_manifest(
         cast(dict[str, Any], lock),
         cast(dict[str, Any], rir),
         cast(dict[str, Any], resolved),
         language_bundle,
     ):
-        raise RuntimeError("Capability manifest is not an exact projection")
+        raise CompiledArtifactAdmissionError(
+            "Capability manifest is not an exact projection"
+        )
     if validate_explanation_projection and artifacts[
         "model-explanation"
     ] != _model_explanation(
@@ -116,7 +126,9 @@ def validate_compiled_artifacts(
         artifacts["debug-map"],
         cast(list[dict[str, JsonValue]], declarations),
     ):
-        raise RuntimeError("Model explanation is not an exact projection")
+        raise CompiledArtifactAdmissionError(
+            "Model explanation is not an exact projection"
+        )
     build_receipt = artifacts["build-receipt"]
     debug_map = artifacts["debug-map"]
     resolution_receipt = artifacts["resolution-receipt"]
@@ -144,7 +156,7 @@ def validate_compiled_artifacts(
         build_receipt.get(key) != value
         for key, value in expected_build_bindings.items()
     ):
-        raise RuntimeError("build receipt has invalid bindings")
+        raise CompiledArtifactAdmissionError("build receipt has invalid bindings")
     if (
         debug_map.get("source_identity") != source_identity
         or debug_map.get("rir_identity") != rir["content_identity"]
@@ -157,7 +169,9 @@ def validate_compiled_artifacts(
         or resolution_receipt.get("package_lock_identity") != lock["content_identity"]
         or resolution_receipt.get("diagnostics") != []
     ):
-        raise RuntimeError("provenance artifacts have invalid bindings")
+        raise CompiledArtifactAdmissionError(
+            "provenance artifacts have invalid bindings"
+        )
 
 
 def verify_checked_model(checked: CheckedModel) -> None:

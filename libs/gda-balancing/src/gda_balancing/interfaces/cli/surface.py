@@ -4,7 +4,10 @@ from copy import deepcopy
 from typing import Any, cast
 
 from gda_balancing.domain.canonical import JsonValue, content_identity
-from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    artifact_sets_for_input,
+)
 from gda_balancing.interfaces.cli.envelope import USAGE_ERROR_SCHEMA
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
@@ -277,6 +280,25 @@ def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
                 }
                 for item in descriptor.refusal_artifact_sets
             ],
+            **(
+                {
+                    "input_artifact_sets": [
+                        {
+                            "receipt_field": item.receipt_field,
+                            "producer_descriptor_identity": descriptor_identity(
+                                item.producer
+                            ),
+                            "artifact_sets": [
+                                members(artifact_set)
+                                for artifact_set in artifact_sets_for_input(item)
+                            ],
+                        }
+                        for item in descriptor.input_artifact_sets
+                    ]
+                }
+                if descriptor.input_artifact_sets
+                else {}
+            ),
         },
     )
 
@@ -556,6 +578,50 @@ def surface_manifest_success_schema() -> dict[str, object]:
                         },
                     },
                     "required": ["stage", "members"],
+                    "unevaluatedProperties": False,
+                },
+            },
+            "input_artifact_sets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "receipt_field": {"type": "string", "minLength": 1},
+                        "producer_descriptor_identity": identity,
+                        "artifact_sets": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "logical_name": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                        },
+                                        "artifact_kind": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                        },
+                                        "role": {"enum": ["primary", "companion"]},
+                                    },
+                                    "required": [
+                                        "logical_name",
+                                        "artifact_kind",
+                                        "role",
+                                    ],
+                                    "unevaluatedProperties": False,
+                                },
+                            },
+                        },
+                    },
+                    "required": [
+                        "receipt_field",
+                        "producer_descriptor_identity",
+                        "artifact_sets",
+                    ],
                     "unevaluatedProperties": False,
                 },
             },

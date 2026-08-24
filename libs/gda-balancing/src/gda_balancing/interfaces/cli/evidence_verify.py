@@ -21,8 +21,10 @@ from gda_balancing.domain.model import MODEL_REFUSAL_CATALOG
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.interfaces.cli.descriptors import (
+    ArtifactSetInputSpec,
     CommandDescriptor,
     ConformanceFixtures,
+    artifact_sets_for_input,
 )
 from gda_balancing.interfaces.cli.experiment_fixtures import prepare_valid_experiment
 from gda_balancing.interfaces.cli.experiment_run import (
@@ -84,18 +86,19 @@ def _refusal_catalog() -> tuple[tuple[str, str], ...]:
     )
 
 
-def _outcome_artifact_sets():
-    return (
-        EXPERIMENT_RUN.artifact_set,
-        EXPERIMENT_RUN.verdict_artifact_set,
-        *(item.members for item in EXPERIMENT_RUN.refusal_artifact_sets),
-    )
+def _artifact_set_input(receipt_field: str) -> ArtifactSetInputSpec:
+    for item in EVIDENCE_VERIFY.input_artifact_sets:
+        if item.receipt_field == receipt_field:
+            return item
+    raise RuntimeError(f"Evidence descriptor has no {receipt_field} artifact input")
 
 
 def run_evidence_verify(
     inp: EvidenceVerifyInput,
 ) -> EvidenceVerifyResult | Schema2RefusalReport:
     try:
+        model_build_input = _artifact_set_input("model_build_receipt")
+        experiment_outcome_input = _artifact_set_input("experiment_outcome_receipt")
         result = verify_evidence(
             ApplicationInput(
                 claim_kind=inp.claim_kind,
@@ -104,10 +107,16 @@ def run_evidence_verify(
                 model_build_receipt=inp.model_build_receipt,
                 experiment_outcome_receipt=inp.experiment_outcome_receipt,
             ),
-            model_build_descriptor_identity=descriptor_identity(MODEL_BUILD),
-            experiment_run_descriptor_identity=descriptor_identity(EXPERIMENT_RUN),
-            model_build_artifact_set=MODEL_BUILD.artifact_set,
-            experiment_outcome_artifact_sets=_outcome_artifact_sets(),
+            model_build_descriptor_identity=descriptor_identity(
+                model_build_input.producer
+            ),
+            experiment_run_descriptor_identity=descriptor_identity(
+                experiment_outcome_input.producer
+            ),
+            model_build_artifact_set=artifact_sets_for_input(model_build_input)[0],
+            experiment_outcome_artifact_sets=artifact_sets_for_input(
+                experiment_outcome_input
+            ),
         )
     except InputReadError as err:
         raise UnreadableInputError("cannot read an Evidence input document") from err
@@ -176,6 +185,16 @@ EVIDENCE_VERIFY = CommandDescriptor(
     output_model=EvidenceVerifyResult,
     handler=run_evidence_verify,
     fixtures=ConformanceFixtures(prepare_args=_prepare_evidence_args),
+    input_artifact_sets=(
+        ArtifactSetInputSpec(
+            receipt_field="model_build_receipt",
+            producer=MODEL_BUILD,
+        ),
+        ArtifactSetInputSpec(
+            receipt_field="experiment_outcome_receipt",
+            producer=EXPERIMENT_RUN,
+        ),
+    ),
     schema_major=2,
     structured_params=True,
     refusal_catalog_provider=_refusal_catalog,

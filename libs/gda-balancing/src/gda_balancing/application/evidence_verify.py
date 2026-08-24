@@ -27,6 +27,8 @@ from gda_balancing.domain.evidence_verification import (
 from gda_balancing.domain.experiment import CheckedExperiment, check_experiment
 from gda_balancing.domain.model import (
     CheckedModel,
+    CompiledArtifactAdmissionError,
+    ExactResolvedModelBindingError,
     check_model_source,
     project_compiled_model_binding,
     validate_compiled_artifacts,
@@ -155,7 +157,7 @@ def verify_evidence(
             cast(dict[str, dict[str, JsonValue]], model_publication.artifacts),
             model_publication.authority_context,
         )
-    except (RuntimeError, ValueError):
+    except (CompiledArtifactAdmissionError, ExactResolvedModelBindingError):
         issue = EvidenceVerificationIssue(
             reason="evaluation.reason.evaluable-mismatched-prerequisite",
             subject="model-build-receipt",

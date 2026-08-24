@@ -10,6 +10,7 @@ from ._binding import (
 )
 from ._checking import check_model_source, check_model_source_value
 from ._compilation import (
+    CompiledArtifactAdmissionError,
     authority_context_for_checked,
     compile_checked_model,
     model_build_command_input_identity,
@@ -30,6 +31,7 @@ __all__ = (
     "MODEL_INSPECT_REFUSAL_CATALOG",
     "MODEL_REFUSAL_CATALOG",
     "CheckedModel",
+    "CompiledArtifactAdmissionError",
     "EXACT_RESOLVED_MODEL_BINDING_MEMBERS",
     "ExactResolvedModelBinding",
     "ExactResolvedModelBindingError",

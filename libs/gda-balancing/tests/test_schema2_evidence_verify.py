@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 
+import gda_balancing.application.evidence_verify as evidence_verify_module
 from gda_balancing.application.evidence_verify import (
     EvidenceVerifyInput,
     verify_evidence,
@@ -17,7 +18,6 @@ from gda_balancing.application.experiment_run import (
     ExperimentVerdictPublication,
     run_experiment,
 )
-from gda_balancing.application.model_build import MODEL_BUILD_ARTIFACT_SET
 from gda_balancing.domain.artifacts import (
     identified_artifact,
     verify_artifact,
@@ -51,8 +51,9 @@ from gda_balancing.interfaces.cli.experiment_fixtures import (
     prepare_valid_experiment,
     prepare_verdict_experiment,
 )
+from gda_balancing.interfaces.cli.descriptors import artifact_sets_for_input
+from gda_balancing.interfaces.cli.evidence_verify import EVIDENCE_VERIFY
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
-from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
@@ -88,16 +89,18 @@ def _complete_graph() -> EvidenceGraph:
 
 
 def _verify(inp: EvidenceVerifyInput) -> EvidenceCandidate | Schema2RefusalReport:
-    runtime_refusal_set = EXPERIMENT_RUN.refusal_artifact_sets[0].members
+    inputs = {item.receipt_field: item for item in EVIDENCE_VERIFY.input_artifact_sets}
+    model_build_input = inputs["model_build_receipt"]
+    experiment_outcome_input = inputs["experiment_outcome_receipt"]
     return verify_evidence(
         inp,
-        model_build_descriptor_identity=descriptor_identity(MODEL_BUILD),
-        experiment_run_descriptor_identity=descriptor_identity(EXPERIMENT_RUN),
-        model_build_artifact_set=MODEL_BUILD_ARTIFACT_SET,
-        experiment_outcome_artifact_sets=(
-            EXPERIMENT_RUN.artifact_set,
-            cast(tuple[Any, ...], EXPERIMENT_RUN.verdict_artifact_set),
-            runtime_refusal_set,
+        model_build_descriptor_identity=descriptor_identity(model_build_input.producer),
+        experiment_run_descriptor_identity=descriptor_identity(
+            experiment_outcome_input.producer
+        ),
+        model_build_artifact_set=artifact_sets_for_input(model_build_input)[0],
+        experiment_outcome_artifact_sets=artifact_sets_for_input(
+            experiment_outcome_input
         ),
     )
 
@@ -509,6 +512,30 @@ def test_application_verifies_one_real_success_publication(
     assert result.claim_kind == "evaluable"
     assert result.claim_state == "candidate"
     assert result.producing_outcome == "success"
+
+
+@pytest.mark.parametrize("error_type", (RuntimeError, ValueError))
+def test_application_does_not_relabel_an_unexpected_model_validation_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[Exception],
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 551)
+
+    def fail_unexpectedly(*_args, **_kwargs) -> None:
+        raise error_type("unexpected compiled-artifact validator defect")
+
+    monkeypatch.setattr(
+        evidence_verify_module,
+        "validate_compiled_artifacts",
+        fail_unexpectedly,
+    )
+
+    with pytest.raises(
+        error_type,
+        match="unexpected compiled-artifact validator defect",
+    ):
+        _verify(inp)
 
 
 def test_application_uses_outcome_neutral_publication_diagnostics(
