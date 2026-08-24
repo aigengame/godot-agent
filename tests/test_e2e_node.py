@@ -3183,3 +3183,127 @@ def test_node_add_with_external_edit_during_instantiate_yields_file_changed_exte
     assert _no_gda_temp_siblings(godot_project), sorted(
         p.name for p in godot_project.rglob(".gda-*")
     )
+
+
+@pytest.mark.e2e
+def test_node_get_projects_a_path_less_texture_headless(godot_project):
+    # The #666 headless leg: the SAME texture projection serves headless reads
+    # (one value shape everywhere, ADR-0035). A script's _init constructs a
+    # PATH-LESS ImageTexture into an @export var; `node get` instantiates the
+    # scene (the ADR-0009 project-code execution surface), so the read value is
+    # the runtime-constructed texture — type + dimensions, the old str() form
+    # under object_string, digest null (the opt-in flag is live-only today),
+    # and NO resource_path key.
+    (godot_project / "holder.gd").write_text(
+        "extends Node2D\n"
+        "@export var tex: Texture2D\n"
+        "func _init() -> void:\n"
+        "\tvar img := Image.create(4, 5, false, Image.FORMAT_RGBA8)\n"
+        "\timg.fill(Color.GREEN)\n"
+        "\ttex = ImageTexture.create_from_image(img)\n",
+        encoding="utf-8",
+    )
+    scene_path = godot_project / "main.tscn"
+    scene_path.write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://holder.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+
+    gda = _gda_project(godot_project)
+    got = gda("node", "get", "res://main.tscn", "--node", ".", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    value = next(p for p in json.loads(got.stdout)["properties"] if p["name"] == "tex")[
+        "value"
+    ]
+    assert value["type"] == "ImageTexture"
+    assert value["width"] == 4
+    assert value["height"] == 5
+    assert "ImageTexture" in value["object_string"]
+    assert value["digest"] is None
+    assert "resource_path" not in value
+
+
+@pytest.mark.e2e
+def test_node_get_keeps_non_res_pathed_textures_on_the_string_fallback(godot_project):
+    # The #736 review's boundary probe: #666's scope is the EMPTY path. A
+    # texture that acquired a non-res:// path (take_over_path("user://…"))
+    # stays the string fallback it always was — the texture projection must
+    # not widen past path-less.
+    (godot_project / "holder.gd").write_text(
+        "extends Node2D\n"
+        "@export var tex: Texture2D\n"
+        "func _init() -> void:\n"
+        "\tvar img := Image.create(2, 2, false, Image.FORMAT_RGBA8)\n"
+        "\timg.fill(Color.RED)\n"
+        "\tvar owned := ImageTexture.create_from_image(img)\n"
+        '\towned.take_over_path("user://owned-texture")\n'
+        "\ttex = owned\n",
+        encoding="utf-8",
+    )
+    scene_path = godot_project / "main.tscn"
+    scene_path.write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://holder.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+
+    gda = _gda_project(godot_project)
+    got = gda("node", "get", "res://main.tscn", "--node", ".", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    value = next(p for p in json.loads(got.stdout)["properties"] if p["name"] == "tex")[
+        "value"
+    ]
+    assert isinstance(value, str), value
+    assert "ImageTexture" in value
+
+
+@pytest.mark.e2e
+def test_inline_projection_drops_a_storage_property_named_object_string(
+    godot_project,
+):
+    # The #736 review's spoof probe: `object_string` is the texture kind's
+    # presence-based discriminator, so the inline projection must DROP a
+    # whitelisted class's own storage property of that name rather than copy
+    # it — otherwise this custom InputEvent would masquerade as a texture.
+    (godot_project / "my_event.gd").write_text(
+        "extends InputEventAction\n"
+        '@export var object_string: String = "boom"\n'
+        "@export var honest_field: int = 7\n",
+        encoding="utf-8",
+    )
+    (godot_project / "holder.gd").write_text(
+        "extends Node2D\n"
+        "@export var ev: InputEvent\n"
+        "func _init() -> void:\n"
+        '\tev = load("res://my_event.gd").new()\n',
+        encoding="utf-8",
+    )
+    scene_path = godot_project / "main.tscn"
+    scene_path.write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://holder.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+
+    gda = _gda_project(godot_project)
+    got = gda("node", "get", "res://main.tscn", "--node", ".", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    value = next(p for p in json.loads(got.stdout)["properties"] if p["name"] == "ev")[
+        "value"
+    ]
+    # An inline projection: its own honest storage property survives, the
+    # reserved discriminator does not, and no texture fields appear.
+    assert value["type"] == "InputEventAction"
+    assert value["honest_field"] == 7
+    assert "object_string" not in value
+    assert "width" not in value and "digest" not in value

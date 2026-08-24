@@ -644,7 +644,11 @@ def test_project_get_schema_emits_model_derived_contract_without_other_args():
     # The emitted command schema exposes the named Object-projection shapes on
     # the Any-typed value field (ADR-0035 → ADR-0004), not prose alone.
     value_defs = doc["output"]["properties"]["value"]["$defs"]
-    assert set(value_defs) == {"ReferenceProjection", "InlineValueProjection"}
+    assert set(value_defs) == {
+        "ReferenceProjection",
+        "TextureProjection",
+        "InlineValueProjection",
+    }
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
