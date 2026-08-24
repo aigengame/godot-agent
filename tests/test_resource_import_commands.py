@@ -29,13 +29,26 @@ def _project(tmp_path: Path) -> Path:
 
 
 def _sidecar(
-    project: Path, asset: str, dest_rel: str | None, valid: bool = True
+    project: Path,
+    asset: str,
+    dest_rel: str | None,
+    valid: bool = True,
+    importer: str = "texture",
+    uid: bool = True,
+    source_file: str | None = None,
 ) -> None:
-    lines = ['[remap]\n\nimporter="texture"\n']
+    """A sidecar shaped like the engine writes it (uid + source_file included:
+    the reimport-test adapter reads both, #738 review)."""
+    lines = [f'[remap]\n\nimporter="{importer}"\n']
     if not valid:
         lines.append("valid=false\n")
+    if uid:
+        lines.append('uid="uid://test"\n')
+    lines.append("\n[deps]\n\n")
+    source = source_file if source_file is not None else f"res://{asset}"
+    lines.append(f'source_file="{source}"\n')
     if dest_rel is not None:
-        lines.append(f'\n[deps]\n\ndest_files=["res://{dest_rel}"]\n')
+        lines.append(f'dest_files=["res://{dest_rel}"]\n')
     (project / f"{asset}.import").write_text("".join(lines), encoding="utf-8")
 
 
@@ -100,7 +113,7 @@ def test_dry_run_reports_missing_and_predictions_and_writes_nothing(tmp_path):
 
 def test_dry_run_cached_when_sidecar_dest_files_exist(tmp_path):
     project = _project(tmp_path)
-    dest = ".godot/imported/icon.png-abc.ctex"
+    dest = ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex"
     _cached_asset(project, "icon.png", dest)
 
     result = _run(project, "res://icon.png", "--dry-run")
@@ -113,13 +126,17 @@ def test_dry_run_cached_when_sidecar_dest_files_exist(tmp_path):
     assert data["predicted_source_adjacent"] == []
 
 
-def test_dry_run_missing_when_a_dest_file_is_absent(tmp_path):
+def test_dry_run_stale_when_a_dest_file_is_absent(tmp_path):
     project = _project(tmp_path)
-    _sidecar(project, "icon.png", ".godot/imported/icon.png-abc.ctex")
+    _sidecar(
+        project,
+        "icon.png",
+        ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex",
+    )
 
     data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
 
-    assert data["assets"][0]["status"] == "missing"
+    assert data["assets"][0]["status"] == "stale"
     # It HAS a sidecar, so no sidecar-creation prediction for it.
     assert data["predicted_source_adjacent"] == []
     assert data["engine_pass"] is True
@@ -127,7 +144,7 @@ def test_dry_run_missing_when_a_dest_file_is_absent(tmp_path):
 
 def test_dry_run_keep_importer_sidecar_counts_as_cached(tmp_path):
     project = _project(tmp_path)
-    _sidecar(project, "icon.png", None)  # no dest_files line: importer=keep style
+    _sidecar(project, "icon.png", None, importer="keep")
 
     data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
 
@@ -156,7 +173,11 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
     project = _project(tmp_path)
 
     def effects(p: Path) -> None:
-        _cached_asset(p, "icon.png", ".godot/imported/icon.png-abc.ctex")
+        _cached_asset(
+            p,
+            "icon.png",
+            ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex",
+        )
         (p / "tool.gd.uid").write_text("uid://x", encoding="utf-8")
 
     calls, fake_launch = _fake_pass(project, effects)
@@ -170,7 +191,10 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
     assert data["engine_pass"] is True
     assert data["assets"][0]["status"] == "imported"
     created = {f["path"]: f["classification"] for f in data["created"]}
-    assert created["res://.godot/imported/icon.png-abc.ctex"] == "cache_owned"
+    assert (
+        created["res://.godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex"]
+        == "cache_owned"
+    )
     assert created["res://icon.png.import"] == "source_adjacent"
     assert created["res://tool.gd.uid"] == "source_adjacent"
     assert data["summary"]["imported"] == 1
@@ -184,7 +208,11 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
 
 def test_all_cached_runs_no_pass(monkeypatch, tmp_path):
     project = _project(tmp_path)
-    _cached_asset(project, "icon.png", ".godot/imported/icon.png-abc.ctex")
+    _cached_asset(
+        project,
+        "icon.png",
+        ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex",
+    )
 
     calls, fake_launch = _fake_pass(project, lambda p: None)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
@@ -257,45 +285,106 @@ def test_engine_invalid_sidecar_is_never_a_hit_and_settles_failed(
     # that leaves it invalid.
     project = _project(tmp_path)
 
-    def effects(p: Path) -> None:
-        _sidecar(p, "icon.png", None, valid=False)
-
-    calls, fake_launch = _fake_pass(project, effects)
+    calls, fake_launch = _fake_pass(project, lambda p: None)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    _sidecar(project, "icon.png", None, valid=False)
 
     data = json.loads(_run(project, "res://icon.png").stdout)
 
     assert data["assets"][0]["status"] == "failed"
     assert data["summary"]["failed"] == 1
-    assert len(calls) == 1  # the invalid state DID trigger the pass
+    # The engine skips a previously failed import, so gda spends NO pass on it.
+    assert calls == []
 
 
-def test_stale_source_is_missing_not_cached(tmp_path):
+def test_stale_source_is_stale_not_cached(tmp_path):
     # #738 review [P1]: freshness rides the engine's own md5 receipt — a source
     # that hashes differently from the recorded source_md5 would be re-imported
     # by the engine, so gda agrees: missing, and a pass would run.
     project = _project(tmp_path)
-    dest = ".godot/imported/icon.png-abc.ctex"
+    dest = ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex"
     _cached_asset(project, "icon.png", dest)
     (project / "icon.png").write_bytes(b"\x89PNG different bytes")
 
     data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
 
-    assert data["assets"][0]["status"] == "missing"
+    assert data["assets"][0]["status"] == "stale"
     assert data["engine_pass"] is True
 
 
-def test_missing_md5_receipt_is_missing_not_cached(tmp_path):
+def test_missing_md5_receipt_is_stale_not_cached(tmp_path):
     # #738 review [P1]: without the receipt the engine cannot prove freshness
     # and re-imports; gda must not claim a hit the engine would not.
     project = _project(tmp_path)
-    dest = ".godot/imported/icon.png-abc.ctex"
+    dest = ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex"
     _cached_asset(project, "icon.png", dest)
-    (project / ".godot/imported/icon.png-abc.md5").unlink()
+    (project / ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md5").unlink()
 
     data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
 
-    assert data["assets"][0]["status"] == "missing"
+    assert data["assets"][0]["status"] == "stale"
+
+
+def test_copied_sidecar_naming_another_source_is_stale(tmp_path):
+    # #738 review [P1], the alias reproduction: copying icon.png + its sidecar
+    # to alias2.png leaves source_file="res://icon.png" inside the copy — the
+    # engine re-imports that; a destination-exists heuristic called it cached.
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    (project / "alias2.png").write_bytes((project / "icon.png").read_bytes())
+    (project / "alias2.png.import").write_text(
+        (project / "icon.png.import").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    data = json.loads(_run(project, "res://alias2.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "stale"
+    assert data["engine_pass"] is True
+
+
+def test_dest_md5_mismatch_is_stale(tmp_path):
+    # The engine's receipt also digests the DESTINATION bytes (one MD5 over
+    # every dest, in order); a tampered cache file must not stay a hit.
+    import hashlib
+
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    receipt = project / (".godot/imported/icon.png-" + "a" * 32 + ".md5")
+    dest_digest = hashlib.md5(b"OTHER BYTES").hexdigest()
+    receipt.write_text(
+        receipt.read_text(encoding="utf-8") + f'dest_md5="{dest_digest}"\n',
+        encoding="utf-8",
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "stale"
+
+
+def test_human_dry_run_renders_the_project_wide_prediction(tmp_path):
+    # #738 review [P2]: the default (non-JSON) dry run must carry the revised
+    # contract's project-wide decidable inventory, not only the JSON form.
+    project = _project(tmp_path)
+    (project / "other.png").write_bytes(b"\x89PNG other")
+    _sidecar(project, "other.png", ".godot/imported/other.png-" + "a" * 32 + ".ctex")
+
+    result = runner_cli.invoke(
+        app,
+        [
+            "resource",
+            "import",
+            "res://icon.png",
+            "--dry-run",
+            "--project",
+            str(project),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "will also re-import" in result.stdout
+    assert "res://other.png" in result.stdout
 
 
 def test_res_scheme_cannot_escape_the_project(tmp_path):
@@ -307,32 +396,43 @@ def test_res_scheme_cannot_escape_the_project(tmp_path):
     data = json.loads(_run(project, "res://../outside-668.png", "--dry-run").stdout)
 
     assert data["error"]["code"] == "invalid_params"
-    assert "outside the project" in data["error"]["message"]
+    assert "escapes the res:// namespace" in data["error"]["message"]
 
 
-def test_symlink_escaping_the_project_is_refused(tmp_path):
+def test_symlinked_in_asset_is_accepted_like_the_engine_walks_it(tmp_path):
+    # The shared ADR-0006 gate's established symlink treatment (#738 review):
+    # a file linked INTO the project tree is addressable through the project's
+    # res:// namespace — the engine walks the link — so it is accepted, for
+    # both input forms, exactly as `script run` accepts it.
     project = _project(tmp_path)
     outside = tmp_path.parent / "target-668.png"
-    outside.write_bytes(b"x")
+    outside.write_bytes(b"\x89PNG linked")
     (project / "link.png").symlink_to(outside)
 
-    data = json.loads(_run(project, "res://link.png", "--dry-run").stdout)
+    data = json.loads(_run(project, "link.png", "--dry-run").stdout)
 
-    assert data["error"]["code"] == "invalid_params"
+    assert data["assets"][0]["path"] == "res://link.png"
+    assert data["assets"][0]["status"] == "missing"
 
 
-def test_dry_run_lists_the_passes_other_gaps(tmp_path):
-    # #738 review [P1, dry-run half]: the project-wide pass would also import
-    # OTHER assets with missing/stale sidecar-declared caches; the dry run
-    # scans the committed sidecars and says so.
+def test_dry_run_lists_what_the_pass_will_also_reimport(tmp_path):
+    # #738 review: the project-wide pass WILL re-import other stale assets —
+    # and will NOT retry an invalid one (the engine skips those), so the
+    # prediction separates the two evidence states.
     project = _project(tmp_path)
     (project / "other.png").write_bytes(b"\x89PNG other")
-    _sidecar(project, "other.png", ".godot/imported/other.png-abc.ctex")
+    _sidecar(
+        project,
+        "other.png",
+        ".godot/imported/other.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex",
+    )
+    (project / "bad.png").write_bytes(b"\x89PNG bad")
+    _sidecar(project, "bad.png", None, valid=False)
 
     data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
 
     assert data["assets"][0]["path"] == "res://icon.png"
-    assert data["pass_also_missing"] == ["res://other.png"]
+    assert data["pass_will_also_import"] == ["res://other.png"]
 
 
 # --- request validation --------------------------------------------------------
@@ -402,6 +502,8 @@ def test_result_model_validates_its_mode_fields():
             "requested": 0,
             "cached": 0,
             "missing": 0,
+            "stale": 0,
+            "invalid": 0,
             "imported": 0,
             "not_importable": 0,
             "failed": 0,

@@ -198,7 +198,7 @@ def test_stale_source_reimports_and_dry_run_lists_project_gaps(tmp_path):
     dry = json.loads(
         _gda(project, "resource", "import", "res://icon.png", "--dry-run").stdout
     )
-    assert dry["assets"][0]["status"] == "missing"
+    assert dry["assets"][0]["status"] == "stale"
     assert dry["engine_pass"] is True
 
     re_imported = json.loads(
@@ -215,5 +215,47 @@ def test_stale_source_reimports_and_dry_run_lists_project_gaps(tmp_path):
     dry2 = json.loads(
         _gda(project, "resource", "import", "res://icon.png", "--dry-run").stdout
     )
-    assert dry2["assets"][0]["status"] == "missing"
-    assert "res://other.png" in dry2["pass_also_missing"]
+    assert dry2["assets"][0]["status"] == "stale"
+    assert "res://other.png" in dry2["pass_will_also_import"]
+
+
+@pytest.mark.e2e
+def test_alias_sidecar_and_invalid_skip_match_the_engine(tmp_path):
+    # #738 review, both real-engine reproductions in one project:
+    # - a copied source+sidecar (source_file naming the original) is STALE and
+    #   a real run re-imports it into its own cache entries;
+    # - an invalid sidecar is EXCLUDED from pass_will_also_import, and the
+    #   pass leaves its bytes untouched (the engine skips failed imports).
+    project = _project(tmp_path)
+    first = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
+    assert first["assets"][0]["status"] == "imported"
+
+    # The invalid neighbor FIRST (its first import runs a project-wide pass;
+    # the alias must not exist yet or that pass would heal it prematurely).
+    (project / "bad.png").write_text("not a png", encoding="utf-8")
+    assert (
+        json.loads(_gda(project, "resource", "import", "res://bad.png").stdout)[
+            "assets"
+        ][0]["status"]
+        == "failed"
+    )
+    bad_sidecar_before = (project / "bad.png.import").read_bytes()
+    # The alias: copy source + sidecar verbatim.
+    (project / "alias2.png").write_bytes((project / "icon.png").read_bytes())
+    (project / "alias2.png.import").write_text(
+        (project / "icon.png.import").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    dry = json.loads(
+        _gda(project, "resource", "import", "res://alias2.png", "--dry-run").stdout
+    )
+    assert dry["assets"][0]["status"] == "stale"
+    assert "res://bad.png" not in dry["pass_will_also_import"]
+
+    real = json.loads(_gda(project, "resource", "import", "res://alias2.png").stdout)
+    assert real["assets"][0]["status"] == "imported"
+    # The engine rewrote the alias's sidecar to its own source/dest paths.
+    rewritten = (project / "alias2.png.import").read_text(encoding="utf-8")
+    assert 'source_file="res://alias2.png"' in rewritten
+    # And the invalid neighbor's sidecar is byte-identical: the pass skipped it.
+    assert (project / "bad.png.import").read_bytes() == bad_sidecar_before

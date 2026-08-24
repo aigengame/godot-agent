@@ -637,8 +637,9 @@ A named directory must be a project, or `gda` reports it as an error. When none 
 <details>
 <summary>Project code execution — what runs when you point at a project</summary>
 
-Resolving a project so `res://` paths work runs Godot against that project, and Godot runs
-some of the project's own code as part of that. Concretely:
+Most commands that resolve a project run Godot against it, and Godot runs some of the
+project's own code as part of that (a fully cached `resource import` is the exception:
+it starts no engine). Concretely:
 
 - **Autoloads run on every `--project` operation that starts the game-facing engine.** When a
   project is resolved, the engine constructs the project's autoload singletons at startup —

@@ -238,7 +238,9 @@ _Avoid_: safe project, sandboxed project
 
 **Project-code execution surface**:
 The set of points where a single `gda` run triggers the target project's own
-code to run: autoload constructors at engine startup (every `--project` op), the
+code to run: autoload constructors at engine startup (every `--project` op
+that boots the game-facing engine — see the import-pass point below for the
+one that does not), the
 `_init` of scripts on nodes *or resources* that an instantiating operation
 constructs (a `class_name` node via `node add`, a script-backed `class_name`
 Resource via `resource create`, or every script inside a **scene composed as an
@@ -249,12 +251,12 @@ execution of a named project script** via `gda script run` (ADR-0031), and — v
 `gda scene preflight` (#664) — the **startup of a whole scene**: every script it
 carries runs its `_init` and `_ready` and keeps running for a bounded number of
 frames, beside the autoloads — that preflight point is the widest on this
-list. `gda resource import` (#668) is two DISTINCT points: a fully cached
-request starts no engine at all (nothing on this surface runs), while a cache
-miss runs the **engine import pass** — importer code (and any import plugins
-the project registers) over project content, WITHOUT the autoloads (the pass
-boots the editor importer path, not the game's scene stack — the one
-`--project` op whose engine start skips them).
+list. `gda resource import` (#668) contributes two DISTINCT points: a fully
+cached request starts no engine at all (nothing on this surface runs), while
+a missing or stale cache runs the **engine import pass** — importer code (and
+any import plugins the project registers) over project content, WITHOUT the
+autoloads: the pass boots the editor importer path, not the game's scene
+stack.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, and the import pass
 widen this surface without adding a new trust axis.

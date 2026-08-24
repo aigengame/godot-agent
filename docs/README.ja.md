@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=42d4a644de015235bc1f7b507b38a303d866e3a334331eb8be11799f31d983c4 -->
+<!-- gda-readme-i18n: source=README.md sha256=de7b87f2b2f920f174da2066e3f4ea95c46ca800577f5b6607ca594f8eab1b41 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -647,8 +647,9 @@ Godot は daemon セッション内で `get_mouse_position()` /
 <details>
 <summary>プロジェクトコードの実行 — プロジェクトを指定したときに何が実行されるか</summary>
 
-`res://` パスを機能させるためにプロジェクトを解決すると、そのプロジェクトに対して Godot が実行され、
-その一環として Godot はプロジェクト自身のコードの一部を実行します。具体的には:
+プロジェクトを解決するほとんどのコマンドは、そのプロジェクトに対して Godot を実行し、その一環として
+Godot はプロジェクト自身のコードの一部を実行します(例外: キャッシュが完全な `resource import` は
+エンジンを一切起動しません)。具体的には:
 
 - **オートロードは、ゲーム側エンジンを起動するすべての `--project` 操作で実行されます。** プロジェクトが
   解決されると、エンジンは起動時に — コマンド自身の処理が走る前に — プロジェクトのオートロード

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=42d4a644de015235bc1f7b507b38a303d866e3a334331eb8be11799f31d983c4 -->
+<!-- gda-readme-i18n: source=README.md sha256=de7b87f2b2f920f174da2066e3f4ea95c46ca800577f5b6607ca594f8eab1b41 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -617,7 +617,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 <details>
 <summary>项目代码执行——当你指向一个项目时会运行什么</summary>
 
-解析项目以启用 `res://` 路径时，Godot 会以该项目启动，并执行项目自身的一部分代码。具体来说：
+大多数解析项目的命令会以该项目启动 Godot，Godot 也会随之执行项目自身的一部分代码（例外：缓存完好的 `resource import` 根本不启动引擎）。具体来说：
 
 - **每个会启动游戏侧引擎的 `--project` 操作都会运行 autoload。** 当一个项目被解析时，
   引擎会在启动阶段——在命令本身的工作开始之前——构造该项目的 autoload 单例，因此它们的
