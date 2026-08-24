@@ -1,15 +1,38 @@
 ---
 name: pitfalls
-description: Maintain PITFALLS.md, a concise project-scoped catalog of verified, context-dependent environment, tool, permission, sandbox, and tool-invocation problems with proven workarounds. Use after a reusable operational pitfall is confirmed, when one recurs, at wrap-up if its workaround should survive the session, or when explicitly invoked. Do not use for product bugs, code or design issues, review methods, or speculative advice.
+description: Use PITFALLS.md to prevent repeated environment, tool, permission, sandbox, and tool-invocation failures, and maintain it with verified context-dependent guidance. Use before project tool work, when a matching operational pitfall occurs, after confirming a reusable new pitfall, or when explicitly invoked. Do not use for product bugs, code or design issues, review methods, or speculative advice.
 ---
 
 # Pitfalls
 
-Maintain the root `PITFALLS.md` as concise operational guidance for future workers.
-The catalog helps an agent avoid a verified tool-call failure without treating one
-harness's limits as universal project policy.
+Use the root `PITFALLS.md` before and during work, and maintain it after work. The
+catalog helps an agent avoid a verified tool-call failure without treating one harness's
+limits as universal project policy.
 
-## Scope
+## Workflow
+
+### 1. Before work: load applicable guidance
+
+1. Read `PITFALLS.md` if it exists so its relevant entries are in the working context.
+2. Inspect the current environment and planned tool calls. Find entries that could apply.
+3. Compare each entry's `Applies when` condition with the current harness. Use its
+   `Prevention` guidance only when the condition matches.
+
+If the file does not exist, continue normally. Create it only when phase 3 produces a
+verified, reusable entry.
+
+### 2. During work: recognize and handle known pitfalls
+
+1. When a tool call fails, search the catalog for a matching symptom and cause.
+2. Check the entry's `Applies when` condition again. If it matches, use the documented
+   `Recovery` guidance and verify the result.
+3. If no entry matches, or the documented recovery does not work, investigate the
+   current failure instead of forcing it into an existing entry. Treat it as a candidate
+   for phase 3 only after evidence supports its cause and workaround.
+
+### 3. After work: record new guidance
+
+#### Recording scope
 
 Record a pitfall when all of these conditions apply:
 
@@ -21,22 +44,21 @@ Record a pitfall when all of these conditions apply:
 Keep product defects, source-code mistakes, architecture, domain design, review methods,
 and general engineering advice in their existing authorities and workflows.
 
-## Workflow
+#### Update the catalog
 
-1. Read the current `PITFALLS.md` and inspect the current environment.
-2. Verify the cause and workaround in the current harness when that check is safe and
+1. Verify the cause and workaround in the current harness when that check is safe and
    useful. If the evidence comes from another harness, preserve that context instead of
    presenting it as current.
-3. Search for an entry with the same root cause. Update that entry instead of adding a
+2. Search for an entry with the same root cause. Update that entry instead of adding a
    duplicate symptom.
-4. State the narrow `Applies when` condition. Use guidance language such as `may`,
+3. State the narrow `Applies when` condition. Use guidance language such as `may`,
    `should`, and `consider`. Reserve absolute language for a demonstrated safety or
    permission boundary.
-5. Record only the evidence needed to recognize, prevent, and recover from the problem.
+4. Record only the evidence needed to recognize, prevent, and recover from the problem.
    If the workaround is only a mitigation, state the remaining limitation.
-6. Remove secrets, personal paths, and machine-specific identifiers. Use portable
+5. Remove secrets, personal paths, and machine-specific identifiers. Use portable
    placeholders such as `/tmp/<task>-uv-cache`.
-7. Re-read the entry as an agent in a different harness. It should not direct that agent
+6. Re-read the entry as an agent in a different harness. It should not direct that agent
    to apply an unnecessary workaround.
 
 Leave the document unchanged when the experience is unverified, speculative, unique to
