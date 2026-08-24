@@ -359,6 +359,7 @@ def check_experiment(
     path: str,
     *,
     authority_context: AdmittedAuthorityContext | None = None,
+    model_binding: ExactResolvedModelBinding | None = None,
 ) -> CheckedExperiment | Schema2RefusalReport:
     """Admit one exact Experiment Specification and its model bindings."""
     context = authority_context or packaged_authority_context()
@@ -389,7 +390,7 @@ def check_experiment(
             pointer="",
             message="Experiment Specification is not canonical JSON data",
         )
-    return _check_experiment_value(value, context, model_binding=None)
+    return _check_experiment_value(value, context, model_binding=model_binding)
 
 
 def check_experiment_value(

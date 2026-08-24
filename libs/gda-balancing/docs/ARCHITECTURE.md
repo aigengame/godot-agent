@@ -1686,20 +1686,21 @@ and deduplication, and explicit truncation before aggregation runs.
 
 #### First candidate/open evidence-verification slice
 
-Issue #541 plans the first executable `evidence verify` judgment. This slice validates the exact
+Issue #541 delivers the first executable `evidence verify` judgment. This slice validates the exact
 artifact graph for the LDB-owned `evaluable` claim kind. A successful result is only
 `candidate`/open. It does not issue an Evidence assertion, authenticate an independent Verifier, or
 close a claim.
 
-The initial command takes one explicit Model Source Package, Experiment Specification, `model build`
-artifact-set publication receipt, and `experiment run` outcome artifact-set publication receipt.
-The first receipt is not the build-set's `build-receipt` member. The command does not discover
-artifacts through a store scan. It uses the installed package's admitted Kernel/LDB context, applies
-the existing Model and Experiment admission rules, recomputes their content identities,
-authenticates both receipt-backed artifact sets, and validates every required identity and
-prerequisite edge. A post-dispatch Runtime refusal is eligible only when its complete terminal-audit
-set and cross-bindings pass bADR-0015 validation. The command does not rebuild the Model or rerun
-the Experiment.
+The initial command takes one explicit Model Source Package, Experiment Specification, Model-build
+Artifact-set receipt, and Experiment-run Artifact-set receipt. The public fields are
+`model_build_artifact_set_receipt` and `experiment_run_artifact_set_receipt`. The Model-build
+receipt is not the build set's `build-receipt` member. The command does not discover artifacts
+through a store scan. It uses the installed package's admitted Kernel/LDB context, applies the
+existing Model and Experiment admission rules, recomputes their content identities, authenticates
+both receipt-backed artifact sets, and validates every required identity and prerequisite edge. A
+post-dispatch Runtime refusal is eligible only when its complete terminal-audit set and
+cross-bindings pass bADR-0015 validation. The command does not rebuild the Model or rerun the
+Experiment.
 
 The `evaluable` judgment means that the exact Experiment, Resolved Model, Resolved Runtime profile,
 and evaluator combination passed admission and reached Runtime dispatch. A successful producing

@@ -201,6 +201,7 @@ class TestPerDescriptorRows:
         if (
             descriptor.fixtures.refusing_document is None
             and not descriptor.fixtures.refusing_args
+            and descriptor.fixtures.prepare_args is None
         ):
             pytest.skip("no descriptor-owned refusing fixture")
         exit_code, stdout, stderr = run_cli(invocation(descriptor, refusing=True))
@@ -213,14 +214,22 @@ class TestPerDescriptorRows:
             assert entry["code"] in catalog
 
     def test_input_immutability_row(self, descriptor, run_cli, invocation):
-        # A document-taking command never rewrites its input (bADR-0011).
-        if not descriptor.fixtures.has_valid_document:
+        # A document-taking command never rewrites any input file (bADR-0011).
+        if (
+            not descriptor.fixtures.has_valid_document
+            and descriptor.fixtures.prepare_args is None
+        ):
             pytest.skip("no input document: not a document-taking command")
         argv = invocation(descriptor)
-        document_path = Path(argv[-1])  # the positional path is appended last
-        before = document_path.read_bytes()
+        document_paths = (
+            tuple(Path(value) for value in argv if Path(value).is_file())
+            if descriptor.fixtures.prepare_args is not None
+            else (Path(argv[-1]),)  # the positional path is appended last
+        )
+        assert document_paths
+        before = {path: path.read_bytes() for path in document_paths}
         run_cli(argv)
-        assert document_path.read_bytes() == before
+        assert {path: path.read_bytes() for path in document_paths} == before
 
     def test_schema_row(self, descriptor, run_cli):
         argv = [*_command_path(descriptor), "--schema"]

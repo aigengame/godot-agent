@@ -216,6 +216,25 @@ def test_two_consumers_type_empty_semantic_collections_from_kernel_contracts():
     assert first["admitted"] is True
 
 
+def test_two_consumers_refuse_inconsistent_evidence_claim_kind_vectors():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    claim_kind = ldb["language"]["evidence_claim_kinds"][0]
+    claim_kind["vectors"][0]["expect"] = "refusal"
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.evidence-claim-kinds",
+    ) in first["diagnostics"]
+
+
 def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms():
     ldb = _authority_candidate()["language_bundle"]
     package = ldb["language"]["packages"][0]

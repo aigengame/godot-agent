@@ -778,7 +778,8 @@
       "runtime_profiles",
       "structured_operations",
       "template_admission_profiles",
-      "wire_schemas"
+      "wire_schemas",
+      "evidence_claim_kinds"
     ]
   },
   "artifact_kind": "schema-major-kernel",
@@ -868,7 +869,7 @@
           "\u001d",
           "\u001e",
           "\u001f",
-          ""
+          "\u007f"
         ]
       },
       {
@@ -904,7 +905,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856",
+  "content_identity": "sha256:12e6497c361d7f86e417963ab7ee402822025aae34eb63cf672bcf8cc494fb26",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3692,6 +3693,147 @@
             "law",
             "resource_bounds"
           ]
+        },
+        "evidence_claim_kinds": {
+          "field_types": {
+            "id": {
+              "type": "non-empty-string"
+            },
+            "version": {
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+              "type": "non-empty-string"
+            },
+            "subject_roles": {
+              "type": "string-list"
+            },
+            "prerequisite_edges": {
+              "items": {
+                "field_types": {
+                  "subject": {
+                    "type": "non-empty-string"
+                  },
+                  "prerequisite": {
+                    "type": "non-empty-string"
+                  }
+                },
+                "required_members": [
+                  "subject",
+                  "prerequisite"
+                ],
+                "type": "closed-object"
+              },
+              "type": "list-of"
+            },
+            "eligibility": {
+              "field_types": {
+                "claim_state": {
+                  "const": "candidate"
+                },
+                "runtime_dispatch": {
+                  "const": "required"
+                },
+                "producing_outcomes": {
+                  "type": "string-list"
+                },
+                "runtime_refusal_variant": {
+                  "const": "post-dispatch"
+                }
+              },
+              "required_members": [
+                "claim_state",
+                "runtime_dispatch",
+                "producing_outcomes",
+                "runtime_refusal_variant"
+              ],
+              "type": "closed-object"
+            },
+            "permitted_issuer_classes": {
+              "type": "string-list"
+            },
+            "permitted_verifier_classes": {
+              "type": "string-list"
+            },
+            "vectors": {
+              "items": {
+                "field_types": {
+                  "id": {
+                    "type": "non-empty-string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "positive",
+                      "negative"
+                    ]
+                  },
+                  "input": {
+                    "field_types": {
+                      "graph": {
+                        "enum": [
+                          "exact",
+                          "missing",
+                          "extra",
+                          "mismatched",
+                          "cyclic",
+                          "unresolved"
+                        ]
+                      },
+                      "producing_outcome": {
+                        "enum": [
+                          "runtime-refusal",
+                          "success",
+                          "verdict"
+                        ]
+                      },
+                      "runtime_dispatch": {
+                        "enum": [
+                          "not-reached",
+                          "reached"
+                        ]
+                      },
+                      "runtime_refusal_variant": {
+                        "enum": [
+                          "not-applicable",
+                          "post-dispatch",
+                          "pre-dispatch"
+                        ]
+                      }
+                    },
+                    "required_members": [
+                      "graph",
+                      "producing_outcome",
+                      "runtime_dispatch",
+                      "runtime_refusal_variant"
+                    ],
+                    "type": "closed-object"
+                  },
+                  "expect": {
+                    "enum": [
+                      "candidate",
+                      "refusal"
+                    ]
+                  }
+                },
+                "required_members": [
+                  "id",
+                  "kind",
+                  "input",
+                  "expect"
+                ],
+                "type": "closed-object"
+              },
+              "type": "list-of"
+            }
+          },
+          "required_members": [
+            "id",
+            "version",
+            "subject_roles",
+            "prerequisite_edges",
+            "eligibility",
+            "permitted_issuer_classes",
+            "permitted_verifier_classes",
+            "vectors"
+          ]
         }
       },
       "quantity": {
@@ -3921,6 +4063,9 @@
           },
           "structured_operations": {
             "type": "string-list"
+          },
+          "evidence_claim_kinds": {
+            "type": "string-list"
           }
         },
         "profiles": {
@@ -3978,7 +4123,8 @@
           "template_admission_profiles",
           "types",
           "units",
-          "wire_schemas"
+          "wire_schemas",
+          "evidence_claim_kinds"
         ],
         "profiles": [
           "numeric",
@@ -4142,6 +4288,11 @@
             "authority_path": "language.wire_schemas",
             "key_member": "artifact_kind",
             "owners_path": "exports.wire_schemas"
+          },
+          {
+            "authority_path": "language.evidence_claim_kinds",
+            "key_member": "id",
+            "owners_path": "exports.evidence_claim_kinds"
           }
         ]
       },

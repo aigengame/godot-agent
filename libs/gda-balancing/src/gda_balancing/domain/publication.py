@@ -315,7 +315,7 @@ def _read_receipt_input(path: Path) -> dict[str, Any]:
     try:
         return parse_canonical_object(
             read_regular_bytes_following_symlink(path),
-            artifact_name="Model build receipt",
+            artifact_name="Artifact-set receipt",
         )
     except NonRegularPathError as err:
         raise UnreadableInputError(
@@ -327,7 +327,7 @@ def _read_receipt_input(path: Path) -> dict[str, Any]:
         raise PublicationAdmissionError(
             "kernel.identity_mismatch",
             "receipt",
-            "Model build receipt is not an admissible JSON artifact",
+            "Artifact-set receipt is not an admissible JSON artifact",
         ) from err
 
 
@@ -343,7 +343,7 @@ def _inspect_committed_artifact(
         raise PublicationAdmissionError(
             code,
             subject,
-            f"committed Model build member failed admission: {path.name}",
+            f"committed artifact-set member failed admission: {path.name}",
         ) from err
 
 
@@ -353,6 +353,35 @@ def read_authenticated_artifact_set(
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
 ) -> AuthenticatedArtifactSet:
     """Authenticate and load all members of one committed artifact set."""
+    return _read_authenticated_artifact_set(
+        receipt_path,
+        expected_descriptor_identity,
+        (artifact_set,),
+    )
+
+
+def read_authenticated_declared_artifact_set(
+    receipt_path: str,
+    expected_descriptor_identity: str,
+    artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+) -> AuthenticatedArtifactSet:
+    """Authenticate one publication against its producer-declared member sets."""
+    if not artifact_sets:
+        raise ValueError(
+            "an authenticated publication requires a declared artifact set"
+        )
+    return _read_authenticated_artifact_set(
+        receipt_path,
+        expected_descriptor_identity,
+        artifact_sets,
+    )
+
+
+def _read_authenticated_artifact_set(
+    receipt_path: str,
+    expected_descriptor_identity: str,
+    artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+) -> AuthenticatedArtifactSet:
     path = _normalized_absolute_path(receipt_path)
     receipt = _read_receipt_input(path)
     context = packaged_authority_context()
@@ -364,7 +393,7 @@ def read_authenticated_artifact_set(
         raise PublicationAdmissionError(
             "kernel.identity_mismatch",
             "receipt",
-            "Model build receipt failed exact-authority admission",
+            "Artifact-set receipt failed exact-authority admission",
         )
     descriptor_identity_value = receipt.get("descriptor_identity")
     invocation_key = receipt.get("invocation_key")
@@ -374,7 +403,7 @@ def read_authenticated_artifact_set(
         raise PublicationAdmissionError(
             "kernel.binding_mismatch",
             "receipt.descriptor_identity",
-            "Model build receipt belongs to another command or invocation",
+            "Artifact-set receipt belongs to another command or invocation",
         )
     invocation_path = _store_invocation_path(
         expected_descriptor_identity, invocation_key
@@ -384,7 +413,7 @@ def read_authenticated_artifact_set(
         raise PublicationAdmissionError(
             "kernel.binding_mismatch",
             "receipt.manifest_locator",
-            "Model build receipt has no manifest locator",
+            "Artifact-set receipt has no manifest locator",
         )
     manifest_path = _normalized_absolute_path(manifest_locator)
     publication_dir = manifest_path.parent
@@ -394,14 +423,14 @@ def read_authenticated_artifact_set(
         raise PublicationAdmissionError(
             "kernel.binding_mismatch",
             "receipt.manifest_locator",
-            "Model build manifest locator failed admission",
+            "Artifact-set manifest locator failed admission",
         ) from err
     expected_manifest_path = invocation_path / "artifact-set-manifest.json"
     if manifest_path != expected_manifest_path:
         raise PublicationAdmissionError(
             "kernel.binding_mismatch",
             "receipt.manifest_locator",
-            "Model build receipt does not locate its committed publication",
+            "Artifact-set receipt does not locate its committed publication",
         )
     anchor_path = _store_anchor_path(expected_descriptor_identity, invocation_key)
     authentication_key = publication_authentication_key()
@@ -420,7 +449,7 @@ def read_authenticated_artifact_set(
         raise PublicationAdmissionError(
             "kernel.binding_mismatch",
             "publication-index",
-            "Model build publication anchor failed authentication",
+            "Artifact-set publication anchor failed authentication",
         ) from err
     if (
         not _verify_artifact(index, language_bundle)
@@ -433,7 +462,7 @@ def read_authenticated_artifact_set(
         raise PublicationAdmissionError(
             "kernel.binding_mismatch",
             "publication-index",
-            "Model build publication index does not authenticate the receipt",
+            "Artifact-set publication index does not authenticate the receipt",
         )
     manifest = _inspect_committed_artifact(
         expected_manifest_path,
@@ -446,7 +475,7 @@ def read_authenticated_artifact_set(
         raise PublicationAdmissionError(
             "kernel.binding_mismatch",
             "manifest",
-            "Model build manifest failed exact-authority admission",
+            "Artifact-set manifest failed exact-authority admission",
         )
     members = manifest.get("members")
     locators = receipt.get("member_locators")
@@ -454,8 +483,22 @@ def read_authenticated_artifact_set(
         raise PublicationAdmissionError(
             "kernel.member_set_mismatch",
             "manifest.members",
-            "Model build has no closed artifact member map",
+            "Artifact-set publication has no closed member map",
         )
+    actual_names = [row.get("logical_name") for row in members if isinstance(row, dict)]
+    matching_sets = tuple(
+        artifact_set
+        for artifact_set in artifact_sets
+        if len(members) == len(artifact_set)
+        and actual_names == [member.logical_name for member in artifact_set]
+    )
+    if len(matching_sets) != 1:
+        raise PublicationAdmissionError(
+            "kernel.member_set_mismatch",
+            "manifest.members",
+            "Publication does not match a producer-declared artifact set",
+        )
+    artifact_set = matching_sets[0]
     expected_names = [member.logical_name for member in artifact_set]
     expected_kinds = {
         member.logical_name: member.artifact_kind for member in artifact_set
@@ -467,16 +510,11 @@ def read_authenticated_artifact_set(
         }
         for name in expected_names
     ]
-    if (
-        [row.get("logical_name") for row in members if isinstance(row, dict)]
-        != expected_names
-        or len(members) != len(expected_names)
-        or locators != expected_locators
-    ):
+    if locators != expected_locators:
         raise PublicationAdmissionError(
             "kernel.member_set_mismatch",
             "manifest.members",
-            "Model build publication does not match the command artifact set",
+            "Publication does not match the command artifact set",
         )
     artifacts: dict[str, dict[str, Any]] = {}
     for row in members:
@@ -484,7 +522,7 @@ def read_authenticated_artifact_set(
             raise PublicationAdmissionError(
                 "kernel.member_set_mismatch",
                 "manifest.members",
-                "Model build publication contains a malformed member",
+                "Artifact-set publication contains a malformed member",
             )
         name = row.get("logical_name")
         if not isinstance(name, str) or row.get("artifact_kind") != expected_kinds.get(
@@ -493,7 +531,7 @@ def read_authenticated_artifact_set(
             raise PublicationAdmissionError(
                 "kernel.member_set_mismatch",
                 "manifest.members",
-                "Model build publication contains an undeclared member",
+                "Artifact-set publication contains an undeclared member",
             )
         artifact = _inspect_committed_artifact(
             invocation_path / f"{name}.json",
@@ -509,7 +547,7 @@ def read_authenticated_artifact_set(
             raise PublicationAdmissionError(
                 "kernel.binding_mismatch",
                 name,
-                "committed Model build member failed exact-authority admission",
+                "Committed artifact-set member failed exact-authority admission",
             )
         artifacts[name] = artifact
 
