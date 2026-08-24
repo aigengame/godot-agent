@@ -726,6 +726,14 @@ _MALFORMED_TAP_REPLIES = [
     {**INPUT_TAP_KEY_RESULT, "frames": 1},
     # A phase outside the gesture vocabulary, at a negative frame.
     {**INPUT_TAP_KEY_RESULT, "phases": [{"frame": -7, "phase": "noop"}]},
+    # Field bounds mirroring the request contract (#732 recheck): an empty
+    # action name, an out-of-range strength, an empty key name, an echoed
+    # KEY_NONE, and a modifier outside the vocabulary are all contract drift.
+    {**INPUT_TAP_ACTION_RESULT, "action": ""},
+    {**INPUT_TAP_ACTION_RESULT, "strength": 2.0},
+    {**INPUT_TAP_KEY_RESULT, "key": ""},
+    {**INPUT_TAP_KEY_RESULT, "keycode": 0},
+    {**INPUT_TAP_KEY_RESULT, "modifiers": ["control"]},
 ]
 
 _MALFORMED_CLICK_REPLIES = [
@@ -733,6 +741,9 @@ _MALFORMED_CLICK_REPLIES = [
     {**INPUT_MOUSE_CLICK_RESULT, "kind": "mouse_move"},
     # A button outside the enum.
     {**INPUT_MOUSE_CLICK_RESULT, "button": "bogus"},
+    # A position that is not an [x, y] pair (#732 recheck): an empty one used
+    # to classify as success and then crash the human renderer's unpack.
+    {**INPUT_MOUSE_CLICK_RESULT, "position": []},
     # The right phases in the wrong order.
     {
         **INPUT_MOUSE_CLICK_RESULT,
@@ -798,33 +809,34 @@ def test_malformed_click_reply_is_a_contract_violation(monkeypatch, tmp_path):
         )
 
 
-def test_mouse_move_reply_with_a_foreign_kind_is_a_contract_violation(
-    monkeypatch, tmp_path
-):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel({**INPUT_MOUSE_MOVE_RESULT, "kind": "mouse_click"}),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "input",
-            "mouse-move",
-            "1",
-            "2",
-            "--project",
-            str(_project(tmp_path)),
-            "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_PARSE, result.stdout
-    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+def test_malformed_mouse_move_reply_is_a_contract_violation(monkeypatch, tmp_path):
+    malformed = [
+        # A kind outside the contract.
+        {**INPUT_MOUSE_MOVE_RESULT, "kind": "mouse_click"},
+        # A position that is not an [x, y] pair (#732 recheck).
+        {**INPUT_MOUSE_MOVE_RESULT, "position": [1.0]},
+    ]
+    for payload in malformed:
+        inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(
+            app,
+            [
+                "input",
+                "mouse-move",
+                "1",
+                "2",
+                "--project",
+                str(_project(tmp_path)),
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
+        assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
+            payload
+        )
 
 
 # --- input sequence (multi-frame, time-windowed base) -------------------------

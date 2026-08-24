@@ -208,10 +208,12 @@ class InputMouseMoveResult(BaseModel):
         default="mouse_move", description="The injected event kind ('mouse_move')."
     )
     position: list[float] = Field(
+        min_length=2,
+        max_length=2,
         description=(
             "The viewport position the event was injected at, as [x, y]. This "
             "mirrors event.position; engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
     button: str | None = Field(
         default=None, description="Always null for a move (a historical field)."
@@ -259,10 +261,12 @@ class InputMouseClickResult(BaseModel):
         default="mouse_click", description="The injected event kind ('mouse_click')."
     )
     position: list[float] = Field(
+        min_length=2,
+        max_length=2,
         description=(
             "The viewport position the gesture was injected at, as [x, y]. This "
             "mirrors event.position; engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
     button: Literal["left", "right", "middle"] = Field(
         description="The clicked button: left, right, or middle."
@@ -467,22 +471,32 @@ class InputTapResult(BaseModel):
         default="tap", description="The injected event kind ('tap')."
     )
     key: str | None = Field(
-        default=None, description="The tapped key name; null for an action tap."
+        default=None,
+        min_length=1,
+        description="The tapped key name; null for an action tap.",
     )
     keycode: int | None = Field(
         default=None,
-        description="The Godot keycode the key resolved to; null for an action tap.",
+        ge=1,
+        description=(
+            "The Godot keycode the key resolved to (a successful tap never "
+            "echoes KEY_NONE); null for an action tap."
+        ),
     )
     modifiers: list[str] | None = Field(
         default=None,
         description="The modifiers held through a key tap; null for an action tap.",
     )
     action: str | None = Field(
-        default=None, description="The tapped action name; null for a key tap."
+        default=None,
+        min_length=1,
+        description="The tapped action name; null for a key tap.",
     )
     strength: float | None = Field(
         default=None,
-        description="The action press strength applied; null for a key tap.",
+        ge=0.0,
+        le=1.0,
+        description="The action press strength applied, 0..1; null for a key tap.",
     )
     hold_frames: int = Field(
         ge=1, description="Process frames held between the press and the release."
@@ -534,6 +548,10 @@ class InputTapResult(BaseModel):
                 "a tap result carries exactly one target family: "
                 "key + keycode + modifiers, or action + strength."
             )
+        if self.modifiers is not None:
+            # The same vocabulary rule the request enforces, from its one home:
+            # a reply echoing a modifier outside it is contract drift.
+            _validate_modifiers(self.modifiers)
         if self.frames != self.hold_frames + self.settle_frames + 1:
             raise ValueError(
                 "a tap result's frames is hold_frames + settle_frames + 1."
