@@ -676,6 +676,17 @@ def test_perf_monitors_window_budget_file_problems_are_invalid_params(
         str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": NaN}}')),
         str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": 1e999}}')),
         str(not_utf8),
+        # Strict JSON numbers (#735 recheck): a quoted "10" or a boolean must
+        # not be coerced into a gate nobody wrote.
+        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": "10"}}')),
+        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": true}}')),
+        # An impossible interval (#735 recheck): min > max can only ever fail,
+        # which would misreport a config mistake as a performance failure.
+        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": 100, "max": 50}}')),
+        # A pathologically nested document (#735 recheck): the decoder's
+        # RecursionError must land in the same structured failure, not escape
+        # as a raw traceback.
+        str(_budget_file(tmp_path, '{"fps": ' + "[" * 20000 + "]" * 20000 + "}")),
     ]
     for budget in problems:
         result = _window(tmp_path, "--frames", "5", "--budget", budget)
@@ -844,3 +855,81 @@ def test_perf_monitors_window_with_no_daemon_reports_daemon_not_running(
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
     assert json.loads(result.stdout)["error"]["code"] == "daemon_not_running"
+
+
+def test_perf_monitors_schema_and_models_reach_the_same_verdict():
+    # The #735 recheck's hard finding: the published contracts must not be
+    # wider than the runtime ABI (ADR-0015 input / ADR-0004 output — gda-mcp
+    # derives its wire schemas from these). One corpus runs through the EMITTED
+    # schema and the MODEL; every instance must get the same verdict.
+    import jsonschema
+    import pydantic
+
+    from gda.commands.perf import PerfMonitorsParams, PerfMonitorsResult
+
+    doc = json.loads(CliRunner().invoke(app, ["perf", "monitors", "--schema"]).stdout)
+
+    def schema_ok(schema, instance) -> bool:
+        try:
+            jsonschema.validate(instance=instance, schema=schema)
+        except jsonschema.ValidationError:
+            return False
+        return True
+
+    def model_ok(model, instance) -> bool:
+        try:
+            model.model_validate(instance)
+        except pydantic.ValidationError:
+            return False
+        return True
+
+    snapshot = {"kind": "snapshot", **PERF_MONITORS_RESULT}
+    window = {
+        "kind": "window",
+        "frames": 1,
+        "max_frames": 600,
+        "stats": {
+            "fps": {
+                "count": 1,
+                "min": 60.0,
+                "max": 60.0,
+                "mean": 60.0,
+                "p50": 60.0,
+                "p95": 60.0,
+            }
+        },
+        "samples": [{"frame": 0, "timestamp": 100, "values": {"fps": 60.0}}],
+    }
+    input_corpus = [
+        {},  # the bare snapshot request
+        {"frames": 5},
+        {"frames": 5, "monitors": ["fps"]},
+        # The recheck's counterexample: a selection with no window to act on.
+        {"monitors": ["fps"]},
+        {"budget": "budget.json"},
+        {"frames": None, "monitors": ["fps"]},
+    ]
+    output_corpus = [
+        snapshot,
+        window,
+        {**window, "budget": None, "passed": None},
+        # The recheck's counterexamples: a bare kind, and mixed-mode fields.
+        {"kind": "snapshot"},
+        {**snapshot, "stats": window["stats"]},
+        {**window, "timestamp": 12345},
+        # A window whose budget travels without its overall verdict.
+        {**window, "budget": {}, "passed": None},
+    ]
+    for instance in input_corpus:
+        assert schema_ok(doc["input"], instance) == model_ok(
+            PerfMonitorsParams, instance
+        ), instance
+    for instance in output_corpus:
+        assert schema_ok(doc["output"], instance) == model_ok(
+            PerfMonitorsResult, instance
+        ), instance
+    # And the direction that matters: the published schemas REJECT the
+    # counterexamples (parity alone could hold with both sides too wide).
+    assert not schema_ok(doc["input"], {"monitors": ["fps"]})
+    assert not schema_ok(doc["output"], {"kind": "snapshot"})
+    assert not schema_ok(doc["output"], {**snapshot, "stats": window["stats"]})

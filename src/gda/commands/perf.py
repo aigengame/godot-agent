@@ -169,11 +169,11 @@ class PerfMonitorResult(BaseModel):
     )
 
 
-# --- perf sample (windowed engine-monitor sampling, #662) ----------------------
+# --- perf monitors --frames (windowed engine-monitor sampling, #662) -----------
 
 # The engine performance monitors the gda harness exposes, by public name — the
 # CLI-side mirror of the harness's ``_perf_monitors`` table (gda-owned constants,
-# not engine-queried), so ``perf sample --monitor`` validates model-side
+# not engine-queried), so ``perf monitors --monitor`` validates model-side
 # (ADR-0015) and an unknown name never costs a live round trip. A sync test
 # (tests/test_error_registry.py) parses the harness table and holds the two
 # identical, the same way MAX_WINDOW_FRAMES is mirrored.
@@ -206,6 +206,39 @@ _FRAMES_DESC = (
 )
 
 
+# The params' mode rules, stated as JSON-Schema conditionals so a client can
+# CHECK them rather than read them (the #669 mouse-button-phase pattern): a
+# non-empty selection or a budget requires an integer `frames`. They mirror
+# `_check_modes` below, which stays the enforcing authority; a parity test runs
+# one corpus through the emitted schema and the model and requires the same
+# verdict, so the two cannot drift (ADR-0015: the published input contract must
+# not be wider than the ABI --params-json actually accepts).
+_PERF_MONITORS_MODE_SCHEMA: dict[str, Any] = {
+    "allOf": [
+        {
+            "if": {
+                "required": ["monitors"],
+                "properties": {"monitors": {"minItems": 1}},
+            },
+            "then": {
+                "required": ["frames"],
+                "properties": {"frames": {"type": "integer"}},
+            },
+        },
+        {
+            "if": {
+                "required": ["budget"],
+                "properties": {"budget": {"type": "string"}},
+            },
+            "then": {
+                "required": ["frames"],
+                "properties": {"frames": {"type": "integer"}},
+            },
+        },
+    ]
+}
+
+
 class PerfMonitorsParams(BaseModel):
     """The params of ``gda perf monitors``: a snapshot, or a bounded window (#223, #662).
 
@@ -218,9 +251,13 @@ class PerfMonitorsParams(BaseModel):
     statistics and, when ``budget`` is supplied, the per-monitor pass/fail
     verdicts. An empty ``monitors`` selection samples ALL monitors;
     ``monitors`` and ``budget`` require ``frames`` (refused by name otherwise —
-    a silently inert selection would be worse). Monitor names and the
-    ``frames`` bound are enforced model-side (ADR-0015).
+    a silently inert selection would be worse; the rule is also PUBLISHED as
+    schema conditionals, so a client validating against ``--schema`` reaches
+    the same verdict). Monitor names and the ``frames`` bound are enforced
+    model-side (ADR-0015).
     """
+
+    model_config = ConfigDict(json_schema_extra=_PERF_MONITORS_MODE_SCHEMA)
 
     frames: Optional[int] = Field(
         default=None, ge=1, le=MAX_WINDOW_FRAMES, description=_FRAMES_DESC
@@ -273,17 +310,20 @@ class PerfBudget(BaseModel):
     ``stat`` is REQUIRED — a defaulted statistic would let a release gate pass
     against a number nobody chose. The rule passes when the statistic is >= the
     ``min`` bound (if set) and <= the ``max`` bound (if set). Bounds must be
-    FINITE: an infinity (a JSON ``Infinity`` literal, or an exponent-overflow
-    like ``1e999``) or a ``NaN`` is not a representable gate — a rule that can
-    only ever pass (or never) is a misconfiguration, and the public result
-    could not even serialize the bound (JSON has no infinity).
+    JSON NUMBERS (integer or fractional; STRICT — a quoted ``"10"`` or a
+    boolean is refused, never coerced into a gate nobody wrote), must be
+    FINITE (an infinity — a JSON ``Infinity`` literal or an exponent-overflow
+    like ``1e999`` — or a ``NaN`` is not a representable gate, and the public
+    result could not even serialize it), and must form a POSSIBLE interval
+    (``min <= max`` when both are set — a gate no observation can satisfy is a
+    misconfiguration, not a performance failure).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     stat: BudgetStat
-    min: float | None = None
-    max: float | None = None
+    min: float | None = Field(default=None, strict=True)
+    max: float | None = Field(default=None, strict=True)
 
     @model_validator(mode="after")
     def _bounds_are_usable(self) -> "PerfBudget":
@@ -294,6 +334,11 @@ class PerfBudget(BaseModel):
                 raise ValueError(
                     f"budget bound '{label}' must be a finite number, not {bound!r}."
                 )
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError(
+                f"budget bounds form an impossible interval: min {self.min} > "
+                f"max {self.max}."
+            )
         return self
 
 
@@ -313,7 +358,7 @@ class PerfSampleStats(BaseModel):
 
 
 class PerfSampleFrame(BaseModel):
-    """One per-frame row of a ``perf sample`` window: every selected monitor at one frame."""
+    """One per-frame row of a ``perf monitors --frames`` window: every selected monitor at one frame."""
 
     frame: int = Field(ge=0, description="The 0-based frame index within the window.")
     timestamp: int = Field(description="Engine time the row was sampled (ms).")
@@ -336,6 +381,66 @@ class PerfBudgetVerdict(BaseModel):
     passed: bool = Field(description="Whether the value satisfied both bounds.")
 
 
+# The result's mode split, stated as JSON Schema so a client — and gda-mcp,
+# whose wire schemas derive from this model (ADR-0004) — cannot accept a shape
+# the runtime would refuse: each mode requires its own fields and pins the
+# other's to null, and a window's budget/passed travel together. Mirrors
+# `_mode_fields` below (the enforcing authority); the parity test holds the
+# two to the same verdict.
+_PERF_MONITORS_RESULT_MODE_SCHEMA: dict[str, Any] = {
+    "oneOf": [
+        {
+            "required": ["kind", "timestamp", "monitors"],
+            "properties": {
+                "kind": {"const": "snapshot"},
+                "timestamp": {"type": "integer"},
+                "monitors": {"type": "object"},
+                "frames": {"type": "null"},
+                "max_frames": {"type": "null"},
+                "stats": {"type": "null"},
+                "samples": {"type": "null"},
+                "budget": {"type": "null"},
+                "passed": {"type": "null"},
+            },
+        },
+        {
+            "required": ["kind", "frames", "max_frames", "stats", "samples"],
+            "properties": {
+                "kind": {"const": "window"},
+                "timestamp": {"type": "null"},
+                "monitors": {"type": "null"},
+                "frames": {"type": "integer"},
+                "max_frames": {"type": "integer"},
+                "stats": {"type": "object"},
+                "samples": {"type": "array"},
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "required": ["budget"],
+                        "properties": {"budget": {"type": "object"}},
+                    },
+                    "then": {
+                        "required": ["passed"],
+                        "properties": {"passed": {"type": "boolean"}},
+                    },
+                },
+                {
+                    "if": {
+                        "required": ["passed"],
+                        "properties": {"passed": {"type": "boolean"}},
+                    },
+                    "then": {
+                        "required": ["budget"],
+                        "properties": {"budget": {"type": "object"}},
+                    },
+                },
+            ],
+        },
+    ]
+}
+
+
 class PerfMonitorsResult(BaseModel):
     """The result of ``gda perf monitors``: a snapshot, or a window's statistics (#223, #662).
 
@@ -345,9 +450,13 @@ class PerfMonitorsResult(BaseModel):
     per-window ceiling the bound inherits), ``stats`` (aggregates per monitor),
     ``samples`` (the raw timestamped rows the aggregates were computed from),
     and — with a budget — ``budget`` verdicts plus the overall ``passed``. Each
-    mode's field set is VALIDATED, not merely described: a payload mixing the
-    modes fails output validation rather than passing through.
+    mode's field set is VALIDATED, not merely described — a payload mixing the
+    modes fails output validation rather than passing through — and the same
+    split is PUBLISHED as schema, so a client checking ``--schema`` (or the
+    gda-mcp wire schema derived from it) reaches the verdict the runtime does.
     """
+
+    model_config = ConfigDict(json_schema_extra=_PERF_MONITORS_RESULT_MODE_SCHEMA)
 
     kind: Literal["snapshot", "window"] = Field(
         description="The mode: 'snapshot' (one frame) or 'window' (a bounded window)."
@@ -565,6 +674,15 @@ def _load_budgets(path: Path) -> "dict[str, PerfBudget] | Failure":
         # JSONDecodeError and the two admission hooks above all raise ValueError.
         return make_failure(
             "invalid_params", f"the budget file {path} is not valid JSON: {exc}", ""
+        )
+    except RecursionError:
+        # A pathologically nested document blows the decoder's stack, which is
+        # not a ValueError — without this arm it would escape the structured
+        # failure contract as a raw traceback.
+        return make_failure(
+            "invalid_params",
+            f"the budget file {path} nests too deeply to be a budget.",
+            "",
         )
     if not isinstance(raw, dict) or not raw:
         return make_failure(
