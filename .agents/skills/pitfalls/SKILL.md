@@ -66,9 +66,5 @@ the old record.
 The primary worker should edit `PITFALLS.md`. Parallel subagents should report candidate
 entries to the primary worker so concurrent edits do not create duplicates.
 
-`STATE.md` can point to a relevant catalog entry when it helps the immediate next work.
-It should not copy durable operational guidance from `PITFALLS.md`.
-
-Do not add telemetry, an incident ledger, occurrence counters, an index, a database, or
-a CI gate for this catalog without a separate demonstrated need. Do not auto-commit the
-document; normal task authorization still controls Git and external actions.
+If `STATE.md` exists, it can point to a relevant catalog entry when that entry helps the
+immediate next work. It should not copy durable operational guidance from `PITFALLS.md`.
