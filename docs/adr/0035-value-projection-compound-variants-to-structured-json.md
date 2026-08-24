@@ -138,8 +138,21 @@ get-exports`, and the live `game get` read (and any future live value-returning 
 > threads through the shared projection): computing it needs `Texture2D.get_image()`, a GPU-to-CPU
 > readback on the live side, so every ordinary read keeps it `null`. When requested it is
 > `"sha256:"` + the hex digest over the image's dimensions, format, and raw bytes; an image the
-> engine cannot read back keeps `null`. The same projection serves headless and live reads (one
+> engine cannot read back keeps `null`. The field is **required-but-nullable** — the producer
+> always emits the key. The same projection serves headless and live reads (one
 > value shape everywhere); the headless read commands do not expose the opt-in flag today — a
 > path-less texture only exists where runtime code constructed one, so on the headless side the
 > digest field is always `null`. The mirrored shared-coercion block and
 > `tests/test_harness_coercion_mirror.py` are preserved.
+>
+> Two boundary rules complete the kind. **Path-less means EMPTY**: a non-empty, non-`res://`
+> `resource_path` (a `user://` path, `take_over_path`) stays the string fallback it always was —
+> only the empty path takes this kind. **`object_string` is a reserved key**: the inline value
+> projection's exclusion list drops a whitelisted class's own storage property of that name rather
+> than copying it, so the presence-based discrimination cannot be spoofed by a custom
+> `@export var object_string`. And the live-side risk story now has **two controls, stated
+> explicitly**: the inline whitelist remains the boundary for projections that EMIT STORAGE
+> PROPERTIES (this ADR's original rule, unchanged for that kind), while the texture kind is safe by
+> CONSTRUCTION — a fixed shape read off cheap getters, with the one expensive operation
+> (`get_image()`) behind the explicit digest opt-in. The historical whitelist prose above is
+> preserved as written; it now governs the inline kind specifically.

@@ -186,8 +186,10 @@ fallback** for anything else. One projection shared across **every value gda
 emits** — the `get` reads (`project`/`node`/`resource get`), the value echoed by
 `node set`/`resource set`, the per-entry value of `project list` and `scene
 get-exports`, and the live `game get` read — so a value reads the same
-everywhere; the whitelist is the boundary that keeps the shared projection safe
-on the live side (ADR-0035).
+everywhere. Two controls keep the shared projection safe on the live side: the
+whitelist bounds the kinds that emit storage properties (inline), and the
+texture kind is safe by construction — a fixed getter shape with its one
+expensive readback behind the explicit digest opt-in (ADR-0035).
 _Avoid_: value rendering, str dump, serialization, descriptor
 
 ### Failure reporting

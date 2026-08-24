@@ -641,8 +641,11 @@ class InlineValueProjection(BaseModel):
     properties, each re-projected>}``. The ``Object``/``Resource`` base
     bookkeeping (``resource_path``, ``resource_name``,
     ``resource_local_to_scene``, ``script``) is excluded — so an inline
-    projection never masquerades as a :class:`ReferenceProjection` — and the
-    ``type`` discriminator is assigned last, shadowing any storage property of
+    projection never masquerades as a :class:`ReferenceProjection` — and so is
+    the RESERVED key ``object_string`` (#666): only a
+    :class:`TextureProjection` emits it, so an inline class's own storage
+    property of that name is dropped rather than copied. The ``type``
+    discriminator is assigned last, shadowing any storage property of
     that name. The storage properties vary per class, hence ``extra="allow"``.
     """
 
@@ -677,11 +680,11 @@ class TextureProjection(BaseModel):
         )
     )
     digest: str | None = Field(
-        default=None,
         description=(
             "'sha256:' + the hex digest over the image's dimensions, format, "
-            "and raw bytes — null unless the read opted in (--texture-digest) "
-            "or when the engine cannot read the image back."
+            "and raw bytes — always PRESENT, and null unless the read opted "
+            "in (--texture-digest) or when the engine cannot read the image "
+            "back (required-but-nullable: the producer always emits the key)."
         ),
     )
 

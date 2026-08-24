@@ -227,6 +227,18 @@ def test_game_get_schema_names_the_texture_projection(monkeypatch):
     texture = defs["TextureProjection"]["properties"]
     assert set(texture) == {"type", "width", "height", "object_string", "digest"}
     assert "resource_path" not in texture
+    # digest is required-but-nullable (#736 review): the producer always emits
+    # the key, so a payload missing it must fail the published shape — while
+    # null stays a legal value (the opt-in absent, or readback unavailable).
+    assert set(defs["TextureProjection"]["required"]) == {
+        "type",
+        "width",
+        "height",
+        "object_string",
+        "digest",
+    }
+    digest_branch = defs["TextureProjection"]["properties"]["digest"]["anyOf"]
+    assert {"type": "null"} in digest_branch
 
 
 def test_game_get_missing_node_reports_live_node_not_found(monkeypatch, tmp_path):

@@ -795,3 +795,43 @@ def test_ready_gates_on_template_feature_as_its_first_statement():
             break
     assert body[0] == 'if OS.has_feature("template"):', body
     assert body[1] == "return", body
+
+
+# The bundled harness bytes, PINNED to the version that declares them (#736
+# review follow-up). W4 changed gda_harness.gd three times (#732, #735, #736)
+# while HARNESS_VERSION stayed "7": the sync path never noticed, because its
+# decision is a CONTENT compare — which is exactly why the omission was silent.
+# This pin makes it loud. Updating it is part of every harness change:
+#   1. edit gda_harness.gd;
+#   2. bump HARNESS_VERSION in src/gda/harness/install.py;
+#   3. update BOTH pins below (the test's failure message carries the new hash).
+PINNED_HARNESS_VERSION = "8"
+PINNED_HARNESS_SHA256 = (
+    "cd1993632ba8eb308c9a2990d9a5c2570aa6bbbcc0e2e5f5845213e024d867aa"
+)
+
+
+def test_bundled_harness_bytes_are_pinned_to_the_declared_version():
+    # Two failure directions, each with its own instruction:
+    # - the harness bytes changed but HARNESS_VERSION did not -> the hash
+    #   mismatches: bump the version AND re-pin;
+    # - HARNESS_VERSION was bumped but this pin was not -> the version
+    #   mismatches: re-pin to the new (version, hash) pair.
+    import hashlib
+    from pathlib import Path
+
+    from gda.harness import install
+
+    bundled = Path(install.__file__).parent / HARNESS_FILE
+    digest = hashlib.sha256(bundled.read_bytes()).hexdigest()
+
+    assert HARNESS_VERSION == PINNED_HARNESS_VERSION, (
+        f"HARNESS_VERSION is {HARNESS_VERSION!r} but this pin says "
+        f"{PINNED_HARNESS_VERSION!r}: update PINNED_HARNESS_VERSION and "
+        f"PINNED_HARNESS_SHA256 (current bytes: {digest})."
+    )
+    assert digest == PINNED_HARNESS_SHA256, (
+        f"the bundled gda_harness.gd changed (sha256 {digest}) without a "
+        "version bump: bump HARNESS_VERSION in src/gda/harness/install.py and "
+        "update PINNED_HARNESS_VERSION / PINNED_HARNESS_SHA256 in this file."
+    )

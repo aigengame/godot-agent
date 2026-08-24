@@ -5425,12 +5425,17 @@ func _type_name(type: int) -> String:
 # the backstop against a pathological self-referential Dictionary live-side.
 const JSONIFY_MAX_DEPTH := 16
 
-# The Object/Resource base bookkeeping properties an inline value projection
-# excludes (ADR-0035): every InputEvent IS a Resource, so without the exclusion
-# a path-less value Object would emit an empty resource_path and masquerade as
-# a reference projection; the exclusion also drops noise.
+# The properties an inline value projection excludes (ADR-0035): the
+# Object/Resource base bookkeeping — every InputEvent IS a Resource, so
+# without the exclusion a path-less value Object would emit an empty
+# resource_path and masquerade as a reference projection (and the rest is
+# noise) — plus the RESERVED discriminator key `object_string` (#666): only
+# the texture projection emits it, so an inline class's own storage property
+# of that name is dropped, not copied — otherwise a presence-based consumer
+# would misclassify the inline projection as a texture.
 const JSONIFY_BOOKKEEPING_PROPS: Array[String] = [
 	"resource_path", "resource_name", "resource_local_to_scene", "script",
+	"object_string",
 ]
 
 # The read-side Value projection (ADR-0035, grown from issue #55): render a
@@ -5496,8 +5501,10 @@ func _jsonify(value: Variant, depth: int = 0, texture_digest: bool = false) -> V
 			# Texture projection (#666, ADR-0035 amendment): a PATH-LESS Texture2D
 			# — a runtime-created texture (ImageTexture.create_from_image) has no
 			# res:// path, so the reference arm above cannot name it and the string
-			# fallback's instance ID cannot say what it shows. A fixed shape read
-			# off cheap getters: class + dimensions. `object_string` keeps the old
+			# fallback's instance ID cannot say what it shows. PATH-LESS only:
+			# a non-empty, non-res:// path (user://, take_over_path) stays the
+			# string fallback it always was — #666's scope is the empty path. A
+			# fixed shape read off cheap getters: class + dimensions. `object_string` keeps the old
 			# str() form as secondary diagnostics and is this kind's DISCRIMINATOR
 			# (no other object shape emits it; `resource_path` stays
 			# reference-only, not even null here). `digest` is opt-in
@@ -5505,7 +5512,7 @@ func _jsonify(value: Variant, depth: int = 0, texture_digest: bool = false) -> V
 			# side, not a price every read should pay; an image the engine cannot
 			# read back keeps digest null. Dimensions and format prefix the hashed
 			# bytes so same-bytes textures of different shapes do not collide.
-			if value is Texture2D:
+			if value is Texture2D and String(value.resource_path).is_empty():
 				var texture_projection := {
 					"type": value.get_class(),
 					"width": value.get_width(),
