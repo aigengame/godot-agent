@@ -718,8 +718,8 @@ class NodeProperty(BaseModel):
     value projection (ADR-0035) — left as arbitrary JSON so every Godot type
     is carried uniformly through one field: a scalar stays a scalar, a Vector2
     becomes ``[x, y]``, a Dictionary a JSON object, an Object a
-    :class:`ReferenceProjection` / :class:`InlineValueProjection` / ``str()``
-    fallback.
+    :class:`ReferenceProjection` / :class:`TextureProjection` /
+    :class:`InlineValueProjection` / ``str()`` fallback.
     """
 
     name: str

@@ -128,11 +128,13 @@ get-exports`, and the live `game get` read (and any future live value-returning 
 >    texture projection carries its own discriminator instead: the presence of **`object_string`**,
 >    which the other object shapes never emit. It does NOT emit `resource_path` (not even null), so
 >    the reference branch stays unambiguous.
-> 3. **"A curated per-type field table — rejected"** — still rejected. The texture projection is a
->    **new projection kind** (like the reference kind, a fixed shape read off getters), not a
->    whitelist entry: the inline kind emits storage properties, and `Texture2D`'s dimensions are
->    getters while `ImageTexture`'s storage property is a large `image` payload — exactly the
->    live-side risk the whitelist isolates.
+> 3. **"A curated per-type field table — rejected"** — superseded **narrowly, for this one type**,
+>    per the issue's triage decision, which this dated note records: the GENERAL curated-table
+>    mechanism (a registry of per-class field maps) remains rejected, and the fixed `Texture2D`
+>    projector is its one narrow exception — a **new projection kind** (like the reference kind, a
+>    fixed shape read off getters), not a whitelist entry: the inline kind emits storage
+>    properties, and `Texture2D`'s dimensions are getters while `ImageTexture`'s storage property
+>    is a large `image` payload — exactly the live-side risk the whitelist isolates.
 >
 > `digest` is an **explicit opt-in** (`game get --texture-digest`; the wire param `texture_digest`
 > threads through the shared projection): computing it needs `Texture2D.get_image()`, a GPU-to-CPU

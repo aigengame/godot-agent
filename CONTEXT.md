@@ -187,9 +187,9 @@ emits** — the `get` reads (`project`/`node`/`resource get`), the value echoed 
 `node set`/`resource set`, the per-entry value of `project list` and `scene
 get-exports`, and the live `game get` read — so a value reads the same
 everywhere. Two controls keep the shared projection safe on the live side: the
-whitelist bounds the kinds that emit storage properties (inline), and the
-texture kind is safe by construction — a fixed getter shape with its one
-expensive readback behind the explicit digest opt-in (ADR-0035).
+whitelist bounds the Object classes whose storage properties the inline kind
+emits, and the texture kind is safe by construction — a fixed getter shape
+with its one expensive readback behind the explicit digest opt-in (ADR-0035).
 _Avoid_: value rendering, str dump, serialization, descriptor
 
 ### Failure reporting

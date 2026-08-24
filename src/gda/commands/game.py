@@ -120,11 +120,15 @@ class GameGetResult(BaseModel):
     its storage properties, each a typed :class:`NodeProperty`; an explicitly named
     plain attached-script variable can also appear as the single returned property.
     Each value goes through the same recursive value projection the headless reads
-    use (ADR-0035): compound values arrive structured, and a whitelisted value Object
-    (an ``InputEvent`` subclass) as an :class:`InlineValueProjection` — while a
-    NON-whitelisted runtime Object (e.g. a live ``Node``-valued property) stays the
-    ``str()`` fallback, the whitelist being the boundary that keeps the shared
-    projection safe on the live side.
+    use (ADR-0035): compound values arrive structured; a ``res://``-pathed Resource
+    is a :class:`ReferenceProjection`, a path-less ``Texture2D`` a
+    :class:`TextureProjection` (#666), a whitelisted value Object
+    (an ``InputEvent`` subclass) an :class:`InlineValueProjection` — while any
+    other runtime Object (e.g. a live ``Node``-valued property) stays the
+    ``str()`` fallback. The whitelist bounds the Object classes whose storage
+    properties the inline kind emits; the texture kind is safe by construction
+    (a fixed getter shape, its one expensive readback behind
+    ``--texture-digest``).
     """
 
     path: str = Field(description="The addressed node's runtime (absolute) path.")
