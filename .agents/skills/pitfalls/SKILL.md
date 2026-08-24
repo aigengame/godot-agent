@@ -14,21 +14,16 @@ limits as universal project policy.
 ### 1. Before work: load applicable guidance
 
 1. Read `PITFALLS.md` if it exists so its relevant entries are in the working context.
-2. Inspect the current environment and planned tool calls. Find entries that could apply.
-3. Compare each entry's `Applies when` condition with the current harness. Use its
-   `Prevention` guidance only when the condition matches.
+2. Reuse an entry when the current harness and tool call match its context.
 
 If the file does not exist, continue normally. Create it only when phase 3 produces a
 verified, reusable entry.
 
-### 2. During work: recognize and handle known pitfalls
+### 2. During work: apply or extend the guidance
 
-1. When a tool call fails, search the catalog for a matching symptom and cause.
-2. Check the entry's `Applies when` condition again. If it matches, use the documented
-   `Recovery` guidance and verify the result.
-3. If no entry matches, or the documented recovery does not work, investigate the
-   current failure instead of forcing it into an existing entry. Treat it as a candidate
-   for phase 3 only after evidence supports its cause and workaround.
+Apply a relevant entry when its situation occurs. If no entry applies, or its guidance
+does not work, investigate the failure and carry it to phase 3 only after evidence
+supports the cause and workaround.
 
 ### 3. After work: record new guidance
 
