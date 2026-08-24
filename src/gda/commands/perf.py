@@ -26,11 +26,19 @@ time-windowed multi-frame harness base, ADR-0020).
 
 import json
 import math
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional
+from typing import Annotated, Any, Callable, Literal, Optional
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_validator,
+)
 
 from gda import dispatch
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
@@ -171,30 +179,65 @@ class PerfMonitorResult(BaseModel):
 
 # --- perf monitors --frames (windowed engine-monitor sampling, #662) -----------
 
+
 # The engine performance monitors the gda harness exposes, by public name — the
 # CLI-side mirror of the harness's ``_perf_monitors`` table (gda-owned constants,
 # not engine-queried), so ``perf monitors --monitor`` validates model-side
 # (ADR-0015) and an unknown name never costs a live round trip. A sync test
 # (tests/test_error_registry.py) parses the harness table and holds the two
 # identical, the same way MAX_WINDOW_FRAMES is mirrored.
-PERF_MONITOR_NAMES: tuple[str, ...] = (
-    "fps",
-    "process_time",
-    "physics_process_time",
-    "static_memory",
-    "static_memory_max",
-    "object_count",
-    "node_count",
-    "orphan_node_count",
-    "resource_count",
-    "draw_calls",
-    "objects_in_frame",
-    "primitives_in_frame",
-    "video_memory",
-    "physics_2d_active_objects",
-    "physics_3d_active_objects",
-    "navigation_active_maps",
-)
+class PerfMonitorName(StrEnum):
+    """The engine performance monitors the gda harness exposes, by public name.
+
+    The ONE authority for the vocabulary (#735 recheck 2): the params type the
+    schema enumerates, the mirrored tuple below, and the harness sync test all
+    derive from these members, so an unknown name fails the published input
+    contract exactly as ``--params-json`` refuses it.
+    """
+
+    fps = "fps"
+    process_time = "process_time"
+    physics_process_time = "physics_process_time"
+    static_memory = "static_memory"
+    static_memory_max = "static_memory_max"
+    object_count = "object_count"
+    node_count = "node_count"
+    orphan_node_count = "orphan_node_count"
+    resource_count = "resource_count"
+    draw_calls = "draw_calls"
+    objects_in_frame = "objects_in_frame"
+    primitives_in_frame = "primitives_in_frame"
+    video_memory = "video_memory"
+    physics_2d_active_objects = "physics_2d_active_objects"
+    physics_3d_active_objects = "physics_3d_active_objects"
+    navigation_active_maps = "navigation_active_maps"
+
+
+PERF_MONITOR_NAMES: tuple[str, ...] = tuple(member.value for member in PerfMonitorName)
+
+
+def _json_integer(value: object) -> object:
+    """Admit exactly what JSON Schema's ``integer`` admits (#735 recheck 2).
+
+    Pydantic's lax ``int`` coerces ``"5"`` and ``true`` — objects the emitted
+    schema rejects — while its STRICT ``int`` refuses ``5.0``, which JSON
+    Schema's ``integer`` accepts (any number with a zero fractional part). The
+    published contract and the verbatim ``--params-json`` ABI must admit the
+    SAME objects (ADR-0015), so this validator implements the schema's
+    semantics: integers and integral floats pass, booleans and strings do not.
+    """
+    if isinstance(value, bool):
+        raise ValueError("must be a JSON integer, not a boolean")
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value)
+        raise ValueError("must be a JSON integer (no fractional part)")
+    if value is None or isinstance(value, int):
+        return value
+    raise ValueError("must be a JSON integer")
+
+
+JsonInteger = Annotated[int, BeforeValidator(_json_integer)]
 
 # The statistics a budget rule may gate on — the aggregate set minus ``count``,
 # which counts frames rather than measuring the monitor.
@@ -259,10 +302,10 @@ class PerfMonitorsParams(BaseModel):
 
     model_config = ConfigDict(json_schema_extra=_PERF_MONITORS_MODE_SCHEMA)
 
-    frames: Optional[int] = Field(
+    frames: Optional[JsonInteger] = Field(
         default=None, ge=1, le=MAX_WINDOW_FRAMES, description=_FRAMES_DESC
     )
-    monitors: list[str] = Field(
+    monitors: list[PerfMonitorName] = Field(
         default_factory=list,
         description=(
             "The performance monitors to sample (repeatable; window mode only); "
@@ -292,12 +335,8 @@ class PerfMonitorsParams(BaseModel):
             raise ValueError(
                 "'budget' gates a WINDOW's statistics; pass 'frames' to open one."
             )
-        unknown = [name for name in self.monitors if name not in PERF_MONITOR_NAMES]
-        if unknown:
-            raise ValueError(
-                f"unknown performance monitor(s) {unknown}; known: "
-                f"{list(PERF_MONITOR_NAMES)}."
-            )
+        # An unknown name is refused by the PerfMonitorName enum itself (one
+        # schema-derived authority), so no name check is repeated here.
         # A repeated name is idempotent (the same counter read once per frame),
         # so it is normalized away rather than refused.
         self.monitors = list(dict.fromkeys(self.monitors))
@@ -784,7 +823,7 @@ def run_perf_monitors_operation(
             f"{params.frames}-frame request.",
             "",
         )
-    expected = params.monitors or list(PERF_MONITOR_NAMES)
+    expected = [str(name) for name in params.monitors] or list(PERF_MONITOR_NAMES)
     if reply.monitors != expected:
         return make_failure(
             "contract_violation",

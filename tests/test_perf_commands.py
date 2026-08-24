@@ -442,9 +442,18 @@ def test_perf_monitor_schema_reports_kind_live_and_is_self_describing():
 # --- perf monitors --frames (the #662 window mode: statistics + budgets) -------
 
 
-def _budget_file(tmp_path, content: str):
-    path = tmp_path / "budget.json"
-    path.write_text(content, encoding="utf-8")
+def _budget_file(tmp_path, name: str, content: str | bytes):
+    """Write ONE budget case to its OWN file (#735 recheck 2).
+
+    A single shared filename let every case alias the last content written, so
+    the admission table silently stopped covering its branches; a unique name
+    per case keeps each entry pointing at its own bytes.
+    """
+    path = tmp_path / name
+    if isinstance(content, bytes):
+        path.write_bytes(content)
+    else:
+        path.write_text(content, encoding="utf-8")
     return path
 
 
@@ -542,6 +551,7 @@ def test_perf_monitors_window_budget_verdicts_pass_and_fail(monkeypatch, tmp_pat
     )
     budget = _budget_file(
         tmp_path,
+        "verdicts.json",
         '{"fps": {"stat": "p50", "min": 60}, '
         '"draw_calls": {"stat": "p95", "max": 100}}',
     )
@@ -587,7 +597,9 @@ def test_perf_monitors_selection_and_budget_require_frames(monkeypatch, tmp_path
     )
 
     monitor_only = _window(tmp_path, "--monitor", "fps")
-    budget_only = _window(tmp_path, "--budget", str(_budget_file(tmp_path, "{}")))
+    budget_only = _window(
+        tmp_path, "--budget", str(_budget_file(tmp_path, "modeless.json", "{}"))
+    )
     params_json = CliRunner().invoke(
         app,
         [
@@ -652,48 +664,64 @@ def test_perf_monitors_window_budget_file_problems_are_invalid_params(
         RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
     )
 
-    not_utf8 = tmp_path / "not-utf8.json"
-    not_utf8.write_bytes(b'{"fps": {"stat": "p50", "min": 6\xff}}')
-    problems = [
-        str(tmp_path / "missing.json"),
-        str(_budget_file(tmp_path, "not json")),
-        str(_budget_file(tmp_path, '{"fpss": {"stat": "p50", "min": 60}}')),
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50"}}')),
-        str(_budget_file(tmp_path, '{"fps": {"stat": "count", "min": 1}}')),
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": 60, "top": 1}}')),
-        # Duplicate keys: top-level and nested (#735 review).
-        str(
-            _budget_file(
-                tmp_path,
-                '{"fps": {"stat": "p50", "min": 100}, '
-                '"fps": {"stat": "p50", "min": 0}}',
-            )
+    cases = [
+        ("missing.json", None, "cannot read"),
+        ("not-json.json", "not json", "not valid JSON"),
+        (
+            "unknown-monitor.json",
+            '{"fpss": {"stat": "p50", "min": 60}}',
+            "unknown performance monitor",
         ),
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": 1, "min": 0}}')),
+        ("no-bound.json", '{"fps": {"stat": "p50"}}', "'min' and/or 'max'"),
+        ("bad-stat.json", '{"fps": {"stat": "count", "min": 1}}', "stat"),
+        ("foreign-key.json", '{"fps": {"stat": "p50", "min": 60, "top": 1}}', "top"),
+        # Duplicate keys: top-level and nested (#735 review) — json.loads'
+        # silent last-key-wins must not erase a real gate.
+        (
+            "dup-top.json",
+            '{"fps": {"stat": "p50", "min": 100}, "fps": {"stat": "p50", "min": 0}}',
+            "duplicate key",
+        ),
+        (
+            "dup-nested.json",
+            '{"fps": {"stat": "p50", "min": 1, "min": 0}}',
+            "duplicate key",
+        ),
         # Non-finite bounds: JSON-extension constants and exponent overflow.
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": -Infinity}}')),
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": Infinity}}')),
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": NaN}}')),
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": 1e999}}')),
-        str(not_utf8),
+        ("neg-inf.json", '{"fps": {"stat": "p50", "min": -Infinity}}', "non-finite"),
+        ("pos-inf.json", '{"fps": {"stat": "p50", "min": Infinity}}', "non-finite"),
+        ("nan.json", '{"fps": {"stat": "p50", "min": NaN}}', "non-finite"),
+        ("overflow.json", '{"fps": {"stat": "p50", "min": 1e999}}', "finite number"),
         # Strict JSON numbers (#735 recheck): a quoted "10" or a boolean must
         # not be coerced into a gate nobody wrote.
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": "10"}}')),
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": true}}')),
+        ("string-bound.json", '{"fps": {"stat": "p50", "min": "10"}}', "number"),
+        ("bool-bound.json", '{"fps": {"stat": "p50", "min": true}}', "number"),
         # An impossible interval (#735 recheck): min > max can only ever fail,
         # which would misreport a config mistake as a performance failure.
-        str(_budget_file(tmp_path, '{"fps": {"stat": "p50", "min": 100, "max": 50}}')),
+        (
+            "impossible.json",
+            '{"fps": {"stat": "p50", "min": 100, "max": 50}}',
+            "impossible interval",
+        ),
         # A pathologically nested document (#735 recheck): the decoder's
         # RecursionError must land in the same structured failure, not escape
         # as a raw traceback.
-        str(_budget_file(tmp_path, '{"fps": ' + "[" * 20000 + "]" * 20000 + "}")),
+        ("deep.json", '{"fps": ' + "[" * 20000 + "]" * 20000 + "}", "nests too deeply"),
+        # A mis-encoded file is a structured error, not a UnicodeDecodeError.
+        ("not-utf8.json", b'{"fps": {"stat": "p50", "min": 6\xff}}', "not valid UTF-8"),
     ]
-    for budget in problems:
-        result = _window(tmp_path, "--frames", "5", "--budget", budget)
-        assert json.loads(result.stdout)["error"]["code"] == "invalid_params", (
-            budget,
-            result.stdout,
+    for name, content, fragment in cases:
+        budget = (
+            str(tmp_path / name)
+            if content is None
+            else str(_budget_file(tmp_path, name, content))
         )
+        result = _window(tmp_path, "--frames", "5", "--budget", budget)
+        error = json.loads(result.stdout)["error"]
+        assert error["code"] == "invalid_params", (name, result.stdout)
+        # Each case must fail for ITS OWN reason — this is what the aliased
+        # single-file table could not prove (#735 recheck 2).
+        assert fragment in error["message"], (name, error["message"])
     assert fake.calls == []
 
 
@@ -706,7 +734,9 @@ def test_perf_monitors_window_budget_outside_the_selection_is_invalid_params(
         monkeypatch,
         RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
     )
-    budget = _budget_file(tmp_path, '{"draw_calls": {"stat": "p95", "max": 100}}')
+    budget = _budget_file(
+        tmp_path, "outside.json", '{"draw_calls": {"stat": "p95", "max": 100}}'
+    )
 
     result = _window(
         tmp_path, "--frames", "5", "--monitor", "fps", "--budget", str(budget)
@@ -908,6 +938,13 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
         {"monitors": ["fps"]},
         {"budget": "budget.json"},
         {"frames": None, "monitors": ["fps"]},
+        # Recheck 2 (#735): the bidirectional mismatches — an unknown monitor
+        # the schema used to accept, and the lax coercions the schema refused.
+        {"frames": 5, "monitors": ["fpss"]},
+        {"frames": "5"},
+        {"frames": True},
+        # JSON Schema's `integer` admits a zero-fraction float; so must the ABI.
+        {"frames": 5.0},
     ]
     output_corpus = [
         snapshot,
@@ -929,7 +966,12 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
             PerfMonitorsResult, instance
         ), instance
     # And the direction that matters: the published schemas REJECT the
-    # counterexamples (parity alone could hold with both sides too wide).
+    # counterexamples (parity alone could hold with both sides too wide) —
+    # and the runtime rejects what the schema rejects (recheck 2's lax pair).
     assert not schema_ok(doc["input"], {"monitors": ["fps"]})
+    assert not schema_ok(doc["input"], {"frames": 5, "monitors": ["fpss"]})
+    assert not model_ok(PerfMonitorsParams, {"frames": "5"})
+    assert not model_ok(PerfMonitorsParams, {"frames": True})
+    assert model_ok(PerfMonitorsParams, {"frames": 5.0})
     assert not schema_ok(doc["output"], {"kind": "snapshot"})
     assert not schema_ok(doc["output"], {**snapshot, "stats": window["stats"]})
