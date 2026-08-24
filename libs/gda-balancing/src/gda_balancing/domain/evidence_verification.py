@@ -5,6 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, cast
 
+from gda_balancing.domain.diagnostics import (
+    ArtifactLocation,
+    Schema2Diagnostic,
+    Schema2RefusalReport,
+    bound_diagnostics,
+    reason_by_id,
+)
+
 
 @dataclass(frozen=True)
 class EvidenceSubject:
@@ -42,7 +50,7 @@ class EvidenceGraphProjectionInput:
     kernel: Mapping[str, Any]
     language_bundle: Mapping[str, Any]
     model_source_identity: str
-    model_build_receipt_identity: str
+    model_build_artifact_set_receipt_identity: str
     model_artifacts: Mapping[str, Mapping[str, Any]]
     experiment_identity: str
     experiment: Mapping[str, Any]
@@ -69,7 +77,65 @@ class EvidenceVerificationIssue:
     message: str
 
 
-def _issue(kind: str, subject: str, message: str) -> EvidenceVerificationIssue:
+def evidence_verification_refusal(
+    issues: tuple[EvidenceVerificationIssue, ...],
+    language_bundle: dict[str, Any],
+    identities: Mapping[str, str],
+) -> Schema2RefusalReport:
+    """Project Domain-owned Evidence issues into one bounded refusal."""
+    diagnostics: list[Schema2Diagnostic] = []
+    for issue in issues:
+        reason = reason_by_id(language_bundle, issue.reason)
+        role = issue.subject.split("->", 1)[0].split(",", 1)[0]
+        diagnostics.append(
+            Schema2Diagnostic(
+                code=cast(str, reason["diagnostic"]),
+                message=issue.message,
+                primary=ArtifactLocation(
+                    content_identity=identities.get(role, "unidentified"),
+                    pointer="/prerequisites/" + issue.subject.replace("->", "/"),
+                ),
+            )
+        )
+    bounded, truncated = bound_diagnostics(
+        diagnostics,
+        cast(int, language_bundle["resources"]["max_diagnostics"]),
+    )
+    return Schema2RefusalReport(
+        stage="evaluation",
+        diagnostics=bounded,
+        truncated=truncated,
+    )
+
+
+def unknown_evidence_claim_kind_refusal(
+    language_bundle: dict[str, Any], claim_kind: str
+) -> Schema2RefusalReport:
+    """Refuse a claim kind that the admitted LDB does not own."""
+    reason = reason_by_id(
+        language_bundle,
+        "evaluation.reason.unknown-evidence-claim-kind",
+    )
+    return Schema2RefusalReport(
+        stage="evaluation",
+        diagnostics=(
+            Schema2Diagnostic(
+                code=cast(str, reason["diagnostic"]),
+                message=f"Unknown Evidence claim kind: {claim_kind}",
+                primary=ArtifactLocation(
+                    content_identity="unidentified",
+                    pointer="/claim_kind",
+                ),
+            ),
+        ),
+        truncated=False,
+    )
+
+
+def evidence_verification_issue(
+    kind: str, subject: str, message: str
+) -> EvidenceVerificationIssue:
+    """Create one LDB-addressable Evidence prerequisite issue."""
     return EvidenceVerificationIssue(
         reason=f"evaluation.reason.evaluable-{kind}-prerequisite",
         subject=subject,
@@ -118,7 +184,7 @@ def project_evidence_graph(
         "language-bundle": cast(str, inp.language_bundle["content_identity"]),
         "model-source": inp.model_source_identity,
         "resolved-model": cast(str, resolved_model["content_identity"]),
-        "model-build-receipt": inp.model_build_receipt_identity,
+        "model-build-artifact-set-receipt": inp.model_build_artifact_set_receipt_identity,
         "experiment": inp.experiment_identity,
         "evaluator-capability-manifest": cast(
             str, evaluator_manifest["content_identity"]
@@ -129,7 +195,7 @@ def project_evidence_graph(
     experiment_model = cast(Mapping[str, Any], inp.experiment["model"])
     model_receipt_binding = cast(str, experiment_model["build_receipt_identity"])
     if model_receipt_binding == model_build_record["content_identity"]:
-        model_receipt_binding = inp.model_build_receipt_identity
+        model_receipt_binding = inp.model_build_artifact_set_receipt_identity
     observed_bindings = {
         "language-bundle": {
             "kernel": inp.language_bundle["kernel_identity"],
@@ -139,7 +205,7 @@ def project_evidence_graph(
             "language-bundle": resolved_model["language_bundle_identity"],
             "model-source": model_build_record["source_identity"],
         },
-        "model-build-receipt": {
+        "model-build-artifact-set-receipt": {
             "model-source": model_build_record["source_identity"],
             "resolved-model": model_build_record["resolved_model_identity"],
         },
@@ -162,7 +228,7 @@ def project_evidence_graph(
             ],
         },
         "experiment-outcome-receipt": {
-            "model-build-receipt": model_receipt_binding,
+            "model-build-artifact-set-receipt": model_receipt_binding,
             "experiment": reproduction_receipt["experiment_identity"],
             "resolved-runtime-profile": reproduction_receipt[
                 "resolved_runtime_profile_identity"
@@ -235,7 +301,7 @@ def _graph_issues(
     for subject in graph.subjects:
         if subject.role in subjects:
             issues.append(
-                _issue(
+                evidence_verification_issue(
                     "mismatched",
                     subject.role,
                     "Evidence prerequisite graph repeats one subject role",
@@ -245,7 +311,7 @@ def _graph_issues(
         subjects[subject.role] = subject
     for role in sorted(expected_role_set - set(subjects)):
         issues.append(
-            _issue(
+            evidence_verification_issue(
                 "missing",
                 role,
                 "Evidence prerequisite graph is missing one required subject",
@@ -253,7 +319,7 @@ def _graph_issues(
         )
     for role in sorted(set(subjects) - expected_role_set):
         issues.append(
-            _issue(
+            evidence_verification_issue(
                 "extra",
                 role,
                 "Evidence prerequisite graph contains an undeclared subject",
@@ -267,7 +333,7 @@ def _graph_issues(
     actual_edges = {(edge.subject, edge.prerequisite) for edge in graph.prerequisites}
     for subject, prerequisite in sorted(expected_edges - actual_edges):
         issues.append(
-            _issue(
+            evidence_verification_issue(
                 "missing",
                 f"{subject}->{prerequisite}",
                 "Evidence prerequisite graph is missing one required edge",
@@ -275,7 +341,7 @@ def _graph_issues(
         )
     for subject, prerequisite in sorted(actual_edges - expected_edges):
         issues.append(
-            _issue(
+            evidence_verification_issue(
                 "extra",
                 f"{subject}->{prerequisite}",
                 "Evidence prerequisite graph contains an undeclared edge",
@@ -286,7 +352,7 @@ def _graph_issues(
         prerequisite = subjects.get(edge.prerequisite)
         if subject is None or prerequisite is None:
             issues.append(
-                _issue(
+                evidence_verification_issue(
                     "unresolved",
                     f"{edge.subject}->{edge.prerequisite}",
                     "Evidence prerequisite edge does not resolve to graph subjects",
@@ -298,7 +364,7 @@ def _graph_issues(
             or edge.prerequisite_identity != prerequisite.identity
         ):
             issues.append(
-                _issue(
+                evidence_verification_issue(
                     "mismatched",
                     f"{edge.subject}->{edge.prerequisite}",
                     "Evidence prerequisite edge does not bind the subject identities",
@@ -312,7 +378,7 @@ def _graph_issues(
     cycle = _cyclic_roles(resolved_edges)
     if cycle:
         issues.append(
-            _issue(
+            evidence_verification_issue(
                 "cyclic",
                 ",".join(sorted(cycle)),
                 "Evidence prerequisite graph contains a cycle",

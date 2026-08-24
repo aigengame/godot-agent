@@ -3,26 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.canonical import JsonValue
-from gda_balancing.domain.diagnostics import (
-    ArtifactLocation,
-    Schema2Diagnostic,
-    Schema2RefusalReport,
-    bound_diagnostics,
-    ingress_refusal,
-    reason_by_id,
-)
+from gda_balancing.domain.diagnostics import Schema2RefusalReport, ingress_refusal
 from gda_balancing.domain.evidence import validate_experiment_artifact_set
 from gda_balancing.domain.evidence_verification import (
     EvidenceCandidate,
     EvidenceGraphProjectionInput,
-    EvidenceVerificationIssue,
     evidence_claim_kind,
+    evidence_verification_issue,
+    evidence_verification_refusal,
     evaluate_evidence_candidate,
     project_evidence_graph,
+    unknown_evidence_claim_kind_refusal,
 )
 from gda_balancing.domain.experiment import CheckedExperiment, check_experiment
 from gda_balancing.domain.model import (
@@ -44,61 +39,8 @@ class EvidenceVerifyInput:
     claim_kind: str
     source: str
     specification: str
-    model_build_receipt: str
+    model_build_artifact_set_receipt: str
     experiment_outcome_receipt: str
-
-
-def _refusal_for_issues(
-    issues: tuple[EvidenceVerificationIssue, ...],
-    language_bundle: dict[str, Any],
-    identities: dict[str, str],
-) -> Schema2RefusalReport:
-    diagnostics: list[Schema2Diagnostic] = []
-    for issue in issues:
-        reason = reason_by_id(language_bundle, issue.reason)
-        role = issue.subject.split("->", 1)[0].split(",", 1)[0]
-        diagnostics.append(
-            Schema2Diagnostic(
-                code=cast(str, reason["diagnostic"]),
-                message=issue.message,
-                primary=ArtifactLocation(
-                    content_identity=identities.get(role, "unidentified"),
-                    pointer="/prerequisites/" + issue.subject.replace("->", "/"),
-                ),
-            )
-        )
-    bounded, truncated = bound_diagnostics(
-        diagnostics,
-        cast(int, language_bundle["resources"]["max_diagnostics"]),
-    )
-    return Schema2RefusalReport(
-        stage="evaluation",
-        diagnostics=bounded,
-        truncated=truncated,
-    )
-
-
-def _unknown_claim_kind_refusal(
-    language_bundle: dict[str, Any], claim_kind: str
-) -> Schema2RefusalReport:
-    reason = reason_by_id(
-        language_bundle,
-        "evaluation.reason.unknown-evidence-claim-kind",
-    )
-    return Schema2RefusalReport(
-        stage="evaluation",
-        diagnostics=(
-            Schema2Diagnostic(
-                code=cast(str, reason["diagnostic"]),
-                message=f"Unknown Evidence claim kind: {claim_kind}",
-                primary=ArtifactLocation(
-                    content_identity="unidentified",
-                    pointer="/claim_kind",
-                ),
-            ),
-        ),
-        truncated=False,
-    )
 
 
 def _authenticate_outcome(
@@ -135,13 +77,13 @@ def verify_evidence(
     assert isinstance(checked_model, CheckedModel)
     claim_kind = evidence_claim_kind(checked_model.language_bundle, inp.claim_kind)
     if claim_kind is None:
-        return _unknown_claim_kind_refusal(
+        return unknown_evidence_claim_kind_refusal(
             checked_model.language_bundle,
             inp.claim_kind,
         )
     try:
         model_publication = read_authenticated_artifact_set(
-            inp.model_build_receipt,
+            inp.model_build_artifact_set_receipt,
             model_build_descriptor_identity,
             model_build_artifact_set,
         )
@@ -158,16 +100,16 @@ def verify_evidence(
             model_publication.authority_context,
         )
     except (CompiledArtifactAdmissionError, ExactResolvedModelBindingError):
-        issue = EvidenceVerificationIssue(
-            reason="evaluation.reason.evaluable-mismatched-prerequisite",
-            subject="model-build-receipt",
+        issue = evidence_verification_issue(
+            "mismatched",
+            subject="model-build-artifact-set-receipt",
             message="Model build publication does not bind the admitted Model Source",
         )
-        return _refusal_for_issues(
+        return evidence_verification_refusal(
             (issue,),
             model_publication.authority_context.language_bundle,
             {
-                "model-build-receipt": cast(
+                "model-build-artifact-set-receipt": cast(
                     str, model_publication.receipt["content_identity"]
                 )
             },
@@ -194,7 +136,7 @@ def verify_evidence(
             kernel=checked_model.kernel,
             language_bundle=checked_model.language_bundle,
             model_source_identity=checked_model.source_identity,
-            model_build_receipt_identity=cast(
+            model_build_artifact_set_receipt_identity=cast(
                 str, model_publication.receipt["content_identity"]
             ),
             model_artifacts=model_publication.artifacts,
@@ -209,16 +151,18 @@ def verify_evidence(
     identities = {subject.role: subject.identity for subject in graph.subjects}
     result = evaluate_evidence_candidate(claim_kind, graph)
     if isinstance(result, tuple):
-        return _refusal_for_issues(result, checked_model.language_bundle, identities)
+        return evidence_verification_refusal(
+            result, checked_model.language_bundle, identities
+        )
     if not validate_experiment_artifact_set(
         checked_experiment, outcome_publication.artifacts
     ):
-        issue = EvidenceVerificationIssue(
-            reason="evaluation.reason.evaluable-mismatched-prerequisite",
+        issue = evidence_verification_issue(
+            "mismatched",
             subject="experiment-outcome-receipt",
             message="Experiment outcome publication does not bind the admitted Experiment",
         )
-        return _refusal_for_issues(
+        return evidence_verification_refusal(
             (issue,),
             outcome_publication.authority_context.language_bundle,
             {"experiment-outcome-receipt": identities["experiment-outcome-receipt"]},

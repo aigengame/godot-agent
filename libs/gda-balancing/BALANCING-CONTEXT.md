@@ -267,6 +267,13 @@ participate in RIR or Resolved Model content identity, so independent conforming
 the same semantic artifacts (bADR-0013).
 _Avoid_: compiler identity in RIR, semantic build id, Resolved Model provenance field
 
+**Artifact-set receipt**:
+A separately identified publication artifact that binds one producing Command invocation to the
+manifest and locators for its exact committed artifact set. It owns publication facts. It is not a
+domain member such as a Build receipt, Resolution receipt, or Reproduction receipt
+(bADR-0012/0013/0021).
+_Avoid_: Build receipt, outcome receipt, member receipt
+
 **Package Lock**:
 The generated, content-addressed proof of the exact **selected transitive closure**: dependency
 graph and constraints, exact package-release identities, capability-provider bindings,

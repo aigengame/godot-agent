@@ -16,7 +16,7 @@ def test_descriptor_owns_the_exact_artifact_set_inputs() -> None:
     }
 
     assert inputs == {
-        "model_build_receipt": MODEL_BUILD,
+        "model_build_artifact_set_receipt": MODEL_BUILD,
         "experiment_outcome_receipt": EXPERIMENT_RUN,
     }
     rows = cast(
@@ -28,12 +28,12 @@ def test_descriptor_owns_the_exact_artifact_set_inputs() -> None:
         item["receipt_field"]: item
         for item in cast(list[dict[str, Any]], row["input_artifact_sets"])
     }
-    assert projected["model_build_receipt"]["producer_descriptor_identity"] == (
-        descriptor_identity(MODEL_BUILD)
-    )
+    assert projected["model_build_artifact_set_receipt"][
+        "producer_descriptor_identity"
+    ] == (descriptor_identity(MODEL_BUILD))
     assert [
         member["logical_name"]
-        for member in projected["model_build_receipt"]["artifact_sets"][0]
+        for member in projected["model_build_artifact_set_receipt"]["artifact_sets"][0]
     ] == [member.logical_name for member in MODEL_BUILD.artifact_set]
     assert [
         [member["logical_name"] for member in artifact_set]
@@ -67,7 +67,7 @@ def test_public_cli_returns_one_open_evaluable_candidate(run_cli, invocation) ->
         "experiment_identity",
         "resolved_runtime_profile_identity",
         "evaluator_capability_manifest_identity",
-        "model_build_receipt_identity",
+        "model_build_artifact_set_receipt_identity",
         "experiment_outcome_receipt_identity",
     }
     assert all(
@@ -115,7 +115,7 @@ def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> N
         "claim_kind",
         "source",
         "specification",
-        "model_build_receipt",
+        "model_build_artifact_set_receipt",
         "experiment_outcome_receipt",
     ]
     success_properties = schema["success"]["properties"]
@@ -132,7 +132,7 @@ def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> N
         "--claim-kind",
         "--source",
         "--specification",
-        "--model-build-receipt",
+        "--model-build-artifact-set-receipt",
         "--experiment-outcome-receipt",
     ):
         assert option in help_stdout

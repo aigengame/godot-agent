@@ -38,6 +38,7 @@ from gda_balancing.domain.evidence_verification import (
     EvidenceSubject,
     EvidenceVerificationIssue,
     evidence_claim_kind,
+    evidence_verification_refusal,
     evaluate_evidence_candidate,
     project_evidence_graph,
 )
@@ -91,7 +92,7 @@ def _complete_graph() -> EvidenceGraph:
 
 def _verify(inp: EvidenceVerifyInput) -> EvidenceCandidate | Schema2RefusalReport:
     inputs = {item.receipt_field: item for item in EVIDENCE_VERIFY.input_artifact_sets}
-    model_build_input = inputs["model_build_receipt"]
+    model_build_input = inputs["model_build_artifact_set_receipt"]
     experiment_outcome_input = inputs["experiment_outcome_receipt"]
     return verify_evidence(
         inp,
@@ -135,7 +136,9 @@ def _prepare_outcome_input(
         claim_kind="evaluable",
         source=str(tmp_path / f"experiment-model-{token}.json"),
         specification=str(specification_path),
-        model_build_receipt=str(tmp_path / f"experiment-model-{token}-receipt.json"),
+        model_build_artifact_set_receipt=str(
+            tmp_path / f"experiment-model-{token}-receipt.json"
+        ),
         experiment_outcome_receipt=str(outcome_receipt_path),
     )
 
@@ -152,7 +155,7 @@ def test_packaged_ldb_owns_the_complete_evaluable_claim_kind() -> None:
                 "language-bundle",
                 "model-source",
                 "resolved-model",
-                "model-build-receipt",
+                "model-build-artifact-set-receipt",
                 "experiment",
                 "evaluator-capability-manifest",
                 "resolved-runtime-profile",
@@ -167,11 +170,11 @@ def test_packaged_ldb_owns_the_complete_evaluable_claim_kind() -> None:
                 },
                 {"subject": "resolved-model", "prerequisite": "model-source"},
                 {
-                    "subject": "model-build-receipt",
+                    "subject": "model-build-artifact-set-receipt",
                     "prerequisite": "model-source",
                 },
                 {
-                    "subject": "model-build-receipt",
+                    "subject": "model-build-artifact-set-receipt",
                     "prerequisite": "resolved-model",
                 },
                 {"subject": "experiment", "prerequisite": "kernel"},
@@ -207,7 +210,7 @@ def test_packaged_ldb_owns_the_complete_evaluable_claim_kind() -> None:
                 },
                 {
                     "subject": "experiment-outcome-receipt",
-                    "prerequisite": "model-build-receipt",
+                    "prerequisite": "model-build-artifact-set-receipt",
                 },
                 {
                     "subject": "experiment-outcome-receipt",
@@ -310,6 +313,34 @@ def test_complete_success_graph_is_an_open_evaluable_candidate() -> None:
     assert result.subjects == _complete_graph().subjects
 
 
+def test_domain_projects_evidence_issues_to_a_bounded_refusal() -> None:
+    context = packaged_authority_context()
+    receipt_identity = "sha256:" + "a" * 64
+
+    result = evidence_verification_refusal(
+        (
+            EvidenceVerificationIssue(
+                reason="evaluation.reason.evaluable-mismatched-prerequisite",
+                subject="model-build-artifact-set-receipt",
+                message="Model build publication does not bind the admitted Model Source",
+            ),
+        ),
+        context.language_bundle,
+        {"model-build-artifact-set-receipt": receipt_identity},
+    )
+
+    assert result.stage == "evaluation"
+    assert result.truncated is False
+    assert result.diagnostics[0].code == (
+        "evaluation.evaluable_mismatched_prerequisite"
+    )
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.content_identity == receipt_identity
+    assert result.diagnostics[0].primary.pointer == (
+        "/prerequisites/model-build-artifact-set-receipt"
+    )
+
+
 def test_domain_projects_exact_artifacts_into_the_evaluable_graph() -> None:
     complete = _complete_graph()
     identities = {subject.role: subject.identity for subject in complete.subjects}
@@ -328,7 +359,9 @@ def test_domain_projects_exact_artifacts_into_the_evaluable_graph() -> None:
                 "kernel_identity": identities["kernel"],
             },
             model_source_identity=identities["model-source"],
-            model_build_receipt_identity=identities["model-build-receipt"],
+            model_build_artifact_set_receipt_identity=identities[
+                "model-build-artifact-set-receipt"
+            ],
             model_artifacts={
                 "resolved-model": {
                     "content_identity": identities["resolved-model"],
@@ -613,7 +646,7 @@ def test_application_refuses_a_source_changed_after_model_build(
     )
     assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
     assert result.diagnostics[0].primary.pointer == (
-        "/prerequisites/model-build-receipt"
+        "/prerequisites/model-build-artifact-set-receipt"
     )
 
 
@@ -694,7 +727,9 @@ def _prepare_runtime_refusal_input(tmp_path: Path, token: int) -> EvidenceVerify
         claim_kind="evaluable",
         source=str(tmp_path / f"experiment-model-{token}.json"),
         specification=str(specification_path),
-        model_build_receipt=str(tmp_path / f"experiment-model-{token}-receipt.json"),
+        model_build_artifact_set_receipt=str(
+            tmp_path / f"experiment-model-{token}-receipt.json"
+        ),
         experiment_outcome_receipt=str(outcome_receipt_path),
     )
 

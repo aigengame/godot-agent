@@ -43,7 +43,7 @@ class EvidenceVerifyInput(BaseModel):
     claim_kind: str
     source: str
     specification: str
-    model_build_receipt: str
+    model_build_artifact_set_receipt: str
     experiment_outcome_receipt: str
 
 
@@ -60,7 +60,7 @@ class EvidenceVerifyResult(BaseModel):
     experiment_identity: str
     resolved_runtime_profile_identity: str
     evaluator_capability_manifest_identity: str
-    model_build_receipt_identity: str
+    model_build_artifact_set_receipt_identity: str
     experiment_outcome_receipt_identity: str
 
 
@@ -97,14 +97,14 @@ def run_evidence_verify(
     inp: EvidenceVerifyInput,
 ) -> EvidenceVerifyResult | Schema2RefusalReport:
     try:
-        model_build_input = _artifact_set_input("model_build_receipt")
+        model_build_input = _artifact_set_input("model_build_artifact_set_receipt")
         experiment_outcome_input = _artifact_set_input("experiment_outcome_receipt")
         result = verify_evidence(
             ApplicationInput(
                 claim_kind=inp.claim_kind,
                 source=inp.source,
                 specification=inp.specification,
-                model_build_receipt=inp.model_build_receipt,
+                model_build_artifact_set_receipt=inp.model_build_artifact_set_receipt,
                 experiment_outcome_receipt=inp.experiment_outcome_receipt,
             ),
             model_build_descriptor_identity=descriptor_identity(
@@ -140,7 +140,9 @@ def run_evidence_verify(
         evaluator_capability_manifest_identity=identities[
             "evaluator-capability-manifest"
         ],
-        model_build_receipt_identity=identities["model-build-receipt"],
+        model_build_artifact_set_receipt_identity=identities[
+            "model-build-artifact-set-receipt"
+        ],
         experiment_outcome_receipt_identity=identities["experiment-outcome-receipt"],
     )
 
@@ -170,7 +172,7 @@ def _prepare_evidence_args(root: Path, token: int, refusing: bool) -> tuple[str,
         str(root / f"experiment-model-{token}.json"),
         "--specification",
         str(specification_path),
-        "--model-build-receipt",
+        "--model-build-artifact-set-receipt",
         str(root / f"experiment-model-{token}-receipt.json"),
         "--experiment-outcome-receipt",
         str(outcome_receipt_path),
@@ -187,7 +189,7 @@ EVIDENCE_VERIFY = CommandDescriptor(
     fixtures=ConformanceFixtures(prepare_args=_prepare_evidence_args),
     input_artifact_sets=(
         ArtifactSetInputSpec(
-            receipt_field="model_build_receipt",
+            receipt_field="model_build_artifact_set_receipt",
             producer=MODEL_BUILD,
         ),
         ArtifactSetInputSpec(
