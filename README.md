@@ -581,9 +581,10 @@ edge-triggered controls.
 | Command | What it does |
 | ------- | ------------ |
 | `input key` | Inject a key event (with modifiers). |
-| `input mouse-click` | Inject a mouse click at `(x, y)`. |
+| `input mouse-click` | Inject a complete click gesture (move, press, release) at `(x, y)`. |
 | `input mouse-move` | Inject mouse motion to `(x, y)`. |
 | `input action` | Press/release a mapped input action. |
+| `input tap` | Tap one key or action: press, hold, release across frames. |
 | `input sequence` | Inject a multi-frame event timeline. |
 
 Mouse events report the injected viewport coordinate through `event.position`.

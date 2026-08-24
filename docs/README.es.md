@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=8cb5ae07a2d875db3554b7840b6fc90efdca5fa1bd84da220a2de393f6871949 -->
+<!-- gda-readme-i18n: source=README.md sha256=9412ce784d9839d437daa861f8b097a788f8e401dbb36130c2180b323b78350f -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -595,9 +595,10 @@ variables de script getter-only/no-op o controles edge-triggered.
 | Comando | Qué hace |
 | ------- | ------------ |
 | `input key` | Inyecta un evento de tecla (con modificadores). |
-| `input mouse-click` | Inyecta un clic de ratón en `(x, y)`. |
+| `input mouse-click` | Inyecta el gesto de clic completo (movimiento, pulsación, liberación) en `(x, y)`. |
 | `input mouse-move` | Inyecta un movimiento de ratón hacia `(x, y)`. |
 | `input action` | Presiona/suelta una acción de entrada mapeada. |
+| `input tap` | Toca una tecla o acción: pulsa, mantiene y suelta a lo largo de varios frames. |
 | `input sequence` | Inyecta una línea de tiempo de eventos de varios frames. |
 
 Los eventos de ratón informan la coordenada inyectada del viewport mediante

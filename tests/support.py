@@ -691,11 +691,54 @@ INPUT_KEY_RESULT = {
     "pressed": True,
 }
 
+# A click is the COMPLETE activation gesture (#652): the harness reports the
+# move/press/release phases at their window frames plus the focus evidence
+# around the gesture.
 INPUT_MOUSE_CLICK_RESULT = {
     "kind": "mouse_click",
     "position": [100.0, 200.0],
     "button": "left",
     "double": False,
+    "phases": [
+        {"frame": 0, "phase": "move"},
+        {"frame": 1, "phase": "press"},
+        {"frame": 2, "phase": "release"},
+    ],
+    "focus_before": None,
+    "focus_after": "/root/Main/Btn",
+}
+
+# A tap is the press-hold-release gesture for one key or one action (#652); the
+# key form echoes key/keycode/modifiers, the action form action/strength.
+INPUT_TAP_KEY_RESULT = {
+    "kind": "tap",
+    "key": "Right",
+    "keycode": 4194321,
+    "modifiers": [],
+    "hold_frames": 2,
+    "settle_frames": 2,
+    "frames": 5,
+    "phases": [
+        {"frame": 0, "phase": "press"},
+        {"frame": 2, "phase": "release"},
+    ],
+    "focus_before": "/root/Main/A",
+    "focus_after": "/root/Main/B",
+}
+
+INPUT_TAP_ACTION_RESULT = {
+    "kind": "tap",
+    "action": "jump",
+    "strength": 1.0,
+    "hold_frames": 2,
+    "settle_frames": 2,
+    "frames": 5,
+    "phases": [
+        {"frame": 0, "phase": "press"},
+        {"frame": 2, "phase": "release"},
+    ],
+    "focus_before": None,
+    "focus_after": None,
 }
 
 INPUT_MOUSE_MOVE_RESULT = {

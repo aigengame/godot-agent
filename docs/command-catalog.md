@@ -764,12 +764,34 @@ headless is unaffected (4.4+, cross-platform).
   (ADR-0019).
 - **`input` (input simulation):** runtime input injection into the running game
   (shipped, #221). Single-frame ops `input key <KEY> [--modifiers …] [--released]`,
-  `input mouse-click <x> <y> [--button left|right|middle] [--double]` /
   `input mouse-move <x> <y>`, and `input action <NAME> [--release] [--strength F]`
-  each inject one event at a frame boundary (ADR-0020); the multi-frame
+  each inject one event at a frame boundary (ADR-0020). The **activation
+  gestures** (#652) are multi-frame: `input mouse-click <x> <y> [--button
+  left|right|middle] [--double]` injects the COMPLETE click its name implies —
+  the initial move, the press, and the release, one per process frame across a
+  3-frame window — because Godot's UI activates on the release (a bare press
+  never emits a default `Button`'s `pressed` and leaves it held down,
+  GDA-DF-004); and `input tap (--key K [--modifiers …] | --action NAME
+  [--strength F]) [--hold-frames N] [--settle-frames M]` performs the complete
+  press-hold-release of one key or one InputMap action — press at window frame
+  0, release after N (default 2, at least 1) process frames, then M (default 2)
+  settle frames so the game observes the release before the op returns — because
+  a press/release pair contained in one immediate frame reports success without
+  advancing a focused UI (GDA-DF-034). Both gesture results report the injected
+  `phases` (each phase's window frame) and the focused Control's runtime path
+  before/after the gesture (`focus_before` / `focus_after`, null when nothing
+  holds focus) — the activation evidence the engine exposes. Repeated injected
+  mouse events add no harness-owned warnings to `diag errors` (#647): the
+  harness notifies the viewport's mouse-enter state only on a real edge,
+  mirroring it from the root Window's `mouse_entered`/`mouse_exited` signals.
+  The multi-frame
   `input sequence --events <JSON>` applies a list of events across one selected
   clock and returns as one blocking payload, on the gda harness's time-windowed
-  multi-frame base (the same base `perf monitor` uses, #223). Existing sequence
+  multi-frame base (the same base `perf monitor` uses, #223). A sequence
+  `mouse_click` event is a whole click at ONE clock offset — the harness pushes
+  the press and then the release on the same frame, which fully activates a
+  default `Button` (mouse activation, unlike a focused-UI key tap, does not need
+  the pair split across frames). Existing sequence
   event `frame` offsets are explicitly the harness/process-frame clock advanced by
   the harness `_process` loop; they are preserved for compatibility and are **not**
   Godot's fixed physics frames. For deterministic simulation-duration input, use
@@ -791,7 +813,9 @@ headless is unaffected (4.4+, cross-platform).
   leave `Viewport.get_mouse_position()` and `Node2D.get_global_mouse_position()`
   stale in daemon sessions, so game code should read the injected coordinate from
   the input event. The modifier
-  set, mouse-button enum, action strength range (0..1), per-event shape, and the
+  set, mouse-button enum, action strength range (0..1), per-event shape, the
+  tap's exactly-one-target rule and window (`hold_frames + settle_frames + 1` ≤
+  the per-window ceiling), and the
   sequence's selected-clock window (`max(frame)+1` or `max(physics_frame)+1` ≤ the
   per-window ceiling, the same bound `perf monitor` enforces, #223) are bounded
   **model-side** (ADR-0015), so an

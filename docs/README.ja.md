@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=8cb5ae07a2d875db3554b7840b6fc90efdca5fa1bd84da220a2de393f6871949 -->
+<!-- gda-readme-i18n: source=README.md sha256=9412ce784d9839d437daa861f8b097a788f8e401dbb36130c2180b323b78350f -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -590,9 +590,10 @@ Live の `game set --property position` は `node set` と同じ `Control` ポ�
 | コマンド | 機能 |
 | ------- | ------------ |
 | `input key` | キーイベントを(修飾キー付きで)注入します。 |
-| `input mouse-click` | `(x, y)` の位置にマウスクリックを注入します。 |
+| `input mouse-click` | `(x, y)` の位置に完全なクリックジェスチャ(移動、押下、解放)を注入します。 |
 | `input mouse-move` | `(x, y)` へのマウス移動を注入します。 |
 | `input action` | マッピング済みの入力アクションを押下/解放します。 |
+| `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行)。 |
 | `input sequence` | 複数フレームにわたるイベントのタイムラインを注入します。 |
 
 マウスイベントは、注入されたビューポート座標を `event.position` で報告します。
