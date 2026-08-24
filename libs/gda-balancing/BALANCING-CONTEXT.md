@@ -267,6 +267,13 @@ participate in RIR or Resolved Model content identity, so independent conforming
 the same semantic artifacts (bADR-0013).
 _Avoid_: compiler identity in RIR, semantic build id, Resolved Model provenance field
 
+**Artifact-set receipt**:
+A separately identified publication artifact that binds one producing Command invocation to the
+manifest and locators for its exact committed artifact set. It owns publication facts. It is not a
+domain member such as a Build receipt, Resolution receipt, or Reproduction receipt
+(bADR-0012/0013/0021).
+_Avoid_: Build receipt, outcome receipt, member receipt
+
 **Package Lock**:
 The generated, content-addressed proof of the exact **selected transitive closure**: dependency
 graph and constraints, exact package-release identities, capability-provider bindings,
@@ -978,7 +985,7 @@ _Avoid_: config file, JSON flags, alternate command API
 A caller-supplied idempotency key of 64 lowercase hexadecimal digits encoding 32 octets, required by
 every artifact-producing 2.x command and exposed identically as `--invocation-key` and
 `invocation_key` in structured params. The publication index binds it to one Command descriptor
-identity, canonical command-input identity, and committed outcome receipt. The canonical input
+identity, canonical command-input identity, and committed Artifact-set receipt. The canonical input
 identity excludes the Invocation key and presentation-only output locator. The key is
 command-delivery metadata, never model/RIR semantics; recovery retries the original command with
 the same key and input (bADR-0021).

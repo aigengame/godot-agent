@@ -73,7 +73,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856"
+    "sha256:12e6497c361d7f86e417963ab7ee402822025aae34eb63cf672bcf8cc494fb26"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2714,6 +2714,155 @@ def _language_definitions_are_closed(
     return True
 
 
+def _evidence_claim_kinds_are_closed(
+    language_bundle: dict[str, Any], meta_format: dict[str, Any]
+) -> bool:
+    """Require each LDB claim kind to close its graph and eligibility vectors."""
+    language = language_bundle.get("language")
+    definitions = meta_format.get("language_definitions")
+    collections = (
+        definitions.get("collections") if isinstance(definitions, dict) else None
+    )
+    contract = (
+        collections.get("evidence_claim_kinds")
+        if isinstance(collections, dict)
+        else None
+    )
+    if not isinstance(contract, dict):
+        return False
+    try:
+        graph_states = set(
+            contract["field_types"]["vectors"]["items"]["field_types"]["input"][
+                "field_types"
+            ]["graph"]["enum"]
+        )
+    except (KeyError, TypeError):
+        return False
+    claim_kinds = (
+        language.get("evidence_claim_kinds") if isinstance(language, dict) else None
+    )
+    if not isinstance(claim_kinds, list) or graph_states <= {"exact"}:
+        return False
+    claim_ids: set[str] = set()
+    for claim_kind in claim_kinds:
+        if not isinstance(claim_kind, dict):
+            return False
+        claim_id = claim_kind.get("id")
+        roles = claim_kind.get("subject_roles")
+        edges = claim_kind.get("prerequisite_edges")
+        eligibility = claim_kind.get("eligibility")
+        vectors = claim_kind.get("vectors")
+        if (
+            not isinstance(claim_id, str)
+            or claim_id in claim_ids
+            or not isinstance(roles, list)
+            or not roles
+            or not all(isinstance(role, str) and role for role in roles)
+            or len(roles) != len(set(roles))
+            or not isinstance(edges, list)
+            or not isinstance(eligibility, dict)
+            or not isinstance(vectors, list)
+            or not vectors
+        ):
+            return False
+        claim_ids.add(claim_id)
+        role_set = set(roles)
+        edge_pairs = [
+            (edge.get("subject"), edge.get("prerequisite"))
+            for edge in edges
+            if isinstance(edge, dict)
+        ]
+        if (
+            len(edge_pairs) != len(edges)
+            or len(edge_pairs) != len(set(edge_pairs))
+            or any(
+                subject not in role_set
+                or prerequisite not in role_set
+                or subject == prerequisite
+                for subject, prerequisite in edge_pairs
+            )
+        ):
+            return False
+        pending = set(role_set)
+        while pending:
+            ready = {
+                role
+                for role in pending
+                if all(
+                    prerequisite not in pending
+                    for subject, prerequisite in edge_pairs
+                    if subject == role
+                )
+            }
+            if not ready:
+                return False
+            pending -= ready
+        producing_outcomes = eligibility.get("producing_outcomes")
+        required_variant = eligibility.get("runtime_refusal_variant")
+        if (
+            eligibility.get("runtime_dispatch") != "required"
+            or eligibility.get("claim_state") != "candidate"
+            or not isinstance(producing_outcomes, list)
+            or not producing_outcomes
+            or not all(
+                isinstance(outcome, str) and outcome for outcome in producing_outcomes
+            )
+            or len(producing_outcomes) != len(set(producing_outcomes))
+            or not isinstance(required_variant, str)
+        ):
+            return False
+        vector_ids: set[str] = set()
+        positive_outcomes: set[str] = set()
+        negative_graphs: set[str] = set()
+        has_pre_dispatch = False
+        for vector in vectors:
+            if not isinstance(vector, dict) or not isinstance(
+                vector.get("input"), dict
+            ):
+                return False
+            vector_id = vector.get("id")
+            vector_input = vector["input"]
+            if not isinstance(vector_id, str) or vector_id in vector_ids:
+                return False
+            vector_ids.add(vector_id)
+            graph = vector_input.get("graph")
+            outcome = vector_input.get("producing_outcome")
+            dispatch = vector_input.get("runtime_dispatch")
+            refusal_variant = vector_input.get("runtime_refusal_variant")
+            eligible = (
+                graph == "exact"
+                and dispatch == "reached"
+                and outcome in producing_outcomes
+                and (
+                    (
+                        outcome == "runtime-refusal"
+                        and refusal_variant == required_variant
+                    )
+                    or (
+                        outcome != "runtime-refusal"
+                        and refusal_variant == "not-applicable"
+                    )
+                )
+            )
+            expected = "candidate" if eligible else "refusal"
+            expected_kind = "positive" if eligible else "negative"
+            if vector.get("expect") != expected or vector.get("kind") != expected_kind:
+                return False
+            if eligible and isinstance(outcome, str):
+                positive_outcomes.add(outcome)
+            if not eligible and isinstance(graph, str) and graph != "exact":
+                negative_graphs.add(graph)
+            if not eligible and dispatch == "not-reached":
+                has_pre_dispatch = True
+        if (
+            positive_outcomes != set(producing_outcomes)
+            or negative_graphs != graph_states - {"exact"}
+            or not has_pre_dispatch
+        ):
+            return False
+    return True
+
+
 def _artifact_semantic_identity_projections_are_closed(
     language_bundle: dict[str, Any],
 ) -> bool:
@@ -4661,6 +4810,13 @@ def admit_authorities(
         language_bundle,
         raw_meta_format if isinstance(raw_meta_format, dict) else {},
     )
+    evidence_claim_kinds_are_closed = (
+        definitions_are_closed
+        and _evidence_claim_kinds_are_closed(
+            language_bundle,
+            raw_meta_format if isinstance(raw_meta_format, dict) else {},
+        )
+    )
     artifact_semantic_projections_are_closed = (
         definitions_are_closed
         and _artifact_semantic_identity_projections_are_closed(language_bundle)
@@ -4815,6 +4971,12 @@ def admit_authorities(
     meta_format = cast(dict[str, Any], kernel.get("meta_format", {}))
     if not definitions_are_closed:
         refuse("kernel.vector_mismatch", "static", "language.definitions")
+    if definitions_are_closed and not evidence_claim_kinds_are_closed:
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.evidence-claim-kinds",
+        )
     if definitions_are_closed and not artifact_semantic_projections_are_closed:
         refuse(
             "kernel.vector_mismatch",

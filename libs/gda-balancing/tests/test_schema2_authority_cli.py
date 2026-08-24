@@ -27,6 +27,7 @@ import gda_balancing.schema2.authorities as authority_resources
 import gda_balancing.interfaces.cli.schema as schema_command_module
 from gda_balancing.interfaces.cli.registry import MANIFEST, REGISTRY
 from gda_balancing.interfaces.cli.serve import SERVE
+from gda_balancing.interfaces.cli.evidence_verify import EVIDENCE_VERIFY
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
 from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
@@ -1888,6 +1889,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "serve",
         "version",
         "manifest",
+        "evidence verify",
         "experiment check",
         "experiment run",
         "formula parse",
@@ -1944,6 +1946,8 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             argv = invocation(EXPERIMENT_CHECK)
         elif path == "experiment run":
             argv = invocation(EXPERIMENT_RUN)
+        elif path == "evidence verify":
+            argv = invocation(EVIDENCE_VERIFY)
         elif path == "model inspect":
             argv = invocation(MODEL_INSPECT)
         elif path == "template list":
@@ -2087,6 +2091,15 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("standard.conformance.candidate_mismatch", "runtime"),
         ("evaluation.observation_unavailable", "evaluation"),
     }
+    evidence_verify_only = {
+        ("evaluation.evaluable_cyclic_prerequisite", "evaluation"),
+        ("evaluation.evaluable_extra_prerequisite", "evaluation"),
+        ("evaluation.evaluable_ineligible_outcome", "evaluation"),
+        ("evaluation.evaluable_mismatched_prerequisite", "evaluation"),
+        ("evaluation.evaluable_missing_prerequisite", "evaluation"),
+        ("evaluation.evaluable_unresolved_prerequisite", "evaluation"),
+        ("evaluation.unknown_evidence_claim_kind", "evaluation"),
+    }
     expected = {
         MODEL_CHECK: bootstrap | model,
         MODEL_BUILD: bootstrap | model,
@@ -2095,6 +2108,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         TEMPLATE_INSTANTIATE: bootstrap | model,
         EXPERIMENT_CHECK: bootstrap | experiment_check,
         EXPERIMENT_RUN: bootstrap | experiment_check | experiment_run_only,
+        EVIDENCE_VERIFY: bootstrap | model | experiment_check | evidence_verify_only,
         FORMULA_PARSE: bootstrap
         | {
             ("language.source_too_large", "ingress"),

@@ -648,7 +648,7 @@ policy from domain-neutral storage mechanisms.
 | Domain | Model compiler | Parse and check source, lower it to RIR, and build exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |
 | Domain | Runtime and evaluator | Admit exact runtime capabilities and execute atomic Events | Resolved Runtime profile, Snapshots, gameplay outcomes, Refusals, and terminal-audit artifact sets |
 | Domain | Experiment semantics | Apply scenarios, inputs, Metric definitions, statistical policy, and acceptance intent | Metric datasets and Evaluation runs |
-| Domain | Evidence validator | Validate comparisons and prerequisite graphs | Evidence assertions |
+| Domain | Evidence validation and issuance | Validate comparisons and prerequisite graphs; derive candidate/open judgments; issue assertions only after all issuance prerequisites pass | Candidate/open judgments and Evidence assertions |
 | Domain | Artifact policy | Define artifact identity, set completeness, publication, retrieval, and recovery | Artifact envelopes, Locators, and Receipts |
 | Infrastructure | Input and resource access | Read bounded input, packaged resources, and distribution metadata | Bytes, technical metadata, or explicit I/O failures |
 | Infrastructure | Atomic filesystem mechanisms | Lock, stage, materialize, and atomically commit files | Atomic file-operation outcomes |
@@ -1389,7 +1389,7 @@ The Standard Schema 2.x CLI follows artifact ownership rather than internal impl
 | `model` | `check`, `build`, `inspect`, `diff`, `migrate` | Validate and resolve model artifacts |
 | `template` | `list`, `get`, `instantiate` | Distribute and instantiate starter sources |
 | `experiment` | `check`, `run`, `replay`, `compare` | Validate and execute evaluation intent |
-| `evidence` | `inspect`, `verify` | Inspect and independently validate Evidence graphs |
+| `evidence` | `inspect`, `verify` | Inspect Evidence assertions or validate Evidence prerequisite graphs and content identities |
 | `calibration`, `approval` | Reserved | Future surfaces; absence is explicit |
 | meta | `version`, `manifest`, `serve`, `help` | Product discovery and local service lifecycle |
 
@@ -1683,6 +1683,38 @@ receipt law does not preselect a signature algorithm, credential system, or depl
 topology. Runtime-refusal prerequisites also implement bADR-0015's complete terminal-audit contract
 and exact vector-result binding. All validators preserve deterministic caps, report-all ordering
 and deduplication, and explicit truncation before aggregation runs.
+
+#### First candidate/open evidence-verification slice
+
+Issue #541 delivers the first executable `evidence verify` judgment. This slice validates the exact
+artifact graph for the LDB-owned `evaluable` claim kind. A successful result is only
+`candidate`/open. It does not issue an Evidence assertion, authenticate an independent Verifier, or
+close a claim.
+
+The initial command takes one explicit Model Source Package, Experiment Specification, Model-build
+Artifact-set receipt, and Experiment-run Artifact-set receipt. The public fields are
+`model_build_artifact_set_receipt` and `experiment_run_artifact_set_receipt`. The Model-build
+receipt is not the build set's `build-receipt` member. The command does not discover artifacts
+through a store scan. It uses the installed package's admitted Kernel/LDB context, applies the
+existing Model and Experiment admission rules, recomputes their content identities, authenticates
+both receipt-backed artifact sets, and validates every required identity and prerequisite edge. A
+post-dispatch Runtime refusal is eligible only when its complete terminal-audit set and
+cross-bindings pass bADR-0015 validation. The command does not rebuild the Model or rerun the
+Experiment.
+
+The `evaluable` judgment means that the exact Experiment, Resolved Model, Resolved Runtime profile,
+and evaluator combination passed admission and reached Runtime dispatch. A successful producing
+outcome, a completed `experiment-verdict` artifact set, or a complete post-dispatch Runtime-refusal
+outcome can support the judgment. Invalid Experiment or Metric intent, evaluator-capability failure,
+Runtime-profile admission failure, a pre-dispatch refusal, or an incomplete outcome graph cannot
+support it. The judgment does not establish execution success, Metric-target success,
+reproducibility, cross-evaluator conformance, or Claim closure.
+
+This is an initial delivery boundary, not a permanent restriction. A later application can justify
+explicit external Kernel/LDB input, independent Verifier authentication, durable Verifier receipts,
+or claim aggregation. Add those capabilities when the application supplies the required authority
+and trust boundaries. Do not add download, cache, dynamic bootstrap, credential, signing,
+revocation, or aggregation mechanisms before that need exists.
 
 ### Gate 3 — production RPG tracer
 

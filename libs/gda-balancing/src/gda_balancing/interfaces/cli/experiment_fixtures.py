@@ -3,6 +3,9 @@
 from pathlib import Path
 
 from gda_balancing.application.experiment_fixtures import (
+    prepare_runtime_refusal_experiment as _prepare_runtime_refusal_experiment,
+)
+from gda_balancing.application.experiment_fixtures import (
     prepare_valid_experiment as _prepare_valid_experiment,
 )
 from gda_balancing.application.experiment_fixtures import (
@@ -24,6 +27,15 @@ def prepare_valid_experiment(root: Path, token: int) -> str:
 def prepare_verdict_experiment(root: Path, token: int) -> str:
     """Bind the rejecting fixture build to the public Model build contract."""
     return _prepare_verdict_experiment(
+        root,
+        token,
+        model_build_descriptor_identity=descriptor_identity(MODEL_BUILD),
+    )
+
+
+def prepare_runtime_refusal_experiment(root: Path, token: int) -> str:
+    """Bind the runtime-refusal fixture build to the public Model contract."""
+    return _prepare_runtime_refusal_experiment(
         root,
         token,
         model_build_descriptor_identity=descriptor_identity(MODEL_BUILD),
