@@ -194,7 +194,7 @@ class InputMouseMoveParams(BaseModel):
     )
 
 
-class InputMouseResult(BaseModel):
+class InputMouseMoveResult(BaseModel):
     """The result of ``gda input mouse-move``: the motion event injected (#221).
 
     Echoes the event ``kind`` (``mouse_move``), the viewport ``position`` it was
@@ -204,7 +204,9 @@ class InputMouseResult(BaseModel):
     mouse event's position; engine-tracked mouse positions may remain stale.
     """
 
-    kind: str = Field(description="The injected event kind ('mouse_move').")
+    kind: Literal["mouse_move"] = Field(
+        default="mouse_move", description="The injected event kind ('mouse_move')."
+    )
     position: list[float] = Field(
         description=(
             "The viewport position the event was injected at, as [x, y]. This "
@@ -226,12 +228,15 @@ class InputEventPhase(BaseModel):
     The structured evidence that an activation op injected the COMPLETE gesture
     rather than a bare press: the 0-based process-frame offset within the op's
     window, and the phase applied there (``move``, ``press``, or ``release``).
+    Both fields are constrained so a payload outside the gesture vocabulary
+    fails output validation (``contract_violation``) instead of passing through
+    as a successful result.
     """
 
     frame: int = Field(
-        description="The 0-based process-frame offset within the op's window."
+        ge=0, description="The 0-based process-frame offset within the op's window."
     )
-    phase: str = Field(
+    phase: Literal["move", "press", "release"] = Field(
         description="The gesture phase applied at this frame: move, press, or release."
     )
 
@@ -242,12 +247,15 @@ class InputMouseClickResult(BaseModel):
     ``phases`` reports each injected phase and the window frame it landed on
     (move at 0, press at 1, release at 2); ``focus_before`` / ``focus_after``
     report the root viewport's focused Control around the gesture (null when
-    none) — the activation evidence the engine exposes. The echoed ``position``
+    none) — the activation evidence the engine exposes. The gesture contract is
+    VALIDATED here, not merely described: a payload whose phases are not
+    exactly that sequence fails output validation (``contract_violation``)
+    rather than passing through as a success. The echoed ``position``
     mirrors the mouse events' position; engine-tracked mouse positions may
     remain stale.
     """
 
-    kind: str = Field(
+    kind: Literal["mouse_click"] = Field(
         default="mouse_click", description="The injected event kind ('mouse_click')."
     )
     position: list[float] = Field(
@@ -256,7 +264,9 @@ class InputMouseClickResult(BaseModel):
             "mirrors event.position; engine-tracked mouse positions may remain stale."
         )
     )
-    button: str = Field(description="The clicked button: left, right, or middle.")
+    button: Literal["left", "right", "middle"] = Field(
+        description="The clicked button: left, right, or middle."
+    )
     double: bool = Field(description="Whether the press was marked a double click.")
     phases: list[InputEventPhase] = Field(
         description=(
@@ -278,6 +288,20 @@ class InputMouseClickResult(BaseModel):
             "when nothing holds focus."
         ),
     )
+
+    @model_validator(mode="after")
+    def _check_gesture(self) -> "InputMouseClickResult":
+        # The gesture IS the contract (#652): a reply whose phases are not
+        # exactly move@0 -> press@1 -> release@2 is not a click this CLI
+        # version understands (a stale or drifted harness), so it must fail
+        # output validation and classify as contract_violation.
+        expected = [(0, "move"), (1, "press"), (2, "release")]
+        if [(p.frame, p.phase) for p in self.phases] != expected:
+            raise ValueError(
+                "a mouse-click result reports exactly the phases move@0, "
+                "press@1, release@2."
+            )
+        return self
 
 
 class InputActionParams(BaseModel):
@@ -369,7 +393,9 @@ class InputTapParams(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "The analog press strength of an ACTION tap, 0..1 (default 1.0). "
+            "The analog press strength of an ACTION tap, 0..1. Omitted on an "
+            "action tap, this model normalizes it to 1.0 (the declared null "
+            "default only marks it unset, so a key tap can refuse it by name). "
             "Not valid with a key tap."
         ),
     )
@@ -406,6 +432,13 @@ class InputTapParams(BaseModel):
             raise ValueError(
                 "'strength' rides an action tap only; a key tap has no strength."
             )
+        if self.action is not None and self.strength is None:
+            # The params model owns the derived default (ADR-0015): normalizing
+            # here means argv and --params-json both send an explicit 1.0 to the
+            # harness, whose own fallback stays defensive only. The field's
+            # declared default remains null purely to distinguish "omitted" from
+            # "set", so the key-tap refusal above can name a real mistake.
+            self.strength = 1.0
         _validate_modifiers(self.modifiers)
         window = self.hold_frames + self.settle_frames + 1
         if window > MAX_WINDOW_FRAMES:
@@ -424,9 +457,15 @@ class InputTapResult(BaseModel):
     ``action`` + ``strength`` for an action tap; the other family is null — the
     frame counts, the injected ``phases`` (the press at window frame 0, the
     release at frame ``hold_frames``), and the focus evidence around the gesture.
+    The evidence is VALIDATED, not merely described: exactly one target family,
+    ``frames == hold_frames + settle_frames + 1``, and exactly the phases
+    press@0 / release@hold_frames — a reply outside that contract fails output
+    validation (``contract_violation``) instead of passing through as a success.
     """
 
-    kind: str = Field(default="tap", description="The injected event kind ('tap').")
+    kind: Literal["tap"] = Field(
+        default="tap", description="The injected event kind ('tap')."
+    )
     key: str | None = Field(
         default=None, description="The tapped key name; null for an action tap."
     )
@@ -446,13 +485,14 @@ class InputTapResult(BaseModel):
         description="The action press strength applied; null for a key tap.",
     )
     hold_frames: int = Field(
-        description="Process frames held between the press and the release."
+        ge=1, description="Process frames held between the press and the release."
     )
     settle_frames: int = Field(
-        description="Process frames run after the release before the op returned."
+        ge=0,
+        description="Process frames run after the release before the op returned.",
     )
     frames: int = Field(
-        description="The total window: hold_frames + settle_frames + 1."
+        ge=2, description="The total window: hold_frames + settle_frames + 1."
     )
     phases: list[InputEventPhase] = Field(
         description=(
@@ -474,6 +514,37 @@ class InputTapResult(BaseModel):
             "when nothing holds focus."
         ),
     )
+
+    @model_validator(mode="after")
+    def _check_tap_evidence(self) -> "InputTapResult":
+        # The tap evidence IS the contract (#652): one target family, honest
+        # frame arithmetic, and exactly the two phases the op injects. A reply
+        # outside this is a stale or drifted harness — it must fail output
+        # validation and classify as contract_violation, never pass as success.
+        key_fields = (self.key, self.keycode, self.modifiers)
+        action_fields = (self.action, self.strength)
+        key_tap = all(f is not None for f in key_fields) and all(
+            f is None for f in action_fields
+        )
+        action_tap = all(f is not None for f in action_fields) and all(
+            f is None for f in key_fields
+        )
+        if not (key_tap or action_tap):
+            raise ValueError(
+                "a tap result carries exactly one target family: "
+                "key + keycode + modifiers, or action + strength."
+            )
+        if self.frames != self.hold_frames + self.settle_frames + 1:
+            raise ValueError(
+                "a tap result's frames is hold_frames + settle_frames + 1."
+            )
+        expected = [(0, "press"), (self.hold_frames, "release")]
+        if [(p.frame, p.phase) for p in self.phases] != expected:
+            raise ValueError(
+                "a tap result reports exactly the phases press@0 and "
+                "release@hold_frames."
+            )
+        return self
 
 
 # The event types a `gda input sequence` may carry. A sequence event reuses the
@@ -932,7 +1003,7 @@ def render_input_key(injected: "InputKeyResult") -> str:
     return f"key {injected.key}{mods} {state} (keycode {injected.keycode})"
 
 
-def render_input_mouse(injected: "InputMouseResult") -> str:
+def render_input_mouse_move(injected: "InputMouseMoveResult") -> str:
     """Render an injected mouse motion event at its position (#221)."""
     x, y = injected.position
     return f"mouse move to ({x}, {y})"
@@ -999,11 +1070,11 @@ INPUT_MOUSE_CLICK_COMMAND: HeadlessCommand[InputMouseClickResult] = HeadlessComm
 )
 
 
-INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
+INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseMoveResult] = HeadlessCommand(
     operation="input-mouse-move",
     input_model=InputMouseMoveParams,
-    output_model=InputMouseResult,
-    render=render_input_mouse,
+    output_model=InputMouseMoveResult,
+    render=render_input_mouse_move,
     kind=ExecutionKind.LIVE,
 )
 

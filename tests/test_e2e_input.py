@@ -19,7 +19,7 @@ import subprocess
 import pytest
 
 from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
+from tests.support import GDA_CMD, assert_windowed_ok
 
 from .conftest import project_godot
 
@@ -866,13 +866,11 @@ def test_mouse_click_performs_the_complete_activation_gesture(
 
 
 @pytest.mark.e2e
-def test_repeated_mouse_input_adds_no_harness_owned_warnings(
-    tmp_path, daemon_runtime_dir
-):
-    # #647: notify_mouse_entered() on an already-entered viewport is an engine
-    # warning that lands in the Session log. After repeated mouse ops, `diag
-    # errors` must carry no harness-owned viewport-enter noise, so an empty
-    # result stays usable as clean runtime evidence after a multi-click playtest.
+def test_two_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
+    # The #647 defect mechanism, pinned where every environment can run it: two
+    # successful clicks in a (headless) session, then `diag errors` must be
+    # EMPTY — not merely free of one known message — so a consumer can use an
+    # empty result as clean runtime evidence after a multi-click playtest.
     _button_project(tmp_path)
     env = {**os.environ}
 
@@ -885,16 +883,34 @@ def test_repeated_mouse_input_adds_no_harness_owned_warnings(
         assert (
             _gda_json(tmp_path, env, "input", "mouse-click", "50", "20").returncode == 0
         )
-        assert (
-            _gda_json(tmp_path, env, "input", "mouse-move", "10", "10").returncode == 0
-        )
 
         diag = _gda_json(tmp_path, env, "diag", "errors")
         assert diag.returncode == 0, diag.stdout + diag.stderr
-        errors = json.loads(diag.stdout)["errors"]
-        assert not any("previously notified" in error["message"] for error in errors), (
-            errors
-        )
+        assert json.loads(diag.stdout)["errors"] == []
+    finally:
+        _gda_json(tmp_path, env, "daemon", "stop")
+
+
+@pytest.mark.e2e
+@pytest.mark.usefixtures("windowed_host")
+def test_two_windowed_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
+    # The exact #647 reproduction: a WINDOWED daemon session, two successful
+    # clicks, an empty `diag errors`. The windowed path also carries the
+    # OS-driven mouse enter/exit branch of the harness's signal mirror, which
+    # the headless twin cannot exercise. Gated on a real display
+    # (tests.support.require_windowed_host); a capability refusal skips, a
+    # confined run fails loudly (#345/#667).
+    _button_project(tmp_path)
+    env = {**os.environ}
+
+    try:
+        assert_windowed_ok(_gda_json(tmp_path, env, "daemon", "start", "--windowed"))
+
+        assert_windowed_ok(_gda_json(tmp_path, env, "input", "mouse-click", "50", "20"))
+        assert_windowed_ok(_gda_json(tmp_path, env, "input", "mouse-click", "50", "20"))
+
+        diag = assert_windowed_ok(_gda_json(tmp_path, env, "diag", "errors"))
+        assert json.loads(diag.stdout)["errors"] == []
     finally:
         _gda_json(tmp_path, env, "daemon", "stop")
 

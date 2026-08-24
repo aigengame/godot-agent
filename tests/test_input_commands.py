@@ -16,7 +16,7 @@ import re
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.exit_codes import EXIT_LIVE
+from gda.exit_codes import EXIT_LIVE, EXIT_PARSE
 from gda.models import MAX_WINDOW_FRAMES
 from gda.runner import RunResult
 from tests.support import (
@@ -650,6 +650,181 @@ def test_input_tap_schema_reports_kind_live():
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["kind"] == "live"
+
+
+def test_input_tap_omitted_action_strength_is_normalized_model_side(
+    monkeypatch, tmp_path
+):
+    # The params model owns the derived default (ADR-0015): an action tap with
+    # no --strength sends an explicit 1.0 on BOTH invocation paths, so the
+    # harness fallback stays defensive only and the wire never carries the
+    # "null means 1.0" split the schema cannot express.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_TAP_ACTION_RESULT), stderr="", exit_code=0),
+    )
+
+    argv = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--action",
+            "jump",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+    params_json = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--params-json",
+            '{"action": "jump"}',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert argv.exit_code == 0, argv.stdout + argv.stderr
+    assert params_json.exit_code == 0, params_json.stdout + params_json.stderr
+    assert [call[1]["strength"] for call in fake.calls] == [1.0, 1.0]
+    # A key tap has no strength: it stays null on the wire, never 1.0.
+    fake.calls.clear()
+    fake.result = RunResult(
+        stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0
+    )
+    key = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--key",
+            "Right",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+    assert key.exit_code == 0, key.stdout + key.stderr
+    assert fake.calls[0][1]["strength"] is None
+
+
+# Malformed harness replies for the two activation gestures (#652). The output
+# models VALIDATE the gesture evidence, so a reply outside the contract — a
+# stale or drifted harness — is the structured contract_violation, never a
+# silently-successful CLI/MCP result.
+_MALFORMED_TAP_REPLIES = [
+    # A kind outside the contract.
+    {**INPUT_TAP_KEY_RESULT, "kind": "wrong"},
+    # Both target families present at once.
+    {**INPUT_TAP_KEY_RESULT, "action": "jump", "strength": 1.0},
+    # Frame arithmetic that disagrees with hold + settle + 1.
+    {**INPUT_TAP_KEY_RESULT, "frames": 1},
+    # A phase outside the gesture vocabulary, at a negative frame.
+    {**INPUT_TAP_KEY_RESULT, "phases": [{"frame": -7, "phase": "noop"}]},
+]
+
+_MALFORMED_CLICK_REPLIES = [
+    # A kind outside the contract.
+    {**INPUT_MOUSE_CLICK_RESULT, "kind": "mouse_move"},
+    # A button outside the enum.
+    {**INPUT_MOUSE_CLICK_RESULT, "button": "bogus"},
+    # The right phases in the wrong order.
+    {
+        **INPUT_MOUSE_CLICK_RESULT,
+        "phases": [
+            {"frame": 0, "phase": "press"},
+            {"frame": 1, "phase": "move"},
+            {"frame": 2, "phase": "release"},
+        ],
+    },
+    # The release phase missing entirely.
+    {
+        **INPUT_MOUSE_CLICK_RESULT,
+        "phases": INPUT_MOUSE_CLICK_RESULT["phases"][:2],
+    },
+]
+
+
+def test_malformed_tap_reply_is_a_contract_violation(monkeypatch, tmp_path):
+    for payload in _MALFORMED_TAP_REPLIES:
+        inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(
+            app,
+            [
+                "input",
+                "tap",
+                "--key",
+                "Right",
+                "--project",
+                str(_project(tmp_path)),
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
+        assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
+            payload
+        )
+
+
+def test_malformed_click_reply_is_a_contract_violation(monkeypatch, tmp_path):
+    for payload in _MALFORMED_CLICK_REPLIES:
+        inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(
+            app,
+            [
+                "input",
+                "mouse-click",
+                "1",
+                "2",
+                "--project",
+                str(_project(tmp_path)),
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
+        assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
+            payload
+        )
+
+
+def test_mouse_move_reply_with_a_foreign_kind_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({**INPUT_MOUSE_MOVE_RESULT, "kind": "mouse_click"}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "mouse-move",
+            "1",
+            "2",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_PARSE, result.stdout
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
 
 
 # --- input sequence (multi-frame, time-windowed base) -------------------------

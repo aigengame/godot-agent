@@ -565,7 +565,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 | `input mouse-click` | 在 `(x, y)` 处注入完整的点击手势(移动、按下、释放)。 |
 | `input mouse-move` | 将鼠标移动到 `(x, y)`。 |
 | `input action` | 按下/释放一个已映射的输入动作。 |
-| `input tap` | 轻按一个按键或动作:跨帧完成按下、保持、释放。 |
+| `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放。 |
 | `input sequence` | 注入一条跨多帧的事件时间线。 |
 
 鼠标事件会在 `event.position` 中携带注入的视口坐标。Godot 在 daemon 会话中可能让

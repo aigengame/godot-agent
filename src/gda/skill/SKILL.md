@@ -184,8 +184,8 @@ and the release, one per process frame — and `gda input tap --key K` /
 process frames, releases, then runs `--settle-frames` (default 2) more frames so
 the game observes the release before the op returns. Both report the injected
 `phases` and the focused Control before/after as activation evidence. Reach for
-`gda input key --released` or a `mouse_button` sequence phase only when a single
-edge is the point (a hold, a drag).
+`gda input key <KEY> --released` or a `mouse_button` sequence phase only when a
+single edge is the point (a hold, a drag).
 
 `gda input sequence` events are a discriminated union on `type`: each kind accepts
 only its own fields, and `gda input sequence --schema` publishes them per kind. The
