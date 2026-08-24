@@ -7,8 +7,8 @@ harness can have different capabilities._
 
 ## Writable `uv` and `uvx` paths in a managed sandbox
 
-- **Applies when:** A managed harness denies writes to the default user cache or tool
-  directory, or `uv` fails before it runs the requested command.
+- **Applies when:** A managed environment reports that the default `uv` cache or tool
+  directory is not writable before the requested command starts.
 - **Symptom:** `uv` reports that it failed to initialize its cache, or `uvx` fails while
   it prepares a tool environment.
 - **Cause:** The default cache or tool directory is outside the harness's writable

@@ -95,7 +95,7 @@ _Cross-session daily report (~15 lines, rewritten each session via the `state` s
 
 - **Phase/milestone:** <current stage, in the project's own terms — omit if you can't confirm the *current* one>
 - **Last session:** <what was completed/changed; one line, e.g. issue #N>
-- **Pitfalls/experience:** <only if it helps "Next up"; otherwise omit this line>
+- **Experience:** <only if it helps "Next up"; link a relevant `PITFALLS.md` entry instead of copying it>
 - **Next up:** <recommended items to START next, in execution order, e.g. issue #N>
 - **Backlog:** <unfinished cross-session carry-over NOT selected for "Next up"; one line per item>
   - <interrupted or parked item, anchored to a tracker ref (#N) where one exists> _(since YYYY-MM-DD)_

@@ -6,11 +6,11 @@ Read @CONTEXT.md to align with the project's nature and shared language; consult
 
 Read @STATE.md if exists for the latest session state — a lightweight cross-session daily report; the `state` skill is the single authority for its format and fields. Treat it as read-only startup context. Only the **primary worker** updates it, at session end, via the `state` skill; parallel sub-agents and sub-tasks must not write it.
 
-Read @PITFALLS.md if it exists before using project tools in a managed or unfamiliar
-environment. Its entries are context-sensitive guidance: check each **Applies when**
-condition because another harness can have different capabilities. The primary worker
-should maintain it through the `pitfalls` skill. Parallel subagents should report
-candidate entries instead of editing it concurrently.
+Read @PITFALLS.md if it exists before using project tools. Its entries are
+context-sensitive guidance: check each **Applies when** condition because another harness
+can have different capabilities. The primary worker should maintain it through the
+`pitfalls` skill. Parallel subagents should report candidate entries instead of editing
+it concurrently.
 
 ## Agent skills
 
