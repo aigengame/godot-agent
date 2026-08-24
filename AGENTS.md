@@ -10,10 +10,6 @@ Read @CONTEXT.md to align with the project's nature and shared language; consult
 
 Read @STATE.md and @PITFALLS.md if they exist.
 
-The primary worker maintains `STATE.md` through the `state` skill and `PITFALLS.md`
-through the `pitfalls` skill. Parallel subagents and sub-tasks treat both files as
-read-only and report state changes or candidate pitfalls to the primary worker.
-
 ### Issue tracker
 
 Issues and PRDs live as GitHub issues in `aigengame/godot-agent` (via the `gh` CLI). See `docs/agents/issue-tracker.md`.

@@ -84,8 +84,8 @@ the old record.
 
 ## Ownership and integration
 
-The primary worker should edit `PITFALLS.md`. Parallel subagents should report candidate
-entries to the primary worker so concurrent edits do not create duplicates.
+Only the primary worker edits `PITFALLS.md`. Parallel subagents report candidate entries
+to the primary worker so concurrent edits do not create duplicates.
 
 If `STATE.md` exists, it can point to a relevant catalog entry when that entry helps the
 immediate next work. It should not copy durable operational guidance from `PITFALLS.md`.
