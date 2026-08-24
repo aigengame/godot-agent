@@ -1,13 +1,13 @@
 ---
 name: state
-description: Update STATE.md — the lightweight cross-session "daily report" of project progress. Rewrite (never append) the current milestone/phase, what this session completed or changed, pitfalls worth reusing, the recommended next issues/tasks, and the filtered-and-inherited backlog of unfinished cross-session items. Use at the end of a working session, when wrapping up, or when explicitly invoked.
+description: Update STATE.md — the lightweight cross-session "daily report" of project progress. Rewrite (never append) the current milestone/phase, what this session completed or changed, experience relevant to the next work, the recommended next issues/tasks, and the filtered-and-inherited backlog of unfinished cross-session items. Use at the end of a working session, when wrapping up, or when explicitly invoked.
 ---
 
 # State
 
 Maintain `STATE.md` at the repo root: a lightweight **cross-session daily report** so the next
-worker learns in ~15 lines where the project is, what the last session did, which pitfalls to
-reuse, what to pick up next, and which unfinished items must not be forgotten. This is the
+worker learns in ~15 lines where the project is, what the last session did, which immediate
+experience to reuse, what to pick up next, and which unfinished items must not be forgotten. This is the
 feedback loop that makes development experience **compound** instead of re-discovering project
 status every session.
 
@@ -72,10 +72,12 @@ unchanged — at most refresh the date. Don't churn the file with non-progress.
      tracker provides a reference. If no tracker exists, keep every item. Also keep every item when
      no authorized writer can create the tracker record. The visible overflow is the signal that
      the items still need a durable home.
-5. **Add pitfalls/experience only if it serves "Next up".** Include a note **only when this
-   session's work is continuous with or related to the recommended next work**, so the note will
-   actually get reused. If the next work is unrelated, **omit it** — experience that doesn't help
-   the next task is noise, not a war-story archive.
+5. **Add experience only if it serves "Next up".** Include a note **only when this session's
+   work is continuous with or related to the recommended next work**, so the note will actually
+   get reused. If the next work is unrelated, **omit it** — experience that doesn't help the next
+   task is noise, not a war-story archive. When the project has a `PITFALLS.md`, keep durable
+   environment, tool, permission, sandbox, and tool-invocation guidance there instead. STATE.md
+   may point to a relevant entry; it should not copy that entry.
 6. **Rewrite `STATE.md` from the template.** Overwrite the file; never append. Keep it to 15 lines
    or fewer. If the no-loss rule in step 4 leaves more than five Backlog items, allow one extra line
    for each extra item. Do not drop an item to meet the line limit. Omit content bullets that are
