@@ -28,11 +28,32 @@ def _project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _sidecar(project: Path, asset: str, dest_rel: str | None) -> None:
+def _sidecar(
+    project: Path, asset: str, dest_rel: str | None, valid: bool = True
+) -> None:
     lines = ['[remap]\n\nimporter="texture"\n']
+    if not valid:
+        lines.append("valid=false\n")
     if dest_rel is not None:
         lines.append(f'\n[deps]\n\ndest_files=["res://{dest_rel}"]\n')
     (project / f"{asset}.import").write_text("".join(lines), encoding="utf-8")
+
+
+def _md5_companion(project: Path, dest_rel: str, source_rel: str) -> None:
+    """The engine's freshness receipt: <dest stem>.md5 recording source_md5."""
+    import hashlib
+
+    digest = hashlib.md5((project / source_rel).read_bytes()).hexdigest()
+    stem = dest_rel.rsplit(".", 1)[0]
+    (project / f"{stem}.md5").write_text(f'source_md5="{digest}"\n', encoding="utf-8")
+
+
+def _cached_asset(project: Path, asset: str, dest_rel: str) -> None:
+    """A fully intact cache: sidecar + dest + the engine's md5 receipt."""
+    (project / dest_rel).parent.mkdir(parents=True, exist_ok=True)
+    (project / dest_rel).write_bytes(b"ctex")
+    _sidecar(project, asset, dest_rel)
+    _md5_companion(project, dest_rel, asset)
 
 
 def _run(project: Path, *args: str):
@@ -80,9 +101,7 @@ def test_dry_run_reports_missing_and_predictions_and_writes_nothing(tmp_path):
 def test_dry_run_cached_when_sidecar_dest_files_exist(tmp_path):
     project = _project(tmp_path)
     dest = ".godot/imported/icon.png-abc.ctex"
-    (project / ".godot/imported").mkdir(parents=True)
-    (project / dest).write_bytes(b"ctex")
-    _sidecar(project, "icon.png", dest)
+    _cached_asset(project, "icon.png", dest)
 
     result = _run(project, "res://icon.png", "--dry-run")
 
@@ -137,10 +156,7 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
     project = _project(tmp_path)
 
     def effects(p: Path) -> None:
-        dest = ".godot/imported/icon.png-abc.ctex"
-        (p / ".godot/imported").mkdir(parents=True)
-        (p / dest).write_bytes(b"ctex")
-        _sidecar(p, "icon.png", dest)
+        _cached_asset(p, "icon.png", ".godot/imported/icon.png-abc.ctex")
         (p / "tool.gd.uid").write_text("uid://x", encoding="utf-8")
 
     calls, fake_launch = _fake_pass(project, effects)
@@ -158,7 +174,7 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
     assert created["res://icon.png.import"] == "source_adjacent"
     assert created["res://tool.gd.uid"] == "source_adjacent"
     assert data["summary"]["imported"] == 1
-    assert data["summary"]["created_cache_owned"] == 1
+    assert data["summary"]["created_cache_owned"] == 2  # the .ctex and its .md5
     assert data["summary"]["created_source_adjacent"] == 2
     # The pass argv: the engine's project-wide --import, nothing else.
     (binary, args, cwd, timeout) = calls[0]
@@ -168,10 +184,7 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
 
 def test_all_cached_runs_no_pass(monkeypatch, tmp_path):
     project = _project(tmp_path)
-    dest = ".godot/imported/icon.png-abc.ctex"
-    (project / ".godot/imported").mkdir(parents=True)
-    (project / dest).write_bytes(b"ctex")
-    _sidecar(project, "icon.png", dest)
+    _cached_asset(project, "icon.png", ".godot/imported/icon.png-abc.ctex")
 
     calls, fake_launch = _fake_pass(project, lambda p: None)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
@@ -236,6 +249,92 @@ def test_launch_failures_classify_through_the_shared_prefix(monkeypatch, tmp_pat
     assert "importer exploded" in failed["error"]["diagnostics"]
 
 
+def test_engine_invalid_sidecar_is_never_a_hit_and_settles_failed(
+    monkeypatch, tmp_path
+):
+    # #738 review [P1]: the ENGINE marked the import failed (valid=false); gda
+    # must not call that cached — nor rewrite it to "imported" after a pass
+    # that leaves it invalid.
+    project = _project(tmp_path)
+
+    def effects(p: Path) -> None:
+        _sidecar(p, "icon.png", None, valid=False)
+
+    calls, fake_launch = _fake_pass(project, effects)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    data = json.loads(_run(project, "res://icon.png").stdout)
+
+    assert data["assets"][0]["status"] == "failed"
+    assert data["summary"]["failed"] == 1
+    assert len(calls) == 1  # the invalid state DID trigger the pass
+
+
+def test_stale_source_is_missing_not_cached(tmp_path):
+    # #738 review [P1]: freshness rides the engine's own md5 receipt — a source
+    # that hashes differently from the recorded source_md5 would be re-imported
+    # by the engine, so gda agrees: missing, and a pass would run.
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-abc.ctex"
+    _cached_asset(project, "icon.png", dest)
+    (project / "icon.png").write_bytes(b"\x89PNG different bytes")
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "missing"
+    assert data["engine_pass"] is True
+
+
+def test_missing_md5_receipt_is_missing_not_cached(tmp_path):
+    # #738 review [P1]: without the receipt the engine cannot prove freshness
+    # and re-imports; gda must not claim a hit the engine would not.
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-abc.ctex"
+    _cached_asset(project, "icon.png", dest)
+    (project / ".godot/imported/icon.png-abc.md5").unlink()
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "missing"
+
+
+def test_res_scheme_cannot_escape_the_project(tmp_path):
+    # #738 review [P2]: res://../ must go through the same canonical
+    # containment gate as filesystem input.
+    project = _project(tmp_path)
+    (tmp_path.parent / "outside-668.png").write_bytes(b"x")
+
+    data = json.loads(_run(project, "res://../outside-668.png", "--dry-run").stdout)
+
+    assert data["error"]["code"] == "invalid_params"
+    assert "outside the project" in data["error"]["message"]
+
+
+def test_symlink_escaping_the_project_is_refused(tmp_path):
+    project = _project(tmp_path)
+    outside = tmp_path.parent / "target-668.png"
+    outside.write_bytes(b"x")
+    (project / "link.png").symlink_to(outside)
+
+    data = json.loads(_run(project, "res://link.png", "--dry-run").stdout)
+
+    assert data["error"]["code"] == "invalid_params"
+
+
+def test_dry_run_lists_the_passes_other_gaps(tmp_path):
+    # #738 review [P1, dry-run half]: the project-wide pass would also import
+    # OTHER assets with missing/stale sidecar-declared caches; the dry run
+    # scans the committed sidecars and says so.
+    project = _project(tmp_path)
+    (project / "other.png").write_bytes(b"\x89PNG other")
+    _sidecar(project, "other.png", ".godot/imported/other.png-abc.ctex")
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["path"] == "res://icon.png"
+    assert data["pass_also_missing"] == ["res://other.png"]
+
+
 # --- request validation --------------------------------------------------------
 
 
@@ -283,7 +382,9 @@ def test_schema_is_self_describing():
     assert result.exit_code == 0, result.stdout + result.stderr
     schema = json.loads(result.stdout)
     assert "input" in schema and "output" in schema
-    assert schema["kind"] == "headless"
+    # The published channel is the native import pass, not the operations.gd
+    # sentinel pipeline this command never uses (#738 review).
+    assert schema["kind"] == "import"
 
 
 def test_result_model_validates_its_mode_fields():

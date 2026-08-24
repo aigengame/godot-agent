@@ -158,3 +158,62 @@ def test_a_script_is_engine_decided_not_importable(tmp_path):
     doc = json.loads(result.stdout)
     assert doc["assets"][0]["status"] == "not_importable"
     assert doc["summary"]["not_importable"] == 1
+
+
+@pytest.mark.e2e
+def test_engine_invalid_import_is_failed_not_imported(tmp_path):
+    # #738 review [P1], the real-engine reproduction: ordinary text named
+    # .png — Godot writes a sidecar with valid=false and no dest_files. gda
+    # must report `failed`, never a cache hit or a successful import.
+    project = _project(tmp_path)
+    (project / "broken.png").write_text("this is not a png", encoding="utf-8")
+
+    result = _gda(project, "resource", "import", "res://broken.png")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    broken = next(a for a in doc["assets"] if a["path"] == "res://broken.png")
+    assert broken["status"] == "failed"
+    assert doc["summary"]["failed"] == 1
+    # And the verdict is stable: a second run still refuses to call it cached.
+    again = json.loads(_gda(project, "resource", "import", "res://broken.png").stdout)
+    assert again["assets"][0]["status"] == "failed"
+
+
+@pytest.mark.e2e
+def test_stale_source_reimports_and_dry_run_lists_project_gaps(tmp_path):
+    # #738 review [P1]: freshness rides the engine's own md5 receipts — after
+    # the source changes, the dry run says `missing` (and would run the pass),
+    # and the real run re-imports. Plus the review's own two-asset probe,
+    # pinned: requesting only icon.png, the dry run's project-wide scan lists
+    # other.png as something the pass would also import.
+    project = _project(tmp_path)
+    _png(project / "other.png", (0, 0, 255))
+
+    first = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
+    assert first["assets"][0]["status"] == "imported"
+
+    # Make icon.png stale (different content, same path).
+    _png(project / "icon.png", (0, 255, 0))
+    dry = json.loads(
+        _gda(project, "resource", "import", "res://icon.png", "--dry-run").stdout
+    )
+    assert dry["assets"][0]["status"] == "missing"
+    assert dry["engine_pass"] is True
+
+    re_imported = json.loads(
+        _gda(project, "resource", "import", "res://icon.png").stdout
+    )
+    assert re_imported["assets"][0]["status"] == "imported"
+
+    # The project-gap half: strip other.png's cache, request only icon.png.
+    import shutil
+
+    other_sidecar = project / "other.png.import"
+    assert other_sidecar.is_file()
+    shutil.rmtree(project / ".godot")
+    dry2 = json.loads(
+        _gda(project, "resource", "import", "res://icon.png", "--dry-run").stdout
+    )
+    assert dry2["assets"][0]["status"] == "missing"
+    assert "res://other.png" in dry2["pass_also_missing"]

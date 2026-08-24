@@ -496,7 +496,7 @@ reported as `script_aborted` with the captured error.
 | `project find-unused-resources` | Find resource files that nothing references. |
 | `project statistics` | Report the project's file/line counts, autoloads, and more. |
 
-**`resource`** — resource files (`.tres`)
+**`resource`** — resource files (`.tres`) and the project's imported assets
 
 | Command | What it does |
 | ------- | ------------ |
@@ -640,10 +640,12 @@ A named directory must be a project, or `gda` reports it as an error. When none 
 Resolving a project so `res://` paths work runs Godot against that project, and Godot runs
 some of the project's own code as part of that. Concretely:
 
-- **Autoloads run on every `--project` operation.** When a project is resolved, the engine
-  constructs the project's autoload singletons at startup — before the command's own work
-  runs — so their `_init` (and `_ready`) execute on **every** operation, including read-only
-  ones like `scene get` and `node list`. Without a resolved project, no autoloads are
+- **Autoloads run on every `--project` operation that starts the game-facing engine.** When a
+  project is resolved, the engine constructs the project's autoload singletons at startup —
+  before the command's own work runs — so their `_init` (and `_ready`) execute on read-only
+  operations too, like `scene get` and `node list`. Two exceptions: a fully cached
+  `resource import` starts no engine at all, and its cache-miss import pass boots the editor
+  importer path, which skips autoloads. Without a resolved project, no autoloads are
   registered, so they do not run.
 - **Commands that instantiate a scene execute that scene's attached scripts' constructors.**
   A command that needs a live node tree — every mutating command (`node add`, `node set`,
@@ -658,6 +660,10 @@ some of the project's own code as part of that. Concretely:
 - **`gda scene preflight` boots the scene.** It instantiates the scene and runs its `_ready`
   plus the observation frames, so every script in the scene — and the project's autoloads —
   execute their startup code.
+- **`gda resource import` runs the engine import pass on a cache miss.** Importer code — and
+  any import plugins the project registers — runs over the whole project's content. The pass
+  boots the editor importer path, not the game: no autoloads execute. A fully cached request
+  starts no engine at all.
 
 `gda` treats the target project as trusted, so this is by design — see
 [ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md) for the trust model.

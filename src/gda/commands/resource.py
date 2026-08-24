@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, model_validator
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import Failure, classify_launch_or_crash, make_failure
+from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -41,7 +42,7 @@ from gda.models import (
     projected_value_schema_extra,
 )
 from gda.render import render_property_lines, render_set_echo
-from gda.runner import LaunchFn, launch
+from gda.runner import launch
 
 
 class ResourceCreateParams(BaseModel):
@@ -589,6 +590,16 @@ class ResourceImportResult(BaseModel):
             "requested assets."
         ),
     )
+    pass_also_missing: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Dry run only: OTHER assets whose committed sidecar declares a "
+            "missing, invalid, or stale cache — the project-wide pass would "
+            "import these too. Assets with no sidecar and generated .uid "
+            "sidecars cannot be predicted; the real run's `created` list is "
+            "the authoritative inventory."
+        ),
+    )
     summary: ResourceImportSummary
 
     @model_validator(mode="after")
@@ -600,7 +611,7 @@ class ResourceImportResult(BaseModel):
             if self.created:
                 raise ValueError("a dry run creates nothing.")
         else:
-            if self.predicted_source_adjacent:
+            if self.predicted_source_adjacent or self.pass_also_missing:
                 raise ValueError("a real run reports created files, not predictions.")
             if any(asset.status == "missing" for asset in self.assets):
                 raise ValueError(
@@ -630,20 +641,29 @@ class ResourceImportResult(BaseModel):
 
 _CACHE_ROOT_REL = ".godot"
 _DEST_FILES_LINE = re.compile(r"^dest_files=(\[.*\])$", re.MULTILINE)
+_INVALID_LINE = re.compile(r"^valid=false$", re.MULTILINE)
+_SOURCE_MD5_LINE = re.compile(r'^source_md5="([0-9a-f]+)"$', re.MULTILINE)
 
 
 def _asset_res_path(project: Path, raw: str) -> str | None:
-    """Normalize one requested asset to its res:// path, or None if outside."""
+    """Normalize one requested asset to its res:// path, or None if outside.
+
+    BOTH input forms go through one canonical containment gate (#738 review):
+    the path — res:// prefix stripped, or filesystem, relative meaning
+    project-relative — is resolved (symlinks and ``..`` included) and must land
+    inside the resolved project root. A ``res://../…`` escape, an absolute
+    outside path, or a symlink pointing out of the project all answer None.
+    """
     if raw.startswith("res://"):
-        rel = raw[len("res://") :]
+        candidate = project / raw[len("res://") :]
     else:
         candidate = Path(raw)
         if not candidate.is_absolute():
             candidate = project / candidate
-        try:
-            rel = candidate.resolve().relative_to(project.resolve()).as_posix()
-        except ValueError:
-            return None
+    try:
+        rel = candidate.resolve().relative_to(project.resolve()).as_posix()
+    except ValueError:
+        return None
     return "res://" + rel
 
 
@@ -655,6 +675,11 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
         return ResourceImportAsset(path=res_path, status="missing")
     sidecar_res = res_path + ".import"
     text = sidecar_fs.read_text(encoding="utf-8", errors="replace")
+    # The ENGINE is the authority on import validity (#738 review): a sidecar
+    # it marked `valid=false` is a FAILED import, whatever else it declares —
+    # never a cache hit, and never rewritten to "imported" after a pass.
+    if _INVALID_LINE.search(text):
+        return ResourceImportAsset(path=res_path, status="missing", sidecar=sidecar_res)
     matched = _DEST_FILES_LINE.search(text)
     if matched is None:
         # importer=keep style: a sidecar that declares no cache output — the
@@ -664,12 +689,33 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
         dests = [str(d) for d in json.loads(matched.group(1))]
     except ValueError:
         return ResourceImportAsset(path=res_path, status="missing", sidecar=sidecar_res)
-    missing = [d for d in dests if not (project / d[len("res://") :]).is_file()]
+    if any(not (project / d[len("res://") :]).is_file() for d in dests):
+        return ResourceImportAsset(
+            path=res_path, status="missing", sidecar=sidecar_res, dest_files=dests
+        )
+    # Freshness rides the engine's own .md5 receipts, not a gda heuristic: each
+    # destination's companion `<stem>.md5` records the source_md5 the engine
+    # imported FROM. A missing receipt or a source that hashes differently is
+    # exactly what the engine itself would re-import, so gda agrees: missing.
+    import hashlib
+
+    source_bytes = (project / rel).read_bytes()
+    current_md5 = hashlib.md5(source_bytes).hexdigest()
+    for dest in dests:
+        companion = project / (dest[len("res://") :].rsplit(".", 1)[0] + ".md5")
+        if not companion.is_file():
+            return ResourceImportAsset(
+                path=res_path, status="missing", sidecar=sidecar_res, dest_files=dests
+            )
+        recorded = _SOURCE_MD5_LINE.search(
+            companion.read_text(encoding="utf-8", errors="replace")
+        )
+        if recorded is None or recorded.group(1) != current_md5:
+            return ResourceImportAsset(
+                path=res_path, status="missing", sidecar=sidecar_res, dest_files=dests
+            )
     return ResourceImportAsset(
-        path=res_path,
-        status="cached" if not missing else "missing",
-        sidecar=sidecar_res,
-        dest_files=dests,
+        path=res_path, status="cached", sidecar=sidecar_res, dest_files=dests
     )
 
 
@@ -683,6 +729,33 @@ def _project_files(project: Path) -> set[str]:
         if path.is_file():
             files.add(rel.as_posix())
     return files
+
+
+def _project_import_gaps(project: Path, requested: set[str]) -> list[str]:
+    """Other assets the project-wide pass would also import (#738 review).
+
+    The dry-run inventory's project-wide half: every asset OUTSIDE the request
+    whose committed sidecar declares a cache the engine would re-make —
+    missing, invalid, or stale, judged by the same engine-owned receipts the
+    per-asset verdict reads. Assets with NO sidecar (and the ``.uid`` sidecars
+    the pass may generate) cannot be predicted from here — the engine decides
+    those — so the real run's ``created`` list stays the authoritative
+    inventory, and the contract says so.
+    """
+    gaps: list[str] = []
+    for sidecar in sorted(project.rglob("*.import")):
+        rel = sidecar.relative_to(project).as_posix()
+        if rel.startswith(".godot/") or rel.startswith(".git/"):
+            continue
+        res_path = "res://" + rel[: -len(".import")]
+        if res_path in requested:
+            continue
+        source = project / rel[: -len(".import")]
+        if not source.is_file():
+            continue
+        if _asset_state(project, res_path).status == "missing":
+            gaps.append(res_path)
+    return gaps
 
 
 def _summarize(
@@ -706,7 +779,6 @@ def run_resource_import_operation(
     params: ResourceImportParams,
     *,
     godot: Optional[str] = None,
-    make_launch: Optional[LaunchFn] = None,
 ) -> "ResourceImportResult | Failure":
     """Decide per asset, run the engine pass only when needed, account for it all.
 
@@ -753,17 +825,19 @@ def run_resource_import_operation(
             engine_pass=needs_pass,
             assets=assets,
             predicted_source_adjacent=predicted,
+            pass_also_missing=(
+                _project_import_gaps(project, set(res_paths)) if needs_pass else []
+            ),
             summary=_summarize(assets, []),
         )
 
     created: list[ImportCreatedFile] = []
     if needs_pass:
-        # Module-global lookup, not a def-time default, so tests patch
-        # `gda.commands.resource.launch` exactly as the scene/script channels'.
-        run_launch = make_launch or launch
         binary = resolve_godot_binary(godot)
         before = _project_files(project)
-        raw = run_launch(
+        # Module-global lookup (the one launch seam): tests patch
+        # `gda.commands.resource.launch`, the scene/script channels' pattern.
+        raw = launch(
             binary,
             ["--path", str(project), "--import"],
             cwd=None,
@@ -860,6 +934,7 @@ RESOURCE_IMPORT_COMMAND: HeadlessCommand[ResourceImportResult] = HeadlessCommand
     input_model=ResourceImportParams,
     output_model=ResourceImportResult,
     render=render_resource_import,
+    kind=ExecutionKind.IMPORT,
     recipe=_resource_import_recipe,
 )
 

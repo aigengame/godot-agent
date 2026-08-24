@@ -248,10 +248,13 @@ property (`node set` / `resource set --value res://…`, ADR-0033), the **full
 execution of a named project script** via `gda script run` (ADR-0031), and — via
 `gda scene preflight` (#664) — the **startup of a whole scene**: every script it
 carries runs its `_init` and `_ready` and keeps running for a bounded number of
-frames, beside the autoloads, and — via `gda resource import` (#668) — the
-**engine import pass**: importer code (and any import plugins the project
-registers) runs over project content when a requested asset's cache is
-missing. That preflight point is the widest on this list.
+frames, beside the autoloads — that preflight point is the widest on this
+list. `gda resource import` (#668) is two DISTINCT points: a fully cached
+request starts no engine at all (nothing on this surface runs), while a cache
+miss runs the **engine import pass** — importer code (and any import plugins
+the project registers) over project content, WITHOUT the autoloads (the pass
+boots the editor importer path, not the game's scene stack — the one
+`--project` op whose engine start skips them).
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, and the import pass
 widen this surface without adding a new trust axis.

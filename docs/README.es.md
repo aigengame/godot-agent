@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=67bc6c8045791986f1bdf35d719e75a5b0fb6f008ce5b3510d762a34ef8c53ea -->
+<!-- gda-readme-i18n: source=README.md sha256=42d4a644de015235bc1f7b507b38a303d866e3a334331eb8be11799f31d983c4 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -510,7 +510,7 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 | `project find-unused-resources` | Encuentra archivos de recurso que nada referencia. |
 | `project statistics` | Informa los recuentos de archivos/líneas del proyecto, los autoloads y más. |
 
-**`resource`** — archivos de recurso (`.tres`)
+**`resource`** — archivos de recurso (`.tres`) y los assets importados del proyecto
 
 | Comando | Qué hace |
 | ------- | ------------ |

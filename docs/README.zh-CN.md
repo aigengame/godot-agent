@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=67bc6c8045791986f1bdf35d719e75a5b0fb6f008ce5b3510d762a34ef8c53ea -->
+<!-- gda-readme-i18n: source=README.md sha256=42d4a644de015235bc1f7b507b38a303d866e3a334331eb8be11799f31d983c4 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -478,7 +478,7 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | `project find-unused-resources` | 找出没有任何东西引用的资源文件。 |
 | `project statistics` | 报告项目的文件/行数统计、autoload 等信息。 |
 
-**`resource`** — 资源文件（`.tres`）
+**`resource`** — 资源文件（`.tres`）与项目的已导入资产
 
 | 命令 | 作用 |
 | ------- | ------------ |
@@ -619,10 +619,11 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 
 解析项目以启用 `res://` 路径时，Godot 会以该项目启动，并执行项目自身的一部分代码。具体来说：
 
-- **每个 `--project` 操作都会运行 autoload。** 当一个项目被解析时，引擎会在启动阶段——
-  在命令本身的工作开始之前——构造该项目的 autoload 单例，因此它们的 `_init`（以及 `_ready`）
-  会在**每次**操作中执行，包括 `scene get`、`node list` 这类只读操作。如果没有解析到项目，
-  就不会注册任何 autoload，它们也就不会运行。
+- **每个会启动游戏侧引擎的 `--project` 操作都会运行 autoload。** 当一个项目被解析时，
+  引擎会在启动阶段——在命令本身的工作开始之前——构造该项目的 autoload 单例，因此它们的
+  `_init`（以及 `_ready`）也会在 `scene get`、`node list` 这类只读操作中执行。两个例外：
+  缓存完好的 `resource import` 根本不启动引擎；其缓存缺失时的导入 pass 走编辑器导入器
+  路径，不执行 autoload。如果没有解析到项目，就不会注册任何 autoload，它们也就不会运行。
 - **会实例化场景的命令，会执行该场景所附脚本的构造函数。**
   任何需要实例化节点树的命令——每一个会改动状态的命令（`node add`、`node set`、
   `node remove` 等），以及 `node get`（它会报告存储数据本身不携带的运行时属性默认值）——
@@ -633,6 +634,9 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
   一切都会在声明的约束之内运行到结束。
 - **`gda scene preflight` 会启动场景。** 它实例化场景并运行其 `_ready` 与观察帧，
   因此场景中的每个脚本——以及项目的 autoload——都会执行其启动代码。
+- **`gda resource import` 在缓存缺失时运行引擎导入 pass。** 导入器代码——以及项目注册的
+  任何导入插件——会在整个项目的内容上运行。该 pass 启动的是编辑器导入器路径而非游戏：
+  不执行 autoload。缓存完好的请求根本不启动引擎。
 
 `gda` 将目标项目视为可信，所以这是有意为之——信任模型参见
 [ADR-0009](adr/0009-trust-boundary-trusted-project.md)。
