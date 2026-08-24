@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.10.0](https://github.com/aigengame/godot-agent/compare/v0.9.0...v0.10.0) (2026-08-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gda:** argv-binding metadata in the emitted schemas and a discriminated input-event union ([#719](https://github.com/aigengame/godot-agent/issues/719))
+* **gda:** the script validate result moved its per-script fields into a scripts array — {valid, scripts:[{path, valid, error_string, diagnostics}], project_root}; the former top-level path/error_string/diagnostics keys are gone. valid and project_root keep their names and meanings.
+
+### Features
+
+* **gda:** accept --json on the root and schema discovery surfaces ([#677](https://github.com/aigengame/godot-agent/issues/677)) ([ddd423c](https://github.com/aigengame/godot-agent/commit/ddd423c85cf90890779461a29ed09792297b1136))
+* **gda:** accept both script-path forms for script run (ADR-0031 amendment) ([#693](https://github.com/aigengame/godot-agent/issues/693)) ([b291085](https://github.com/aigengame/godot-agent/commit/b2910854dbc91f7400ab9d07cc3de5160c573c95))
+* **gda:** argv-binding metadata in the emitted schemas and a discriminated input-event union ([#719](https://github.com/aigengame/godot-agent/issues/719)) ([918dba1](https://github.com/aigengame/godot-agent/commit/918dba1feba615ee5f0b6affd32fce7b38402a90))
+* **gda:** configurable script-run timeout that preserves captured output and fails fast on aborted scripts ([#655](https://github.com/aigengame/godot-agent/issues/655)) ([#705](https://github.com/aigengame/godot-agent/issues/705)) ([40b4c06](https://github.com/aigengame/godot-agent/commit/40b4c06de656f57f6ea03632744959cbd4b5814f))
+* **gda:** report structured install provenance from --version --json ([#692](https://github.com/aigengame/godot-agent/issues/692)) ([1c15c25](https://github.com/aigengame/godot-agent/commit/1c15c257f378a9e850c5105f9d15e4d5bf10deb7))
+* **gda:** static scene validation and a bounded startup preflight ([#664](https://github.com/aigengame/godot-agent/issues/664)) ([#720](https://github.com/aigengame/godot-agent/issues/720)) ([3bc7a7b](https://github.com/aigengame/godot-agent/commit/3bc7a7b0a101d85b490d966108aca51fdf346b12))
+* **gda:** structured near-miss hints, the version/help/daemon-install commands, and info --project ([#718](https://github.com/aigengame/godot-agent/issues/718)) ([8cec419](https://github.com/aigengame/godot-agent/commit/8cec419600d415e10b0d9882ca236a201c25682a))
+* **gda:** validate a batch of scripts in one engine launch ([#663](https://github.com/aigengame/godot-agent/issues/663)) ([#710](https://github.com/aigengame/godot-agent/issues/710)) ([660725e](https://github.com/aigengame/godot-agent/commit/660725e1aebdbc8c8b2b9430560893ff75932a6b))
+
+
+### Bug Fixes
+
+* **gda:** close the PR [#709](https://github.com/aigengame/godot-agent/issues/709) review's code findings ([8912c0f](https://github.com/aigengame/godot-agent/commit/8912c0fc6bb405802b0d0bb6d7d9630d7226c1b2))
+* **gda:** keep the harness serving live operations while the SceneTree is paused ([#681](https://github.com/aigengame/godot-agent/issues/681)) ([910cf47](https://github.com/aigengame/godot-agent/commit/910cf4747db88930fe8e158fe19d172f375db42a))
+* **gda:** make gda the verdict authority for script run (ADR-0031 amendment) ([#678](https://github.com/aigengame/godot-agent/issues/678)) ([37dfa70](https://github.com/aigengame/godot-agent/commit/37dfa7093fb65e40e1a80471f6e9f0c449766678))
+* **gda:** preflight and redirect the Godot user-data root for the headless launch ([#696](https://github.com/aigengame/godot-agent/issues/696)) ([9fb05e9](https://github.com/aigengame/godot-agent/commit/9fb05e9edab4eab361b417e4a1f03054bf67b1ba))
+* **gda:** refuse a script validate outside the resolved project and report the root ([#695](https://github.com/aigengame/godot-agent/issues/695)) ([ca8d5dd](https://github.com/aigengame/godot-agent/commit/ca8d5ddcd6cad2281c108ce34f4edddc6c352448))
+* **gda:** restore pre-install project state on daemon uninstall and report the full mutation set ([#680](https://github.com/aigengame/godot-agent/issues/680)) ([1b98fcd](https://github.com/aigengame/godot-agent/commit/1b98fcdc42712f07b8a905793395f2457705e7fe))
+* **gda:** surface a failed rollback on the daemon-start exception path ([#689](https://github.com/aigengame/godot-agent/issues/689)) ([75e8ed6](https://github.com/aigengame/godot-agent/commit/75e8ed6a91fe9af02048d1f7ce009e255b93308c))
+* **gda:** tell a sandbox-denied window server from an absent display ([#667](https://github.com/aigengame/godot-agent/issues/667)) ([#694](https://github.com/aigengame/godot-agent/issues/694)) ([1f3b96e](https://github.com/aigengame/godot-agent/commit/1f3b96e07d89b154e88d0dec91c2254d50fab965))
+
 ## [0.9.0](https://github.com/aigengame/godot-agent/compare/v0.8.1...v0.9.0) (2026-07-31)
 
 
