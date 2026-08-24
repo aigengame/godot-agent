@@ -156,7 +156,10 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > miss leaves one process-table entry that the OS clears when the daemon exits and the child is
 > reparented. And retirement is of the engine's **process group**, not of the engine process:
 > gda owns the group (`start_new_session=True`), so the leader's fate does not decide the
-> group's.
+> group's. The captured group id remains a numeric POSIX identifier, not a durable handle. Once
+> every original group member exits, the kernel may reuse that number before teardown observes
+> the empty group; a signal in that narrow window could then reach a new group. This design
+> accepts that residual race instead of adding platform-specific process supervision.
 >
 > The same rule applies to the op relay's own `live_timeout` ceiling, which had the same
 > inactivity shape. Accepted deliberately, and beyond what the `wait-ready` slice needed: a

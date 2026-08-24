@@ -83,10 +83,7 @@ class DaemonRunner:
                 # the reply arrives in as many as the daemon sends — so 60s of
                 # socket timeout was 60s of inactivity, not 60s of waiting.
                 deadline = time.monotonic() + LIVE_REQUEST_TIMEOUT
-                left = deadline - time.monotonic()
-                if left <= 0:
-                    raise TimeoutError("the live request deadline has expired")
-                sock.settimeout(left)
+                sock.settimeout(LIVE_REQUEST_TIMEOUT)
                 sock.connect(str(cli_socket))
                 write_message(sock, {"op": operation, "params": params}, deadline)
                 reply = read_message(sock, deadline)

@@ -25,6 +25,7 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -1037,8 +1038,16 @@ def test_the_live_client_write_uses_only_the_round_trip_budget_left(monkeypatch)
             raise TimeoutError
 
     monkeypatch.setattr("gda.live_runner.LIVE_REQUEST_TIMEOUT", 0.1)
+    # Replace the runner's module binding, not ``socket.socket`` on the shared
+    # stdlib module: another thread may legitimately create a real socket while
+    # this test runs.
     monkeypatch.setattr(
-        "gda.live_runner.socket.socket", lambda *args, **kwargs: _AccumulatingSocket()
+        "gda.live_runner.socket",
+        SimpleNamespace(
+            AF_UNIX=socket.AF_UNIX,
+            SOCK_STREAM=socket.SOCK_STREAM,
+            socket=lambda *args, **kwargs: _AccumulatingSocket(),
+        ),
     )
     started = time.monotonic()
     result = DaemonRunner(Path("."))._request(Path("unused.sock"), "game-tree", {})
