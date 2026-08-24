@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=281f548e47e86237aacdb1a48124e333b1fa94287c3281d0963a5699b073b87b -->
+<!-- gda-readme-i18n: source=README.md sha256=67bc6c8045791986f1bdf35d719e75a5b0fb6f008ce5b3510d762a34ef8c53ea -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -515,6 +515,7 @@ offset プロパティを明示的に設定してください。
 | `resource set` | `.tres` のプロパティを設定します。値は宣言された型に変換されます。 |
 | `resource delete` | `.tres` リソースファイルを削除し、削除された内容を報告します。 |
 | `resource uid` | リソースの UID とその `res://` パスを双方向で相互変換します。 |
+| `resource import` | アセットをプロジェクトキャッシュにインポート済みにします(クリーンワークツリーでのロード)。 |
 
 **`export`** — エクスポートのプリセットと成果物
 

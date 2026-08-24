@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=281f548e47e86237aacdb1a48124e333b1fa94287c3281d0963a5699b073b87b -->
+<!-- gda-readme-i18n: source=README.md sha256=67bc6c8045791986f1bdf35d719e75a5b0fb6f008ce5b3510d762a34ef8c53ea -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -487,6 +487,7 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | `resource set` | 设置一个 `.tres` 属性，并把值强制转换为它声明的类型。 |
 | `resource delete` | 删除一个 `.tres` 资源文件并报告删除了什么。 |
 | `resource uid` | 在资源 UID 与其 `res://` 路径之间双向解析。 |
+| `resource import` | 确保资产已导入项目缓存（干净工作树加载）。 |
 
 **`export`** — 导出预设与产物
 

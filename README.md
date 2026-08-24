@@ -505,6 +505,7 @@ reported as `script_aborted` with the captured error.
 | `resource set` | Set a `.tres` property, coercing the value to its declared type. |
 | `resource delete` | Delete a `.tres` resource file and report what was removed. |
 | `resource uid` | Resolve a resource UID ↔ its `res://` path in both directions. |
+| `resource import` | Ensure assets are imported into the project cache (clean-worktree loading). |
 
 **`export`** — export presets and artifacts
 

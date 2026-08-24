@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=281f548e47e86237aacdb1a48124e333b1fa94287c3281d0963a5699b073b87b -->
+<!-- gda-readme-i18n: source=README.md sha256=67bc6c8045791986f1bdf35d719e75a5b0fb6f008ce5b3510d762a34ef8c53ea -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -519,6 +519,7 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 | `resource set` | Define una propiedad `.tres`, forzando el valor a su tipo declarado. |
 | `resource delete` | Elimina un archivo de recurso `.tres` e informa qué se eliminó. |
 | `resource uid` | Resuelve un UID de recurso ↔ su ruta `res://` en ambas direcciones. |
+| `resource import` | Garantiza que los assets estén importados en la caché del proyecto (carga en un worktree limpio). |
 
 **`export`** — presets de exportación y artefactos
 
