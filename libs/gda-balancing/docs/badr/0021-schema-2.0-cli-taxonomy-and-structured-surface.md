@@ -40,11 +40,14 @@ structured-params adapter part of the first vertical tracer.
 > Specification, one original Experiment-run Artifact-set receipt, one output locator, and one
 > Invocation key. The receipt is the single anchor for the original run; the command does not accept
 > a second list of member identities or discover runs through a store scan. A completed Replay
-> publishes one atomic Artifact set. Its primary member is the Replay comparison, and its supporting
-> members are the new Evaluation run and its trace, Snapshot, Metric, reproduction, Runtime-profile,
-> and evaluator artifacts. The original run remains a separate publication and is referenced by
-> identity. A post-dispatch Runtime refusal publishes only the existing refusal-only terminal-audit
-> set and no partial Replay comparison.
+> comparison publishes one atomic Artifact set with the comparison as its primary member. A match
+> uses the success set, which also contains the new Evaluation run and its trace, Snapshot, Metric,
+> reproduction, Runtime-profile, and evaluator artifacts. A mismatch uses one fixed Verdict set. It
+> contains the comparison and the same observation and reproduction artifacts, but no
+> `evaluation-run` or `experiment-verdict` member. The comparison records both outcome statuses.
+> The original run remains a separate publication and is referenced by identity. A post-dispatch
+> Runtime refusal publishes only the existing refusal-only terminal-audit set and no partial Replay
+> comparison.
 
 ## Decision
 
@@ -89,9 +92,11 @@ structured-params adapter part of the first vertical tracer.
   schema is derived from the admitted Kernel contracts for both member kinds.
 
 - **`experiment run` is the public execution/evaluation boundary.** It admits artifact identities
-  rather than redefining source values in flags and returns the completed Evaluation run, Metric
-  dataset, trace/evidence identities, and verdict when applicable. `experiment replay` requires the
-  exact prior reproduction identities; it is replay of 2.x evidence, not 1.x migration.
+  rather than redefining source values in flags. It returns a complete producing-outcome artifact
+  set with an Evaluation run or Experiment Verdict, Metric dataset, Event trace, Snapshot series,
+  and reproduction identities. `experiment replay` requires the exact prior reproduction
+  identities; it repeats an accepted 2.x Evaluation run and publishes a separate comparison. It is
+  not a 1.x migration path.
 
 - **`manifest` ships with the first 2.x tracer.** It emits the Surface manifest by walking the live
   Command-descriptor registry. Each registered entry carries command name/description, input,

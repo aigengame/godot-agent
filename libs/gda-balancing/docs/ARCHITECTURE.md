@@ -310,8 +310,10 @@ RR                 = one Resolved Runtime profile
 EIR                = one optional evaluator-private Execution IR
 D                  = one Metric dataset
 Run                = one Evaluation run
+EO                 = one Evaluation outcome: accepted or rejected
 RC                 = one Replay comparison
 CC                 = one Cross-evaluator comparison
+ComparisonInputs   = the published comparison artifacts supplied to one Evidence judgment
 C                  = the exact comparison artifacts required by one Evidence claim kind
 P_E                = the exact claim-specific Evidence prerequisite graph
 EA                 = one Evidence assertion
@@ -348,8 +350,8 @@ meaning.
 
 #### 3.4.1 Compact mental model
 
-The following expressions show the end-to-end success path. They omit diagnostic and negative
-outcomes. Section 3.4.2 defines those outcomes and expands each authority boundary.
+The following expressions show the major end-to-end paths. They omit diagnostic detail and refusal
+branches. Section 3.4.2 defines those outcomes and expands each authority boundary.
 
 ```text
 # Authority admission and the frozen host context
@@ -365,25 +367,36 @@ Publish_A(AP_build, S_build, FS) ⇓ Success(Pub_build)
 # Experiment admission, Runtime admission, and execution
 (RR, D, Run) = Evaluate_A(E, RM)
 
-# Comparison, Evidence validation, and Evidence publication
-RC = CompareReplay_A(<Run_1, D_1, RR_1>, <Run_2, D_2, RR_2>, ReplayPolicy)
+# Comparison publication
+RC = CompareReplay_A(
+    <Run_1, D_1, RR_1>,
+    <EO_2, Trace_2, Snapshots_2, D_2, RR_2>,
+    ReplayPolicy,
+)
     if an exact Replay comparison is requested
 CC = CompareEvaluators_A(<Run_i, D_i, RR_i>, PortableObservationPolicy)
     if a Cross-evaluator comparison is requested
-C = ComparisonsRequiredBy_A(ClaimKind, <RC, CC, ...>)
-if C is not empty:
-    S_comparison = CompleteComparisonSet_A(C)
-    Publish_A(AP_comparison, S_comparison, FS) ⇓ Success(Pub_comparison)
-P_E = CloseEvidencePrerequisites_A(ClaimKind, C, ...)
-EA = ValidateAndIssueEvidence_A(EvidenceInputs, P_E)
-S_evidence = CompleteEvidenceSet_A(EA, P_E, ...)
-Publish_A(AP_evidence, S_evidence, FS) ⇓ Success(Pub_evidence)
+if RC is complete:
+    S_replay = CompleteComparisonSet_A(RC)
+    Publish_A(AP_replay, S_replay, FS) ⇓ Success(Pub_replay)
+if CC is complete:
+    S_cross_evaluator = CompleteComparisonSet_A(CC)
+    Publish_A(AP_cross_evaluator, S_cross_evaluator, FS) ⇓ Success(Pub_cross_evaluator)
+
+# Evidence validation and Evidence publication
+if an Evidence judgment is requested:
+    C = ComparisonsRequiredBy_A(ClaimKind, ComparisonInputs)
+    P_E = CloseEvidencePrerequisites_A(ClaimKind, C, ...)
+    EA = ValidateAndIssueEvidence_A(EvidenceInputs, P_E)
+    S_evidence = CompleteEvidenceSet_A(EA, P_E, ...)
+    Publish_A(AP_evidence, S_evidence, FS) ⇓ Success(Pub_evidence)
 
 # External governance and separate Approval publication
-AR = Govern(GovernanceInputs, EA, ...)
-    # after the exact subjects and EA are published; outside host execution
-S_approval = CompleteApprovalSet_A(AR, ...)
-Publish_A(AP_approval, S_approval, FS) ⇓ Success(Pub_approval)
+if a governance decision is requested:
+    AR = Govern(GovernanceInputs, EA, ...)
+        # after the exact subjects and EA are published; outside host execution
+    S_approval = CompleteApprovalSet_A(AR, ...)
+    Publish_A(AP_approval, S_approval, FS) ⇓ Success(Pub_approval)
 
 # Host call and result flow
 Request -> UI -> Application -> Domain_A -> TypedOutcome -> UI
@@ -393,10 +406,10 @@ Domain_A -> Infrastructure
 ```
 
 `Build_A` summarizes resolution, compilation, companion generation, and complete-set assembly.
-`Evaluate_A` summarizes Experiment admission, Runtime admission, and execution. Replay and
-Cross-evaluator comparison produce separate artifacts without issuing Evidence. `ClaimKind` selects
-which completed comparisons enter `C`; `C` is empty for claim kinds that require no comparison.
-Section 3.4.2 expands these mechanisms.
+`Evaluate_A` summarizes Experiment admission, Runtime admission, and execution. Each requested
+Replay or Cross-evaluator comparison publishes its own artifact set without issuing Evidence. If a
+later Evidence judgment is requested, `ClaimKind` selects the required published comparisons for
+`C`. It does not control comparison publication. Section 3.4.2 expands these mechanisms.
 
 #### 3.4.2 Detailed symbolic model
 
@@ -517,44 +530,54 @@ authority. `Run` records execution facts and binds `D`; neither artifact issues 
 A post-dispatch Runtime refusal produces the required terminal-audit artifact set instead of `D` or
 `Run`. An earlier refusal also produces no completed Evaluation run.
 
-**Evidence, governance, and publication are**:
+**Comparison, Evidence, governance, and publication are**:
 
 ```text
-RC = CompareReplay_A(<Run_1, D_1, RR_1>, <Run_2, D_2, RR_2>, ReplayPolicy)
+RC = CompareReplay_A(
+    <Run_1, D_1, RR_1>,
+    <EO_2, Trace_2, Snapshots_2, D_2, RR_2>,
+    ReplayPolicy,
+)
     if an exact Replay comparison is requested
 CC = CompareEvaluators_A(<Run_i, D_i, RR_i>, PortableObservationPolicy)
     if a Cross-evaluator comparison is requested
-C = ComparisonsRequiredBy_A(ClaimKind, <RC, CC, ...>)
-if C is not empty:
-    S_comparison = CompleteComparisonSet_A(C)
-    Publish_A(AP_comparison, S_comparison, FS) ⇓ Success(Pub_comparison)
+if RC is complete:
+    S_replay = CompleteComparisonSet_A(RC)
+    Publish_A(AP_replay, S_replay, FS) ⇓ Success(Pub_replay)
+if CC is complete:
+    S_cross_evaluator = CompleteComparisonSet_A(CC)
+    Publish_A(AP_cross_evaluator, S_cross_evaluator, FS) ⇓ Success(Pub_cross_evaluator)
 
-P_E = CloseEvidencePrerequisites_A(
-    ClaimKind,
-    C,
-    CalibrationArtifacts,
-    HoldoutAssertions,
-    DriftAssertions,
-    ...,
-)
-ValidateAndIssueEvidence_A(EvidenceInputs, P_E) ⇓
-    Success(EA) | Verdict(report) | Refusal(stage, diagnostics)
-S_evidence = CompleteEvidenceSet_A(EA, P_E, ...)
-Publish_A(AP_evidence, S_evidence, FS) ⇓ Success(Pub_evidence)
+if an Evidence judgment is requested:
+    C = ComparisonsRequiredBy_A(ClaimKind, ComparisonInputs)
+    P_E = CloseEvidencePrerequisites_A(
+        ClaimKind,
+        C,
+        CalibrationArtifacts,
+        HoldoutAssertions,
+        DriftAssertions,
+        ...,
+    )
+    ValidateAndIssueEvidence_A(EvidenceInputs, P_E) ⇓
+        Success(EA) | Verdict(report) | Refusal(stage, diagnostics)
+    S_evidence = CompleteEvidenceSet_A(EA, P_E, ...)
+    Publish_A(AP_evidence, S_evidence, FS) ⇓ Success(Pub_evidence)
 
-Govern(GovernanceInputs, EA, ...) ⇓
-    Success(AR) | Verdict(report) | Refusal(stage, diagnostics)
-    # after the exact subjects and EA are published; outside host execution
-S_approval = CompleteApprovalSet_A(AR, ...)
-Publish_A(AP_approval, S_approval, FS) ⇓ Success(Pub_approval)
+if a governance decision is requested:
+    Govern(GovernanceInputs, EA, ...) ⇓
+        Success(AR) | Verdict(report) | Refusal(stage, diagnostics)
+        # after the exact subjects and EA are published; outside host execution
+    S_approval = CompleteApprovalSet_A(AR, ...)
+    Publish_A(AP_approval, S_approval, FS) ⇓ Success(Pub_approval)
 ```
 
-Replay and Cross-evaluator comparisons are separately identified, published artifacts. They are
-Evidence inputs, not Evidence assertions. `P_E` closes the exact graph required by `ClaimKind`.
-That graph includes the applicable comparison artifacts and any required calibration, holdout, and
-drift artifacts. A comparison set is produced and published only when the exact claim contract
-requires it. The Evidence validator derives `EA` only after it validates the prerequisite graph.
-One `Run` or `D` cannot issue Evidence by itself.
+Replay and Cross-evaluator comparisons are separately identified, published artifacts. A completed
+comparison command publishes its set independently of Evidence. A later Evidence judgment can use
+that publication as an input, but the comparison is not an Evidence assertion. `P_E` closes the
+exact graph required by `ClaimKind`. That graph includes the applicable published comparison
+artifacts and any required calibration, holdout, and drift artifacts. `ClaimKind` does not decide
+whether a comparison is published. The Evidence validator derives `EA` only after it validates the
+prerequisite graph. One `Run` or `D` cannot issue Evidence by itself.
 
 A person or governance system creates `AR` after the exact subject and Evidence artifacts are
 published. Governance is outside host execution and is not part of the Evidence publication
@@ -1741,19 +1764,23 @@ before dispatch. The same prepared value then enters the existing execution path
 run` and `experiment replay` do not own separate Runtime preparation rules.
 
 The LDB-owned `exact-replay-v1` policy fixes the ordered comparison checks. It compares the
-Evaluation outcome, root Event map, terminal statuses, Event-trace identity, Snapshot-series
-identity, and Metric-dataset identity. The Event-trace contract already closes Named RNG
-observations. The caller cannot select fields, omit checks, or change a tolerance. The comparison
-tool uses one versioned implementation identity; this initial slice does not add a tool manifest or
-comparison plug-in system.
+Evaluation outcome status (`accepted` or `rejected`), root Event map, terminal statuses, Event-trace
+identity, Snapshot-series identity, and Metric-dataset identity. The Event-trace contract already
+closes Named RNG observations. The caller cannot select fields, omit checks, or change a tolerance.
+The comparison tool uses one versioned implementation identity; this initial slice does not add a
+tool manifest or comparison plug-in system.
 
-A completed command publishes one atomic Artifact set. The Replay comparison is the primary member,
-and the new Evaluation run and its supporting artifacts are members of the same set. The original
-run remains a separate publication and is referenced by identity. A match returns success with
-`claim_state: candidate`. An observation mismatch publishes the completed comparison and returns a
-negative Verdict with the ordered mismatches. The comparison artifact contains no Evidence claim,
-and neither outcome issues `reproducible`. A post-dispatch Runtime refusal publishes only the
-existing refusal-only terminal-audit set.
+A completed Replay comparison publishes one atomic Artifact set with the Replay comparison as its
+primary member. A match uses the success set, which also contains the new Evaluation run and its
+supporting artifacts. A mismatch uses one fixed Verdict set. It contains the comparison, Event
+trace, Snapshot series, Metric dataset, Reproduction receipt, Resolved Runtime profile, and
+Evaluator Capability Manifest from the Replay execution. It does not require an `evaluation-run` or
+`experiment-verdict` member, because those artifacts are mutually exclusive and the comparison
+already records the original and Replay outcome statuses. The original run remains a separate
+publication and is referenced by identity. A match returns success with `claim_state: candidate`.
+An observation mismatch returns a negative Verdict with the ordered mismatches. The comparison
+artifact contains no Evidence claim, and neither outcome issues `reproducible`. A post-dispatch
+Runtime refusal publishes only the existing refusal-only terminal-audit set.
 
 The initial command uses the installed package's admitted Kernel/LDB context. It does not add an
 external authority input, dynamic evaluator selection, an HTTP endpoint, or a Godot playtest path.
