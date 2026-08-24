@@ -334,8 +334,8 @@ Evidence policy, and the issuer identity. `GovernanceInputs` groups the independ
 Approval policy, the human or organizational attestation, and the complete subject-identity graph.
 `EvaluatorBuild` identifies one exact evaluator implementation. `Runtime` and `Evaluator` name the
 host components that execute the admitted model. `Trace` and `Snapshots` are execution outputs.
-`ReplayPolicy` is the exact Replay comparison policy. `PortableObservationPolicy` is the exact
-LDB-owned Portable Observation Policy. `CalibrationArtifacts`, `HoldoutAssertions`, and
+`ReplayPolicy` is the exact LDB-owned Replay comparison policy. `PortableObservationPolicy` is the
+exact LDB-owned Portable Observation Policy. `CalibrationArtifacts`, `HoldoutAssertions`, and
 `DriftAssertions` are the exact claim-specific prerequisites selected under `ClaimKind`.
 
 `Seal(owner, members)` constructs one canonical, closed aggregate. The owner binds the exact,
@@ -366,8 +366,13 @@ Publish_A(AP_build, S_build, FS) ⇓ Success(Pub_build)
 (RR, D, Run) = Evaluate_A(E, RM)
 
 # Comparison, Evidence validation, and Evidence publication
-(C, S_comparison) = Compare_A(ClaimKind, <Run_i, D_i, RR_i>, ...)
+RC = CompareReplay_A(<Run_1, D_1, RR_1>, <Run_2, D_2, RR_2>, ReplayPolicy)
+    if an exact Replay comparison is requested
+CC = CompareEvaluators_A(<Run_i, D_i, RR_i>, PortableObservationPolicy)
+    if a Cross-evaluator comparison is requested
+C = ComparisonsRequiredBy_A(ClaimKind, <RC, CC, ...>)
 if C is not empty:
+    S_comparison = CompleteComparisonSet_A(C)
     Publish_A(AP_comparison, S_comparison, FS) ⇓ Success(Pub_comparison)
 P_E = CloseEvidencePrerequisites_A(ClaimKind, C, ...)
 EA = ValidateAndIssueEvidence_A(EvidenceInputs, P_E)
@@ -388,9 +393,10 @@ Domain_A -> Infrastructure
 ```
 
 `Build_A` summarizes resolution, compilation, companion generation, and complete-set assembly.
-`Evaluate_A` summarizes Experiment admission, Runtime admission, and execution. `Compare_A`
-produces the exact Replay or Cross-evaluator comparison artifacts required by `ClaimKind`; `C` is
-empty for claim kinds that require no comparison. Section 3.4.2 expands these mechanisms.
+`Evaluate_A` summarizes Experiment admission, Runtime admission, and execution. Replay and
+Cross-evaluator comparison produce separate artifacts without issuing Evidence. `ClaimKind` selects
+which completed comparisons enter `C`; `C` is empty for claim kinds that require no comparison.
+Section 3.4.2 expands these mechanisms.
 
 #### 3.4.2 Detailed symbolic model
 
@@ -515,9 +521,9 @@ A post-dispatch Runtime refusal produces the required terminal-audit artifact se
 
 ```text
 RC = CompareReplay_A(<Run_1, D_1, RR_1>, <Run_2, D_2, RR_2>, ReplayPolicy)
-    if ClaimKind = reproducible
+    if an exact Replay comparison is requested
 CC = CompareEvaluators_A(<Run_i, D_i, RR_i>, PortableObservationPolicy)
-    if ClaimKind = cross_evaluator_conformant
+    if a Cross-evaluator comparison is requested
 C = ComparisonsRequiredBy_A(ClaimKind, <RC, CC, ...>)
 if C is not empty:
     S_comparison = CompleteComparisonSet_A(C)
@@ -1715,6 +1721,44 @@ explicit external Kernel/LDB input, independent Verifier authentication, durable
 or claim aggregation. Add those capabilities when the application supplies the required authority
 and trust boundaries. Do not add download, cache, dynamic bootstrap, credential, signing,
 revocation, or aggregation mechanisms before that need exists.
+
+#### First exact Replay comparison slice
+
+Issue #545 defines the first public `experiment replay` vertical slice. The command takes one
+Experiment Specification and one authenticated Experiment-run Artifact-set receipt, plus the normal
+output locator and Invocation key. The receipt is the single anchor for the original run. The
+command does not accept a parallel list of member identities or find a run through a store scan.
+
+The initial slice accepts only an original producing outcome with an `evaluation-run` primary
+member. An Experiment Verdict or Runtime refusal is not an Evaluation run. The command returns a
+typed `evaluation` refusal for these ineligible outcomes. This boundary can change when a real
+application needs an explicit outcome-comparison contract. It is not a permanent prohibition.
+
+Replay first prepares the Evaluator Capability Manifest, Resolved Runtime profile, and Reproduction
+receipt without Event dispatch. It checks these prepared values against the original run. A mismatch
+in authority, model, Experiment, external input, seed, evaluator, or Runtime-profile identity refuses
+before dispatch. The same prepared value then enters the existing execution path, so `experiment
+run` and `experiment replay` do not own separate Runtime preparation rules.
+
+The LDB-owned `exact-replay-v1` policy fixes the ordered comparison checks. It compares the
+Evaluation outcome, root Event map, terminal statuses, Event-trace identity, Snapshot-series
+identity, and Metric-dataset identity. The Event-trace contract already closes Named RNG
+observations. The caller cannot select fields, omit checks, or change a tolerance. The comparison
+tool uses one versioned implementation identity; this initial slice does not add a tool manifest or
+comparison plug-in system.
+
+A completed command publishes one atomic Artifact set. The Replay comparison is the primary member,
+and the new Evaluation run and its supporting artifacts are members of the same set. The original
+run remains a separate publication and is referenced by identity. A match returns success with
+`claim_state: candidate`. An observation mismatch publishes the completed comparison and returns a
+negative Verdict with the ordered mismatches. The comparison artifact contains no Evidence claim,
+and neither outcome issues `reproducible`. A post-dispatch Runtime refusal publishes only the
+existing refusal-only terminal-audit set.
+
+The initial command uses the installed package's admitted Kernel/LDB context. It does not add an
+external authority input, dynamic evaluator selection, an HTTP endpoint, or a Godot playtest path.
+These are delivery boundaries that can change when an application supplies a concrete need and the
+required authority contract.
 
 ### Gate 3 — production RPG tracer
 

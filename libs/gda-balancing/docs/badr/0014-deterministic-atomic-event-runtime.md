@@ -66,6 +66,14 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > `operation-execution` refusal vector observes the post-rollback state and committed RNG projection,
 > not discarded attempt logs.
 
+> **Amendment (2026-08-24, #545):** Exact Replay uses one closed, LDB-owned Replay comparison
+> policy. The first policy, `exact-replay-v1`, requires equality for every reproduction identity and
+> a fixed, ordered set of observation checks. The caller cannot select fields, omit checks, or
+> override a tolerance. Runtime preparation produces the Evaluator Capability Manifest, Resolved
+> Runtime profile, and Reproduction receipt without Event dispatch. Replay compares these prepared
+> values with the authenticated original Evaluation run and dispatches only after all preconditions
+> match. The prepared value is internal. It is not a new authority or public artifact.
+
 ## Decision
 
 - **The runtime is a sequential scheduler of atomic Event transactions.** It maintains immutable

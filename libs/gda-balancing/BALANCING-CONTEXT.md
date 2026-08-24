@@ -1329,6 +1329,16 @@ Metric dataset. It records what ran and what was observed; it does not itself de
 (bADR-0018).
 _Avoid_: simulation result, run log, benchmark
 
+**Replay comparison policy**:
+A closed, versioned LDB policy that defines the mandatory checks and comparators for an exact Replay
+comparison. The initial `exact-replay-v1` policy requires complete reproduction-identity equality
+before Runtime dispatch. It then compares one fixed, ordered set of Evaluation-run, Event-trace,
+Snapshot-series, and Metric-dataset observations. A caller cannot select fields, omit checks, or
+change a tolerance. An admitted inexact Numeric value can use only the rule fixed by the identical
+Resolved Runtime profile. This policy is not a Portable Observation Policy and produces no Resolved
+Portable Observation Plan (bADR-0014/0018).
+_Avoid_: replay options, tolerance flag, ignore list, generic JSON diff
+
 **Replay comparison**:
 An immutable artifact comparing declared observable fields across two or more Evaluation runs that
 share the same complete reproduction identity, including one identical Resolved Runtime profile.

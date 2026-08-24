@@ -30,6 +30,15 @@ append-only evidence graph.
 > Metric datasets and Evaluation/reproduction artifacts bind these trace/Snapshot/Runtime-profile
 > identities instead of copying Effect or Formula authority into evidence artifacts.
 
+> **Amendment (2026-08-24, #545):** The first public exact Replay slice accepts an authenticated
+> producing outcome whose primary member is an `evaluation-run`. An `experiment-verdict` or Runtime
+> refusal is not an Evaluation run and is not eligible for this initial Replay comparison. This is
+> an initial delivery boundary, not a permanent prohibition. A future application can define an
+> explicit outcome-comparison contract without relabeling a Verdict or refusal as an Evaluation run.
+> The Replay comparison records the complete ordered result of `exact-replay-v1`. An observation
+> mismatch is a completed negative Verdict. A match returns `claim_state: candidate` in the command
+> result, but the comparison artifact contains only comparison facts. It carries no Evidence claim.
+
 ## Decision
 
 - **One Metrics schema represents both simulated and observed samples.** Every Metric definition

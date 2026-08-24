@@ -36,6 +36,16 @@ structured-params adapter part of the first vertical tracer.
 > readiness, errors, help, `--schema`, manifest projection, and conformance. `serve` is not a
 > standalone Runtime group or another Experiment authority.
 
+> **Amendment (2026-08-24, #545):** The initial `experiment replay` input contains one Experiment
+> Specification, one original Experiment-run Artifact-set receipt, one output locator, and one
+> Invocation key. The receipt is the single anchor for the original run; the command does not accept
+> a second list of member identities or discover runs through a store scan. A completed Replay
+> publishes one atomic Artifact set. Its primary member is the Replay comparison, and its supporting
+> members are the new Evaluation run and its trace, Snapshot, Metric, reproduction, Runtime-profile,
+> and evaluator artifacts. The original run remains a separate publication and is referenced by
+> identity. A post-dispatch Runtime refusal publishes only the existing refusal-only terminal-audit
+> set and no partial Replay comparison.
+
 ## Decision
 
 - **The binary remains `gda-balancing` with noun-group commands.** Registered domain commands use
