@@ -398,6 +398,9 @@ func _handle_game_get(params: Dictionary) -> String:
 		return _error(LIVE_ERROR_NODE_NOT_FOUND,
 				"no node at runtime path: " + path)
 
+	# The texture-digest opt-in (#666): threaded into the shared projection so
+	# a path-less Texture2D value carries its content digest on request.
+	var texture_digest := bool(params.get("texture_digest", false))
 	var wanted := _string_param(params, "property")
 	var has_filter := params.has("property") and not wanted.is_empty()
 	var properties: Array = []
@@ -410,10 +413,11 @@ func _handle_game_get(params: Dictionary) -> String:
 		properties.append({
 			"name": prop_name,
 			"type": _type_name(int(prop.get("type", TYPE_NIL))),
-			"value": _jsonify(node.get(prop_name)),
+			"value": _jsonify(node.get(prop_name), 0, texture_digest),
 		})
 	if has_filter and properties.is_empty():
-		var script_property := _explicit_script_variable_property(node, wanted)
+		var script_property := _explicit_script_variable_property(
+				node, wanted, texture_digest)
 		if not script_property.is_empty():
 			properties.append(script_property)
 	if has_filter and properties.is_empty():
@@ -428,7 +432,8 @@ func _handle_game_get(params: Dictionary) -> String:
 	})
 
 
-func _explicit_script_variable_property(node: Node, prop_name: String) -> Dictionary:
+func _explicit_script_variable_property(
+		node: Node, prop_name: String, texture_digest: bool = false) -> Dictionary:
 	for prop in node.get_property_list():
 		if String(prop.get("name", "")) != prop_name:
 			continue
@@ -442,7 +447,7 @@ func _explicit_script_variable_property(node: Node, prop_name: String) -> Dictio
 		return {
 			"name": prop_name,
 			"type": _type_name(declared_type),
-			"value": _jsonify(value),
+			"value": _jsonify(value, 0, texture_digest),
 		}
 	return {}
 
@@ -1479,7 +1484,7 @@ const JSONIFY_BOOKKEEPING_PROPS: Array[String] = [
 # its string form rather than crashing JSON.stringify on an unencodable
 # Variant, and the depth cap bounds the recursion on the compound arms — so
 # the projection is always JSON-encodable.
-func _jsonify(value: Variant, depth: int = 0) -> Variant:
+func _jsonify(value: Variant, depth: int = 0, texture_digest: bool = false) -> Variant:
 	match typeof(value):
 		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING, TYPE_STRING_NAME:
 			return value
@@ -1499,7 +1504,7 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 			# keys that collide after stringification resolve last-wins by
 			# assignment order (deterministic, ADR-0035).
 			for key in value.keys():
-				out[str(key)] = _jsonify(value[key], depth + 1)
+				out[str(key)] = _jsonify(value[key], depth + 1, texture_digest)
 			return out
 		TYPE_ARRAY, TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, \
 		TYPE_PACKED_INT64_ARRAY, TYPE_PACKED_FLOAT32_ARRAY, \
@@ -1513,7 +1518,7 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 			# [x, y]; an element type with no structured arm of its own (e.g.
 			# Vector3) stays str(), per the fixed-shape list above.
 			for element in value:
-				items.append(_jsonify(element, depth + 1))
+				items.append(_jsonify(element, depth + 1, texture_digest))
 			return items
 		TYPE_OBJECT:
 			# A freed live Object (harness side) must not be introspected.
@@ -1527,6 +1532,38 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 			# counts as a reference too.
 			if value is Resource and String(value.resource_path).begins_with("res://"):
 				return {"type": value.get_class(), "resource_path": value.resource_path}
+			# Texture projection (#666, ADR-0035 amendment): a PATH-LESS Texture2D
+			# — a runtime-created texture (ImageTexture.create_from_image) has no
+			# res:// path, so the reference arm above cannot name it and the string
+			# fallback's instance ID cannot say what it shows. A fixed shape read
+			# off cheap getters: class + dimensions. `object_string` keeps the old
+			# str() form as secondary diagnostics and is this kind's DISCRIMINATOR
+			# (no other object shape emits it; `resource_path` stays
+			# reference-only, not even null here). `digest` is opt-in
+			# (texture_digest): get_image() is a GPU-to-CPU readback on the live
+			# side, not a price every read should pay; an image the engine cannot
+			# read back keeps digest null. Dimensions and format prefix the hashed
+			# bytes so same-bytes textures of different shapes do not collide.
+			if value is Texture2D:
+				var texture_projection := {
+					"type": value.get_class(),
+					"width": value.get_width(),
+					"height": value.get_height(),
+					"object_string": str(value),
+					"digest": null,
+				}
+				if texture_digest:
+					var image: Image = value.get_image()
+					if image != null and not image.is_empty():
+						var ctx := HashingContext.new()
+						if ctx.start(HashingContext.HASH_SHA256) == OK:
+							var shape := "%dx%d:%d:" % [
+								image.get_width(), image.get_height(), image.get_format(),
+							]
+							ctx.update(shape.to_utf8_buffer())
+							ctx.update(image.get_data())
+							texture_projection["digest"] = "sha256:" + ctx.finish().hex_encode()
+				return texture_projection
 			# Inline value projection: a whitelisted path-less value Object
 			# (InputEvent subclasses initially) projects its own storage
 			# properties. The whitelist is the risk-isolation boundary that
@@ -1540,7 +1577,7 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 					var prop_name := String(prop.get("name", ""))
 					if prop_name in JSONIFY_BOOKKEEPING_PROPS:
 						continue
-					projected[prop_name] = _jsonify(value.get(prop_name), depth + 1)
+					projected[prop_name] = _jsonify(value.get(prop_name), depth + 1, texture_digest)
 				# Assigned AFTER the loop so the discriminator shadows a
 				# storage property named "type" (ADR-0035 documents the
 				# shadowing — order matters).

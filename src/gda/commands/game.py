@@ -99,6 +99,17 @@ class GameGetParams(BaseModel):
             "default storage-property listing."
         ),
     )
+    texture_digest: bool = Field(
+        default=False,
+        description=(
+            "Compute the content digest for each PATH-LESS Texture2D value in "
+            "this read (#666): its TextureProjection's `digest` field becomes "
+            "'sha256:' + the hex digest over the image's dimensions, format, "
+            "and raw bytes, so two same-class textures with different content "
+            "are distinguishable. Opt-in because it needs Texture2D.get_image(), "
+            "a GPU-to-CPU readback; without it the digest field stays null."
+        ),
+    )
 
 
 class GameGetResult(BaseModel):
@@ -340,6 +351,15 @@ def game_get(
             "script variable. Without it, list only the storage surface."
         ),
     ),
+    texture_digest: bool = typer.Option(
+        False,
+        "--texture-digest",
+        help=(
+            "Compute the sha256 content digest for each path-less Texture2D "
+            "value in this read (a GPU-to-CPU readback; without it the "
+            "TextureProjection's digest stays null)."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = GAME_GET_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -356,10 +376,13 @@ def game_get(
     `live_unknown_property`. A named plain script variable on the node's attached
     script is addressable explicitly after storage properties are checked; unfiltered
     reads keep the storage-property listing and do not dump script variables.
+    A path-less Texture2D value projects as a TextureProjection ({type, width,
+    height, object_string, digest}, ADR-0035 amendment #666); `--texture-digest`
+    opts into its content digest.
     """
     dispatch_domain(
         GAME_GET_COMMAND,
-        GameGetParams(node=node, property=property),
+        GameGetParams(node=node, property=property, texture_digest=texture_digest),
         json_output=json_output,
         godot=godot,
         project=project,

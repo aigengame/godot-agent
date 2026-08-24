@@ -174,10 +174,13 @@ _Avoid_: console output, stdout dump
 The read-side contract for rendering a Godot value into the structured JSON a
 successful result carries. Scalars and the small fixed-shape value types pass
 through directly; a `Dictionary`/`Array` (and the packed-array family) projects
-recursively; and an `Object` is rendered by one of three **projection kinds** — a
+recursively; and an `Object` is rendered by one of four **projection kinds** — a
 **reference projection** for a `Resource` that has a `res://` path (named by type
 and path, never inlined — the read-side mirror of ADR-0033's write-side
-reference), an **inline value projection** for a whitelisted path-less value
+reference), a **texture projection** for a PATH-LESS `Texture2D` (named by type
+and dimensions, with the former `str()` form under `object_string` — its
+discriminator — and an opt-in content `digest`; ADR-0035 amendment, #666), an
+**inline value projection** for a whitelisted path-less value
 `Object` (named by type plus its projected fields), or a plain **string
 fallback** for anything else. One projection shared across **every value gda
 emits** — the `get` reads (`project`/`node`/`resource get`), the value echoed by

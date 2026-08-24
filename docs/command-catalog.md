@@ -276,7 +276,7 @@ separate headless-only contract.
 
 Whitespace around a value or a component is tolerated. A property of any other type is still
 reported by `node get` — compound values arrive structured through the shared value projection
-(ADR-0035): packed arrays project as JSON arrays, and an `Object` as a reference / inline value
+(ADR-0035): packed arrays project as JSON arrays, and an `Object` as a reference / texture / inline value
 projection or the `str()` fallback (see [`project`](#project)) — but `node set` cannot coerce to
 those remaining types yet and refuses with `uncoercible_value` unless a separate assignment contract
 below applies.
@@ -630,7 +630,11 @@ setting by its full `section/key` name (e.g. `application/config/name`) and repo
 JSON projection, the **same projection** `node get` reports for a node property. Compound values
 arrive **structured** (ADR-0035): a `Dictionary` projects to a JSON object, an `Array` or packed
 array to a JSON array, and an embedded `Object` renders as a **reference projection**
-(`{type, resource_path}` for a Resource with a `res://` path), an **inline value projection**
+(`{type, resource_path}` for a Resource with a `res://` path), a **texture projection**
+(`{type, width, height, object_string, digest}` for a PATH-LESS `Texture2D` — a runtime-created
+`ImageTexture` the reference kind cannot name; `object_string` keeps the former `str()` form and
+is the kind's discriminator, `digest` stays null unless a read opts in; ADR-0035 amendment,
+#666), an **inline value projection**
 (`{type, …storage properties}` for a whitelisted path-less value Object — `InputEvent` subclasses,
 e.g. the `InputEventKey`s of an `input/*` action), or the `str()` fallback for any other Object. A
 setting that does not exist is a clean `unknown_setting` error (exit 4), distinguishing a typo'd key
@@ -749,7 +753,10 @@ headless is unaffected (4.4+, cross-platform).
   `verified` to distinguish a matched read-back from a completed set whose value did not
   stick. When a property is explicitly named, storage properties are preferred and plain
   attached-script variables are addressable as a fallback; unfiltered `game get` keeps the
-  storage-property listing.
+  storage-property listing. `game get --texture-digest` (shipped, #666) opts a read into
+  the content digest of each PATH-LESS `Texture2D` value's **texture projection**
+  (ADR-0035 amendment): the digest needs `Texture2D.get_image()`, a GPU-to-CPU readback,
+  so without the flag the projection's `digest` field stays null.
   `game rect` (shipped, #419) reads a running
   `Control`'s rendered viewport-space rectangle via `Control.get_global_rect()`, returning
   `position` and `size` as the existing Vector2 projection. These commands address the

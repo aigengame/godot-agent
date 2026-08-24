@@ -544,10 +544,12 @@ VALUE_PROJECTION_DESC = (
     "object for a Dictionary (keys stringified); a JSON array for an Array "
     "or packed array (elements re-projected). An Object value renders as a "
     "ReferenceProjection ({type, resource_path}) for a Resource with a "
-    "res:// path, an InlineValueProjection ({type, …storage properties}) "
-    "for a whitelisted path-less value Object (InputEvent subclasses), or "
-    "its str() form for any other Object — branch on the presence of "
-    "resource_path."
+    "res:// path, a TextureProjection ({type, width, height, object_string, "
+    "digest}) for a PATH-LESS Texture2D (#666), an InlineValueProjection "
+    "({type, …storage properties}) for a whitelisted path-less value Object "
+    "(InputEvent subclasses), or its str() form for any other Object — "
+    "branch on the presence of resource_path (reference) or object_string "
+    "(texture)."
 )
 
 # The set-echo variant: the set commands echo the value they set through the
@@ -651,6 +653,39 @@ class InlineValueProjection(BaseModel):
     )
 
 
+class TextureProjection(BaseModel):
+    """A path-less ``Texture2D`` value named by class and dimensions (#666).
+
+    The fourth projection kind (ADR-0035 amendment): a runtime-created texture
+    (``ImageTexture.create_from_image()``) has no ``res://`` path, so the
+    reference kind cannot name it and the string fallback's instance ID cannot
+    say what it shows. Discriminated by the PRESENCE of ``object_string`` —
+    the other object shapes never emit it, and this shape never emits
+    ``resource_path`` (not even null), so the reference branch stays
+    unambiguous. ``digest`` stays null unless the read opted in
+    (``game get --texture-digest``): computing it needs
+    ``Texture2D.get_image()``, a GPU-to-CPU readback on the live side.
+    """
+
+    type: str = Field(description="The texture's engine class (e.g. ImageTexture).")
+    width: int = Field(description="The texture's width in pixels.")
+    height: int = Field(description="The texture's height in pixels.")
+    object_string: str = Field(
+        description=(
+            "The former str() form (class + instance ID), kept as secondary "
+            "diagnostics; its presence is this kind's discriminator."
+        )
+    )
+    digest: str | None = Field(
+        default=None,
+        description=(
+            "'sha256:' + the hex digest over the image's dimensions, format, "
+            "and raw bytes — null unless the read opted in (--texture-digest) "
+            "or when the engine cannot read the image back."
+        ),
+    )
+
+
 def projected_value_schema_extra(schema: dict[str, Any]) -> None:
     """Attach the named Object-projection shapes to a projected ``value`` field.
 
@@ -658,12 +693,13 @@ def projected_value_schema_extra(schema: dict[str, Any]) -> None:
     the ADR-0035 bounded exception to ADR-0004 — so the stable projection
     shapes cannot ride along as the field's type (a union would materialize
     matching dicts as model instances and change the runtime payload).
-    Attaching their schemas as the field's ``$defs`` keeps ReferenceProjection
-    and InlineValueProjection named and consumable in every emitted command
-    schema (``--schema`` / gda-mcp) instead of prose-only.
+    Attaching their schemas as the field's ``$defs`` keeps ReferenceProjection,
+    TextureProjection, and InlineValueProjection named and consumable in every
+    emitted command schema (``--schema`` / gda-mcp) instead of prose-only.
     """
     schema["$defs"] = {
         "ReferenceProjection": ReferenceProjection.model_json_schema(),
+        "TextureProjection": TextureProjection.model_json_schema(),
         "InlineValueProjection": InlineValueProjection.model_json_schema(),
     }
 

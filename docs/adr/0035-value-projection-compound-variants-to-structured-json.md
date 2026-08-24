@@ -111,3 +111,35 @@ get-exports`, and the live `game get` read (and any future live value-returning 
   origin).** The deferred inline sub-resource work of ADR-0033 has a read-side counterpart here: a
   path-less inline value Object is projected (whitelisted), not referenced.
 - **`CONTEXT.md` gains the `Value projection` glossary term** in this same change.
+
+> **Amendment (2026-08-24, #666) — a fourth projection kind: the texture projection.**
+> Dogfooding GDA-DF-011: a path-less `Texture2D` (e.g. `ImageTexture.create_from_image()`, whose
+> `resource_path` is intentionally empty) fell to the string fallback — an instance ID that proves two
+> objects differ but cannot say what either shows. This amendment adds a **texture projection** for
+> path-less `Texture2D` values: `{"type": <Class>, "width": <int>, "height": <int>, "object_string":
+> "<the former str() form>", "digest": <"sha256:…" | null>}`. It revises three rules of this ADR,
+> named explicitly because the shapes are public ABI:
+>
+> 1. **"The reference projection shape `{type, resource_path}` is fixed as public ABI"** — unchanged
+>    in shape, but no longer the only projection a `Texture2D` can take: one WITH a `res://` path
+>    still projects as a reference (dimensions are NOT added to the reference shape); only a
+>    path-less one takes the new kind.
+> 2. **"The two Object projection kinds are discriminated by the presence of `resource_path`"** — the
+>    texture projection carries its own discriminator instead: the presence of **`object_string`**,
+>    which the other object shapes never emit. It does NOT emit `resource_path` (not even null), so
+>    the reference branch stays unambiguous.
+> 3. **"A curated per-type field table — rejected"** — still rejected. The texture projection is a
+>    **new projection kind** (like the reference kind, a fixed shape read off getters), not a
+>    whitelist entry: the inline kind emits storage properties, and `Texture2D`'s dimensions are
+>    getters while `ImageTexture`'s storage property is a large `image` payload — exactly the
+>    live-side risk the whitelist isolates.
+>
+> `digest` is an **explicit opt-in** (`game get --texture-digest`; the wire param `texture_digest`
+> threads through the shared projection): computing it needs `Texture2D.get_image()`, a GPU-to-CPU
+> readback on the live side, so every ordinary read keeps it `null`. When requested it is
+> `"sha256:"` + the hex digest over the image's dimensions, format, and raw bytes; an image the
+> engine cannot read back keeps `null`. The same projection serves headless and live reads (one
+> value shape everywhere); the headless read commands do not expose the opt-in flag today — a
+> path-less texture only exists where runtime code constructed one, so on the headless side the
+> digest field is always `null`. The mirrored shared-coercion block and
+> `tests/test_harness_coercion_mirror.py` are preserved.

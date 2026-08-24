@@ -128,7 +128,12 @@ def test_game_get_emits_runtime_properties_through_the_live_channel(
     assert {p["name"] for p in data["properties"]} == {"position", "visible"}
     # Routed through the LIVE seam, dispatching game-get with the node arg; the
     # optional property is absent (read the whole surface).
-    assert fake.calls == [("game-get", {"node": "/root/Main/Player", "property": None})]
+    assert fake.calls == [
+        (
+            "game-get",
+            {"node": "/root/Main/Player", "property": None, "texture_digest": False},
+        )
+    ]
 
 
 def test_game_get_passes_the_property_filter_through_the_live_channel(
@@ -156,8 +161,72 @@ def test_game_get_passes_the_property_filter_through_the_live_channel(
     assert result.exit_code == 0, result.stdout + result.stderr
     # The filter is threaded to the operation params (the harness applies it).
     assert fake.calls == [
-        ("game-get", {"node": "/root/Main/Player", "property": "position"})
+        (
+            "game-get",
+            {
+                "node": "/root/Main/Player",
+                "property": "position",
+                "texture_digest": False,
+            },
+        )
     ]
+
+
+def test_game_get_threads_the_texture_digest_opt_in(monkeypatch, tmp_path):
+    # The #666 digest opt-in: --texture-digest rides the wire to the harness,
+    # which threads it into the shared value projection; without the flag the
+    # TextureProjection's digest field stays null (the GPU-to-CPU readback is
+    # never paid silently).
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_GET_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "get",
+            "/root/Main/Player",
+            "--property",
+            "sprite_texture",
+            "--texture-digest",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls == [
+        (
+            "game-get",
+            {
+                "node": "/root/Main/Player",
+                "property": "sprite_texture",
+                "texture_digest": True,
+            },
+        )
+    ]
+
+
+def test_game_get_schema_names_the_texture_projection(monkeypatch):
+    # The TextureProjection shape is published beside the other named
+    # projection kinds in the value field's $defs (ADR-0035 amendment #666),
+    # so a schema client learns the shape without invoking gda.
+    result = CliRunner().invoke(app, ["game", "get", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    schema = json.loads(result.stdout)
+    defs = schema["output"]["$defs"]["NodeProperty"]["properties"]["value"]["$defs"]
+    assert set(defs) >= {
+        "ReferenceProjection",
+        "TextureProjection",
+        "InlineValueProjection",
+    }
+    texture = defs["TextureProjection"]["properties"]
+    assert set(texture) == {"type", "width", "height", "object_string", "digest"}
+    assert "resource_path" not in texture
 
 
 def test_game_get_missing_node_reports_live_node_not_found(monkeypatch, tmp_path):

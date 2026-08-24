@@ -61,6 +61,7 @@ from gda.models import (
     InlineValueProjection,
     NodeProperty,
     ReferenceProjection,
+    TextureProjection,
 )
 
 
@@ -1433,5 +1434,6 @@ def test_every_projected_value_field_exposes_the_named_projection_defs():
         defs = schema["properties"]["value"]["$defs"]
         assert defs == {
             "ReferenceProjection": ReferenceProjection.model_json_schema(),
+            "TextureProjection": TextureProjection.model_json_schema(),
             "InlineValueProjection": InlineValueProjection.model_json_schema(),
         }, model.__name__

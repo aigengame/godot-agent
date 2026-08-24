@@ -158,6 +158,7 @@ def test_scene_get_exports_schema_emits_model_derived_contract_without_other_arg
     assert "value projection" in export_value["description"]
     assert set(export_value["$defs"]) == {
         "ReferenceProjection",
+        "TextureProjection",
         "InlineValueProjection",
     }
     jsonschema.Draft202012Validator.check_schema(doc["input"])
