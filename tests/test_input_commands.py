@@ -25,6 +25,8 @@ from tests.support import (
     INPUT_MOUSE_CLICK_RESULT,
     INPUT_MOUSE_MOVE_RESULT,
     INPUT_SEQUENCE_RESULT,
+    INPUT_TAP_ACTION_RESULT,
+    INPUT_TAP_KEY_RESULT,
     error_sentinel,
     inject_live_runner,
     sentinel,
@@ -134,10 +136,10 @@ def test_input_key_schema_reports_kind_live():
     assert schema["kind"] == "live"
 
 
-# --- input mouse-click / mouse-move (single-frame) ----------------------------
+# --- input mouse-click (the activation gesture) / mouse-move (single-frame) ----
 
 
-def test_input_mouse_click_injects_a_click_through_the_live_channel(
+def test_input_mouse_click_injects_the_whole_gesture_through_the_live_channel(
     monkeypatch, tmp_path
 ):
     fake = inject_live_runner(
@@ -165,6 +167,15 @@ def test_input_mouse_click_injects_a_click_through_the_live_channel(
     data = json.loads(result.stdout)
     assert data["kind"] == "mouse_click"
     assert data["position"] == [100.0, 200.0]
+    # The result carries the COMPLETE gesture's evidence (#652): the three
+    # phases at their window frames, and the focus state around the gesture.
+    assert data["phases"] == [
+        {"frame": 0, "phase": "move"},
+        {"frame": 1, "phase": "press"},
+        {"frame": 2, "phase": "release"},
+    ]
+    assert data["focus_before"] is None
+    assert data["focus_after"] == "/root/Main/Btn"
     # The position, button, and double flag are threaded to the operation params.
     assert fake.calls == [
         (
@@ -174,6 +185,15 @@ def test_input_mouse_click_injects_a_click_through_the_live_channel(
     ]
 
 
+def _flat_help(result) -> str:
+    """The rendered help as plain flowing text, so phrase assertions survive
+    the terminal renderer's wrapping (the assertions are about content):
+    ANSI codes and panel borders out, line breaks collapsed to spaces."""
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    text = re.sub(r"[│╭╮╰╯─]", " ", text)
+    return re.sub(r"\s+", " ", text)
+
+
 def test_input_mouse_help_documents_tracked_position_limitation():
     click = CliRunner().invoke(app, ["input", "mouse-click", "--help"])
     move = CliRunner().invoke(app, ["input", "mouse-move", "--help"])
@@ -181,11 +201,23 @@ def test_input_mouse_help_documents_tracked_position_limitation():
     assert click.exit_code == 0, click.stdout + click.stderr
     assert move.exit_code == 0, move.stdout + move.stderr
     for result in (click, move):
-        assert "mouse event" in result.stdout
-        assert "position" in result.stdout
-        assert "get_mouse_position()" in result.stdout
-        assert "get_global_mouse_position()" in result.stdout
-        assert "stale in daemon sessions" in result.stdout
+        flat = _flat_help(result)
+        assert "position" in flat
+        assert "get_mouse_position()" in flat
+        assert "get_global_mouse_position()" in flat
+        assert "stale in daemon sessions" in flat
+
+
+def test_input_mouse_click_help_states_the_activation_frame_semantics():
+    # The #652 acceptance: the help states the minimum frame semantics Godot
+    # needs for a UI activation — the whole gesture, activating on the release.
+    result = CliRunner().invoke(app, ["input", "mouse-click", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    flat = _flat_help(result)
+    assert "the initial move, the press, and the release" in flat
+    assert "one per process frame" in flat
+    assert "activates on the release" in flat
 
 
 def test_input_mouse_move_injects_a_motion_through_the_live_channel(
@@ -365,6 +397,256 @@ def test_input_action_strength_over_range_argv_is_a_usage_error(monkeypatch, tmp
 
 def test_input_action_schema_reports_kind_live():
     result = CliRunner().invoke(app, ["input", "action", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["kind"] == "live"
+
+
+# --- input tap (the press-hold-release activation gesture, #652) ---------------
+
+
+def test_input_tap_key_dispatches_the_press_hold_release_window(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--key",
+            "Right",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["kind"] == "tap"
+    assert data["key"] == "Right"
+    assert data["action"] is None
+    # The gesture evidence (#652): press at frame 0, release at frame
+    # hold_frames, and the focus state around the tap.
+    assert data["phases"] == [
+        {"frame": 0, "phase": "press"},
+        {"frame": 2, "phase": "release"},
+    ]
+    assert data["focus_before"] == "/root/Main/A"
+    assert data["focus_after"] == "/root/Main/B"
+    # The safe defaults: hold 2 process frames, settle 2 more (a 5-frame window).
+    assert fake.calls == [
+        (
+            "input-tap",
+            {
+                "key": "Right",
+                "action": None,
+                "modifiers": [],
+                "strength": None,
+                "hold_frames": 2,
+                "settle_frames": 2,
+            },
+        )
+    ]
+
+
+def test_input_tap_action_threads_strength_and_frame_counts(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_TAP_ACTION_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--action",
+            "jump",
+            "--strength",
+            "0.5",
+            "--hold-frames",
+            "6",
+            "--settle-frames",
+            "0",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["kind"] == "tap"
+    assert data["action"] == "jump"
+    assert data["key"] is None
+    assert fake.calls == [
+        (
+            "input-tap",
+            {
+                "key": None,
+                "action": "jump",
+                "modifiers": [],
+                "strength": 0.5,
+                "hold_frames": 6,
+                "settle_frames": 0,
+            },
+        )
+    ]
+
+
+def test_input_tap_requires_exactly_one_target(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
+    )
+
+    neither = CliRunner().invoke(
+        app,
+        ["input", "tap", "--project", str(_project(tmp_path)), "--json"],
+    )
+    both = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--key",
+            "Right",
+            "--action",
+            "jump",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert neither.exit_code == 2, neither.stdout + neither.stderr
+    assert both.exit_code == 2, both.stdout + both.stderr
+    assert "exactly one of 'key' or 'action'" in neither.stderr + both.stderr
+    assert fake.calls == []
+
+
+def test_input_tap_rejects_the_other_targets_fields(monkeypatch, tmp_path):
+    # The GDA-DF-037 lesson carried over: a foreign field is refused with the
+    # rule named, never silently inert.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
+    )
+
+    modifiers_on_action = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--action",
+            "jump",
+            "--modifiers",
+            "shift",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+    strength_on_key = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--key",
+            "Right",
+            "--strength",
+            "0.5",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert modifiers_on_action.exit_code == 2
+    assert "rides a key tap only" in modifiers_on_action.stderr
+    assert strength_on_key.exit_code == 2
+    assert "rides an action tap only" in strength_on_key.stderr
+    assert fake.calls == []
+
+
+def test_input_tap_window_is_bounded_to_the_shared_ceiling(monkeypatch, tmp_path):
+    # hold + settle + 1 must fit the same per-window ceiling a sequence obeys:
+    # an over-range tap is refused model-side, never a live stall (ADR-0015).
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--key",
+            "Right",
+            "--hold-frames",
+            str(MAX_WINDOW_FRAMES),
+            "--settle-frames",
+            "0",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert str(MAX_WINDOW_FRAMES) in result.stderr
+    assert fake.calls == []
+
+
+def test_input_tap_hold_frames_zero_is_a_usage_error(monkeypatch, tmp_path):
+    # hold_frames >= 1 is the GDA-DF-034 floor: a same-frame press+release
+    # reports success without advancing the focused UI, so the model refuses it.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--key",
+            "Right",
+            "--hold-frames",
+            "0",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    stripped = re.sub(r"\x1b\[[0-9;]*m", "", result.stderr)
+    assert "--hold-frames" in stripped, stripped
+    assert fake.calls == []
+
+
+def test_input_tap_help_states_the_activation_frame_semantics():
+    # The #652 acceptance: the help states the minimum frame semantics Godot
+    # needs for a UI activation — press and release on separate process frames.
+    result = CliRunner().invoke(app, ["input", "tap", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    flat = _flat_help(result)
+    assert "SEPARATE process frames" in flat
+    assert "presses at window frame 0" in flat
+    assert "--hold-frames" in flat
+    assert "--settle-frames" in flat
+
+
+def test_input_tap_schema_reports_kind_live():
+    result = CliRunner().invoke(app, ["input", "tap", "--schema"])
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["kind"] == "live"

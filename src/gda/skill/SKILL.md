@@ -172,8 +172,20 @@ already-running daemon's lazy Engine-session launch; only the outer
 | `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |
 | `perf` | `monitors`, `monitor` (counters now / a property-or-signal timeline) |
-| `input` | `key`, `mouse-click`, `mouse-move`, `action`, `sequence` |
+| `input` | `key`, `mouse-click`, `mouse-move`, `action`, `tap`, `sequence` |
 | `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`) |
+
+For a UI activation, use the gesture commands, not a lone event. Godot activates a
+`Button` on the RELEASE, so a bare press never emits `pressed`; and a focused UI
+does not advance when the press and the release land on the same process frame.
+`gda input mouse-click` injects the whole gesture — the initial move, the press,
+and the release, one per process frame — and `gda input tap --key K` /
+`gda input tap --action NAME` presses at frame 0, holds `--hold-frames` (default 2)
+process frames, releases, then runs `--settle-frames` (default 2) more frames so
+the game observes the release before the op returns. Both report the injected
+`phases` and the focused Control before/after as activation evidence. Reach for
+`gda input key --released` or a `mouse_button` sequence phase only when a single
+edge is the point (a hold, a drag).
 
 `gda input sequence` events are a discriminated union on `type`: each kind accepts
 only its own fields, and `gda input sequence --schema` publishes them per kind. The

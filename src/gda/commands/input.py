@@ -132,13 +132,18 @@ class InputKeyResult(BaseModel):
 
 
 class InputMouseClickParams(BaseModel):
-    """The params of ``gda input mouse-click``: inject a mouse button click (#221).
+    """The params of ``gda input mouse-click``: inject a complete click gesture (#221, #652).
 
-    Pushes an ``InputEventMouseButton`` at viewport position ``(x, y)`` into the
-    running game's root viewport. ``button`` selects which button (left/right/
-    middle); ``double`` marks the event a double click. A single-frame op (the
-    press is injected at one frame boundary, ADR-0020). The injected coordinate is
-    reliable as ``InputEventMouseButton.position``. Godot does not reliably update
+    Injects the COMPLETE click gesture at viewport position ``(x, y)`` into the
+    running game's root viewport: the initial mouse move, the button press, and
+    the button release, one per process frame across a 3-frame window. Godot's
+    UI activates on the RELEASE — a bare press never emits a default ``Button``'s
+    ``pressed`` and leaves the button held down (GDA-DF-004) — so the gesture,
+    not a lone press event, is what the op's name promises; the initial move
+    settles hover state at the click position first. Each phase applies at its
+    own frame boundary (ADR-0020). ``button`` selects which button (left/right/
+    middle); ``double`` marks the press a double click. The injected coordinate
+    is reliable as the mouse events' ``position``. Godot does not reliably update
     the engine-tracked mouse position in daemon sessions, so
     ``Viewport.get_mouse_position()`` / ``Node2D.get_global_mouse_position()`` may
     remain stale; read the mouse event position for the injected coordinate.
@@ -190,18 +195,16 @@ class InputMouseMoveParams(BaseModel):
 
 
 class InputMouseResult(BaseModel):
-    """The result of a ``gda input mouse-click`` / ``mouse-move`` op: the mouse event injected (#221).
+    """The result of ``gda input mouse-move``: the motion event injected (#221).
 
-    Echoes the event ``kind`` (``mouse_click`` or ``mouse_move``), the viewport
-    ``position`` it was pushed at as ``[x, y]``, and — for a click — the ``button``
-    and whether it was a ``double`` click (both null for a move). This echoed
-    position mirrors the mouse event's position; engine-tracked mouse positions may
-    remain stale.
+    Echoes the event ``kind`` (``mouse_move``), the viewport ``position`` it was
+    pushed to as ``[x, y]``, and the historically shared ``button`` / ``double``
+    fields (always null for a move; ``mouse-click`` now reports its own gesture
+    result, :class:`InputMouseClickResult`). This echoed position mirrors the
+    mouse event's position; engine-tracked mouse positions may remain stale.
     """
 
-    kind: str = Field(
-        description="The injected event kind: 'mouse_click' or 'mouse_move'."
-    )
+    kind: str = Field(description="The injected event kind ('mouse_move').")
     position: list[float] = Field(
         description=(
             "The viewport position the event was injected at, as [x, y]. This "
@@ -209,11 +212,71 @@ class InputMouseResult(BaseModel):
         )
     )
     button: str | None = Field(
-        default=None, description="The clicked button (a click only); null for a move."
+        default=None, description="Always null for a move (a historical field)."
     )
     double: bool | None = Field(
         default=None,
-        description="Whether the click was a double click; null for a move.",
+        description="Always null for a move (a historical field).",
+    )
+
+
+class InputEventPhase(BaseModel):
+    """One phase of an injected activation gesture (#652).
+
+    The structured evidence that an activation op injected the COMPLETE gesture
+    rather than a bare press: the 0-based process-frame offset within the op's
+    window, and the phase applied there (``move``, ``press``, or ``release``).
+    """
+
+    frame: int = Field(
+        description="The 0-based process-frame offset within the op's window."
+    )
+    phase: str = Field(
+        description="The gesture phase applied at this frame: move, press, or release."
+    )
+
+
+class InputMouseClickResult(BaseModel):
+    """The result of ``gda input mouse-click``: the complete click gesture injected (#652).
+
+    ``phases`` reports each injected phase and the window frame it landed on
+    (move at 0, press at 1, release at 2); ``focus_before`` / ``focus_after``
+    report the root viewport's focused Control around the gesture (null when
+    none) — the activation evidence the engine exposes. The echoed ``position``
+    mirrors the mouse events' position; engine-tracked mouse positions may
+    remain stale.
+    """
+
+    kind: str = Field(
+        default="mouse_click", description="The injected event kind ('mouse_click')."
+    )
+    position: list[float] = Field(
+        description=(
+            "The viewport position the gesture was injected at, as [x, y]. This "
+            "mirrors event.position; engine-tracked mouse positions may remain stale."
+        )
+    )
+    button: str = Field(description="The clicked button: left, right, or middle.")
+    double: bool = Field(description="Whether the press was marked a double click.")
+    phases: list[InputEventPhase] = Field(
+        description=(
+            "The injected gesture phases and their window frames: the initial "
+            "move at frame 0, the press at frame 1, the release at frame 2."
+        )
+    )
+    focus_before: str | None = Field(
+        default=None,
+        description=(
+            "The runtime path of the focused Control before the gesture, or null "
+            "when nothing held focus."
+        ),
+    )
+    focus_after: str | None = Field(
+        default=None,
+        description=(
+            "The runtime path of the focused Control after the release, or null "
+            "when nothing holds focus."
+        ),
     )
 
 
@@ -258,6 +321,158 @@ class InputActionResult(BaseModel):
     pressed: bool = Field(description="True for a press, false for a release.")
     strength: float = Field(
         description="The press strength applied (0.0 on a release)."
+    )
+
+
+class InputTapParams(BaseModel):
+    """The params of ``gda input tap``: a complete press-hold-release of one key or action (#652).
+
+    Godot needs the press and the release to land on SEPARATE process frames for
+    a focused-UI activation: a pair contained in one immediate frame reports
+    success without advancing the focused UI (GDA-DF-034). A tap presses at
+    window frame 0, holds for ``hold_frames`` process frames, releases at frame
+    ``hold_frames``, then lets ``settle_frames`` more frames run so the game
+    observes the release before the op returns. Exactly one of ``key`` /
+    ``action`` selects the target; ``modifiers`` ride a key tap only,
+    ``strength`` an action tap only. The whole window —
+    ``hold_frames + settle_frames + 1`` frames — is bounded model-side to the
+    shared per-window ceiling (ADR-0015, #223). The two failures that need the
+    live engine are deferred to the harness: an unresolvable key name is
+    ``live_invalid_key``, an action missing from the running ``InputMap`` is
+    ``live_unknown_action``.
+    """
+
+    key: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "The Godot key name to tap (e.g. Right, Space). Exactly one of key/action."
+        ),
+    )
+    action: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "The input action to tap (must be in the running InputMap). Exactly "
+            "one of key/action."
+        ),
+    )
+    modifiers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Modifier keys held through a KEY tap, any of: shift, ctrl, alt, "
+            "meta. Not valid with an action tap."
+        ),
+    )
+    strength: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "The analog press strength of an ACTION tap, 0..1 (default 1.0). "
+            "Not valid with a key tap."
+        ),
+    )
+    hold_frames: int = Field(
+        default=2,
+        ge=1,
+        description=(
+            "Process frames to hold between the press (window frame 0) and the "
+            "release; at least 1 — the release must land on a later frame than "
+            "the press for Godot to advance a focused UI."
+        ),
+    )
+    settle_frames: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Process frames to run AFTER the release, so the game observes it "
+            "before the op returns."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_tap(self) -> "InputTapParams":
+        # Exactly one target, and each target family keeps its own fields — the
+        # GDA-DF-037 lesson: a foreign field silently inert is worse than a
+        # refusal that names the rule.
+        if (self.key is None) == (self.action is None):
+            raise ValueError("a tap targets exactly one of 'key' or 'action'.")
+        if self.action is not None and self.modifiers:
+            raise ValueError(
+                "'modifiers' rides a key tap only; an action tap has no modifiers."
+            )
+        if self.key is not None and self.strength is not None:
+            raise ValueError(
+                "'strength' rides an action tap only; a key tap has no strength."
+            )
+        _validate_modifiers(self.modifiers)
+        window = self.hold_frames + self.settle_frames + 1
+        if window > MAX_WINDOW_FRAMES:
+            raise ValueError(
+                f"the tap requests a {window}-frame window (hold_frames + "
+                f"settle_frames + 1), exceeding the maximum of {MAX_WINDOW_FRAMES} "
+                "(the gda harness's per-window ceiling). Use smaller frame counts."
+            )
+        return self
+
+
+class InputTapResult(BaseModel):
+    """The result of ``gda input tap``: the complete tap the harness injected (#652).
+
+    Echoes the target — ``key`` + ``keycode`` + ``modifiers`` for a key tap,
+    ``action`` + ``strength`` for an action tap; the other family is null — the
+    frame counts, the injected ``phases`` (the press at window frame 0, the
+    release at frame ``hold_frames``), and the focus evidence around the gesture.
+    """
+
+    kind: str = Field(default="tap", description="The injected event kind ('tap').")
+    key: str | None = Field(
+        default=None, description="The tapped key name; null for an action tap."
+    )
+    keycode: int | None = Field(
+        default=None,
+        description="The Godot keycode the key resolved to; null for an action tap.",
+    )
+    modifiers: list[str] | None = Field(
+        default=None,
+        description="The modifiers held through a key tap; null for an action tap.",
+    )
+    action: str | None = Field(
+        default=None, description="The tapped action name; null for a key tap."
+    )
+    strength: float | None = Field(
+        default=None,
+        description="The action press strength applied; null for a key tap.",
+    )
+    hold_frames: int = Field(
+        description="Process frames held between the press and the release."
+    )
+    settle_frames: int = Field(
+        description="Process frames run after the release before the op returned."
+    )
+    frames: int = Field(
+        description="The total window: hold_frames + settle_frames + 1."
+    )
+    phases: list[InputEventPhase] = Field(
+        description=(
+            "The injected phases and their window frames: the press at frame 0, "
+            "the release at frame hold_frames."
+        )
+    )
+    focus_before: str | None = Field(
+        default=None,
+        description=(
+            "The runtime path of the focused Control before the press, or null "
+            "when nothing held focus."
+        ),
+    )
+    focus_after: str | None = Field(
+        default=None,
+        description=(
+            "The runtime path of the focused Control after the tap, or null "
+            "when nothing holds focus."
+        ),
     )
 
 
@@ -468,7 +683,11 @@ class KeySequenceEvent(_SequenceEvent):
 class MouseClickSequenceEvent(_SequenceEvent):
     """A whole mouse click in a sequence: press and release at one clock offset.
 
-    Use :class:`MouseButtonSequenceEvent` instead when the press and the release
+    The harness pushes the press and then the release on the SAME frame — a
+    same-frame pair fully activates a default ``Button``, whose ``pressed``
+    fires on the release (#652; mouse activation, unlike a focused-UI key tap,
+    does not need the pair split across frames). Use
+    :class:`MouseButtonSequenceEvent` instead when the press and the release
     must sit at different offsets (a drag).
     """
 
@@ -714,12 +933,40 @@ def render_input_key(injected: "InputKeyResult") -> str:
 
 
 def render_input_mouse(injected: "InputMouseResult") -> str:
-    """Render an injected mouse event as a click or a move at its position (#221)."""
+    """Render an injected mouse motion event at its position (#221)."""
     x, y = injected.position
-    if injected.kind == "mouse_click":
-        double = " double" if injected.double else ""
-        return f"{injected.button} click{double} at ({x}, {y})"
     return f"mouse move to ({x}, {y})"
+
+
+def _render_focus(before: str | None, after: str | None) -> str:
+    """The focus-evidence tail of an activation render, empty when focus held still."""
+    if before == after:
+        return ""
+    return f"; focus {before or 'none'} -> {after or 'none'}"
+
+
+def render_input_mouse_click(injected: "InputMouseClickResult") -> str:
+    """Render a click gesture as its phases at their frames, plus focus evidence (#652)."""
+    x, y = injected.position
+    double = " double" if injected.double else ""
+    gesture = " -> ".join(f"{p.phase}@{p.frame}" for p in injected.phases)
+    focus = _render_focus(injected.focus_before, injected.focus_after)
+    return f"{injected.button} click{double} at ({x}, {y}): {gesture}{focus}"
+
+
+def render_input_tap(injected: "InputTapResult") -> str:
+    """Render a tap as its target, phases, and settle window, plus focus evidence (#652)."""
+    target = (
+        f"key {injected.key}"
+        if injected.key is not None
+        else f"action {injected.action}"
+    )
+    gesture = " -> ".join(f"{p.phase}@{p.frame}" for p in injected.phases)
+    focus = _render_focus(injected.focus_before, injected.focus_after)
+    return (
+        f"tap {target}: {gesture}, settled {injected.settle_frames} frames"
+        f" ({injected.frames}-frame window){focus}"
+    )
 
 
 def render_input_action(injected: "InputActionResult") -> str:
@@ -743,11 +990,11 @@ INPUT_KEY_COMMAND: HeadlessCommand[InputKeyResult] = HeadlessCommand(
 )
 
 
-INPUT_MOUSE_CLICK_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
+INPUT_MOUSE_CLICK_COMMAND: HeadlessCommand[InputMouseClickResult] = HeadlessCommand(
     operation="input-mouse-click",
     input_model=InputMouseClickParams,
-    output_model=InputMouseResult,
-    render=render_input_mouse,
+    output_model=InputMouseClickResult,
+    render=render_input_mouse_click,
     kind=ExecutionKind.LIVE,
 )
 
@@ -770,6 +1017,15 @@ INPUT_ACTION_COMMAND: HeadlessCommand[InputActionResult] = HeadlessCommand(
 )
 
 
+INPUT_TAP_COMMAND: HeadlessCommand[InputTapResult] = HeadlessCommand(
+    operation="input-tap",
+    input_model=InputTapParams,
+    output_model=InputTapResult,
+    render=render_input_tap,
+    kind=ExecutionKind.LIVE,
+)
+
+
 INPUT_SEQUENCE_COMMAND: HeadlessCommand[InputSequenceResult] = HeadlessCommand(
     operation="input-sequence",
     input_model=InputSequenceParams,
@@ -781,9 +1037,10 @@ INPUT_SEQUENCE_COMMAND: HeadlessCommand[InputSequenceResult] = HeadlessCommand(
 
 # The input command group (Phase 2, ADR-0019, #221): runtime input simulation into
 # the RUNNING game, served LIVE through gda-daemon (`kind = LIVE`). Single-frame
-# ops (`input key`, `input mouse-click/mouse-move`, `input action`) inject one event
-# at a frame boundary; `input sequence` reuses #223's time-windowed multi-frame base
-# to apply events across frames in one blocking call. Like `game` / `perf`, a domain-
+# ops (`input key`, `input mouse-move`, `input action`) inject one event at a frame
+# boundary; the activation gestures (`input mouse-click`, `input tap`, #652) and
+# `input sequence` reuse #223's time-windowed multi-frame base to apply their
+# events across frames in one blocking call. Like `game` / `perf`, a domain-
 # object group marked live by `kind`, not by the tree (ADR-0019). The mouse ops are
 # flat two-token commands (`mouse-click` / `mouse-move`) directly under `input`, not a
 # nested `mouse` sub-group: a 3-token name would break the mechanical
@@ -852,14 +1109,17 @@ def input_mouse_click(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Inject a mouse button click into the running game (live).
+    """Inject a complete mouse click gesture into the running game (live).
 
     Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
-    pushes an InputEventMouseButton at the viewport position into the running
-    game's root viewport. Read the injected coordinate from the mouse event's
-    position; Godot may leave Viewport.get_mouse_position() /
-    Node2D.get_global_mouse_position() stale in daemon sessions. With no daemon it
-    reports `daemon_not_running`.
+    injects the WHOLE activation gesture at the viewport position: the initial
+    move, the press, and the release, one per process frame across a 3-frame
+    window. Godot's UI activates on the release (a bare press never emits a
+    Button's `pressed`), so the result reports the injected phases plus the
+    focused Control before and after the gesture. Read the injected coordinate
+    from the mouse events' position; Godot may leave
+    Viewport.get_mouse_position() / Node2D.get_global_mouse_position() stale in
+    daemon sessions. With no daemon it reports `daemon_not_running`.
     """
     dispatch_domain(
         INPUT_MOUSE_CLICK_COMMAND,
@@ -936,6 +1196,94 @@ def input_action(
     )
     dispatch_domain(
         INPUT_ACTION_COMMAND,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="tap", cls=INPUT_TAP_COMMAND.command_class())
+def input_tap(
+    key: Optional[str] = typer.Option(
+        None,
+        "--key",
+        help="The Godot key name to tap (e.g. Right, Space). Exactly one of --key/--action.",
+    ),
+    action: Optional[str] = typer.Option(
+        None,
+        "--action",
+        help=(
+            "The input action to tap (must be in the running InputMap). Exactly "
+            "one of --key/--action."
+        ),
+    ),
+    modifiers: list[str] = typer.Option(
+        [],
+        "--modifiers",
+        help=(
+            "Modifier keys held through a KEY tap (repeatable): shift, ctrl, "
+            "alt, meta. Not valid with --action."
+        ),
+    ),
+    strength: Optional[float] = typer.Option(
+        None,
+        "--strength",
+        min=0.0,
+        max=1.0,
+        help=(
+            "The analog press strength of an ACTION tap, 0..1 (default 1.0). "
+            "Not valid with --key."
+        ),
+    ),
+    hold_frames: int = typer.Option(
+        2,
+        "--hold-frames",
+        min=1,
+        help=(
+            "Process frames to hold between the press and the release (at least "
+            "1: the release must land on a later frame than the press)."
+        ),
+    ),
+    settle_frames: int = typer.Option(
+        2,
+        "--settle-frames",
+        min=0,
+        help=(
+            "Process frames to run after the release, so the game observes it "
+            "before the op returns."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = INPUT_TAP_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Tap one key or input action: press, hold, release across frames (live).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017).
+    Godot needs the press and the release on SEPARATE process frames to advance
+    a focused UI — a pair contained in one immediate frame reports success
+    without advancing it — so the tap presses at window frame 0, holds for
+    --hold-frames process frames, releases, then runs --settle-frames more
+    frames before returning. The result reports the injected phases plus the
+    focused Control before and after the tap. Exactly one of --key/--action; an
+    unresolvable key is `live_invalid_key`, an action absent from the running
+    InputMap is `live_unknown_action`. With no daemon it reports
+    `daemon_not_running`.
+    """
+    params = params_or_bad_parameter(
+        InputTapParams,
+        key=key,
+        action=action,
+        modifiers=modifiers,
+        strength=strength,
+        hold_frames=hold_frames,
+        settle_frames=settle_frames,
+    )
+    dispatch_domain(
+        INPUT_TAP_COMMAND,
         params,
         json_output=json_output,
         godot=godot,

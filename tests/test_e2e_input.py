@@ -158,6 +158,70 @@ PHYSICS_ACTION_PROJECT_GODOT = project_godot(
     )
 )
 
+# A standard enabled Button plus counters for its activation signals (#652,
+# #647). A default Button emits `pressed` only on the RELEASE of a complete
+# click, so the counters expose whether an injected "click" performed the whole
+# gesture or left the button held down (GDA-DF-004). `motion_seen` records the
+# gesture's initial mouse move riding `_input`.
+BUTTON_UI_GD = (
+    "extends Control\n"
+    "@export var pressed_count: int = 0\n"
+    "@export var down_count: int = 0\n"
+    "@export var up_count: int = 0\n"
+    "@export var motion_seen: bool = false\n"
+    "func _ready() -> void:\n"
+    "\t$Btn.pressed.connect(func() -> void: pressed_count += 1)\n"
+    "\t$Btn.button_down.connect(func() -> void: down_count += 1)\n"
+    "\t$Btn.button_up.connect(func() -> void: up_count += 1)\n"
+    "func _input(event: InputEvent) -> void:\n"
+    "\tif event is InputEventMouseMotion:\n"
+    "\t\tmotion_seen = true\n"
+)
+BUTTON_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://ui.gd" id="1"]\n\n'
+    '[node name="Main" type="Control"]\n'
+    "anchor_right = 1.0\n"
+    "anchor_bottom = 1.0\n"
+    'script = ExtResource("1")\n\n'
+    '[node name="Btn" type="Button" parent="."]\n'
+    "offset_right = 100.0\n"
+    "offset_bottom = 40.0\n"
+    'text = "Go"\n'
+)
+
+# A focus-driven UI (#652, GDA-DF-034): three Buttons in a VBoxContainer, the
+# first focused at startup. One `ui_down` activation (the Down key) must move
+# focus exactly ONE button; the focus neighbors come from the container layout.
+FOCUS_UI_GD = "extends VBoxContainer\nfunc _ready() -> void:\n\t$A.grab_focus()\n"
+FOCUS_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://ui.gd" id="1"]\n\n'
+    '[node name="Main" type="VBoxContainer"]\n'
+    "offset_right = 120.0\n"
+    "offset_bottom = 120.0\n"
+    'script = ExtResource("1")\n\n'
+    '[node name="A" type="Button" parent="."]\n'
+    'text = "A"\n\n'
+    '[node name="B" type="Button" parent="."]\n'
+    'text = "B"\n\n'
+    '[node name="C" type="Button" parent="."]\n'
+    'text = "C"\n'
+)
+
+# An action-edge observer (#652): counts each press edge and each release edge
+# of `move_right`, so one tap must produce exactly one of each.
+TAP_ACTION_PLAYER_GD = (
+    "extends Node2D\n"
+    "@export var pressed_edges: int = 0\n"
+    "@export var released_edges: int = 0\n"
+    "func _process(_delta: float) -> void:\n"
+    '\tif Input.is_action_just_pressed("move_right"):\n'
+    "\t\tpressed_edges += 1\n"
+    '\tif Input.is_action_just_released("move_right"):\n'
+    "\t\treleased_edges += 1\n"
+)
+
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
@@ -736,6 +800,199 @@ def test_input_action_unknown_action_reports_live_unknown_action(
         assert json.loads(missing.stdout)["error"]["code"] == "live_unknown_action"
     finally:
         run("daemon", "stop")
+
+
+def _button_project(tmp_path):
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(BUTTON_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "ui.gd").write_text(BUTTON_UI_GD, encoding="utf-8")
+
+
+def _gda_json(tmp_path, env, *args):
+    return subprocess.run(
+        [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=90,
+    )
+
+
+def _property_value(tmp_path, env, node, name):
+    got = _gda_json(tmp_path, env, "game", "get", node, "--property", name)
+    assert got.returncode == 0, got.stdout + got.stderr
+    return next(p for p in json.loads(got.stdout)["properties"] if p["name"] == name)[
+        "value"
+    ]
+
+
+@pytest.mark.e2e
+def test_mouse_click_performs_the_complete_activation_gesture(
+    tmp_path, daemon_runtime_dir
+):
+    # The #652 DoD (GDA-DF-004): `input mouse-click` on a standard enabled
+    # Button emits `pressed` — the whole move/press/release gesture, not a bare
+    # press that leaves the button held down forever. Repeated clicks keep
+    # activating, because each gesture releases what it pressed.
+    _button_project(tmp_path)
+    env = {**os.environ}
+
+    try:
+        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+
+        first = _gda_json(tmp_path, env, "input", "mouse-click", "50", "20")
+        assert first.returncode == 0, first.stdout + first.stderr
+        doc = json.loads(first.stdout)
+        # The structured gesture evidence: the three phases at their frames.
+        assert doc["phases"] == [
+            {"frame": 0, "phase": "move"},
+            {"frame": 1, "phase": "press"},
+            {"frame": 2, "phase": "release"},
+        ]
+
+        # The Button observed the COMPLETE activation: down, up, and `pressed`.
+        assert _property_value(tmp_path, env, "/root/Main", "pressed_count") == 1
+        assert _property_value(tmp_path, env, "/root/Main", "down_count") == 1
+        assert _property_value(tmp_path, env, "/root/Main", "up_count") == 1
+        # The gesture included the initial move (GDA-DF-004's "initial move").
+        assert _property_value(tmp_path, env, "/root/Main", "motion_seen") is True
+
+        second = _gda_json(tmp_path, env, "input", "mouse-click", "50", "20")
+        assert second.returncode == 0, second.stdout + second.stderr
+        assert _property_value(tmp_path, env, "/root/Main", "pressed_count") == 2
+        assert _property_value(tmp_path, env, "/root/Main", "up_count") == 2
+    finally:
+        _gda_json(tmp_path, env, "daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_repeated_mouse_input_adds_no_harness_owned_warnings(
+    tmp_path, daemon_runtime_dir
+):
+    # #647: notify_mouse_entered() on an already-entered viewport is an engine
+    # warning that lands in the Session log. After repeated mouse ops, `diag
+    # errors` must carry no harness-owned viewport-enter noise, so an empty
+    # result stays usable as clean runtime evidence after a multi-click playtest.
+    _button_project(tmp_path)
+    env = {**os.environ}
+
+    try:
+        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+
+        assert (
+            _gda_json(tmp_path, env, "input", "mouse-click", "50", "20").returncode == 0
+        )
+        assert (
+            _gda_json(tmp_path, env, "input", "mouse-click", "50", "20").returncode == 0
+        )
+        assert (
+            _gda_json(tmp_path, env, "input", "mouse-move", "10", "10").returncode == 0
+        )
+
+        diag = _gda_json(tmp_path, env, "diag", "errors")
+        assert diag.returncode == 0, diag.stdout + diag.stderr
+        errors = json.loads(diag.stdout)["errors"]
+        assert not any("previously notified" in error["message"] for error in errors), (
+            errors
+        )
+    finally:
+        _gda_json(tmp_path, env, "daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_sequence_mouse_click_event_activates_a_button(tmp_path, daemon_runtime_dir):
+    # A sequence `mouse_click` event is a WHOLE click at one clock offset
+    # (#652): the harness pushes the press and the release on the same frame,
+    # which fully activates a default Button.
+    _button_project(tmp_path)
+    env = {**os.environ}
+
+    try:
+        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+
+        injected = _gda_json(
+            tmp_path,
+            env,
+            "input",
+            "sequence",
+            "--events",
+            '[{"type": "mouse_click", "x": 50, "y": 20}]',
+        )
+        assert injected.returncode == 0, injected.stdout + injected.stderr
+
+        assert _property_value(tmp_path, env, "/root/Main", "pressed_count") == 1
+        assert _property_value(tmp_path, env, "/root/Main", "up_count") == 1
+    finally:
+        _gda_json(tmp_path, env, "daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_tap_advances_a_focus_driven_ui_exactly_once_repeatably(
+    tmp_path, daemon_runtime_dir
+):
+    # The #652 tap DoD (GDA-DF-034): one key tap advances a focus-driven UI
+    # exactly ONE step, and does so repeatably — the press and the release land
+    # on separate process frames, and only the press navigates.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(FOCUS_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "ui.gd").write_text(FOCUS_UI_GD, encoding="utf-8")
+    env = {**os.environ}
+
+    try:
+        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+
+        first = _gda_json(tmp_path, env, "input", "tap", "--key", "Down")
+        assert first.returncode == 0, first.stdout + first.stderr
+        doc = json.loads(first.stdout)
+        assert doc["phases"] == [
+            {"frame": 0, "phase": "press"},
+            {"frame": 2, "phase": "release"},
+        ]
+        # Exactly one step: A -> B, evidenced by the op's own focus read-back.
+        assert doc["focus_before"] == "/root/Main/A", doc
+        assert doc["focus_after"] == "/root/Main/B", doc
+
+        second = _gda_json(tmp_path, env, "input", "tap", "--key", "Down")
+        assert second.returncode == 0, second.stdout + second.stderr
+        doc = json.loads(second.stdout)
+        # Repeatably: the next tap advances exactly one more step, B -> C.
+        assert doc["focus_before"] == "/root/Main/B", doc
+        assert doc["focus_after"] == "/root/Main/C", doc
+    finally:
+        _gda_json(tmp_path, env, "daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_tap_action_produces_exactly_one_press_and_release_edge(
+    tmp_path, daemon_runtime_dir
+):
+    # The action leg of the tap (#652): one tap of an InputMap action produces
+    # exactly one press edge and one release edge, observed by the game's own
+    # is_action_just_pressed / is_action_just_released polling.
+    (tmp_path / "project.godot").write_text(ACTION_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(ACTION_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(TAP_ACTION_PLAYER_GD, encoding="utf-8")
+    env = {**os.environ}
+
+    try:
+        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+
+        first = _gda_json(tmp_path, env, "input", "tap", "--action", "move_right")
+        assert first.returncode == 0, first.stdout + first.stderr
+        doc = json.loads(first.stdout)
+        assert doc["action"] == "move_right"
+        assert doc["key"] is None
+
+        node = "/root/Main/Player"
+        assert _property_value(tmp_path, env, node, "pressed_edges") == 1
+        assert _property_value(tmp_path, env, node, "released_edges") == 1
+
+        second = _gda_json(tmp_path, env, "input", "tap", "--action", "move_right")
+        assert second.returncode == 0, second.stdout + second.stderr
+        assert _property_value(tmp_path, env, node, "pressed_edges") == 2
+        assert _property_value(tmp_path, env, node, "released_edges") == 2
+    finally:
+        _gda_json(tmp_path, env, "daemon", "stop")
 
 
 @pytest.mark.e2e
