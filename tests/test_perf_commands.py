@@ -945,6 +945,12 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
         {"frames": True},
         # JSON Schema's `integer` admits a zero-fraction float; so must the ABI.
         {"frames": 5.0},
+        # Recheck 3 (#735): the published range must be REAL JSON Schema
+        # keywords (minimum/maximum) — raw ge/le keys are ignored by standard
+        # validators, so these out-of-range values used to pass the schema.
+        {"frames": 0},
+        {"frames": -1},
+        {"frames": 601},
     ]
     output_corpus = [
         snapshot,
@@ -973,5 +979,7 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
     assert not model_ok(PerfMonitorsParams, {"frames": "5"})
     assert not model_ok(PerfMonitorsParams, {"frames": True})
     assert model_ok(PerfMonitorsParams, {"frames": 5.0})
+    assert not schema_ok(doc["input"], {"frames": 0})
+    assert not schema_ok(doc["input"], {"frames": 601})
     assert not schema_ok(doc["output"], {"kind": "snapshot"})
     assert not schema_ok(doc["output"], {**snapshot, "stats": window["stats"]})

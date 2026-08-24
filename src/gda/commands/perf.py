@@ -237,7 +237,16 @@ def _json_integer(value: object) -> object:
     raise ValueError("must be a JSON integer")
 
 
-JsonInteger = Annotated[int, BeforeValidator(_json_integer)]
+# The window's frame count as ONE annotated type: the range markers come
+# BEFORE the validator in the metadata, which is the ordering pydantic can
+# translate into standard JSON Schema `minimum`/`maximum` keywords — with the
+# validator first, the emitted schema carries raw `ge`/`le` keys that standard
+# validators ignore, silently dropping the published range (#735 recheck 3).
+# At runtime the BeforeValidator still runs first, so the range applies to the
+# already-normalized integer.
+FrameWindow = Annotated[
+    int, Field(ge=1, le=MAX_WINDOW_FRAMES), BeforeValidator(_json_integer)
+]
 
 # The statistics a budget rule may gate on — the aggregate set minus ``count``,
 # which counts frames rather than measuring the monitor.
@@ -302,9 +311,7 @@ class PerfMonitorsParams(BaseModel):
 
     model_config = ConfigDict(json_schema_extra=_PERF_MONITORS_MODE_SCHEMA)
 
-    frames: Optional[JsonInteger] = Field(
-        default=None, ge=1, le=MAX_WINDOW_FRAMES, description=_FRAMES_DESC
-    )
+    frames: Optional[FrameWindow] = Field(default=None, description=_FRAMES_DESC)
     monitors: list[PerfMonitorName] = Field(
         default_factory=list,
         description=(
