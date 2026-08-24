@@ -27,7 +27,8 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > session is **launched lazily on the first live op**, not eagerly at `daemon start` —
 > consistent with this ADR's "(re)launched per feedback-loop iteration"; `daemon start`
 > brings up the persistent daemon and the harness install, and the session follows on
-> demand.
+> demand. (Since #224 not every live op needs a session; the 2026-08-21 amendment below
+> restates the trigger precisely.)
 
 > **Outcome (2026-06-22, #220) — live op-errors are minted LIVE-category,
 > classifier-source codes, one family per live op.** When `game get` / `game set`
@@ -86,7 +87,8 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 >
 > **Public surface — `gda daemon start --scene <path|UID>`.** It is a **start-time daemon option**:
 > the daemon holds the value and passes it to the engine as `--scene <path|UID>` (an engine option,
-> before `--path`) when the session is **lazily launched on the first live op** (the #7 note above).
+> before `--path`) when the session is **lazily launched** (the #7 note above, restated precisely by
+> the 2026-08-21 amendment: on the first operation that requires a session).
 > With no `--scene`, behaviour is unchanged (runs `main_scene`). The selector accepts a scene **path
 > or UID** (per Godot's `--scene`). Any `scene play` / `game run` ergonomic wrapper is a **separate
 > follow-up**, not part of this amendment.
@@ -105,6 +107,65 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > gda-owned game, headless by default, same harness and live surface (ADR-0019 / 0020), only with a
 > chosen entry scene. The selector-less default is unchanged. Realized by the run-a-scene slice
 > (#278); the surface-inclusion rationale (why `run` is in scope at all) is recorded in ADR-0025.
+
+> **Amendment (2026-08-21, #657) — when a session is launched, and when it is still serving.**
+> Two clarifications; the lazy-launch decision itself is unchanged.
+>
+> **Launch trigger — say "requires", not "live op".** The #7 note above reads "launched lazily on
+> the first live op", true when every live op needed a session. It no longer is: `gda diag errors`
+> and `gda logger tail` are live operations the daemon serves from the Session log it owns, and they
+> deliberately launch nothing (ADR-0022). The precise rule, and the wording every public surface
+> uses, is that a session launches on **the first operation that REQUIRES an Engine session**.
+> `gda daemon wait-ready` is the explicit way to BE that operation, with one daemon-side
+> wait/commit budget — the documented
+> alternative to firing a throwaway read — so an agent can establish the session up front and have
+> its first real read serve, including a first `diag errors`. It is one command in the `daemon`
+> group carried on the live channel (`kind = LIVE`, the `diag errors` precedent); the group-module
+> consequence is recorded on ADR-0040.
+>
+> **Serving state — the process AND the channel.** A session is serving only while its harness
+> channel can still answer the operation that asked. The daemon therefore marks the channel stale
+> on a dropped or closed connection AND on a relay that timed out: this ADR's one-op-at-a-time RPC
+> carries no request id and a timed-out frame is not drained, so a late reply would be read as the
+> NEXT operation's reply — a validly-framed, semantically wrong answer (reproduced in #725's
+> re-review). A stale session is rebuilt through the same lazy-launch boundary, so `live_timeout`
+> costs a relaunch and, per ADR-0020, the runtime state does not survive it. Correlating replies
+> instead would change the cross-language harness protocol and is left to its own decision.
+>
+> **One deadline, owned by the launch boundary.** Everything that boundary does on a caller's
+> clock draws from a single deadline: retiring the session being replaced, the spawn, the
+> connect, each handshake frame, and the teardown of a failed launch. It travels as an
+> **absolute instant**, never as a duration — a duration restarts whatever clock receives it,
+> which is how an exhausted budget came back whole for a replacement launch.
+>
+> What the instant is, precisely: a **budget for waiting and for committing to new work**, not a
+> hard wall clock. A hard wall-clock limit would require cancellation around synchronous calls;
+> this design does not add that mechanism, so the guarantee is stated as three rules instead.
+> No phase gets a fresh grace. Every timed
+> wait uses what remains, computed where the wait begins rather than where it was decided. And
+> once the instant has passed, the boundary **commits to nothing further** — it does not launch,
+> and a launch already committed is torn down. A slow liveness check, a slow filesystem write, a
+> slow spawn: each can delay *when* expiry is observed, and none of them earns a new budget.
+>
+> Four consequences are not obvious. A socket timeout bounds *inactivity*, so a frame read in
+> chunks must recompute the remaining budget per read or a trickling peer holds the reader
+> indefinitely — the daemon serves one request at a time, so that is every later request too.
+> Retirement is not free: an engine that ignores `SIGTERM` is escalated with what the deadline
+> has left, not with a fresh grace. Collecting a killed child is a duty but not the caller's
+> time, so it happens in the background — best-effort, since SIGKILL cannot be caught and a rare
+> miss leaves one process-table entry that the OS clears when the daemon exits and the child is
+> reparented. And retirement is of the engine's **process group**, not of the engine process:
+> gda owns the group (`start_new_session=True`), so the leader's fate does not decide the
+> group's. The captured group id remains a numeric POSIX identifier, not a durable handle. Once
+> every original group member exits, the kernel may reuse that number before teardown observes
+> the empty group; a signal in that narrow window could then reach a new group. This design
+> accepts that residual race instead of adding platform-specific process supervision.
+>
+> The same rule applies to the op relay's own `live_timeout` ceiling, which had the same
+> inactivity shape. Accepted deliberately, and beyond what the `wait-ready` slice needed: a
+> trickled reply now reaches that ceiling where before it completed, and since a timed-out relay
+> marks the channel stale, the consequence is a relaunch and the loss of runtime state. The
+> alternative was to keep publishing a bound that was not one.
 
 ## Decision
 

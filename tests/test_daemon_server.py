@@ -7,11 +7,14 @@ engine), so the no-session and control-op paths stay covered in the fast suite.
 import os
 import socket
 import subprocess
+import threading
+import time
 from typing import cast
 
 import pytest
 
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.protocol import read_message, write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession
 from gda.display import WindowedUnavailable
@@ -21,7 +24,7 @@ from gda.commands.daemon import (
     run_daemon_stop_operation,
 )
 from gda.errors import Failure
-from gda.parser import parse_result
+from gda.parser import build_result, parse_result
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -414,6 +417,69 @@ def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
     finally:
         daemon_end.close()
         silent_harness.close()
+
+
+def test_a_trickled_reply_cannot_outlast_the_relays_own_bound(monkeypatch):
+    # The relay reads the reply in as many chunks as the harness sends, and a
+    # socket timeout restarts on each one — so OP_TIMEOUT bounded INACTIVITY, not
+    # the relay, and `did not return within Ns` was not true of a trickle. Same
+    # absolute-deadline rule the handshake frames now use (#725 re-review). The
+    # harness is trusted (ADR-0009), so this is honesty about the published
+    # bound rather than a defence.
+    monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.3)
+    daemon_end, harness = socket.socketpair()
+    session = EngineSession(cast(subprocess.Popen, _FakeProc()), daemon_end)
+
+    def _trickle() -> None:
+        # A WELL-FORMED reply, so a relay that waits it out succeeds — the point
+        # is that it must not, however valid the eventual answer.
+        body = build_result({"nodes": []}).encode("utf-8")
+        wire = len(body).to_bytes(4, "big") + body
+        for byte in wire:  # every byte lands inside the bound, resetting it
+            try:
+                harness.sendall(bytes([byte]))
+            except OSError:
+                return
+            time.sleep(0.2)
+
+    trickler = threading.Thread(target=_trickle, daemon=True)
+    trickler.start()
+    started = time.monotonic()
+    try:
+        reply = session.request("game-tree", {})
+        elapsed = time.monotonic() - started
+    finally:
+        daemon_end.close()
+        harness.close()
+        trickler.join(timeout=5)
+
+    outcome = parse_result(reply["stdout"])
+    assert outcome.get("error", {}).get("code") == "live_timeout", outcome
+    assert elapsed < 1.5, f"the trickled reply held the relay for {elapsed:.1f}s"
+
+
+def test_a_timed_out_relay_leaves_the_session_dead_to_the_daemon(monkeypatch):
+    # #725 re-review finding 1: this protocol carries no request id and a
+    # timed-out frame is never drained, so a LATE reply is indistinguishable
+    # from the next op's reply. Reproduced before the fix: op A times out, the
+    # harness answers late, op B returns A's payload as its own. A channel that
+    # can answer with another operation's result is not serving — the timeout
+    # must latch it stale (with the engine PROCESS still alive throughout) so
+    # the next session-needing op rebuilds it through the launch boundary.
+    monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
+    daemon_end, harness = socket.socketpair()
+    proc = _FakeProc()
+    session = EngineSession(cast(subprocess.Popen, proc), daemon_end)
+    try:
+        first = session.request("game-tree", {})
+        assert parse_result(first["stdout"])["error"]["code"] == "live_timeout"
+        assert read_message(harness) == {"op": "game-tree", "params": {}}
+        write_frame(harness, build_result({"answer": "late"}).encode("utf-8"))
+        assert proc.poll() is None  # the engine itself never died
+        assert session.alive() is False
+    finally:
+        daemon_end.close()
+        harness.close()
 
 
 def test_daemon_status_on_non_unix_is_live_unsupported_platform(monkeypatch, tmp_path):

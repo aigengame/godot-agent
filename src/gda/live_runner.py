@@ -16,6 +16,7 @@ becomes ``engine_disconnected``. Both ride the normal classify pipeline via
 
 import os
 import socket
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -26,7 +27,10 @@ from gda.runner import GodotRunner, RunResult
 
 # Bounds a live call so it never hangs the CLI forever; generous because the
 # daemon may launch the engine session on the first op (ADR-0017). A timeout is
-# surfaced as the registered ``live_timeout`` (ADR-0021).
+# surfaced as the registered ``live_timeout`` (ADR-0021). Applied as an ABSOLUTE
+# instant over the whole round trip, not as a per-recv socket timeout: the reply
+# arrives in as many chunks as the daemon sends, and a socket timeout restarts on
+# each of them (#725 re-review).
 LIVE_REQUEST_TIMEOUT = 60.0
 
 
@@ -74,10 +78,15 @@ class DaemonRunner:
     def _request(self, cli_socket: Path, operation: str, params: dict) -> RunResult:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                # An absolute instant, so the ceiling covers the WHOLE round
+                # trip (#725 re-review). A socket timeout bounds each recv, and
+                # the reply arrives in as many as the daemon sends — so 60s of
+                # socket timeout was 60s of inactivity, not 60s of waiting.
+                deadline = time.monotonic() + LIVE_REQUEST_TIMEOUT
                 sock.settimeout(LIVE_REQUEST_TIMEOUT)
                 sock.connect(str(cli_socket))
-                write_message(sock, {"op": operation, "params": params})
-                reply = read_message(sock)
+                write_message(sock, {"op": operation, "params": params}, deadline)
+                reply = read_message(sock, deadline)
         except TimeoutError:
             return _live_error_result(
                 "live_timeout",

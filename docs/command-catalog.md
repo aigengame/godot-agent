@@ -839,8 +839,27 @@ headless is unaffected (4.4+, cross-platform).
   as a verbatim `info` record (the superseded `diag log` view, still `LogRecord[]`). Daemon-served
   and crash-survivable like `diag` (ADR-0022). The opt-in rich `gda_log()` protocol layers on in a
   follow-up slice (#282).
-- **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status`, and `gda daemon
-  install` / `uninstall` for the `gda harness` (ADR-0018). `daemon start --windowed` additionally
+- **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status` /
+  `wait-ready`, and `gda daemon install` / `uninstall` for the `gda harness` (ADR-0018).
+  `daemon wait-ready` (`kind = LIVE`, #657) establishes the lazily-launched engine session
+  deterministically: a session launches on the first operation that REQUIRES one (ADR-0017),
+  and the read-only diag/logger reads never do (ADR-0022), so a first `diag errors` right
+  after start reports `engine_session_not_running` by design — `wait-ready` is the
+  documented way to trigger that launch explicitly, with one daemon-side wait/commit budget.
+  `--timeout` is ONE deadline over the whole
+  daemon-side readiness attempt — retiring the session being replaced, the
+  spawn, the harness connect, the token and scene-verification frames (each read against the
+  deadline, not a per-chunk inactivity timeout), and the teardown of a failed launch (a finite
+  number in (0, 50], under the live channel's 60s client-side round-trip bound). It is a budget
+  for waiting and for committing to new work rather than a hard wall clock — no phase gets a
+  fresh grace, every timed wait uses what remains, and once it is spent nothing further is
+  launched — but a synchronous step already in flight (a filesystem write, the spawn itself)
+  can delay when that expiry is observed. Success (`{pid, launched}`) means subsequent
+  live reads serve, and a repeat while the session is alive is idempotent (`launched:
+  false`, nothing relaunched). A session stops serving when its harness channel breaks OR
+  when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
+  late reply can no longer be attributed — and the next operation that requires a session
+  relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon start --windowed` additionally
   requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
   `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two

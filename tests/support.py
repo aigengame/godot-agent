@@ -117,6 +117,22 @@ def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
     return fake
 
 
+def no_engine_teardown(monkeypatch) -> None:
+    """No-op the engine teardown for a test whose session process is a stand-in (#725).
+
+    ``_terminate`` signals a REAL child and reaps it; a fake process has no ``pid``
+    to signal, so a test that fakes one must neutralize it. Named and shared rather
+    than open-coded per test because this mock HIDES a real interaction — teardown
+    is charged to the caller's readiness deadline (#725 re-review), and a suite that
+    only ever mocks it cannot see that. A test that exercises teardown itself takes
+    a real child and must NOT call this.
+    """
+    monkeypatch.setattr(
+        "gda.daemon.session._terminate",
+        lambda proc, deadline=None, owned_pgid=None: None,
+    )
+
+
 def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's LIVE (daemon) runner seam for a ``FakeRunner`` (#7).
 

@@ -119,6 +119,59 @@ def test_daemon_serves_a_real_runtime_tree(tmp_path, daemon_runtime_dir):
 
 
 @pytest.mark.e2e
+def test_wait_ready_makes_a_first_diag_errors_serve(tmp_path, daemon_runtime_dir):
+    # #657's acceptance path, end to end: start a daemon, reach a SERVED
+    # `diag errors` through the documented bounded wait as the FIRST live read —
+    # no warm-up live op, no sleep loop. Without the wait, the first
+    # `diag errors` reports engine_session_not_running by design (it must never
+    # be the thing that launches the project's code, ADR-0022).
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    env = {**os.environ}
+
+    def run(*args):
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=90,
+        )
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        ready = run("daemon", "wait-ready")
+        assert ready.returncode == 0, ready.stdout + ready.stderr
+        verdict = json.loads(ready.stdout)
+        assert verdict["launched"] is True
+
+        # The very next read serves — the session the wait established is the
+        # one the daemon holds, so the read launches nothing.
+        errors = run("diag", "errors")
+        assert errors.returncode == 0, errors.stdout + errors.stderr
+        assert "errors" in json.loads(errors.stdout)
+
+        # Idempotent while the session is alive: nothing is relaunched.
+        again = run("daemon", "wait-ready")
+        assert again.returncode == 0, again.stdout + again.stderr
+        assert json.loads(again.stdout)["launched"] is False
+
+        assert json.loads(run("daemon", "stop").stdout)["stopped"] is True
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
 def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
     # The #220 DoD: a real daemon → engine session → `game set` mutates a runtime
     # property, applied at a frame boundary, and `game get` observes the change —
