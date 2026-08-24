@@ -687,19 +687,19 @@ def test_application_refuses_an_unauthenticated_experiment_run_artifact_set_rece
     )
 
 
-def test_application_preserves_the_success_member_admission_diagnostic(
-    tmp_path: Path,
+def _assert_corrupted_run_member_preserves_admission_diagnostic(
+    inp: EvidenceVerifyInput,
+    logical_name: str,
 ) -> None:
-    inp = _prepare_outcome_input(tmp_path, 554)
     receipt = json.loads(
         Path(inp.experiment_run_artifact_set_receipt).read_text(encoding="utf-8")
     )
-    evaluation_run = next(
+    member_path = next(
         item["locator"]
         for item in receipt["member_locators"]
-        if item["logical_name"] == "evaluation-run"
+        if item["logical_name"] == logical_name
     )
-    Path(evaluation_run).write_text("{}", encoding="utf-8")
+    Path(member_path).write_text("{}", encoding="utf-8")
 
     result = _verify(inp)
 
@@ -707,7 +707,17 @@ def test_application_preserves_the_success_member_admission_diagnostic(
     assert result.stage == "ingress"
     assert result.diagnostics[0].code == "kernel.binding_mismatch"
     assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
-    assert result.diagnostics[0].primary.pointer == "/evaluation-run"
+    assert result.diagnostics[0].primary.pointer == f"/{logical_name}"
+
+
+def test_application_preserves_the_success_member_admission_diagnostic(
+    tmp_path: Path,
+) -> None:
+    inp = _prepare_outcome_input(tmp_path, 554)
+    _assert_corrupted_run_member_preserves_admission_diagnostic(
+        inp,
+        "evaluation-run",
+    )
 
 
 def test_application_refuses_an_outcome_bound_to_another_experiment(
@@ -748,23 +758,10 @@ def test_application_preserves_the_verdict_member_admission_diagnostic(
     tmp_path: Path,
 ) -> None:
     inp = _prepare_outcome_input(tmp_path, 555, verdict=True)
-    receipt = json.loads(
-        Path(inp.experiment_run_artifact_set_receipt).read_text(encoding="utf-8")
+    _assert_corrupted_run_member_preserves_admission_diagnostic(
+        inp,
+        "experiment-verdict",
     )
-    experiment_verdict = next(
-        item["locator"]
-        for item in receipt["member_locators"]
-        if item["logical_name"] == "experiment-verdict"
-    )
-    Path(experiment_verdict).write_text("{}", encoding="utf-8")
-
-    result = _verify(inp)
-
-    assert isinstance(result, Schema2RefusalReport)
-    assert result.stage == "ingress"
-    assert result.diagnostics[0].code == "kernel.binding_mismatch"
-    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
-    assert result.diagnostics[0].primary.pointer == "/experiment-verdict"
 
 
 def _prepare_runtime_refusal_input(tmp_path: Path, token: int) -> EvidenceVerifyInput:
@@ -812,23 +809,10 @@ def test_application_preserves_the_runtime_refusal_member_admission_diagnostic(
     tmp_path: Path,
 ) -> None:
     inp = _prepare_runtime_refusal_input(tmp_path, 556)
-    receipt = json.loads(
-        Path(inp.experiment_run_artifact_set_receipt).read_text(encoding="utf-8")
+    _assert_corrupted_run_member_preserves_admission_diagnostic(
+        inp,
+        "runtime-terminal-audit",
     )
-    terminal_audit = next(
-        item["locator"]
-        for item in receipt["member_locators"]
-        if item["logical_name"] == "runtime-terminal-audit"
-    )
-    Path(terminal_audit).write_text("{}", encoding="utf-8")
-
-    result = _verify(inp)
-
-    assert isinstance(result, Schema2RefusalReport)
-    assert result.stage == "ingress"
-    assert result.diagnostics[0].code == "kernel.binding_mismatch"
-    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
-    assert result.diagnostics[0].primary.pointer == "/runtime-terminal-audit"
 
 
 def test_application_refuses_an_authenticated_incomplete_terminal_audit(

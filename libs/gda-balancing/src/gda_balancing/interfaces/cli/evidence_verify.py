@@ -163,7 +163,9 @@ def _prepare_evidence_args(root: Path, token: int, refusing: bool) -> tuple[str,
     )
     if not isinstance(outcome, ExperimentRunResult):
         raise RuntimeError("Evidence fixture prerequisite run did not succeed")
-    run_receipt_path = root / f"evidence-outcome-{token}-receipt.json"
+    run_receipt_path = (
+        root / f"evidence-experiment-run-{token}-artifact-set-receipt.json"
+    )
     run_receipt_path.write_bytes(
         canonical_bytes(cast(JsonValue, outcome.model_dump(mode="json")))
     )
