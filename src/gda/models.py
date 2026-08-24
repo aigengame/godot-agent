@@ -535,8 +535,9 @@ NormalizedPath = Annotated[str, AfterValidator(normalize_path)]
 # (ADR-0035): the shared field description for the dynamically-shaped `value`
 # fields. The field itself stays `Any` — a value's shape is not statically
 # knowable, a deliberate, bounded exception to ADR-0004's model-driven-output
-# rule — so the stable parts are surfaced here and by the two named projection
-# models (ReferenceProjection / InlineValueProjection) below.
+# rule — so the stable parts are surfaced here and by the three named
+# projection models (ReferenceProjection / TextureProjection /
+# InlineValueProjection) below.
 VALUE_PROJECTION_DESC = (
     "Rendered through the one recursive read-side value projection "
     "(ADR-0035): a scalar for a scalar type; a flat number list for a "
