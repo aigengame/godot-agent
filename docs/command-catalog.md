@@ -715,7 +715,8 @@ automatically: the engine skips failed imports and parse errors, while gda conse
 skips unsupported receipt syntax —
 delete the sidecar to retry; that heals a malformed receipt too, because the pass
 rewrites both. That receipt subset accepts quoted-string assignments, whitespace,
-`;` comments, JSON-style escaped strings, and repeated assignments; as in the engine,
+`;` comments, JSON-style escaped strings (lone UTF-16 surrogates excluded — the
+engine's parser rejects them), and repeated assignments; as in the engine,
 the final value wins. Broader Variant values take the conservative no-pass direction.
 Artifact-level is the boundary, not a proof of the engine's
 whole verdict: the checks the engine makes from its OWN state — whether the declared

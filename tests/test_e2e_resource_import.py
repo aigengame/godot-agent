@@ -427,3 +427,40 @@ def test_duplicate_receipt_assignments_match_the_engines_last_value(tmp_path):
         _gda(project, "resource", "import", "res://fresh.png", "--dry-run").stdout
     )
     assert "res://icon.png" not in gap["pass_will_also_import"]
+
+
+@pytest.mark.e2e
+def test_lone_surrogate_receipt_matches_the_engines_deliberate_skip(tmp_path):
+    # #738 review follow-up: a lone UTF-16 surrogate escape is a VariantParser
+    # ERROR ("unpaired lead surrogate") — the engine's deliberate skip, native
+    # artifacts untouched — while json.loads would happily decode it. gda must
+    # sit on the engine's side: invalid, no pass.
+    project = _project(tmp_path)
+    first = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
+    assert first["assets"][0]["status"] == "imported"
+
+    sidecar = project / "icon.png.import"
+    receipt = _receipt(project, "icon.png")
+    dest = Path(str(receipt)[: -len(".md5")] + ".ctex")
+    receipt.write_text('source_md5="\\ud800"\n', encoding="utf-8")
+    stat = sidecar.stat()
+    os.utime(sidecar, (stat.st_atime + 10, stat.st_mtime + 10))
+    sidecar_bytes = sidecar.read_bytes()
+    dest_bytes = dest.read_bytes()
+
+    native = _native_import(project)
+    assert native.returncode == 0, native.stderr
+    assert sidecar.read_bytes() == sidecar_bytes
+    assert receipt.read_text(encoding="utf-8") == 'source_md5="\\ud800"\n'
+    assert dest.read_bytes() == dest_bytes
+
+    dry = json.loads(
+        _gda(project, "resource", "import", "res://icon.png", "--dry-run").stdout
+    )
+    assert dry["assets"][0]["status"] == "invalid"
+    assert dry["engine_pass"] is False
+
+    real = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
+    assert real["assets"][0]["status"] == "failed"
+    assert real["engine_pass"] is False
+    assert real["created"] == []

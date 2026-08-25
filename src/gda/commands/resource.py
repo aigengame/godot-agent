@@ -518,8 +518,9 @@ class ResourceImportAsset(BaseModel):
     deliberately SKIPS parse errors and gda conservatively skips unsupported
     receipt syntax — delete the sidecar to retry, which heals a malformed
     receipt too, because the pass rewrites both). The receipt subset accepts
-    quoted-string assignments, whitespace, ``;`` comments, JSON-style escapes,
-    and repeated assignments; as in the engine, the final value wins. Broader
+    quoted-string assignments, whitespace, ``;`` comments, JSON-style escapes
+    (lone UTF-16 surrogates excluded — VariantParser rejects them), and
+    repeated assignments; as in the engine, the final value wins. Broader
     Variant values take the conservative no-pass direction. A real run settles
     each non-cached state: ``imported``, ``not_importable`` (the pass decided the
     type needs no import — e.g. a script), or ``failed`` (still not cached
@@ -737,7 +738,9 @@ def _parse_receipt_assignments(text: str) -> "dict[str, str] | None":
     Godot writes quoted-string assignments. Its parser also permits spacing,
     ``;`` comments, JSON-style escapes, and repeated keys; assignments are
     applied in order, so the last value wins. A broader Variant value returns
-    ``None`` so the caller takes the contract's conservative no-pass direction.
+    ``None`` so the caller takes the contract's conservative no-pass direction
+    — as does a lone UTF-16 surrogate escape, which json accepts but
+    VariantParser rejects (the engine's parse-error skip).
     """
     assignments: dict[str, str] = {}
     for line in text.splitlines():
@@ -748,9 +751,17 @@ def _parse_receipt_assignments(text: str) -> "dict[str, str] | None":
         if assignment is None:
             return None
         try:
-            assignments[assignment.group(1)] = json.loads(assignment.group(2))
+            value = json.loads(assignment.group(2))
         except (TypeError, ValueError):
             return None
+        if any("\ud800" <= ch <= "\udfff" for ch in value):
+            # json.loads accepts a LONE UTF-16 surrogate escape; VariantParser
+            # rejects it ("unpaired lead/trail surrogate", TK_ERROR) — the
+            # engine's deliberate skip. Paired surrogates decode to a real
+            # code point on both sides, so any surrogate left in the decoded
+            # value is lone by construction. Stay on the no-pass side.
+            return None
+        assignments[assignment.group(1)] = value
     return assignments
 
 
@@ -831,7 +842,8 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     so is an unparseable ``.md5`` receipt — the engine's receipt parse-error
     branch is the same deliberate skip, never a re-import (#738 re-review 5);
     gda's receipt grammar covers the quoted-string assignments the engine
-    writes plus VariantParser spacing, ``;`` comments, JSON-style escapes, and
+    writes plus VariantParser spacing, ``;`` comments, JSON-style escapes
+    (lone UTF-16 surrogates excluded, as VariantParser rejects them), and
     repeated assignments (the last value wins). Broader Variant value syntax errs
     toward ``invalid``, the no-pass direction the contract sanctions; a
     ``keep``/``skip`` importer is ``cached``; the pre-UID format, a missing

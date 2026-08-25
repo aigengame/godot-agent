@@ -405,6 +405,45 @@ def test_receipt_accepts_spacing_comments_and_escaped_string_values(tmp_path):
     assert data["engine_pass"] is False
 
 
+def test_receipt_lone_surrogate_escape_is_invalid_not_stale(tmp_path):
+    # #738 review follow-up: json.loads accepts a LONE UTF-16 surrogate
+    # escape, but VariantParser rejects it ("unpaired lead surrogate") — the
+    # engine's deliberate parse-error skip. Classifying it stale would spend
+    # a pass the engine would not run.
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    _receipt_path(project, "icon.png").write_text(
+        'source_md5="\\ud800"\n', encoding="utf-8"
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "invalid"
+    assert data["engine_pass"] is False
+
+
+def test_receipt_paired_surrogate_escape_still_parses(tmp_path):
+    # The boundary pin: a PAIRED surrogate escape decodes to one real code
+    # point on both sides (json.loads and VariantParser agree), so it stays
+    # inside the subset — with a matching source_md5 the asset is cached.
+    import hashlib
+
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    source_digest = hashlib.md5((project / "icon.png").read_bytes()).hexdigest()
+    _receipt_path(project, "icon.png").write_text(
+        'note="\\ud83d\\ude00"\n' + f'source_md5="{source_digest}"\n',
+        encoding="utf-8",
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "cached"
+    assert data["engine_pass"] is False
+
+
 def test_malformed_receipt_is_invalid_and_spends_no_pass(monkeypatch, tmp_path):
     # #738 re-review 5 [P1]: the engine parses the receipt with VariantParser
     # and treats a parse error as the same deliberate skip as valid=false —
