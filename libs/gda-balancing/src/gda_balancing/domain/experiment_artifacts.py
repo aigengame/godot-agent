@@ -1,9 +1,14 @@
-"""Evidence construction, replay, terminal audit, and set validation."""
+"""Experiment artifact construction, semantic replay, and validation."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any, cast
+from gda_balancing.domain.artifact_set import (
+    EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+    EXPERIMENT_SUCCESS_ARTIFACT_SET,
+    EXPERIMENT_VERDICT_ARTIFACT_SET,
+)
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -20,7 +25,7 @@ from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
 )
-from gda_balancing.domain.evidence_replay import (
+from gda_balancing.domain.experiment_artifact_replay import (
     ReplayInitializationProgramFault as _InitializationProgramFault,
     attempted_operation_charge as _attempted_operation_charge,
     evaluate_initialization_programs as _evaluate_initialization_programs,
@@ -56,6 +61,15 @@ from gda_balancing.domain.runtime.projections import (
 )
 
 _INVALID_FORMULA_EVIDENCE = object()
+_EXPERIMENT_RUNTIME_REFUSAL_NAMES = frozenset(
+    member.logical_name for member in EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET
+)
+_EXPERIMENT_SUCCESS_NAMES = frozenset(
+    member.logical_name for member in EXPERIMENT_SUCCESS_ARTIFACT_SET
+)
+_EXPERIMENT_VERDICT_NAMES = frozenset(
+    member.logical_name for member in EXPERIMENT_VERDICT_ARTIFACT_SET
+)
 
 
 def _evaluate_formula_evidence_result(
@@ -1857,19 +1871,14 @@ def validate_experiment_artifact_set(
         evaluator = _evaluator_manifest(checked)
         resolved_runtime = _resolved_runtime_profile(checked, evaluator)
         reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
-        common = {
-            "reproduction-receipt",
-            "resolved-runtime-profile",
-            "evaluator-capability-manifest",
-        }
-        primary_names = set(artifacts) - common
+        artifact_names = set(artifacts)
         if (
             artifacts.get("evaluator-capability-manifest") != evaluator.value
             or artifacts.get("resolved-runtime-profile") != resolved_runtime.value
             or artifacts.get("reproduction-receipt") != reproduction.value
         ):
             return False
-        if primary_names == {"runtime-terminal-audit"}:
+        if artifact_names == _EXPERIMENT_RUNTIME_REFUSAL_NAMES:
             audit = artifacts["runtime-terminal-audit"]
             return (
                 audit.get("experiment_identity") == checked.content_identity
@@ -1885,19 +1894,9 @@ def validate_experiment_artifact_set(
                     reproduction_identity=reproduction.content_identity,
                 )
             )
-        if primary_names not in (
-            {
-                "evaluation-run",
-                "event-trace",
-                "snapshot-series",
-                "metric-dataset",
-            },
-            {
-                "experiment-verdict",
-                "event-trace",
-                "snapshot-series",
-                "metric-dataset",
-            },
+        if artifact_names not in (
+            _EXPERIMENT_SUCCESS_NAMES,
+            _EXPERIMENT_VERDICT_NAMES,
         ):
             return False
         primary_name = (

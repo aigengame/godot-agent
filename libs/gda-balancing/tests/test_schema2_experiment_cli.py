@@ -16,8 +16,8 @@ import gda_balancing.application.experiment_execution as experiment_execution_ap
 import gda_balancing.application.experiment_run as experiment_run_application_module
 import gda_balancing.domain.experiment as experiment_admission_module
 import gda_balancing.domain.artifacts as artifacts_module
-import gda_balancing.domain.evidence as experiment_evidence_module
-import gda_balancing.domain.evidence_replay as evidence_replay_module
+import gda_balancing.domain.experiment_artifacts as experiment_artifacts_module
+import gda_balancing.domain.experiment_artifact_replay as experiment_artifact_replay_module
 import gda_balancing.domain.operation_program as operation_program_module
 import gda_balancing.domain.runtime.projections as runtime_projection_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
@@ -2230,7 +2230,7 @@ def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
     outcome = experiment_runtime_module.evaluate_experiment(checked)
 
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_evidence_module.runtime_terminal_audit_members(
+    members = experiment_artifacts_module.runtime_terminal_audit_members(
         checked, outcome
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
@@ -2240,7 +2240,7 @@ def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
     )
     assert audit["refusing_event"]["instruction_index"] == 5
     assert audit["budget_counters"]["event_steps"] == 6
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
 
 def test_structured_terminal_audit_preserves_a_committed_event_prefix(
@@ -2814,10 +2814,10 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         for row in snapshot_series["event_catalog"]
     )
     assert all(
-        experiment_evidence_module._event_catalog_record_is_valid(checked, row)
+        experiment_artifacts_module._event_catalog_record_is_valid(checked, row)
         for row in snapshot_series["event_catalog"]
     )
-    assert experiment_evidence_module._event_catalog_records_are_authoritative(
+    assert experiment_artifacts_module._event_catalog_records_are_authoritative(
         checked,
         snapshot_series["event_catalog"],
         events,
@@ -2828,7 +2828,7 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         event_spec_domain,
         coordinated_root_drift[0]["event_spec"],
     )
-    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
+    assert not experiment_artifacts_module._event_catalog_records_are_authoritative(
         checked,
         coordinated_root_drift,
         events,
@@ -2844,14 +2844,14 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         event_spec_domain,
         scheduled_record["event_spec"],
     )
-    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
+    assert not experiment_artifacts_module._event_catalog_records_are_authoritative(
         checked,
         coordinated_schedule_drift,
         events,
     )
     drifted_catalog_record = deepcopy(snapshot_series["event_catalog"][0])
     drifted_catalog_record["event_spec"]["zero_time_depth"] += 1
-    assert not experiment_evidence_module._event_catalog_record_is_valid(
+    assert not experiment_artifacts_module._event_catalog_record_is_valid(
         checked,
         drifted_catalog_record,
     )
@@ -3057,7 +3057,7 @@ def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
     values = {
         name: deepcopy(member.value) for name, member in evaluation.members.items()
     }
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
     snapshot_payload = {
         key: value
@@ -3092,10 +3092,10 @@ def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
     ).value
 
     assert all(
-        experiment_evidence_module.validate_experiment_member(checked, name, value)
+        experiment_artifacts_module.validate_experiment_member(checked, name, value)
         for name, value in values.items()
     )
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked, values
     )
 
@@ -3116,11 +3116,11 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_evidence_module.runtime_terminal_audit_members(
+    members = experiment_artifacts_module.runtime_terminal_audit_members(
         checked, outcome
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
     def drift_refusing_index(audit):
         audit["refusing_event"]["index"] += 1
@@ -3163,12 +3163,12 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
         )
         drifted_values["runtime-terminal-audit"] = drifted.value
 
-        assert experiment_evidence_module.validate_experiment_member(
+        assert experiment_artifacts_module.validate_experiment_member(
             checked,
             "runtime-terminal-audit",
             drifted.value,
         )
-        assert not experiment_evidence_module.validate_experiment_artifact_set(
+        assert not experiment_artifacts_module.validate_experiment_artifact_set(
             checked,
             drifted_values,
         )
@@ -3195,7 +3195,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     assert outcome.committed_trace_prefix == ()
-    members = experiment_evidence_module.runtime_terminal_audit_members(
+    members = experiment_artifacts_module.runtime_terminal_audit_members(
         checked, outcome
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
@@ -3209,7 +3209,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
         audit["refusing_event"]["event_spec"]["event_id"]
         == audit["refusing_event"]["event_id"]
     )
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
     def reidentify(drifted_audit):
         payload = {
@@ -3240,7 +3240,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     )
     drifted_values = deepcopy(values)
     drifted_values["runtime-terminal-audit"] = reidentify(coordinated_snapshot)
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -3251,7 +3251,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     coordinated_event["refusing_event"]["event_spec"]["event_id"] = replacement_event_id
     drifted_values = deepcopy(values)
     drifted_values["runtime-terminal-audit"] = reidentify(coordinated_event)
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -3284,7 +3284,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     )
     drifted_values = deepcopy(values)
     drifted_values["runtime-terminal-audit"] = reidentify(coordinated_budget)
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -3306,13 +3306,13 @@ def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drif
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_evidence_module.runtime_terminal_audit_members(
+    members = experiment_artifacts_module.runtime_terminal_audit_members(
         checked, outcome
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["event_spec"]["kind"] == "observation"
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
     drifted_audit = deepcopy(audit)
     refusing = drifted_audit["refusing_event"]
@@ -3347,12 +3347,12 @@ def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drif
         payload,
     ).value
 
-    assert experiment_evidence_module.validate_experiment_member(
+    assert experiment_artifacts_module.validate_experiment_member(
         checked,
         "runtime-terminal-audit",
         drifted_values["runtime-terminal-audit"],
     )
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -3374,14 +3374,14 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_evidence_module.runtime_terminal_audit_members(
+    members = experiment_artifacts_module.runtime_terminal_audit_members(
         checked, outcome
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
     assert audit["budget_counters"]["event_steps"] > 0
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
     replay_rir = deepcopy(checked.rir)
     entrypoint = next(
@@ -3411,7 +3411,7 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
         if row["id"] == checked.value["runtime"]["profile"]
     )
     assert (
-        evidence_replay_module.attempted_operation_charge(
+        experiment_artifact_replay_module.attempted_operation_charge(
             replace(checked, rir=replay_rir),
             audit["refusing_event"],
             audit["refusing_event"]["event_spec"],
@@ -3445,12 +3445,12 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
         payload,
     ).value
 
-    assert experiment_evidence_module.validate_experiment_member(
+    assert experiment_artifacts_module.validate_experiment_member(
         checked,
         "runtime-terminal-audit",
         drifted_values["runtime-terminal-audit"],
     )
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -3472,14 +3472,14 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_evidence_module.runtime_terminal_audit_members(
+    members = experiment_artifacts_module.runtime_terminal_audit_members(
         checked, outcome
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
     assert audit["budget_counters"]["event_steps"] > 1
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] -= 1
@@ -3502,12 +3502,12 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
         payload,
     ).value
 
-    assert experiment_evidence_module.validate_experiment_member(
+    assert experiment_artifacts_module.validate_experiment_member(
         checked,
         "runtime-terminal-audit",
         drifted_values["runtime-terminal-audit"],
     )
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -3541,12 +3541,12 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
         payload,
     ).value
 
-    assert experiment_evidence_module.validate_experiment_member(
+    assert experiment_artifacts_module.validate_experiment_member(
         checked,
         "runtime-terminal-audit",
         drifted_values["runtime-terminal-audit"],
     )
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -3587,7 +3587,7 @@ def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(tmp_path, ru
             scheduled_record["event_spec"],
         )
 
-    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
+    assert not experiment_artifacts_module._event_catalog_records_are_authoritative(
         checked,
         catalog,
         events,
@@ -3659,7 +3659,7 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     values = {
         name: deepcopy(member.value) for name, member in artifacts.members.items()
     }
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
     trace_events = values["event-trace"]["events"]
     catalog = values["snapshot-series"]["event_catalog"]
     scheduled_record = next(
@@ -3688,7 +3688,7 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
         scheduled_record["event_spec"],
     )
 
-    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
+    assert not experiment_artifacts_module._event_catalog_records_are_authoritative(
         checked,
         catalog,
         trace_events,
@@ -3746,7 +3746,7 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
     values = {
         name: deepcopy(member.value) for name, member in artifacts.members.items()
     }
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
     events = values["event-trace"]["events"]
     catalog = values["snapshot-series"]["event_catalog"]
     parent_event = next(event for event in events if event["rng_draws"])
@@ -3777,7 +3777,7 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
         scheduled_record["event_spec"],
     )
 
-    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
+    assert not experiment_artifacts_module._event_catalog_records_are_authoritative(
         checked,
         catalog,
         events,
@@ -9277,7 +9277,7 @@ def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
     values = {
         name: deepcopy(member.value) for name, member in evaluation.members.items()
     }
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
     trace = values["event-trace"]
     snapshots = values["snapshot-series"]
@@ -9380,10 +9380,10 @@ def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
         for value in values.values()
     )
     if mutation == "result":
-        assert not experiment_evidence_module.validate_experiment_member(
+        assert not experiment_artifacts_module.validate_experiment_member(
             checked, "event-trace", values["event-trace"]
         )
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked, values
     )
 
@@ -9406,11 +9406,11 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     assert outcome.report.diagnostics[0].code == "runtime.event_limit_exceeded"
-    members = experiment_evidence_module.runtime_terminal_audit_members(
+    members = experiment_artifacts_module.runtime_terminal_audit_members(
         checked, outcome
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
-    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
     audit = values["runtime-terminal-audit"]
     events = audit["committed_trace_prefix"]
@@ -9491,12 +9491,12 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
         values["runtime-terminal-audit"], checked.language_bundle
     )
     if mutation == "result":
-        assert not experiment_evidence_module.validate_experiment_member(
+        assert not experiment_artifacts_module.validate_experiment_member(
             checked,
             "runtime-terminal-audit",
             values["runtime-terminal-audit"],
         )
-    assert not experiment_evidence_module.validate_experiment_artifact_set(
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked, values
     )
 

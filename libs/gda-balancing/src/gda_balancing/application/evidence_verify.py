@@ -8,7 +8,7 @@ from typing import cast
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.diagnostics import Schema2RefusalReport, ingress_refusal
-from gda_balancing.domain.evidence import validate_experiment_artifact_set
+from gda_balancing.domain.experiment_artifacts import validate_experiment_artifact_set
 from gda_balancing.domain.evidence_verification import (
     EvidenceCandidate,
     EvidenceGraphProjectionInput,

@@ -674,6 +674,40 @@ def _require_immutable_anchor(path: Path) -> None:
         raise RuntimeError("committed publication anchor trust boundary is invalid")
 
 
+def _authenticated_publication_index(
+    invocation_path: Path,
+    descriptor_identity: str,
+    invocation_key: str,
+    language_bundle: dict[str, Any],
+    authentication_key: bytes,
+) -> dict[str, Any]:
+    """Authenticate the immutable index that owns one invocation key."""
+    _assert_directory_without_symlink(invocation_path)
+    anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
+    _assert_ancestor_chain_without_symlink(anchor_path)
+    _require_immutable_anchor(anchor_path)
+    anchor = _verified_anchor(anchor_path, authentication_key)
+    index = _read_canonical_artifact(invocation_path / "publication-index.json")
+    if (
+        not _verify_artifact(index, language_bundle)
+        or index != anchor
+        or index.get("descriptor_identity") != descriptor_identity
+        or index.get("invocation_key") != invocation_key
+    ):
+        raise RuntimeError("committed publication index identity is invalid")
+    return index
+
+
+def _require_matching_command_input(
+    index: dict[str, Any], command_input_identity: str
+) -> None:
+    if index.get("command_input_identity") != command_input_identity:
+        raise PublicationError(
+            "invocation_key_conflict",
+            "Invocation key is already bound to a different canonical input",
+        )
+
+
 def _write_anchor_exclusive(
     path: Path,
     artifact: dict[str, JsonValue],
@@ -797,23 +831,14 @@ def _recover_publication(
     member_kinds = {
         member.logical_name: member.artifact_kind for member in artifact_set
     }
-    _assert_directory_without_symlink(invocation_path)
-    anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
-    _assert_ancestor_chain_without_symlink(anchor_path)
-    _require_immutable_anchor(anchor_path)
-    anchor = _verified_anchor(anchor_path, authentication_key)
-    index = _read_canonical_artifact(invocation_path / "publication-index.json")
-    if not _verify_artifact(index, language_bundle) or index != anchor:
-        raise RuntimeError("committed publication index identity is invalid")
-    if index.get("descriptor_identity") != descriptor_identity:
-        raise RuntimeError("publication index belongs to another command")
-    if index.get("invocation_key") != invocation_key:
-        raise RuntimeError("publication index belongs to another invocation")
-    if index.get("command_input_identity") != command_input_identity:
-        raise PublicationError(
-            "invocation_key_conflict",
-            "Invocation key is already bound to a different canonical input",
-        )
+    index = _authenticated_publication_index(
+        invocation_path,
+        descriptor_identity,
+        invocation_key,
+        language_bundle,
+        authentication_key,
+    )
+    _require_matching_command_input(index, command_input_identity)
 
     receipt = _read_canonical_artifact(invocation_path / "artifact-set-receipt.json")
     if not _verify_artifact(receipt, language_bundle) or receipt.get(
@@ -1007,6 +1032,14 @@ def recover_committed_artifact_set(
             or inspect_path(anchor_path).kind is PathKind.MISSING
         ):
             return None
+        index = _authenticated_publication_index(
+            invocation_path,
+            descriptor_identity,
+            invocation_key,
+            language_bundle,
+            authentication_key,
+        )
+        _require_matching_command_input(index, command_input_identity)
         manifest = _read_canonical_artifact(
             invocation_path / "artifact-set-manifest.json"
         )
@@ -1066,6 +1099,7 @@ def recover_committed_artifact_set(
             expected,
             member_validator,
             authentication_key,
+            authenticated_index=index,
         )
         return RecoveredArtifactSet(
             receipt=receipt,
@@ -1085,26 +1119,20 @@ def _recover_generic_publication(
     expected_artifacts: dict[str, PublicationMember],
     member_validator: Callable[[str, dict[str, Any]], bool],
     authentication_key: bytes,
+    *,
+    authenticated_index: dict[str, Any] | None = None,
 ) -> dict[str, JsonValue]:
     """Authenticate and re-admit every member before replaying a committed set."""
-    _assert_directory_without_symlink(invocation_path)
-    anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
-    _assert_ancestor_chain_without_symlink(anchor_path)
-    _require_immutable_anchor(anchor_path)
-    anchor = _verified_anchor(anchor_path, authentication_key)
-    index = _read_canonical_artifact(invocation_path / "publication-index.json")
-    if (
-        not _verify_artifact(index, language_bundle)
-        or index != anchor
-        or index.get("descriptor_identity") != descriptor_identity
-        or index.get("invocation_key") != invocation_key
-    ):
-        raise RuntimeError("committed publication index identity is invalid")
-    if index.get("command_input_identity") != command_input_identity:
-        raise PublicationError(
-            "invocation_key_conflict",
-            "Invocation key is already bound to a different canonical input",
+    index = authenticated_index
+    if index is None:
+        index = _authenticated_publication_index(
+            invocation_path,
+            descriptor_identity,
+            invocation_key,
+            language_bundle,
+            authentication_key,
         )
+    _require_matching_command_input(index, command_input_identity)
 
     receipt = _read_canonical_artifact(invocation_path / "artifact-set-receipt.json")
     manifest = _read_canonical_artifact(invocation_path / "artifact-set-manifest.json")

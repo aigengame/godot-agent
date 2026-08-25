@@ -242,12 +242,12 @@ def test_architectural_modules_are_acyclic() -> None:
     assert cycles == []
 
 
-def test_evidence_replay_does_not_import_the_production_executor() -> None:
+def test_experiment_artifact_replay_does_not_import_the_production_executor() -> None:
     violations = [
         module
         for module in (
-            "gda_balancing.domain.evidence",
-            "gda_balancing.domain.evidence_replay",
+            "gda_balancing.domain.experiment_artifacts",
+            "gda_balancing.domain.experiment_artifact_replay",
         )
         if "gda_balancing.domain.runtime.execution"
         in _resolved_imports(

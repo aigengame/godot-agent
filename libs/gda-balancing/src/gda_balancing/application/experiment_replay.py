@@ -23,7 +23,7 @@ from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     ingress_refusal,
 )
-from gda_balancing.domain.evidence import (
+from gda_balancing.domain.experiment_artifacts import (
     validate_experiment_artifact_set,
     validate_experiment_member,
 )
@@ -101,9 +101,6 @@ def replay_experiment(
     assert isinstance(checked, CheckedExperiment)
     authority_context = checked.authority_context
     assert authority_context is not None
-    original_refusal = exact_replay_original_refusal(checked, original.artifacts)
-    if original_refusal is not None:
-        return original_refusal
     original_members = _publication_members(original.artifacts)
     original_receipt_identity = cast(str, original.receipt["content_identity"])
     input_identity = exact_replay_input_identity(
@@ -175,6 +172,9 @@ def replay_experiment(
             terminal_audit=recovered.receipt,
         )
 
+    original_refusal = exact_replay_original_refusal(checked, original.artifacts)
+    if original_refusal is not None:
+        return original_refusal
     prepared = prepare_checked_experiment(checked)
     if isinstance(prepared, ExperimentExecutionRefusal):
         return prepared.report

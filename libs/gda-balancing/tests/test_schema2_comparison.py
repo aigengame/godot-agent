@@ -597,3 +597,48 @@ def test_public_replay_recovers_a_committed_result_without_dispatch(
     assert (exit_code, stderr) == (0, "")
     assert json.loads(stdout)["claim_state"] == "candidate"
     assert json.loads(out.read_text())["result"] == "matched"
+
+
+def test_public_replay_rejects_a_changed_seed_for_a_committed_invocation_key(
+    tmp_path, run_cli, monkeypatch, published_original
+):
+    specification, original_receipt = published_original
+    invocation_key = "9" * 64
+    first_out = tmp_path / "original-replay-comparison.json"
+
+    first_exit, first_stdout, first_stderr = run_cli(
+        _replay_argv(
+            specification,
+            original_receipt,
+            first_out,
+            invocation_key=invocation_key,
+        )
+    )
+    assert (first_exit, first_stderr) == (0, ""), first_stdout
+
+    changed_value = json.loads(specification.read_text(encoding="utf-8"))
+    changed_value["seed"]["value"] += 1
+    changed_specification = tmp_path / "changed-seed-experiment.json"
+    changed_specification.write_text(json.dumps(changed_value), encoding="utf-8")
+
+    def dispatch_must_not_run(_prepared):
+        raise AssertionError("Invocation-key conflict reached Event dispatch")
+
+    monkeypatch.setattr(
+        replay_application,
+        "execute_prepared_experiment",
+        dispatch_must_not_run,
+    )
+    conflict_out = tmp_path / "conflicting-replay-comparison.json"
+    exit_code, stdout, stderr = run_cli(
+        _replay_argv(
+            changed_specification,
+            original_receipt,
+            conflict_out,
+            invocation_key=invocation_key,
+        )
+    )
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "invocation_key_conflict"
+    assert not conflict_out.exists()

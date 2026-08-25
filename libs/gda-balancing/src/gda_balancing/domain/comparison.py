@@ -13,7 +13,7 @@ from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     reason_by_id,
 )
-from gda_balancing.domain.evidence import validate_experiment_artifact_set
+from gda_balancing.domain.experiment_artifacts import validate_experiment_artifact_set
 from gda_balancing.domain.experiment import CheckedExperiment
 from gda_balancing.domain.publication_types import PublicationMember
 

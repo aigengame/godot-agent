@@ -12,7 +12,10 @@ from gda_balancing.application.experiment_replay import (
     ExperimentReplayVerdictPublication,
     replay_experiment,
 )
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import (
+    EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+    ArtifactSetMemberSpec,
+)
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from gda_balancing.domain.comparison import EXACT_REPLAY_REFUSAL_REASONS
 from gda_balancing.domain.diagnostics import (
@@ -81,16 +84,6 @@ _REPLAY_VERDICT_ARTIFACT_SET = tuple(
     for member in _REPLAY_SUCCESS_ARTIFACT_SET
     if member.logical_name != "evaluation-run"
 )
-_REPLAY_RUNTIME_REFUSAL_ARTIFACT_SET = (
-    ArtifactSetMemberSpec(
-        "runtime-terminal-audit", "runtime-terminal-audit", role="primary"
-    ),
-    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
-    ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
-    ArtifactSetMemberSpec(
-        "evaluator-capability-manifest", "evaluator-capability-manifest"
-    ),
-)
 
 
 def _artifact_set_input() -> ArtifactSetInputSpec:
@@ -127,7 +120,7 @@ def experiment_replay_handler(
                 artifact_sets_for_input(original_input),
                 EXPERIMENT_REPLAY.artifact_set,
                 EXPERIMENT_REPLAY.verdict_artifact_set,
-                _REPLAY_RUNTIME_REFUSAL_ARTIFACT_SET,
+                EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
                 publication_fault=publication_fault,
             )
         except InputReadError as error:
@@ -216,7 +209,7 @@ EXPERIMENT_REPLAY = CommandDescriptor(
     refusal_artifact_sets=(
         RefusalArtifactSetSpec(
             stage="runtime",
-            members=_REPLAY_RUNTIME_REFUSAL_ARTIFACT_SET,
+            members=EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
             variant="post-dispatch",
         ),
     ),
