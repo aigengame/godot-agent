@@ -444,8 +444,7 @@ func _explicit_script_variable_property(
 	for prop in node.get_property_list():
 		if String(prop.get("name", "")) != prop_name:
 			continue
-		var usage := int(prop.get("usage", 0))
-		if (usage & PROPERTY_USAGE_SCRIPT_VARIABLE) == 0:
+		if not _is_script_variable(prop):
 			continue
 		var value: Variant = node.get(prop_name)
 		var declared_type := int(prop.get("type", TYPE_NIL))
@@ -1334,18 +1333,25 @@ func _handle_screen_frames(params: Dictionary) -> Variant:
 
 # screen capture --await (#661): the predicate-gated capture, GDA-DF-023. Input
 # and capture as separate round trips routinely miss a 3-8 frame transient, so
-# the window arms at request arrival and does the whole job game-side: each
-# PROCESS frame it applies the inline input events due at that offset (the
-# atomic input-and-capture form; the events reuse the input-sequence shapes and
+# the window arms at request arrival and does the whole job game-side, on the
+# PROCESS clock (physics-clock event offsets are refused): each frame it first
+# applies the inline input events due at that offset (the atomic
+# input-and-capture form; the events reuse the input-sequence shapes and
 # _apply_sequence_event verbatim), then evaluates the predicate
-# `node.property == value`; the first frame it holds is captured and completes
-# the window EARLY via the _advance_window "complete" arm. A predicate that
-# never holds within `frames` is the typed live_predicate_unmet, carrying the
-# last observed value. Evaluation happens at the process-frame boundary; the
-# captured image is the most recently PRESENTED frame, so a property written
-# after that frame's draw can be one frame ahead of the pixels — the documented
-# limit. Physics-clock event offsets are refused: the capture clock IS the
-# process clock.
+# `node.property == value`. The first holding frame records the evidence
+# (observed value, engine frame, frames waited) and reads the pixels AT THE
+# SAME frame boundary: both reflect the previously COMPLETED frame — the
+# property as the game last wrote it, the viewport texture as the engine last
+# presented it — verified frame-by-frame against a live probe (an autoload
+# observing a per-frame color flip sees the flipped property and the flipped
+# pixel on the SAME tick). If the game updates a visual one frame after the
+# property it gates on, the image trails by that game-side frame — gate on the
+# visual's own property when exact pixels matter. The window replies
+# only after every accepted event has fired — an early match must not leave a
+# scheduled release unexecuted (#743 review) — and the FIRST decided outcome
+# wins: a later event error cannot retract a completed capture, it only drains.
+# A predicate that never holds within `frames` is the typed
+# live_predicate_unmet, carrying the last observed value.
 func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Variant:
 	var node_path := String(await_spec.get("node", ""))
 	var node := _resolve_runtime_node(node_path)
@@ -1353,72 +1359,107 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 		return _error(LIVE_ERROR_NODE_NOT_FOUND,
 				"no node at runtime path: " + node_path)
 	var prop := String(await_spec.get("property", ""))
-	if not _runtime_property_exists(node, prop):
+	if not _runtime_property_declared(node, prop):
 		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
 				_unknown_runtime_property_message(node_path, prop))
 	var expected: Variant = await_spec.get("value", null)
 	var frames := _int_param(await_spec, "frames", 60)
 	var events: Array = raw_events if typeof(raw_events) == TYPE_ARRAY else []
+	var last_event := -1
 	for event in events:
-		if typeof(event) == TYPE_DICTIONARY and _sequence_event_uses_physics(event):
+		if typeof(event) != TYPE_DICTIONARY:
+			continue
+		if _sequence_event_uses_physics(event):
 			return _error(LIVE_ERROR_INVALID_EVENT_SPEC,
 					"a predicate capture applies its events on the process clock; "
 					+ "'physics_frame' offsets are not accepted")
-	var frame_box := {"n": 0, "observed": null}
+		last_event = maxi(last_event, _sequence_event_offset(event))
+	var state := {"n": 0, "observed": null, "outcome": null}
 	_injected_mouse_button_mask = 0
 	var sample := func() -> Variant:
-		var current := int(frame_box["n"])
-		frame_box["n"] = current + 1
+		var current := int(state["n"])
+		state["n"] = current + 1
+		# Input first: every ACCEPTED event fires at its offset, even after the
+		# outcome is decided, so a press injected early is never left held by
+		# an early predicate match or an error (#743 review, ARC-743-001). An
+		# event error is held as the outcome only if none is decided yet; later
+		# events still drain, best effort, so scheduled releases fire.
 		for event in events:
 			if typeof(event) != TYPE_DICTIONARY:
 				continue
 			if _sequence_event_offset(event) != current:
 				continue
 			var err: Variant = _apply_sequence_event(event)
-			if err != null:
-				_injected_mouse_button_mask = 0
-				return {"error": err}
-		if not is_instance_valid(node):
+			if err != null and state["outcome"] == null:
+				state["outcome"] = {"error": err}
+		# Evaluate until decided. The value is read HERE only — the up-front
+		# resolution above is metadata-only, so a scripted getter runs exactly
+		# once per sampled frame (#743 review, ARC-743-002).
+		if state["outcome"] == null:
+			if not is_instance_valid(node):
+				state["outcome"] = {"error": {
+					"code": LIVE_ERROR_NODE_NOT_FOUND,
+					"message": "the awaited node was freed mid-window: " + node_path,
+				}}
+			else:
+				var observed: Variant = node.get(prop)
+				state["observed"] = observed
+				if _predicate_matches(observed, expected):
+					# Capture at the SAME boundary the predicate was observed
+					# at — property and presentation both belong to the frame
+					# that just completed (verified live, see above).
+					var captured := _capture_frame()
+					if captured.has("error"):
+						state["outcome"] = captured
+					else:
+						captured["predicate"] = {
+							"node": node_path,
+							"property": prop,
+							"expected": expected,
+							"observed": _predicate_echo(observed),
+							"engine_frame": Engine.get_process_frames(),
+							"frames_waited": current,
+						}
+						state["outcome"] = {"complete": captured}
+				elif current + 1 >= frames:
+					state["outcome"] = {"error": {
+						"code": LIVE_ERROR_PREDICATE_UNMET,
+						"message": "the predicate " + node_path + "." + prop
+								+ " == " + JSON.stringify(expected)
+								+ " did not hold within " + str(frames)
+								+ " frames (last observed: "
+								+ str(state["observed"]) + ")",
+					}}
+		if state["outcome"] != null and current >= last_event:
 			_injected_mouse_button_mask = 0
-			return {"error": {
-				"code": LIVE_ERROR_NODE_NOT_FOUND,
-				"message": "the awaited node was freed mid-window: " + node_path,
-			}}
-		var observed: Variant = node.get(prop)
-		frame_box["observed"] = observed
-		if not _predicate_matches(observed, expected):
-			return current
-		var captured := _capture_frame()
-		_injected_mouse_button_mask = 0
-		if captured.has("error"):
-			return captured
-		captured["predicate"] = {
-			"node": node_path,
-			"property": prop,
-			"expected": expected,
-			"observed": _predicate_echo(observed),
-			"engine_frame": Engine.get_process_frames(),
-			"frames_waited": current,
-		}
-		return {"complete": captured}
+			return state["outcome"]
+		return current
 	var finalize := func(_samples: Array) -> String:
+		# Defensive only: the sampler decides every path within the budget.
 		_injected_mouse_button_mask = 0
 		return _error(LIVE_ERROR_PREDICATE_UNMET,
 				"the predicate " + node_path + "." + prop + " == "
 				+ JSON.stringify(expected) + " did not hold within "
 				+ str(frames) + " frames (last observed: "
-				+ str(frame_box["observed"]) + ")")
-	return _begin_window(frames, sample, finalize)
+				+ str(state["observed"]) + ")")
+	return _begin_window(maxi(frames, last_event + 1) + 1, sample, finalize)
 
 
-# Whether the node exposes `prop` the way game get resolves properties: a storage
-# property, or an explicit script variable (the same two-step, so the predicate
-# surface and the read surface agree on what a property IS).
-func _runtime_property_exists(node: Node, prop: String) -> bool:
+# The one runtime-property resolution rule, metadata only (#743 review,
+# ARC-743-002): a STORAGE property or an explicit SCRIPT VARIABLE — the same
+# two-step game get resolves with — decided from get_property_list() alone, so
+# resolving NEVER invokes a getter; the owning use case reads the value.
+func _runtime_property_declared(node: Node, prop_name: String) -> bool:
 	for entry in node.get_property_list():
-		if _is_storage_property(entry) and String(entry.get("name", "")) == prop:
+		if String(entry.get("name", "")) != prop_name:
+			continue
+		if _is_storage_property(entry) or _is_script_variable(entry):
 			return true
-	return not _explicit_script_variable_property(node, prop, false).is_empty()
+	return false
+
+
+func _is_script_variable(prop: Dictionary) -> bool:
+	return (int(prop.get("usage", 0)) & PROPERTY_USAGE_SCRIPT_VARIABLE) != 0
 
 
 # JSON-typed predicate equality (#661): bool compares to bool, numbers

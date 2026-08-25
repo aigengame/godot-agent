@@ -486,14 +486,25 @@ def _await_argv(out, project, *extra):
     )
 
 
+def _predicate_report(**overrides):
+    report = {
+        "node": "/root/Main/VFX",
+        "property": "frame",
+        "expected": 3,
+        "observed": 3,
+        "engine_frame": 240,
+        "frames_waited": 5,
+    }
+    report.update(overrides)
+    return report
+
+
 def test_await_predicate_rides_the_wire_with_the_default_ceiling(monkeypatch, tmp_path):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
     fake = inject_live_runner(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_capture_reply(_PNG_B64, width=8, height=8)),
-            stderr="",
-            exit_code=0,
-        ),
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
     )
     out = tmp_path / "shot.png"
 
@@ -564,13 +575,13 @@ def test_await_events_ride_the_same_window_and_report_surfaces(monkeypatch, tmp_
 
 
 def test_await_bare_word_value_is_a_string_predicate(monkeypatch, tmp_path):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(
+        property="anim", expected="peak", observed="peak"
+    )
     fake = inject_live_runner(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_capture_reply(_PNG_B64, width=8, height=8)),
-            stderr="",
-            exit_code=0,
-        ),
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
     )
     out = tmp_path / "shot.png"
 
@@ -809,3 +820,199 @@ def test_await_schema_publishes_the_predicate_contract():
         "KeySequenceEvent" in str(events) or "KeySequenceEvent" in key
         for key in schema["$defs"]
     )
+
+
+# --- the receipt correlation gate (#743 review, Standards 2 / Spec 2) ----------
+
+
+def _await_capture(monkeypatch, tmp_path, reply, *extra):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+    result = CliRunner().invoke(app, _await_argv(out, _project(tmp_path), *extra))
+    return result, out
+
+
+def _assert_contract_violation(result, out, fragment):
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation", result.stdout
+    assert fragment in data["error"]["message"]
+    # Refused BEFORE the output file is written.
+    assert not out.exists()
+
+
+def test_gated_request_with_no_predicate_report_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    _assert_contract_violation(result, out, "no predicate report")
+
+
+def test_predicate_report_naming_another_target_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(node="/root/Wrong")
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    _assert_contract_violation(result, out, "does not name the requested predicate")
+
+
+def test_predicate_report_with_unsatisfied_observation_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(observed=2)
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    _assert_contract_violation(result, out, "does not satisfy the declared predicate")
+
+
+def test_predicate_report_outside_the_declared_window_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(frames_waited=999)
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    _assert_contract_violation(result, out, "outside the declared window")
+
+
+def test_negative_engine_frame_is_contract_violation(monkeypatch, tmp_path):
+    # The wire model bounds the receipt's frames (ge=0), so classify_live
+    # refuses a fabricated negative frame as the standard reply-shape breach.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(engine_frame=-1)
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation"
+    assert not out.exists()
+
+
+def test_plain_capture_with_unsolicited_predicate_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+
+    _assert_contract_violation(result, out, "declared no --await predicate")
+
+
+# --- schema/model parity (#743 review, Standards 1; ADR-0015) ------------------
+
+
+def test_await_schema_and_model_agree_on_the_cross_field_rules():
+    # A standard Draft 2020-12 validator and the pydantic model must give the
+    # SAME verdict on the cross-field rules the model enforces. One disclosed
+    # exception (stated in the schema helper's docstring): an event offset
+    # outside the window is model-only — a value-dependent relation across two
+    # fields Draft 2020-12 cannot state.
+    import jsonschema
+    import pydantic
+
+    schema = ScreenCaptureParams.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    corpus = [
+        ({"output": "x.png"}, True),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+            },
+            True,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": "peak",
+                "await_frames": 30,
+                "await_events": [{"type": "key", "key": "Right", "frame": 1}],
+            },
+            True,
+        ),
+        ({"output": "x.png", "await_node": "/root/N"}, False),
+        ({"output": "x.png", "await_property": "p"}, False),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": None,
+            },
+            False,
+        ),
+        ({"output": "x.png", "await_frames": 30}, False),
+        (
+            {
+                "output": "x.png",
+                "await_events": [{"type": "key", "key": "Right"}],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "key", "key": "Right", "physics_frame": 1}],
+            },
+            False,
+        ),
+    ]
+    for payload, accepted in corpus:
+        schema_ok = validator.is_valid(payload)
+        try:
+            ScreenCaptureParams.model_validate(payload)
+            model_ok = True
+        except pydantic.ValidationError:
+            model_ok = False
+        assert schema_ok == model_ok == accepted, (payload, schema_ok, model_ok)
+
+    # The disclosed model-only residual, pinned so it stays a KNOWN divergence:
+    # an event offset outside the window passes the schema but not the model.
+    residual = {
+        "output": "x.png",
+        "await_node": "/root/N",
+        "await_property": "p",
+        "await_value": 3,
+        "await_frames": 10,
+        "await_events": [{"type": "key", "key": "Right", "frame": 10}],
+    }
+    assert validator.is_valid(residual)
+    try:
+        ScreenCaptureParams.model_validate(residual)
+        assert False, "the model must refuse an offset outside the window"
+    except pydantic.ValidationError:
+        pass

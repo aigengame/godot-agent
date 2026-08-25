@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field, model_validator
 from gda import dispatch
 from gda.commands.input import InputSequenceEvent
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure, classify_live
+from gda.errors import Failure, classify_live, make_failure
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -56,6 +56,56 @@ from gda.runner import GodotRunner
 # harness applies the same default when the wire omits it. The hard ceiling is
 # the shared MAX_WINDOW_FRAMES.
 DEFAULT_AWAIT_FRAMES = 60
+
+
+def _await_schema_extra(schema: dict) -> None:
+    """Publish the await validator's cross-field rules into the schema (#743).
+
+    ADR-0015 makes the params model the ONE authority for both runtime
+    validation and the published schema, so the model validator's cross-field
+    rules must be visible to a standard Draft 2020-12 validator too: supplying
+    any of the trio (non-null) requires the whole trio; the ceiling and the
+    events need the trio; the events are non-empty and process-clock only. A
+    parity corpus (tests/test_screen_commands.py) keeps validator and model
+    agreeing. One rule stays model-only, disclosed here: an event offset must
+    be INSIDE the window, a value-dependent relation across two fields that
+    Draft 2020-12 cannot state — the schema stays honestly LESS strict there.
+    """
+    scalar = {"type": ["boolean", "integer", "number", "string"]}
+    trio = {
+        "properties": {
+            "await_node": {"type": "string"},
+            "await_property": {"type": "string"},
+            "await_value": scalar,
+        },
+        "required": ["await_node", "await_property", "await_value"],
+    }
+
+    def given(name: str, spec: dict) -> dict:
+        return {"if": {"properties": {name: spec}, "required": [name]}, "then": trio}
+
+    schema["allOf"] = [
+        given("await_node", {"type": "string"}),
+        given("await_property", {"type": "string"}),
+        given("await_value", scalar),
+        given("await_frames", {"type": "integer"}),
+        given("await_events", {"type": "array"}),
+    ]
+    events = schema["properties"]["await_events"]
+    for branch in events.get("anyOf", []):
+        if branch.get("type") == "array":
+            branch["minItems"] = 1
+            branch["items"] = {
+                "allOf": [
+                    branch["items"],
+                    {
+                        "not": {
+                            "properties": {"physics_frame": {"type": "integer"}},
+                            "required": ["physics_frame"],
+                        }
+                    },
+                ]
+            }
 
 
 class ScreenCaptureParams(BaseModel):
@@ -95,8 +145,12 @@ class ScreenCaptureParams(BaseModel):
         default=None,
         description=(
             "Predicate value, a JSON scalar: the capture fires on the first frame "
-            "the property equals it (numbers compare numerically, strings against "
-            "the String rendering; null is not supported)."
+            "boundary where the property equals it (numbers compare numerically, "
+            "strings against the String rendering; null is not supported). The "
+            "property and the pixels are read at the SAME boundary — both belong "
+            "to the frame that just completed; a game that updates a visual one "
+            "frame after the property it gates on trails by that game-side frame, "
+            "so gate on the visual's own property when exact pixels matter."
         ),
     )
     await_frames: int | None = Field(
@@ -120,6 +174,8 @@ class ScreenCaptureParams(BaseModel):
             "await predicate."
         ),
     )
+
+    model_config = {"json_schema_extra": lambda schema: _await_schema_extra(schema)}
 
     @model_validator(mode="after")
     def _check_await_group(self) -> "ScreenCaptureParams":
@@ -215,7 +271,8 @@ class CapturePredicateReport(BaseModel):
         default=None,
         description=(
             "The property's value on the frame the predicate held (scalars "
-            "verbatim; anything else its diagnostic String form)."
+            "verbatim; anything else its diagnostic String form). Read at the "
+            "same frame boundary as the captured pixels."
         ),
     )
     engine_frame: int = Field(
@@ -324,8 +381,8 @@ class _PredicateReply(BaseModel):
     property: str
     expected: "bool | int | float | str | None" = None
     observed: "bool | int | float | str | None" = None
-    engine_frame: int
-    frames_waited: int
+    engine_frame: int = Field(ge=0)
+    frames_waited: int = Field(ge=0)
 
 
 class _CaptureReply(BaseModel):
@@ -368,6 +425,75 @@ def _write_png(png_base64: str, destination: Path) -> int:
     return len(raw)
 
 
+def _scalars_match(observed: object, expected: object) -> bool:
+    """The predicate's JSON-scalar equality, mirrored CLI-side (#661).
+
+    The same rule the harness applies: bools strictly, numbers numerically,
+    strings exactly; a null or cross-type pair never matches.
+    """
+    if isinstance(expected, bool) or isinstance(observed, bool):
+        return (
+            isinstance(expected, bool)
+            and isinstance(observed, bool)
+            and (observed is expected)
+        )
+    if isinstance(expected, (int, float)) and isinstance(observed, (int, float)):
+        return float(observed) == float(expected)
+    if isinstance(expected, str) and isinstance(observed, str):
+        return observed == expected
+    return False
+
+
+def _predicate_correlation_error(
+    params: "ScreenCaptureParams", predicate: "_PredicateReply | None"
+) -> "str | None":
+    """Why the reply's predicate report does not answer this request, or None.
+
+    A gated request's success MUST carry the evidence the request asked for
+    (#743 review): the report present, naming this node/property/value, with an
+    observed value that actually satisfies the declared predicate and a wait
+    inside the declared window. A plain request must carry none. Anything else
+    is a harness contract violation, refused BEFORE the output file is written.
+    """
+    if params.await_node is None:
+        if predicate is not None:
+            return (
+                "the harness reply carries a predicate report for a request "
+                "that declared no --await predicate"
+            )
+        return None
+    if predicate is None:
+        return (
+            "the harness reply carries no predicate report for a request "
+            "gated on --await-node/--await-property/--await-value"
+        )
+    bound = (
+        params.await_frames if params.await_frames is not None else DEFAULT_AWAIT_FRAMES
+    )
+    if (
+        predicate.node != params.await_node
+        or predicate.property != params.await_property
+        or not _scalars_match(predicate.expected, params.await_value)
+    ):
+        return (
+            "the harness reply's predicate report does not name the requested "
+            f"predicate ({params.await_node}.{params.await_property} == "
+            f"{params.await_value!r})"
+        )
+    if not _scalars_match(predicate.observed, predicate.expected):
+        return (
+            "the harness reply's predicate report observed "
+            f"{predicate.observed!r}, which does not satisfy the declared "
+            f"predicate value {predicate.expected!r}"
+        )
+    if predicate.frames_waited >= bound:
+        return (
+            f"the harness reply waited {predicate.frames_waited} frames, "
+            f"outside the declared window of {bound}"
+        )
+    return None
+
+
 def run_screen_capture_operation(
     project: Optional[Path],
     params: "ScreenCaptureParams",
@@ -405,6 +531,9 @@ def run_screen_capture_operation(
     reply = classify_live(result, None, _CaptureReply)
     if isinstance(reply, Failure):
         return reply
+    correlation = _predicate_correlation_error(params, reply.predicate)
+    if correlation is not None:
+        return make_failure("contract_violation", correlation, result.stdout)
     output = Path(params.output)
     written = _write_png(reply.png_base64, output)
     return ScreenCaptureResult(
@@ -619,11 +748,14 @@ def screen_capture(
 
     The `--await-*` predicate (#661) holds the capture game-side until
     `node.property == value` first holds (checked once per process frame, up to
-    `--await-frames`), then captures THAT frame and reports the predicate
-    evidence; a predicate that never holds is the typed `live_predicate_unmet`.
-    `--await-events` additionally injects input-sequence events inside the same
-    window (the atomic input-and-capture form) so a short transient triggered by
-    the input cannot be missed by a second round trip. Needs a WINDOWED
+    `--await-frames`), then captures at that SAME frame boundary — the property
+    and the pixels both belong to the frame that just completed — and reports
+    the predicate evidence; a predicate that never holds is the typed
+    `live_predicate_unmet`. `--await-events` additionally injects input-sequence
+    events inside the same window (the atomic input-and-capture form) so a short
+    transient triggered by the input cannot be missed by a second round trip;
+    every declared event fires before the reply, even when the predicate
+    matches first. Needs a WINDOWED
     session (`gda daemon start --windowed`); a headless one is
     `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
     """

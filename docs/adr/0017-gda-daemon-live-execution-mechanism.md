@@ -231,6 +231,14 @@ that implements it (ADR-0002), not by this ADR. The agent-facing contract (typed
 models, `--json`, `--schema` gate, registered `GdaError.code`s) is identical to
 headless.
 
+> **Amendment (2026-08-25, #661):** a multi-frame live operation's declared
+> frame count is a CEILING, not the required duration. The harness window may
+> complete EARLY with a success payload once its outcome is decided (the
+> predicate capture completes on the first frame its predicate holds), provided
+> every input event the request declared has been applied before the reply —
+> an early completion never skips an accepted event. The one-shot RPC shape is
+> unchanged: still exactly one reply per request.
+
 ## Considered options
 
 - **Attach to a human-opened editor via an EditorPlugin (godot-mcp-pro's model)** —
