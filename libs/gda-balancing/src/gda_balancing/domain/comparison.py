@@ -1,5 +1,6 @@
 """Domain Comparison semantics for exact Experiment Replay."""
 
+from collections.abc import Mapping
 from typing import Any, cast
 
 from gda_balancing.domain.artifacts import identified_artifact, verify_artifact
@@ -121,36 +122,23 @@ def exact_replay_reproduction_refusal(
 
 
 def _policy_binding(
-    language_bundle: dict[str, Any],
+    policy_index: Mapping[str, Mapping[str, Any]],
 ) -> tuple[dict[str, str], list[str]]:
-    language = cast(dict[str, Any], language_bundle["language"])
-    matches = [
-        policy
-        for policy in cast(list[dict[str, Any]], language["replay_comparison_policies"])
-        if policy.get("id") == _EXACT_REPLAY_POLICY
-    ]
-    if len(matches) != 1 or matches[0].get("comparator") != "canonical-equal":
-        raise ValueError("the exact Replay policy is not uniquely admitted")
-    policy = matches[0]
+    binding = policy_index.get(_EXACT_REPLAY_POLICY)
+    if binding is None:
+        raise ValueError("the exact Replay policy is not admitted")
+    policy = cast(Mapping[str, Any], binding["policy"])
+    owner = cast(Mapping[str, Any], binding["owner"])
+    if policy.get("comparator") != "canonical-equal":
+        raise ValueError("the exact Replay policy comparator is unsupported")
     checks = policy.get("checks")
     if not isinstance(checks, list) or not checks or len(checks) != len(set(checks)):
         raise ValueError("the exact Replay policy has no closed ordered checks")
-    owners = [
-        release
-        for release in cast(list[dict[str, Any]], language["packages"])
-        if _EXACT_REPLAY_POLICY
-        in cast(
-            list[str], release.get("exports", {}).get("replay_comparison_policies", [])
-        )
-    ]
-    if len(owners) != 1:
-        raise ValueError("the exact Replay policy has no unique Package owner")
-    owner = owners[0]
     return (
         {
             "id": cast(str, policy["id"]),
-            "package": cast(str, owner["id"]),
-            "package_version": cast(str, owner["version"]),
+            "package": cast(str, owner["package"]),
+            "package_version": cast(str, owner["package_version"]),
             "version": cast(str, policy["version"]),
         },
         cast(list[str], checks),
@@ -312,13 +300,14 @@ def _observation(
 def _comparison_value(
     *,
     language_bundle: dict[str, Any],
+    policy_index: Mapping[str, Mapping[str, Any]],
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
 ) -> dict[str, JsonValue]:
     if not original_artifact_set_receipt_identity:
         raise ValueError("the original Artifact-set receipt identity is empty")
-    policy, policy_checks = _policy_binding(language_bundle)
+    policy, policy_checks = _policy_binding(policy_index)
     original, original_kind, original_identity = _observation(
         original_members, language_bundle, original=True
     )
@@ -386,6 +375,7 @@ def _comparison_value(
 def compare_exact_replay(
     *,
     language_bundle: dict[str, Any],
+    policy_index: Mapping[str, Mapping[str, Any]],
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
@@ -393,6 +383,7 @@ def compare_exact_replay(
     """Apply the admitted exact Replay policy to explicit observations."""
     value = _comparison_value(
         language_bundle=language_bundle,
+        policy_index=policy_index,
         original_artifact_set_receipt_identity=(original_artifact_set_receipt_identity),
         original_members=original_members,
         replay_members=replay_members,
@@ -400,6 +391,7 @@ def compare_exact_replay(
     if not validate_exact_replay_comparison(
         value,
         language_bundle=language_bundle,
+        policy_index=policy_index,
         original_artifact_set_receipt_identity=(original_artifact_set_receipt_identity),
         original_members=original_members,
         replay_members=replay_members,
@@ -417,6 +409,7 @@ def validate_exact_replay_comparison(
     value: dict[str, Any],
     *,
     language_bundle: dict[str, Any],
+    policy_index: Mapping[str, Mapping[str, Any]],
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
@@ -425,6 +418,7 @@ def validate_exact_replay_comparison(
     try:
         expected = _comparison_value(
             language_bundle=language_bundle,
+            policy_index=policy_index,
             original_artifact_set_receipt_identity=(
                 original_artifact_set_receipt_identity
             ),
@@ -442,13 +436,14 @@ def validate_published_exact_replay_comparison(
     value: dict[str, Any],
     *,
     language_bundle: dict[str, Any],
+    policy_index: Mapping[str, Mapping[str, Any]],
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
 ) -> bool:
     """Validate a published comparison from its retained supporting members."""
     try:
-        policy, policy_checks = _policy_binding(language_bundle)
+        policy, policy_checks = _policy_binding(policy_index)
         original, original_kind, original_identity = _observation(
             original_members, language_bundle, original=True
         )

@@ -99,6 +99,8 @@ def replay_experiment(
     if isinstance(checked, Schema2RefusalReport):
         return checked
     assert isinstance(checked, CheckedExperiment)
+    assert checked.authority_context is not None
+    policy_index = checked.authority_context.replay_comparison_policy_index
     original_refusal = exact_replay_original_refusal(checked, original.artifacts)
     if original_refusal is not None:
         return original_refusal
@@ -124,6 +126,7 @@ def replay_experiment(
         return validate_published_exact_replay_comparison(
             comparison,
             language_bundle=checked.language_bundle,
+            policy_index=policy_index,
             original_artifact_set_receipt_identity=original_receipt_identity,
             original_members=original_members,
             replay_members=_publication_members(
@@ -206,6 +209,7 @@ def replay_experiment(
 
     comparison = compare_exact_replay(
         language_bundle=checked.language_bundle,
+        policy_index=policy_index,
         original_artifact_set_receipt_identity=original_receipt_identity,
         original_members=original_members,
         replay_members=execution.members,

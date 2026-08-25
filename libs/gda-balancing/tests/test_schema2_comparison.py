@@ -31,6 +31,11 @@ from gda_balancing.interfaces.cli.experiment_fixtures import (
 from gda_balancing.interfaces.cli.registry import REGISTRY
 
 
+def _policy_index(checked: CheckedExperiment):
+    assert checked.authority_context is not None
+    return checked.authority_context.replay_comparison_policy_index
+
+
 def _accepted_execution(
     root: Path,
 ) -> tuple[CheckedExperiment, ExperimentExecutionSuccess]:
@@ -176,6 +181,7 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execut
 
     comparison = compare_exact_replay(
         language_bundle=checked.language_bundle,
+        policy_index=_policy_index(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=execution.members,
         replay_members=execution.members,
@@ -201,6 +207,7 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execut
     assert validate_exact_replay_comparison(
         comparison.value,
         language_bundle=checked.language_bundle,
+        policy_index=_policy_index(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=execution.members,
         replay_members=execution.members,
@@ -213,6 +220,7 @@ def test_exact_replay_comparison_reports_complete_ordered_mismatch(accepted_exec
 
     comparison = compare_exact_replay(
         language_bundle=original_checked.language_bundle,
+        policy_index=_policy_index(original_checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=replay.members,
@@ -241,6 +249,7 @@ def test_exact_replay_comparison_rejects_a_foreign_reproduction(
     with pytest.raises(ValueError, match="complete reproduction"):
         compare_exact_replay(
             language_bundle=original_checked.language_bundle,
+            policy_index=_policy_index(original_checked),
             original_artifact_set_receipt_identity="sha256:original-receipt",
             original_members=original.members,
             replay_members=replay.members,
@@ -254,6 +263,7 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
     replay = _same_reproduction_drift(checked, original)
     comparison = compare_exact_replay(
         language_bundle=checked.language_bundle,
+        policy_index=_policy_index(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=replay.members,
@@ -267,6 +277,7 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
     assert validate_published_exact_replay_comparison(
         comparison.value,
         language_bundle=checked.language_bundle,
+        policy_index=_policy_index(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=retained_replay_members,
@@ -280,6 +291,7 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
     assert not validate_published_exact_replay_comparison(
         forged,
         language_bundle=checked.language_bundle,
+        policy_index=_policy_index(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=retained_replay_members,

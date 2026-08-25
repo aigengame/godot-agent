@@ -239,6 +239,7 @@ class AdmittedAuthorityContext:
 
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
+    replay_comparison_policy_index: Mapping[str, Mapping[str, Any]]
     admission: BootstrapAdmission
     canonical_kernel_bytes: bytes
     canonical_language_bundle_bytes: bytes
@@ -461,9 +462,37 @@ def _freeze_admitted_context(
         raise ValueError("authority admission belongs to another Kernel/LDB pair")
     frozen_kernel = cast(dict[str, Any], _deep_freeze(kernel))
     frozen_language_bundle = cast(dict[str, Any], _deep_freeze(language_bundle))
+    language = cast(dict[str, Any], language_bundle["language"])
+    policy_index: dict[str, dict[str, Any]] = {}
+    for policy in cast(
+        list[dict[str, Any]], language.get("replay_comparison_policies", [])
+    ):
+        policy_id = cast(str, policy["id"])
+        owners = [
+            release
+            for release in cast(list[dict[str, Any]], language["packages"])
+            if policy_id
+            in cast(
+                list[str],
+                release.get("exports", {}).get("replay_comparison_policies", []),
+            )
+        ]
+        if policy_id in policy_index or len(owners) != 1:
+            raise ValueError("admitted Replay comparison policy ownership is invalid")
+        owner = owners[0]
+        policy_index[policy_id] = {
+            "owner": {
+                "package": owner["id"],
+                "package_version": owner["version"],
+            },
+            "policy": policy,
+        }
     return AdmittedAuthorityContext(
         kernel=frozen_kernel,
         language_bundle=frozen_language_bundle,
+        replay_comparison_policy_index=cast(
+            Mapping[str, Mapping[str, Any]], _deep_freeze(policy_index)
+        ),
         admission=admission,
         canonical_kernel_bytes=canonical_bytes(cast(JsonValue, kernel)),
         canonical_language_bundle_bytes=_language_bundle_canonical_bytes(

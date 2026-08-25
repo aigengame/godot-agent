@@ -188,6 +188,36 @@ def test_packaged_context_exposes_no_nested_mutation_alias():
     assert len(context.language_bundle["language"]["packages"]) == package_count
 
 
+def test_packaged_context_derives_immutable_replay_comparison_policy_index():
+    context = authority_module.packaged_authority_context()
+
+    assert context.replay_comparison_policy_index == {
+        "exact-replay-v1": {
+            "owner": {
+                "package": "standard.experiment",
+                "package_version": "1.1.0",
+            },
+            "policy": {
+                "checks": [
+                    "evaluation-outcome-status",
+                    "event-trace-identity",
+                    "snapshot-series-identity",
+                    "metric-dataset-identity",
+                ],
+                "comparator": "canonical-equal",
+                "id": "exact-replay-v1",
+                "version": "1.0.0",
+            },
+        }
+    }
+    with pytest.raises(TypeError):
+        cast(dict[str, Any], context.replay_comparison_policy_index)["other"] = {}
+    with pytest.raises(TypeError, match="immutable"):
+        context.replay_comparison_policy_index["exact-replay-v1"]["policy"][
+            "version"
+        ] = "2.0.0"
+
+
 def test_mutable_builtin_descriptors_cannot_bypass_authority_freeze():
     authority_module.reset_packaged_authority_context_for_tests()
     context = authority_module.packaged_authority_context()

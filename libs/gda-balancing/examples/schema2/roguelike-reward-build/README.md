@@ -247,7 +247,7 @@ replaces `starter_blade` with `volatile_crown`. The public Metrics are:
 Replay the accepted baseline from its authenticated Artifact-set receipt:
 
 ```bash
-export REPLAY_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/replay-set-receipt.json"
+export REPLAY_RESULT="$GDA_BALANCING_TUTORIAL_ROOT/replay-result.json"
 export REPLAY_COMPARISON="$GDA_BALANCING_TUTORIAL_ROOT/replay-comparison.json"
 
 uv run gda-balancing experiment replay \
@@ -255,7 +255,7 @@ uv run gda-balancing experiment replay \
   --original-experiment-run-artifact-set-receipt "$BASELINE_SET_RECEIPT" \
   --out "$REPLAY_COMPARISON" \
   --invocation-key "$EXPERIMENT_REPLAY_INVOCATION_KEY" \
-  | tee "$REPLAY_SET_RECEIPT"
+  | tee "$REPLAY_RESULT"
 
 jq '{result, policy, checks}' "$REPLAY_COMPARISON"
 ```
