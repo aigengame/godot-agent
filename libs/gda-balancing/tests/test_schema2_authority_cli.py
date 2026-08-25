@@ -29,6 +29,7 @@ from gda_balancing.interfaces.cli.registry import MANIFEST, REGISTRY
 from gda_balancing.interfaces.cli.serve import SERVE
 from gda_balancing.interfaces.cli.evidence_verify import EVIDENCE_VERIFY
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
+from gda_balancing.interfaces.cli.experiment_replay import EXPERIMENT_REPLAY
 from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
 from gda_balancing.interfaces.cli.model_check import MODEL_CHECK
@@ -1846,6 +1847,7 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "package-lock",
         "publication-index",
         "negative-vector",
+        "replay-comparison",
         "reproduction-receipt",
         "resolution-receipt",
         "resolved-model",
@@ -1960,6 +1962,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "manifest",
         "evidence verify",
         "experiment check",
+        "experiment replay",
         "experiment run",
         "formula parse",
         "formula render",
@@ -1989,7 +1992,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             "profile_identity",
             "success",
         }
-        if path == "experiment run":
+        if path in {"experiment replay", "experiment run"}:
             expected_schema_members.add("verdict")
         assert set(row["schema"]) == expected_schema_members
         if path == "schema get":
@@ -2015,6 +2018,8 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             argv = invocation(EXPERIMENT_CHECK)
         elif path == "experiment run":
             argv = invocation(EXPERIMENT_RUN)
+        elif path == "experiment replay":
+            argv = invocation(EXPERIMENT_REPLAY)
         elif path == "evidence verify":
             argv = invocation(EVIDENCE_VERIFY)
         elif path == "model inspect":
