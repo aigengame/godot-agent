@@ -317,17 +317,28 @@ def test_public_replay_schema_exposes_only_the_four_owned_inputs(run_cli):
     }
 
 
-def test_public_replay_refuses_a_different_reproduction_before_dispatch(
+def test_public_replay_refuses_a_prepared_runtime_drift_before_dispatch(
     tmp_path, run_cli, monkeypatch
 ):
     specification, original_receipt = _published_original_run(tmp_path, run_cli)
-    changed = json.loads(specification.read_text(encoding="utf-8"))
-    changed["seed"]["value"] += 1
-    specification.write_text(json.dumps(changed), encoding="utf-8")
+    prepare = replay_application.prepare_checked_experiment
+
+    def prepare_with_runtime_drift(checked):
+        prepared = prepare(checked)
+        assert not isinstance(prepared, replay_application.ExperimentExecutionRefusal)
+        payload = _artifact_payload(prepared.reproduction.value)
+        payload["resolved_runtime_profile_identity"] = "sha256:" + "7" * 64
+        return replace(
+            prepared,
+            reproduction=_member(checked, "reproduction-receipt", payload),
+        )
 
     def dispatch_must_not_run(_prepared):
         raise AssertionError("reproduction mismatch reached Event dispatch")
 
+    monkeypatch.setattr(
+        replay_application, "prepare_checked_experiment", prepare_with_runtime_drift
+    )
     monkeypatch.setattr(
         replay_application,
         "execute_prepared_experiment",
