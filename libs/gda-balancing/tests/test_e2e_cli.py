@@ -381,9 +381,7 @@ class TestKeyUserPath:
             )
         )
         baseline_receipt_path = tmp_path / "roguelike-baseline-set-receipt.json"
-        baseline_receipt_path.write_text(
-            json.dumps(baseline_receipt), encoding="utf-8"
-        )
+        baseline_receipt_path.write_text(json.dumps(baseline_receipt), encoding="utf-8")
         replay_comparison_path = tmp_path / "roguelike-replay-comparison.json"
         replayed = _run(
             "experiment",
@@ -398,9 +396,10 @@ class TestKeyUserPath:
         )
         assert (replayed.returncode, replayed.stderr) == (0, ""), replayed.stdout
         assert json.loads(replayed.stdout)["claim_state"] == "candidate"
-        assert json.loads(replay_comparison_path.read_text(encoding="utf-8"))[
-            "result"
-        ] == "matched"
+        assert (
+            json.loads(replay_comparison_path.read_text(encoding="utf-8"))["result"]
+            == "matched"
+        )
 
         tuned = json.loads(json.dumps(experiment))
         tuned["id"] = "roguelike.reward-build-feedback.lower-rare-weight"

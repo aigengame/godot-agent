@@ -942,9 +942,9 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     "type": "object",
                     "properties": {
                         member: _non_empty_string_schema()
-                        for member in observation_members
+                        for member in cast(list[str], observation_members)
                     },
-                    "required": observation_members,
+                    "required": cast(list[str], observation_members),
                     "unevaluatedProperties": False,
                 }
                 properties["input"] = {

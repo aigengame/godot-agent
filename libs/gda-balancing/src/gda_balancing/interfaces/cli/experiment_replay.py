@@ -109,17 +109,11 @@ def experiment_replay_handler(
     *, publication_fault: str | None = None
 ) -> Callable[
     [ExperimentReplayInput],
-    ExperimentReplayResult
-    | ExperimentReplayVerdictResult
-    | Schema2RefusalReport,
+    ExperimentReplayResult | ExperimentReplayVerdictResult | Schema2RefusalReport,
 ]:
     def _replay(
         inp: ExperimentReplayInput,
-    ) -> (
-        ExperimentReplayResult
-        | ExperimentReplayVerdictResult
-        | Schema2RefusalReport
-    ):
+    ) -> ExperimentReplayResult | ExperimentReplayVerdictResult | Schema2RefusalReport:
         try:
             original_input = _artifact_set_input()
             result = replay_experiment(
@@ -143,9 +137,7 @@ def experiment_replay_handler(
             return result
         receipt = ExperimentRunResult.model_validate(result.receipt)
         if isinstance(result, ExperimentReplayPublication):
-            return ExperimentReplayResult(
-                claim_state="candidate", artifact_set=receipt
-            )
+            return ExperimentReplayResult(claim_state="candidate", artifact_set=receipt)
         assert isinstance(result, ExperimentReplayVerdictPublication)
         return ExperimentReplayVerdictResult(
             outcome="mismatched",
@@ -159,9 +151,7 @@ def experiment_replay_handler(
 def _prepare_replay_args(root: Path, token: int, refusing: bool) -> tuple[str, ...]:
     specification = root / f"replay-experiment-{token}.json"
     specification_value = json.loads(prepare_valid_experiment(root, token))
-    specification.write_bytes(
-        canonical_bytes(cast(JsonValue, specification_value))
-    )
+    specification.write_bytes(canonical_bytes(cast(JsonValue, specification_value)))
     original = run_experiment_run(
         ExperimentRunInput(
             specification=str(specification),
@@ -177,9 +167,7 @@ def _prepare_replay_args(root: Path, token: int, refusing: bool) -> tuple[str, .
     )
     if refusing:
         specification_value["seed"]["value"] += 1
-        specification.write_bytes(
-            canonical_bytes(cast(JsonValue, specification_value))
-        )
+        specification.write_bytes(canonical_bytes(cast(JsonValue, specification_value)))
     return (
         str(specification),
         "--original-experiment-run-artifact-set-receipt",

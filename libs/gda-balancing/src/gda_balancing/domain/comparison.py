@@ -277,7 +277,9 @@ def validate_published_exact_replay_comparison(
             for key, member in observations.items()
         ]
         expected_result = (
-            "matched" if all(cast(bool, row["match"]) for row in checks) else "mismatched"
+            "matched"
+            if all(cast(bool, row["match"]) for row in checks)
+            else "mismatched"
         )
         return (
             original_kind == "evaluation-run"
