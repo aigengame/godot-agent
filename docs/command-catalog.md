@@ -694,6 +694,52 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 | `gda resource get` | Load and inspect a resource |
 | `gda resource set` | Edit a resource file |
 | `gda resource uid` | Resolve UID ↔ resource path (both directions) |
+| `gda resource import` | Ensure assets are imported into the project cache (clean-worktree loading) |
+
+**Scoped import surface** (shipped, #668, per the issue's revised contract): a clean
+worktree carries the sources and their committed `.import` sidecars but not the gitignored
+`.godot/` cache, so a one-shot run's `preload()` of e.g. a PNG fails with "no recognized
+resource loader" (GDA-DF-010). `resource import ASSETS... [--dry-run] [--timeout S]` reads
+each requested asset's EVIDENCE STATE from the same project artifacts the engine's own
+reimport test reads: `cached` needs positive ARTIFACT-level evidence (a keep/skip
+importer, or the PATH-derived `.md5` receipt present with `source_md5`/`dest_md5`
+matching the bytes — any declared destinations also present — plus `source_file` naming
+this asset and the UID-era format; a sidecar declaring no destinations but carrying a
+matching receipt passes the same artifact checks — the engine's own pass leaves it
+untouched when the engine-state remainder below is controlled — while one with no
+importer line proves nothing and is conservatively `stale`); `missing` (no sidecar yet)
+and `stale` (an artifact check fails) are what the engine would import; `invalid` (the
+engine marked the last import `valid=false`, the sidecar does not parse, or the `.md5`
+receipt falls outside gda's documented engine-written assignment subset) is not passed
+automatically: the engine skips failed imports and parse errors, while gda conservatively
+skips unsupported receipt syntax —
+delete the sidecar to retry; that heals a malformed receipt too, because the pass
+rewrites both. That receipt subset accepts quoted-string assignments, whitespace,
+`;` comments, JSON-style escaped strings (lone UTF-16 surrogates excluded — the
+engine's parser rejects them), and repeated assignments; as in the engine,
+the final value wins. Broader Variant values take the conservative no-pass direction.
+Artifact-level is the boundary, not a proof of the engine's
+whole verdict: the checks the engine makes from its OWN state — whether the declared
+importer still exists (an open registry: import plugins add names), its format version,
+its project-settings validity, and the editor cache's expected sidecar MD5 — are not
+readable from the project's artifacts, so a sidecar drifted in those dimensions can read
+`cached` until any pass runs. The declared direction of that remainder: it can delay a
+re-import until the next pass, never spend a pass the engine would not. The engine pass runs only when a request is `missing` or
+`stale`; it is PROJECT-WIDE (the engine's one scriptable import primitive is
+`godot --headless --import`; a per-file reimport exists only inside the editor process), so
+gda's scoping is in the decision and the report. A real run settles each state
+(`imported` / `not_importable` — the engine decided the type needs no import / `failed` —
+every `invalid` request settles here without spending a pass) and lists every created
+file, classified against the explicit cache root: `cache_owned` (under `res://.godot`) vs
+`source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
+file). `--dry-run` writes nothing and reports the decidable inventory: the per-asset
+states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
+stale assets the project-wide pass will re-import (invalid ones excluded; assets with no
+sidecar and generated `.uid` files are the engine's to decide, so the real run's `created`
+list is the authoritative inventory). Plain `gda script run` never triggers an import
+pass. The pass executes engine importer code over project content — within the `Trusted
+project` assumption (ADR-0009), recorded on the Project-code execution surface (no new
+trust axis, per the issue's triage decision).
 
 ### `export`
 

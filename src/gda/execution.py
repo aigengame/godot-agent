@@ -31,12 +31,19 @@ class ExecutionKind(str, enum.Enum):
       only launch/crash being classified (ADR-0031). Like ``EXPORT`` it routes by
       its ``recipe`` (ADR-0023), so this value is self-description only — it adds
       no runner-selection branch.
+    - ``IMPORT`` — the engine's native project-wide ``--import`` pass, run
+      through the shared launch primitive when a requested asset's cache is
+      missing (#668). Like ``SCRIPT_RUN`` it routes by its ``recipe``
+      (ADR-0023): self-description only, no runner-selection branch — but the
+      published ``kind`` must not claim the ``operations.gd`` sentinel pipeline
+      it never uses.
     """
 
     HEADLESS = "headless"
     EXPORT = "export"
     LIVE = "live"
     SCRIPT_RUN = "script_run"
+    IMPORT = "import"
 
 
 # Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).

@@ -201,6 +201,10 @@ _RECIPE_OPERATIONS = {
     # `daemon install` is the fifth daemon lifecycle recipe (ADR-0018, #670): the
     # idempotent harness install `daemon start` folds in, runnable on its own.
     "daemon-install",
+    # `resource import` (#668) decides per-asset cache verdicts CLI-side and
+    # calls the shared launch primitive with the engine's project-wide
+    # `--import` argv — not a sentinel op, like `export run`'s native channel.
+    "resource-import",
 }
 
 
