@@ -172,16 +172,18 @@ flowchart TB
             C["Model compiler"]
             X["Experiment semantics"]
             R["Runtime and evaluator"]
+            M["Comparison semantics"]
             V["Evidence validator"]
             Q["Artifact policy"]
 
             B -->|"provides admitted authority"| P
+            B -->|"provides admitted comparison policy"| M
             P -->|"provides Package Lock"| C
             C -->|"provides Resolved Model"| R
             X -->|"provides evaluation intent"| R
-            R -->|"provides evaluation facts"| V
             C -->|uses| Q
             R -->|uses| Q
+            M -->|uses| Q
             V -->|uses| Q
         end
         subgraph INF["Infrastructure"]
@@ -194,12 +196,14 @@ flowchart TB
         A -->|"invokes Model compiler"| C
         A -->|"invokes Experiment semantics"| X
         A -->|"invokes Runtime and evaluator"| R
+        A -->|"passes complete comparison inputs"| M
+        A -->|"invokes Evidence validation"| V
         A -->|"coordinates publication through Artifact policy"| Q
         B -->|"uses Input and resource access"| I
         Q -->|"uses Atomic filesystem mechanisms"| F
     end
 
-    O["Published immutable facts<br/>Resolved Model · Metric dataset · Evaluation run<br/>Evidence assertion · Locators · Receipts"]
+    O["Published immutable facts<br/>Resolved Model · Metric dataset · Evaluation run<br/>Replay comparison · Evidence assertion · Locators · Receipts"]
     S["Interface outcomes<br/>CLI envelope and channels · HTTP JSON response"]
     G["Approval Record<br/>independent governance decision"]
 
@@ -207,13 +211,14 @@ flowchart TB
     L -->|"supplies language content"| B
     H -->|supplies| U
     Q -->|publishes| O
+    O -. "supplies published comparison and prerequisites" .-> V
     U -->|renders| S
     O -. "Evidence assertion informs" .-> G
 ```
 
 The diagram omits internal representations and execution stages. Sections 5 through 10 define the
-Authoring AST, Typed HIR, RIR semantic payload, Runtime, Experiment, Evidence, and publication
-paths.
+Authoring AST, Typed HIR, RIR semantic payload, Runtime, Experiment, Comparison, Evidence, and
+publication paths.
 
 ### 3.3 Authority lifecycle and host boundaries
 
@@ -241,9 +246,9 @@ these contracts.
 
 The host loads and admits the packaged Kernel/LDB graph. It then indexes and freezes the graph. The
 host publishes the context only after these operations succeed. It stores the result in one deeply
-immutable `AdmittedAuthorityContext`. The compiler, Runtime, Experiment, Template, and CLI
-subsystems use this context. The context is a performance and ownership boundary. It is not a
-semantic authority.
+immutable `AdmittedAuthorityContext`. The compiler, Runtime, Experiment, Comparison, Evidence,
+Template, and CLI subsystems use this context. The context is a performance and ownership boundary.
+It is not a semantic authority.
 
 Explicitly injected Kernel/LDB candidates use separate contexts. They cannot change or populate the
 packaged baseline. The host caches canonical Wire-Schema meta-validation only for the actual schema
