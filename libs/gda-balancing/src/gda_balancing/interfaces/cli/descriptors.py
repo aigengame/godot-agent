@@ -92,10 +92,10 @@ class ConformanceFixtures:
     # declared public prerequisites inside the isolated conformance store.
     prepare_valid_document: Callable[[Path, int], str] | None = None
     prepare_verdict_document: Callable[[Path, int], str] | None = None
-    # Some verdicts prove drift between implementations and cannot arise from
-    # two correct executions at one exact head. Such a row states why the
-    # same-head matrix cannot construct it; a focused boundary test still must.
-    unavailable_verdict_fixture_reason: str | None = None
+    # A Verdict that represents same-head implementation drift can project one
+    # valid result for the generic model/channel/exit row. Focused tests still
+    # own the real semantic and publication fault injection.
+    project_verdict_for_conformance: Callable[[BaseModel], BaseModel] | None = None
     # Commands with several explicit file inputs may prepare their complete
     # option tail instead of pretending one input is a privileged document.
     prepare_args: Callable[[Path, int, bool], tuple[str, ...]] | None = None

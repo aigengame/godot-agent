@@ -177,6 +177,20 @@ def _prepare_replay_args(root: Path, token: int, refusing: bool) -> tuple[str, .
 
 run_experiment_replay = experiment_replay_handler()
 
+
+def _project_replay_verdict_for_conformance(
+    result: BaseModel,
+) -> ExperimentReplayVerdictResult:
+    """Project the generic channel row; focused tests inject real drift."""
+    if not isinstance(result, ExperimentReplayResult):
+        raise ValueError("Replay conformance projection requires a success result")
+    return ExperimentReplayVerdictResult(
+        outcome="mismatched",
+        mismatches=["evaluation-outcome-status"],
+        artifact_set=result.artifact_set,
+    )
+
+
 EXPERIMENT_REPLAY = CommandDescriptor(
     group="experiment",
     command="replay",
@@ -187,9 +201,7 @@ EXPERIMENT_REPLAY = CommandDescriptor(
     handler=run_experiment_replay,
     fixtures=ConformanceFixtures(
         prepare_args=_prepare_replay_args,
-        unavailable_verdict_fixture_reason=(
-            "same-head exact Replay cannot produce implementation drift"
-        ),
+        project_verdict_for_conformance=_project_replay_verdict_for_conformance,
     ),
     positional_field="specification",
     artifact_set=_REPLAY_SUCCESS_ARTIFACT_SET,

@@ -84,16 +84,29 @@ class TestPerDescriptorRows:
     def test_verdict_row(self, descriptor, run_cli, invocation, request):
         has_verdict_model = descriptor.verdict_model is not None
         has_verdict_fixture = descriptor.fixtures.prepare_verdict_document is not None
-        unavailable_reason = descriptor.fixtures.unavailable_verdict_fixture_reason
-        assert has_verdict_model == (has_verdict_fixture or bool(unavailable_reason))
-        assert not (has_verdict_fixture and unavailable_reason)
+        projector = descriptor.fixtures.project_verdict_for_conformance
+        assert has_verdict_model == (has_verdict_fixture or projector is not None)
+        assert not (has_verdict_fixture and projector is not None)
         if not has_verdict_model:
             _record_not_applicable(request, "descriptor declares no Verdict outcome")
             return
-        if unavailable_reason:
-            _record_not_applicable(request, unavailable_reason)
-            return
-        exit_code, stdout, stderr = run_cli(invocation(descriptor, verdicting=True))
+        registry = None
+        if projector is not None:
+            assert descriptor.handler is not None
+
+            def project_verdict(value, *, source=descriptor, project=projector):
+                assert source.handler is not None
+                return project(source.handler(value))
+
+            registry = tuple(
+                dataclasses.replace(item, handler=project_verdict)
+                if item is descriptor
+                else item
+                for item in REGISTRY
+            )
+        exit_code, stdout, stderr = run_cli(
+            invocation(descriptor, verdicting=has_verdict_fixture), registry
+        )
         assert (exit_code, stderr) == (1, "")
         payload = json.loads(stdout)
         jsonschema.validate(payload, descriptor.verdict_model.model_json_schema())
