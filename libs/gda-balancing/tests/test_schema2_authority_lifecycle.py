@@ -222,6 +222,12 @@ def test_packaged_context_derives_immutable_replay_comparison_policy_index():
         replace(context, replay_comparison_policy_index={})
     assert deepcopy(context) is context
 
+    mutable_kernel, mutable_ldb = context.mutable_pair()
+    with pytest.raises(ValueError, match="sealed Kernel and LDB"):
+        replace(context, kernel=mutable_kernel)
+    with pytest.raises(ValueError, match="sealed Kernel and LDB"):
+        replace(context, language_bundle=mutable_ldb)
+
 
 def test_mutable_builtin_descriptors_cannot_bypass_authority_freeze():
     authority_module.reset_packaged_authority_context_for_tests()

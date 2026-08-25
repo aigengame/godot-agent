@@ -272,10 +272,31 @@ class AdmittedAuthorityContext:
     language_bundle: dict[str, Any]
     replay_comparison_policy_index: Mapping[str, Mapping[str, Any]] = field(init=False)
     admission: BootstrapAdmission
-    canonical_kernel_bytes: bytes
-    canonical_language_bundle_bytes: bytes
+    canonical_kernel_bytes: bytes = field(init=False)
+    canonical_language_bundle_bytes: bytes = field(init=False)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kernel, _FrozenDict) or not isinstance(
+            self.language_bundle, _FrozenLanguageBundleIndex
+        ):
+            raise ValueError("an admitted context requires a sealed Kernel and LDB")
+        if (
+            not self.admission.admitted
+            or self.admission.kernel_identity != self.kernel.get("content_identity")
+            or self.admission.language_bundle_identity
+            != self.language_bundle.get("content_identity")
+        ):
+            raise ValueError("authority admission does not match the sealed context")
+        object.__setattr__(
+            self,
+            "canonical_kernel_bytes",
+            canonical_bytes(cast(JsonValue, self.kernel)),
+        )
+        object.__setattr__(
+            self,
+            "canonical_language_bundle_bytes",
+            _language_bundle_canonical_bytes(self.language_bundle),
+        )
         object.__setattr__(
             self,
             "replay_comparison_policy_index",
@@ -509,10 +530,6 @@ def _freeze_admitted_context(
         kernel=frozen_kernel,
         language_bundle=frozen_language_bundle,
         admission=admission,
-        canonical_kernel_bytes=canonical_bytes(cast(JsonValue, kernel)),
-        canonical_language_bundle_bytes=_language_bundle_canonical_bytes(
-            language_bundle
-        ),
     )
 
 
