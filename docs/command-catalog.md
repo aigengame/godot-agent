@@ -705,11 +705,14 @@ reimport test reads: `cached` needs positive ARTIFACT-level evidence (a keep/ski
 importer, or the PATH-derived `.md5` receipt present with `source_md5`/`dest_md5`
 matching the bytes — any declared destinations also present — plus `source_file` naming
 this asset and the UID-era format; a sidecar declaring no destinations but carrying a
-matching receipt is current to the engine too, while one with no importer line proves
-nothing and is conservatively `stale`); `missing` (no sidecar yet) and `stale` (an
-artifact check fails) are what the engine would import; `invalid` (the engine marked the last import
-`valid=false`, or the sidecar does not parse) is what the engine deliberately SKIPS —
-delete the sidecar to retry. Artifact-level is the boundary, not a proof of the engine's
+matching receipt passes the same artifact checks — the engine's own pass leaves it
+untouched when the engine-state remainder below is controlled — while one with no
+importer line proves nothing and is conservatively `stale`); `missing` (no sidecar yet)
+and `stale` (an artifact check fails) are what the engine would import; `invalid` (the
+engine marked the last import `valid=false`, or the sidecar or its `.md5` receipt does
+not parse — the engine's parse-error branches) is what the engine deliberately SKIPS —
+delete the sidecar to retry; that heals a malformed receipt too, because the pass
+rewrites both. Artifact-level is the boundary, not a proof of the engine's
 whole verdict: the checks the engine makes from its OWN state — whether the declared
 importer still exists (an open registry: import plugins add names), its format version,
 its project-settings validity, and the editor cache's expected sidecar MD5 — are not

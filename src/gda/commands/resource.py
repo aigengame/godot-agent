@@ -512,8 +512,9 @@ class ResourceImportAsset(BaseModel):
     absent, the recorded `source_md5`/`dest_md5` disagreeing with the bytes,
     `source_file` naming a different source, or the pre-UID format — the pass
     WOULD re-import it), or ``invalid`` (the engine marked the last import
-    `valid=false`, or the sidecar does not parse; the engine deliberately
-    SKIPS these — delete the sidecar to retry). A real run settles each
+    `valid=false`, or the sidecar or its `.md5` receipt does not parse; the
+    engine deliberately SKIPS these — delete the sidecar to retry, which
+    heals a malformed receipt too, because the pass rewrites both). A real run settles each
     non-cached state: ``imported``, ``not_importable`` (the pass decided the
     type needs no import — e.g. a script), or ``failed`` (still not cached
     after the pass; every ``invalid`` request settles here, because the pass
@@ -583,8 +584,9 @@ class ResourceImportSummary(BaseModel):
     )
     invalid: int = Field(
         description=(
-            "Assets whose last import the engine marked failed (nonzero only "
-            "on a dry run; the pass does not retry these)."
+            "Assets whose last import the engine marked failed, or whose "
+            "sidecar or .md5 receipt does not parse (nonzero only on a dry "
+            "run; the pass does not retry these)."
         )
     )
     imported: int = Field(description="Assets the pass imported.")
@@ -706,6 +708,8 @@ _DEST_FILES_LINE = re.compile(r"^dest_files=(\[.*\])$", re.MULTILINE)
 _INVALID_LINE = re.compile(r"^valid=false$", re.MULTILINE)
 _SOURCE_MD5_LINE = re.compile(r'^source_md5="([0-9a-f]+)"$', re.MULTILINE)
 _DEST_MD5_LINE = re.compile(r'^dest_md5="([0-9a-f]+)"$', re.MULTILINE)
+# The one line shape the engine ever writes into a .md5 receipt.
+_RECEIPT_LINE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*="[^"]*"$')
 _IMPORTER_LINE = re.compile(r'^importer="([^"]*)"$', re.MULTILINE)
 _UID_LINE = re.compile(r'^uid="[^"]*"$', re.MULTILINE)
 _SOURCE_FILE_LINE = re.compile(r'^source_file="([^"]*)"$', re.MULTILINE)
@@ -793,7 +797,12 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
 
     A faithful adaptation of ``EditorFileSystem::_test_for_reimport`` (#738
     review), in the engine's own order: an unparseable or ``valid=false``
-    sidecar is ``invalid`` (the engine SKIPS these rather than retrying); a
+    sidecar is ``invalid`` (the engine SKIPS these rather than retrying), and
+    so is an unparseable ``.md5`` receipt — the engine's receipt parse-error
+    branch is the same deliberate skip, never a re-import (#738 re-review 5);
+    gda's receipt grammar is the one line shape the engine ever writes
+    (``key="value"``), and a receipt outside it errs toward ``invalid``, the
+    no-pass direction the contract sanctions; a
     ``keep``/``skip`` importer is ``cached``; the pre-UID format, a missing
     remap/destination file, a ``source_file`` naming a different source (a
     copied sidecar), a missing ``.md5`` receipt (located at the PATH-derived
@@ -802,8 +811,9 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     engine WOULD re-import). ``cached`` needs POSITIVE evidence: a keep/skip
     importer, or the path-derived receipt present and matching — with any
     DECLARED destinations also present and digest-checked; a sidecar
-    declaring none but carrying a matching receipt is current to the engine
-    too (#738 re-review 4). A sidecar with no importer line proves nothing
+    declaring none but carrying a matching receipt passes the same checks
+    (#738 re-review 4; the engine's own pass leaves it untouched when the
+    declared remainder below is controlled — verified live). A sidecar with no importer line proves nothing
     and is conservatively ``stale`` (#738 re-review 2). The checks the engine makes
     from its own state — whether the DECLARED importer still exists (its
     registry is open: import plugins add names, so no offline list can be
@@ -891,8 +901,19 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     if not receipt.is_file():
         return state("stale", dests)
     receipt_text = receipt.read_text(encoding="utf-8", errors="replace")
+    # The engine parses the receipt with VariantParser, and ANY parse error
+    # is the same deliberate skip as a valid=false sidecar ("skip and let
+    # user attempt manual reimport to avoid reimport loop") — never a
+    # re-import (#738 re-review 5). A receipt line outside the shape the
+    # engine writes errs toward invalid, the sanctioned no-pass direction.
+    for line in receipt_text.splitlines():
+        stripped = line.strip()
+        if stripped and _RECEIPT_LINE.match(stripped) is None:
+            return state("invalid", dests)
     recorded_source = _SOURCE_MD5_LINE.search(receipt_text)
     if recorded_source is None:
+        # Parseable but lacking source_md5: the engine's "Lacks md5, so
+        # just reimport" — a pass state, unlike the parse error above.
         return state("stale", dests)
     if hashlib.md5((project / rel).read_bytes()).hexdigest() != recorded_source.group(
         1
@@ -1006,7 +1027,8 @@ def run_resource_import_operation(
     cache_root = "res://" + _CACHE_ROOT_REL
     # The pass runs for what the engine would act on: missing and stale.
     # An invalid request never triggers it — the engine skips a previously
-    # failed import (delete the sidecar to retry) — so it settles to failed
+    # failed import and an unparseable artifact (delete the sidecar to
+    # retry) — so it settles to failed
     # without spending a pass.
     needs_pass = any(asset.status in ("missing", "stale") for asset in assets)
 
@@ -1118,8 +1140,9 @@ def render_resource_import(outcome: "ResourceImportResult") -> str:
     lines = [f"  {asset.status:>14}  {asset.path}" for asset in outcome.assets]
     if any(asset.status == "invalid" for asset in outcome.assets):
         lines.append(
-            "  invalid: the engine does not retry a failed import; delete the "
-            "asset's .import sidecar to retry"
+            "  invalid: the engine does not retry a failed or unparseable "
+            "import; delete the asset's .import sidecar to retry (the pass "
+            "rewrites the sidecar and its .md5 receipt)"
         )
     if outcome.pass_will_also_import:
         lines.append("  the pass will also re-import:")
@@ -1193,7 +1216,8 @@ def resource_import(
     only when a request is missing or stale, runs the engine's import pass —
     which is PROJECT-WIDE, the engine's one scriptable import primitive; an
     invalid request settles `failed` without a pass (the engine skips
-    previously failed imports — delete the sidecar to retry). It then reports
+    previously failed imports and unparseable artifacts — delete the sidecar
+    to retry). It then reports
     every file the pass created, classified against the cache root
     (cache-owned under .godot/ vs source-adjacent, e.g. .import and .uid
     sidecars). `--dry-run` reports the states and the decidable predictions

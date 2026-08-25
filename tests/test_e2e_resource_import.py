@@ -8,7 +8,9 @@ classified, the second run is a no-pass cache hit, and a script is the
 engine-decided `not_importable`. Run e2e SERIALLY; not a fresh empty HOME.
 """
 
+import hashlib
 import json
+import os
 import struct
 import subprocess
 import zlib
@@ -56,6 +58,21 @@ def _project(tmp_path: Path) -> Path:
     _png(tmp_path / "icon.png", (255, 0, 0))
     (tmp_path / "check.gd").write_text(CHECK_GD, encoding="utf-8")
     return tmp_path
+
+
+def _receipt(project: Path, asset: str) -> Path:
+    digest = hashlib.md5(f"res://{asset}".encode()).hexdigest()
+    return project / ".godot" / "imported" / f"{Path(asset).name}-{digest}.md5"
+
+
+def _native_import(project: Path) -> subprocess.CompletedProcess:
+    """The engine's OWN import pass, no gda in between (native parity)."""
+    return subprocess.run(
+        [str(GODOT), "--headless", "--path", str(project), "--import"],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
 
 
 def _gda(project: Path, *args: str) -> subprocess.CompletedProcess:
@@ -265,20 +282,41 @@ def test_alias_sidecar_and_invalid_skip_match_the_engine(tmp_path):
 def test_no_destination_sidecar_matches_the_engines_current_verdict(tmp_path):
     # #738 re-review 4 [P1], the real-engine reproduction: strip only the
     # path=/dest_files= lines from a normally imported sidecar (receipts and
-    # everything else intact). The engine's reimport test considers that
-    # CURRENT (nothing to check, receipts pass); gda must agree — no pass
-    # spent, never settled to failed, and excluded from the gap prediction.
+    # everything else intact). With the declared engine-state remainder
+    # controlled — the editor cache's expected sidecar MD5 synchronized to
+    # the mutated bytes (#738 re-review 5 [P2]) — the NATIVE pass leaves the
+    # sidecar untouched, and gda agrees: cached, no pass spent, never
+    # settled to failed, excluded from the gap prediction.
     project = _project(tmp_path)
     first = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
     assert first["assets"][0]["status"] == "imported"
 
     sidecar = project / "icon.png.import"
+    old_md5 = hashlib.md5(sidecar.read_bytes()).hexdigest()
     kept = [
         line
         for line in sidecar.read_text(encoding="utf-8").splitlines()
         if not line.startswith("path=") and not line.startswith("dest_files=")
     ]
     sidecar.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    mutated = sidecar.read_bytes()
+
+    # Control the remainder: the editor cache pins the sidecar's expected
+    # MD5 (filesystem_cache10; _test_for_reimport's first check), so align
+    # that one recorded digest with the mutated bytes...
+    cache = project / ".godot" / "editor" / "filesystem_cache10"
+    cache_text = cache.read_text(encoding="utf-8")
+    assert cache_text.count(old_md5) == 1
+    cache.write_text(
+        cache_text.replace(old_md5, hashlib.md5(mutated).hexdigest()),
+        encoding="utf-8",
+    )
+    # ...then prove the native verdict the test's name claims: the engine's
+    # own pass reaches the full reimport test (the sidecar mtime changed)
+    # and still leaves the mutated sidecar byte-identical.
+    native = _native_import(project)
+    assert native.returncode == 0, native.stderr
+    assert sidecar.read_bytes() == mutated
 
     dry = json.loads(
         _gda(project, "resource", "import", "res://icon.png", "--dry-run").stdout
@@ -293,6 +331,54 @@ def test_no_destination_sidecar_matches_the_engines_current_verdict(tmp_path):
 
     # And a request for a NEW asset must not falsely predict this one.
     _png(project / "fresh.png", (1, 2, 3))
+    gap = json.loads(
+        _gda(project, "resource", "import", "res://fresh.png", "--dry-run").stdout
+    )
+    assert "res://icon.png" not in gap["pass_will_also_import"]
+
+
+@pytest.mark.e2e
+def test_malformed_receipt_matches_the_engines_deliberate_skip(tmp_path):
+    # #738 re-review 5 [P1]: a receipt VariantParser cannot parse hits the
+    # engine's "skip and let user attempt manual reimport to avoid reimport
+    # loop" branch — no re-import, artifacts untouched. gda must agree:
+    # invalid, no pass spent, settled failed without launching the engine.
+    project = _project(tmp_path)
+    first = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
+    assert first["assets"][0]["status"] == "imported"
+
+    sidecar = project / "icon.png.import"
+    receipt = _receipt(project, "icon.png")
+    dest = Path(str(receipt)[: -len(".md5")] + ".ctex")
+    receipt.write_text("source_md5=[\n", encoding="utf-8")
+    # Bump the sidecar mtime so the editor's cache trust does not
+    # short-circuit the check: the content is unchanged, so the expected
+    # sidecar MD5 still matches and _test_for_reimport actually reaches the
+    # receipt parse error.
+    stat = sidecar.stat()
+    os.utime(sidecar, (stat.st_atime + 10, stat.st_mtime + 10))
+    sidecar_bytes = sidecar.read_bytes()
+    dest_bytes = dest.read_bytes()
+
+    native = _native_import(project)
+    assert native.returncode == 0, native.stderr
+    assert sidecar.read_bytes() == sidecar_bytes
+    assert receipt.read_text(encoding="utf-8") == "source_md5=[\n"
+    assert dest.read_bytes() == dest_bytes
+
+    dry = json.loads(
+        _gda(project, "resource", "import", "res://icon.png", "--dry-run").stdout
+    )
+    assert dry["assets"][0]["status"] == "invalid"
+    assert dry["engine_pass"] is False
+
+    real = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
+    assert real["assets"][0]["status"] == "failed"
+    assert real["engine_pass"] is False
+    assert real["created"] == []
+
+    # And another asset's dry run must not predict the skipped one.
+    _png(project / "fresh.png", (9, 9, 9))
     gap = json.loads(
         _gda(project, "resource", "import", "res://fresh.png", "--dry-run").stdout
     )

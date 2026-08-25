@@ -323,6 +323,62 @@ def test_stale_source_is_stale_not_cached(tmp_path):
     assert data["engine_pass"] is True
 
 
+def test_malformed_receipt_is_invalid_and_spends_no_pass(monkeypatch, tmp_path):
+    # #738 re-review 5 [P1]: the engine parses the receipt with VariantParser
+    # and treats a parse error as the same deliberate skip as valid=false —
+    # "skip and let user attempt manual reimport to avoid reimport loop",
+    # never a re-import. gda must not spend a pass the engine would not run,
+    # and must not settle the asset failed AFTER spending one.
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    _receipt_path(project, "icon.png").write_text("source_md5=[\n", encoding="utf-8")
+
+    dry = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+    assert dry["assets"][0]["status"] == "invalid"
+    assert dry["engine_pass"] is False
+    assert dry["summary"]["invalid"] == 1
+
+    calls, fake_launch = _fake_pass(project, lambda p: None)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    real = json.loads(_run(project, "res://icon.png").stdout)
+    assert real["assets"][0]["status"] == "failed"
+    assert real["engine_pass"] is False
+    assert calls == []
+
+
+def test_malformed_receipt_neighbor_is_excluded_from_the_gap_scan(tmp_path):
+    # ...and the same skip state must not be predicted as pass work when
+    # ANOTHER asset triggers the pass.
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    _receipt_path(project, "icon.png").write_text("source_md5=[\n", encoding="utf-8")
+    (project / "fresh.png").write_bytes(b"\x89PNG fresh")
+
+    data = json.loads(_run(project, "res://fresh.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "missing"
+    assert data["pass_will_also_import"] == []
+
+
+def test_receipt_lacking_source_md5_is_stale_not_invalid(tmp_path):
+    # The boundary NEXT to the parse error: a receipt that PARSES but lacks
+    # source_md5 is the engine's "Lacks md5, so just reimport" — a pass
+    # state, not the deliberate skip.
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    _receipt_path(project, "icon.png").write_text(
+        'dest_md5="' + "a" * 32 + '"\n', encoding="utf-8"
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "stale"
+    assert data["engine_pass"] is True
+
+
 def test_missing_md5_receipt_is_stale_not_cached(tmp_path):
     # #738 review [P1]: without the receipt the engine cannot prove freshness
     # and re-imports; gda must not claim a hit the engine would not.
