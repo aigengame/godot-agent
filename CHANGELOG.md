@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.0](https://github.com/aigengame/godot-agent/compare/v0.10.0...v0.11.0) (2026-08-25)
+
+
+### Features
+
+* **gda:** complete activation gestures and guard the viewport-enter notify ([#647](https://github.com/aigengame/godot-agent/issues/647), [#652](https://github.com/aigengame/godot-agent/issues/652)) ([#732](https://github.com/aigengame/godot-agent/issues/732)) ([03e4720](https://github.com/aigengame/godot-agent/commit/03e472085c03955245b5157be447fb4d1143fedf))
+* **gda:** dogfooding wave 4 — harness/daemon wave (dev→main promotion) ([85d8a28](https://github.com/aigengame/godot-agent/commit/85d8a285eacd2b7523f01216b6eca868cab59933))
+* **gda:** perf sample — bounded engine-monitor windows with statistics and budget verdicts ([#662](https://github.com/aigengame/godot-agent/issues/662)) ([#735](https://github.com/aigengame/godot-agent/issues/735)) ([977ae71](https://github.com/aigengame/godot-agent/commit/977ae71c25f3dfd705a467af90ff09a7d4c7bfd0))
+* **gda:** resource import — scoped import surface for clean-worktree loading ([#668](https://github.com/aigengame/godot-agent/issues/668)) ([#738](https://github.com/aigengame/godot-agent/issues/738)) ([f430e27](https://github.com/aigengame/godot-agent/commit/f430e2777ac0d8cb34826d8d5a720f9d767c9553))
+* **gda:** texture projection — inspectable identity for path-less resource values ([#666](https://github.com/aigengame/godot-agent/issues/666)) ([#736](https://github.com/aigengame/godot-agent/issues/736)) ([c7f6e4c](https://github.com/aigengame/godot-agent/commit/c7f6e4c01e25e53b05953c80b72966adc3e504f8))
+
 ## [0.10.0](https://github.com/aigengame/godot-agent/compare/v0.9.0...v0.10.0) (2026-08-21)
 
 
