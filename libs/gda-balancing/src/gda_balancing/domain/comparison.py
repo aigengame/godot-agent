@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from gda_balancing.domain.artifacts import identified_artifact, verify_artifact
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
@@ -299,15 +300,17 @@ def _observation(
 
 def _comparison_value(
     *,
-    language_bundle: dict[str, Any],
-    policy_index: Mapping[str, Mapping[str, Any]],
+    authority_context: AdmittedAuthorityContext,
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
 ) -> dict[str, JsonValue]:
     if not original_artifact_set_receipt_identity:
         raise ValueError("the original Artifact-set receipt identity is empty")
-    policy, policy_checks = _policy_binding(policy_index)
+    language_bundle = authority_context.language_bundle
+    policy, policy_checks = _policy_binding(
+        authority_context.replay_comparison_policy_index
+    )
     original, original_kind, original_identity = _observation(
         original_members, language_bundle, original=True
     )
@@ -374,24 +377,21 @@ def _comparison_value(
 
 def compare_exact_replay(
     *,
-    language_bundle: dict[str, Any],
-    policy_index: Mapping[str, Mapping[str, Any]],
+    authority_context: AdmittedAuthorityContext,
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
 ) -> PublicationMember:
     """Apply the admitted exact Replay policy to explicit observations."""
     value = _comparison_value(
-        language_bundle=language_bundle,
-        policy_index=policy_index,
+        authority_context=authority_context,
         original_artifact_set_receipt_identity=(original_artifact_set_receipt_identity),
         original_members=original_members,
         replay_members=replay_members,
     )
     if not validate_exact_replay_comparison(
         value,
-        language_bundle=language_bundle,
-        policy_index=policy_index,
+        authority_context=authority_context,
         original_artifact_set_receipt_identity=(original_artifact_set_receipt_identity),
         original_members=original_members,
         replay_members=replay_members,
@@ -408,8 +408,7 @@ def compare_exact_replay(
 def validate_exact_replay_comparison(
     value: dict[str, Any],
     *,
-    language_bundle: dict[str, Any],
-    policy_index: Mapping[str, Mapping[str, Any]],
+    authority_context: AdmittedAuthorityContext,
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
@@ -417,8 +416,7 @@ def validate_exact_replay_comparison(
     """Independently reconstruct and validate every Replay comparison binding."""
     try:
         expected = _comparison_value(
-            language_bundle=language_bundle,
-            policy_index=policy_index,
+            authority_context=authority_context,
             original_artifact_set_receipt_identity=(
                 original_artifact_set_receipt_identity
             ),
@@ -427,6 +425,7 @@ def validate_exact_replay_comparison(
         )
     except (KeyError, TypeError, ValueError):
         return False
+    language_bundle = authority_context.language_bundle
     return verify_artifact(value, language_bundle) and canonical_bytes(
         cast(JsonValue, value)
     ) == canonical_bytes(cast(JsonValue, expected))
@@ -435,15 +434,17 @@ def validate_exact_replay_comparison(
 def validate_published_exact_replay_comparison(
     value: dict[str, Any],
     *,
-    language_bundle: dict[str, Any],
-    policy_index: Mapping[str, Mapping[str, Any]],
+    authority_context: AdmittedAuthorityContext,
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
 ) -> bool:
     """Validate a published comparison from its retained supporting members."""
     try:
-        policy, policy_checks = _policy_binding(policy_index)
+        language_bundle = authority_context.language_bundle
+        policy, policy_checks = _policy_binding(
+            authority_context.replay_comparison_policy_index
+        )
         original, original_kind, original_identity = _observation(
             original_members, language_bundle, original=True
         )

@@ -31,9 +31,9 @@ from gda_balancing.interfaces.cli.experiment_fixtures import (
 from gda_balancing.interfaces.cli.registry import REGISTRY
 
 
-def _policy_index(checked: CheckedExperiment):
+def _authority_context(checked: CheckedExperiment):
     assert checked.authority_context is not None
-    return checked.authority_context.replay_comparison_policy_index
+    return checked.authority_context
 
 
 def _accepted_execution(
@@ -180,8 +180,7 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execut
     checked, execution = accepted_execution
 
     comparison = compare_exact_replay(
-        language_bundle=checked.language_bundle,
-        policy_index=_policy_index(checked),
+        authority_context=_authority_context(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=execution.members,
         replay_members=execution.members,
@@ -206,8 +205,7 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execut
     assert all(row["match"] is True for row in comparison.value["checks"])
     assert validate_exact_replay_comparison(
         comparison.value,
-        language_bundle=checked.language_bundle,
-        policy_index=_policy_index(checked),
+        authority_context=_authority_context(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=execution.members,
         replay_members=execution.members,
@@ -219,8 +217,7 @@ def test_exact_replay_comparison_reports_complete_ordered_mismatch(accepted_exec
     replay = _same_reproduction_drift(original_checked, original)
 
     comparison = compare_exact_replay(
-        language_bundle=original_checked.language_bundle,
-        policy_index=_policy_index(original_checked),
+        authority_context=_authority_context(original_checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=replay.members,
@@ -248,8 +245,7 @@ def test_exact_replay_comparison_rejects_a_foreign_reproduction(
 
     with pytest.raises(ValueError, match="complete reproduction"):
         compare_exact_replay(
-            language_bundle=original_checked.language_bundle,
-            policy_index=_policy_index(original_checked),
+            authority_context=_authority_context(original_checked),
             original_artifact_set_receipt_identity="sha256:original-receipt",
             original_members=original.members,
             replay_members=replay.members,
@@ -262,8 +258,7 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
     checked, original = accepted_execution
     replay = _same_reproduction_drift(checked, original)
     comparison = compare_exact_replay(
-        language_bundle=checked.language_bundle,
-        policy_index=_policy_index(checked),
+        authority_context=_authority_context(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=replay.members,
@@ -276,8 +271,7 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
 
     assert validate_published_exact_replay_comparison(
         comparison.value,
-        language_bundle=checked.language_bundle,
-        policy_index=_policy_index(checked),
+        authority_context=_authority_context(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=retained_replay_members,
@@ -290,8 +284,7 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
     )
     assert not validate_published_exact_replay_comparison(
         forged,
-        language_bundle=checked.language_bundle,
-        policy_index=_policy_index(checked),
+        authority_context=_authority_context(checked),
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=retained_replay_members,
