@@ -488,8 +488,9 @@ class ResourceImportParams(BaseModel):
         default=300.0,
         gt=0,
         description=(
-            "Seconds to allow the engine import pass (it imports every missing "
-            "asset in the project, not only the requested ones)."
+            "Seconds to allow the engine import pass (it re-imports every "
+            "missing or stale asset in the project, not only the requested "
+            "ones)."
         ),
     )
 
@@ -566,7 +567,12 @@ class ResourceImportSummary(BaseModel):
     """The machine-readable completion summary of ``gda resource import`` (#668)."""
 
     requested: int = Field(description="Assets requested.")
-    cached: int = Field(description="Assets whose cache was already intact.")
+    cached: int = Field(
+        description=(
+            "Assets the artifacts show the engine's pass would leave as is "
+            "(subject to the declared engine-state remainder)."
+        )
+    )
     missing: int = Field(
         description="Assets with no sidecar yet (nonzero only on a dry run)."
     )
@@ -705,10 +711,13 @@ _UID_LINE = re.compile(r'^uid="[^"]*"$', re.MULTILINE)
 _SOURCE_FILE_LINE = re.compile(r'^source_file="([^"]*)"$', re.MULTILINE)
 _PATH_LINE = re.compile(r'^path[.\w]*="([^"]*)"$', re.MULTILINE)
 _FILES_LINE = re.compile(r"^files=(\[.*\])$", re.MULTILINE)
-# A destination is named `<source name>-<32-hex path hash>[.variant].ext`; the
-# engine keeps ONE `.md5` receipt per asset at `<base>.md5`, where base is the
-# name up to and including that hash.
-_DEST_BASE = re.compile(r"^(.+?-[0-9a-f]{32})")
+# The engine keeps ONE `.md5` receipt per asset at `<import base>.md5`, where
+# the import base is DERIVED FROM THE ASSET PATH — `.godot/imported/
+# <filename>-<md5 of the res:// path>` (ResourceFormatImporter::
+# get_import_base_path) — independent of whether the sidecar declares any
+# destinations. Deriving it the same way (verified against a real import's
+# hash) is what lets the verdict follow the engine on a no-destination
+# sidecar (#738 re-review 4).
 
 
 def _asset_res_path(project: Path, raw: str) -> "str | Failure":
@@ -787,12 +796,15 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     sidecar is ``invalid`` (the engine SKIPS these rather than retrying); a
     ``keep``/``skip`` importer is ``cached``; the pre-UID format, a missing
     remap/destination file, a ``source_file`` naming a different source (a
-    copied sidecar), a missing ``.md5`` receipt, or a ``source_md5`` /
+    copied sidecar), a missing ``.md5`` receipt (located at the PATH-derived
+    import base, as the engine locates it), or a ``source_md5`` /
     ``dest_md5`` disagreeing with the actual bytes are all ``stale`` (the
     engine WOULD re-import). ``cached`` needs POSITIVE evidence: a keep/skip
-    importer, or declared destinations proven by the receipts — a sidecar
-    with no importer line or no destinations proves nothing and is
-    conservatively ``stale`` (#738 re-review 2). The checks the engine makes
+    importer, or the path-derived receipt present and matching — with any
+    DECLARED destinations also present and digest-checked; a sidecar
+    declaring none but carrying a matching receipt is current to the engine
+    too (#738 re-review 4). A sidecar with no importer line proves nothing
+    and is conservatively ``stale`` (#738 re-review 2). The checks the engine makes
     from its own state — whether the DECLARED importer still exists (its
     registry is open: import plugins add names, so no offline list can be
     authoritative), its format version, its project-settings validity, and
@@ -859,43 +871,44 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     source_file = _SOURCE_FILE_LINE.search(text)
     if source_file is not None and source_file.group(1) != res_path:
         return state("stale", dests)  # a copied sidecar names another source
-    # The engine's one .md5 receipt per asset, at <dest base>.md5.
-    receipt: Path | None = None
-    for dest in dests:
-        base = _DEST_BASE.match(Path(dest[len("res://") :]).name)
-        if base:
-            receipt = (
-                project / Path(dest[len("res://") :]).parent / (base.group(1) + ".md5")
-            )
-            break
-    if dests:
-        if receipt is None or not receipt.is_file():
+    # The engine's one .md5 receipt per asset, at the path-derived import
+    # base — read whether or not destinations are declared, exactly as
+    # _test_for_reimport reads it. A missing receipt is what the engine
+    # re-imports; a present, matching one is the POSITIVE evidence a cached
+    # verdict needs — including for a sidecar that declares no destinations,
+    # which the engine leaves untouched (#738 re-review 4, verified live).
+    receipt = (
+        project
+        / ".godot"
+        / "imported"
+        / (
+            Path(rel).name
+            + "-"
+            + hashlib.md5(res_path.encode("utf-8")).hexdigest()
+            + ".md5"
+        )
+    )
+    if not receipt.is_file():
+        return state("stale", dests)
+    receipt_text = receipt.read_text(encoding="utf-8", errors="replace")
+    recorded_source = _SOURCE_MD5_LINE.search(receipt_text)
+    if recorded_source is None:
+        return state("stale", dests)
+    if hashlib.md5((project / rel).read_bytes()).hexdigest() != recorded_source.group(
+        1
+    ):
+        return state("stale", dests)
+    recorded_dest = _DEST_MD5_LINE.search(receipt_text)
+    if dests and recorded_dest is not None:
+        # The engine's multi-file digest: one MD5 over every destination's
+        # bytes, in the sidecar's order (FileAccess::get_multiple_md5).
+        ctx = hashlib.md5()
+        for dest in dests:
+            dest_fs = project / dest[len("res://") :]
+            if dest_fs.is_file():
+                ctx.update(dest_fs.read_bytes())
+        if ctx.hexdigest() != recorded_dest.group(1):
             return state("stale", dests)
-        receipt_text = receipt.read_text(encoding="utf-8", errors="replace")
-        recorded_source = _SOURCE_MD5_LINE.search(receipt_text)
-        if recorded_source is None:
-            return state("stale", dests)
-        if hashlib.md5(
-            (project / rel).read_bytes()
-        ).hexdigest() != recorded_source.group(1):
-            return state("stale", dests)
-        recorded_dest = _DEST_MD5_LINE.search(receipt_text)
-        if recorded_dest is not None:
-            # The engine's multi-file digest: one MD5 over every destination's
-            # bytes, in the sidecar's order (FileAccess::get_multiple_md5).
-            ctx = hashlib.md5()
-            for dest in dests:
-                dest_fs = project / dest[len("res://") :]
-                if dest_fs.is_file():
-                    ctx.update(dest_fs.read_bytes())
-            if ctx.hexdigest() != recorded_dest.group(1):
-                return state("stale", dests)
-    else:
-        # A CACHED verdict needs POSITIVE evidence (#738 re-review 2): with no
-        # destinations declared (and no keep/skip importer), nothing proves
-        # the cache — a minimal or hand-altered sidecar must not suppress the
-        # pass the engine would run. Conservatively stale.
-        return state("stale")
     return state("cached", dests)
 
 

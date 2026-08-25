@@ -259,3 +259,41 @@ def test_alias_sidecar_and_invalid_skip_match_the_engine(tmp_path):
     assert 'source_file="res://alias2.png"' in rewritten
     # And the invalid neighbor's sidecar is byte-identical: the pass skipped it.
     assert (project / "bad.png.import").read_bytes() == bad_sidecar_before
+
+
+@pytest.mark.e2e
+def test_no_destination_sidecar_matches_the_engines_current_verdict(tmp_path):
+    # #738 re-review 4 [P1], the real-engine reproduction: strip only the
+    # path=/dest_files= lines from a normally imported sidecar (receipts and
+    # everything else intact). The engine's reimport test considers that
+    # CURRENT (nothing to check, receipts pass); gda must agree — no pass
+    # spent, never settled to failed, and excluded from the gap prediction.
+    project = _project(tmp_path)
+    first = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
+    assert first["assets"][0]["status"] == "imported"
+
+    sidecar = project / "icon.png.import"
+    kept = [
+        line
+        for line in sidecar.read_text(encoding="utf-8").splitlines()
+        if not line.startswith("path=") and not line.startswith("dest_files=")
+    ]
+    sidecar.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+    dry = json.loads(
+        _gda(project, "resource", "import", "res://icon.png", "--dry-run").stdout
+    )
+    assert dry["assets"][0]["status"] == "cached"
+    assert dry["engine_pass"] is False
+
+    real = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
+    assert real["assets"][0]["status"] == "cached"
+    assert real["engine_pass"] is False
+    assert real["created"] == []
+
+    # And a request for a NEW asset must not falsely predict this one.
+    _png(project / "fresh.png", (1, 2, 3))
+    gap = json.loads(
+        _gda(project, "resource", "import", "res://fresh.png", "--dry-run").stdout
+    )
+    assert "res://icon.png" not in gap["pass_will_also_import"]

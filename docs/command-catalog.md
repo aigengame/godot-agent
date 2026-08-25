@@ -702,11 +702,12 @@ worktree carries the sources and their committed `.import` sidecars but not the 
 resource loader" (GDA-DF-010). `resource import ASSETS... [--dry-run] [--timeout S]` reads
 each requested asset's EVIDENCE STATE from the same project artifacts the engine's own
 reimport test reads: `cached` needs positive ARTIFACT-level evidence (a keep/skip
-importer, or declared destinations present with the `.md5` receipt's
-`source_md5`/`dest_md5` matching the bytes, `source_file` naming this asset, the UID-era
-format — a sidecar proving nothing, e.g. one with no importer or destinations, is
-conservatively `stale`); `missing` (no sidecar yet) and `stale` (an artifact check fails)
-are what the engine would import; `invalid` (the engine marked the last import
+importer, or the PATH-derived `.md5` receipt present with `source_md5`/`dest_md5`
+matching the bytes — any declared destinations also present — plus `source_file` naming
+this asset and the UID-era format; a sidecar declaring no destinations but carrying a
+matching receipt is current to the engine too, while one with no importer line proves
+nothing and is conservatively `stale`); `missing` (no sidecar yet) and `stale` (an
+artifact check fails) are what the engine would import; `invalid` (the engine marked the last import
 `valid=false`, or the sidecar does not parse) is what the engine deliberately SKIPS —
 delete the sidecar to retry. Artifact-level is the boundary, not a proof of the engine's
 whole verdict: the checks the engine makes from its OWN state — whether the declared

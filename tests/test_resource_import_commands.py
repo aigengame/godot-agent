@@ -52,13 +52,24 @@ def _sidecar(
     (project / f"{asset}.import").write_text("".join(lines), encoding="utf-8")
 
 
+def _receipt_path(project: Path, asset: str) -> Path:
+    """The engine's per-asset receipt, at the PATH-derived import base:
+    .godot/imported/<filename>-<md5 of the res:// path>.md5 — how
+    ResourceFormatImporter::get_import_base_path derives it."""
+    import hashlib
+
+    digest = hashlib.md5(f"res://{asset}".encode()).hexdigest()
+    return project / ".godot" / "imported" / f"{Path(asset).name}-{digest}.md5"
+
+
 def _md5_companion(project: Path, dest_rel: str, source_rel: str) -> None:
-    """The engine's freshness receipt: <dest stem>.md5 recording source_md5."""
+    """The engine's freshness receipt for ``source_rel``, recording source_md5."""
     import hashlib
 
     digest = hashlib.md5((project / source_rel).read_bytes()).hexdigest()
-    stem = dest_rel.rsplit(".", 1)[0]
-    (project / f"{stem}.md5").write_text(f'source_md5="{digest}"\n', encoding="utf-8")
+    receipt = _receipt_path(project, source_rel)
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(f'source_md5="{digest}"\n', encoding="utf-8")
 
 
 def _cached_asset(project: Path, asset: str, dest_rel: str) -> None:
@@ -318,7 +329,7 @@ def test_missing_md5_receipt_is_stale_not_cached(tmp_path):
     project = _project(tmp_path)
     dest = ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex"
     _cached_asset(project, "icon.png", dest)
-    (project / ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md5").unlink()
+    _receipt_path(project, "icon.png").unlink()
 
     data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
 
@@ -351,7 +362,7 @@ def test_dest_md5_mismatch_is_stale(tmp_path):
     project = _project(tmp_path)
     dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
     _cached_asset(project, "icon.png", dest)
-    receipt = project / (".godot/imported/icon.png-" + "a" * 32 + ".md5")
+    receipt = _receipt_path(project, "icon.png")
     dest_digest = hashlib.md5(b"OTHER BYTES").hexdigest()
     receipt.write_text(
         receipt.read_text(encoding="utf-8") + f'dest_md5="{dest_digest}"\n',
@@ -385,6 +396,38 @@ def test_human_dry_run_renders_the_project_wide_prediction(tmp_path):
     assert result.exit_code == 0, result.stdout + result.stderr
     assert "will also re-import" in result.stdout
     assert "res://other.png" in result.stdout
+
+
+def test_no_destination_sidecar_with_matching_receipt_is_cached(tmp_path):
+    # #738 re-review 4 [P1]: a sidecar declaring no destinations, whose
+    # path-derived receipt exists and matches, is CURRENT to the engine
+    # (there is nothing to check and the receipts pass) — the pass leaves it
+    # untouched, so gda must not spend a pass on it or settle it failed.
+    project = _project(tmp_path)
+    _sidecar(project, "icon.png", None)  # importer=texture, uid, source_file
+    _md5_companion(project, "", "icon.png")
+
+    dry = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+    assert dry["assets"][0]["status"] == "cached"
+    assert dry["engine_pass"] is False
+
+    real = json.loads(_run(project, "res://icon.png").stdout)
+    assert real["assets"][0]["status"] == "cached"
+    assert real["engine_pass"] is False
+
+
+def test_no_destination_sidecar_is_excluded_from_the_gap_scan(tmp_path):
+    # ...and the same state must not be falsely listed as something the pass
+    # will re-import when ANOTHER asset triggers it.
+    project = _project(tmp_path)
+    _sidecar(project, "icon.png", None)
+    _md5_companion(project, "", "icon.png")
+    (project / "fresh.png").write_bytes(b"\x89PNG fresh")
+
+    data = json.loads(_run(project, "res://fresh.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "missing"
+    assert data["pass_will_also_import"] == []
 
 
 def test_minimal_sidecar_is_stale_not_cached(tmp_path):
