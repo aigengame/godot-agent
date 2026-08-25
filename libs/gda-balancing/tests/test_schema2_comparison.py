@@ -18,6 +18,7 @@ from gda_balancing.domain.artifacts import identified_artifact
 from gda_balancing.domain.comparison import (
     EXACT_REPLAY_COMPARISON_IMPLEMENTATION,
     compare_exact_replay,
+    exact_replay_reproduction_refusal,
     validate_exact_replay_comparison,
     validate_published_exact_replay_comparison,
 )
@@ -445,6 +446,7 @@ def test_public_replay_refuses_a_prepared_runtime_drift_before_dispatch(
 def test_complete_reproduction_check_covers_every_identity_class(accepted_execution):
     checked, execution = accepted_execution
     original = execution.members["reproduction-receipt"].value
+    assert exact_replay_reproduction_refusal(checked, original, original) is None
     changes = (
         ("kernel_identity", "sha256:" + "1" * 64),
         ("resolved_model_identity", "sha256:" + "2" * 64),
@@ -470,9 +472,12 @@ def test_complete_reproduction_check_covers_every_identity_class(accepted_execut
         payload = _artifact_payload(original)
         payload[field] = replacement
         changed = _member(checked, "reproduction-receipt", payload)
-        assert not replay_application._same_complete_reproduction(
-            original, changed.value
-        ), field
+        refusal = exact_replay_reproduction_refusal(checked, original, changed.value)
+        assert refusal is not None, field
+        assert refusal.stage == "evaluation"
+        assert refusal.diagnostics[0].code == (
+            "evaluation.replay_reproduction_mismatch"
+        )
 
 
 def test_public_replay_refuses_a_non_successful_original_run(tmp_path, run_cli):

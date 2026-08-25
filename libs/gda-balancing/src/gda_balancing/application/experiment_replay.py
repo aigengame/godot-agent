@@ -11,13 +11,14 @@ from gda_balancing.application.experiment_execution import (
 )
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.artifacts import verify_artifact
-from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.comparison import (
     compare_exact_replay,
+    exact_replay_input_identity,
+    exact_replay_original_refusal,
+    exact_replay_reproduction_refusal,
     validate_published_exact_replay_comparison,
 )
 from gda_balancing.domain.diagnostics import (
-    ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
     ingress_refusal,
@@ -64,50 +65,6 @@ def _publication_members(
     }
 
 
-def _evaluation_refusal(
-    checked: CheckedExperiment, code: str, pointer: str, message: str
-) -> Schema2RefusalReport:
-    return Schema2RefusalReport(
-        stage="evaluation",
-        diagnostics=(
-            Schema2Diagnostic(
-                code=code,
-                message=message,
-                primary=ArtifactLocation(
-                    content_identity=checked.content_identity,
-                    pointer=pointer,
-                ),
-            ),
-        ),
-        truncated=False,
-    )
-
-
-def _replay_input_identity(
-    checked: CheckedExperiment, original_receipt_identity: str
-) -> str:
-    return content_identity(
-        "experiment-replay-command-input-v1",
-        cast(
-            JsonValue,
-            {
-                "experiment_identity": checked.content_identity,
-                "original_experiment_run_artifact_set_receipt_identity": (
-                    original_receipt_identity
-                ),
-            },
-        ),
-    )
-
-
-def _same_complete_reproduction(
-    original: dict[str, Any], prepared: dict[str, Any]
-) -> bool:
-    return canonical_bytes(cast(JsonValue, original)) == canonical_bytes(
-        cast(JsonValue, prepared)
-    )
-
-
 def replay_experiment(
     specification: str,
     original_receipt: str,
@@ -142,23 +99,15 @@ def replay_experiment(
     if isinstance(checked, Schema2RefusalReport):
         return checked
     assert isinstance(checked, CheckedExperiment)
-    if "evaluation-run" not in original.artifacts:
-        return _evaluation_refusal(
-            checked,
-            "evaluation.replay_ineligible_outcome",
-            "/original_experiment_run_artifact_set_receipt",
-            "The original publication is not a successful Evaluation run",
-        )
-    if not validate_experiment_artifact_set(checked, original.artifacts):
-        return _evaluation_refusal(
-            checked,
-            "evaluation.replay_reproduction_mismatch",
-            "/original_experiment_run_artifact_set_receipt",
-            "The original publication does not bind this Experiment",
-        )
+    original_refusal = exact_replay_original_refusal(checked, original.artifacts)
+    if original_refusal is not None:
+        return original_refusal
     original_members = _publication_members(original.artifacts)
     original_receipt_identity = cast(str, original.receipt["content_identity"])
-    input_identity = _replay_input_identity(checked, original_receipt_identity)
+    input_identity = exact_replay_input_identity(
+        checked.content_identity,
+        original_receipt_identity,
+    )
     authentication_key = publication_authentication_key()
 
     def validate_member(logical_name: str, value: dict[str, Any]) -> bool:
@@ -229,15 +178,13 @@ def replay_experiment(
         return prepared.report
     assert isinstance(prepared, PreparedExperimentExecution)
     original_reproduction = original.artifacts["reproduction-receipt"]
-    if not _same_complete_reproduction(
-        original_reproduction, prepared.reproduction.value
-    ):
-        return _evaluation_refusal(
-            checked,
-            "evaluation.replay_reproduction_mismatch",
-            "/original_experiment_run_artifact_set_receipt/reproduction-receipt",
-            "The prepared Runtime does not match the original reproduction identity",
-        )
+    reproduction_refusal = exact_replay_reproduction_refusal(
+        checked,
+        original_reproduction,
+        prepared.reproduction.value,
+    )
+    if reproduction_refusal is not None:
+        return reproduction_refusal
     execution = execute_prepared_experiment(prepared)
     if isinstance(execution, ExperimentExecutionRefusal):
         if not execution.members:

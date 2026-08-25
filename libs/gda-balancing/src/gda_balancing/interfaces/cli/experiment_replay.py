@@ -14,7 +14,11 @@ from gda_balancing.application.experiment_replay import (
 )
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
-from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.comparison import EXACT_REPLAY_REFUSAL_REASONS
+from gda_balancing.domain.diagnostics import (
+    Schema2RefusalReport,
+    refusal_catalog_for_reasons,
+)
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.interfaces.cli.descriptors import (
@@ -97,10 +101,7 @@ def _refusal_catalog() -> tuple[tuple[str, str], ...]:
     return tuple(
         sorted(
             set(EXPERIMENT_RUN.resolved_refusal_catalog())
-            | {
-                ("evaluation.replay_ineligible_outcome", "evaluation"),
-                ("evaluation.replay_reproduction_mismatch", "evaluation"),
-            }
+            | set(refusal_catalog_for_reasons(EXACT_REPLAY_REFUSAL_REASONS))
         )
     )
 

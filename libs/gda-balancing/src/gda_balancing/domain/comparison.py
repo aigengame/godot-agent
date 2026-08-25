@@ -3,14 +3,28 @@
 from typing import Any, cast
 
 from gda_balancing.domain.artifacts import identified_artifact, verify_artifact
-from gda_balancing.domain.canonical import JsonValue, canonical_bytes
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.diagnostics import (
+    ArtifactLocation,
+    RefusalStage,
+    Schema2Diagnostic,
+    Schema2RefusalReport,
+    reason_by_id,
+)
+from gda_balancing.domain.evidence import validate_experiment_artifact_set
+from gda_balancing.domain.experiment import CheckedExperiment
 from gda_balancing.domain.publication_types import PublicationMember
 
 
 EXACT_REPLAY_COMPARISON_IMPLEMENTATION = (
     "gda-balancing.python-exact-replay-comparator-v1"
 )
+EXACT_REPLAY_REFUSAL_REASONS = (
+    "evaluation.reason.replay-ineligible-outcome",
+    "evaluation.reason.replay-reproduction-mismatch",
+)
 _EXACT_REPLAY_POLICY = "exact-replay-v1"
+_EXACT_REPLAY_INPUT_IDENTITY_DOMAIN = "experiment-replay-command-input-v1"
 _REPRODUCTION_BINDINGS = (
     "experiment_identity",
     "kernel_identity",
@@ -19,6 +33,91 @@ _REPRODUCTION_BINDINGS = (
     "resolved_model_identity",
     "rir_identity",
 )
+
+
+def exact_replay_input_identity(
+    experiment_identity: str,
+    original_artifact_set_receipt_identity: str,
+) -> str:
+    """Bind one Replay retry to its Experiment and authenticated original run."""
+    return content_identity(
+        _EXACT_REPLAY_INPUT_IDENTITY_DOMAIN,
+        cast(
+            JsonValue,
+            {
+                "experiment_identity": experiment_identity,
+                "original_experiment_run_artifact_set_receipt_identity": (
+                    original_artifact_set_receipt_identity
+                ),
+            },
+        ),
+    )
+
+
+def _exact_replay_refusal(
+    checked: CheckedExperiment,
+    reason_id: str,
+    pointer: str,
+    message: str,
+) -> Schema2RefusalReport:
+    reason = reason_by_id(checked.language_bundle, reason_id)
+    stage = cast(RefusalStage, reason["stage"])
+    if stage != "evaluation":
+        raise ValueError("an exact Replay refusal reason belongs to the wrong stage")
+    return Schema2RefusalReport(
+        stage=stage,
+        diagnostics=(
+            Schema2Diagnostic(
+                code=cast(str, reason["diagnostic"]),
+                message=message,
+                primary=ArtifactLocation(
+                    content_identity=checked.content_identity,
+                    pointer=pointer,
+                ),
+            ),
+        ),
+        truncated=False,
+    )
+
+
+def exact_replay_original_refusal(
+    checked: CheckedExperiment,
+    original_artifacts: dict[str, dict[str, Any]],
+) -> Schema2RefusalReport | None:
+    """Apply the LDB-owned eligibility and binding rules to an original run."""
+    if "evaluation-run" not in original_artifacts:
+        return _exact_replay_refusal(
+            checked,
+            "evaluation.reason.replay-ineligible-outcome",
+            "/original_experiment_run_artifact_set_receipt",
+            "The original publication is not a successful Evaluation run",
+        )
+    if not validate_experiment_artifact_set(checked, original_artifacts):
+        return _exact_replay_refusal(
+            checked,
+            "evaluation.reason.replay-reproduction-mismatch",
+            "/original_experiment_run_artifact_set_receipt",
+            "The original publication does not bind this Experiment",
+        )
+    return None
+
+
+def exact_replay_reproduction_refusal(
+    checked: CheckedExperiment,
+    original_reproduction: dict[str, Any],
+    prepared_reproduction: dict[str, Any],
+) -> Schema2RefusalReport | None:
+    """Require exact complete reproduction equality before Replay dispatch."""
+    if canonical_bytes(cast(JsonValue, original_reproduction)) == canonical_bytes(
+        cast(JsonValue, prepared_reproduction)
+    ):
+        return None
+    return _exact_replay_refusal(
+        checked,
+        "evaluation.reason.replay-reproduction-mismatch",
+        "/original_experiment_run_artifact_set_receipt/reproduction-receipt",
+        "The prepared Runtime does not match the original reproduction identity",
+    )
 
 
 def _policy_binding(
