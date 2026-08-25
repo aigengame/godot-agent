@@ -323,6 +323,88 @@ def test_stale_source_is_stale_not_cached(tmp_path):
     assert data["engine_pass"] is True
 
 
+def test_receipt_uses_the_last_source_md5_assignment(tmp_path):
+    # #738 re-review 6 [P1]: VariantParser consumes every assignment, so a
+    # later source_md5 replaces an earlier value. Taking the first value spends
+    # a pass the engine would skip.
+    import hashlib
+
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    source_digest = hashlib.md5((project / "icon.png").read_bytes()).hexdigest()
+    _receipt_path(project, "icon.png").write_text(
+        f'source_md5="{"0" * 32}"\nsource_md5="{source_digest}"\n',
+        encoding="utf-8",
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "cached"
+    assert data["engine_pass"] is False
+
+
+def test_receipt_last_source_md5_mismatch_is_stale(tmp_path):
+    import hashlib
+
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    source_digest = hashlib.md5((project / "icon.png").read_bytes()).hexdigest()
+    _receipt_path(project, "icon.png").write_text(
+        f'source_md5="{source_digest}"\nsource_md5="{"0" * 32}"\n',
+        encoding="utf-8",
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "stale"
+    assert data["engine_pass"] is True
+
+
+def test_receipt_uses_the_last_dest_md5_assignment(tmp_path):
+    import hashlib
+
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    source_digest = hashlib.md5((project / "icon.png").read_bytes()).hexdigest()
+    dest_digest = hashlib.md5((project / dest).read_bytes()).hexdigest()
+    _receipt_path(project, "icon.png").write_text(
+        f'source_md5="{source_digest}"\n'
+        f'dest_md5="{"0" * 32}"\n'
+        f'dest_md5="{dest_digest}"\n',
+        encoding="utf-8",
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "cached"
+    assert data["engine_pass"] is False
+
+
+def test_receipt_accepts_spacing_comments_and_escaped_string_values(tmp_path):
+    # VariantParser accepts spacing, semicolon comments, and quoted-string
+    # escapes even though the engine's own writer emits a canonical subset.
+    import hashlib
+
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    _cached_asset(project, "icon.png", dest)
+    source_digest = hashlib.md5((project / "icon.png").read_bytes()).hexdigest()
+    _receipt_path(project, "icon.png").write_text(
+        "; retained hand-written comment\n"
+        'note = "escaped \\"quote\\"" ; ignored assignment\n'
+        f'source_md5 = "{source_digest}" ; current source\n',
+        encoding="utf-8",
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "cached"
+    assert data["engine_pass"] is False
+
+
 def test_malformed_receipt_is_invalid_and_spends_no_pass(monkeypatch, tmp_path):
     # #738 re-review 5 [P1]: the engine parses the receipt with VariantParser
     # and treats a parse error as the same deliberate skip as valid=false —

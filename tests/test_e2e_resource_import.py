@@ -383,3 +383,47 @@ def test_malformed_receipt_matches_the_engines_deliberate_skip(tmp_path):
         _gda(project, "resource", "import", "res://fresh.png", "--dry-run").stdout
     )
     assert "res://icon.png" not in gap["pass_will_also_import"]
+
+
+@pytest.mark.e2e
+def test_duplicate_receipt_assignments_match_the_engines_last_value(tmp_path):
+    # #738 re-review 6 [P1]: VariantParser applies assignments in order. A
+    # wrong source_md5 followed by the engine-written matching value is still
+    # current, so gda must neither spend a pass nor predict neighbor work.
+    project = _project(tmp_path)
+    first = json.loads(_gda(project, "resource", "import", "res://icon.png").stdout)
+    assert first["assets"][0]["status"] == "imported"
+
+    sidecar = project / "icon.png.import"
+    receipt = _receipt(project, "icon.png")
+    dest = Path(str(receipt)[: -len(".md5")] + ".ctex")
+    engine_receipt = receipt.read_text(encoding="utf-8")
+    receipt.write_text(
+        f'source_md5="{"0" * 32}"\n' + engine_receipt,
+        encoding="utf-8",
+    )
+    # Force the native pass through _test_for_reimport; the unchanged sidecar
+    # contents keep its editor-cache digest valid.
+    stat = sidecar.stat()
+    os.utime(sidecar, (stat.st_atime + 10, stat.st_mtime + 10))
+    sidecar_bytes = sidecar.read_bytes()
+    receipt_bytes = receipt.read_bytes()
+    dest_bytes = dest.read_bytes()
+
+    native = _native_import(project)
+    assert native.returncode == 0, native.stderr
+    assert sidecar.read_bytes() == sidecar_bytes
+    assert receipt.read_bytes() == receipt_bytes
+    assert dest.read_bytes() == dest_bytes
+
+    dry = json.loads(
+        _gda(project, "resource", "import", "res://icon.png", "--dry-run").stdout
+    )
+    assert dry["assets"][0]["status"] == "cached"
+    assert dry["engine_pass"] is False
+
+    _png(project / "fresh.png", (4, 5, 6))
+    gap = json.loads(
+        _gda(project, "resource", "import", "res://fresh.png", "--dry-run").stdout
+    )
+    assert "res://icon.png" not in gap["pass_will_also_import"]

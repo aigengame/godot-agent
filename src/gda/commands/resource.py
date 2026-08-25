@@ -464,7 +464,8 @@ class ResourceImportParams(BaseModel):
     reimport test reads its artifacts — ``cached`` / ``missing`` / ``stale`` /
     ``invalid`` (see :class:`ResourceImportAsset`) — and runs the engine's
     project-wide import pass only when a request is ``missing`` or ``stale``
-    (an ``invalid`` one is skipped by the engine itself and settles ``failed``);
+    (an ``invalid`` one takes the conservative no-pass path and settles
+    ``failed``; see :class:`ResourceImportAsset`);
     ``dry_run`` reports the states and the decidable predictions without
     running anything or writing anything.
     """
@@ -512,10 +513,15 @@ class ResourceImportAsset(BaseModel):
     absent, the recorded `source_md5`/`dest_md5` disagreeing with the bytes,
     `source_file` naming a different source, or the pre-UID format — the pass
     WOULD re-import it), or ``invalid`` (the engine marked the last import
-    `valid=false`, or the sidecar or its `.md5` receipt does not parse; the
-    engine deliberately SKIPS these — delete the sidecar to retry, which
-    heals a malformed receipt too, because the pass rewrites both). A real run settles each
-    non-cached state: ``imported``, ``not_importable`` (the pass decided the
+    `valid=false`, or the sidecar does not parse, or the `.md5` receipt falls
+    outside gda's documented engine-written assignment subset; the engine
+    deliberately SKIPS parse errors and gda conservatively skips unsupported
+    receipt syntax — delete the sidecar to retry, which heals a malformed
+    receipt too, because the pass rewrites both). The receipt subset accepts
+    quoted-string assignments, whitespace, ``;`` comments, JSON-style escapes,
+    and repeated assignments; as in the engine, the final value wins. Broader
+    Variant values take the conservative no-pass direction. A real run settles
+    each non-cached state: ``imported``, ``not_importable`` (the pass decided the
     type needs no import — e.g. a script), or ``failed`` (still not cached
     after the pass; every ``invalid`` request settles here, because the pass
     does not retry it). The declared remainder: the checks the engine makes
@@ -584,9 +590,10 @@ class ResourceImportSummary(BaseModel):
     )
     invalid: int = Field(
         description=(
-            "Assets whose last import the engine marked failed, or whose "
-            "sidecar or .md5 receipt does not parse (nonzero only on a dry "
-            "run; the pass does not retry these)."
+            "Assets whose last import the engine marked failed, whose sidecar "
+            "does not parse, or whose .md5 receipt falls outside gda's "
+            "documented engine-written assignment subset (nonzero only on a "
+            "dry run; the pass does not retry these)."
         )
     )
     imported: int = Field(description="Assets the pass imported.")
@@ -606,7 +613,8 @@ class ResourceImportResult(BaseModel):
     The report IS the scoping: the engine's import primitive is project-wide,
     so gda runs it only when a requested asset's evidence state is ``missing``
     or ``stale`` (``engine_pass``; an ``invalid`` request settles ``failed``
-    without a pass — the engine skips previously failed imports), and accounts
+    without a pass — the engine skips failed imports and parse errors, while
+    gda conservatively skips unsupported receipt syntax), and accounts
     for everything it touched — ``created`` lists every new file, classified
     against ``cache_root``. On a dry run nothing runs and nothing is written:
     ``assets`` carry the ``cached`` / ``missing`` / ``stale`` / ``invalid``
@@ -706,10 +714,9 @@ class ResourceImportResult(BaseModel):
 _CACHE_ROOT_REL = ".godot"
 _DEST_FILES_LINE = re.compile(r"^dest_files=(\[.*\])$", re.MULTILINE)
 _INVALID_LINE = re.compile(r"^valid=false$", re.MULTILINE)
-_SOURCE_MD5_LINE = re.compile(r'^source_md5="([0-9a-f]+)"$', re.MULTILINE)
-_DEST_MD5_LINE = re.compile(r'^dest_md5="([0-9a-f]+)"$', re.MULTILINE)
-# The one line shape the engine ever writes into a .md5 receipt.
-_RECEIPT_LINE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*="[^"]*"$')
+_RECEIPT_ASSIGNMENT_LINE = re.compile(
+    r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("(?:\\.|[^"\\])*")\s*(?:;.*)?$'
+)
 _IMPORTER_LINE = re.compile(r'^importer="([^"]*)"$', re.MULTILINE)
 _UID_LINE = re.compile(r'^uid="[^"]*"$', re.MULTILINE)
 _SOURCE_FILE_LINE = re.compile(r'^source_file="([^"]*)"$', re.MULTILINE)
@@ -722,6 +729,29 @@ _FILES_LINE = re.compile(r"^files=(\[.*\])$", re.MULTILINE)
 # destinations. Deriving it the same way (verified against a real import's
 # hash) is what lets the verdict follow the engine on a no-destination
 # sidecar (#738 re-review 4).
+
+
+def _parse_receipt_assignments(text: str) -> "dict[str, str] | None":
+    """Parse gda's documented VariantParser-compatible receipt subset.
+
+    Godot writes quoted-string assignments. Its parser also permits spacing,
+    ``;`` comments, JSON-style escapes, and repeated keys; assignments are
+    applied in order, so the last value wins. A broader Variant value returns
+    ``None`` so the caller takes the contract's conservative no-pass direction.
+    """
+    assignments: dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(";"):
+            continue
+        assignment = _RECEIPT_ASSIGNMENT_LINE.match(line)
+        if assignment is None:
+            return None
+        try:
+            assignments[assignment.group(1)] = json.loads(assignment.group(2))
+        except (TypeError, ValueError):
+            return None
+    return assignments
 
 
 def _asset_res_path(project: Path, raw: str) -> "str | Failure":
@@ -800,9 +830,10 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     sidecar is ``invalid`` (the engine SKIPS these rather than retrying), and
     so is an unparseable ``.md5`` receipt — the engine's receipt parse-error
     branch is the same deliberate skip, never a re-import (#738 re-review 5);
-    gda's receipt grammar is the one line shape the engine ever writes
-    (``key="value"``), and a receipt outside it errs toward ``invalid``, the
-    no-pass direction the contract sanctions; a
+    gda's receipt grammar covers the quoted-string assignments the engine
+    writes plus VariantParser spacing, ``;`` comments, JSON-style escapes, and
+    repeated assignments (the last value wins). Broader Variant value syntax errs
+    toward ``invalid``, the no-pass direction the contract sanctions; a
     ``keep``/``skip`` importer is ``cached``; the pre-UID format, a missing
     remap/destination file, a ``source_file`` naming a different source (a
     copied sidecar), a missing ``.md5`` receipt (located at the PATH-derived
@@ -904,23 +935,23 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     # The engine parses the receipt with VariantParser, and ANY parse error
     # is the same deliberate skip as a valid=false sidecar ("skip and let
     # user attempt manual reimport to avoid reimport loop") — never a
-    # re-import (#738 re-review 5). A receipt line outside the shape the
-    # engine writes errs toward invalid, the sanctioned no-pass direction.
-    for line in receipt_text.splitlines():
-        stripped = line.strip()
-        if stripped and _RECEIPT_LINE.match(stripped) is None:
-            return state("invalid", dests)
-    recorded_source = _SOURCE_MD5_LINE.search(receipt_text)
+    # re-import (#738 re-review 5). Parse assignments in engine order: Godot's
+    # VariantParser applies every assignment, so repeated keys are last-write-
+    # wins (#738 re-review 6). The engine writes quoted-string values; accept
+    # that public subset plus its spacing/comments/escapes, while broader
+    # Variant values conservatively take the sanctioned no-pass direction.
+    assignments = _parse_receipt_assignments(receipt_text)
+    if assignments is None:
+        return state("invalid", dests)
+    recorded_source = assignments.get("source_md5")
     if recorded_source is None:
         # Parseable but lacking source_md5: the engine's "Lacks md5, so
         # just reimport" — a pass state, unlike the parse error above.
         return state("stale", dests)
-    if hashlib.md5((project / rel).read_bytes()).hexdigest() != recorded_source.group(
-        1
-    ):
+    if hashlib.md5((project / rel).read_bytes()).hexdigest() != recorded_source:
         return state("stale", dests)
-    recorded_dest = _DEST_MD5_LINE.search(receipt_text)
-    if dests and recorded_dest is not None:
+    recorded_dest = assignments.get("dest_md5")
+    if dests and recorded_dest:
         # The engine's multi-file digest: one MD5 over every destination's
         # bytes, in the sidecar's order (FileAccess::get_multiple_md5).
         ctx = hashlib.md5()
@@ -928,7 +959,7 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
             dest_fs = project / dest[len("res://") :]
             if dest_fs.is_file():
                 ctx.update(dest_fs.read_bytes())
-        if ctx.hexdigest() != recorded_dest.group(1):
+        if ctx.hexdigest() != recorded_dest:
             return state("stale", dests)
     return state("cached", dests)
 
@@ -1140,9 +1171,9 @@ def render_resource_import(outcome: "ResourceImportResult") -> str:
     lines = [f"  {asset.status:>14}  {asset.path}" for asset in outcome.assets]
     if any(asset.status == "invalid" for asset in outcome.assets):
         lines.append(
-            "  invalid: the engine does not retry a failed or unparseable "
-            "import; delete the asset's .import sidecar to retry (the pass "
-            "rewrites the sidecar and its .md5 receipt)"
+            "  invalid: no pass runs for a failed import, a parse error, or "
+            "unsupported receipt syntax; delete the asset's .import sidecar "
+            "to retry (the pass rewrites the sidecar and its .md5 receipt)"
         )
     if outcome.pass_will_also_import:
         lines.append("  the pass will also re-import:")
@@ -1215,9 +1246,9 @@ def resource_import(
     test reads its artifacts (`cached` / `missing` / `stale` / `invalid`) and,
     only when a request is missing or stale, runs the engine's import pass —
     which is PROJECT-WIDE, the engine's one scriptable import primitive; an
-    invalid request settles `failed` without a pass (the engine skips
-    previously failed imports and unparseable artifacts — delete the sidecar
-    to retry). It then reports
+    invalid request settles `failed` without a pass (the engine skips failed
+    imports and parse errors; gda conservatively skips unsupported receipt
+    syntax — delete the sidecar to retry). It then reports
     every file the pass created, classified against the cache root
     (cache-owned under .godot/ vs source-adjacent, e.g. .import and .uid
     sidecars). `--dry-run` reports the states and the decidable predictions
