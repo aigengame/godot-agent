@@ -31,7 +31,11 @@ import gda_balancing.domain.publication as publication_module
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
 from gda_balancing.domain.artifact_errors import PublishedArtifactUnavailable
-from gda_balancing.domain.model import EXACT_RESOLVED_MODEL_BINDING_MEMBERS
+from gda_balancing.domain.model import (
+    EXACT_RESOLVED_MODEL_BINDING_MEMBERS,
+    ExactResolvedModelBinding,
+    resolve_published_model_binding,
+)
 from gda_balancing.infrastructure.input_bytes import (
     BoundedInputObservation,
     read_bounded_input_with_sha256,
@@ -1117,6 +1121,60 @@ def _write_built_roguelike_experiment(tmp_path, run_cli):
     return specification_path, specification
 
 
+def _resolved_model_binding_for_experiment(
+    specification: dict[str, Any],
+) -> tuple[authority_module.AdmittedAuthorityContext, ExactResolvedModelBinding]:
+    context = authority_module.packaged_authority_context()
+    model = cast(dict[str, str], specification["model"])
+    binding = resolve_published_model_binding(
+        {
+            "build-receipt": model["build_receipt_identity"],
+            "package-lock": model["package_lock_identity"],
+            "resolved-model": model["resolved_model_identity"],
+            "rir-semantic-payload": model["rir_identity"],
+        },
+        context,
+    )
+    return context, binding
+
+
+def _execute_runtime_refusal_value(
+    specification: dict[str, Any],
+    context: authority_module.AdmittedAuthorityContext,
+    binding: ExactResolvedModelBinding,
+) -> tuple[Schema2RefusalReport, dict[str, Any]]:
+    checked = experiment_admission_module.check_experiment_value(
+        specification,
+        binding,
+        authority_context=context,
+    )
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
+    execution = experiment_execution_application_module.execute_checked_experiment(
+        checked
+    )
+    assert isinstance(
+        execution, experiment_execution_application_module.ExperimentExecutionRefusal
+    )
+    audit = cast(dict[str, Any], execution.members["runtime-terminal-audit"].value)
+    return execution.report, audit
+
+
+def _evaluate_experiment_value(
+    specification: dict[str, Any],
+    context: authority_module.AdmittedAuthorityContext,
+    binding: ExactResolvedModelBinding,
+) -> experiment_runtime_module.EvaluationArtifacts:
+    checked = experiment_admission_module.check_experiment_value(
+        specification,
+        binding,
+        authority_context=context,
+    )
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
+    evaluation = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
+    return evaluation
+
+
 def test_public_seeded_reward_selection_exposes_policy_and_disposition(
     tmp_path, run_cli
 ):
@@ -1236,8 +1294,9 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
     tmp_path, run_cli
 ):
     specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    context, binding = _resolved_model_binding_for_experiment(baseline)
 
-    def run(specification, path, output, invocation_key):
+    def run_public(specification, path, output, invocation_key):
         path.write_text(json.dumps(specification), encoding="utf-8")
         check_exit, check_stdout, check_stderr = run_cli(
             ["experiment", "check", str(path)]
@@ -1272,7 +1331,7 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
         )
         return trace, metrics, reward_result, build_result
 
-    baseline_trace, baseline_metrics, baseline_result, baseline_build = run(
+    baseline_trace, baseline_metrics, baseline_result, baseline_build = run_public(
         baseline,
         specification_path,
         tmp_path / "baseline-evaluation.json",
@@ -1286,11 +1345,17 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
         if row["target"]["name"] == "rare_weight"
     )
     rare_weight["value"] = 2
-    tuned_trace, tuned_metrics, tuned_result, tuned_build = run(
-        tuned,
-        tmp_path / "tuned-experiment.json",
-        tmp_path / "tuned-evaluation.json",
-        "b" * 64,
+    tuned_evaluation = _evaluate_experiment_value(tuned, context, binding)
+    tuned_trace = tuned_evaluation.members["event-trace"].value
+    tuned_metrics = tuned_evaluation.members["metric-dataset"].value
+    tuned_transitions = [
+        event for event in tuned_trace["events"] if event["operation"] is not None
+    ]
+    tuned_result = next(
+        row for row in tuned_transitions[0]["facts"] if row["name"] == "reward_result"
+    )
+    tuned_build = next(
+        row for row in tuned_transitions[1]["facts"] if row["name"] == "build_result"
     )
 
     assert tuned["kernel_identity"] == baseline["kernel_identity"]
@@ -1471,6 +1536,7 @@ def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
     tmp_path, run_cli
 ):
     _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    context, binding = _resolved_model_binding_for_experiment(baseline)
     for invocation_digit, contradiction in (
         ("a", "policy-start"),
         ("b", "policy-after"),
@@ -1501,27 +1567,30 @@ def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
             fallback["policy_after"]["draw_count"] = 1
         else:
             fallback["policy_after"]["draw_count"] = 1
-        specification_path = tmp_path / f"invalid-fallback-{contradiction}.json"
-        specification_path.write_text(json.dumps(specification), encoding="utf-8")
-
-        exit_code, stdout, stderr = run_cli(
-            [
-                "experiment",
-                "run",
-                str(specification_path),
-                "--out",
-                str(tmp_path / f"invalid-fallback-{contradiction}-artifacts"),
-                "--invocation-key",
-                invocation_digit * 64,
-            ]
-        )
-
-        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
-        error = json.loads(stdout)["error"]
-        assert [row["code"] for row in error["diagnostics"]] == [
-            "game.generation.invalid_fallback"
-        ], contradiction
-        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        if contradiction == "policy-start":
+            specification_path = tmp_path / f"invalid-fallback-{contradiction}.json"
+            specification_path.write_text(json.dumps(specification), encoding="utf-8")
+            exit_code, stdout, stderr = run_cli(
+                [
+                    "experiment",
+                    "run",
+                    str(specification_path),
+                    "--out",
+                    str(tmp_path / f"invalid-fallback-{contradiction}-artifacts"),
+                    "--invocation-key",
+                    invocation_digit * 64,
+                ]
+            )
+            assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+            error = json.loads(stdout)["error"]
+            diagnostic_codes = [row["code"] for row in error["diagnostics"]]
+            audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        else:
+            report, audit = _execute_runtime_refusal_value(
+                specification, context, binding
+            )
+            diagnostic_codes = [row.code for row in report.diagnostics]
+        assert diagnostic_codes == ["game.generation.invalid_fallback"], contradiction
         assert audit["refusing_event"]["reason"] == (
             "game.generation.invalid_fallback"
         ), contradiction
@@ -1587,6 +1656,7 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
     tmp_path, run_cli
 ):
     _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    context, binding = _resolved_model_binding_for_experiment(baseline)
     contradictions = (
         "rarity",
         "disposition",
@@ -1623,27 +1693,30 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
             selection["policy_after"]["draw_count"] = 2
         else:
             selection["policy_after"]["draw_count"] = 2
-        specification_path = tmp_path / f"contradictory-reward-{contradiction}.json"
-        specification_path.write_text(json.dumps(specification), encoding="utf-8")
-
-        exit_code, stdout, stderr = run_cli(
-            [
-                "experiment",
-                "run",
-                str(specification_path),
-                "--out",
-                str(tmp_path / f"contradictory-reward-{contradiction}-artifacts"),
-                "--invocation-key",
-                str(index) * 64,
-            ]
-        )
-
-        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
-        error = json.loads(stdout)["error"]
-        assert [row["code"] for row in error["diagnostics"]] == [
-            "game.generation.invalid_option"
-        ], contradiction
-        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        if contradiction == "rarity":
+            specification_path = tmp_path / f"contradictory-reward-{contradiction}.json"
+            specification_path.write_text(json.dumps(specification), encoding="utf-8")
+            exit_code, stdout, stderr = run_cli(
+                [
+                    "experiment",
+                    "run",
+                    str(specification_path),
+                    "--out",
+                    str(tmp_path / f"contradictory-reward-{contradiction}-artifacts"),
+                    "--invocation-key",
+                    str(index) * 64,
+                ]
+            )
+            assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+            error = json.loads(stdout)["error"]
+            diagnostic_codes = [row["code"] for row in error["diagnostics"]]
+            audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        else:
+            report, audit = _execute_runtime_refusal_value(
+                specification, context, binding
+            )
+            diagnostic_codes = [row.code for row in report.diagnostics]
+        assert diagnostic_codes == ["game.generation.invalid_option"], contradiction
         assert audit["refusing_event"]["reason"] == (
             "game.generation.invalid_option"
         ), contradiction
@@ -1765,6 +1838,7 @@ def test_public_build_replacement_rejects_contradictory_authored_plans(
     tmp_path, run_cli
 ):
     _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    context, binding = _resolved_model_binding_for_experiment(baseline)
     contradictions = (
         "next-slot",
         "decision-kind",
@@ -1798,27 +1872,32 @@ def test_public_build_replacement_rejects_contradictory_authored_plans(
             plan["decision"]["power_after"] = 89
         else:
             plan["score"] = 89
-        specification_path = tmp_path / f"contradictory-build-{contradiction}.json"
-        specification_path.write_text(json.dumps(specification), encoding="utf-8")
-
-        exit_code, stdout, stderr = run_cli(
-            [
-                "experiment",
-                "run",
-                str(specification_path),
-                "--out",
-                str(tmp_path / f"contradictory-build-{contradiction}-artifacts"),
-                "--invocation-key",
-                f"{index:064x}",
-            ]
-        )
-
-        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
-        error = json.loads(stdout)["error"]
-        assert [row["code"] for row in error["diagnostics"]] == [
-            "game.build.invalid_plan"
-        ], contradiction
-        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        if contradiction == "next-slot":
+            specification_path = tmp_path / (
+                f"contradictory-build-{contradiction}.json"
+            )
+            specification_path.write_text(json.dumps(specification), encoding="utf-8")
+            exit_code, stdout, stderr = run_cli(
+                [
+                    "experiment",
+                    "run",
+                    str(specification_path),
+                    "--out",
+                    str(tmp_path / f"contradictory-build-{contradiction}-artifacts"),
+                    "--invocation-key",
+                    f"{index:064x}",
+                ]
+            )
+            assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+            error = json.loads(stdout)["error"]
+            diagnostic_codes = [row["code"] for row in error["diagnostics"]]
+            audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        else:
+            report, audit = _execute_runtime_refusal_value(
+                specification, context, binding
+            )
+            diagnostic_codes = [row.code for row in report.diagnostics]
+        assert diagnostic_codes == ["game.build.invalid_plan"], contradiction
         assert audit["refusing_event"]["reason"] == ("game.build.invalid_plan"), (
             contradiction
         )
@@ -5827,6 +5906,7 @@ def test_optional_experiment_override_uses_the_model_default_or_exact_override(
         build_receipt=build_receipt,
         base_damage=30,
     )
+    context, binding = _resolved_model_binding_for_experiment(baseline)
 
     observed: dict[str, tuple[int, list[dict[str, int]]]] = {}
     for case, override in (("default", None), ("override", 30)):
@@ -5841,13 +5921,7 @@ def test_optional_experiment_override_uses_the_model_default_or_exact_override(
             assignments.remove(base_assignment)
         else:
             base_assignment["value"] = override
-        path = tmp_path / f"optional-{case}.json"
-        path.write_text(json.dumps(specification), encoding="utf-8")
-
-        checked = experiment_admission_module.check_experiment(str(path))
-        assert isinstance(checked, experiment_admission_module.CheckedExperiment)
-        artifacts = experiment_runtime_module.evaluate_experiment(checked)
-        assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+        artifacts = _evaluate_experiment_value(specification, context, binding)
         event = artifacts.members["event-trace"].value["events"][0]
         observed[case] = (
             next(
@@ -5910,8 +5984,9 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "package_lock_identity": build_record["package_lock_identity"],
         "rir_identity": build_record["rir_identity"],
     }
+    context, binding = _resolved_model_binding_for_experiment(baseline)
 
-    def run(specification: dict[str, Any], name: str, key: str):
+    def run_public(specification: dict[str, Any], name: str, key: str):
         path = tmp_path / f"{name}.json"
         path.write_text(json.dumps(specification), encoding="utf-8")
         check_exit, check_stdout, check_stderr = run_cli(
@@ -5936,7 +6011,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             _member(receipt, "metric-dataset"),
         )
 
-    baseline_trace, baseline_metrics = run(baseline, "baseline", "2" * 64)
+    baseline_trace, baseline_metrics = run_public(baseline, "baseline", "2" * 64)
     tuned = deepcopy(baseline)
     tuned["id"] = "example.rpg-combat-cast.player-damage-tuned"
     next(
@@ -5944,7 +6019,9 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         for assignment in tuned["scenarios"][0]["assignments"]
         if assignment["target"]["name"] == "player_base_damage"
     )["value"] = 55
-    tuned_trace, tuned_metrics = run(tuned, "tuned", "3" * 64)
+    tuned_evaluation = _evaluate_experiment_value(tuned, context, binding)
+    tuned_trace = tuned_evaluation.members["event-trace"].value
+    tuned_metrics = tuned_evaluation.members["metric-dataset"].value
 
     assert tuned["kernel_identity"] == baseline["kernel_identity"]
     assert tuned["language_bundle_identity"] == baseline["language_bundle_identity"]
@@ -6442,6 +6519,8 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
 
 def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
     kernel, ldb = mutable_authorities()
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
     operation = next(
         row
         for row in ldb["language"]["operations"]
@@ -6476,6 +6555,10 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
     vectors_by_id = {vector["id"]: vector for vector in vectors}
     defeated = vectors_by_id["game.combat.cast.target-defeated"]
     ineligible = vectors_by_id["game.combat.cast.actor-ineligible"]
+    coordinate = ("game.combat", "2.1.0", "game.combat.eligible-cast-v1")
+    harness = operation_conformance_module.compile_operation_execution_harness(
+        context, coordinate, operation
+    )
     defeated_state = {
         row["name"]: row["value"] for row in defeated["expect"]["state_after"]
     }
@@ -6495,27 +6578,54 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
         },
     ]
     for vector in (defeated, ineligible):
-        observations = operation_execution_observations(kernel, ldb, vector)
+        observations = operation_execution_observations(
+            kernel,
+            ldb,
+            vector,
+            context=context,
+            package_id="game.combat",
+            package_version="2.1.0",
+            harness=harness,
+        )
         assert observations["production"] == observations["independent"]
         assert observations["production"] == observations["expected"]
 
 
 def test_neutral_structured_operation_vectors_cover_control_paths():
     kernel, ldb = mutable_authorities()
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
     vectors = [
-        vector
-        for package_id, _package_version, vector in operation_execution_vectors(ldb)
+        (package_id, package_version, vector)
+        for package_id, package_version, vector in operation_execution_vectors(ldb)
         if package_id == "standard.conformance.structured"
     ]
-    assert {vector["id"] for vector in vectors} == {
+    assert {vector["id"] for _package, _version, vector in vectors} == {
         "structured.select.success",
         "structured.select.empty-outcome",
         "structured.select.guard-refusal",
         "structured.select.mismatch-refusal",
     }
 
-    for vector in vectors:
-        observations = operation_execution_observations(kernel, ldb, vector)
+    harnesses = {}
+    operations = conformance_operation_index(ldb)
+    for package_id, package_version, vector in vectors:
+        coordinate = (package_id, package_version, vector["operation"])
+        harness = harnesses.get(coordinate)
+        if harness is None:
+            harness = operation_conformance_module.compile_operation_execution_harness(
+                context, coordinate, operations[coordinate]
+            )
+            harnesses[coordinate] = harness
+        observations = operation_execution_observations(
+            kernel,
+            ldb,
+            vector,
+            context=context,
+            package_id=package_id,
+            package_version=package_version,
+            harness=harness,
+        )
         assert observations["production"] == observations["independent"]
         assert observations["production"] == observations["expected"]
 
@@ -6592,19 +6702,27 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
         operation["id"]: operation for operation in ldb["language"]["operations"]
     }
     vectors = [
-        vector
-        for package_id, _package_version, vector in operation_execution_vectors(ldb)
+        (package_id, package_version, vector)
+        for package_id, package_version, vector in operation_execution_vectors(ldb)
         if package_id in {"game.generation", "game.build"}
         and vector["category"] == "rollback-replay"
     ]
-    assert {vector["id"] for vector in vectors} == {
+    assert {vector["id"] for _package, _version, vector in vectors} == {
         "generation.select.invalid-fallback-policy-before-refusal",
         "generation.select.invalid-fallback-policy-after-refusal",
         "build.replace.invalid-plan-refusal",
     }
 
-    for vector in vectors:
+    harnesses = {}
+    for package_id, package_version, vector in vectors:
         operation = operations[vector["operation"]]
+        coordinate = (package_id, package_version, vector["operation"])
+        harness = harnesses.get(coordinate)
+        if harness is None:
+            harness = operation_conformance_module.compile_operation_execution_harness(
+                context, coordinate, operation
+            )
+            harnesses[coordinate] = harness
         initial_values = {
             row["name"]: row["value"] for row in vector["input"]["values"]
         }
@@ -6622,6 +6740,9 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
                 ldb,
                 vector,
                 context=context,
+                package_id=package_id,
+                package_version=package_version,
+                harness=harness,
             )
             for _ in range(2)
         ]
@@ -8670,6 +8791,7 @@ def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(
 def test_gameplay_outcomes_are_closed_and_exhaustively_typed(tmp_path, run_cli):
     specification = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
+    context, binding = _resolved_model_binding_for_experiment(value)
     scenarios = {
         "cast-resolved": value,
         "miss": json.loads(json.dumps(value)),
@@ -8699,26 +8821,25 @@ def test_gameplay_outcomes_are_closed_and_exhaustively_typed(tmp_path, run_cli):
                 }
             )
         ]
-        path = tmp_path / f"{outcome}.json"
-        path.write_text(json.dumps(scenario), encoding="utf-8")
-        exit_code, stdout, stderr = run_cli(
-            [
-                "experiment",
-                "run",
-                str(path),
-                "--out",
-                str(tmp_path / f"{outcome}-out.json"),
-                "--invocation-key",
-                {
-                    "cast-resolved": "1",
-                    "miss": "2",
-                    "insufficient-resource": "3",
-                }[outcome]
-                * 64,
-            ]
-        )
-        assert (exit_code, stderr) == (0, "")
-        event = _member(json.loads(stdout), "event-trace")["events"][0]
+        if outcome == "cast-resolved":
+            path = tmp_path / f"{outcome}.json"
+            path.write_text(json.dumps(scenario), encoding="utf-8")
+            exit_code, stdout, stderr = run_cli(
+                [
+                    "experiment",
+                    "run",
+                    str(path),
+                    "--out",
+                    str(tmp_path / f"{outcome}-out.json"),
+                    "--invocation-key",
+                    "1" * 64,
+                ]
+            )
+            assert (exit_code, stderr) == (0, "")
+            event = _member(json.loads(stdout), "event-trace")["events"][0]
+        else:
+            evaluation = _evaluate_experiment_value(scenario, context, binding)
+            event = evaluation.members["event-trace"].value["events"][0]
         assert event["outcome"] == {
             "id": outcome,
             "kind": (

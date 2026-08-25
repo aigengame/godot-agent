@@ -156,6 +156,7 @@ def operation_execution_observations(
     context: AdmittedAuthorityContext | None = None,
     package_id: str | None = None,
     package_version: str | None = None,
+    harness: OperationExecutionHarness | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Observe one vector through both adapters in the canonical shape."""
     resolved_context = context or admit_authority_context(kernel, ldb)
@@ -177,6 +178,7 @@ def operation_execution_observations(
         context=resolved_context,
         package_id=package_id,
         package_version=package_version,
+        harness=harness,
     )
     return {
         "expected": vector["expect"],
