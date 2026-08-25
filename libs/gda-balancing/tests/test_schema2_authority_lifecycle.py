@@ -223,9 +223,9 @@ def test_packaged_context_derives_immutable_replay_comparison_policy_index():
     assert deepcopy(context) is context
 
     mutable_kernel, mutable_ldb = context.mutable_pair()
-    with pytest.raises(ValueError, match="sealed Kernel and LDB"):
+    with pytest.raises(TypeError, match="factory-only"):
         replace(context, kernel=mutable_kernel)
-    with pytest.raises(ValueError, match="sealed Kernel and LDB"):
+    with pytest.raises(TypeError, match="factory-only"):
         replace(context, language_bundle=mutable_ldb)
 
 

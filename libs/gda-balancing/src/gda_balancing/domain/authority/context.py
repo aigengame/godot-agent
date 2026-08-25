@@ -264,7 +264,10 @@ def _replay_comparison_policy_index(
     return cast(Mapping[str, Mapping[str, Any]], _deep_freeze(index))
 
 
-@dataclass(frozen=True)
+_AUTHORITY_CONTEXT_CONSTRUCTION_TOKEN = object()
+
+
+@dataclass(frozen=True, init=False)
 class AdmittedAuthorityContext:
     """One exact, deeply immutable admitted Kernel/LDB lifecycle."""
 
@@ -275,32 +278,44 @@ class AdmittedAuthorityContext:
     canonical_kernel_bytes: bytes = field(init=False)
     canonical_language_bundle_bytes: bytes = field(init=False)
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.kernel, _FrozenDict) or not isinstance(
-            self.language_bundle, _FrozenLanguageBundleIndex
+    def __init__(
+        self,
+        kernel: dict[str, Any],
+        language_bundle: dict[str, Any],
+        admission: BootstrapAdmission,
+        *,
+        _construction_token: object | None = None,
+    ) -> None:
+        if _construction_token is not _AUTHORITY_CONTEXT_CONSTRUCTION_TOKEN:
+            raise TypeError("AdmittedAuthorityContext is factory-only")
+        if not isinstance(kernel, _FrozenDict) or not isinstance(
+            language_bundle, _FrozenLanguageBundleIndex
         ):
             raise ValueError("an admitted context requires a sealed Kernel and LDB")
         if (
-            not self.admission.admitted
-            or self.admission.kernel_identity != self.kernel.get("content_identity")
-            or self.admission.language_bundle_identity
-            != self.language_bundle.get("content_identity")
+            not admission.admitted
+            or admission.kernel_identity != kernel.get("content_identity")
+            or admission.language_bundle_identity
+            != language_bundle.get("content_identity")
         ):
             raise ValueError("authority admission does not match the sealed context")
+        object.__setattr__(self, "kernel", kernel)
+        object.__setattr__(self, "language_bundle", language_bundle)
+        object.__setattr__(self, "admission", admission)
         object.__setattr__(
             self,
             "canonical_kernel_bytes",
-            canonical_bytes(cast(JsonValue, self.kernel)),
+            canonical_bytes(cast(JsonValue, kernel)),
         )
         object.__setattr__(
             self,
             "canonical_language_bundle_bytes",
-            _language_bundle_canonical_bytes(self.language_bundle),
+            _language_bundle_canonical_bytes(language_bundle),
         )
         object.__setattr__(
             self,
             "replay_comparison_policy_index",
-            _replay_comparison_policy_index(self.language_bundle),
+            _replay_comparison_policy_index(language_bundle),
         )
 
     def __deepcopy__(self, memo: dict[int, Any]) -> "AdmittedAuthorityContext":
@@ -530,17 +545,16 @@ def _freeze_admitted_context(
         kernel=frozen_kernel,
         language_bundle=frozen_language_bundle,
         admission=admission,
+        _construction_token=_AUTHORITY_CONTEXT_CONSTRUCTION_TOKEN,
     )
 
 
 def admit_authority_context(
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
-    *,
-    admission: BootstrapAdmission | None = None,
 ) -> AdmittedAuthorityContext | BootstrapAdmission:
     """Admit one injected candidate into its own immutable lifecycle."""
-    resolved_admission = admission or admit_authorities(kernel, language_bundle)
+    resolved_admission = admit_authorities(kernel, language_bundle)
     if not resolved_admission.admitted:
         return resolved_admission
     return _freeze_admitted_context(kernel, language_bundle, resolved_admission)
