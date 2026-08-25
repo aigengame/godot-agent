@@ -799,7 +799,7 @@
     "tests/test_schema2_model_cli.py::test_authority_admission_rejects_operation_closure_at_the_package_site",
     "tests/test_schema2_model_cli.py::test_compile_only_package_authority_does_not_change_rir_semantics",
     "tests/test_schema2_model_cli.py::test_equivalent_source_orderings_share_lock_rir_and_resolved_model_identity",
-    "tests/test_schema2_model_cli.py::test_in_memory_model_check_reuses_only_a_matching_authority_admission",
+    "tests/test_schema2_model_cli.py::test_in_memory_model_check_accepts_only_a_cohesive_authority_context",
     "tests/test_schema2_model_cli.py::test_literal_profile_reidentity_changes_rir_semantics",
     "tests/test_schema2_model_cli.py::test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields",
     "tests/test_schema2_model_cli.py::test_model_build_atomically_publishes_a_framed_typed_artifact_set",
