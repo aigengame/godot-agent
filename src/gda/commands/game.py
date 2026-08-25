@@ -99,6 +99,17 @@ class GameGetParams(BaseModel):
             "default storage-property listing."
         ),
     )
+    texture_digest: bool = Field(
+        default=False,
+        description=(
+            "Compute the content digest for each PATH-LESS Texture2D value in "
+            "this read (#666): its TextureProjection's `digest` field becomes "
+            "'sha256:' + the hex digest over the image's dimensions, format, "
+            "and raw bytes, so two same-class textures with different content "
+            "are distinguishable. Opt-in because it needs Texture2D.get_image(), "
+            "a GPU-to-CPU readback; without it the digest field stays null."
+        ),
+    )
 
 
 class GameGetResult(BaseModel):
@@ -109,11 +120,15 @@ class GameGetResult(BaseModel):
     its storage properties, each a typed :class:`NodeProperty`; an explicitly named
     plain attached-script variable can also appear as the single returned property.
     Each value goes through the same recursive value projection the headless reads
-    use (ADR-0035): compound values arrive structured, and a whitelisted value Object
-    (an ``InputEvent`` subclass) as an :class:`InlineValueProjection` — while a
-    NON-whitelisted runtime Object (e.g. a live ``Node``-valued property) stays the
-    ``str()`` fallback, the whitelist being the boundary that keeps the shared
-    projection safe on the live side.
+    use (ADR-0035): compound values arrive structured; a ``res://``-pathed Resource
+    is a :class:`ReferenceProjection`, a path-less ``Texture2D`` a
+    :class:`TextureProjection` (#666), a whitelisted value Object
+    (an ``InputEvent`` subclass) an :class:`InlineValueProjection` — while any
+    other runtime Object (e.g. a live ``Node``-valued property) stays the
+    ``str()`` fallback. The whitelist bounds the Object classes whose storage
+    properties the inline kind emits; the texture kind is safe by construction
+    (a fixed getter shape, its one expensive readback behind
+    ``--texture-digest``).
     """
 
     path: str = Field(description="The addressed node's runtime (absolute) path.")
@@ -340,6 +355,15 @@ def game_get(
             "script variable. Without it, list only the storage surface."
         ),
     ),
+    texture_digest: bool = typer.Option(
+        False,
+        "--texture-digest",
+        help=(
+            "Compute the sha256 content digest for each path-less Texture2D "
+            "value in this read (a GPU-to-CPU readback; without it the "
+            "TextureProjection's digest stays null)."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = GAME_GET_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -356,10 +380,13 @@ def game_get(
     `live_unknown_property`. A named plain script variable on the node's attached
     script is addressable explicitly after storage properties are checked; unfiltered
     reads keep the storage-property listing and do not dump script variables.
+    A path-less Texture2D value projects as a TextureProjection ({type, width,
+    height, object_string, digest}, ADR-0035 amendment #666); `--texture-digest`
+    opts into its content digest.
     """
     dispatch_domain(
         GAME_GET_COMMAND,
-        GameGetParams(node=node, property=property),
+        GameGetParams(node=node, property=property, texture_digest=texture_digest),
         json_output=json_output,
         godot=godot,
         project=project,

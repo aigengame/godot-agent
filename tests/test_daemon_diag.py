@@ -14,6 +14,7 @@ import json
 import os
 import socket
 import subprocess
+import time
 from typing import cast
 
 import pytest
@@ -23,6 +24,7 @@ from gda.daemon.protocol import write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession, SceneMismatch, launch_session
 from gda.parser import parse_result
+from tests.support import no_engine_teardown
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -35,6 +37,12 @@ class _FakeProc:
 
     def poll(self):
         return self.returncode
+
+    # gda's OWN pid, deliberately: teardown reads the pid to find the process
+    # group it owns, and the own-group guard then resolves this stand-in to no
+    # group at all. An invented pid would instead resolve to whichever real
+    # process holds it — which a test would then signal.
+    pid = os.getpid()
 
 
 def _project(tmp_path):
@@ -60,7 +68,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
 
     monkeypatch.setattr(subprocess, "Popen", _ImmediatePopen)
     # _terminate kills the (fake) proc on the accept-timeout path; no-op it.
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    no_engine_teardown(monkeypatch)
 
     class _NoAcceptListener:
         """A harness listener whose accept() times out at once: launch returns
@@ -79,7 +87,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
         tmp_path / "h.sock",
         "tok",
         log_file=log_file,
-        timeout=0.1,
+        deadline=time.monotonic() + 0.1,
     )
 
     argv = captured["argv"]
@@ -113,7 +121,7 @@ def _capture_launch_argv(monkeypatch, project, **launch_kw):
             return None
 
     monkeypatch.setattr(subprocess, "Popen", _ImmediatePopen)
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    no_engine_teardown(monkeypatch)
 
     class _NoAcceptListener:
         def settimeout(self, _):
@@ -128,7 +136,7 @@ def _capture_launch_argv(monkeypatch, project, **launch_kw):
         cast(socket.socket, _NoAcceptListener()),
         project / "h.sock",
         "tok",
-        timeout=0.1,
+        deadline=time.monotonic() + 0.1,
         **launch_kw,
     )
     return captured["argv"]
@@ -204,7 +212,7 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
     via pytest.raises in the caller).
     """
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc())
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    no_engine_teardown(monkeypatch)
     daemon_end, harness_end = socket.socketpair()
     # The harness presents its token, then the scene-verification frame.
     write_frame(
@@ -222,7 +230,7 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
             cast(socket.socket, _OneShotListener(daemon_end)),
             tmp_path / "h.sock",
             token,
-            timeout=1.0,
+            deadline=time.monotonic() + 1.0,
             scene=scene,
         )
     finally:
@@ -274,7 +282,7 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
     # A wrong token aborts the handshake BEFORE the verification frame: a generic
     # launch failure (None), distinct from a scene mismatch.
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc())
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    no_engine_teardown(monkeypatch)
     daemon_end, harness_end = socket.socketpair()
     write_frame(harness_end, b"WRONG")
     try:
@@ -284,7 +292,7 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
             cast(socket.socket, _OneShotListener(daemon_end)),
             tmp_path / "h.sock",
             "tok",
-            timeout=1.0,
+            deadline=time.monotonic() + 1.0,
             scene="res://B.tscn",
         )
     finally:
@@ -315,7 +323,7 @@ def test_failed_launch_records_signal_death_when_child_already_died(
     # A child that reports it aborted by SIGABRT (returncode -6) — what a windowed
     # session with no usable DisplayServer does before the harness can connect.
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(-6))
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    no_engine_teardown(monkeypatch)
 
     diagnostics: list[str] = []
     outcome = launch_session(
@@ -324,7 +332,7 @@ def test_failed_launch_records_signal_death_when_child_already_died(
         cast(socket.socket, _NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
-        timeout=0.1,
+        deadline=time.monotonic() + 0.1,
         diagnostics=diagnostics,
     )
 
@@ -341,7 +349,7 @@ def test_failed_launch_records_harness_hung_when_child_still_alive(
     # A child still alive (poll() is None) when the harness never connected: the
     # "engine up, harness hung" case, distinct from a crashed child.
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(None))
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    no_engine_teardown(monkeypatch)
 
     diagnostics: list[str] = []
     outcome = launch_session(
@@ -350,7 +358,7 @@ def test_failed_launch_records_harness_hung_when_child_still_alive(
         cast(socket.socket, _NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
-        timeout=0.1,
+        deadline=time.monotonic() + 0.1,
         diagnostics=diagnostics,
     )
 
@@ -368,14 +376,14 @@ def test_failed_launch_diagnostics_excludes_stale_session_log(
     # must NOT leak into the current failure's diagnostics. launch_session truncates
     # the log BEFORE spawning, so the tail reads EMPTY for a pre-logger abort.
     server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
-    log_path = server._session_log_path()
+    log_path = server.paths.session_log
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("STALE-PREVIOUS-SESSION-OUTPUT", encoding="utf-8")
 
     # A REAL launch_session runs (truncating the log), spawns a fake child that dies
     # pre-logger by SIGABRT and writes nothing, and no harness connects -> None.
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(-6))
-    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    no_engine_teardown(monkeypatch)
     server._harness_listener = cast(socket.socket, _NoAcceptListener())
 
     reply = server._handle({"op": "game-tree", "params": {}})

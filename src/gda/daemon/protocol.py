@@ -15,6 +15,7 @@ classified exactly like a headless engine run's.
 import json
 import socket
 import struct
+import time
 from typing import Any
 
 from gda.exit_codes import EXIT_LIVE
@@ -29,39 +30,80 @@ def write_frame(sock: socket.socket, payload: bytes) -> None:
     sock.sendall(_LENGTH.pack(len(payload)) + payload)
 
 
-def read_frame(sock: socket.socket) -> bytes | None:
-    """Read one length-prefixed frame's payload, or ``None`` if the peer closed."""
-    header = _recv_exactly(sock, _LENGTH.size)
+def read_frame(sock: socket.socket, deadline: float | None = None) -> bytes | None:
+    """Read one length-prefixed frame's payload, or ``None`` if the peer closed.
+
+    ``deadline`` is an ABSOLUTE ``time.monotonic()`` instant that bounds the whole
+    frame, header and payload together. Without it the socket's own timeout applies
+    per ``recv``, which bounds INACTIVITY rather than the read: a peer that sends
+    one byte just inside the timeout restarts it every time and holds the reader
+    for as long as it likes (#725 re-review — a 0.05s-bounded launch handshake was
+    held for 2.1s by a one-byte-per-40ms trickle, and the rate is the attacker's to
+    choose). Callers that promise a bound pass the instant that bound expires.
+    """
+    header = _recv_exactly(sock, _LENGTH.size, deadline)
     if header is None:
         return None
     (length,) = _LENGTH.unpack(header)
-    return _recv_exactly(sock, length)
+    return _recv_exactly(sock, length, deadline)
 
 
-def write_message(sock: socket.socket, obj: Any) -> None:
-    """Send ``obj`` as one length-prefixed JSON frame."""
-    write_frame(sock, json.dumps(obj).encode("utf-8"))
+def write_message(sock: socket.socket, obj: Any, deadline: float | None = None) -> None:
+    """Send one JSON frame, optionally within an absolute ``deadline``.
+
+    Serialization happens before the timed write. If it spends the budget, no
+    bytes are committed; otherwise ``sendall`` receives only the time left on
+    the caller's round-trip instant.
+    """
+    payload = json.dumps(obj).encode("utf-8")
+    if deadline is not None:
+        _set_timeout_from_deadline(sock, deadline)
+    write_frame(sock, payload)
 
 
-def read_message(sock: socket.socket) -> Any | None:
-    """Read one length-prefixed JSON frame, or ``None`` if the peer closed."""
-    body = read_frame(sock)
+def read_message(sock: socket.socket, deadline: float | None = None) -> Any | None:
+    """Read one length-prefixed JSON frame, or ``None`` if the peer closed.
+
+    ``deadline`` bounds the whole frame the way :func:`read_frame` documents; a
+    caller that promises a round-trip ceiling passes the instant that ceiling
+    expires, since the socket's own timeout would only bound inactivity.
+    """
+    body = read_frame(sock, deadline)
     if body is None:
         return None
     return json.loads(body.decode("utf-8"))
 
 
-def _recv_exactly(sock: socket.socket, count: int) -> bytes | None:
-    """Read exactly ``count`` bytes, or ``None`` if the peer closed mid-frame."""
+def _recv_exactly(
+    sock: socket.socket, count: int, deadline: float | None = None
+) -> bytes | None:
+    """Read exactly ``count`` bytes, or ``None`` if the peer closed mid-frame.
+
+    With a ``deadline``, the budget left on it is recomputed and applied BEFORE
+    every ``recv`` — the socket's timeout is per-call, so setting it once would
+    only bound each individual wait, not the read. An exhausted budget raises
+    ``TimeoutError`` (an ``OSError``, which is what the frame's callers already
+    handle) rather than issuing a read that could still block.
+    """
     chunks: list[bytes] = []
     remaining = count
     while remaining > 0:
+        if deadline is not None:
+            _set_timeout_from_deadline(sock, deadline)
         chunk = sock.recv(remaining)
         if not chunk:
             return None
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
+
+
+def _set_timeout_from_deadline(sock: socket.socket, deadline: float) -> None:
+    """Give the next socket operation only the time left on ``deadline``."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise TimeoutError("the frame deadline has expired")
+    sock.settimeout(left)
 
 
 def result_reply(payload: Any) -> dict:

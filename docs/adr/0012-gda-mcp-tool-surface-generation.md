@@ -12,6 +12,10 @@ status: accepted
 > `outputSchema` ← `output` and simply ignores `kind` — so the addition is
 > backward compatible. On the aggregate entry `kind` is required and
 > enum-constrained, so a consumer of `gda schema --schema` can rely on it.
+> The enum has since grown two self-description-only values on the ADR-0031
+> migration pattern: `script_run` (ADR-0031) and `import` (#668, the native
+> project-wide `--import` pass behind `resource import`) — gda-mcp's mapping
+> remains unchanged either way.
 
 > **Outcome (2026-06-22, #233 / PR #245):** each manifest entry gained an
 > additive `constraints` field (the command's `LiveStackConstraints` — platform

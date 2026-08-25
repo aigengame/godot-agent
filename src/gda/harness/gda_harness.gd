@@ -36,10 +36,12 @@ const OP_GAME_RECT := "game-rect"
 const OP_GAME_SET := "game-set"
 const OP_PERF_MONITORS := "perf-monitors"
 const OP_PERF_MONITOR := "perf-monitor"
+const OP_PERF_SAMPLE := "perf-sample"
 const OP_INPUT_KEY := "input-key"
 const OP_INPUT_MOUSE_CLICK := "input-mouse-click"
 const OP_INPUT_MOUSE_MOVE := "input-mouse-move"
 const OP_INPUT_ACTION := "input-action"
+const OP_INPUT_TAP := "input-tap"
 const OP_INPUT_SEQUENCE := "input-sequence"
 const OP_SCREEN_CAPTURE := "screen-capture"
 const OP_SCREEN_FRAMES := "screen-frames"
@@ -143,6 +145,17 @@ func _ready() -> void:
 	# editor run, a plain run, and a shipped build never have their process mode
 	# touched — the ADR-0018 inertness guarantee is unaffected.
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Mirror the root viewport's mouse-entered state (#647). The engine keeps it
+	# private (Viewport.gui.mouse_in_viewport has no getter), but the root Window
+	# emits mouse_entered/mouse_exited on the SAME notifications that flip it —
+	# for an OS-driven enter in a windowed session and for the harness's own
+	# notify_mouse_entered() alike — so these two connections track it faithfully.
+	# _prepare_mouse_input consults the mirror to notify only on a real edge;
+	# re-notifying an already-entered viewport is an engine warning that pollutes
+	# `gda diag errors` with harness-owned noise. Scoped inside the daemon-launched
+	# gate: a human editor run and a plain run get no connections (ADR-0018).
+	get_tree().root.mouse_entered.connect(func() -> void: _mouse_in_viewport = true)
+	get_tree().root.mouse_exited.connect(func() -> void: _mouse_in_viewport = false)
 	var socket_path: String = user_args[idx + 1]
 	var token: String = user_args[idx + 2]
 	# The requested scene selector (#278) follows the token; "" (or absent) = none.
@@ -345,6 +358,8 @@ func _run(request) -> Variant:
 			return _handle_perf_monitors()
 		OP_PERF_MONITOR:
 			return _handle_perf_monitor(params)
+		OP_PERF_SAMPLE:
+			return _handle_perf_sample(params)
 		OP_INPUT_KEY:
 			return _handle_input_key(params)
 		OP_INPUT_MOUSE_CLICK:
@@ -353,6 +368,8 @@ func _run(request) -> Variant:
 			return _handle_input_mouse_move(params)
 		OP_INPUT_ACTION:
 			return _handle_input_action(params)
+		OP_INPUT_TAP:
+			return _handle_input_tap(params)
 		OP_INPUT_SEQUENCE:
 			return _handle_input_sequence(params)
 		OP_SCREEN_CAPTURE:
@@ -381,6 +398,9 @@ func _handle_game_get(params: Dictionary) -> String:
 		return _error(LIVE_ERROR_NODE_NOT_FOUND,
 				"no node at runtime path: " + path)
 
+	# The texture-digest opt-in (#666): threaded into the shared projection so
+	# a path-less Texture2D value carries its content digest on request.
+	var texture_digest := bool(params.get("texture_digest", false))
 	var wanted := _string_param(params, "property")
 	var has_filter := params.has("property") and not wanted.is_empty()
 	var properties: Array = []
@@ -393,10 +413,11 @@ func _handle_game_get(params: Dictionary) -> String:
 		properties.append({
 			"name": prop_name,
 			"type": _type_name(int(prop.get("type", TYPE_NIL))),
-			"value": _jsonify(node.get(prop_name)),
+			"value": _jsonify(node.get(prop_name), 0, texture_digest),
 		})
 	if has_filter and properties.is_empty():
-		var script_property := _explicit_script_variable_property(node, wanted)
+		var script_property := _explicit_script_variable_property(
+				node, wanted, texture_digest)
 		if not script_property.is_empty():
 			properties.append(script_property)
 	if has_filter and properties.is_empty():
@@ -411,7 +432,8 @@ func _handle_game_get(params: Dictionary) -> String:
 	})
 
 
-func _explicit_script_variable_property(node: Node, prop_name: String) -> Dictionary:
+func _explicit_script_variable_property(
+		node: Node, prop_name: String, texture_digest: bool = false) -> Dictionary:
 	for prop in node.get_property_list():
 		if String(prop.get("name", "")) != prop_name:
 			continue
@@ -425,7 +447,7 @@ func _explicit_script_variable_property(node: Node, prop_name: String) -> Dictio
 		return {
 			"name": prop_name,
 			"type": _type_name(declared_type),
-			"value": _jsonify(value),
+			"value": _jsonify(value, 0, texture_digest),
 		}
 	return {}
 
@@ -589,6 +611,48 @@ func _handle_perf_monitors() -> String:
 	})
 
 
+# perf sample: collect the ENGINE performance monitors per frame over a bounded
+# window (#662) — the windowed counterpart of the one-frame `perf monitors`
+# snapshot, on the same time-windowed base `perf monitor` uses (#223). Each
+# selected-clock frame the sampler reads every SELECTED monitor (all of them
+# when the selection is empty), frame-coherently (ADR-0020), and the reply
+# carries the raw timestamped samples. The harness stays dumb on purpose: the
+# aggregate statistics and any budget verdicts are computed CLI-side, where the
+# numeric semantics are unit-testable without an engine. The frame count is
+# bounded model-side (ADR-0015); the unknown-monitor arm below is defensive
+# only (the CLI validates names against its mirrored table before dispatch).
+func _handle_perf_sample(params: Dictionary) -> Variant:
+	var frames := _int_param(params, "frames", 60)
+	var raw_names: Variant = params.get("monitors", [])
+	var names: Array = raw_names if typeof(raw_names) == TYPE_ARRAY else []
+	if names.is_empty():
+		names = _perf_monitors.keys()
+	for name in names:
+		if not _perf_monitors.has(String(name)):
+			return _error("operation_failed",
+					"unknown performance monitor: " + String(name))
+	var frame_box := {"n": 0}
+	var sample := func() -> Variant:
+		var values := {}
+		for name in names:
+			values[String(name)] = Performance.get_monitor(_perf_monitors[String(name)])
+		var entry := {
+			"frame": int(frame_box["n"]),
+			"timestamp": Time.get_ticks_msec(),
+			"values": values,
+		}
+		frame_box["n"] = int(frame_box["n"]) + 1
+		return entry
+	var finalize := func(samples: Array) -> String:
+		return _ok({
+			"kind": "sample",
+			"frames": samples.size(),
+			"monitors": names,
+			"samples": samples,
+		})
+	return _begin_window(frames, sample, finalize)
+
+
 # perf monitor: collect a per-frame timeline over a window (#223) — either a
 # property's value each frame (--property) or a signal's emissions over the window
 # (--signal). The first time-windowed live op, built on the multi-frame base: it
@@ -738,11 +802,22 @@ func _input_viewport() -> Viewport:
 
 var _last_injected_mouse_position: Variant = null
 var _injected_mouse_button_mask := 0
+# Whether the root viewport currently believes the mouse is in its area, mirrored
+# from the root Window's mouse_entered/mouse_exited signals (connected at _ready,
+# #647). Starts false: a fresh engine session has received no enter notification.
+var _mouse_in_viewport := false
 
 
 func _prepare_mouse_input() -> Viewport:
 	var viewport := _input_viewport()
-	viewport.notify_mouse_entered()
+	# Notify only on a real edge (#647): notify_mouse_entered() on an
+	# already-entered viewport is an engine warning ("The Viewport was previously
+	# notified...") that lands in the Session log and pollutes `gda diag errors`
+	# on every injected mouse event after the first. The mirror also covers an
+	# OS-driven enter in a windowed session (no notify needed at all) and an
+	# OS-driven exit (the next injection re-notifies).
+	if not _mouse_in_viewport:
+		viewport.notify_mouse_entered()
 	return viewport
 
 
@@ -798,18 +873,17 @@ func _mouse_button_mask(button: String) -> int:
 			return MOUSE_BUTTON_MASK_LEFT
 
 
-# Push a mouse-button event at a viewport position. Shared by the single-frame
-# click op and a sequence mouse-click event.
-func _push_mouse_click(pos: Vector2, button: String, double: bool) -> void:
-	var viewport := _prepare_mouse_input()
-	var event := InputEventMouseButton.new()
-	event.button_index = _mouse_button_index(button)
-	event.button_mask = _mouse_button_mask(button)
-	event.position = pos
-	event.pressed = true
-	event.double_click = double
-	viewport.push_input(event, true)
-	_last_injected_mouse_position = pos
+# Push a WHOLE mouse click — the press, then the release — on one frame. A bare
+# press never completes an activation: a default Button emits `pressed` only on
+# the release, so a "click" that stops at the press leaves the button held down
+# forever (#652, GDA-DF-004). Used by a sequence `mouse_click` event, which puts
+# the whole click at one clock offset (a same-frame pair fully activates a
+# Button, verified against a live engine); the standalone `input mouse-click` op
+# spreads its move/press/release gesture across frames instead (see
+# _handle_input_mouse_click).
+func _push_whole_mouse_click(pos: Vector2, button: String, double: bool) -> void:
+	_push_mouse_button_phase(pos, button, true, double)
+	_push_mouse_button_phase(pos, button, false, false)
 
 
 func _push_mouse_button_phase(pos: Vector2, button: String, pressed: bool, double: bool) -> void:
@@ -867,22 +941,61 @@ func _handle_input_key(params: Dictionary) -> String:
 	})
 
 
-# input mouse-click: inject an InputEventMouseButton at (x, y) into the root
-# viewport. A single-frame op (pushed at one frame boundary, ADR-0020).
-func _handle_input_mouse_click(params: Dictionary) -> String:
+# The runtime path of the root viewport's current focus owner, or null with no
+# focused Control — the before/after focus evidence the activation ops report
+# (#652). A pure read; the engine exposes no equivalent "was the event handled"
+# evidence, so focus is the observable half.
+func _focus_owner_path() -> Variant:
+	var owner := _input_viewport().gui_get_focus_owner()
+	if owner == null:
+		return null
+	return String(owner.get_path())
+
+
+# input mouse-click: inject the COMPLETE click gesture at (x, y) into the root
+# viewport — the initial move, the press, and the release, one per process frame
+# (frames 0/1/2 of a 3-frame window on the #223 multi-frame base). The gesture is
+# what the op's name implies: a bare press never completes a UI activation (a
+# default Button emits `pressed` only on the release) and leaves the button held
+# down forever (#652, GDA-DF-004); the initial move settles hover state at the
+# click position first. Each phase applies at its own frame boundary (ADR-0020).
+func _handle_input_mouse_click(params: Dictionary) -> Variant:
 	var x := _float_param(params, "x", 0.0)
 	var y := _float_param(params, "y", 0.0)
 	var button := _string_param(params, "button")
 	if button.is_empty():
 		button = "left"
 	var double := bool(params.get("double", false))
-	_push_mouse_click(Vector2(x, y), button, double)
-	return _ok({
-		"kind": "mouse_click",
-		"position": [x, y],
-		"button": button,
-		"double": double,
-	})
+	var pos := Vector2(x, y)
+	var focus_before: Variant = _focus_owner_path()
+	var frame_box := {"n": 0}
+	var sample := func() -> Variant:
+		var current := int(frame_box["n"])
+		match current:
+			0:
+				_push_mouse_move(pos)
+			1:
+				_push_mouse_button_phase(pos, button, true, double)
+			2:
+				# A release is never a double click; the double flag rides the press.
+				_push_mouse_button_phase(pos, button, false, false)
+		frame_box["n"] = current + 1
+		return current
+	var finalize := func(_samples: Array) -> String:
+		return _ok({
+			"kind": "mouse_click",
+			"position": [x, y],
+			"button": button,
+			"double": double,
+			"phases": [
+				{"frame": 0, "phase": "move"},
+				{"frame": 1, "phase": "press"},
+				{"frame": 2, "phase": "release"},
+			],
+			"focus_before": focus_before,
+			"focus_after": _focus_owner_path(),
+		})
+	return _begin_window(3, sample, finalize)
 
 
 # input mouse-move: inject an InputEventMouseMotion to (x, y) into the root
@@ -919,6 +1032,74 @@ func _handle_input_action(params: Dictionary) -> String:
 		"pressed": not release,
 		"strength": 0.0 if release else strength,
 	})
+
+
+# input tap: the complete press-hold-release gesture for ONE key or ONE action
+# (#652). Godot needs the press and the release to land on separate process
+# frames for a UI activation — a pair contained in one immediate frame reports
+# success without advancing the focused UI (GDA-DF-034) — so the tap presses at
+# window frame 0, holds for `hold_frames` frames, releases at frame
+# `hold_frames`, then lets `settle_frames` more frames run so the game observes
+# the release before the op returns. Built on the #223 multi-frame base; the
+# frame counts are bounded model-side (ADR-0015). Validation is up front: an
+# unresolvable key is live_invalid_key, an action missing from the running
+# InputMap is live_unknown_action — the same two live-only failures the
+# single-event ops defer to the harness.
+func _handle_input_tap(params: Dictionary) -> Variant:
+	var hold := _int_param(params, "hold_frames", 2)
+	var settle := _int_param(params, "settle_frames", 2)
+	var key := _string_param(params, "key")
+	var action := _string_param(params, "action")
+	var press := Callable()
+	var release := Callable()
+	var echo := {}
+	if not action.is_empty():
+		if not InputMap.has_action(action):
+			return _error(LIVE_ERROR_UNKNOWN_ACTION,
+					"the running InputMap has no action: " + action)
+		var strength := _float_param(params, "strength", 1.0)
+		press = func() -> void: Input.action_press(action, strength)
+		release = func() -> void: Input.action_release(action)
+		echo = {"action": action, "strength": strength}
+	else:
+		var keycode := _resolve_keycode(key)
+		if keycode == KEY_NONE:
+			return _error(LIVE_ERROR_INVALID_KEY,
+					"could not resolve key name to a keycode: " + key)
+		var modifiers: Array = params.get("modifiers", [])
+		if typeof(modifiers) != TYPE_ARRAY:
+			modifiers = []
+		press = func() -> void:
+			_input_viewport().push_input(_make_key_event(keycode, modifiers, true))
+		release = func() -> void:
+			_input_viewport().push_input(_make_key_event(keycode, modifiers, false))
+		echo = {"key": key, "keycode": keycode, "modifiers": modifiers}
+	var focus_before: Variant = _focus_owner_path()
+	var frame_box := {"n": 0}
+	var sample := func() -> Variant:
+		var current := int(frame_box["n"])
+		if current == 0:
+			press.call()
+		elif current == hold:
+			release.call()
+		frame_box["n"] = current + 1
+		return current
+	var finalize := func(_samples: Array) -> String:
+		var payload := {
+			"kind": "tap",
+			"hold_frames": hold,
+			"settle_frames": settle,
+			"frames": hold + settle + 1,
+			"phases": [
+				{"frame": 0, "phase": "press"},
+				{"frame": hold, "phase": "release"},
+			],
+			"focus_before": focus_before,
+			"focus_after": _focus_owner_path(),
+		}
+		payload.merge(echo)
+		return _ok(payload)
+	return _begin_window(hold + settle + 1, sample, finalize)
 
 
 # input sequence: inject a list of events across either process or physics frames,
@@ -1010,7 +1191,7 @@ func _apply_sequence_event(event: Dictionary) -> Variant:
 			var button := _string_param(event, "button")
 			if button.is_empty():
 				button = "left"
-			_push_mouse_click(
+			_push_whole_mouse_click(
 					Vector2(_float_param(event, "x", 0.0), _float_param(event, "y", 0.0)),
 					button, bool(event.get("double", false)))
 			return null
@@ -1283,12 +1464,17 @@ func _type_name(type: int) -> String:
 # the backstop against a pathological self-referential Dictionary live-side.
 const JSONIFY_MAX_DEPTH := 16
 
-# The Object/Resource base bookkeeping properties an inline value projection
-# excludes (ADR-0035): every InputEvent IS a Resource, so without the exclusion
-# a path-less value Object would emit an empty resource_path and masquerade as
-# a reference projection; the exclusion also drops noise.
+# The properties an inline value projection excludes (ADR-0035): the
+# Object/Resource base bookkeeping — every InputEvent IS a Resource, so
+# without the exclusion a path-less value Object would emit an empty
+# resource_path and masquerade as a reference projection (and the rest is
+# noise) — plus the RESERVED discriminator key `object_string` (#666): only
+# the texture projection emits it, so an inline class's own storage property
+# of that name is dropped, not copied — otherwise a presence-based consumer
+# would misclassify the inline projection as a texture.
 const JSONIFY_BOOKKEEPING_PROPS: Array[String] = [
 	"resource_path", "resource_name", "resource_local_to_scene", "script",
+	"object_string",
 ]
 
 # The read-side Value projection (ADR-0035, grown from issue #55): render a
@@ -1303,7 +1489,7 @@ const JSONIFY_BOOKKEEPING_PROPS: Array[String] = [
 # its string form rather than crashing JSON.stringify on an unencodable
 # Variant, and the depth cap bounds the recursion on the compound arms — so
 # the projection is always JSON-encodable.
-func _jsonify(value: Variant, depth: int = 0) -> Variant:
+func _jsonify(value: Variant, depth: int = 0, texture_digest: bool = false) -> Variant:
 	match typeof(value):
 		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING, TYPE_STRING_NAME:
 			return value
@@ -1323,7 +1509,7 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 			# keys that collide after stringification resolve last-wins by
 			# assignment order (deterministic, ADR-0035).
 			for key in value.keys():
-				out[str(key)] = _jsonify(value[key], depth + 1)
+				out[str(key)] = _jsonify(value[key], depth + 1, texture_digest)
 			return out
 		TYPE_ARRAY, TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, \
 		TYPE_PACKED_INT64_ARRAY, TYPE_PACKED_FLOAT32_ARRAY, \
@@ -1337,7 +1523,7 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 			# [x, y]; an element type with no structured arm of its own (e.g.
 			# Vector3) stays str(), per the fixed-shape list above.
 			for element in value:
-				items.append(_jsonify(element, depth + 1))
+				items.append(_jsonify(element, depth + 1, texture_digest))
 			return items
 		TYPE_OBJECT:
 			# A freed live Object (harness side) must not be introspected.
@@ -1351,6 +1537,40 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 			# counts as a reference too.
 			if value is Resource and String(value.resource_path).begins_with("res://"):
 				return {"type": value.get_class(), "resource_path": value.resource_path}
+			# Texture projection (#666, ADR-0035 amendment): a PATH-LESS Texture2D
+			# — a runtime-created texture (ImageTexture.create_from_image) has no
+			# res:// path, so the reference arm above cannot name it and the string
+			# fallback's instance ID cannot say what it shows. PATH-LESS only:
+			# a non-empty, non-res:// path (user://, take_over_path) stays the
+			# string fallback it always was — #666's scope is the empty path. A
+			# fixed shape read off cheap getters: class + dimensions. `object_string` keeps the old
+			# str() form as secondary diagnostics and is this kind's DISCRIMINATOR
+			# (no other object shape emits it; `resource_path` stays
+			# reference-only, not even null here). `digest` is opt-in
+			# (texture_digest): get_image() is a GPU-to-CPU readback on the live
+			# side, not a price every read should pay; an image the engine cannot
+			# read back keeps digest null. Dimensions and format prefix the hashed
+			# bytes so same-bytes textures of different shapes do not collide.
+			if value is Texture2D and String(value.resource_path).is_empty():
+				var texture_projection := {
+					"type": value.get_class(),
+					"width": value.get_width(),
+					"height": value.get_height(),
+					"object_string": str(value),
+					"digest": null,
+				}
+				if texture_digest:
+					var image: Image = value.get_image()
+					if image != null and not image.is_empty():
+						var ctx := HashingContext.new()
+						if ctx.start(HashingContext.HASH_SHA256) == OK:
+							var shape := "%dx%d:%d:" % [
+								image.get_width(), image.get_height(), image.get_format(),
+							]
+							ctx.update(shape.to_utf8_buffer())
+							ctx.update(image.get_data())
+							texture_projection["digest"] = "sha256:" + ctx.finish().hex_encode()
+				return texture_projection
 			# Inline value projection: a whitelisted path-less value Object
 			# (InputEvent subclasses initially) projects its own storage
 			# properties. The whitelist is the risk-isolation boundary that
@@ -1364,7 +1584,7 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 					var prop_name := String(prop.get("name", ""))
 					if prop_name in JSONIFY_BOOKKEEPING_PROPS:
 						continue
-					projected[prop_name] = _jsonify(value.get(prop_name), depth + 1)
+					projected[prop_name] = _jsonify(value.get(prop_name), depth + 1, texture_digest)
 				# Assigned AFTER the loop so the discriminator shadows a
 				# storage property named "type" (ADR-0035 documents the
 				# shadowing — order matters).

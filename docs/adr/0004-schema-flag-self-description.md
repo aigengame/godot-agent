@@ -12,7 +12,10 @@ status: accepted
 > so it stays backward compatible (ADR-0012). `kind` is `null` only for a
 > self-description emitted without a backing command (e.g. `gda schema --schema`);
 > in the aggregate manifest (ADR-0012) every dispatchable entry's `kind` is
-> required and enum-constrained.
+> required and enum-constrained. The enum has since grown two
+> self-description-only values on the ADR-0031 migration pattern: `script_run`
+> (ADR-0031) and `import` (#668, the native project-wide `--import` pass behind
+> `resource import`).
 
 > **Outcome (2026-06-22, #233 / PR #245):** the per-command `--schema` object
 > gained a fifth, additive key — `constraints`, the command's

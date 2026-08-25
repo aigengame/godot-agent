@@ -174,17 +174,22 @@ _Avoid_: console output, stdout dump
 The read-side contract for rendering a Godot value into the structured JSON a
 successful result carries. Scalars and the small fixed-shape value types pass
 through directly; a `Dictionary`/`Array` (and the packed-array family) projects
-recursively; and an `Object` is rendered by one of three **projection kinds** — a
+recursively; and an `Object` is rendered by one of four **projection kinds** — a
 **reference projection** for a `Resource` that has a `res://` path (named by type
 and path, never inlined — the read-side mirror of ADR-0033's write-side
-reference), an **inline value projection** for a whitelisted path-less value
+reference), a **texture projection** for a PATH-LESS `Texture2D` (named by type
+and dimensions, with the former `str()` form under `object_string` — its
+discriminator — and an opt-in content `digest`; ADR-0035 amendment, #666), an
+**inline value projection** for a whitelisted path-less value
 `Object` (named by type plus its projected fields), or a plain **string
 fallback** for anything else. One projection shared across **every value gda
 emits** — the `get` reads (`project`/`node`/`resource get`), the value echoed by
 `node set`/`resource set`, the per-entry value of `project list` and `scene
 get-exports`, and the live `game get` read — so a value reads the same
-everywhere; the whitelist is the boundary that keeps the shared projection safe
-on the live side (ADR-0035).
+everywhere. Two controls keep the shared projection safe on the live side: the
+whitelist bounds the Object classes whose storage properties the inline kind
+emits, and the texture kind is safe by construction — a fixed getter shape
+with its one expensive readback behind the explicit digest opt-in (ADR-0035).
 _Avoid_: value rendering, str dump, serialization, descriptor
 
 ### Failure reporting
@@ -233,7 +238,9 @@ _Avoid_: safe project, sandboxed project
 
 **Project-code execution surface**:
 The set of points where a single `gda` run triggers the target project's own
-code to run: autoload constructors at engine startup (every `--project` op), the
+code to run: autoload constructors at engine startup (every `--project` op
+that boots the game-facing engine — see the import-pass point below for the
+one that does not), the
 `_init` of scripts on nodes *or resources* that an instantiating operation
 constructs (a `class_name` node via `node add`, a script-backed `class_name`
 Resource via `resource create`, or every script inside a **scene composed as an
@@ -243,10 +250,16 @@ property (`node set` / `resource set --value res://…`, ADR-0033), the **full
 execution of a named project script** via `gda script run` (ADR-0031), and — via
 `gda scene preflight` (#664) — the **startup of a whole scene**: every script it
 carries runs its `_init` and `_ready` and keeps running for a bounded number of
-frames, beside the autoloads. That last point is the widest on this list.
+frames, beside the autoloads — that preflight point is the widest on this
+list. `gda resource import` (#668) contributes two DISTINCT points: a fully
+cached request starts no engine at all (nothing on this surface runs), while
+a missing or stale cache runs the **engine import pass** — importer code (and
+any import plugins the project registers) over project content, WITHOUT the
+autoloads: the pass boots the editor importer path, not the game's scene
+stack.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
-loaded-value assignment (ADR-0033) and the startup preflight widen this surface
-without adding a new trust axis.
+loaded-value assignment (ADR-0033), the startup preflight, and the import pass
+widen this surface without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:

@@ -276,7 +276,7 @@ separate headless-only contract.
 
 Whitespace around a value or a component is tolerated. A property of any other type is still
 reported by `node get` — compound values arrive structured through the shared value projection
-(ADR-0035): packed arrays project as JSON arrays, and an `Object` as a reference / inline value
+(ADR-0035): packed arrays project as JSON arrays, and an `Object` as a reference / texture / inline value
 projection or the `str()` fallback (see [`project`](#project)) — but `node set` cannot coerce to
 those remaining types yet and refuses with `uncoercible_value` unless a separate assignment contract
 below applies.
@@ -630,7 +630,11 @@ setting by its full `section/key` name (e.g. `application/config/name`) and repo
 JSON projection, the **same projection** `node get` reports for a node property. Compound values
 arrive **structured** (ADR-0035): a `Dictionary` projects to a JSON object, an `Array` or packed
 array to a JSON array, and an embedded `Object` renders as a **reference projection**
-(`{type, resource_path}` for a Resource with a `res://` path), an **inline value projection**
+(`{type, resource_path}` for a Resource with a `res://` path), a **texture projection**
+(`{type, width, height, object_string, digest}` for a PATH-LESS `Texture2D` — a runtime-created
+`ImageTexture` the reference kind cannot name; `object_string` keeps the former `str()` form and
+is the kind's discriminator, `digest` stays null unless a read opts in; ADR-0035 amendment,
+#666), an **inline value projection**
 (`{type, …storage properties}` for a whitelisted path-less value Object — `InputEvent` subclasses,
 e.g. the `InputEventKey`s of an `input/*` action), or the `str()` fallback for any other Object. A
 setting that does not exist is a clean `unknown_setting` error (exit 4), distinguishing a typo'd key
@@ -690,6 +694,52 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 | `gda resource get` | Load and inspect a resource |
 | `gda resource set` | Edit a resource file |
 | `gda resource uid` | Resolve UID ↔ resource path (both directions) |
+| `gda resource import` | Ensure assets are imported into the project cache (clean-worktree loading) |
+
+**Scoped import surface** (shipped, #668, per the issue's revised contract): a clean
+worktree carries the sources and their committed `.import` sidecars but not the gitignored
+`.godot/` cache, so a one-shot run's `preload()` of e.g. a PNG fails with "no recognized
+resource loader" (GDA-DF-010). `resource import ASSETS... [--dry-run] [--timeout S]` reads
+each requested asset's EVIDENCE STATE from the same project artifacts the engine's own
+reimport test reads: `cached` needs positive ARTIFACT-level evidence (a keep/skip
+importer, or the PATH-derived `.md5` receipt present with `source_md5`/`dest_md5`
+matching the bytes — any declared destinations also present — plus `source_file` naming
+this asset and the UID-era format; a sidecar declaring no destinations but carrying a
+matching receipt passes the same artifact checks — the engine's own pass leaves it
+untouched when the engine-state remainder below is controlled — while one with no
+importer line proves nothing and is conservatively `stale`); `missing` (no sidecar yet)
+and `stale` (an artifact check fails) are what the engine would import; `invalid` (the
+engine marked the last import `valid=false`, the sidecar does not parse, or the `.md5`
+receipt falls outside gda's documented engine-written assignment subset) is not passed
+automatically: the engine skips failed imports and parse errors, while gda conservatively
+skips unsupported receipt syntax —
+delete the sidecar to retry; that heals a malformed receipt too, because the pass
+rewrites both. That receipt subset accepts quoted-string assignments, whitespace,
+`;` comments, JSON-style escaped strings (lone UTF-16 surrogates excluded — the
+engine's parser rejects them), and repeated assignments; as in the engine,
+the final value wins. Broader Variant values take the conservative no-pass direction.
+Artifact-level is the boundary, not a proof of the engine's
+whole verdict: the checks the engine makes from its OWN state — whether the declared
+importer still exists (an open registry: import plugins add names), its format version,
+its project-settings validity, and the editor cache's expected sidecar MD5 — are not
+readable from the project's artifacts, so a sidecar drifted in those dimensions can read
+`cached` until any pass runs. The declared direction of that remainder: it can delay a
+re-import until the next pass, never spend a pass the engine would not. The engine pass runs only when a request is `missing` or
+`stale`; it is PROJECT-WIDE (the engine's one scriptable import primitive is
+`godot --headless --import`; a per-file reimport exists only inside the editor process), so
+gda's scoping is in the decision and the report. A real run settles each state
+(`imported` / `not_importable` — the engine decided the type needs no import / `failed` —
+every `invalid` request settles here without spending a pass) and lists every created
+file, classified against the explicit cache root: `cache_owned` (under `res://.godot`) vs
+`source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
+file). `--dry-run` writes nothing and reports the decidable inventory: the per-asset
+states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
+stale assets the project-wide pass will re-import (invalid ones excluded; assets with no
+sidecar and generated `.uid` files are the engine's to decide, so the real run's `created`
+list is the authoritative inventory). Plain `gda script run` never triggers an import
+pass. The pass executes engine importer code over project content — within the `Trusted
+project` assumption (ADR-0009), recorded on the Project-code execution surface (no new
+trust axis, per the issue's triage decision).
 
 ### `export`
 
@@ -749,7 +799,10 @@ headless is unaffected (4.4+, cross-platform).
   `verified` to distinguish a matched read-back from a completed set whose value did not
   stick. When a property is explicitly named, storage properties are preferred and plain
   attached-script variables are addressable as a fallback; unfiltered `game get` keeps the
-  storage-property listing.
+  storage-property listing. `game get --texture-digest` (shipped, #666) opts a read into
+  the content digest of each PATH-LESS `Texture2D` value's **texture projection**
+  (ADR-0035 amendment): the digest needs `Texture2D.get_image()`, a GPU-to-CPU readback,
+  so without the flag the projection's `digest` field stays null.
   `game rect` (shipped, #419) reads a running
   `Control`'s rendered viewport-space rectangle via `Control.get_global_rect()`, returning
   `position` and `size` as the existing Vector2 projection. These commands address the
@@ -764,12 +817,34 @@ headless is unaffected (4.4+, cross-platform).
   (ADR-0019).
 - **`input` (input simulation):** runtime input injection into the running game
   (shipped, #221). Single-frame ops `input key <KEY> [--modifiers …] [--released]`,
-  `input mouse-click <x> <y> [--button left|right|middle] [--double]` /
   `input mouse-move <x> <y>`, and `input action <NAME> [--release] [--strength F]`
-  each inject one event at a frame boundary (ADR-0020); the multi-frame
+  each inject one event at a frame boundary (ADR-0020). The **activation
+  gestures** (#652) are multi-frame: `input mouse-click <x> <y> [--button
+  left|right|middle] [--double]` injects the COMPLETE click its name implies —
+  the initial move, the press, and the release, one per process frame across a
+  3-frame window — because Godot's UI activates on the release (a bare press
+  never emits a default `Button`'s `pressed` and leaves it held down,
+  GDA-DF-004); and `input tap (--key K [--modifiers …] | --action NAME
+  [--strength F]) [--hold-frames N] [--settle-frames M]` performs the complete
+  press-hold-release of one key or one InputMap action — press at window frame
+  0, release after N (default 2, at least 1) process frames, then M (default 2)
+  settle frames so the game observes the release before the op returns — because
+  a press/release pair contained in one immediate frame reports success without
+  advancing a focused UI (GDA-DF-034). Both gesture results report the injected
+  `phases` (each phase's window frame) and the focused Control's runtime path
+  before/after the gesture (`focus_before` / `focus_after`, null when nothing
+  holds focus) — the activation evidence the engine exposes. Repeated injected
+  mouse events add no harness-owned warnings to `diag errors` (#647): the
+  harness notifies the viewport's mouse-enter state only on a real edge,
+  mirroring it from the root Window's `mouse_entered`/`mouse_exited` signals.
+  The multi-frame
   `input sequence --events <JSON>` applies a list of events across one selected
   clock and returns as one blocking payload, on the gda harness's time-windowed
-  multi-frame base (the same base `perf monitor` uses, #223). Existing sequence
+  multi-frame base (the same base `perf monitor` uses, #223). A sequence
+  `mouse_click` event is a whole click at ONE clock offset — the harness pushes
+  the press and then the release on the same frame, which fully activates a
+  default `Button` (mouse activation, unlike a focused-UI key tap, does not need
+  the pair split across frames). Existing sequence
   event `frame` offsets are explicitly the harness/process-frame clock advanced by
   the harness `_process` loop; they are preserved for compatibility and are **not**
   Godot's fixed physics frames. For deterministic simulation-duration input, use
@@ -791,7 +866,9 @@ headless is unaffected (4.4+, cross-platform).
   leave `Viewport.get_mouse_position()` and `Node2D.get_global_mouse_position()`
   stale in daemon sessions, so game code should read the injected coordinate from
   the input event. The modifier
-  set, mouse-button enum, action strength range (0..1), per-event shape, and the
+  set, mouse-button enum, action strength range (0..1), per-event shape, the
+  tap's exactly-one-target rule and window (`hold_frames + settle_frames + 1` ≤
+  the per-window ceiling), and the
   sequence's selected-clock window (`max(frame)+1` or `max(physics_frame)+1` ≤ the
   per-window ceiling, the same bound `perf monitor` enforces, #223) are bounded
   **model-side** (ADR-0015), so an
@@ -819,6 +896,29 @@ headless is unaffected (4.4+, cross-platform).
   node is `live_perf_node_not_found`, an absent property `live_perf_property_not_found`,
   an absent signal `live_perf_signal_not_found`; a genuinely stalled engine is caught
   by the daemon-level `live_timeout`.
+  `perf monitors` also has a WINDOW mode (shipped, #662; the issue's triage
+  decision put it on the existing command — no third near-homonym). With
+  `--frames N`, the harness reads every selected engine monitor once per frame
+  over the window. All monitors are read when no `--monitor` is given. The
+  harness returns only the raw timestamped samples. The CLI computes the
+  statistics — count, min, max, mean, p50, p95 per monitor; percentiles are
+  nearest-rank — because the command is a recipe (ADR-0023, the `screen`
+  pattern). With `--budget FILE`, the CLI also evaluates one pass/fail verdict
+  per budgeted monitor, plus an overall `passed`. A failed budget is data: the
+  command still exits 0. The budget file is a JSON object of
+  `{monitor: {stat, min?, max?}}` entries. `stat` is required (one of min, max,
+  mean, p50, p95) and at least one bound must be set. Admission is strict:
+  UTF-8 only, unique keys at every depth, finite numbers only. The budget is
+  validated before dispatch, so a bad file never costs a live window; a budget
+  for a monitor outside the sampled selection is refused. Monitor names are
+  bounded model-side against a CLI mirror of the harness's monitor table (a
+  sync test holds the two identical). The reply is correlated with the request:
+  a self-consistent reply for a different window or selection classifies as
+  `contract_violation`. The `--frames` bound inherits the same 1..600
+  per-window ceiling, stated in help and echoed as `max_frames` in the result.
+  The result names its mode (`kind: snapshot | window`); `--monitor` and
+  `--budget` require `--frames`, and the no-flag snapshot behavior is
+  unchanged.
 - **`diag` (diagnostics):** runtime errors of the running game (shipped, #224; callstacks #283). `gda diag errors`
   reads the running game's runtime errors as structured `{level, message, function?, file?, line?, callstack}`
   (warnings included, distinguished by `level`), with `--limit N`. `callstack` is an ordered
@@ -839,8 +939,27 @@ headless is unaffected (4.4+, cross-platform).
   as a verbatim `info` record (the superseded `diag log` view, still `LogRecord[]`). Daemon-served
   and crash-survivable like `diag` (ADR-0022). The opt-in rich `gda_log()` protocol layers on in a
   follow-up slice (#282).
-- **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status`, and `gda daemon
-  install` / `uninstall` for the `gda harness` (ADR-0018). `daemon start --windowed` additionally
+- **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status` /
+  `wait-ready`, and `gda daemon install` / `uninstall` for the `gda harness` (ADR-0018).
+  `daemon wait-ready` (`kind = LIVE`, #657) establishes the lazily-launched engine session
+  deterministically: a session launches on the first operation that REQUIRES one (ADR-0017),
+  and the read-only diag/logger reads never do (ADR-0022), so a first `diag errors` right
+  after start reports `engine_session_not_running` by design — `wait-ready` is the
+  documented way to trigger that launch explicitly, with one daemon-side wait/commit budget.
+  `--timeout` is ONE deadline over the whole
+  daemon-side readiness attempt — retiring the session being replaced, the
+  spawn, the harness connect, the token and scene-verification frames (each read against the
+  deadline, not a per-chunk inactivity timeout), and the teardown of a failed launch (a finite
+  number in (0, 50], under the live channel's 60s client-side round-trip bound). It is a budget
+  for waiting and for committing to new work rather than a hard wall clock — no phase gets a
+  fresh grace, every timed wait uses what remains, and once it is spent nothing further is
+  launched — but a synchronous step already in flight (a filesystem write, the spawn itself)
+  can delay when that expiry is observed. Success (`{pid, launched}`) means subsequent
+  live reads serve, and a repeat while the session is alive is idempotent (`launched:
+  false`, nothing relaunched). A session stops serving when its harness channel breaks OR
+  when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
+  late reply can no longer be attributed — and the next operation that requires a session
+  relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon start --windowed` additionally
   requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
   `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two

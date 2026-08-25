@@ -239,6 +239,7 @@ def test_render_game_set_renders_the_set_runtime_property():
 
 def test_render_perf_monitors_renders_a_sorted_snapshot():
     result = PerfMonitorsResult(
+        kind="snapshot",
         timestamp=500,
         monitors={
             "fps": PerfMonitor(name="fps", type="float", value=60.0),

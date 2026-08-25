@@ -126,7 +126,7 @@ refusal hints the command form) and a bare `gda --json` with no command (`Missin
 | `node` | `add`, `get`, `list`, `set`, `remove`, `duplicate`, `move`, `connect-signal`, `disconnect-signal` (nodes within a scene) |
 | `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `validate` takes SEVERAL paths at once — one engine launch for the whole batch, one aggregate `valid` plus a per-file entry under `scripts` — or `--all` for every script in the project; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails; `--timeout <s>` sets the ceiling (default 120) and a run that reaches it fails with `launch_timeout` carrying the captured partial output, the elapsed seconds and a termination phase; add `--completion-marker <line>` naming a line your script prints when its work is done — a caller-declared liveness contract, not a death detector: gda ends the run once it observes a recognized error attributable to the entry script, no marker line yet, and then silence on both streams — `script_aborted` (exit 4) with the captured error, in seconds rather than at the ceiling; declaring the marker asserts the script keeps printing until that line, so have it print progress during quiet stretches longer than ~3s, or omit the marker) |
 | `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
-| `resource` | `create`, `get`, `set`, `delete`, `uid` (`.tres` files) |
+| `resource` | `create`, `get`, `set`, `delete`, `uid`, `import` (`.tres` files and project assets; `import` ensures importable assets — PNGs and other files the engine imports — are in the project cache: clean-worktree loading; a script needs no import and reports `not_importable`) |
 | `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
 | `shader` | `create`, `get`, `set` (`.gdshader` files) |
 | `theme` | `create` (a loadable `.tres` Theme) |
@@ -135,7 +135,15 @@ refusal hints the command form) and a bare `gda --json` with no command (`Missin
 
 Prerequisites: run `gda daemon start` first (optionally `--scene <res://...>` to boot a
 specific scene instead of the project's main scene); the engine session launches lazily on
-the first live op. `screen capture` needs a windowed session
+the first operation that requires one. To establish the session deterministically, run
+`gda daemon wait-ready` (`--timeout` budgets daemon waits and new-work decisions;
+a synchronous launch call can delay expiry observation; idempotent while the session is
+alive) — success means live reads serve. This matters for the read-only diagnostics: `diag errors` /
+`logger tail` never launch a session themselves, so right after `daemon start` they report
+`engine_session_not_running` by design — expected, not a defect; run `wait-ready` first.
+A `live_timeout` discards the session (its late reply can no longer be attributed), so the
+next operation starts a fresh game and the runtime state you had set is gone.
+`screen capture` needs a windowed session
 (`gda daemon start --windowed`).
 
 A windowed session needs the host's real desktop session — an on-console GUI login on
@@ -159,13 +167,25 @@ already-running daemon's lazy Engine-session launch; only the outer
 
 | Group | Commands |
 | ----- | -------- |
-| `daemon` | `start`, `stop`, `status`, `install`, `uninstall` (lifecycle; `start` installs the in-game harness itself, so `install` is only for doing that step deliberately — e.g. to review or commit the `project.godot` change — and `uninstall` reverses it) |
-| `game` | `tree`, `get`, `rect`, `set` (the running game's runtime scene graph) |
+| `daemon` | `start`, `wait-ready`, `stop`, `status`, `install`, `uninstall` (lifecycle; `start` installs the in-game harness itself, so `install` is only for doing that step deliberately — e.g. to review or commit the `project.godot` change — and `uninstall` reverses it; `wait-ready` establishes the lazily-launched engine session, with `--timeout` shared by its waits and new-work decisions, so a first `diag errors` serves instead of reporting `engine_session_not_running`) |
+| `game` | `tree`, `get`, `rect`, `set` (the running game's runtime scene graph; `get --texture-digest` opts a read into content digests for path-less `Texture2D` values) |
 | `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |
-| `perf` | `monitors`, `monitor` (counters now / a property-or-signal timeline) |
-| `input` | `key`, `mouse-click`, `mouse-move`, `action`, `sequence` |
+| `perf` | `monitors`, `monitor` (counters: a one-frame snapshot, or with `--frames` a bounded window with statistics and optional `--budget` verdicts / a per-node timeline) |
+| `input` | `key`, `mouse-click`, `mouse-move`, `action`, `tap`, `sequence` |
 | `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`) |
+
+For a UI activation, use the gesture commands, not a lone event. Godot activates a
+`Button` on the RELEASE, so a bare press never emits `pressed`; and a focused UI
+does not advance when the press and the release land on the same process frame.
+`gda input mouse-click` injects the whole gesture — the initial move, the press,
+and the release, one per process frame — and `gda input tap --key K` /
+`gda input tap --action NAME` presses at frame 0, holds `--hold-frames` (default 2)
+process frames, releases, then runs `--settle-frames` (default 2) more frames so
+the game observes the release before the op returns. Both report the injected
+`phases` and the focused Control before/after as activation evidence. Reach for
+`gda input key <KEY> --released` or a `mouse_button` sequence phase only when a
+single edge is the point (a hold, a drag).
 
 `gda input sequence` events are a discriminated union on `type`: each kind accepts
 only its own fields, and `gda input sequence --schema` publishes them per kind. The
@@ -237,7 +257,7 @@ gda export run --preset "Linux/X11" --output "$PWD/game/build/game.zip" --projec
 Live: observe the running game, then tear down.
 
 ```bash
-gda daemon start --project game --json     # launches the session on the first live op
+gda daemon start --project game --json     # the session launches on the first op that needs one
 gda game tree --project game --json        # the runtime scene tree, after _ready
 gda daemon stop --project game --json
 ```

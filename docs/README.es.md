@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6c49dbe1f8202e9cfa46bc8fd79e1c78060238936b0d52e56ec01fd4f2f53e70 -->
+<!-- gda-readme-i18n: source=README.md sha256=de7b87f2b2f920f174da2066e3f4ea95c46ca800577f5b6607ca594f8eab1b41 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -510,7 +510,7 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 | `project find-unused-resources` | Encuentra archivos de recurso que nada referencia. |
 | `project statistics` | Informa los recuentos de archivos/líneas del proyecto, los autoloads y más. |
 
-**`resource`** — archivos de recurso (`.tres`)
+**`resource`** — archivos de recurso (`.tres`) y los assets importados del proyecto
 
 | Comando | Qué hace |
 | ------- | ------------ |
@@ -519,6 +519,7 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 | `resource set` | Define una propiedad `.tres`, forzando el valor a su tipo declarado. |
 | `resource delete` | Elimina un archivo de recurso `.tres` e informa qué se eliminó. |
 | `resource uid` | Resuelve un UID de recurso ↔ su ruta `res://` en ambas direcciones. |
+| `resource import` | Garantiza que los assets estén importados en la caché del proyecto (carga en un worktree limpio). |
 
 **`export`** — presets de exportación y artefactos
 
@@ -548,7 +549,8 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza en la primera operación live (`--windowed` para la captura de `screen`). |
+| `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza en la primera operación que la requiere (`--windowed` para la captura de `screen`). |
+| `daemon wait-ready` | Establece la sesión del motor de lanzamiento perezoso para que las lecturas live respondan. `--timeout` es el presupuesto del daemon compartido por las esperas de lanzamiento y las decisiones de iniciar trabajo nuevo; una llamada de lanzamiento síncrona en curso puede retrasar la detección del vencimiento. Es la forma documentada de disparar ese lanzamiento explícitamente: las lecturas de solo lectura `diag`/`logger` nunca lanzan una sesión, así que un primer `diag errors` justo después de `daemon start` informa `engine_session_not_running` por diseño. |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
 | `daemon install` | Instala el harness `gda` dentro del proyecto sin iniciar un daemon, informando cada ruta y sección que creó. Idempotente, y resincroniza un harness de un `gda` anterior. `daemon start` ya lo hace por su cuenta, así que ejecútalo solo para realizar ese cambio en `project.godot` de forma deliberada — para revisarlo o confirmarlo. |
@@ -586,7 +588,7 @@ variables de script getter-only/no-op o controles edge-triggered.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `perf monitors` | Toma una instantánea de los contadores de rendimiento del motor (fps, memoria, nodos, …). |
+| `perf monitors` | Toma una instantánea de los contadores del motor — o, con `--frames`, muestrea una ventana con estadísticas y veredictos de presupuesto. |
 | `perf monitor` | Muestrea una propiedad o señal de nodo a lo largo de una ventana de frames (línea de tiempo). |
 
 **`input`** — simulación de entrada
@@ -594,9 +596,10 @@ variables de script getter-only/no-op o controles edge-triggered.
 | Comando | Qué hace |
 | ------- | ------------ |
 | `input key` | Inyecta un evento de tecla (con modificadores). |
-| `input mouse-click` | Inyecta un clic de ratón en `(x, y)`. |
+| `input mouse-click` | Inyecta el gesto de clic completo (movimiento, pulsación, liberación) en `(x, y)`. |
 | `input mouse-move` | Inyecta un movimiento de ratón hacia `(x, y)`. |
 | `input action` | Presiona/suelta una acción de entrada mapeada. |
+| `input tap` | Toca una tecla o acción: pulsa, mantiene y suelta a lo largo de varios frames. |
 | `input sequence` | Inyecta una línea de tiempo de eventos de varios frames. |
 
 Los eventos de ratón informan la coordenada inyectada del viewport mediante
@@ -650,14 +653,16 @@ relativas al cwd), no `res://`. El **servidor MCP** no tiene flags, así que res
 <details>
 <summary>Ejecución del código del proyecto — qué se ejecuta cuando apuntas a un proyecto</summary>
 
-Resolver un proyecto para que las rutas `res://` funcionen ejecuta Godot contra ese proyecto, y Godot ejecuta
-parte del propio código del proyecto como parte de ello. En concreto:
+La mayoría de los comandos que resuelven un proyecto ejecutan Godot contra él, y Godot ejecuta parte del
+propio código del proyecto como parte de ello (la excepción: un `resource import` con la caché íntegra no
+arranca ningún motor). En concreto:
 
-- **Los autoloads se ejecutan en cada operación `--project`.** Cuando se resuelve un proyecto, el motor
-  construye los singletons autoload del proyecto al arrancar — antes de que se ejecute el trabajo propio del comando
-  — de modo que su `_init` (y `_ready`) se ejecuta en **cada** operación, incluidas las de solo lectura
-  como `scene get` y `node list`. Sin un proyecto resuelto, no se registra ningún autoload, así que
-  no se ejecutan.
+- **Los autoloads se ejecutan en cada operación `--project` que arranca el motor del lado del juego.** Cuando se
+  resuelve un proyecto, el motor construye los singletons autoload del proyecto al arrancar — antes de que se
+  ejecute el trabajo propio del comando — de modo que su `_init` (y `_ready`) se ejecuta también en operaciones
+  de solo lectura como `scene get` y `node list`. Dos excepciones: un `resource import` con la caché íntegra no
+  arranca ningún motor, y su pase de importación arranca la ruta del importador del editor, que omite los
+  autoloads. Sin un proyecto resuelto, no se registra ningún autoload, así que no se ejecutan.
 - **Los comandos que instancian una escena ejecutan los constructores de los scripts adjuntos de esa escena.**
   Un comando que necesita un árbol de nodos vivo — todo comando que muta (`node add`, `node set`,
   `node remove`, …) y `node get` (que informa los valores predeterminados de propiedades en runtime que los datos
@@ -671,6 +676,11 @@ parte del propio código del proyecto como parte de ello. En concreto:
 - **`gda scene preflight` arranca la escena.** Instancia la escena y ejecuta su `_ready` más
   los fotogramas de observación, así que cada script de la escena — y los autoloads del
   proyecto — ejecutan su código de arranque.
+
+- **`gda resource import` ejecuta el pase de importación del motor cuando la caché falta o está obsoleta.** El
+  código de los importadores — y cualquier plugin de importación que el proyecto registre — se ejecuta sobre el
+  contenido de todo el proyecto. El pase arranca la ruta del importador del editor, no el juego: no se ejecuta
+  ningún autoload. Una petición con la caché íntegra no arranca ningún motor.
 
 `gda` trata el proyecto objetivo como de confianza, por lo que esto es intencionado — consulta
 [ADR-0009](adr/0009-trust-boundary-trusted-project.md) para el modelo de confianza.

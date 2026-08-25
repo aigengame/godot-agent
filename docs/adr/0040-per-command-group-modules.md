@@ -4,6 +4,13 @@ status: accepted
 
 # Per-command-group modules: vertical group slices over the shared descriptor core
 
+> **Amendment (2026-08-20, #657):** the module-tree sketch below annotates
+> `daemon.py` as "recipe-backed, not LIVE". Since #657 the group carries ONE
+> `kind = LIVE` command — `daemon wait-ready`, which routes through the live
+> channel (daemon-served, like `diag errors`) because its object is the engine
+> session the daemon holds. The rest of the group stays recipe-backed as
+> decided; the module docstring of `gda.commands.daemon` records the exception.
+
 ADR-0023 made the `HeadlessCommand` descriptor the single per-command registration
 and left one follow-on open: the per-command-group module split, "rejected for now
 ... revisit in its own ADR if the descriptor consolidation proves insufficient."

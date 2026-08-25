@@ -46,6 +46,14 @@ class DaemonPaths:
     cli_socket: Path  # CLI <-> daemon UDS
     harness_socket: Path  # daemon <-> harness UDS (path injected into the session)
     pidfile: Path  # liveness + the recorded canonical project path
+    # The daemon-owned Session log (#224): the engine session is launched with
+    # `--log-file` on this path so the daemon can read the running game's
+    # errors/output back to serve `gda diag` / `gda logger`. Under the private
+    # runtime dir (NOT `user://logs` — that shared path caused #180), keyed by the
+    # same slug as the sockets/pidfile; `RotatedFileLogger` truncates it each
+    # launch, making it session-bound (ADR-0020). Derived here with the rest of
+    # the identity (#674) — no consumer re-derives it from a socket filename.
+    session_log: Path
 
 
 def _runtime_dir(env: Mapping[str, str]) -> Path:
@@ -85,6 +93,7 @@ def daemon_paths(project: Path, env: Mapping[str, str] | None = None) -> DaemonP
         cli_socket=runtime / f"{slug}.cli.sock",
         harness_socket=runtime / f"{slug}.harness.sock",
         pidfile=runtime / f"{slug}.pid",
+        session_log=runtime / f"{slug}.session.log",
     )
 
 
@@ -108,16 +117,25 @@ def acquire_pidfile(paths: DaemonPaths, pid: int):
     ``os.kill`` PID-liveness (which a reused PID could spoof). The OS releases the
     lock when the daemon exits or crashes, so liveness self-heals with no cleanup.
     Raises ``OSError`` if another live daemon already holds it (a start race).
+
+    Opened WITHOUT truncation, and truncated only AFTER the lock is won (#723
+    review): ``open("w")`` zeroed the file before ``flock`` could refuse, so a
+    LOSING start erased the live winner's recorded identity — ``daemon_pid``
+    then read the running daemon as not running.
     """
     import fcntl
 
     ensure_runtime_dir(paths)
-    handle = open(paths.pidfile, "w", encoding="utf-8")
+    handle = os.fdopen(
+        os.open(paths.pidfile, os.O_RDWR | os.O_CREAT, 0o644), "r+", encoding="utf-8"
+    )
     try:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         handle.close()
         raise
+    handle.seek(0)
+    handle.truncate()
     handle.write(f"{pid}\n{paths.project}\n")
     handle.flush()
     return handle

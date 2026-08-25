@@ -496,7 +496,7 @@ reported as `script_aborted` with the captured error.
 | `project find-unused-resources` | Find resource files that nothing references. |
 | `project statistics` | Report the project's file/line counts, autoloads, and more. |
 
-**`resource`** — resource files (`.tres`)
+**`resource`** — resource files (`.tres`) and the project's imported assets
 
 | Command | What it does |
 | ------- | ------------ |
@@ -505,6 +505,7 @@ reported as `script_aborted` with the captured error.
 | `resource set` | Set a `.tres` property, coercing the value to its declared type. |
 | `resource delete` | Delete a `.tres` resource file and report what was removed. |
 | `resource uid` | Resolve a resource UID ↔ its `res://` path in both directions. |
+| `resource import` | Ensure assets are imported into the project cache (clean-worktree loading). |
 
 **`export`** — export presets and artifacts
 
@@ -534,7 +535,8 @@ reported as `script_aborted` with the captured error.
 
 | Command | What it does |
 | ------- | ------------ |
-| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
+| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first operation that requires one (`--windowed` for `screen` capture). |
+| `daemon wait-ready` | Establish the lazily-launched engine session so live reads serve. Its `--timeout` is the daemon-side budget shared by launch waits and new-work decisions; a synchronous launch call can delay when expiry is observed. This is the documented way to trigger the session launch, since the read-only `diag`/`logger` reads never launch one and a first `diag errors` right after `daemon start` reports `engine_session_not_running` by design. |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
 | `daemon install` | Install the in-game `gda` harness into the project without starting a daemon, reporting every path and section it created. Idempotent, and re-syncs a harness from an older `gda`. `daemon start` does this itself, so run it only to make that `project.godot` change deliberately — to review or commit it. |
@@ -572,7 +574,7 @@ edge-triggered controls.
 
 | Command | What it does |
 | ------- | ------------ |
-| `perf monitors` | Snapshot the engine's performance counters (fps, memory, nodes, …). |
+| `perf monitors` | Snapshot the engine's counters — or, with `--frames`, sample a window with statistics and budget verdicts. |
 | `perf monitor` | Sample a node property or signal over a frame window (timeline). |
 
 **`input`** — input simulation
@@ -580,9 +582,10 @@ edge-triggered controls.
 | Command | What it does |
 | ------- | ------------ |
 | `input key` | Inject a key event (with modifiers). |
-| `input mouse-click` | Inject a mouse click at `(x, y)`. |
+| `input mouse-click` | Inject a complete click gesture (move, press, release) at `(x, y)`. |
 | `input mouse-move` | Inject mouse motion to `(x, y)`. |
 | `input action` | Press/release a mapped input action. |
+| `input tap` | Tap one key or action: press, hold, release across frames. |
 | `input sequence` | Inject a multi-frame event timeline. |
 
 Mouse events report the injected viewport coordinate through `event.position`.
@@ -634,13 +637,16 @@ A named directory must be a project, or `gda` reports it as an error. When none 
 <details>
 <summary>Project code execution — what runs when you point at a project</summary>
 
-Resolving a project so `res://` paths work runs Godot against that project, and Godot runs
-some of the project's own code as part of that. Concretely:
+Most commands that resolve a project run Godot against it, and Godot runs some of the
+project's own code as part of that (a fully cached `resource import` is the exception:
+it starts no engine). Concretely:
 
-- **Autoloads run on every `--project` operation.** When a project is resolved, the engine
-  constructs the project's autoload singletons at startup — before the command's own work
-  runs — so their `_init` (and `_ready`) execute on **every** operation, including read-only
-  ones like `scene get` and `node list`. Without a resolved project, no autoloads are
+- **Autoloads run on every `--project` operation that starts the game-facing engine.** When a
+  project is resolved, the engine constructs the project's autoload singletons at startup —
+  before the command's own work runs — so their `_init` (and `_ready`) execute on read-only
+  operations too, like `scene get` and `node list`. Two exceptions: a fully cached
+  `resource import` starts no engine at all, and its cache-miss import pass boots the editor
+  importer path, which skips autoloads. Without a resolved project, no autoloads are
   registered, so they do not run.
 - **Commands that instantiate a scene execute that scene's attached scripts' constructors.**
   A command that needs a live node tree — every mutating command (`node add`, `node set`,
@@ -655,6 +661,10 @@ some of the project's own code as part of that. Concretely:
 - **`gda scene preflight` boots the scene.** It instantiates the scene and runs its `_ready`
   plus the observation frames, so every script in the scene — and the project's autoloads —
   execute their startup code.
+- **`gda resource import` runs the engine import pass on a cache miss.** Importer code — and
+  any import plugins the project registers — runs over the whole project's content. The pass
+  boots the editor importer path, not the game: no autoloads execute. A fully cached request
+  starts no engine at all.
 
 `gda` treats the target project as trusted, so this is by design — see
 [ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md) for the trust model.

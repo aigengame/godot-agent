@@ -183,6 +183,12 @@ _RECIPE_OPERATIONS = {
     "daemon-uninstall",
     "screen-capture",
     "screen-frames",
+    # `perf monitors` carries both the snapshot and the #662 window mode on one
+    # surface (the issue's triage decision); the window statistics and budget
+    # verdicts are computed CLI-side from the harness's raw samples (the
+    # `screen` pattern), so the command carries a recipe that still runs the
+    # sentinel ops.
+    "perf-monitors",
     # `gda skill` is a pure local emitter meta command (ADR-0024): it reads the
     # in-package SKILL.md and emits/installs it, spawning no Godot, so it is
     # fulfilled by a CLI-side recipe like export run / the daemon lifecycle.
@@ -195,6 +201,10 @@ _RECIPE_OPERATIONS = {
     # `daemon install` is the fifth daemon lifecycle recipe (ADR-0018, #670): the
     # idempotent harness install `daemon start` folds in, runnable on its own.
     "daemon-install",
+    # `resource import` (#668) decides per-asset cache verdicts CLI-side and
+    # calls the shared launch primitive with the engine's project-wide
+    # `--import` argv — not a sentinel op, like `export run`'s native channel.
+    "resource-import",
 }
 
 

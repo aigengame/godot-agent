@@ -23,7 +23,7 @@ import typer
 
 from gda.cli import app
 from gda.daemon.diag import LOG_BEGIN, parse_errors, parse_log_records
-from gda.daemon.server import LOG_OPS
+from gda.daemon.server import DAEMON_SERVED_OPS, LOG_OPS
 from gda.daemon.session import CONNECT_TIMEOUT, LAUNCH_MARKER, OP_TIMEOUT
 from gda.execution import ExecutionKind
 from gda.live_runner import LIVE_REQUEST_TIMEOUT
@@ -113,10 +113,18 @@ def test_log_ops_are_part_of_the_live_command_surface():
 
 def test_relayed_live_ops_mirror_the_harness_op_table():
     # The cross-language op-name contract: every LIVE op the daemon RELAYS (i.e. the
-    # LIVE surface minus the daemon-served LOG_OPS) must be an op the GDScript
-    # harness declares, and vice versa. A one-sided rename here is invisible to the
+    # LIVE surface minus the DAEMON_SERVED_OPS the daemon answers itself — the log
+    # reads and the wait-ready launch, #657) must be an op the GDScript harness
+    # declares, and vice versa. A one-sided rename here is invisible to the
     # unit suite otherwise: the CLI would ask for an op the harness never answers.
-    relayed = _live_operations() - set(LOG_OPS)
+    from gda.commands.perf import PERF_SAMPLE_OP
+
+    # `perf monitors`' recipe dispatches a SECOND harness op beside its
+    # descriptor operation (#662: the snapshot op is the descriptor's, the
+    # window op is recipe-reached). Counted from the source-side constant, so
+    # the mirror still has one authority per name.
+    recipe_relayed = {PERF_SAMPLE_OP}
+    relayed = (_live_operations() | recipe_relayed) - set(DAEMON_SERVED_OPS)
     harness_ops = _harness_operations()
 
     unserved = relayed - harness_ops
@@ -130,7 +138,7 @@ def test_relayed_live_ops_mirror_the_harness_op_table():
         f"harness ops no CLI command can reach: {sorted(unreachable)}. Register a "
         "LIVE command descriptor with that operation name, or remove the const from "
         f"{GDA_HARNESS_GD.name}. (Daemon-SERVED ops belong in "
-        "gda.daemon.server.LOG_OPS, not in the harness op table.)"
+        "gda.daemon.server.DAEMON_SERVED_OPS, not in the harness op table.)"
     )
 
 

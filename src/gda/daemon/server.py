@@ -8,17 +8,20 @@ liveness, ``__stop__`` graceful shutdown); any other op is a project live op,
 served by the engine session, which is (re)launched lazily on demand.
 """
 
+import math
 import os
 import secrets
 import signal
 import socket
-from typing import Callable, Optional
+import time
+from pathlib import Path
+from typing import Callable, NamedTuple, Optional, Protocol
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
 from gda.daemon.session import (
-    EngineSession,
+    CONNECT_TIMEOUT,
     SceneMismatch,
     WindowedDisplayUnavailable,
     launch_session,
@@ -38,6 +41,82 @@ DIAG_ERRORS_OP = "diag-errors"
 LOGGER_TAIL_OP = "logger-tail"
 LOG_OPS = (DIAG_ERRORS_OP, LOGGER_TAIL_OP)
 
+# The daemon-served readiness op (#657): `gda daemon wait-ready`. Like the LOG_OPS
+# it is answered by the daemon rather than relayed to the harness — but unlike
+# them it deliberately LAUNCHES the engine session (the documented, bounded way to
+# trigger ADR-0017's lazy launch), so it is not in their read-only family.
+WAIT_READY_OP = "daemon-wait-ready"
+
+# Every LIVE op the daemon answers ITSELF rather than relaying to the harness.
+# The single membership authority (#725 review): production routing keys on this
+# tuple (`_handle` -> `_handle_daemon_served`), and the cross-language op-table
+# guard subtracts the same tuple before demanding a harness-side `const OP_…`
+# mirror (PR #650 guards, #657) — so the two cannot drift.
+DAEMON_SERVED_OPS = (*LOG_OPS, WAIT_READY_OP)
+
+# The wire contract's cap on a wait-ready launch bound (#657): the live channel
+# bounds one whole request round trip at 60s client-side
+# (gda.live_runner.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
+# comfortably inside it. One authority for both enforcement points: the CLI
+# params model (ADR-0015) and the daemon's own IPC-boundary check below.
+WAIT_READY_TIMEOUT_MAX = 50.0
+
+
+class SessionHandle(Protocol):
+    """What the server consumes of a session (#723 review): a structural contract.
+
+    The server owns this — it names exactly the capabilities the serve loop
+    needs (liveness, one-op relay, the remembered log path, teardown) — so a
+    unit-test fake conforms by shape, with no cast at the seam.
+    :class:`gda.daemon.session.EngineSession` is the concrete implementation.
+    """
+
+    log_file: Optional[Path]
+
+    def alive(self) -> bool: ...
+
+    def request(self, operation: str, params: dict) -> dict: ...
+
+    def close(self, deadline: float | None = ...) -> None: ...
+
+
+class _Established(NamedTuple):
+    """A serving session plus the fact of who launched it (#725 review).
+
+    ``launched`` is decided by the launch owner (``_ensure_session``) at the
+    moment it reuses or launches — never re-derived by a caller, whose separate
+    ``alive()`` sample raced the decision (a process exiting between the two
+    samples made a call that DID launch report ``launched: false``).
+    """
+
+    session: SessionHandle
+    launched: bool
+
+
+class SessionLaunch(Protocol):
+    """The server↔session seam: the shape of :func:`launch_session` (#674).
+
+    :class:`DaemonServer` takes one so unit tests can drive the whole serve
+    loop — lazy launch, launch failure, session death, relaunch — against a
+    fake :class:`SessionHandle`, with no Godot binary and no real engine. The
+    default is always the real :func:`launch_session`; the seam injects, it
+    never re-implements.
+    """
+
+    def __call__(
+        self,
+        project: Path,
+        binary: str,
+        harness_listener: socket.socket,
+        harness_socket: Path,
+        token: str,
+        log_file: Optional[Path] = None,
+        deadline: Optional[float] = None,
+        windowed: bool = False,
+        scene: Optional[str] = None,
+        diagnostics: Optional[list[str]] = None,
+    ) -> Optional[SessionHandle]: ...
+
 
 class DaemonServer:
     """Binds the per-project sockets and serves requests until stopped."""
@@ -49,6 +128,7 @@ class DaemonServer:
         windowed: bool = False,
         scene: str | None = None,
         display_check: Optional[Callable[[], Optional[WindowedUnavailable]]] = None,
+        launch: Optional[SessionLaunch] = None,
     ) -> None:
         self.paths = paths
         self.godot = godot
@@ -67,26 +147,33 @@ class DaemonServer:
         # so tests drive the guard without a real display; defaults to the shared
         # gda.display probe. Consulted only for a windowed session.
         self._display_check = display_check or windowed_unavailable
+        # The server↔session seam (#674): how an engine session is launched.
+        # Injectable so unit tests drive the whole serve loop against a fake
+        # session — no Godot binary, no real engine. Resolved at construction
+        # against the module global, so the default stays the real launch.
+        self._launch: SessionLaunch = launch or launch_session
         self._token = secrets.token_hex(16)
         self._stopping = False
         self._listener: socket.socket | None = None
         self._harness_listener: socket.socket | None = None
-        self._session: EngineSession | None = None
+        self._session: SessionHandle | None = None
         self._pidfile_handle = None
 
     def serve(self) -> None:
         ensure_runtime_dir(self.paths)
-        self._listener = self._bind(self.paths.cli_socket)
-        self._harness_listener = self._bind(self.paths.harness_socket)
-        # Hold the pidfile's advisory lock for our lifetime — that held lock is the
-        # liveness signal the CLI keys on (ADR-0021); bind first so the socket is
-        # present before we are reported live.
+        # The pidfile's advisory lock is the daemon's mutual exclusion AND its
+        # liveness signal (ADR-0021), so it is taken FIRST: a start that loses the
+        # race fails here, before it can unlink — or leave the cleanup below to
+        # unlink — the winner's live sockets (#674 socket-lifecycle test; binding
+        # first let a losing double-start destroy the winner's slot). Liveness as
+        # the CLI reads it needs the lock AND a bound socket, so the daemon is
+        # still not reported live until the binds below land.
         self._pidfile_handle = acquire_pidfile(self.paths, os.getpid())
-
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            signal.signal(sig, self._on_signal)
-
         try:
+            self._listener = self._bind(self.paths.cli_socket)
+            self._harness_listener = self._bind(self.paths.harness_socket)
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                signal.signal(sig, self._on_signal)
             self._accept_loop()
         finally:
             self._cleanup()
@@ -153,18 +240,91 @@ class DaemonServer:
         if op == STOP_OP:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}
-        if op in LOG_OPS:
-            # `gda diag errors` / `gda logger tail` are daemon-served: the daemon
-            # reads the Session log it owns rather than relaying to the harness
-            # (#224, #281).
-            return self._handle_log(op, request.get("params", {}))
+        if op in DAEMON_SERVED_OPS:
+            # Daemon-answered, never relayed. Membership is decided by the ONE
+            # tuple the cross-language guard also reads (#725 review), so an op
+            # declared daemon-served is intercepted here by construction.
+            return self._handle_daemon_served(op, request.get("params", {}))
         # A project live op. Serialized against the one session (single writer).
-        # The scene selector is verified ONCE at launch (in the harness): a mismatch
-        # is a typed live_scene_not_found, never a silent fall back to main_scene and
-        # never a per-request re-check (#278, ADR-0017 amendment, ADR-0020).
+        outcome = self._session_or_refusal()
+        if isinstance(outcome, dict):
+            return outcome
+        return outcome.session.request(op, request.get("params", {}))
+
+    def _handle_daemon_served(self, op: str, params: dict) -> dict:
+        """Dispatch one DAEMON_SERVED_OPS member to its daemon-side handler."""
+        if op in LOG_OPS:
+            # `gda diag errors` / `gda logger tail`: the daemon reads the Session
+            # log it owns rather than relaying to the harness (#224, #281).
+            return self._handle_log(op, params)
+        if op == WAIT_READY_OP:
+            # `gda daemon wait-ready` (#657) — unlike the LOG_OPS it deliberately
+            # LAUNCHES: the explicit, bounded way to establish the lazily-launched
+            # session (ADR-0017) so an agent's first real read serves.
+            return self._handle_wait_ready(params)
+        # A DAEMON_SERVED_OPS member with no handler is a gda defect: refuse it
+        # loudly rather than silently relaying it to a harness that never
+        # declared it. Unreachable while the tuple is composed from LOG_OPS and
+        # WAIT_READY_OP above; the parity test drives every member through here.
+        return error_reply(
+            "unknown_operation", f"daemon-served op {op!r} has no daemon handler"
+        )
+
+    def _handle_wait_ready(self, params: dict) -> dict:
+        """Establish the engine session and report readiness (#657).
+
+        The bounded-wait half of ADR-0017's lazy launch: sessions still launch
+        lazily on the first operation that requires one, and THIS op is the
+        explicit way to be that operation — its success means the harness has
+        connected and presented its token, so subsequent live reads (including a
+        first ``diag errors``, which never launches) serve. ``timeout`` bounds
+        the launch's whole readiness handshake; an already-serving session
+        returns immediately with ``launched: false`` and is never relaunched.
+        ``launched`` is reported by the launch owner (``_ensure_session``), not
+        inferred here — a pre-sampled ``alive()`` raced the launch decision and
+        could report ``false`` for a call that did launch (#725 review).
+        """
+        raw = params.get("timeout")
+        timeout: float | None = None
+        if raw is not None:
+            # The same finite (0, 50] rule the params model enforces (ADR-0015),
+            # re-checked at the IPC boundary (#725 review): this socket can be
+            # driven by clients other than gda's CLI, and an unbounded or
+            # non-finite value here would defeat the very bound this op promises.
+            if (
+                isinstance(raw, bool)
+                or not isinstance(raw, (int, float))
+                or not math.isfinite(raw)
+                or not 0 < raw <= WAIT_READY_TIMEOUT_MAX
+            ):
+                return error_reply(
+                    "invalid_params",
+                    "wait-ready timeout must be a finite number in "
+                    f"(0, {int(WAIT_READY_TIMEOUT_MAX)}]; got {raw!r}",
+                )
+            timeout = float(raw)
+        outcome = self._session_or_refusal(timeout=timeout)
+        if isinstance(outcome, dict):
+            return outcome
+        return result_reply({"pid": os.getpid(), "launched": outcome.launched})
+
+    def _session_or_refusal(
+        self, timeout: float | None = None
+    ) -> "_Established | dict":
+        """The serving session — with whether this call launched it — or the typed refusal.
+
+        The one launch boundary every session-needing op goes through (#657
+        extracted it from the live-op branch so ``wait-ready`` shares it exactly).
+        ``launched`` travels with the session because only the launch owner knows
+        it (#725 review): sampling ``alive()`` before and after raced the
+        decision. The scene selector is verified ONCE at launch (in the harness):
+        a mismatch is a typed live_scene_not_found, never a silent fall back to
+        main_scene and never a per-request re-check (#278, ADR-0017 amendment,
+        ADR-0020).
+        """
         launch_diagnostics: list[str] = []
         try:
-            session = self._ensure_session(launch_diagnostics)
+            established = self._ensure_session(launch_diagnostics, timeout=timeout)
         except SceneMismatch as mismatch:
             detail = (
                 f"no scene named {mismatch.requested!r} exists in the project"
@@ -198,14 +358,14 @@ class DaemonServer:
                 diagnostics=unavailable.reason,
                 probe=unavailable.verdict.probe,
             )
-        if session is None:
+        if established is None:
             return error_reply(
                 "engine_session_not_running",
                 "the gda-daemon could not launch an engine session (no Godot binary, "
                 "or the engine died / the harness did not connect)",
                 diagnostics=self._launch_failure_diagnostics(launch_diagnostics),
             )
-        return session.request(op, request.get("params", {}))
+        return established
 
     def _handle_log(self, op: str, params: dict) -> dict:
         """Serve a daemon-side log op from the Session log this daemon owns (#224, #281).
@@ -255,14 +415,35 @@ class DaemonServer:
         return result_reply({"records": records})
 
     def _ensure_session(
-        self, diagnostics: list[str] | None = None
-    ) -> EngineSession | None:
+        self, diagnostics: list[str] | None = None, timeout: float | None = None
+    ) -> "_Established | None":
+        # ONE deadline — an absolute instant, taken at ENTRY — for everything this
+        # boundary does on the caller's clock (#725 re-review): the liveness check,
+        # retiring the session it is replacing, and launching the replacement.
+        # Retirement is not free (a stale session's engine may ignore SIGTERM) and
+        # neither is a spawn, so charging either to nobody made the bound a
+        # per-phase allowance rather than a bound. Every phase receives the INSTANT,
+        # never a duration: a duration is a fresh budget to whatever receives it,
+        # which is how an exhausted one came back whole one layer down.
+        deadline = time.monotonic() + (
+            timeout if timeout is not None else CONNECT_TIMEOUT
+        )
         if self._session is not None and self._session.alive():
-            return self._session
+            return _Established(self._session, launched=False)
         if self._session is not None:
-            self._session.close()
+            self._session.close(deadline)
             self._session = None
         if not self.godot:
+            return None
+        if time.monotonic() >= deadline:
+            # Retirement used the whole budget. Launching now would be launching
+            # past the bound, so this is a refusal, reported like any other failed
+            # launch — with the reason, since an empty one reads as a mystery.
+            if diagnostics is not None:
+                diagnostics.append(
+                    "the readiness deadline expired while the previous engine "
+                    "session was retired; no replacement was launched"
+                )
             return None
         # The AUTHORITATIVE no-display guard (#345): a windowed session needs a usable
         # host DisplayServer, else a windowed Godot aborts during DisplayServer
@@ -289,27 +470,34 @@ class DaemonServer:
             if not (self.paths.project / rel).expanduser().is_file():
                 raise SceneMismatch(scene)
         assert self._harness_listener is not None
-        self._session = launch_session(
+        self._session = self._launch(
             self.paths.project,
             self.godot,
             self._harness_listener,
             self.paths.harness_socket,
             self._token,
-            log_file=self._session_log_path(),
+            log_file=self.paths.session_log,
+            # The caller's own deadline (#657 `daemon wait-ready --timeout`, #725
+            # re-review), not a duration derived from it: the launcher spends what
+            # is left of THIS instant on the spawn, the connect, the handshake
+            # frames, and its teardown.
+            deadline=deadline,
             windowed=self.windowed,
             scene=self.scene,
             diagnostics=diagnostics,
         )
-        return self._session
+        if self._session is None:
+            return None
+        return _Established(self._session, launched=True)
 
     def _launch_failure_diagnostics(self, child_diagnostics: list[str]) -> str:
         """Best-effort diagnostics for a failed engine-session launch (#345).
 
         Combines the child-liveness reason ``launch_session`` observed (the engine
         died by signal, or the harness never connected) with a tail of the daemon-
-        owned Session log, read via the DETERMINISTIC :meth:`_session_log_path` —
-        which needs no live session object, extending ADR-0022's read path to the
-        failed-launch case. NOTE: a windowed-no-``DisplayServer`` abort happens
+        owned Session log, read via the DETERMINISTIC ``DaemonPaths.session_log``
+        (#674) — which needs no live session object, extending ADR-0022's read
+        path to the failed-launch case. NOTE: a windowed-no-``DisplayServer`` abort happens
         BEFORE Godot installs its file logger, so this tail is usually EMPTY for that
         case (the child-signal reason carries it); it carries content for a
         post-logger crash.
@@ -323,31 +511,14 @@ class DaemonServer:
     def _read_session_log_tail(self, max_bytes: int = 2000) -> str:
         """The trailing bytes of the daemon-owned Session log, or "" if unreadable."""
         try:
-            data = self._session_log_path().read_bytes()
+            data = self.paths.session_log.read_bytes()
         except OSError:
             return ""
         return data.decode("utf-8", "replace").strip()[-max_bytes:]
 
-    def _session_log_path(self):
-        """The daemon-owned Session-log path for this project (#224).
-
-        Under the daemon's private runtime dir (NOT ``user://logs`` — that shared
-        path caused #180), keyed by the same project slug the sockets/pidfile use,
-        so the engine's ``--log-file`` writes the running game's errors/output to a
-        path the daemon can read back to serve ``gda diag``. ``RotatedFileLogger``
-        truncates it each launch, making it session-bound (ADR-0020).
-        """
-        slug = self.paths.cli_socket.name.split(".", 1)[0]
-        return self.paths.runtime_dir / f"{slug}.session.log"
-
     def _cleanup(self) -> None:
         if self._session is not None:
             self._session.close()
-        if self._pidfile_handle is not None:
-            try:
-                self._pidfile_handle.close()  # releases the advisory lock
-            except OSError:
-                pass
         for sock in (self._listener, self._harness_listener):
             if sock is not None:
                 try:
@@ -362,4 +533,15 @@ class DaemonServer:
             try:
                 os.unlink(path)
             except FileNotFoundError:
+                pass
+        # The advisory lock releases LAST (#723 review): it is the slot's mutual
+        # exclusion (ADR-0021), so it must outlive the slot it guards. Released
+        # before the unlinks above, a successor could acquire and bind a fresh
+        # slot inside this window — which the remaining unlinks would then
+        # destroy, leaving a serving daemon that discovery reports as not
+        # running.
+        if self._pidfile_handle is not None:
+            try:
+                self._pidfile_handle.close()  # releases the advisory lock
+            except OSError:
                 pass

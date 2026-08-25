@@ -117,6 +117,22 @@ def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
     return fake
 
 
+def no_engine_teardown(monkeypatch) -> None:
+    """No-op the engine teardown for a test whose session process is a stand-in (#725).
+
+    ``_terminate`` signals a REAL child and reaps it; a fake process has no ``pid``
+    to signal, so a test that fakes one must neutralize it. Named and shared rather
+    than open-coded per test because this mock HIDES a real interaction — teardown
+    is charged to the caller's readiness deadline (#725 re-review), and a suite that
+    only ever mocks it cannot see that. A test that exercises teardown itself takes
+    a real child and must NOT call this.
+    """
+    monkeypatch.setattr(
+        "gda.daemon.session._terminate",
+        lambda proc, deadline=None, owned_pgid=None: None,
+    )
+
+
 def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's LIVE (daemon) runner seam for a ``FakeRunner`` (#7).
 
@@ -662,6 +678,46 @@ PERF_MONITOR_SIGNAL_RESULT = {
     ],
 }
 
+# A ``perf-sample`` WIRE reply (#662) — what the harness returns: raw per-frame
+# rows only. Statistics and budget verdicts are computed CLI-side by the recipe,
+# so the values here are chosen to make the aggregates exactly checkable:
+# fps sorted = [55, 58, 60, 60, 62] -> mean 59, p50 60, p95 62 (nearest-rank);
+# draw_calls sorted = [90, 95, 100, 110, 120] -> mean 103, p50 100, p95 120.
+PERF_SAMPLE_REPLY = {
+    "kind": "sample",
+    "frames": 5,
+    "monitors": ["fps", "draw_calls"],
+    "samples": [
+        {"frame": 0, "timestamp": 100, "values": {"fps": 60.0, "draw_calls": 100.0}},
+        {"frame": 1, "timestamp": 116, "values": {"fps": 55.0, "draw_calls": 120.0}},
+        {"frame": 2, "timestamp": 132, "values": {"fps": 62.0, "draw_calls": 90.0}},
+        {"frame": 3, "timestamp": 148, "values": {"fps": 58.0, "draw_calls": 110.0}},
+        {"frame": 4, "timestamp": 164, "values": {"fps": 60.0, "draw_calls": 95.0}},
+    ],
+}
+
+
+def perf_sample_reply_all_monitors(names) -> dict:
+    """A 1-frame ``perf-sample`` reply covering EVERY mirrored monitor name.
+
+    The default (empty) selection samples ALL monitors, and the recipe
+    correlates the reply's monitor list with that expectation — so the fake
+    reply must cover the whole table for the default-selection test.
+    """
+    return {
+        "kind": "sample",
+        "frames": 1,
+        "monitors": list(names),
+        "samples": [
+            {
+                "frame": 0,
+                "timestamp": 100,
+                "values": {name: 1.0 for name in names},
+            }
+        ],
+    }
+
+
 # Sample ``gda input`` results — the events the gda harness injected into the
 # running game, served LIVE through gda-daemon (#221). Shared by the input-command
 # success/schema tests. A key echoes the resolved keycode + modifiers; a mouse
@@ -675,11 +731,54 @@ INPUT_KEY_RESULT = {
     "pressed": True,
 }
 
+# A click is the COMPLETE activation gesture (#652): the harness reports the
+# move/press/release phases at their window frames plus the focus evidence
+# around the gesture.
 INPUT_MOUSE_CLICK_RESULT = {
     "kind": "mouse_click",
     "position": [100.0, 200.0],
     "button": "left",
     "double": False,
+    "phases": [
+        {"frame": 0, "phase": "move"},
+        {"frame": 1, "phase": "press"},
+        {"frame": 2, "phase": "release"},
+    ],
+    "focus_before": None,
+    "focus_after": "/root/Main/Btn",
+}
+
+# A tap is the press-hold-release gesture for one key or one action (#652); the
+# key form echoes key/keycode/modifiers, the action form action/strength.
+INPUT_TAP_KEY_RESULT = {
+    "kind": "tap",
+    "key": "Right",
+    "keycode": 4194321,
+    "modifiers": [],
+    "hold_frames": 2,
+    "settle_frames": 2,
+    "frames": 5,
+    "phases": [
+        {"frame": 0, "phase": "press"},
+        {"frame": 2, "phase": "release"},
+    ],
+    "focus_before": "/root/Main/A",
+    "focus_after": "/root/Main/B",
+}
+
+INPUT_TAP_ACTION_RESULT = {
+    "kind": "tap",
+    "action": "jump",
+    "strength": 1.0,
+    "hold_frames": 2,
+    "settle_frames": 2,
+    "frames": 5,
+    "phases": [
+        {"frame": 0, "phase": "press"},
+        {"frame": 2, "phase": "release"},
+    ],
+    "focus_before": None,
+    "focus_after": None,
 }
 
 INPUT_MOUSE_MOVE_RESULT = {
