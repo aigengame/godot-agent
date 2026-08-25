@@ -505,7 +505,10 @@ def test_unmet_predicate_error_path_still_fires_every_event(
 ):
     # #743 review ARC-743-001, the ERROR path: the window ends in
     # live_predicate_unmet, but the declared press/release pair still ran — no
-    # held key survives the failure.
+    # held key survives the failure. The release sits BEYOND the ceiling
+    # (offset 12 > frames 10): an out-of-window offset is accepted (exact
+    # schema/model parity, #743 second re-review) and still fires during the
+    # drain, so the reply arrives only after it.
     _predicate_scaffold(tmp_path)
     run = _runner(GDA_CMD, tmp_path)
     out = tmp_path / "never.png"
@@ -521,7 +524,7 @@ def test_unmet_predicate_error_path_still_fires_every_event(
             "10",
             "--await-events",
             '[{"type": "key", "key": "Right", "frame": 0},'
-            ' {"type": "key", "key": "Right", "released": true, "frame": 4}]',
+            ' {"type": "key", "key": "Right", "released": true, "frame": 12}]',
         )
         assert cap.returncode != 0
         assert json.loads(cap.stdout)["error"]["code"] == "live_predicate_unmet"

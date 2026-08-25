@@ -172,12 +172,12 @@ class ScreenCaptureParams(BaseModel):
             "'frame' offsets, so a 3-8 frame transient triggered by the input "
             "cannot be missed by a second round trip. An event's effect is "
             "observable from the NEXT frame boundary, so leave at least one "
-            "frame between the last state-changing event and the ceiling. A "
+            "frame between the last state-changing event and the ceiling; an "
+            "offset at or beyond the ceiling still fires (the reply waits for "
+            "every declared event) but can no longer satisfy the predicate. A "
             "declared event that fails makes the whole capture that typed "
-            "failure. Physics-clock offsets are not accepted, and every offset "
-            "must be inside await_frames — a cross-field bound JSON Schema "
-            "cannot state, enforced at validation and disclosed here. Needs "
-            "the await predicate."
+            "failure. Physics-clock offsets are not accepted. Needs the await "
+            "predicate."
         ),
     )
 
@@ -212,21 +212,11 @@ class ScreenCaptureParams(BaseModel):
                 raise ValueError(
                     "'await_events' must be a non-empty list when supplied."
                 )
-            bound = (
-                self.await_frames
-                if self.await_frames is not None
-                else DEFAULT_AWAIT_FRAMES
-            )
             for event in self.await_events:
                 if event.physics_frame is not None:
                     raise ValueError(
                         "a predicate capture applies its events on the process "
                         "clock; 'physics_frame' offsets are not accepted."
-                    )
-                if (event.frame or 0) >= bound:
-                    raise ValueError(
-                        f"an await event's 'frame' offset ({event.frame}) must be "
-                        f"inside the predicate window (await_frames = {bound})."
                     )
         return self
 

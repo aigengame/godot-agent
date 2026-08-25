@@ -805,9 +805,21 @@ def test_ready_gates_on_template_feature_as_its_first_statement():
 #   1. edit gda_harness.gd;
 #   2. bump HARNESS_VERSION in src/gda/harness/install.py;
 #   3. update BOTH pins below (the test's failure message carries the new hash).
-PINNED_HARNESS_VERSION = "9"
+PINNED_HARNESS_VERSION = "10"
 PINNED_HARNESS_SHA256 = (
     "d01ec32763874d17e6e166b51f948b63500c199941d8be56fd571b767ebfe032"
+)
+
+# The immutable version-to-hash history (#743 second re-review): one row per
+# harness version ever DECLARED on this branch's lineage, append-only, so a
+# body change that reuses an existing version number is caught even when the
+# mutable pins above were both edited in the same change — the history makes
+# "new golden hash, unchanged version" visible as a rewritten row in review.
+# Versions are monotonic; gaps are versions consumed by in-PR iterations that
+# never merged. The current pins must be the history's LAST row.
+PINNED_HARNESS_HISTORY: "tuple[tuple[str, str], ...]" = (
+    ("8", "cd1993632ba8eb308c9a2990d9a5c2570aa6bbbcc0e2e5f5845213e024d867aa"),
+    ("10", "d01ec32763874d17e6e166b51f948b63500c199941d8be56fd571b767ebfe032"),
 )
 
 
@@ -833,5 +845,27 @@ def test_bundled_harness_bytes_are_pinned_to_the_declared_version():
     assert digest == PINNED_HARNESS_SHA256, (
         f"the bundled gda_harness.gd changed (sha256 {digest}) without a "
         "version bump: bump HARNESS_VERSION in src/gda/harness/install.py and "
-        "update PINNED_HARNESS_VERSION / PINNED_HARNESS_SHA256 in this file."
+        "update PINNED_HARNESS_VERSION / PINNED_HARNESS_SHA256 in this file, "
+        "APPENDING a new row to PINNED_HARNESS_HISTORY (never rewrite a row)."
     )
+
+
+def test_harness_version_history_is_append_only_and_current():
+    # Two invariants the mutable pins alone cannot state (#743 second
+    # re-review): every declared version maps to exactly one body hash, and
+    # versions only grow. The current pins must be the last history row, so a
+    # harness edit FORCES a new row — a rewritten old row is the tamper signal
+    # a reviewer can see in the diff.
+    versions = [int(version) for version, _ in PINNED_HARNESS_HISTORY]
+    assert versions == sorted(versions) and len(set(versions)) == len(versions), (
+        "PINNED_HARNESS_HISTORY versions must be strictly increasing"
+    )
+    hashes = [digest for _, digest in PINNED_HARNESS_HISTORY]
+    assert len(set(hashes)) == len(hashes), (
+        "two harness versions must never declare the same body hash — "
+        "except never: each row is one distinct body"
+    )
+    assert PINNED_HARNESS_HISTORY[-1] == (
+        PINNED_HARNESS_VERSION,
+        PINNED_HARNESS_SHA256,
+    ), "the current pins must be the last PINNED_HARNESS_HISTORY row"

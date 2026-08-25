@@ -104,6 +104,7 @@ class InputKeyParams(BaseModel):
     )
     released: bool = Field(
         default=False,
+        strict=True,
         description="Inject a key RELEASE instead of a press (default: press).",
     )
 
@@ -150,22 +151,26 @@ class InputMouseClickParams(BaseModel):
     """
 
     x: float = Field(
+        strict=True,
         description=(
             "The click's x position in the viewport. Read it from the mouse event; "
             "engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
     y: float = Field(
+        strict=True,
         description=(
             "The click's y position in the viewport. Read it from the mouse event; "
             "engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
     button: MouseButton = Field(
         default=MouseButton.LEFT,
         description="Which mouse button to click: left, right, or middle.",
     )
-    double: bool = Field(default=False, description="Mark the event a double click.")
+    double: bool = Field(
+        default=False, strict=True, description="Mark the event a double click."
+    )
 
 
 class InputMouseMoveParams(BaseModel):
@@ -181,16 +186,18 @@ class InputMouseMoveParams(BaseModel):
     """
 
     x: float = Field(
+        strict=True,
         description=(
             "The motion's target x position in the viewport. Read it from the "
             "mouse event; engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
     y: float = Field(
+        strict=True,
         description=(
             "The motion's target y position in the viewport. Read it from the "
             "mouse event; engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
 
 
@@ -324,12 +331,15 @@ class InputActionParams(BaseModel):
         min_length=1, description="The input action name (must be in the InputMap)."
     )
     release: bool = Field(
-        default=False, description="Release the action instead of pressing it."
+        default=False,
+        strict=True,
+        description="Release the action instead of pressing it.",
     )
     strength: float = Field(
         default=1.0,
         ge=0.0,
         le=1.0,
+        strict=True,
         description="The analog press strength, 0..1 (ignored on a release).",
     )
 
@@ -762,7 +772,9 @@ class KeySequenceEvent(_SequenceEvent):
         description="Modifier keys held with the key, any of: shift, ctrl, alt, meta.",
     )
     released: bool = Field(
-        default=False, description="Inject a key RELEASE instead of a press."
+        default=False,
+        strict=True,
+        description="Inject a key RELEASE instead of a press.",
     )
 
     @model_validator(mode="after")
@@ -783,12 +795,14 @@ class MouseClickSequenceEvent(_SequenceEvent):
     """
 
     type: Literal[InputEventType.MOUSE_CLICK] = Field(description="The event kind.")
-    x: float = Field(description=_MOUSE_X_DESC)
-    y: float = Field(description=_MOUSE_Y_DESC)
+    x: float = Field(strict=True, description=_MOUSE_X_DESC)
+    y: float = Field(strict=True, description=_MOUSE_Y_DESC)
     button: MouseButton | None = Field(
         default=MouseButton.LEFT, description=_BUTTON_DESC
     )
-    double: bool = Field(default=False, description="Mark the event a double click.")
+    double: bool = Field(
+        default=False, strict=True, description="Mark the event a double click."
+    )
 
     @model_validator(mode="after")
     def _default_button(self) -> "MouseClickSequenceEvent":
@@ -831,18 +845,22 @@ class MouseButtonSequenceEvent(_SequenceEvent):
     model_config = ConfigDict(json_schema_extra=_MOUSE_BUTTON_PHASE_SCHEMA)
 
     type: Literal[InputEventType.MOUSE_BUTTON] = Field(description="The event kind.")
-    x: float = Field(description=_MOUSE_X_DESC)
-    y: float = Field(description=_MOUSE_Y_DESC)
+    x: float = Field(strict=True, description=_MOUSE_X_DESC)
+    y: float = Field(strict=True, description=_MOUSE_Y_DESC)
     button: MouseButton | None = Field(
         default=MouseButton.LEFT, description=_BUTTON_DESC
     )
-    double: bool = Field(default=False, description="Mark the event a double click.")
+    double: bool = Field(
+        default=False, strict=True, description="Mark the event a double click."
+    )
     pressed: bool | None = Field(
         default=None,
+        strict=True,
         description="Press the button. Use exactly one of `pressed` or `release`.",
     )
     release: bool = Field(
         default=False,
+        strict=True,
         description="Release the button. Use exactly one of `pressed` or `release`.",
     )
 
@@ -872,8 +890,8 @@ class MouseMoveSequenceEvent(_SequenceEvent):
     """A mouse motion event in a sequence: the ``gda input mouse-move`` shape."""
 
     type: Literal[InputEventType.MOUSE_MOVE] = Field(description="The event kind.")
-    x: float = Field(description=_MOUSE_X_DESC)
-    y: float = Field(description=_MOUSE_Y_DESC)
+    x: float = Field(strict=True, description=_MOUSE_X_DESC)
+    y: float = Field(strict=True, description=_MOUSE_Y_DESC)
 
 
 class ActionSequenceEvent(_SequenceEvent):
@@ -890,10 +908,16 @@ class ActionSequenceEvent(_SequenceEvent):
         min_length=1, description="The action name (must be in the InputMap)."
     )
     release: bool = Field(
-        default=False, description="Release the action instead of pressing it."
+        default=False,
+        strict=True,
+        description="Release the action instead of pressing it.",
     )
     strength: float = Field(
-        default=1.0, ge=0.0, le=1.0, description="The analog press strength, 0..1."
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        strict=True,
+        description="The analog press strength, 0..1.",
     )
 
 

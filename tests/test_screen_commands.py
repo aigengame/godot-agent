@@ -743,7 +743,21 @@ def test_await_events_refuse_the_physics_clock(monkeypatch, tmp_path):
     assert "physics_frame" in message
 
 
-def test_await_event_offsets_must_fit_the_window(monkeypatch, tmp_path):
+def test_out_of_window_event_offset_is_accepted_and_rides_the_wire(
+    monkeypatch, tmp_path
+):
+    # #743 second re-review: the offset-inside-window rule was model-only and
+    # JSON Schema cannot state it, so ADR-0015 parity removes it — the model
+    # and the published schema accept EXACTLY the same set. Semantics are
+    # documented instead: the reply waits for every declared event, so an
+    # offset at or beyond the ceiling still fires (it just cannot satisfy the
+    # predicate any more).
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
     out = tmp_path / "shot.png"
 
     result = CliRunner().invoke(
@@ -758,8 +772,11 @@ def test_await_event_offsets_must_fit_the_window(monkeypatch, tmp_path):
         ),
     )
 
-    message = _usage_error_message(result)
-    assert "must be inside the predicate window" in message
+    assert result.exit_code == 0, result.stdout + result.stderr
+    op, params = fake.calls[0]
+    assert params["await"]["frames"] == 10
+    (event,) = params["events"]
+    assert event["frame"] == 10
 
 
 def test_await_frames_needs_the_predicate(monkeypatch, tmp_path):
@@ -990,8 +1007,9 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
             },
             False,
         ),
-        # #743 re-review: the REVERSE divergences — the schema says `integer`,
-        # so the model must not quietly coerce strings (strict clock ints).
+        # #743 re-reviews: the REVERSE divergences — the schema says
+        # `integer`/`number`/`boolean`, so the model must not quietly coerce
+        # strings (strict clock ints, then the whole union's scalars).
         (
             {
                 "output": "x.png",
@@ -1012,6 +1030,89 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
             },
             False,
         ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "key", "key": "Right", "released": "false"}],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "mouse_click", "x": "10", "y": 20.0}],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [
+                    {"type": "mouse_click", "x": 10.0, "y": 20.0, "double": "false"}
+                ],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [
+                    {"type": "action", "action": "jump", "strength": "0.5"}
+                ],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [
+                    {"type": "action", "action": "jump", "release": "false"}
+                ],
+            },
+            False,
+        ),
+        # int-for-float stays accepted on BOTH sides (JSON Schema `number`
+        # admits integers; pydantic strict float admits int input).
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "mouse_click", "x": 10, "y": 20}],
+            },
+            True,
+        ),
+        # The former model-only residual, now a BOTH-ACCEPT case: the
+        # offset-inside-window rule was removed for exact parity — the drain
+        # applies an out-of-window event anyway, it just cannot satisfy the
+        # predicate (documented in the field description and the catalog).
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_frames": 10,
+                "await_events": [{"type": "key", "key": "Right", "frame": 10}],
+            },
+            True,
+        ),
     ]
     for payload, accepted in corpus:
         schema_ok = validator.is_valid(payload)
@@ -1021,23 +1122,3 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
         except pydantic.ValidationError:
             model_ok = False
         assert schema_ok == model_ok == accepted, (payload, schema_ok, model_ok)
-
-    # The disclosed model-only residual, pinned so it stays a KNOWN divergence:
-    # an event offset outside the window passes the schema but not the model —
-    # a cross-field numeric bound Draft 2020-12 cannot state. The disclosure is
-    # PUBLIC: the await_events field description (published in the schema) and
-    # the command catalog both name the rule and that it is validation-enforced.
-    residual = {
-        "output": "x.png",
-        "await_node": "/root/N",
-        "await_property": "p",
-        "await_value": 3,
-        "await_frames": 10,
-        "await_events": [{"type": "key", "key": "Right", "frame": 10}],
-    }
-    assert validator.is_valid(residual)
-    try:
-        ScreenCaptureParams.model_validate(residual)
-        assert False, "the model must refuse an offset outside the window"
-    except pydantic.ValidationError:
-        pass
