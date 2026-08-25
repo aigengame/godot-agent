@@ -223,3 +223,80 @@ def validate_exact_replay_comparison(
     return verify_artifact(value, language_bundle) and canonical_bytes(
         cast(JsonValue, value)
     ) == canonical_bytes(cast(JsonValue, expected))
+
+
+def validate_published_exact_replay_comparison(
+    value: dict[str, Any],
+    *,
+    language_bundle: dict[str, Any],
+    original_artifact_set_receipt_identity: str,
+    original_members: dict[str, PublicationMember],
+    replay_members: dict[str, PublicationMember],
+) -> bool:
+    """Validate a published comparison from its retained supporting members."""
+    try:
+        policy, policy_checks = _policy_binding(language_bundle)
+        original, original_kind, original_identity = _observation(
+            original_members, language_bundle, original=True
+        )
+        replay = cast(dict[str, str], value["replay_observation"])
+        if set(replay) != {
+            "evaluation_outcome_status",
+            *_OBSERVATION_MEMBERS,
+        }:
+            return False
+        for identity_member, logical_name in _OBSERVATION_MEMBERS.items():
+            member = _member_value(replay_members, logical_name, language_bundle)
+            if replay[identity_member] != member["content_identity"]:
+                return False
+        replay_kind = value.get("replay_outcome_kind")
+        if replay_kind not in {"evaluation-run", "experiment-verdict"}:
+            return False
+        if replay_kind == "evaluation-run":
+            replay_primary = _member_value(
+                replay_members, "evaluation-run", language_bundle
+            )
+            if value.get("replay_outcome_identity") != replay_primary.get(
+                "content_identity"
+            ):
+                return False
+        observations = {
+            "evaluation-outcome-status": "evaluation_outcome_status",
+            "event-trace-identity": "event_trace_identity",
+            "snapshot-series-identity": "snapshot_series_identity",
+            "metric-dataset-identity": "metric_dataset_identity",
+        }
+        checks = [
+            {
+                "key": key,
+                "match": canonical_bytes(cast(JsonValue, original[member]))
+                == canonical_bytes(cast(JsonValue, replay[member])),
+                "original": original[member],
+                "replay": replay[member],
+            }
+            for key, member in observations.items()
+        ]
+        expected_result = (
+            "matched" if all(cast(bool, row["match"]) for row in checks) else "mismatched"
+        )
+        return (
+            original_kind == "evaluation-run"
+            and verify_artifact(value, language_bundle)
+            and value.get("comparison_implementation_identity")
+            == EXACT_REPLAY_COMPARISON_IMPLEMENTATION
+            and value.get("language_bundle_identity")
+            == language_bundle["content_identity"]
+            and value.get("original_artifact_set_receipt_identity")
+            == original_artifact_set_receipt_identity
+            and value.get("original_evaluation_run_identity") == original_identity
+            and canonical_bytes(cast(JsonValue, value.get("policy")))
+            == canonical_bytes(cast(JsonValue, policy))
+            and policy_checks == list(observations)
+            and canonical_bytes(cast(JsonValue, value.get("original_observation")))
+            == canonical_bytes(cast(JsonValue, original))
+            and canonical_bytes(cast(JsonValue, value.get("checks")))
+            == canonical_bytes(cast(JsonValue, checks))
+            and value.get("result") == expected_result
+        )
+    except (KeyError, TypeError, ValueError):
+        return False

@@ -84,9 +84,14 @@ class TestPerDescriptorRows:
     def test_verdict_row(self, descriptor, run_cli, invocation, request):
         has_verdict_model = descriptor.verdict_model is not None
         has_verdict_fixture = descriptor.fixtures.prepare_verdict_document is not None
-        assert has_verdict_model == has_verdict_fixture
+        unavailable_reason = descriptor.fixtures.unavailable_verdict_fixture_reason
+        assert has_verdict_model == (has_verdict_fixture or bool(unavailable_reason))
+        assert not (has_verdict_fixture and unavailable_reason)
         if not has_verdict_model:
             _record_not_applicable(request, "descriptor declares no Verdict outcome")
+            return
+        if unavailable_reason:
+            _record_not_applicable(request, unavailable_reason)
             return
         exit_code, stdout, stderr = run_cli(invocation(descriptor, verdicting=True))
         assert (exit_code, stderr) == (1, "")

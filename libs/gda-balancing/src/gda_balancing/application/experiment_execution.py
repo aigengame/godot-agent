@@ -9,6 +9,7 @@ from gda_balancing.domain.publication_types import PublicationMember
 from gda_balancing.domain.runtime.execution import (
     PreparedExperiment,
     RuntimeRefusalOutcome,
+    evaluate_experiment,
     evaluate_prepared_experiment,
     prepare_experiment,
 )
@@ -77,8 +78,18 @@ def execute_prepared_experiment(
 def execute_checked_experiment(
     checked: CheckedExperiment,
 ) -> ExperimentExecutionOutcome:
-    """Execute a fully admitted Experiment without filesystem publication."""
-    prepared = prepare_checked_experiment(checked)
-    if isinstance(prepared, ExperimentExecutionRefusal):
-        return prepared
-    return execute_prepared_experiment(prepared)
+    """Execute through the shared prepare-then-dispatch runtime path."""
+    evaluation = evaluate_experiment(checked)
+    if isinstance(evaluation, RuntimeRefusalOutcome):
+        return ExperimentExecutionRefusal(
+            report=evaluation.report,
+            members=runtime_terminal_audit_members(checked, evaluation),
+        )
+    if isinstance(evaluation, Schema2RefusalReport):
+        return ExperimentExecutionRefusal(report=evaluation, members={})
+    if evaluation.accepted:
+        return ExperimentExecutionSuccess(members=evaluation.members)
+    return ExperimentExecutionVerdict(
+        failed_metrics=evaluation.failed_metrics,
+        members=evaluation.members,
+    )
