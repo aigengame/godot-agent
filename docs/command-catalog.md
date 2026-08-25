@@ -700,14 +700,17 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 worktree carries the sources and their committed `.import` sidecars but not the gitignored
 `.godot/` cache, so a one-shot run's `preload()` of e.g. a PNG fails with "no recognized
 resource loader" (GDA-DF-010). `resource import ASSETS... [--dry-run] [--timeout S]` reads
-each requested asset's EVIDENCE STATE the way the engine's own reimport test reads its
-artifacts: `cached` (every check passes — destinations present, the `.md5` receipt's
-`source_md5`/`dest_md5` matching the bytes, `source_file` naming this asset, the UID-era
-format), `missing` (no sidecar yet), `stale` (a check fails — the engine WOULD re-import),
-or `invalid` (the engine marked the last import `valid=false`; the engine deliberately
-SKIPS these — delete the sidecar to retry). Two engine checks are not readable from the
-artifacts (the current importer's format version and its project-settings validity), so an
-engine or import-settings upgrade can look `cached` until any pass runs — the declared
+each requested asset's EVIDENCE STATE from the same artifacts the engine's own reimport
+test reads: `cached` needs POSITIVE evidence (a keep/skip importer, or declared
+destinations present with the `.md5` receipt's `source_md5`/`dest_md5` matching the bytes,
+`source_file` naming this asset, the UID-era format — a sidecar proving nothing, e.g. one
+with no importer or destinations, is conservatively `stale`); `missing` (no sidecar yet)
+and `stale` (a check fails) are what the engine would import; `invalid` (the engine marked
+the last import `valid=false`, or the sidecar does not parse) is what the engine
+deliberately SKIPS — delete the sidecar to retry. The checks the engine makes from its own
+state — the current importer's format version, its project-settings validity, and the
+editor cache's expected sidecar MD5 — are not readable from the project's artifacts, so an
+engine or import-settings upgrade can look `cached` until any pass runs: the declared
 remainder of the adaptation. The engine pass runs only when a request is `missing` or
 `stale`; it is PROJECT-WIDE (the engine's one scriptable import primitive is
 `godot --headless --import`; a per-file reimport exists only inside the editor process), so

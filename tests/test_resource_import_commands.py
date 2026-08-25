@@ -387,6 +387,76 @@ def test_human_dry_run_renders_the_project_wide_prediction(tmp_path):
     assert "res://other.png" in result.stdout
 
 
+def test_minimal_sidecar_is_stale_not_cached(tmp_path):
+    # #738 re-review 2 [P1]: a parseable sidecar with only a uid line proved
+    # nothing, yet fell through to cached and suppressed the pass the engine
+    # would run. A CACHED verdict needs positive evidence.
+    project = _project(tmp_path)
+    (project / "icon.png.import").write_text('uid="uid://test"\n', encoding="utf-8")
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "stale"
+    assert data["engine_pass"] is True
+
+
+def test_sidecar_without_an_importer_line_is_stale(tmp_path):
+    # The engine's importer-existence check re-imports a sidecar whose
+    # importer cannot be resolved; a missing declaration proves nothing.
+    project = _project(tmp_path)
+    (project / "icon.png.import").write_text(
+        'uid="uid://test"\nsource_file="res://icon.png"\n', encoding="utf-8"
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "stale"
+
+
+def test_relative_project_with_symlinked_asset_is_structured(tmp_path, monkeypatch):
+    # #738 re-review 2 [P1]: a RELATIVE --project plus a symlinked-in asset
+    # used to compare a relative candidate against an absolute project and
+    # escape as a bare ValueError traceback. Both sides now share one
+    # coordinate system; the verdict is structured either way.
+    project = _project(tmp_path)
+    outside = tmp_path.parent / "linked-668.png"
+    outside.write_bytes(b"\x89PNG linked")
+    (project / "link.png").symlink_to(outside)
+    monkeypatch.chdir(tmp_path.parent)
+
+    result = runner_cli.invoke(
+        app,
+        [
+            "resource",
+            "import",
+            "link.png",
+            "--dry-run",
+            "--project",
+            project.name,
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["assets"][0]["path"] == "res://link.png"
+    assert data["assets"][0]["status"] == "missing"
+
+
+def test_non_res_engine_virtual_schemes_are_refused(tmp_path):
+    # #738 re-review 2 [P2]: user:// and uid:// are engine-virtual but not the
+    # project's res:// namespace — refused by name, never misread as literal
+    # filesystem paths (which used to happen when such a file existed).
+    project = _project(tmp_path)
+    (project / "user:").mkdir()
+    (project / "user:" / "x.png").write_bytes(b"x")
+
+    for scheme_path in ("user://x.png", "uid://abcdef"):
+        data = json.loads(_run(project, scheme_path, "--dry-run").stdout)
+        assert data["error"]["code"] == "invalid_params", scheme_path
+        assert "not a project asset" in data["error"]["message"], scheme_path
+
+
 def test_res_scheme_cannot_escape_the_project(tmp_path):
     # #738 review [P2]: res://../ must go through the same canonical
     # containment gate as filesystem input.

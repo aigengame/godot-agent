@@ -43,7 +43,11 @@ from gda.models import (
     OBJECT_SET_ECHO_DESC,
     projected_value_schema_extra,
 )
-from gda.project import path_outside_project, project_anchored
+from gda.project import (
+    is_engine_virtual_path,
+    path_outside_project,
+    project_anchored,
+)
 from gda.render import render_property_lines, render_set_echo
 from gda.runner import launch
 
@@ -455,10 +459,14 @@ class ResourceImportParams(BaseModel):
 
     ``assets`` are the requested dependencies, as ``res://`` paths or filesystem
     paths inside the project (a relative filesystem path is read as
-    project-relative). gda decides per asset whether its import cache is intact
-    (``cached``) or not (``missing``), and runs the engine's project-wide import
-    pass only when something is missing; ``dry_run`` reports the decision and
-    the predicted mutations without running anything or writing anything.
+    project-relative; other engine-virtual schemes like ``user://`` are
+    refused). gda reads each asset's EVIDENCE STATE the way the engine's own
+    reimport test reads its artifacts — ``cached`` / ``missing`` / ``stale`` /
+    ``invalid`` (see :class:`ResourceImportAsset`) — and runs the engine's
+    project-wide import pass only when a request is ``missing`` or ``stale``
+    (an ``invalid`` one is skipped by the engine itself and settles ``failed``);
+    ``dry_run`` reports the states and the decidable predictions without
+    running anything or writing anything.
     """
 
     assets: list[NormalizedPath] = Field(
@@ -486,6 +494,11 @@ class ResourceImportParams(BaseModel):
     )
 
 
+AssetStatus = Literal[
+    "cached", "missing", "stale", "invalid", "imported", "not_importable", "failed"
+]
+
+
 class ResourceImportAsset(BaseModel):
     """One requested asset's import verdict (#668).
 
@@ -506,15 +519,9 @@ class ResourceImportAsset(BaseModel):
     """
 
     path: str = Field(description="The asset's res:// path.")
-    status: Literal[
-        "cached",
-        "missing",
-        "stale",
-        "invalid",
-        "imported",
-        "not_importable",
-        "failed",
-    ] = Field(description="The verdict for this asset (see the class docstring).")
+    status: AssetStatus = Field(
+        description="The verdict for this asset (see the class docstring)."
+    )
     sidecar: str | None = Field(
         default=None,
         description=(
@@ -581,17 +588,20 @@ class ResourceImportResult(BaseModel):
     """The result of ``gda resource import`` (#668).
 
     The report IS the scoping: the engine's import primitive is project-wide,
-    so gda runs it only when a requested asset's cache is missing
-    (``engine_pass``), and accounts for everything it touched — ``created``
-    lists every new file, classified against ``cache_root``. On a dry run
-    nothing runs and nothing is written: ``assets`` carry the ``cached`` /
-    ``missing`` verdicts, ``engine_pass`` says whether a real run WOULD run the
-    pass, and ``predicted_source_adjacent`` lists the sidecars a real run would
-    create for the requested assets (the pass's remaining inventory — engine
-    hash-named cache files under ``cache_root``, plus project-wide sidecars for
-    OTHER missing assets and scripts — is the engine's to decide, and the real
-    run's ``created`` is the authoritative list). The mode's field set is
-    validated, not merely described.
+    so gda runs it only when a requested asset's evidence state is ``missing``
+    or ``stale`` (``engine_pass``; an ``invalid`` request settles ``failed``
+    without a pass — the engine skips previously failed imports), and accounts
+    for everything it touched — ``created`` lists every new file, classified
+    against ``cache_root``. On a dry run nothing runs and nothing is written:
+    ``assets`` carry the ``cached`` / ``missing`` / ``stale`` / ``invalid``
+    states, ``engine_pass`` says whether a real run WOULD run the pass,
+    ``predicted_source_adjacent`` lists the requested assets' sidecars-to-be,
+    and ``pass_will_also_import`` the other stale assets the pass will
+    re-import (the remaining inventory — engine hash-named cache files under
+    ``cache_root``, sidecars for no-sidecar assets, generated ``.uid`` files —
+    is the engine's to decide, and the real run's ``created`` is the
+    authoritative list). The mode's field set is validated, not merely
+    described.
     """
 
     dry_run: bool = Field(description="Whether this was a dry run.")
@@ -715,23 +725,49 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
                 "",
             )
         return "res://" + rel.as_posix()
-    outside = path_outside_project(raw, project)
+    if is_engine_virtual_path(raw):
+        # user:// / uid:// are engine-virtual but NOT the project's res://
+        # namespace: gda cannot address them as project assets, and passing
+        # them on would misread them as literal filesystem names (#738
+        # re-review 2).
+        return make_failure(
+            "invalid_params",
+            f"asset {raw!r} is not a project asset: only res:// paths or "
+            "filesystem paths inside the project are accepted.",
+            "",
+        )
+    # One coordinate system for BOTH sides before any comparison: a relative
+    # --project must not meet an absolute candidate (#738 re-review 2 — the
+    # mixed comparison raised a bare ValueError on the lexical fallback).
+    project_abs = project.expanduser()
+    if not project_abs.is_absolute():
+        project_abs = Path.cwd() / project_abs
+    outside = path_outside_project(raw, project_abs)
     if outside is not None:
         return make_failure(
             "invalid_params",
             f"asset {raw!r} is outside the project {project} (it is at {outside}).",
             "",
         )
-    anchored = project_anchored(raw, project)
-    project_abs = project.expanduser()
+    anchored = project_anchored(raw, project_abs)
     try:
         rel_fs = anchored.resolve().relative_to(project_abs.resolve())
     except ValueError:
-        # Contained by the lexical reading only (a symlinked-in file): keep
-        # the caller's spelling, normalized lexically.
-        rel_fs = Path(os.path.normpath(anchored)).relative_to(
-            Path(os.path.normpath(project_abs.absolute()))
-        )
+        try:
+            # Contained by the lexical reading only (a symlinked-in file):
+            # keep the caller's spelling, normalized lexically.
+            rel_fs = Path(os.path.normpath(anchored)).relative_to(
+                Path(os.path.normpath(project_abs))
+            )
+        except ValueError:
+            # Total by construction — the shared gate said "inside", so one
+            # of the two readings must relate — but a refusal beats a bare
+            # traceback if that invariant is ever disturbed.
+            return make_failure(
+                "invalid_params",
+                f"asset {raw!r} could not be addressed inside the project {project}.",
+                "",
+            )
     return "res://" + rel_fs.as_posix()
 
 
@@ -745,9 +781,13 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     remap/destination file, a ``source_file`` naming a different source (a
     copied sidecar), a missing ``.md5`` receipt, or a ``source_md5`` /
     ``dest_md5`` disagreeing with the actual bytes are all ``stale`` (the
-    engine WOULD re-import); everything passing is ``cached``. Two checks the
-    engine makes cannot be read from the artifacts — the current importer's
-    format version and its project-settings validity — so an engine or
+    engine WOULD re-import). ``cached`` needs POSITIVE evidence: a keep/skip
+    importer, or declared destinations proven by the receipts — a sidecar
+    with no importer line or no destinations proves nothing and is
+    conservatively ``stale`` (#738 re-review 2). The checks the engine makes
+    from its own state — the current importer's format version, its
+    project-settings validity, and the editor cache's expected sidecar MD5 —
+    cannot be read from the project's artifacts, so an engine or
     import-settings upgrade can look ``cached`` here until any pass runs;
     the contract names that remainder.
     """
@@ -757,10 +797,12 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
         return ResourceImportAsset(path=res_path, status="missing")
     sidecar_res = res_path + ".import"
 
-    def state(status: str, dests: "list[str] | None" = None) -> ResourceImportAsset:
+    def state(
+        status: AssetStatus, dests: "list[str] | None" = None
+    ) -> ResourceImportAsset:
         return ResourceImportAsset(
             path=res_path,
-            status=status,  # type: ignore[arg-type]
+            status=status,
             sidecar=sidecar_res,
             dest_files=dests or [],
         )
@@ -773,7 +815,12 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     if _INVALID_LINE.search(text):
         return state("invalid")
     importer = _IMPORTER_LINE.search(text)
-    if importer and importer.group(1) in ("keep", "skip"):
+    if importer is None:
+        # No importer declared: nothing proves this sidecar's cache, and the
+        # engine's own importer-existence check would re-import it too.
+        # Conservatively stale (#738 re-review 2).
+        return state("stale")
+    if importer.group(1) in ("keep", "skip"):
         return state("cached")
     dest_match = _DEST_FILES_LINE.search(text)
     dests: list[str] = []
@@ -831,6 +878,12 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
                     ctx.update(dest_fs.read_bytes())
             if ctx.hexdigest() != recorded_dest.group(1):
                 return state("stale", dests)
+    else:
+        # A CACHED verdict needs POSITIVE evidence (#738 re-review 2): with no
+        # destinations declared (and no keep/skip importer), nothing proves
+        # the cache — a minimal or hand-altered sidecar must not suppress the
+        # pass the engine would run. Conservatively stale.
+        return state("stale")
     return state("cached", dests)
 
 
@@ -1110,13 +1163,16 @@ def resource_import(
     A clean worktree has the sources and their committed .import sidecars but
     not the gitignored .godot/ cache, so a one-shot run's preload() of e.g. a
     PNG fails with "no recognized resource loader" (GDA-DF-010). This command
-    checks each requested asset's cache (hit: `cached`) and, only when
-    something is missing, runs the engine's import pass — which is
-    PROJECT-WIDE, the engine's one scriptable import primitive — then reports
+    reads each requested asset's evidence state as the engine's own reimport
+    test reads its artifacts (`cached` / `missing` / `stale` / `invalid`) and,
+    only when a request is missing or stale, runs the engine's import pass —
+    which is PROJECT-WIDE, the engine's one scriptable import primitive; an
+    invalid request settles `failed` without a pass (the engine skips
+    previously failed imports — delete the sidecar to retry). It then reports
     every file the pass created, classified against the cache root
     (cache-owned under .godot/ vs source-adjacent, e.g. .import and .uid
-    sidecars). `--dry-run` reports the verdicts and predictions and writes
-    nothing. Plain `gda script run` never triggers an import pass. The pass
+    sidecars). `--dry-run` reports the states and the decidable predictions
+    (including `pass_will_also_import`) and writes nothing. Plain `gda script run` never triggers an import pass. The pass
     executes engine importer code over project content (the Trusted project
     assumption, ADR-0009).
     """
