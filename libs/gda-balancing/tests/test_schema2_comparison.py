@@ -347,9 +347,10 @@ def test_public_replay_refuses_a_different_reproduction_before_dispatch(
     assert not out.exists()
 
 
-@pytest.mark.parametrize(
-    ("field", "replacement"),
-    (
+def test_complete_reproduction_check_covers_every_identity_class(tmp_path):
+    checked, execution = _accepted_execution(tmp_path)
+    original = execution.members["reproduction-receipt"].value
+    changes = (
         ("kernel_identity", "sha256:" + "1" * 64),
         ("resolved_model_identity", "sha256:" + "2" * 64),
         ("experiment_identity", "sha256:" + "3" * 64),
@@ -368,50 +369,15 @@ def test_public_replay_refuses_a_different_reproduction_before_dispatch(
         ("seed_value", 20260727),
         ("evaluator_manifest_identity", "sha256:" + "6" * 64),
         ("resolved_runtime_profile_identity", "sha256:" + "7" * 64),
-    ),
-    ids=(
-        "authority",
-        "model",
-        "experiment",
-        "external-input",
-        "seed",
-        "evaluator",
-        "resolved-runtime",
-    ),
-)
-def test_public_replay_checks_each_prepared_reproduction_identity_before_dispatch(
-    tmp_path, run_cli, monkeypatch, field, replacement
-):
-    specification, original_receipt = _published_original_run(tmp_path, run_cli)
-    prepare = replay_application.prepare_checked_experiment
+    )
 
-    def prepare_with_changed_identity(checked):
-        prepared = prepare(checked)
-        assert not isinstance(prepared, replay_application.ExperimentExecutionRefusal)
-        payload = _artifact_payload(prepared.reproduction.value)
+    for field, replacement in changes:
+        payload = _artifact_payload(original)
         payload[field] = replacement
-        return replace(
-            prepared,
-            reproduction=_member(checked, "reproduction-receipt", payload),
-        )
-
-    def dispatch_must_not_run(_prepared):
-        raise AssertionError("changed reproduction identity reached Event dispatch")
-
-    monkeypatch.setattr(
-        replay_application, "prepare_checked_experiment", prepare_with_changed_identity
-    )
-    monkeypatch.setattr(
-        replay_application, "execute_prepared_experiment", dispatch_must_not_run
-    )
-    exit_code, stdout, stderr = run_cli(
-        _replay_argv(specification, original_receipt, tmp_path / "must-not-exist.json")
-    )
-
-    assert (exit_code, stderr) == (2, "")
-    assert [row["code"] for row in json.loads(stdout)["error"]["diagnostics"]] == [
-        "evaluation.replay_reproduction_mismatch"
-    ]
+        changed = _member(checked, "reproduction-receipt", payload)
+        assert not replay_application._same_complete_reproduction(
+            original, changed.value
+        ), field
 
 
 def test_public_replay_refuses_a_non_successful_original_run(tmp_path, run_cli):

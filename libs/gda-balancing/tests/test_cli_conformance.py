@@ -351,11 +351,12 @@ class TestPerDescriptorRows:
         assert (exit_code, stdout) == (3, "")
         assert _assert_envelope(stderr, "usage")["code"] == "unwritable_output"
 
-    def test_non_sink_rejects_out(self, descriptor, run_cli, invocation):
+    def test_non_sink_rejects_out(self, descriptor, run_cli, invocation, request):
         # Only artifact-sink commands accept `--out`; anywhere else it is an
         # unknown argument (bADR-0009).
         if descriptor.artifact_sink or descriptor.artifact_set:
-            pytest.skip("artifact-producing command accepts --out")
+            _record_not_applicable(request, "artifact-producing command accepts --out")
+            return
         argv = [*invocation(descriptor), "--out", "x"]
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stdout) == (3, "")

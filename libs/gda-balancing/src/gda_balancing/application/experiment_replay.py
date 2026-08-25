@@ -100,6 +100,14 @@ def _replay_input_identity(
     )
 
 
+def _same_complete_reproduction(
+    original: dict[str, Any], prepared: dict[str, Any]
+) -> bool:
+    return canonical_bytes(cast(JsonValue, original)) == canonical_bytes(
+        cast(JsonValue, prepared)
+    )
+
+
 def replay_experiment(
     specification: str,
     original_receipt: str,
@@ -221,8 +229,8 @@ def replay_experiment(
         return prepared.report
     assert isinstance(prepared, PreparedExperimentExecution)
     original_reproduction = original.artifacts["reproduction-receipt"]
-    if canonical_bytes(cast(JsonValue, original_reproduction)) != canonical_bytes(
-        cast(JsonValue, prepared.reproduction.value)
+    if not _same_complete_reproduction(
+        original_reproduction, prepared.reproduction.value
     ):
         return _evaluation_refusal(
             checked,
