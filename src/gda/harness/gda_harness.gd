@@ -1338,19 +1338,23 @@ func _handle_screen_frames(params: Dictionary) -> Variant:
 # applies the inline input events due at that offset (the atomic
 # input-and-capture form; the events reuse the input-sequence shapes and
 # _apply_sequence_event verbatim), then evaluates the predicate
-# `node.property == value`. The first holding frame records the evidence
-# (observed value, engine frame, frames waited) and reads the pixels AT THE
-# SAME frame boundary: both reflect the previously COMPLETED frame — the
-# property as the game last wrote it, the viewport texture as the engine last
-# presented it — verified frame-by-frame against a live probe (an autoload
-# observing a per-frame color flip sees the flipped property and the flipped
-# pixel on the SAME tick). If the game updates a visual one frame after the
-# property it gates on, the image trails by that game-side frame — gate on the
-# visual's own property when exact pixels matter. The window replies
-# only after every accepted event has fired — an early match must not leave a
-# scheduled release unexecuted (#743 review) — and the FIRST decided outcome
-# wins: a later event error cannot retract a completed capture, it only drains.
-# A predicate that never holds within `frames` is the typed
+# `node.property == value`. Each tick EVALUATES BEFORE it injects (#743
+# re-review, ARC-743-004): the property is read before this tick's events run,
+# so the observed value is always the state of the previously COMPLETED frame —
+# exactly the frame the viewport texture presents — and the pixels are read at
+# that same boundary. This holds for both trigger paths, verified live: a
+# _process-driven flip is observed with its own presentation, and a state an
+# injected event writes (a synchronous _input callback) is observed one
+# boundary LATER, together with its presentation. Two declared consequences:
+# the predicate sees frame-boundary state only (a value overwritten before its
+# frame completes is never observable — the typed unmet error, not a capture
+# of mismatched pixels), and an event's effect is observable from the NEXT
+# boundary, so the last state-changing event needs at least one frame of
+# window left. The reply waits for every accepted event — an early match must
+# not leave a scheduled release unexecuted — and a DECLARED EVENT FAILURE is
+# the reply even after a capture succeeded (#743 re-review, ARC-743-001): the
+# capture payload is discarded, later events still drain, and the CLI writes
+# no file. A predicate that never holds within `frames` is the typed
 # live_predicate_unmet, carrying the last observed value.
 func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Variant:
 	var node_path := String(await_spec.get("node", ""))
@@ -1379,22 +1383,12 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 	var sample := func() -> Variant:
 		var current := int(state["n"])
 		state["n"] = current + 1
-		# Input first: every ACCEPTED event fires at its offset, even after the
-		# outcome is decided, so a press injected early is never left held by
-		# an early predicate match or an error (#743 review, ARC-743-001). An
-		# event error is held as the outcome only if none is decided yet; later
-		# events still drain, best effort, so scheduled releases fire.
-		for event in events:
-			if typeof(event) != TYPE_DICTIONARY:
-				continue
-			if _sequence_event_offset(event) != current:
-				continue
-			var err: Variant = _apply_sequence_event(event)
-			if err != null and state["outcome"] == null:
-				state["outcome"] = {"error": err}
-		# Evaluate until decided. The value is read HERE only — the up-front
-		# resolution above is metadata-only, so a scripted getter runs exactly
-		# once per sampled frame (#743 review, ARC-743-002).
+		# Evaluate BEFORE this tick's events run (#743 re-review): the read
+		# then always sees the previously completed frame — the same frame the
+		# texture presents — never a mid-tick write from a synchronous input
+		# callback. The value is read HERE only; the up-front resolution is
+		# metadata-only, so a scripted getter runs exactly once per sampled
+		# frame (#743 review, ARC-743-002).
 		if state["outcome"] == null:
 			if not is_instance_valid(node):
 				state["outcome"] = {"error": {
@@ -1430,6 +1424,21 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 								+ " frames (last observed: "
 								+ str(state["observed"]) + ")",
 					}}
+		# Then inject: every ACCEPTED event fires at its offset, even after
+		# the outcome is decided, so a press injected early is never left held
+		# (#743 review). A declared event FAILURE becomes the reply — it
+		# replaces a captured success (the CLI then writes no file) but never
+		# an earlier error — while later events still drain, best effort.
+		for event in events:
+			if typeof(event) != TYPE_DICTIONARY:
+				continue
+			if _sequence_event_offset(event) != current:
+				continue
+			var err: Variant = _apply_sequence_event(event)
+			if err != null:
+				var outcome: Variant = state["outcome"]
+				if outcome == null or (outcome as Dictionary).has("complete"):
+					state["outcome"] = {"error": err}
 		if state["outcome"] != null and current >= last_event:
 			_injected_mouse_button_mask = 0
 			return state["outcome"]

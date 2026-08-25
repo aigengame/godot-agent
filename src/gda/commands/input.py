@@ -711,9 +711,11 @@ class _SequenceEvent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    frame: int | None = Field(default=None, ge=0, description=_FRAME_DESC)
+    # strict=True: the published schema says `integer`, so the runtime must
+    # not quietly coerce "1" (#743 re-review — schema/model parity, ADR-0015).
+    frame: int | None = Field(default=None, ge=0, strict=True, description=_FRAME_DESC)
     physics_frame: int | None = Field(
-        default=None, ge=0, description=_PHYSICS_FRAME_DESC
+        default=None, ge=0, strict=True, description=_PHYSICS_FRAME_DESC
     )
 
     @model_validator(mode="before")

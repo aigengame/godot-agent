@@ -893,15 +893,26 @@ headless is unaffected (4.4+, cross-platform).
   additionally applies input-sequence events (the same discriminated union `input
   sequence` takes) INSIDE the same window at their process-clock `frame` offsets — the
   atomic input-and-capture form, so a 3–8-frame transient triggered by the input
-  cannot be missed by a second CLI round trip; physics-clock offsets are refused,
-  every offset must be inside the window, and every declared event fires before the
-  reply even when the predicate matches first, so no injected press is left held. The
-  predicate compares JSON scalars (numbers numerically, strings against the String
-  rendering). The coherence contract, verified frame-by-frame against a live probe:
-  the property and the pixels are read at one boundary and both belong to the frame
-  that just COMPLETED — a game that updates a visual one frame after the property it
-  gates on trails by that game-side frame, so gate on the visual's own property when
-  exact pixels matter (ADR-0020 amendment).
+  cannot be missed by a second CLI round trip; physics-clock offsets are refused and
+  every offset must be inside the window (a cross-field bound the emitted JSON Schema
+  cannot state — enforced at validation, disclosed in the field description). Every
+  declared event fires before the reply even when the predicate matches first, so no
+  injected press is left held — and a declared event that FAILS makes the whole
+  capture that typed failure (the capture payload is discarded, no file is written,
+  later events still drain). The predicate compares JSON scalars (numbers
+  numerically, strings against the String rendering). The coherence contract,
+  verified live on both trigger paths (ADR-0020 amendment): each tick EVALUATES
+  BEFORE it injects, so the observed property is always the state of the previously
+  COMPLETED frame — exactly the frame the captured texture presents. A
+  `_process`-driven flip is observed with its own presentation; a state written by an
+  injected event's synchronous callback is observed one boundary later, together with
+  its presentation. Consequences: the predicate sees frame-boundary state only (a
+  value overwritten before its frame completes is never observable — the typed unmet
+  error, never a capture of mismatched pixels); an event's effect is observable from
+  the NEXT boundary (leave one frame between the last state-changing event and the
+  ceiling); and a game that updates a visual one frame after the property it gates on
+  trails by that game-side frame — gate on the visual's own property when exact
+  pixels matter.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
   monitor --property … --frames N` / `--signal … --frames N` collects a per-frame

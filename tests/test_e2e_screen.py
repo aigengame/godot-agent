@@ -235,6 +235,7 @@ PREDICATE_GD = (
     "var btn_down := false\n"
     "var act_down := false\n"
     "var probe_reads := 0\n"
+    "var hit := false\n"
     "var probe: int:\n"
     "\tget:\n"
     "\t\tprobe_reads += 1\n"
@@ -252,6 +253,9 @@ PREDICATE_GD = (
     "\t\tkey_down = event.pressed\n"
     "\t\tif event.pressed:\n"
     "\t\t\tflash = 4\n"
+    "\t\t\thit = true\n"
+    "\t\t\tvar marker: ColorRect = $Marker\n"
+    "\t\t\tmarker.color = Color(0, 1, 0, 1)\n"
     "\tif event is InputEventMouseButton:\n"
     "\t\tbtn_down = event.pressed\n"
 )
@@ -262,6 +266,11 @@ PREDICATE_TSCN = (
     'script = ExtResource("1")\n\n'
     '[node name="Rect" type="ColorRect" parent="."]\n'
     "offset_right = 200.0\n"
+    "offset_bottom = 150.0\n"
+    "color = Color(0.2, 0.6, 0.9, 1)\n\n"
+    '[node name="Marker" type="ColorRect" parent="."]\n'
+    "offset_left = 250.0\n"
+    "offset_right = 320.0\n"
     "offset_bottom = 150.0\n"
     "color = Color(0.2, 0.6, 0.9, 1)\n"
 )
@@ -538,5 +547,74 @@ def test_predicate_resolution_never_reads_the_property(tmp_path, daemon_runtime_
         doc = json.loads(cap.stdout)
         waited = doc["predicate"]["frames_waited"]
         assert _game_get(run, "probe_reads") == waited + 1
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_input_written_state_is_captured_with_its_own_presentation(
+    tmp_path, daemon_runtime_dir
+):
+    # #743 re-review ARC-743-004 / Spec 1, the same-callback counterexample:
+    # one _input callback writes BOTH the property (`hit`) and the visual (the
+    # Marker rect turns green). Evaluate-before-inject means the state an event
+    # writes is observed one boundary LATER, together with its own
+    # presentation — so the decoded pixels show the matched visual.
+    _predicate_scaffold(tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        out = tmp_path / "marker.png"
+        cap = assert_windowed_ok(
+            _await_capture(
+                run,
+                out,
+                "hit",
+                "true",
+                "--await-events",
+                '[{"type": "key", "key": "Right", "frame": 0},'
+                ' {"type": "key", "key": "Right", "released": true, "frame": 2}]',
+            )
+        )
+        doc = json.loads(cap.stdout)
+        assert doc["predicate"]["observed"] is True, doc
+        r, g, b = _png_pixel(out, 260, 50)
+        assert g > 200 and r < 80, (r, g, b)
+        assert _game_get(run, "key_down") is False
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_late_event_failure_is_the_reply_and_writes_no_file(
+    tmp_path, daemon_runtime_dir
+):
+    # #743 re-review ARC-743-001 / Spec 2: the predicate matches early, then a
+    # scheduled event FAILS — the reply is that typed failure, no file is
+    # written, and the later declared release still drains (no held action).
+    _predicate_scaffold(tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
+    out = tmp_path / "late.png"
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        cap = _await_capture(
+            run,
+            out,
+            "act_down",
+            "true",
+            "--await-events",
+            '[{"type": "action", "action": "qa_probe", "frame": 0},'
+            ' {"type": "action", "action": "no_such_action", "frame": 5},'
+            ' {"type": "action", "action": "qa_probe", "release": true, "frame": 6}]',
+        )
+        assert cap.returncode != 0
+        doc = json.loads(cap.stdout)
+        assert doc["error"]["code"] == "live_unknown_action"
+        assert not out.exists()
+        assert _game_get(run, "act_down") is False
     finally:
         run("daemon", "stop")

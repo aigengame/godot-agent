@@ -990,6 +990,28 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
             },
             False,
         ),
+        # #743 re-review: the REVERSE divergences — the schema says `integer`,
+        # so the model must not quietly coerce strings (strict clock ints).
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_frames": "10",
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "key", "key": "Right", "frame": "1"}],
+            },
+            False,
+        ),
     ]
     for payload, accepted in corpus:
         schema_ok = validator.is_valid(payload)
@@ -1001,7 +1023,10 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
         assert schema_ok == model_ok == accepted, (payload, schema_ok, model_ok)
 
     # The disclosed model-only residual, pinned so it stays a KNOWN divergence:
-    # an event offset outside the window passes the schema but not the model.
+    # an event offset outside the window passes the schema but not the model —
+    # a cross-field numeric bound Draft 2020-12 cannot state. The disclosure is
+    # PUBLIC: the await_events field description (published in the schema) and
+    # the command catalog both name the rule and that it is validation-enforced.
     residual = {
         "output": "x.png",
         "await_node": "/root/N",

@@ -157,6 +157,7 @@ class ScreenCaptureParams(BaseModel):
         default=None,
         ge=1,
         le=MAX_WINDOW_FRAMES,
+        strict=True,
         description=(
             "The predicate window's frame CEILING (default 60): a predicate that "
             "never holds within it is the typed live_predicate_unmet. Needs the "
@@ -169,9 +170,14 @@ class ScreenCaptureParams(BaseModel):
             "The atomic input-and-capture form (#661): input-sequence events "
             "applied inside the SAME predicate window at their process-clock "
             "'frame' offsets, so a 3-8 frame transient triggered by the input "
-            "cannot be missed by a second round trip. Physics-clock offsets are "
-            "not accepted; every offset must be inside await_frames. Needs the "
-            "await predicate."
+            "cannot be missed by a second round trip. An event's effect is "
+            "observable from the NEXT frame boundary, so leave at least one "
+            "frame between the last state-changing event and the ceiling. A "
+            "declared event that fails makes the whole capture that typed "
+            "failure. Physics-clock offsets are not accepted, and every offset "
+            "must be inside await_frames — a cross-field bound JSON Schema "
+            "cannot state, enforced at validation and disclosed here. Needs "
+            "the await predicate."
         ),
     )
 
@@ -264,11 +270,10 @@ class CapturePredicateReport(BaseModel):
 
     node: str = Field(description="The awaited node's absolute runtime path.")
     property: str = Field(description="The awaited property's name.")
-    expected: "bool | int | float | str | None" = Field(
-        default=None, description="The declared predicate value."
+    expected: "bool | int | float | str" = Field(
+        description="The declared predicate value."
     )
-    observed: "bool | int | float | str | None" = Field(
-        default=None,
+    observed: "bool | int | float | str" = Field(
         description=(
             "The property's value on the frame the predicate held (scalars "
             "verbatim; anything else its diagnostic String form). Read at the "
@@ -276,10 +281,10 @@ class CapturePredicateReport(BaseModel):
         ),
     )
     engine_frame: int = Field(
-        description="The engine's absolute process-frame counter at capture."
+        ge=0, description="The engine's absolute process-frame counter at capture."
     )
     frames_waited: int = Field(
-        description="How many window frames passed before the predicate held."
+        ge=0, description="How many window frames passed before the predicate held."
     )
 
 
@@ -379,8 +384,8 @@ LiveRunnerFactory = Callable[[Optional[Path], Optional[Path]], GodotRunner]
 class _PredicateReply(BaseModel):
     node: str
     property: str
-    expected: "bool | int | float | str | None" = None
-    observed: "bool | int | float | str | None" = None
+    expected: "bool | int | float | str"
+    observed: "bool | int | float | str"
     engine_frame: int = Field(ge=0)
     frames_waited: int = Field(ge=0)
 
@@ -755,7 +760,11 @@ def screen_capture(
     events inside the same window (the atomic input-and-capture form) so a short
     transient triggered by the input cannot be missed by a second round trip;
     every declared event fires before the reply, even when the predicate
-    matches first. Needs a WINDOWED
+    matches first, and a declared event that fails makes the whole capture that
+    typed failure. Each tick evaluates BEFORE it injects, so the observed
+    property and the captured pixels always belong to the same completed frame
+    (state an event writes is observed one boundary later, with its
+    presentation). Needs a WINDOWED
     session (`gda daemon start --windowed`); a headless one is
     `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
     """

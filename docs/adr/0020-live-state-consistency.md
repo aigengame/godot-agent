@@ -60,15 +60,21 @@ engine session's runtime state:
 this Phase-2 live layer under these scoped guarantees — not for the stateless Phase-1
 headless CLI (ADR-0001). Recorded here and via a pointer on ADR-0000.
 
-> **Amendment (2026-08-25, #661):** the predicate-gated capture reads its two
-> facts at the SAME frame boundary: the awaited property as the game last
-> wrote it, and the viewport texture as the engine last presented it — both
-> belong to the frame that just completed, verified frame-by-frame against a
-> live probe. The declared limit: when a game updates a visual one frame
-> AFTER the property it gates on, the captured image trails the property by
-> that game-side frame; the contract tells the caller to gate on the visual's
-> own property when exact pixels matter. Frame coherence per ADR-0020 is
-> engine-side; a game's internal property-to-visual latency is the game's.
+> **Amendment (2026-08-25, #661; revised same day after the #743 re-review):**
+> the predicate-gated capture reads its two facts at the SAME frame boundary,
+> and each window tick EVALUATES BEFORE it injects that tick's input events —
+> so the observed property is always the state of the previously COMPLETED
+> frame, which is exactly the frame the viewport texture presents. Verified
+> live on both trigger paths: a `_process`-driven flip is observed together
+> with its own presentation, and a state written by an injected event's
+> synchronous `_input` callback is observed one boundary later, together with
+> its presentation. Declared consequences: the predicate observes
+> frame-boundary state only — a value overwritten before its frame completes
+> is never observable (the typed unmet error, never a capture of mismatched
+> pixels) — and a game that updates a visual one frame after the property it
+> gates on trails by that game-side frame; gate on the visual's own property
+> when exact pixels matter. Frame coherence per ADR-0020 is engine-side; a
+> game's internal property-to-visual latency is the game's.
 
 ## Considered options
 

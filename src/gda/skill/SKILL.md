@@ -173,7 +173,7 @@ already-running daemon's lazy Engine-session launch; only the outer
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |
 | `perf` | `monitors`, `monitor` (counters: a one-frame snapshot, or with `--frames` a bounded window with statistics and optional `--budget` verdicts / a per-node timeline) |
 | `input` | `key`, `mouse-click`, `mouse-move`, `action`, `tap`, `sequence` |
-| `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`. `capture --await-node/--await-property/--await-value [--await-frames] [--await-events]` is the predicate-gated form: it fires on the first frame the property equals the value, optionally injecting input inside the same window — use it for short transients instead of a separate input + capture) |
+| `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`. `capture --await-node/--await-property/--await-value [--await-frames] [--await-events]` is the predicate-gated form: it fires on the first frame boundary where the property equals the value, optionally injecting input inside the same window — use it for short transients instead of a separate input + capture. The observed property and the pixels belong to the same COMPLETED frame; a value overwritten before its frame completes is never observable, an injected event's effect is observable from the next boundary, and a declared event that fails makes the capture that typed failure) |
 
 For a UI activation, use the gesture commands, not a lone event. Godot activates a
 `Button` on the RELEASE, so a bare press never emits `pressed`; and a focused UI
