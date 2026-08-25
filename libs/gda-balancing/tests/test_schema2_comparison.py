@@ -59,6 +59,27 @@ def _verdict_execution(root: Path):
     return checked, execution
 
 
+# These Domain rows only read the accepted members. Reuse one execution so the
+# Experiment shard does not rebuild and execute the same fixture for each check.
+_CACHED_ACCEPTED_EXECUTION: (
+    tuple[CheckedExperiment, ExperimentExecutionSuccess] | None
+) = None
+
+
+@pytest.fixture
+def accepted_execution(
+    tmp_path: Path,
+    isolated_schema2_store: None,
+) -> tuple[CheckedExperiment, ExperimentExecutionSuccess]:
+    del isolated_schema2_store
+    global _CACHED_ACCEPTED_EXECUTION
+    if _CACHED_ACCEPTED_EXECUTION is None:
+        _CACHED_ACCEPTED_EXECUTION = _accepted_execution(
+            tmp_path / "accepted-execution"
+        )
+    return _CACHED_ACCEPTED_EXECUTION
+
+
 def _artifact_payload(value: dict) -> dict:
     return {
         key: deepcopy(item)
@@ -129,8 +150,8 @@ def _same_reproduction_drift(
     return ExperimentExecutionVerdict(failed_metrics=failed_metrics, members=members)
 
 
-def test_exact_replay_comparison_applies_admitted_ordered_policy(tmp_path):
-    checked, execution = _accepted_execution(tmp_path)
+def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execution):
+    checked, execution = accepted_execution
 
     comparison = compare_exact_replay(
         language_bundle=checked.language_bundle,
@@ -165,8 +186,8 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(tmp_path):
     )
 
 
-def test_exact_replay_comparison_reports_complete_ordered_mismatch(tmp_path):
-    original_checked, original = _accepted_execution(tmp_path / "original")
+def test_exact_replay_comparison_reports_complete_ordered_mismatch(accepted_execution):
+    original_checked, original = accepted_execution
     replay = _same_reproduction_drift(original_checked, original)
 
     comparison = compare_exact_replay(
@@ -190,9 +211,11 @@ def test_exact_replay_comparison_reports_complete_ordered_mismatch(tmp_path):
     assert all(row["match"] is False for row in comparison.value["checks"])
 
 
-def test_exact_replay_comparison_rejects_a_foreign_reproduction(tmp_path):
-    original_checked, original = _accepted_execution(tmp_path / "original")
-    _replay_checked, replay = _verdict_execution(tmp_path / "foreign")
+def test_exact_replay_comparison_rejects_a_foreign_reproduction(
+    tmp_path, accepted_execution
+):
+    original_checked, original = accepted_execution
+    _replay_checked, replay = _verdict_execution(tmp_path / "verdict-execution")
 
     with pytest.raises(ValueError, match="complete reproduction"):
         compare_exact_replay(
@@ -203,8 +226,10 @@ def test_exact_replay_comparison_rejects_a_foreign_reproduction(tmp_path):
         )
 
 
-def test_published_mismatch_reconstructs_the_omitted_verdict_identity(tmp_path):
-    checked, original = _accepted_execution(tmp_path)
+def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
+    accepted_execution,
+):
+    checked, original = accepted_execution
     replay = _same_reproduction_drift(checked, original)
     comparison = compare_exact_replay(
         language_bundle=checked.language_bundle,
@@ -240,7 +265,13 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(tmp_path):
     )
 
 
-def _published_original_run(tmp_path, run_cli, *, verdict: bool = False):
+def _published_original_run(
+    tmp_path,
+    run_cli,
+    *,
+    verdict: bool = False,
+    invocation_key: str = "a" * 64,
+):
     tmp_path.mkdir(parents=True, exist_ok=True)
     specification = tmp_path / "experiment.json"
     prepare = prepare_verdict_experiment if verdict else prepare_valid_experiment
@@ -253,7 +284,7 @@ def _published_original_run(tmp_path, run_cli, *, verdict: bool = False):
             "--out",
             str(tmp_path / "original.json"),
             "--invocation-key",
-            "a" * 64,
+            invocation_key,
         ]
     )
     assert run_exit == (1 if verdict else 0)
@@ -263,6 +294,32 @@ def _published_original_run(tmp_path, run_cli, *, verdict: bool = False):
     receipt = run_result["artifact_set"] if verdict else run_result
     original_receipt.write_text(json.dumps(receipt), encoding="utf-8")
     return specification, original_receipt
+
+
+# The source publication is immutable. Each Replay row below still uses its own
+# invocation key, so sharing the authenticated original cannot recover another row.
+_CACHED_PUBLISHED_ORIGINAL: tuple[Path, Path, Path] | None = None
+
+
+@pytest.fixture
+def published_original(
+    tmp_path,
+    run_cli,
+    monkeypatch,
+    isolated_schema2_store: None,
+) -> tuple[Path, Path]:
+    del isolated_schema2_store
+    global _CACHED_PUBLISHED_ORIGINAL
+    if _CACHED_PUBLISHED_ORIGINAL is None:
+        specification, receipt = _published_original_run(tmp_path, run_cli)
+        _CACHED_PUBLISHED_ORIGINAL = (
+            specification,
+            receipt,
+            tmp_path / ".gda-balancing-store-v2",
+        )
+    specification, receipt, store = _CACHED_PUBLISHED_ORIGINAL
+    monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
+    return specification, receipt
 
 
 def _replay_argv(
@@ -285,8 +342,10 @@ def _replay_argv(
     ]
 
 
-def test_public_experiment_replay_runs_from_authenticated_receipt(tmp_path, run_cli):
-    specification, original_receipt = _published_original_run(tmp_path, run_cli)
+def test_public_experiment_replay_runs_from_authenticated_receipt(
+    tmp_path, run_cli, published_original
+):
+    specification, original_receipt = published_original
 
     replay_exit, replay_stdout, replay_stderr = run_cli(
         _replay_argv(
@@ -318,9 +377,9 @@ def test_public_replay_schema_exposes_only_the_four_owned_inputs(run_cli):
 
 
 def test_public_replay_refuses_a_prepared_runtime_drift_before_dispatch(
-    tmp_path, run_cli, monkeypatch
+    tmp_path, run_cli, monkeypatch, published_original
 ):
-    specification, original_receipt = _published_original_run(tmp_path, run_cli)
+    specification, original_receipt = published_original
     prepare = replay_application.prepare_checked_experiment
 
     def prepare_with_runtime_drift(checked):
@@ -346,7 +405,12 @@ def test_public_replay_refuses_a_prepared_runtime_drift_before_dispatch(
     )
     out = tmp_path / "must-not-exist.json"
     exit_code, stdout, stderr = run_cli(
-        _replay_argv(specification, original_receipt, out)
+        _replay_argv(
+            specification,
+            original_receipt,
+            out,
+            invocation_key="c" * 64,
+        )
     )
 
     assert (exit_code, stderr) == (2, "")
@@ -358,8 +422,8 @@ def test_public_replay_refuses_a_prepared_runtime_drift_before_dispatch(
     assert not out.exists()
 
 
-def test_complete_reproduction_check_covers_every_identity_class(tmp_path):
-    checked, execution = _accepted_execution(tmp_path)
+def test_complete_reproduction_check_covers_every_identity_class(accepted_execution):
+    checked, execution = accepted_execution
     original = execution.members["reproduction-receipt"].value
     changes = (
         ("kernel_identity", "sha256:" + "1" * 64),
@@ -393,12 +457,20 @@ def test_complete_reproduction_check_covers_every_identity_class(tmp_path):
 
 def test_public_replay_refuses_a_non_successful_original_run(tmp_path, run_cli):
     specification, original_receipt = _published_original_run(
-        tmp_path, run_cli, verdict=True
+        tmp_path,
+        run_cli,
+        verdict=True,
+        invocation_key="c" * 64,
     )
     out = tmp_path / "must-not-exist.json"
 
     exit_code, stdout, stderr = run_cli(
-        _replay_argv(specification, original_receipt, out)
+        _replay_argv(
+            specification,
+            original_receipt,
+            out,
+            invocation_key="f" * 64,
+        )
     )
 
     assert (exit_code, stderr) == (2, "")
@@ -410,11 +482,9 @@ def test_public_replay_refuses_a_non_successful_original_run(tmp_path, run_cli):
 
 
 def test_public_replay_mismatch_publishes_only_comparison_evidence(
-    tmp_path, run_cli, monkeypatch
+    tmp_path, run_cli, monkeypatch, published_original
 ):
-    specification, original_receipt = _published_original_run(
-        tmp_path / "original", run_cli
-    )
+    specification, original_receipt = published_original
     execute = replay_application.execute_prepared_experiment
 
     def execute_with_observation_drift(prepared):
@@ -430,7 +500,12 @@ def test_public_replay_mismatch_publishes_only_comparison_evidence(
     comparison_path = tmp_path / "comparison.json"
 
     exit_code, stdout, stderr = run_cli(
-        _replay_argv(specification, original_receipt, comparison_path)
+        _replay_argv(
+            specification,
+            original_receipt,
+            comparison_path,
+            invocation_key="d" * 64,
+        )
     )
 
     assert (exit_code, stderr) == (1, "")
@@ -458,11 +533,16 @@ def test_public_replay_mismatch_publishes_only_comparison_evidence(
 
 
 def test_public_replay_recovers_a_committed_result_without_dispatch(
-    tmp_path, run_cli, monkeypatch
+    tmp_path, run_cli, monkeypatch, published_original
 ):
-    specification, original_receipt = _published_original_run(tmp_path, run_cli)
+    specification, original_receipt = published_original
     out = tmp_path / "recovered-comparison.json"
-    argv = _replay_argv(specification, original_receipt, out)
+    argv = _replay_argv(
+        specification,
+        original_receipt,
+        out,
+        invocation_key="e" * 64,
+    )
     faulting_descriptor = replace(
         replay_command.EXPERIMENT_REPLAY,
         handler=replay_command.experiment_replay_handler(
