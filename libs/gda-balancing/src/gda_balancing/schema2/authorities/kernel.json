@@ -278,6 +278,13 @@
               ],
               "path": "language_bundle.language.structured_operations",
               "subject": "language-bundle.structured-operations"
+            },
+            {
+              "keys": [
+                "id"
+              ],
+              "path": "language_bundle.language.replay_comparison_policies",
+              "subject": "language.replay_comparison_policies"
             }
           ]
         },
@@ -779,7 +786,8 @@
       "structured_operations",
       "template_admission_profiles",
       "wire_schemas",
-      "evidence_claim_kinds"
+      "evidence_claim_kinds",
+      "replay_comparison_policies"
     ]
   },
   "artifact_kind": "schema-major-kernel",
@@ -869,7 +877,7 @@
           "\u001d",
           "\u001e",
           "\u001f",
-          "\u007f"
+          ""
         ]
       },
       {
@@ -905,7 +913,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:12e6497c361d7f86e417963ab7ee402822025aae34eb63cf672bcf8cc494fb26",
+  "content_identity": "sha256:53ba784725ff78d51d0dd00b8e0de8b2c7c183c790358e2924fc93fcb207812c",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3834,6 +3842,31 @@
             "permitted_verifier_classes",
             "vectors"
           ]
+        },
+        "replay_comparison_policies": {
+          "field_types": {
+            "checks": {
+              "type": "string-list"
+            },
+            "comparator": {
+              "enum": [
+                "canonical-equal"
+              ]
+            },
+            "id": {
+              "type": "non-empty-string"
+            },
+            "version": {
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+              "type": "non-empty-string"
+            }
+          },
+          "required_members": [
+            "checks",
+            "comparator",
+            "id",
+            "version"
+          ]
         }
       },
       "quantity": {
@@ -4066,6 +4099,9 @@
           },
           "evidence_claim_kinds": {
             "type": "string-list"
+          },
+          "replay_comparison_policies": {
+            "type": "string-list"
           }
         },
         "profiles": {
@@ -4124,7 +4160,8 @@
           "types",
           "units",
           "wire_schemas",
-          "evidence_claim_kinds"
+          "evidence_claim_kinds",
+          "replay_comparison_policies"
         ],
         "profiles": [
           "numeric",
@@ -4293,6 +4330,11 @@
             "authority_path": "language.evidence_claim_kinds",
             "key_member": "id",
             "owners_path": "exports.evidence_claim_kinds"
+          },
+          {
+            "authority_path": "language.replay_comparison_policies",
+            "key_member": "id",
+            "owners_path": "exports.replay_comparison_policies"
           }
         ]
       },
@@ -4579,6 +4621,41 @@
             "input",
             "kind"
           ]
+        },
+        {
+          "check_members": [
+            "key",
+            "match",
+            "original",
+            "replay"
+          ],
+          "expect_members": [
+            "checks",
+            "result"
+          ],
+          "id": "replay-comparison",
+          "input_members": [
+            "original",
+            "replay"
+          ],
+          "observation_members": [
+            "evaluation_outcome_status",
+            "event_trace_identity",
+            "snapshot_series_identity",
+            "metric_dataset_identity"
+          ],
+          "required_members": [
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+            "policy"
+          ],
+          "results": [
+            "matched",
+            "mismatched"
+          ]
         }
       ],
       "operation_probe_roots": [
@@ -4594,7 +4671,8 @@
         "capabilities",
         "dependencies",
         "exports",
-        "profiles"
+        "profiles",
+        "semantic_closure"
       ]
     },
     "resolution_judgment": {
@@ -8197,6 +8275,33 @@
         "type": "string"
       },
       "target_policy": "existing-target"
+    },
+    "replay_comparison_policy": {
+      "closed": true,
+      "field_types": {
+        "checks": {
+          "type": "string-list"
+        },
+        "comparator": {
+          "enum": [
+            "canonical-equal"
+          ]
+        },
+        "id": {
+          "type": "non-empty-string"
+        },
+        "version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "type": "non-empty-string"
+        }
+      },
+      "required_members": [
+        "checks",
+        "comparator",
+        "id",
+        "version"
+      ],
+      "type": "closed-object"
     }
   },
   "resources": {

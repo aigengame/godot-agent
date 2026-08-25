@@ -360,6 +360,8 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
         }
         if "operation" in required:
             properties["operation"] = _non_empty_string_schema()
+        if "policy" in required:
+            properties["policy"] = _non_empty_string_schema()
         probe_members = kind.get("probe_members")
         if "probe" in required:
             if not isinstance(probe_members, list) or not all(
@@ -898,6 +900,80 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                             "type": "array",
                             "items": state_schema,
                         },
+                    },
+                    "required": expect_members,
+                    "unevaluatedProperties": False,
+                }
+                if set(properties) != set(required):
+                    raise ValueError(
+                        f"Kernel package-vector kind is not closed: {kind_id}"
+                    )
+                variants.append(
+                    {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                        "unevaluatedProperties": False,
+                    }
+                )
+                continue
+            if kind_id == "replay-comparison":
+                observation_members = kind.get("observation_members")
+                expect_members = kind.get("expect_members")
+                check_members = kind.get("check_members")
+                results = kind.get("results")
+                if (
+                    input_members != ["original", "replay"]
+                    or observation_members
+                    != [
+                        "evaluation_outcome_status",
+                        "event_trace_identity",
+                        "snapshot_series_identity",
+                        "metric_dataset_identity",
+                    ]
+                    or expect_members != ["checks", "result"]
+                    or check_members != ["key", "match", "original", "replay"]
+                    or results != ["matched", "mismatched"]
+                ):
+                    raise ValueError(
+                        "Kernel replay-comparison vector contract is incomplete"
+                    )
+                observation_schema = {
+                    "type": "object",
+                    "properties": {
+                        member: _non_empty_string_schema()
+                        for member in observation_members
+                    },
+                    "required": observation_members,
+                    "unevaluatedProperties": False,
+                }
+                properties["input"] = {
+                    "type": "object",
+                    "properties": {
+                        "original": observation_schema,
+                        "replay": observation_schema,
+                    },
+                    "required": input_members,
+                    "unevaluatedProperties": False,
+                }
+                properties["expect"] = {
+                    "type": "object",
+                    "properties": {
+                        "checks": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "key": _non_empty_string_schema(),
+                                    "match": {"type": "boolean"},
+                                    "original": _non_empty_string_schema(),
+                                    "replay": _non_empty_string_schema(),
+                                },
+                                "required": check_members,
+                                "unevaluatedProperties": False,
+                            },
+                        },
+                        "result": {"enum": results},
                     },
                     "required": expect_members,
                     "unevaluatedProperties": False,
