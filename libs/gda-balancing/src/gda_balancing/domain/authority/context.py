@@ -282,6 +282,11 @@ class AdmittedAuthorityContext:
             _replay_comparison_policy_index(self.language_bundle),
         )
 
+    def __deepcopy__(self, memo: dict[int, Any]) -> "AdmittedAuthorityContext":
+        """Preserve the sealed context; ``mutable_pair`` is the mutable escape hatch."""
+        memo[id(self)] = self
+        return self
+
     def mutable_pair(self) -> tuple[dict[str, Any], LanguageBundleIndex]:
         """Return an independently owned candidate for mutation/conformance tests."""
         language_bundle = deepcopy(self.language_bundle)

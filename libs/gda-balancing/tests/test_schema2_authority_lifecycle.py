@@ -2,6 +2,7 @@
 
 import ast
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -219,6 +220,7 @@ def test_packaged_context_derives_immutable_replay_comparison_policy_index():
         ] = "2.0.0"
     with pytest.raises(TypeError, match="init=False"):
         replace(context, replay_comparison_policy_index={})
+    assert deepcopy(context) is context
 
 
 def test_mutable_builtin_descriptors_cannot_bypass_authority_freeze():
