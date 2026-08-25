@@ -263,15 +263,18 @@ def replay_experiment(
         original_members=original_members,
         replay_members=execution.members,
     )
+    matched = comparison.value["result"] == "matched"
+    omitted_outcomes = (
+        {"experiment-verdict"} if matched else {"evaluation-run", "experiment-verdict"}
+    )
     publication_members = {
         "replay-comparison": comparison,
         **{
             name: member
             for name, member in execution.members.items()
-            if name != "experiment-verdict"
+            if name not in omitted_outcomes
         },
     }
-    matched = comparison.value["result"] == "matched"
     artifact_set = success_artifact_set if matched else verdict_artifact_set
     receipt = publish_artifact_set(
         publication_members,

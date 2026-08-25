@@ -150,6 +150,26 @@ def _same_reproduction_drift(
     return ExperimentExecutionVerdict(failed_metrics=failed_metrics, members=members)
 
 
+def _same_outcome_observation_drift(
+    checked: CheckedExperiment,
+    execution: ExperimentExecutionSuccess,
+) -> ExperimentExecutionSuccess:
+    metric_payload = _artifact_payload(execution.members["metric-dataset"].value)
+    metric_payload["samples"][0]["value"] += 1
+    metrics = _member(checked, "metric-dataset", metric_payload)
+
+    outcome_payload = _artifact_payload(execution.members["evaluation-run"].value)
+    outcome_payload["metric_dataset_identity"] = metrics.content_identity
+    outcome = _member(checked, "evaluation-run", outcome_payload)
+    return ExperimentExecutionSuccess(
+        members={
+            **execution.members,
+            "evaluation-run": outcome,
+            "metric-dataset": metrics,
+        }
+    )
+
+
 def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execution):
     checked, execution = accepted_execution
 
@@ -490,7 +510,7 @@ def test_public_replay_mismatch_publishes_only_comparison_evidence(
     def execute_with_observation_drift(prepared):
         execution = execute(prepared)
         assert isinstance(execution, ExperimentExecutionSuccess)
-        return _same_reproduction_drift(prepared.checked, execution)
+        return _same_outcome_observation_drift(prepared.checked, execution)
 
     monkeypatch.setattr(
         replay_application,
@@ -511,12 +531,7 @@ def test_public_replay_mismatch_publishes_only_comparison_evidence(
     assert (exit_code, stderr) == (1, "")
     result = json.loads(stdout)
     assert result["outcome"] == "mismatched"
-    assert result["mismatches"] == [
-        "evaluation-outcome-status",
-        "event-trace-identity",
-        "snapshot-series-identity",
-        "metric-dataset-identity",
-    ]
+    assert result["mismatches"] == ["metric-dataset-identity"]
     logical_names = {
         row["logical_name"] for row in result["artifact_set"]["member_locators"]
     }
