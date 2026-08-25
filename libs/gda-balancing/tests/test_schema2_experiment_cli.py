@@ -95,6 +95,38 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
 }
 
 
+def test_experiment_execution_prepares_reproduction_before_dispatch(tmp_path):
+    specification = tmp_path / "experiment.json"
+    specification.write_text(
+        experiment_command_module.prepare_valid_experiment(tmp_path, 545),
+        encoding="utf-8",
+    )
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
+
+    prepared = experiment_execution_application_module.prepare_checked_experiment(
+        checked
+    )
+
+    assert isinstance(
+        prepared, experiment_execution_application_module.PreparedExperimentExecution
+    )
+    assert set(prepared.members) == {
+        "evaluator-capability-manifest",
+        "reproduction-receipt",
+        "resolved-runtime-profile",
+    }
+    execution = experiment_execution_application_module.execute_prepared_experiment(
+        prepared
+    )
+    assert isinstance(
+        execution, experiment_execution_application_module.ExperimentExecutionSuccess
+    )
+    assert {
+        name: execution.members[name].content_identity for name in prepared.members
+    } == {name: member.content_identity for name, member in prepared.members.items()}
+
+
 def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
     authority_context = authority_module.packaged_authority_context()
     structured_authority = package_structured_value_index(

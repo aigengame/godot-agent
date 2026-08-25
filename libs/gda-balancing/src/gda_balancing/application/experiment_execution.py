@@ -7,8 +7,10 @@ from gda_balancing.domain.evidence import runtime_terminal_audit_members
 from gda_balancing.domain.experiment import CheckedExperiment
 from gda_balancing.domain.publication_types import PublicationMember
 from gda_balancing.domain.runtime.execution import (
+    PreparedExperiment,
     RuntimeRefusalOutcome,
-    evaluate_experiment,
+    evaluate_prepared_experiment,
+    prepare_experiment,
 )
 
 
@@ -38,13 +40,25 @@ class ExperimentExecutionRefusal:
 ExperimentExecutionOutcome = (
     ExperimentExecutionSuccess | ExperimentExecutionVerdict | ExperimentExecutionRefusal
 )
+PreparedExperimentExecution = PreparedExperiment
 
 
-def execute_checked_experiment(
+def prepare_checked_experiment(
     checked: CheckedExperiment,
+) -> PreparedExperimentExecution | ExperimentExecutionRefusal:
+    """Prepare complete reproduction identity without Event dispatch."""
+    prepared = prepare_experiment(checked)
+    if isinstance(prepared, Schema2RefusalReport):
+        return ExperimentExecutionRefusal(report=prepared, members={})
+    return prepared
+
+
+def execute_prepared_experiment(
+    prepared: PreparedExperimentExecution,
 ) -> ExperimentExecutionOutcome:
-    """Execute a fully admitted Experiment without filesystem publication."""
-    evaluation = evaluate_experiment(checked)
+    """Execute one prepared Experiment without filesystem publication."""
+    evaluation = evaluate_prepared_experiment(prepared)
+    checked = prepared.checked
     if isinstance(evaluation, RuntimeRefusalOutcome):
         return ExperimentExecutionRefusal(
             report=evaluation.report,
@@ -58,3 +72,13 @@ def execute_checked_experiment(
         failed_metrics=evaluation.failed_metrics,
         members=evaluation.members,
     )
+
+
+def execute_checked_experiment(
+    checked: CheckedExperiment,
+) -> ExperimentExecutionOutcome:
+    """Execute a fully admitted Experiment without filesystem publication."""
+    prepared = prepare_checked_experiment(checked)
+    if isinstance(prepared, ExperimentExecutionRefusal):
+        return prepared
+    return execute_prepared_experiment(prepared)
