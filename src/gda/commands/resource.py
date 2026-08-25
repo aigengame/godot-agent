@@ -445,7 +445,7 @@ def resolve_uid(
 # `godot --headless --import` pass (a per-file reimport exists only inside the
 # editor process; `--script` requires a MainLoop, verified against the engine
 # source) — so gda's scoping is in the DECISION and the REPORT, not the pass:
-# it runs the pass only when a requested asset's cache is missing, and it
+# it runs the pass only when a requested asset is missing or stale, and it
 # reports everything the pass touched, each created file classified against the
 # explicit cache root. Plain `script run` is untouched (#668's guarantee: gda
 # adds no import pass). Per the issue's triage decisions the command lives
@@ -503,8 +503,9 @@ class ResourceImportAsset(BaseModel):
     """One requested asset's import verdict (#668).
 
     Before a pass (and on a dry run) the status is an EVIDENCE state, read
-    from the engine's own artifacts exactly as its reimport test reads them
-    (#738 review): ``cached`` (every engine check passes), ``missing`` (no
+    from the same project artifacts the engine's reimport test reads (#738
+    review): ``cached`` (every ARTIFACT-level check passes — the engine-state
+    checks it cannot read are a declared remainder, see below), ``missing`` (no
     sidecar — a new asset the pass would import), ``stale`` (the sidecar is
     present but an engine check fails — a destination or `.md5` receipt
     absent, the recorded `source_md5`/`dest_md5` disagreeing with the bytes,
@@ -515,7 +516,14 @@ class ResourceImportAsset(BaseModel):
     non-cached state: ``imported``, ``not_importable`` (the pass decided the
     type needs no import — e.g. a script), or ``failed`` (still not cached
     after the pass; every ``invalid`` request settles here, because the pass
-    does not retry it).
+    does not retry it). The declared remainder: the checks the engine makes
+    from its OWN state — importer availability and format version,
+    import-settings validity, and the editor cache's expected sidecar MD5 —
+    are not readable from the project's artifacts, so an asset the engine
+    would still re-import (e.g. a sidecar whose recorded importer no longer
+    exists) can read ``cached`` here until any pass runs; the next pass
+    converges it, and none of these can make gda spend a pass the engine
+    would not.
     """
 
     path: str = Field(description="The asset's res:// path.")
@@ -785,11 +793,14 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     importer, or declared destinations proven by the receipts — a sidecar
     with no importer line or no destinations proves nothing and is
     conservatively ``stale`` (#738 re-review 2). The checks the engine makes
-    from its own state — the current importer's format version, its
-    project-settings validity, and the editor cache's expected sidecar MD5 —
-    cannot be read from the project's artifacts, so an engine or
-    import-settings upgrade can look ``cached`` here until any pass runs;
-    the contract names that remainder.
+    from its own state — whether the DECLARED importer still exists (its
+    registry is open: import plugins add names, so no offline list can be
+    authoritative), its format version, its project-settings validity, and
+    the editor cache's expected sidecar MD5 — cannot be read from the
+    project's artifacts, so a sidecar drifted in those dimensions can look
+    ``cached`` here until any pass runs; the contract names that remainder,
+    and its direction: it can delay a re-import until the next pass, never
+    spend a pass the engine would not.
     """
     rel = res_path[len("res://") :]
     sidecar_fs = project / (rel + ".import")
@@ -816,9 +827,10 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
         return state("invalid")
     importer = _IMPORTER_LINE.search(text)
     if importer is None:
-        # No importer declared: nothing proves this sidecar's cache, and the
-        # engine's own importer-existence check would re-import it too.
-        # Conservatively stale (#738 re-review 2).
+        # No importer DECLARED: nothing proves this sidecar's cache.
+        # Conservatively stale (#738 re-review 2). Whether a declared name
+        # still RESOLVES is engine state (an open registry) — part of the
+        # declared remainder, not decidable here.
         return state("stale")
     if importer.group(1) in ("keep", "skip"):
         return state("cached")
