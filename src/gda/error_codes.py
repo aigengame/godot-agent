@@ -802,6 +802,18 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         "A live input sequence event has a type the harness does not recognize.",
     ),
+    # The predicate-capture failure the gda harness reports for #661: a
+    # `screen capture --await-*` predicate that never held within its declared
+    # frame bound. LIVE-category, classifier-source, harness-mirrored like the
+    # other per-op codes; the message carries the last observed value so the
+    # agent can see how far the state got.
+    ErrorCodeSpec(
+        "live_predicate_unmet",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live capture predicate did not hold within its declared frame bound.",
+    ),
     # The `screen` capture failure the gda harness reports for #222. Same shape as
     # the other per-op LIVE codes (LIVE-category, classifier-source, exit_code
     # EXIT_LIVE, harness-mirrored): a viewport capture needs a real DisplayServer,

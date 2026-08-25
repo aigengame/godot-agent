@@ -72,6 +72,9 @@ HARNESS_LIVE_ERROR_CODES = (
     # #222: a `screen` capture op on a headless engine session — the dummy
     # DisplayServer cannot read pixels (the session was not started --windowed).
     "live_display_unavailable",
+    # #661: a `screen capture --await-*` predicate that never held within its
+    # declared frame bound.
+    "live_predicate_unmet",
 )
 
 

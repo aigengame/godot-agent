@@ -213,3 +213,156 @@ def test_screen_capture_with_no_daemon_reports_daemon_not_running(
     error = json.loads(cap.stdout)["error"]
     assert error["code"] == "daemon_not_running"
     assert "gda daemon start" in error["message"]
+
+
+# --- the --await-* predicate capture (#661) ------------------------------------
+
+# A scene with two transient states, each too short for separate input + capture
+# round trips (GDA-DF-023): `phase` cycles 0..7 once per process frame (any given
+# value holds for exactly ONE frame, recurring every 8), and `flash` runs 4->0
+# only after a key press (a ~4-frame input-triggered transient).
+PREDICATE_GD = (
+    "extends Node2D\n"
+    "var tick := 0\n"
+    "var phase := 0\n"
+    "var flash := 0\n"
+    "func _process(_delta: float) -> void:\n"
+    "\ttick += 1\n"
+    "\tphase = tick % 8\n"
+    "\tif flash > 0:\n"
+    "\t\tflash -= 1\n"
+    "func _input(event: InputEvent) -> void:\n"
+    "\tif event is InputEventKey and event.pressed:\n"
+    "\t\tflash = 4\n"
+)
+PREDICATE_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://main.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n'
+    'script = ExtResource("1")\n\n'
+    '[node name="Rect" type="ColorRect" parent="."]\n'
+    "offset_right = 200.0\n"
+    "offset_bottom = 150.0\n"
+    "color = Color(0.9, 0.4, 0.2, 1)\n"
+)
+
+
+def _predicate_scaffold(tmp_path):
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(PREDICATE_GD, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(PREDICATE_TSCN, encoding="utf-8")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_await_predicate_captures_a_one_frame_transient_repeatedly(
+    tmp_path, daemon_runtime_dir
+):
+    # AC1 + AC4 (#661): a declared transient state — `phase == 5` holds for
+    # exactly one process frame per 8-frame cycle — is captured deterministically,
+    # with no game-side freeze fixture, on REPEATED runs in one session.
+    _predicate_scaffold(tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        for attempt in range(3):
+            out = tmp_path / f"shot{attempt}.png"
+            cap = assert_windowed_ok(
+                run(
+                    "screen",
+                    "capture",
+                    "--output",
+                    str(out),
+                    "--await-node",
+                    "/root/Main",
+                    "--await-property",
+                    "phase",
+                    "--await-value",
+                    "5",
+                )
+            )
+            doc = json.loads(cap.stdout)
+            assert doc["predicate"]["observed"] == 5, doc
+            assert doc["predicate"]["frames_waited"] < 60
+            assert doc["predicate"]["engine_frame"] > 0
+            assert out.read_bytes().startswith(PNG_MAGIC)
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_await_predicate_that_never_holds_is_the_typed_error(
+    tmp_path, daemon_runtime_dir
+):
+    # AC2 (#661): a predicate that never holds fails with live_predicate_unmet
+    # after the declared frame bound — in ~a third of a second, not a timeout —
+    # and writes no file.
+    _predicate_scaffold(tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
+    out = tmp_path / "never.png"
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        cap = run(
+            "screen",
+            "capture",
+            "--output",
+            str(out),
+            "--await-node",
+            "/root/Main",
+            "--await-property",
+            "phase",
+            "--await-value",
+            "99",
+            "--await-frames",
+            "20",
+        )
+        assert cap.returncode != 0
+        doc = json.loads(cap.stdout)
+        assert doc["error"]["code"] == "live_predicate_unmet"
+        assert "did not hold within 20 frames" in doc["error"]["message"]
+        assert "last observed" in doc["error"]["message"]
+        assert not out.exists()
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_await_events_capture_an_input_triggered_transient(
+    tmp_path, daemon_runtime_dir
+):
+    # The atomic input-and-capture form (#661, GDA-DF-023): the key press and the
+    # predicate ride ONE window, so the ~4-frame `flash` transient the press
+    # triggers cannot be missed by a second CLI round trip. `flash == 1` holds
+    # for exactly one frame after the injected press.
+    _predicate_scaffold(tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
+    out = tmp_path / "flash.png"
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        cap = assert_windowed_ok(
+            run(
+                "screen",
+                "capture",
+                "--output",
+                str(out),
+                "--await-node",
+                "/root/Main",
+                "--await-property",
+                "flash",
+                "--await-value",
+                "1",
+                "--await-events",
+                '[{"type": "key", "key": "Right", "frame": 0}]',
+            )
+        )
+        doc = json.loads(cap.stdout)
+        assert doc["predicate"]["observed"] == 1, doc
+        assert doc["predicate"]["frames_waited"] >= 1
+        assert out.read_bytes().startswith(PNG_MAGIC)
+    finally:
+        run("daemon", "stop")

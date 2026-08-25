@@ -1933,13 +1933,14 @@ def _is_compound(spec: dict) -> bool:
 
 
 def test_no_parameter_needs_a_json_value_the_derivation_cannot_see():
-    # `json_value` is derived from the LINKED property's declared `type`, so it
-    # sees a bare `array`/`object` but not one behind an `anyOf` — the shape a
-    # nullable compound (`array | null`) takes. Such a parameter would silently
-    # publish `json_value: false` and send an agent to write its value as a plain
-    # token. None exists today, so the derivation is deliberately left narrow; this
-    # fails the moment one appears, forcing the extension rather than a wrong
-    # binding. Same guard shape as the unsupported-Click-shapes test above.
+    # `json_value` is derived from the LINKED property's schema and, since #661's
+    # nullable-compound `--await-events` (`list | null`), sees a compound behind
+    # an `anyOf`/`oneOf` too. This guard keeps the derivation and this detector
+    # agreeing: a compound shape only one of them recognizes (e.g. behind an
+    # `allOf` or a `$ref`) would silently publish `json_value: false` and send an
+    # agent to write its value as a plain token — it fails the moment one
+    # appears, forcing the extension rather than a wrong binding. Same guard
+    # shape as the unsupported-Click-shapes test above.
     import typer as _typer
 
     from gda.headless import command_argv_bindings

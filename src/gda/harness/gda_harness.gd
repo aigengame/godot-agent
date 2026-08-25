@@ -61,6 +61,7 @@ const LIVE_ERROR_INVALID_KEY := "live_invalid_key"
 const LIVE_ERROR_UNKNOWN_ACTION := "live_unknown_action"
 const LIVE_ERROR_INVALID_EVENT_SPEC := "live_invalid_event_spec"
 const LIVE_ERROR_DISPLAY_UNAVAILABLE := "live_display_unavailable"
+const LIVE_ERROR_PREDICATE_UNMET := "live_predicate_unmet"
 
 # The frame count a time-windowed op may request (#223). A window collects one
 # sample per frame, so an unbounded N would block the one-shot RPC for an unbounded
@@ -306,9 +307,11 @@ func _window_clock() -> String:
 
 
 # Advance the active window one frame. Collects one sample; finalizes once the
-# frame budget is met. A sample handler may abort the window early by returning a
-# Dictionary carrying an "error" key (e.g. a node that vanished mid-window) — that
-# envelope is sent verbatim.
+# frame budget is met. A sample handler may end the window early two ways: a
+# Dictionary carrying an "error" key aborts with that envelope verbatim (e.g. a
+# node that vanished mid-window), and a Dictionary carrying a "complete" key
+# finishes successfully with _ok of that payload (e.g. a predicate capture that
+# just held, #661) — the budget is the CEILING, not the required duration.
 func _advance_window() -> void:
 	var state: Dictionary = _window_state
 	var sampler: Callable = state["sample"]
@@ -317,6 +320,10 @@ func _advance_window() -> void:
 	# (e.g. the monitored node was freed mid-window): send that envelope verbatim.
 	if typeof(sampled) == TYPE_DICTIONARY and (sampled as Dictionary).has("error"):
 		_finish_window(RESULT_BEGIN + JSON.stringify(sampled) + RESULT_END)
+		return
+	# ...or complete it early with a success payload (#661 predicate capture).
+	if typeof(sampled) == TYPE_DICTIONARY and (sampled as Dictionary).has("complete"):
+		_finish_window(_ok((sampled as Dictionary)["complete"]))
 		return
 	var samples: Array = state["samples"]
 	samples.append(sampled)
@@ -1283,11 +1290,14 @@ func _capture_frame() -> Dictionary:
 # CLI writes the file). A 1-frame window so the capture lands on a _process tick
 # after the scene is up and a frame has rendered (the GPU-timing fix). A headless
 # session is the typed live_display_unavailable, refused up front.
-func _handle_screen_capture(_params: Dictionary) -> Variant:
+func _handle_screen_capture(params: Dictionary) -> Variant:
 	if _display_is_headless():
 		return _error(LIVE_ERROR_DISPLAY_UNAVAILABLE,
 				"the engine session is headless (no DisplayServer to render pixels); "
 				+ "start the daemon with `gda daemon start --windowed`")
+	var await_spec: Variant = params.get("await", null)
+	if typeof(await_spec) == TYPE_DICTIONARY:
+		return _begin_predicate_capture(await_spec, params.get("events", []))
 	var sample := func() -> Variant:
 		var frame := _capture_frame()
 		if frame.has("error"):
@@ -1320,6 +1330,129 @@ func _handle_screen_frames(params: Dictionary) -> Variant:
 			"frames": samples,
 		})
 	return _begin_window(frames, sample, finalize)
+
+
+# screen capture --await (#661): the predicate-gated capture, GDA-DF-023. Input
+# and capture as separate round trips routinely miss a 3-8 frame transient, so
+# the window arms at request arrival and does the whole job game-side: each
+# PROCESS frame it applies the inline input events due at that offset (the
+# atomic input-and-capture form; the events reuse the input-sequence shapes and
+# _apply_sequence_event verbatim), then evaluates the predicate
+# `node.property == value`; the first frame it holds is captured and completes
+# the window EARLY via the _advance_window "complete" arm. A predicate that
+# never holds within `frames` is the typed live_predicate_unmet, carrying the
+# last observed value. Evaluation happens at the process-frame boundary; the
+# captured image is the most recently PRESENTED frame, so a property written
+# after that frame's draw can be one frame ahead of the pixels — the documented
+# limit. Physics-clock event offsets are refused: the capture clock IS the
+# process clock.
+func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Variant:
+	var node_path := String(await_spec.get("node", ""))
+	var node := _resolve_runtime_node(node_path)
+	if node == null:
+		return _error(LIVE_ERROR_NODE_NOT_FOUND,
+				"no node at runtime path: " + node_path)
+	var prop := String(await_spec.get("property", ""))
+	if not _runtime_property_exists(node, prop):
+		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
+				_unknown_runtime_property_message(node_path, prop))
+	var expected: Variant = await_spec.get("value", null)
+	var frames := _int_param(await_spec, "frames", 60)
+	var events: Array = raw_events if typeof(raw_events) == TYPE_ARRAY else []
+	for event in events:
+		if typeof(event) == TYPE_DICTIONARY and _sequence_event_uses_physics(event):
+			return _error(LIVE_ERROR_INVALID_EVENT_SPEC,
+					"a predicate capture applies its events on the process clock; "
+					+ "'physics_frame' offsets are not accepted")
+	var frame_box := {"n": 0, "observed": null}
+	_injected_mouse_button_mask = 0
+	var sample := func() -> Variant:
+		var current := int(frame_box["n"])
+		frame_box["n"] = current + 1
+		for event in events:
+			if typeof(event) != TYPE_DICTIONARY:
+				continue
+			if _sequence_event_offset(event) != current:
+				continue
+			var err: Variant = _apply_sequence_event(event)
+			if err != null:
+				_injected_mouse_button_mask = 0
+				return {"error": err}
+		if not is_instance_valid(node):
+			_injected_mouse_button_mask = 0
+			return {"error": {
+				"code": LIVE_ERROR_NODE_NOT_FOUND,
+				"message": "the awaited node was freed mid-window: " + node_path,
+			}}
+		var observed: Variant = node.get(prop)
+		frame_box["observed"] = observed
+		if not _predicate_matches(observed, expected):
+			return current
+		var captured := _capture_frame()
+		_injected_mouse_button_mask = 0
+		if captured.has("error"):
+			return captured
+		captured["predicate"] = {
+			"node": node_path,
+			"property": prop,
+			"expected": expected,
+			"observed": _predicate_echo(observed),
+			"engine_frame": Engine.get_process_frames(),
+			"frames_waited": current,
+		}
+		return {"complete": captured}
+	var finalize := func(_samples: Array) -> String:
+		_injected_mouse_button_mask = 0
+		return _error(LIVE_ERROR_PREDICATE_UNMET,
+				"the predicate " + node_path + "." + prop + " == "
+				+ JSON.stringify(expected) + " did not hold within "
+				+ str(frames) + " frames (last observed: "
+				+ str(frame_box["observed"]) + ")")
+	return _begin_window(frames, sample, finalize)
+
+
+# Whether the node exposes `prop` the way game get resolves properties: a storage
+# property, or an explicit script variable (the same two-step, so the predicate
+# surface and the read surface agree on what a property IS).
+func _runtime_property_exists(node: Node, prop: String) -> bool:
+	for entry in node.get_property_list():
+		if _is_storage_property(entry) and String(entry.get("name", "")) == prop:
+			return true
+	return not _explicit_script_variable_property(node, prop, false).is_empty()
+
+
+# JSON-typed predicate equality (#661): bool compares to bool, numbers
+# numerically (int frame counters match JSON integers), strings against the
+# String rendering (covers StringName), anything else never matches — the
+# predicate is a JSON-scalar contract, not a Variant matcher.
+func _predicate_matches(observed: Variant, expected: Variant) -> bool:
+	match typeof(expected):
+		TYPE_BOOL:
+			return typeof(observed) == TYPE_BOOL and observed == expected
+		TYPE_INT, TYPE_FLOAT:
+			if typeof(observed) == TYPE_INT or typeof(observed) == TYPE_FLOAT:
+				return float(observed) == float(expected)
+			return false
+		TYPE_STRING:
+			if typeof(observed) == TYPE_STRING or typeof(observed) == TYPE_STRING_NAME:
+				return String(observed) == String(expected)
+			return false
+		TYPE_NIL:
+			return typeof(observed) == TYPE_NIL
+	return false
+
+
+# The JSON-safe echo of the observed value for the result (#661; #660's receipt
+# echoes it onward): scalars pass through, everything else the diagnostic
+# String form — the predicate compares scalars, so the echo never needs the
+# full Value projection.
+func _predicate_echo(observed: Variant) -> Variant:
+	match typeof(observed):
+		TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING:
+			return observed
+		TYPE_NIL:
+			return null
+	return str(observed)
 
 
 # Read a float param defensively (the params arrive as arbitrary JSON): a missing

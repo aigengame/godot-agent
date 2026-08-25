@@ -883,7 +883,22 @@ headless is unaffected (4.4+, cross-platform).
   spelling differs by kind — `pressed` belongs to `mouse_button` alone, an `action`
   releases with `release`, a `key` with `released` — and a field from another kind is
   refused with the spelling this kind uses instead.
-- **`screen` / capture:** running-game viewport screenshot, multi-frame capture.
+- **`screen` / capture:** running-game viewport screenshot, multi-frame capture. The
+  `--await-*` predicate (shipped, #661) holds a `screen capture` game-side until
+  `node.property == value` first holds — checked once per PROCESS frame, up to
+  `--await-frames` (default 60, ceiling 600) — then captures THAT frame and reports the
+  predicate evidence (`observed` value, absolute `engine_frame`, window-relative
+  `frames_waited`); a predicate that never holds is the typed `live_predicate_unmet`
+  carrying the last observed value. `--await-events` additionally applies
+  input-sequence events (the same discriminated union `input sequence` takes) INSIDE
+  the same window at their process-clock `frame` offsets — the atomic
+  input-and-capture form, so a 3–8-frame transient triggered by the input cannot be
+  missed by a second CLI round trip; physics-clock offsets are refused, and every
+  offset must be inside the window. The predicate compares JSON scalars (numbers
+  numerically, strings against the String rendering); evaluation happens at the
+  process-frame boundary and the captured image is the most recently PRESENTED frame,
+  so a property written after that frame's draw can be one frame ahead of the pixels —
+  the documented limit.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
   monitor --property … --frames N` / `--signal … --frames N` collects a per-frame
