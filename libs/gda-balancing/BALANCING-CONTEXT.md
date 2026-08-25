@@ -1330,16 +1330,16 @@ Metric dataset. It records what ran and what was observed; it does not itself de
 _Avoid_: simulation result, run log, benchmark
 
 **Replay comparison policy**:
-A closed, versioned LDB policy that defines the mandatory checks and comparators for an exact Replay
-comparison. `standard.experiment@1.1.0` owns the initial `exact-replay-v1` definition at
+A closed, versioned LDB policy that defines the ordered check keys and one policy-wide comparator
+for an exact Replay comparison. `standard.experiment@1.1.0` owns the initial `exact-replay-v1` at
 `language.replay_comparison_policies`. The admitted policy index is a read-only projection of that
-Package Release, not a host registry or peer authority. The policy requires complete
-reproduction-identity equality before Runtime dispatch. It then compares one fixed, ordered set of
-Evaluation outcome, Event trace, Snapshot series, and Metric dataset observations. The Evaluation
-outcome is `accepted` or `rejected`. A caller cannot select fields, omit checks, or change a
-tolerance. An admitted inexact Numeric value can use only the rule fixed by the identical Resolved
-Runtime profile. This policy is not a Portable Observation Policy and produces no Resolved Portable
-Observation Plan (bADR-0014/0018/0023).
+Package Release, not a host registry or peer authority. The exact Replay contract requires complete
+reproduction-identity equality before Runtime dispatch; this is not a caller-selectable policy mode.
+The initial policy applies `canonical-equal` to Evaluation outcome status, Event-trace identity,
+Snapshot-series identity, and Metric-dataset identity. Event-trace identity already closes the root
+Event map, terminal statuses, and Named RNG observations. A caller cannot select fields, omit
+checks, or change a comparator or tolerance. This policy is not a Portable Observation Policy and
+produces no Resolved Portable Observation Plan (bADR-0014/0018/0023).
 _Avoid_: replay options, tolerance flag, ignore list, generic JSON diff
 
 **Replay comparison**:

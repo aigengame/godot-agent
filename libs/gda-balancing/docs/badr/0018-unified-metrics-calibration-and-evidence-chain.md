@@ -157,8 +157,8 @@ append-only evidence graph.
 
 - **`reproducible` requires a Replay comparison.** A positive comparison that is eligible for this
   claim binds at least two exact Evaluation runs with the same complete reproduction identity,
-  including an identical Resolved Runtime profile. It also binds the declared comparable fields,
-  canonicalization/tolerance policy, field-level matches/mismatches, and comparison-tool identity.
+  including an identical Resolved Runtime profile. It also binds the ordered policy check keys, the
+  policy-wide comparator, ordered check results, and comparison-tool identity.
   One successful run, a replay request, cross-evaluator agreement, or byte-equality observed only
   inside a test cannot issue `reproducible`. The assertion is emitted only when the comparison
   completed positively and all prerequisite `resolved`/`evaluable` assertions verify; mismatch is a

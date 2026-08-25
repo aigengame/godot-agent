@@ -1431,18 +1431,20 @@ profile.
 The #545 implementation advances `standard.experiment` from `1.0.0` to `1.1.0`; it does not add a
 new package id such as `standard.comparison`. `standard.experiment@1.1.0` owns `exact-replay-v1`
 under the Kernel-admitted `language.replay_comparison_policies` collection. One definition has `id`,
-`version`, `reproduction_identity`, and an ordered `checks` list. Each check has `id`, `subject`, and
-`comparator`. The initial policy fixes `reproduction_identity` to `complete` and uses
-`canonical-equal` for these six declared subjects:
+`version`, one policy-wide `comparator`, and an ordered `checks` list of stable keys. The initial
+policy uses `canonical-equal` for these four keys:
 
-| Check id | Subject | Comparator |
-| --- | --- | --- |
-| `evaluation-outcome-status` | `evaluation-outcome-status` | `canonical-equal` |
-| `root-event-map` | `root-event-map` | `canonical-equal` |
-| `terminal-statuses` | `terminal-statuses` | `canonical-equal` |
-| `event-trace-identity` | `event-trace-identity` | `canonical-equal` |
-| `snapshot-series-identity` | `snapshot-series-identity` | `canonical-equal` |
-| `metric-dataset-identity` | `metric-dataset-identity` | `canonical-equal` |
+| Check key |
+| --- |
+| `evaluation-outcome-status` |
+| `event-trace-identity` |
+| `snapshot-series-identity` |
+| `metric-dataset-identity` |
+
+The exact Replay contract requires complete reproduction-identity equality before Runtime dispatch.
+This is a fixed precondition, not a policy field or caller-selectable mode. Event-trace identity
+already closes the root Event map, terminal statuses, and Named RNG observations, so the policy does
+not repeat those facts as separate checks.
 
 `exports.replay_comparison_policies` lists the policy id. The Kernel includes
 `replay_comparison_policies` in the required language members and the Package Release semantic
@@ -1452,13 +1454,16 @@ content identities, the whole LDB, and downstream exact wrappers without changin
 Replay comparison binds the Package Release coordinate, policy id/version, and whole-LDB identity.
 The policy is not a separate published artifact.
 
-Kernel admission validates the closed definition and check shapes, non-empty and unique ids, the
-fixed check order, known comparator form, export ownership, and semantic-closure projection. It
-derives one read-only policy index keyed by id. The Kernel vector union adds one
-`replay-comparison` variant. It binds a policy id, complete original and Replay observations, and
-the expected ordered checks and result. The `standard.experiment` vector child uses package-contract
-vectors for missing, extra, duplicate, reordered, unsupported, export, and semantic-closure cases.
-It uses `replay-comparison` vectors for one match and one mismatch for each required check. Both the
+Kernel admission validates the closed definition shape, non-empty policy id and version, non-empty
+and unique check keys, fixed check order, supported policy-wide comparator, export ownership, and
+semantic-closure projection. It derives one read-only policy index keyed by id. The Kernel vector
+union adds one `replay-comparison` variant. It binds a policy id, complete original and Replay
+observations, and the expected ordered checks and result. The `standard.experiment` vector child uses
+package-contract vectors for missing, extra, duplicate, reordered, unsupported, export, and
+semantic-closure cases.
+Its `replay-comparison` vectors include a complete match and internally consistent mismatch bundles
+that exercise every check key. Each vector expects the complete ordered result induced by its
+bundle; it does not require an isolated mismatch that violates artifact bindings. Both the
 comparison producer and its independent validator must pass these vectors. No host constant,
 serialized registry, or directory scan can select the policy.
 
@@ -1840,11 +1845,12 @@ publish the declared set. Evidence validation is not part of this path.
 
 The `standard.experiment@1.1.0` Package Release owns `exact-replay-v1` under
 `language.replay_comparison_policies`. The policy fixes the ordered comparison checks. It compares the
-Evaluation outcome status (`accepted` or `rejected`), root Event map, terminal statuses, Event-trace
-identity, Snapshot-series identity, and Metric-dataset identity. The Event-trace contract already
-closes Named RNG observations. The caller cannot select fields, omit checks, or change a tolerance.
-The comparison tool uses one versioned implementation identity; this initial slice does not add a
-tool manifest or comparison plug-in system.
+Evaluation outcome status (`accepted` or `rejected`), Event-trace identity, Snapshot-series identity,
+and Metric-dataset identity with one policy-wide canonical-equality comparator. The Event-trace
+contract already closes the root Event map, terminal statuses, and Named RNG observations. The
+caller cannot select fields, omit checks, or change a comparator or tolerance. The comparison tool
+uses one versioned implementation identity; this initial slice does not add a tool manifest or
+comparison plug-in system.
 
 A completed Replay comparison publishes one atomic Artifact set with the Replay comparison as its
 primary member. A match uses the success set, which also contains the new Evaluation run and its

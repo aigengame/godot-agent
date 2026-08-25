@@ -30,8 +30,9 @@ admission boundary.
 > add a new package id such as `standard.comparison`. `standard.experiment@1.1.0` owns the first
 > policy, `exact-replay-v1`, at
 > `language.replay_comparison_policies`. The Kernel package contract admits a closed policy with
-> `id`, `version`, `reproduction_identity`, and ordered `checks`; each check has `id`, `subject`, and
-> `comparator`. The Kernel includes the collection in required language members,
+> `id`, `version`, one policy-wide `comparator`, and ordered stable check keys. Complete
+> reproduction-identity equality is an exact Replay precondition, not a policy mode. The Kernel
+> includes the collection in required language members,
 > `exports.replay_comparison_policies` declares owned policy ids, semantic closure includes the
 > authority path, and admission derives one read-only index keyed by policy id. Introducing these
 > Kernel contract shapes reidentifies the Kernel, the whole LDB, and downstream exact wrappers. A
@@ -40,8 +41,9 @@ admission boundary.
 > a `replay-comparison` variant that binds one policy, complete original and Replay observations,
 > and expected ordered checks and result. The package-owned vector child uses package-contract
 > vectors for structure, ownership, exports, and semantic closure; it uses `replay-comparison`
-> vectors for each mandatory match and mismatch. The policy is not an independent artifact,
-> registry, or discovery source.
+> vectors with internally consistent observation bundles to exercise every check key and the
+> complete ordered result each bundle induces. The policy is not an independent artifact, registry,
+> or discovery source.
 
 ## Decision
 
