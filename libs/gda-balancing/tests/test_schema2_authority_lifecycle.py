@@ -2,6 +2,7 @@
 
 import ast
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -216,6 +217,8 @@ def test_packaged_context_derives_immutable_replay_comparison_policy_index():
         context.replay_comparison_policy_index["exact-replay-v1"]["policy"][
             "version"
         ] = "2.0.0"
+    with pytest.raises(TypeError, match="init=False"):
+        replace(context, replay_comparison_policy_index={})
 
 
 def test_mutable_builtin_descriptors_cannot_bypass_authority_freeze():

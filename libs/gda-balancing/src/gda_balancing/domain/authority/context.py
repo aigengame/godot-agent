@@ -12,7 +12,7 @@ import re
 import threading
 from collections.abc import Callable, Iterator, Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Never, cast
 
@@ -233,16 +233,54 @@ def _language_bundle_canonical_bytes(language_bundle: dict[str, Any]) -> bytes:
     return canonical_bytes(graph)
 
 
+def _replay_comparison_policy_index(
+    language_bundle: dict[str, Any],
+) -> Mapping[str, Mapping[str, Any]]:
+    language = cast(dict[str, Any], language_bundle["language"])
+    index: dict[str, dict[str, Any]] = {}
+    for policy in cast(
+        list[dict[str, Any]], language.get("replay_comparison_policies", [])
+    ):
+        policy_id = cast(str, policy["id"])
+        owners = [
+            release
+            for release in cast(list[dict[str, Any]], language["packages"])
+            if policy_id
+            in cast(
+                list[str],
+                release.get("exports", {}).get("replay_comparison_policies", []),
+            )
+        ]
+        if policy_id in index or len(owners) != 1:
+            raise ValueError("admitted Replay comparison policy ownership is invalid")
+        owner = owners[0]
+        index[policy_id] = {
+            "owner": {
+                "package": owner["id"],
+                "package_version": owner["version"],
+            },
+            "policy": policy,
+        }
+    return cast(Mapping[str, Mapping[str, Any]], _deep_freeze(index))
+
+
 @dataclass(frozen=True)
 class AdmittedAuthorityContext:
     """One exact, deeply immutable admitted Kernel/LDB lifecycle."""
 
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
-    replay_comparison_policy_index: Mapping[str, Mapping[str, Any]]
+    replay_comparison_policy_index: Mapping[str, Mapping[str, Any]] = field(init=False)
     admission: BootstrapAdmission
     canonical_kernel_bytes: bytes
     canonical_language_bundle_bytes: bytes
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "replay_comparison_policy_index",
+            _replay_comparison_policy_index(self.language_bundle),
+        )
 
     def mutable_pair(self) -> tuple[dict[str, Any], LanguageBundleIndex]:
         """Return an independently owned candidate for mutation/conformance tests."""
@@ -462,37 +500,9 @@ def _freeze_admitted_context(
         raise ValueError("authority admission belongs to another Kernel/LDB pair")
     frozen_kernel = cast(dict[str, Any], _deep_freeze(kernel))
     frozen_language_bundle = cast(dict[str, Any], _deep_freeze(language_bundle))
-    language = cast(dict[str, Any], language_bundle["language"])
-    policy_index: dict[str, dict[str, Any]] = {}
-    for policy in cast(
-        list[dict[str, Any]], language.get("replay_comparison_policies", [])
-    ):
-        policy_id = cast(str, policy["id"])
-        owners = [
-            release
-            for release in cast(list[dict[str, Any]], language["packages"])
-            if policy_id
-            in cast(
-                list[str],
-                release.get("exports", {}).get("replay_comparison_policies", []),
-            )
-        ]
-        if policy_id in policy_index or len(owners) != 1:
-            raise ValueError("admitted Replay comparison policy ownership is invalid")
-        owner = owners[0]
-        policy_index[policy_id] = {
-            "owner": {
-                "package": owner["id"],
-                "package_version": owner["version"],
-            },
-            "policy": policy,
-        }
     return AdmittedAuthorityContext(
         kernel=frozen_kernel,
         language_bundle=frozen_language_bundle,
-        replay_comparison_policy_index=cast(
-            Mapping[str, Mapping[str, Any]], _deep_freeze(policy_index)
-        ),
         admission=admission,
         canonical_kernel_bytes=canonical_bytes(cast(JsonValue, kernel)),
         canonical_language_bundle_bytes=_language_bundle_canonical_bytes(
