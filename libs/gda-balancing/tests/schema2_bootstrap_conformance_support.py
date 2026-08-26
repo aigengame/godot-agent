@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:12e6497c361d7f86e417963ab7ee402822025aae34eb63cf672bcf8cc494fb26"
+    "sha256:53ba784725ff78d51d0dd00b8e0de8b2c7c183c790358e2924fc93fcb207812c"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -504,6 +504,15 @@ _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS = {
         "input_members",
         "required_members",
     },
+    "replay-comparison": {
+        "check_members",
+        "expect_members",
+        "id",
+        "input_members",
+        "observation_members",
+        "required_members",
+        "results",
+    },
 }
 
 
@@ -531,7 +540,13 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "resource_bounds",
         ]
         or contract.get("package_probe_roots")
-        != ["capabilities", "dependencies", "exports", "profiles"]
+        != [
+            "capabilities",
+            "dependencies",
+            "exports",
+            "profiles",
+            "semantic_closure",
+        ]
         or not isinstance(contract.get("kinds"), list)
     ):
         return False
@@ -595,6 +610,14 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "input",
             "kind",
         },
+        "replay-comparison": {
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+            "policy",
+        },
     }
     for kind_id, kind in kinds.items():
         if set(kind) != _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS[kind_id] or kind.get(
@@ -639,6 +662,18 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
         and kinds["operation-execution"].get("rng_draw_members")
         == ["candidate_hex", "index", "stream", "value"]
         and kinds["operation-execution"].get("state_value_members") == ["name", "value"]
+        and kinds["replay-comparison"].get("input_members") == ["original", "replay"]
+        and kinds["replay-comparison"].get("observation_members")
+        == [
+            "evaluation_outcome_status",
+            "event_trace_identity",
+            "snapshot_series_identity",
+            "metric_dataset_identity",
+        ]
+        and kinds["replay-comparison"].get("expect_members") == ["checks", "result"]
+        and kinds["replay-comparison"].get("check_members")
+        == ["key", "match", "original", "replay"]
+        and kinds["replay-comparison"].get("results") == ["matched", "mismatched"]
         and kinds["value-program"].get("input_members")
         == [
             "cache",
@@ -722,6 +757,75 @@ def _consumer_b_canonical_equal(left: Any, right: Any) -> bool:
         return _encoded(left) == _encoded(right)
     except (TypeError, ValueError, UnicodeEncodeError):
         return False
+
+
+def _consumer_b_replay_comparison_vector_is_closed(
+    package: dict[str, Any], vector: dict[str, Any], kind: dict[str, Any]
+) -> bool:
+    policy_entry = next(
+        (
+            entry
+            for entry in package.get("semantic_closure", [])
+            if isinstance(entry, dict)
+            and entry.get("authority_path") == "language.replay_comparison_policies"
+        ),
+        None,
+    )
+    policies = (
+        policy_entry.get("definitions") if isinstance(policy_entry, dict) else None
+    )
+    policy = (
+        next(
+            (
+                item
+                for item in policies
+                if isinstance(item, dict) and item.get("id") == vector.get("policy")
+            ),
+            None,
+        )
+        if isinstance(policies, list)
+        else None
+    )
+    inp = vector.get("input")
+    expect = vector.get("expect")
+    if (
+        not isinstance(policy, dict)
+        or policy.get("comparator") != "canonical-equal"
+        or not isinstance(policy.get("checks"), list)
+        or not policy["checks"]
+        or not isinstance(inp, dict)
+        or set(inp) != set(kind["input_members"])
+        or not isinstance(expect, dict)
+        or set(expect) != set(kind["expect_members"])
+        or expect.get("result") not in kind["results"]
+        or not isinstance(expect.get("checks"), list)
+    ):
+        return False
+    observation_members = cast(list[str], kind["observation_members"])
+    original = inp.get("original")
+    replay = inp.get("replay")
+    if (
+        not isinstance(original, dict)
+        or set(original) != set(observation_members)
+        or not isinstance(replay, dict)
+        or set(replay) != set(observation_members)
+    ):
+        return False
+    observed_checks = [
+        {
+            "key": member.replace("_", "-"),
+            "match": _consumer_b_canonical_equal(original[member], replay[member]),
+            "original": original[member],
+            "replay": replay[member],
+        }
+        for member in observation_members
+    ]
+    matched = all(check["match"] for check in observed_checks)
+    return (
+        policy["checks"] == [check["key"] for check in observed_checks]
+        and _consumer_b_canonical_equal(expect["checks"], observed_checks)
+        and expect["result"] == ("matched" if matched else "mismatched")
+    )
 
 
 def _consumer_b_signed_int64(value: Any) -> bool:
@@ -1357,6 +1461,12 @@ def _consumer_b_package_evidence_vectors_are_closed(
             declared, observed = _consumer_b_exact_path(package, probe["path"])
             if not declared or not _consumer_b_canonical_equal(
                 observed, vector.get("expect")
+            ):
+                return False
+            continue
+        if kind_id == "replay-comparison":
+            if not _consumer_b_replay_comparison_vector_is_closed(
+                package, vector, kind
             ):
                 return False
             continue

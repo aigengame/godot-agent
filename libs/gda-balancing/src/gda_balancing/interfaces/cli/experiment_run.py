@@ -16,7 +16,11 @@ from gda_balancing.interfaces.cli.descriptors import (
     RefusalDetailSpec,
     RefusalVariantSpec,
 )
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import (
+    EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+    EXPERIMENT_SUCCESS_ARTIFACT_SET,
+    EXPERIMENT_VERDICT_ARTIFACT_SET,
+)
 from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
@@ -96,45 +100,6 @@ def _experiment_run_refusal_catalog() -> tuple[tuple[str, str], ...]:
     )
 
 
-_EXPERIMENT_SUCCESS_ARTIFACT_SET = (
-    ArtifactSetMemberSpec("evaluation-run", "evaluation-run", role="primary"),
-    ArtifactSetMemberSpec("event-trace", "event-trace"),
-    ArtifactSetMemberSpec("snapshot-series", "snapshot-series"),
-    ArtifactSetMemberSpec("metric-dataset", "metric-dataset"),
-    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
-    ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
-    ArtifactSetMemberSpec(
-        "evaluator-capability-manifest",
-        "evaluator-capability-manifest",
-    ),
-)
-_EXPERIMENT_VERDICT_ARTIFACT_SET = (
-    ArtifactSetMemberSpec("experiment-verdict", "experiment-verdict", role="primary"),
-    ArtifactSetMemberSpec("event-trace", "event-trace"),
-    ArtifactSetMemberSpec("snapshot-series", "snapshot-series"),
-    ArtifactSetMemberSpec("metric-dataset", "metric-dataset"),
-    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
-    ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
-    ArtifactSetMemberSpec(
-        "evaluator-capability-manifest",
-        "evaluator-capability-manifest",
-    ),
-)
-_EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET = (
-    ArtifactSetMemberSpec(
-        "runtime-terminal-audit",
-        "runtime-terminal-audit",
-        role="primary",
-    ),
-    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
-    ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
-    ArtifactSetMemberSpec(
-        "evaluator-capability-manifest",
-        "evaluator-capability-manifest",
-    ),
-)
-
-
 def _terminal_audit_receipt_schema() -> dict[str, object]:
     return ExperimentRunResult.model_json_schema()
 
@@ -158,7 +123,7 @@ def experiment_run_handler(
                 descriptor_identity(EXPERIMENT_RUN),
                 EXPERIMENT_RUN.artifact_set,
                 EXPERIMENT_RUN.verdict_artifact_set,
-                _EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+                EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
                 publication_fault=publication_fault,
             )
         except InputReadError as err:
@@ -195,12 +160,12 @@ EXPERIMENT_RUN = CommandDescriptor(
         prepare_verdict_document=prepare_verdict_experiment,
     ),
     positional_field="specification",
-    artifact_set=_EXPERIMENT_SUCCESS_ARTIFACT_SET,
-    verdict_artifact_set=_EXPERIMENT_VERDICT_ARTIFACT_SET,
+    artifact_set=EXPERIMENT_SUCCESS_ARTIFACT_SET,
+    verdict_artifact_set=EXPERIMENT_VERDICT_ARTIFACT_SET,
     refusal_artifact_sets=(
         RefusalArtifactSetSpec(
             stage="runtime",
-            members=_EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+            members=EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
             variant="post-dispatch",
         ),
     ),

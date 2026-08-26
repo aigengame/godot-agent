@@ -29,6 +29,7 @@ from gda_balancing.interfaces.cli.registry import MANIFEST, REGISTRY
 from gda_balancing.interfaces.cli.serve import SERVE
 from gda_balancing.interfaces.cli.evidence_verify import EVIDENCE_VERIFY
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
+from gda_balancing.interfaces.cli.experiment_replay import EXPERIMENT_REPLAY
 from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
 from gda_balancing.interfaces.cli.model_check import MODEL_CHECK
@@ -1602,6 +1603,74 @@ def test_operation_execution_evidence_replaces_runtime_scenario(run_cli):
     }
 
 
+def test_standard_experiment_owns_closed_exact_replay_policy(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    kernel = authority["kernel"]
+    releases = {release["id"]: release for release in authority["package_releases"]}
+    vector_sets = {
+        vector_set["package_id"]: vector_set
+        for vector_set in authority["package_conformance_vector_sets"]
+    }
+
+    assert (
+        "replay_comparison_policies" in kernel["admission"]["required_language_members"]
+    )
+    policy_contract = kernel["meta_format"]["replay_comparison_policy"]
+    assert policy_contract == {
+        "closed": True,
+        "field_types": {
+            "checks": {"type": "string-list"},
+            "comparator": {"enum": ["canonical-equal"]},
+            "id": {"type": "non-empty-string"},
+            "version": {
+                "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$",
+                "type": "non-empty-string",
+            },
+        },
+        "required_members": ["checks", "comparator", "id", "version"],
+        "type": "closed-object",
+    }
+
+    experiment = releases["standard.experiment"]
+    policy = {
+        "checks": [
+            "evaluation-outcome-status",
+            "event-trace-identity",
+            "snapshot-series-identity",
+            "metric-dataset-identity",
+        ],
+        "comparator": "canonical-equal",
+        "id": "exact-replay-v1",
+        "version": "1.0.0",
+    }
+    assert experiment["version"] == "1.1.0"
+    assert experiment["exports"]["replay_comparison_policies"] == ["exact-replay-v1"]
+    assert next(
+        entry["definitions"]
+        for entry in experiment["semantic_closure"]
+        if entry["authority_path"] == "language.replay_comparison_policies"
+    ) == [policy]
+
+    replay_vectors = [
+        vector
+        for vector in vector_sets["standard.experiment"]["vector_definitions"]
+        if vector.get("kind") == "replay-comparison"
+    ]
+    assert [vector["id"] for vector in replay_vectors] == [
+        "exact-replay.complete-match",
+        "exact-replay.complete-mismatch",
+    ]
+    assert {vector["policy"] for vector in replay_vectors} == {"exact-replay-v1"}
+    assert [vector["expect"]["result"] for vector in replay_vectors] == [
+        "matched",
+        "mismatched",
+    ]
+    assert all(
+        [check["key"] for check in vector["expect"]["checks"]] == policy["checks"]
+        for vector in replay_vectors
+    )
+
+
 def test_runtime_control_primitives_are_closed_and_body_order_is_authored(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     runtime = authority["kernel"]["meta_format"]["runtime_program"]
@@ -1684,6 +1753,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
         "operation-contract",
         "operation-relation",
         "operation-execution",
+        "replay-comparison",
         "scheduler-scenario",
         "structured-value",
         "value-program",
@@ -1777,6 +1847,7 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "package-lock",
         "publication-index",
         "negative-vector",
+        "replay-comparison",
         "reproduction-receipt",
         "resolution-receipt",
         "resolved-model",
@@ -1891,6 +1962,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "manifest",
         "evidence verify",
         "experiment check",
+        "experiment replay",
         "experiment run",
         "formula parse",
         "formula render",
@@ -1920,7 +1992,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             "profile_identity",
             "success",
         }
-        if path == "experiment run":
+        if path in {"experiment replay", "experiment run"}:
             expected_schema_members.add("verdict")
         assert set(row["schema"]) == expected_schema_members
         if path == "schema get":
@@ -1946,6 +2018,8 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             argv = invocation(EXPERIMENT_CHECK)
         elif path == "experiment run":
             argv = invocation(EXPERIMENT_RUN)
+        elif path == "experiment replay":
+            argv = invocation(EXPERIMENT_REPLAY)
         elif path == "evidence verify":
             argv = invocation(EVIDENCE_VERIFY)
         elif path == "model inspect":

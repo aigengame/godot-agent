@@ -101,7 +101,6 @@ def check_model_source_value(
     authority_context: AdmittedAuthorityContext | None = None,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
-    authority_admission: BootstrapAdmission | None = None,
 ) -> CheckedModel | Schema2RefusalReport:
     """Admit an in-memory Model Source through the same authority path as a file."""
     try:
@@ -113,7 +112,6 @@ def check_model_source_value(
         authority_context=authority_context,
         kernel=kernel,
         language_bundle=language_bundle,
-        authority_admission=authority_admission,
     )
 
 
@@ -123,12 +121,9 @@ def _check_model_source_bytes(
     authority_context: AdmittedAuthorityContext | None = None,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
-    authority_admission: BootstrapAdmission | None = None,
 ) -> CheckedModel | Schema2RefusalReport:
     if authority_context is not None and (
-        kernel is not None
-        or language_bundle is not None
-        or authority_admission is not None
+        kernel is not None or language_bundle is not None
     ):
         raise ValueError(
             "authority_context cannot be combined with separate authority inputs"
@@ -142,7 +137,6 @@ def _check_model_source_bytes(
             resolved_context = admit_authority_context(
                 kernel,
                 language_bundle,
-                admission=authority_admission,
             )
             if isinstance(resolved_context, BootstrapAdmission):
                 return bootstrap_refusal(resolved_context)

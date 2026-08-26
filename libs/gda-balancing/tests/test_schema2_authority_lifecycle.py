@@ -2,6 +2,8 @@
 
 import ast
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -186,6 +188,45 @@ def test_packaged_context_exposes_no_nested_mutation_alias():
 
     assert context.kernel["content_identity"] == kernel_identity
     assert len(context.language_bundle["language"]["packages"]) == package_count
+
+
+def test_packaged_context_derives_immutable_replay_comparison_policy_index():
+    context = authority_module.packaged_authority_context()
+
+    assert context.replay_comparison_policy_index == {
+        "exact-replay-v1": {
+            "owner": {
+                "package": "standard.experiment",
+                "package_version": "1.1.0",
+            },
+            "policy": {
+                "checks": [
+                    "evaluation-outcome-status",
+                    "event-trace-identity",
+                    "snapshot-series-identity",
+                    "metric-dataset-identity",
+                ],
+                "comparator": "canonical-equal",
+                "id": "exact-replay-v1",
+                "version": "1.0.0",
+            },
+        }
+    }
+    with pytest.raises(TypeError):
+        cast(dict[str, Any], context.replay_comparison_policy_index)["other"] = {}
+    with pytest.raises(TypeError, match="immutable"):
+        context.replay_comparison_policy_index["exact-replay-v1"]["policy"][
+            "version"
+        ] = "2.0.0"
+    with pytest.raises(TypeError, match="init=False"):
+        replace(context, replay_comparison_policy_index={})
+    assert deepcopy(context) is context
+
+    mutable_kernel, mutable_ldb = context.mutable_pair()
+    with pytest.raises(TypeError, match="factory-only"):
+        replace(context, kernel=mutable_kernel)
+    with pytest.raises(TypeError, match="factory-only"):
+        replace(context, language_bundle=mutable_ldb)
 
 
 def test_mutable_builtin_descriptors_cannot_bypass_authority_freeze():

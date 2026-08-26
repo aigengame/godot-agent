@@ -2514,27 +2514,25 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
     ]
 
 
-def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
+def test_in_memory_model_check_accepts_only_a_cohesive_authority_context():
     kernel, language_bundle = authority_module.load_authorities()
-    admission = admit_authorities(kernel, language_bundle)
+    context = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
 
     checked = model_checking_module.check_model_source_value(
         _model_source(),
-        kernel=kernel,
-        language_bundle=language_bundle,
-        authority_admission=admission,
+        authority_context=context,
     )
 
     assert isinstance(checked, model_module.CheckedModel)
     mismatched_ldb = deepcopy(language_bundle)
     mismatched_ldb["content_identity"] = "sha256:" + "0" * 64
-    with pytest.raises(ValueError, match="another Kernel/LDB pair"):
-        model_checking_module.check_model_source_value(
-            _model_source(),
-            kernel=kernel,
-            language_bundle=mismatched_ldb,
-            authority_admission=admission,
-        )
+    refusal = model_checking_module.check_model_source_value(
+        _model_source(),
+        kernel=kernel,
+        language_bundle=mismatched_ldb,
+    )
+    assert isinstance(refusal, model_module.Schema2RefusalReport)
 
 
 def test_model_check_runs_the_same_lowering_and_admission_front_end(
@@ -5964,14 +5962,12 @@ def test_ordered_writable_alias_is_declared_by_the_selected_operation_contract()
     )
     mitigation["operand"]["port"] = "target_health"
     _reidentify_language_bundle(candidate_ldb)
-    admission = admit_authorities(baseline.kernel, candidate_ldb)
-    assert admission.admitted is True
+    context = authority_module.admit_authority_context(baseline.kernel, candidate_ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
 
     checked = model_checking_module.check_model_source_value(
         source_value,
-        kernel=baseline.kernel,
-        language_bundle=candidate_ldb,
-        authority_admission=admission,
+        authority_context=context,
     )
 
     assert isinstance(checked, model_module.CheckedModel)
@@ -6168,14 +6164,12 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
         if symbol["value_policy"]["mode"] == old_mode:
             symbol["value_policy"]["mode"] = authority_mode
     _reidentify_language_bundle(candidate_ldb)
-    authority_admission = admit_authorities(baseline.kernel, candidate_ldb)
-    assert authority_admission.admitted is True
+    context = authority_module.admit_authority_context(baseline.kernel, candidate_ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
 
     checked = model_checking_module.check_model_source_value(
         source_value,
-        kernel=baseline.kernel,
-        language_bundle=candidate_ldb,
-        authority_admission=authority_admission,
+        authority_context=context,
     )
 
     assert isinstance(checked, model_module.CheckedModel)
@@ -6270,13 +6264,11 @@ def _check_with_candidate_ldb(
     kernel: dict[str, Any],
     language_bundle: LanguageBundleIndex,
 ) -> model_module.CheckedModel:
-    admission = admit_authorities(kernel, language_bundle)
-    assert admission.admitted is True, admission
+    context = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext), context
     checked = model_checking_module.check_model_source_value(
         source,
-        kernel=kernel,
-        language_bundle=language_bundle,
-        authority_admission=admission,
+        authority_context=context,
     )
     assert isinstance(checked, model_module.CheckedModel), checked
     return checked
