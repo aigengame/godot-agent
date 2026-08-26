@@ -101,12 +101,18 @@ src/gda/
 5. **Dependency direction**: `cli` → `commands/*` → `dispatch` → `headless` →
    runners / `errors` / `models` → foundation. A group may import another
    group's public symbol one-way where the language genuinely shares a shape —
-   three such edges exist: `node` → `scene` for `SceneNode` and
+   four such edges exist: `node` → `scene` for `SceneNode` and
    `derive_scene_root_name` (the filename-stem default an `--instance`
    composition reuses); `shader` → `script` for the `ScriptSetMode` edit
-   interface `shader set` reuses; and `logger` → `diag` for the `SourceFrame`
+   interface `shader set` reuses; `logger` → `diag` for the `SourceFrame`
    location and the `--limit` option the two log-reading groups share (the
-   ADR-0022/0026 lineage). No reciprocal group imports. A shape **no single
+   ADR-0022/0026 lineage); and `screen` → `input` for the
+   `InputSequenceEvent` union that `screen capture --await-events` embeds
+   (#661): the event shapes are the input group's owned contract — the
+   discriminated union, its per-kind field rules, and their harness
+   application — and the predicate capture REUSES them verbatim rather than
+   forking a second event vocabulary, so the edge points at the owner and
+   stays one-way (added 2026-08-25). No reciprocal group imports. A shape **no single
    group owns** stays in the `gda.models` core rather than moving into one,
    because several groups read it (`NodeProperty`, `EngineVersion`,
    `MAX_WINDOW_FRAMES`). A shape a **single group does own** moves to that

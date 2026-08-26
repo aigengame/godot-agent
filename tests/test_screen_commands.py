@@ -22,6 +22,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.commands.screen import ScreenCaptureParams, ScreenFramesParams
+from gda.models import MAX_WINDOW_FRAMES
 from gda.runner import RunResult
 from tests.support import (
     error_sentinel,
@@ -454,3 +455,747 @@ def test_screen_frames_params_json_over_range_frames_is_invalid_params(
     assert result.exit_code != 0, result.stdout
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
     assert fake.calls == []
+
+
+# --- the --await-* predicate capture (#661) ------------------------------------
+
+
+def _capture_argv(out, project, *extra):
+    return [
+        "screen",
+        "capture",
+        "--output",
+        str(out),
+        "--project",
+        str(project),
+        "--json",
+        *extra,
+    ]
+
+
+def _await_argv(out, project, *extra):
+    return _capture_argv(
+        out,
+        project,
+        "--await-node",
+        "/root/Main/VFX",
+        "--await-property",
+        "frame",
+        "--await-value",
+        "3",
+        *extra,
+    )
+
+
+def _predicate_report(**overrides):
+    report = {
+        "node": "/root/Main/VFX",
+        "property": "frame",
+        "expected": 3,
+        "observed": 3,
+        "engine_frame": 240,
+        "frames_waited": 5,
+    }
+    report.update(overrides)
+    return report
+
+
+def test_await_predicate_rides_the_wire_with_the_default_ceiling(monkeypatch, tmp_path):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _await_argv(out, _project(tmp_path)))
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    # One op, the SAME screen-capture op — the predicate is params, not a new
+    # surface — with the JSON-scalar value (3 the integer, not "3") and the
+    # documented default ceiling.
+    assert fake.calls == [
+        (
+            "screen-capture",
+            {
+                "await": {
+                    "node": "/root/Main/VFX",
+                    "property": "frame",
+                    "value": 3,
+                    "frames": 60,
+                }
+            },
+        )
+    ]
+
+
+def test_await_events_ride_the_same_window_and_report_surfaces(monkeypatch, tmp_path):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = {
+        "node": "/root/Main/VFX",
+        "property": "frame",
+        "expected": 3,
+        "observed": 3,
+        "engine_frame": 240,
+        "frames_waited": 5,
+    }
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+    events = '[{"type": "key", "key": "Right", "frame": 1}]'
+
+    result = CliRunner().invoke(
+        app,
+        _await_argv(
+            out, _project(tmp_path), "--await-frames", "30", "--await-events", events
+        ),
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    op, params = fake.calls[0]
+    assert op == "screen-capture"
+    assert params["await"]["frames"] == 30
+    # The atomic form: the input-sequence event shapes ride the SAME window.
+    (event,) = params["events"]
+    assert event["type"] == "key"
+    assert event["key"] == "Right"
+    assert event["frame"] == 1
+    # The predicate report is surfaced verbatim on the result.
+    data = json.loads(result.stdout)
+    assert data["predicate"] == {
+        "node": "/root/Main/VFX",
+        "property": "frame",
+        "expected": 3,
+        "observed": 3,
+        "engine_frame": 240,
+        "frames_waited": 5,
+    }
+
+
+def test_await_bare_word_value_is_a_string_predicate(monkeypatch, tmp_path):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(
+        property="anim", expected="peak", observed="peak"
+    )
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app,
+        _capture_argv(
+            out,
+            _project(tmp_path),
+            "--await-node",
+            "/root/Main/VFX",
+            "--await-property",
+            "anim",
+            "--await-value",
+            "peak",
+        ),
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls[0][1]["await"]["value"] == "peak"
+
+
+def test_await_render_carries_the_predicate_line(monkeypatch, tmp_path):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = {
+        "node": "/root/Main/VFX",
+        "property": "frame",
+        "expected": 3,
+        "observed": 3,
+        "engine_frame": 240,
+        "frames_waited": 5,
+    }
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+    argv = _await_argv(out, _project(tmp_path))
+    argv.remove("--json")
+
+    result = CliRunner().invoke(app, argv)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "predicate /root/Main/VFX.frame == 3 held after 5 frames" in result.stdout
+    assert "engine frame 240" in result.stdout
+
+
+def test_await_unmet_predicate_is_the_typed_live_error(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "live_predicate_unmet",
+                "the predicate /root/Main/VFX.frame == 3 did not hold within "
+                "30 frames (last observed: 2)",
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app, _await_argv(out, _project(tmp_path), "--await-frames", "30")
+    )
+
+    assert result.exit_code == EXIT_LIVE
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "live_predicate_unmet"
+    assert "last observed: 2" in data["error"]["message"]
+    assert not out.exists()  # no capture reply, no file written
+
+
+def _usage_error_message(result):
+    # The argv path's contract (gda.dispatch.params_or_bad_parameter): a model
+    # refusal is a Click usage error — exit 2, message on stderr — while the
+    # --params-json path surfaces the SAME rule as structured invalid_params.
+    # Click line-wraps and colors the message, so strip ANSI and collapse
+    # whitespace before matching.
+    import re
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stderr)
+    plain = re.sub(r"[\u2500-\u257f]", " ", plain)  # rich panel borders
+    return re.sub(r"\s+", " ", plain)
+
+
+def _invalid_params_message(result):
+    assert result.exit_code != 0
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "invalid_params"
+    return data["error"]["message"]
+
+
+def test_await_trio_is_all_or_none(monkeypatch, tmp_path):
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app,
+        _capture_argv(out, _project(tmp_path), "--await-node", "/root/Main/VFX"),
+    )
+
+    message = _usage_error_message(result)
+    assert "'await_node', 'await_property', and 'await_value' together" in message
+
+
+def test_await_value_null_is_refused_with_the_trio_message(monkeypatch, tmp_path):
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app,
+        _capture_argv(
+            out,
+            _project(tmp_path),
+            "--await-node",
+            "/root/Main/VFX",
+            "--await-property",
+            "frame",
+            "--await-value",
+            "null",
+        ),
+    )
+
+    message = _usage_error_message(result)
+    assert "JSON null value is not supported" in message
+
+
+def test_await_events_need_the_predicate(monkeypatch, tmp_path):
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app,
+        _capture_argv(
+            out,
+            _project(tmp_path),
+            "--await-events",
+            '[{"type": "key", "key": "Right"}]',
+        ),
+    )
+
+    message = _usage_error_message(result)
+    assert "'await_events' needs the await predicate" in message
+
+
+def test_await_events_refuse_the_physics_clock(monkeypatch, tmp_path):
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app,
+        _await_argv(
+            out,
+            _project(tmp_path),
+            "--await-events",
+            '[{"type": "key", "key": "Right", "physics_frame": 1}]',
+        ),
+    )
+
+    message = _usage_error_message(result)
+    assert "process clock" in message
+    assert "physics_frame" in message
+
+
+def test_out_of_window_event_offset_is_accepted_and_rides_the_wire(
+    monkeypatch, tmp_path
+):
+    # #743 second re-review: an event may sit beyond the PREDICATE ceiling and
+    # still drain. That keeps schema/model parity without restoring the old
+    # cross-field rule; the separate per-event maximum below keeps the TOTAL
+    # serialized live window bounded.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app,
+        _await_argv(
+            out,
+            _project(tmp_path),
+            "--await-frames",
+            "10",
+            "--await-events",
+            '[{"type": "key", "key": "Right", "frame": 10}]',
+        ),
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    op, params = fake.calls[0]
+    assert params["await"]["frames"] == 10
+    (event,) = params["events"]
+    assert event["frame"] == 10
+
+
+def test_await_event_offset_must_fit_the_shared_total_window(monkeypatch, tmp_path):
+    # The predicate ceiling and the TOTAL drain ceiling are different: an event
+    # may sit after await_frames, but no accepted event may extend the serialized
+    # live operation beyond the repository-wide MAX_WINDOW_FRAMES bound (#223).
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_capture_reply(_PNG_B64, width=8, height=8)),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app,
+        _await_argv(
+            out,
+            _project(tmp_path),
+            "--await-frames",
+            "10",
+            "--await-events",
+            json.dumps(
+                [
+                    {
+                        "type": "key",
+                        "key": "Right",
+                        "released": True,
+                        "frame": MAX_WINDOW_FRAMES,
+                    }
+                ]
+            ),
+        ),
+    )
+
+    message = _usage_error_message(result)
+    assert str(MAX_WINDOW_FRAMES - 1) in message
+    assert fake.calls == []
+
+
+def test_await_frames_needs_the_predicate(monkeypatch, tmp_path):
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app, _capture_argv(out, _project(tmp_path), "--await-frames", "30")
+    )
+
+    message = _usage_error_message(result)
+    assert "'await_frames' needs the await predicate" in message
+
+
+def test_await_params_json_path_rejects_identically(monkeypatch, tmp_path):
+    # ADR-0015: the model is the single validation authority, so the
+    # --params-json path refuses the same malformed predicate the argv path does.
+    out = tmp_path / "shot.png"
+    params = json.dumps(
+        {
+            "output": str(out),
+            "await_node": "/root/Main/VFX",
+            "await_property": "frame",
+            "await_value": 3,
+            "await_events": [{"type": "key", "key": "Right", "physics_frame": 1}],
+        }
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "capture",
+            "--params-json",
+            params,
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    message = _invalid_params_message(result)
+    assert "process clock" in message
+
+
+def test_await_schema_publishes_the_predicate_contract():
+    schema = ScreenCaptureParams.model_json_schema()
+    frames = schema["properties"]["await_frames"]
+    bounds = {
+        key: value
+        for branch in frames.get("anyOf", [frames])
+        for key, value in branch.items()
+        if key in ("minimum", "maximum")
+    }
+    assert bounds == {"minimum": 1, "maximum": 600}
+    # The events field embeds the SAME input-sequence union (single authority).
+    events = schema["properties"]["await_events"]
+    assert "$defs" in schema and any(
+        "KeySequenceEvent" in str(events) or "KeySequenceEvent" in key
+        for key in schema["$defs"]
+    )
+    event_frame = schema["$defs"]["KeySequenceEvent"]["properties"]["frame"]
+    maximums = [
+        branch["maximum"]
+        for branch in event_frame.get("anyOf", [event_frame])
+        if "maximum" in branch
+    ]
+    assert maximums == [MAX_WINDOW_FRAMES - 1]
+
+
+# --- the receipt correlation gate (#743 review, Standards 2 / Spec 2) ----------
+
+
+def _await_capture(monkeypatch, tmp_path, reply, *extra):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+    result = CliRunner().invoke(app, _await_argv(out, _project(tmp_path), *extra))
+    return result, out
+
+
+def _assert_contract_violation(result, out, fragment):
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation", result.stdout
+    assert fragment in data["error"]["message"]
+    # Refused BEFORE the output file is written.
+    assert not out.exists()
+
+
+def test_gated_request_with_no_predicate_report_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    _assert_contract_violation(result, out, "no predicate report")
+
+
+def test_predicate_report_naming_another_target_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(node="/root/Wrong")
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    _assert_contract_violation(result, out, "does not name the requested predicate")
+
+
+def test_predicate_report_with_unsatisfied_observation_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(observed=2)
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    _assert_contract_violation(result, out, "does not satisfy the declared predicate")
+
+
+def test_predicate_report_outside_the_declared_window_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(frames_waited=999)
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    _assert_contract_violation(result, out, "outside the declared window")
+
+
+def test_negative_engine_frame_is_contract_violation(monkeypatch, tmp_path):
+    # The wire model bounds the receipt's frames (ge=0), so classify_live
+    # refuses a fabricated negative frame as the standard reply-shape breach.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report(engine_frame=-1)
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation"
+    assert not out.exists()
+
+
+def test_plain_capture_with_unsolicited_predicate_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+
+    _assert_contract_violation(result, out, "declared no --await predicate")
+
+
+# --- schema/model parity (#743 review, Standards 1; ADR-0015) ------------------
+
+
+def test_await_schema_and_model_agree_on_the_cross_field_rules():
+    # A standard Draft 2020-12 validator and the pydantic model must give the
+    # SAME verdict on the public capture contract: cross-field await rules,
+    # imported event scalar/vocabulary constraints, and both predicate and total
+    # window boundaries.
+    import jsonschema
+    import pydantic
+
+    schema = ScreenCaptureParams.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    corpus = [
+        ({"output": "x.png"}, True),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+            },
+            True,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": "peak",
+                "await_frames": 30,
+                "await_events": [{"type": "key", "key": "Right", "frame": 1}],
+            },
+            True,
+        ),
+        ({"output": "x.png", "await_node": "/root/N"}, False),
+        ({"output": "x.png", "await_property": "p"}, False),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": None,
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [
+                    {
+                        "type": "key",
+                        "key": "Right",
+                        "modifiers": ["hyper"],
+                    }
+                ],
+            },
+            False,
+        ),
+        ({"output": "x.png", "await_frames": 30}, False),
+        (
+            {
+                "output": "x.png",
+                "await_events": [{"type": "key", "key": "Right"}],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "key", "key": "Right", "physics_frame": 1}],
+            },
+            False,
+        ),
+        # #743 re-reviews: the REVERSE divergences — the schema says
+        # `integer`/`number`/`boolean`, so the model must not quietly coerce
+        # strings (strict clock ints, then the whole union's scalars).
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_frames": "10",
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "key", "key": "Right", "frame": "1"}],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "key", "key": "Right", "released": "false"}],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "mouse_click", "x": "10", "y": 20.0}],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [
+                    {"type": "mouse_click", "x": 10.0, "y": 20.0, "double": "false"}
+                ],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [
+                    {"type": "action", "action": "jump", "strength": "0.5"}
+                ],
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [
+                    {"type": "action", "action": "jump", "release": "false"}
+                ],
+            },
+            False,
+        ),
+        # int-for-float stays accepted on BOTH sides (JSON Schema `number`
+        # admits integers; pydantic strict float admits int input).
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [{"type": "mouse_click", "x": 10, "y": 20}],
+            },
+            True,
+        ),
+        # The event may be beyond the predicate ceiling, but not beyond the
+        # shared TOTAL live-window ceiling. This keeps the drain bounded while
+        # preserving the both-accept offset-10 case below.
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_frames": 10,
+                "await_events": [
+                    {"type": "key", "key": "Right", "frame": MAX_WINDOW_FRAMES}
+                ],
+            },
+            False,
+        ),
+        # The former model-only residual, now a BOTH-ACCEPT case: the
+        # offset-inside-window rule was removed for exact parity — the drain
+        # applies an out-of-window event anyway, it just cannot satisfy the
+        # predicate (documented in the field description and the catalog).
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_frames": 10,
+                "await_events": [{"type": "key", "key": "Right", "frame": 10}],
+            },
+            True,
+        ),
+    ]
+    for payload, accepted in corpus:
+        schema_ok = validator.is_valid(payload)
+        try:
+            ScreenCaptureParams.model_validate(payload)
+            model_ok = True
+        except pydantic.ValidationError:
+            model_ok = False
+        assert schema_ok == model_ok == accepted, (payload, schema_ok, model_ok)

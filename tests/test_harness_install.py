@@ -798,16 +798,17 @@ def test_ready_gates_on_template_feature_as_its_first_statement():
 
 
 # The bundled harness bytes, PINNED to the version that declares them (#736
-# review follow-up). W4 changed gda_harness.gd three times (#732, #735, #736)
-# while HARNESS_VERSION stayed "7": the sync path never noticed, because its
-# decision is a CONTENT compare — which is exactly why the omission was silent.
-# This pin makes it loud. Updating it is part of every harness change:
+# review follow-up). This current-snapshot guard makes an accidental body edit
+# loud in the unit tier. The cross-revision invariant — changed body bytes MUST
+# increase HARNESS_VERSION — is enforced mechanically by
+# scripts/harness_version_guard.py in the required Python CI job. Updating the
+# harness is therefore three deliberate edits:
 #   1. edit gda_harness.gd;
 #   2. bump HARNESS_VERSION in src/gda/harness/install.py;
-#   3. update BOTH pins below (the test's failure message carries the new hash).
-PINNED_HARNESS_VERSION = "8"
+#   3. update the current pins below (the failure carries the new hash).
+PINNED_HARNESS_VERSION = "10"
 PINNED_HARNESS_SHA256 = (
-    "cd1993632ba8eb308c9a2990d9a5c2570aa6bbbcc0e2e5f5845213e024d867aa"
+    "d01ec32763874d17e6e166b51f948b63500c199941d8be56fd571b767ebfe032"
 )
 
 

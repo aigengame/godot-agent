@@ -883,7 +883,40 @@ headless is unaffected (4.4+, cross-platform).
   spelling differs by kind — `pressed` belongs to `mouse_button` alone, an `action`
   releases with `release`, a `key` with `released` — and a field from another kind is
   refused with the spelling this kind uses instead.
-- **`screen` / capture:** running-game viewport screenshot, multi-frame capture.
+- **`screen` / capture:** running-game viewport screenshot, multi-frame capture. The
+  `--await-*` predicate (shipped, #661) holds a `screen capture` game-side until
+  `node.property == value` first holds — checked once per PROCESS frame, up to
+  `--await-frames` (default 60, ceiling 600) — then captures at that SAME frame
+  boundary and reports the predicate evidence (`observed` value, absolute
+  `engine_frame`, window-relative `frames_waited`); a predicate that never holds is
+  the typed `live_predicate_unmet` carrying the last observed value. `--await-events`
+  additionally applies input-sequence events (the same discriminated union `input
+  sequence` takes) INSIDE the same window at their process-clock `frame` offsets — the
+  atomic input-and-capture form, so a 3–8-frame transient triggered by the input
+  cannot be missed by a second CLI round trip; physics-clock offsets are refused. An
+  offset at or beyond the PREDICATE ceiling still fires — the reply waits for every
+  declared event — but can no longer satisfy the predicate, whose scan ends at that
+  ceiling. Every event offset is nevertheless at most 599, so the TOTAL drain stays
+  within the shared 600-frame live-window ceiling; both limits and the modifier
+  vocabulary are published in the schema, and the schema/model event sets agree
+  (ADR-0015). Every
+  declared event fires before the reply even when the predicate matches first, so no
+  injected press is left held — and a declared event that FAILS makes the whole
+  capture that typed failure (the capture payload is discarded, no file is written,
+  later events still drain). The predicate compares JSON scalars (numbers
+  numerically, strings against the String rendering). The coherence contract,
+  verified live on both trigger paths (ADR-0020 amendment): each tick EVALUATES
+  BEFORE it injects, so the observed property is always the state of the previously
+  COMPLETED frame — exactly the frame the captured texture presents. A
+  `_process`-driven flip is observed with its own presentation; a state written by an
+  injected event's synchronous callback is observed one boundary later, together with
+  its presentation. Consequences: the predicate sees frame-boundary state only (a
+  value overwritten before its frame completes is never observable — the typed unmet
+  error, never a capture of mismatched pixels); an event's effect is observable from
+  the NEXT boundary (leave one frame between the last state-changing event and the
+  ceiling); and a game that updates a visual one frame after the property it gates on
+  trails by that game-side frame — gate on the visual's own property when exact
+  pixels matter.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
   monitor --property … --frames N` / `--signal … --frames N` collects a per-frame
