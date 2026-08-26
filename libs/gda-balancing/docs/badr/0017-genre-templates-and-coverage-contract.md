@@ -25,10 +25,10 @@ distribution contract and a falsifiable definition of genre completeness.
 > **Amendment (2026-08-26, #546):** The `RPG-STAT-01` tracer found one more irreducible gap in the
 > unreleased Schema 2.0 baseline: exact integer percentage rules cannot round down without integer
 > division. Under bADR-0022's provisional-baseline rule, the Kernel adds only an exact-int64
-> `floor-divide` primitive. `core.quantity@2.2.0` exposes its typed wrapper and the other existing
-> primitive wrappers needed by the tracer. This replacement happens before the 2.0 baseline is
-> fixed. Later Core Extension Invariance evidence binds the replacement Kernel identity; it cannot
-> treat the superseded identity as evidence for the completed baseline.
+> `integer-floor-divide` primitive. `core.quantity@2.2.0` exposes its typed wrapper and the other
+> existing primitive wrappers needed by the tracer. This replacement happens before the 2.0
+> baseline is fixed. Later Core Extension Invariance evidence binds the replacement Kernel
+> identity; it cannot treat the superseded identity as evidence for the completed baseline.
 
 > **Amendment (2026-08-18, #708):** `game.combat` owns explicit defeat transition policy and
 > combat-action eligibility. `game.combat.eligible-cast-v1` checks the authored actor-health and

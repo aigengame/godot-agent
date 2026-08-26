@@ -1068,12 +1068,14 @@ that test falsifies Standard Schema 2.0's architecture and reopens its design ga
 papered over with a genre exception. Shipping support artifacts for every genre is out of scope,
 but preserving this extension route for every later genre is not.
 
-Issue #640 records one provisional-baseline reopening. The #585 Roguelike product-feedback slice
-showed that the provisional Kernel could not observe empty admitted Lists, raise an
-Operation-declared typed refusal, or skip RNG, lookup, and effect nodes on an unselected path. The
-replacement baseline adds the generic `is-empty`, `require`, and `guard-block` primitives. Earlier
-invariance evidence does not carry across the new Kernel identity; Gate 5 and Gate 6 must validate
-the replacement baseline again. Section 12.2 records this dogfooding result and its open boundary.
+Issues #640 and #546 record successive provisional-baseline reopenings. The #585 Roguelike
+product-feedback slice showed that the earlier Kernel could not observe empty admitted Lists, raise
+an Operation-declared typed refusal, or skip RNG, lookup, and effect nodes on an unselected path.
+Issue #640 added the generic `is-empty`, `require`, and `guard-block` primitives. The later
+`RPG-STAT-01` tracer showed that exact integer percentage rules also require
+`integer-floor-divide`. Evidence bound to either superseded Kernel identity does not carry to the
+current #546 replacement. Gate 5 and Gate 6 must validate the current baseline again. Section 12.2
+records these dogfooding results and their open boundaries.
 
 ### 7.2 Package ownership and boundaries
 
@@ -1552,15 +1554,16 @@ coverage from implementation proof.
 | Completeness | Closed language/runtime/artifact contracts plus RPG/Roguelike coverage matrix | Research broadened the requirement contract and exposed new Variant rows; all rows remain open, so full Schema and genre coverage are not yet proven |
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
-| Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | A non-RPG economy Event reached Lock, RIR, evaluator, trace, Snapshot, and a Metric dataset under the superseded provisional Kernel. That result does not carry to the replacement Kernel identity; the public Extension Invariance Receipt and broader mechanic breadth remain open |
+| Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | Narrow non-RPG and Roguelike paths ran under earlier provisional Kernel identities. Those results do not carry to the current #546 replacement; the affected authority, examples, receipts, independent conformance evidence, public Extension Invariance Receipt, and broader mechanic breadth remain open |
 | Operability | Descriptor-derived CLI, local Execution HTTP Interface, immutable artifacts, idempotent invocation, receipts | Local descriptor, HTTP, and publication paths were exercised; production adapters and complete public surface remain open |
 
 The current evidence supports these status statements:
 
 - The bounded Gate 1 authority probe passed.
 - Permanent Kernel/LDB authorities and selected vertical slices replace part of the disposable
-  evidence. Evidence that binds the superseded Kernel identity does not carry to the replacement
-  baseline, and Gate 2 remains open.
+  evidence. Evidence that binds an earlier provisional Kernel identity, including the #640
+  replacement, does not carry to the current #546 replacement. The affected authority and evidence
+  require rebuilding and independent validation, and Gate 2 remains open.
 - Every genre coverage row remains open. Schema conformance and genre completeness are not proven.
 - Production conformance and readiness remain open until the remaining gates close with
   authoritative artifacts and independent evidence.
@@ -1616,8 +1619,8 @@ issues own detailed observations, acceptance criteria, and live completion statu
     conformance-vector children. Admission now completes before derived indexes become visible. A
     non-RPG economy witness uses the fixed compiler and evaluator.
   - Open boundary: The witness is not the public Extension Invariance Receipt and closes no genre
-    row. It binds the superseded provisional Kernel identity, so it is not standing evidence for
-    the replacement baseline.
+    row. It binds an earlier provisional Kernel identity, so it is not standing evidence for the
+    current #546 replacement.
   - Evidence: [evidence record](standard-schema-2.0/README.md#permanent-delivered-slices-538-539-540-553-554-592)
     and [bADR-0023](badr/0023-sealed-multi-member-language-definition-bundle.md).
 - **Formula authoring ([#590](https://github.com/aigengame/godot-agent/issues/590))**
@@ -1684,17 +1687,19 @@ issues own detailed observations, acceptance criteria, and live completion statu
     List emptiness, an Operation-declared typed requirement, and bounded effectful path control.
     Issue #640 replaces the provisional Kernel design with `is-empty`, `require`, and a single-level
     `guard-block`, plus the `operation-execution` conformance vector.
-  - Implementation evidence: The replacement Kernel and LDB export these generic capabilities as
+  - Implementation evidence: The #640 Kernel and LDB export these generic capabilities as
     `standard.schema@2.4.0` and `standard.conformance.structured@2.0.0`. The LDB also exports the
     `game.generation@1.0.0` and `game.build@1.0.0` mechanic Package Releases. Production and
     independent consumers agree on the admitted Operation vectors. The maintained Roguelike path
     runs these Operations, and affected authority and example identities are rebuilt against the
-    replacement Kernel.
-  - Open boundary: The synchronized designer loop still authors result Records because the Kernel
-    Runtime-node vocabulary does not construct them. The `game.generation` and `game.build`
-    Operations validate those Records before commit. The #585 HITL decision must judge that bounded
-    authoring cost; the example does not establish general Record construction or close a genre
-    claim.
+    #640 Kernel identity.
+  - Open boundary: The later #546 replacement supersedes the #640 identity. Its affected authority,
+    examples, receipts, and independent conformance evidence must be rebuilt and revalidated before
+    they support the current baseline. The synchronized designer loop still authors result Records
+    because the Kernel Runtime-node vocabulary does not construct them. The `game.generation` and
+    `game.build` Operations validate those Records before commit. The #585 HITL decision must judge
+    that bounded authoring cost; the example does not establish general Record construction or close
+    a genre claim.
   - Evidence: [issue #640](https://github.com/aigengame/godot-agent/issues/640),
     [roguelike-reward-build](../examples/schema2/roguelike-reward-build/),
     [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md), and
@@ -1767,10 +1772,12 @@ equality, diagnostic, and resource-bound cases. The maintained neutral selection
 those values through Model build, Experiment admission, Runtime execution, Snapshots, traces, and a
 numeric Metric. It does not close the broader type system or Genre coverage gates.
 
-Issue #640 replaces the provisional Kernel identity used by the earlier slices. Its implementation
-rebuilds the affected Kernel/LDB authorities, consumers, vectors, and downstream exact identities.
-This work makes the maintained Roguelike path applicable to the replacement baseline. The #592
-non-RPG witness and other superseded-Kernel invariance evidence do not carry forward.
+Issue #640 replaced the provisional Kernel identity used by the earlier slices and rebuilt the
+affected Kernel/LDB authorities, consumers, vectors, and downstream exact identities. Issue #546
+now replaces that Kernel identity to add `integer-floor-divide`. The #640 Roguelike path, the #592
+non-RPG witness, and other evidence bound to a superseded Kernel identity do not carry forward. The
+affected authority, maintained examples, receipts, and independent conformance evidence must be
+rebuilt and revalidated against the #546 identity.
 
 Gate 2 follows bADR-0012's dependency order:
 
@@ -1905,8 +1912,10 @@ evidence contracts. If Roguelike support requires a second language or host disp
 orthogonality claim fails and the architecture must be revisited.
 An earlier Roguelike-shaped product-feedback slice may challenge these assumptions, but it neither
 advances this gate nor owns the cross-genre claim. Formal Gate 5 validation still begins only after
-Gate 4 closes. Issue #640 is the architecture follow-up to one such challenge: it repairs the
-unreleased Kernel baseline but does not close a Roguelike coverage row or advance Gate 5.
+Gate 4 closes. Issue #640 was the architecture follow-up to one such challenge. Issue #546 later
+replaces that unreleased Kernel identity for an independent RPG stat-composition need. Neither issue
+closes a Roguelike coverage row or advances Gate 5, and future validation must bind the current
+Kernel identity.
 
 ### Gate 6 — adversarial non-RPG extension witness
 

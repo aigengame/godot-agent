@@ -126,8 +126,9 @@ structured formal judgments, and an honest proof/conformance boundary.
 > irreducible primitive, fact kind, term type, premise operator, or judgment construct requires the
 > next Schema major.
 
-> The #640 replacement LDB is unreleased. Its `standard.schema@2.4.0` release may be completed and
-> reidentified before publication only when the complete LDB and every
+> The #640 replacement LDB remains unreleased and is superseded by the #546 Kernel replacement. The
+> current LDB's `standard.schema@2.4.0` release may be completed and reidentified before publication
+> only when the complete LDB and every
 > affected downstream identity are rebuilt together. After that Package Release is published, a
 > later semantic or accepted-input change follows bADR-0016 package versioning instead of rebinding
 > the published release in place.
