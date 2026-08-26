@@ -1321,15 +1321,28 @@ def test_result_truth_table_is_model_enforced():
     # untruncated whose byte count is not the returned stream's length
     with pytest.raises(pydantic.ValidationError):
         build("a", 2, False, None)
+    # truncated whose inline stdout itself exceeds the cap (#748 re-review):
+    # the returned head IS the cap's leading bytes, so it can never be longer.
+    with pytest.raises(pydantic.ValidationError):
+        build("a" * (SCRIPT_STDOUT_CAP + 1), SCRIPT_STDOUT_CAP + 2, True, "/tmp/s.log")
+    # ...including by BYTES when the characters fit (the model rule is a byte cap)
+    with pytest.raises(pydantic.ValidationError):
+        build(
+            "汉" * (SCRIPT_STDOUT_CAP // 2), SCRIPT_STDOUT_CAP * 2, True, "/tmp/s.log"
+        )
     # the two legal rows
     build("a", 1, False, None)
     build("a" * 10, SCRIPT_STDOUT_CAP + 1, True, "/tmp/spill.log")
 
 
 def test_result_truth_table_is_published_and_parity_held():
-    # #748 review: a standard Draft 2020-12 validator gives the SAME verdict on
-    # the truth table the model enforces (the untruncated byte-count identity is
-    # value-dependent and stays model-side, disclosed in the schema helper).
+    # #748 re-review (Standards 2): the parity CLAIM is exact. Every
+    # schema-expressible truth-table row gives the SAME verdict to a standard
+    # Draft 2020-12 validator and the model; EXACTLY TWO value-dependent
+    # identities stay model-side (Draft 2020-12 cannot relate one field's value
+    # to another's length) and are pinned below as DISCLOSED divergences, not
+    # called parity: the untruncated byte identity, and the byte-vs-character
+    # remainder of the truncated inline cap.
     import jsonschema
 
     schema = ScriptRunResult.model_json_schema()
@@ -1345,6 +1358,7 @@ def test_result_truth_table_is_published_and_parity_held():
         }
         return validator.is_valid(doc)
 
+    # Published rows: both-accept and both-reject.
     assert check(
         {
             "stdout": "a",
@@ -1382,6 +1396,37 @@ def test_result_truth_table_is_published_and_parity_held():
             "stdout": "a",
             "stdout_bytes": 1,
             "stdout_truncated": False,
+            "stdout_file": "/tmp/s.log",
+        }
+    )
+    # The truncated inline cap's ASCII projection is published (maxLength):
+    # an over-cap ASCII inline stdout is rejected by BOTH sides.
+    assert not check(
+        {
+            "stdout": "a" * (SCRIPT_STDOUT_CAP + 1),
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 2,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    )
+    # DISCLOSED divergence 1: the untruncated byte identity is model-only —
+    # the schema ACCEPTS this document, the model rejects it.
+    assert check(
+        {
+            "stdout": "a",
+            "stdout_bytes": 2,
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    )
+    # DISCLOSED divergence 2: the byte-vs-character remainder of the inline cap
+    # — characters within maxLength but bytes above the cap: schema accepts,
+    # model rejects.
+    assert check(
+        {
+            "stdout": "汉" * (SCRIPT_STDOUT_CAP // 2),
+            "stdout_bytes": SCRIPT_STDOUT_CAP * 2,
+            "stdout_truncated": True,
             "stdout_file": "/tmp/s.log",
         }
     )

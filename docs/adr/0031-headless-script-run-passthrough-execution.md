@@ -407,7 +407,10 @@ added incrementally under ADR-0025 if a concrete need appears.
 > (required-but-nullable). Bounded, not summarized: gda still does not parse or
 > interpret the script's output — record semantics stay with the project tool
 > (per-file aggregate verdicts are #663's surface) — and nothing is lost, since the
-> spill file holds every byte. A spill file that cannot be written returns the full
-> stream untruncated instead: the cap is a bounding convenience and must never cost
-> data. `stderr` and the failure envelopes' partial-output evidence keep their
-> existing shapes.
+> spill file holds every byte. **The bound is unconditional** (PR #748 review): a
+> spill file gda cannot create or complete is the registered typed failure
+> `stdout_spill_failed` — never an unbounded success and never a silently lost
+> tail — whose message carries the run's forensics (it DID run, with its exit
+> status and full byte count) and the TMPDIR remediation; a post-create failure
+> releases the descriptor and unlinks the partial file before failing. `stderr`
+> and the failure envelopes' partial-output evidence keep their existing shapes.

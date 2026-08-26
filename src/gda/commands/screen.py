@@ -411,14 +411,51 @@ class ScreenFrame(BaseModel):
     format: str = Field(default="png", description="The image format (png).")
 
 
+def _frames_summary_schema_extra(schema: dict) -> None:
+    """Publish the dims-are-a-pair rule (#748 re-review, ADR-0015).
+
+    The aggregate makes one of two claims: a uniform sequence (both dims
+    integers) or a non-uniform one (both null) — never half of each.
+    """
+    schema["oneOf"] = [
+        {
+            "properties": {
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+            }
+        },
+        {
+            "properties": {
+                "width": {"type": "null"},
+                "height": {"type": "null"},
+            }
+        },
+    ]
+
+
 class ScreenFramesSummary(BaseModel):
     """The compact aggregate of a ``--summary`` frames capture (#665).
 
     Everything an agent needs to consume the written sequence without a
     per-frame list: where the files are, how each is named, the sequence's
     frame size, and the total bytes on disk. The per-frame ``count`` stays on
-    the result itself.
+    the result itself. The dims are a PAIR (#748 re-review): both integers for
+    a uniform sequence, both null for a non-uniform one — model-validated and
+    published as ``oneOf``.
     """
+
+    model_config = {
+        "json_schema_extra": lambda schema: _frames_summary_schema_extra(schema)
+    }
+
+    @model_validator(mode="after")
+    def _dims_are_a_pair(self) -> "ScreenFramesSummary":
+        if (self.width is None) != (self.height is None):
+            raise ValueError(
+                "the aggregate's dims are a pair: both set (uniform sequence) "
+                "or both null (non-uniform)."
+            )
+        return self
 
     output_dir: str = Field(
         description="The directory every frame's PNG was written into."
@@ -819,6 +856,16 @@ def run_screen_frames_operation(
     reply = classify_live(result, None, _FramesReply)
     if isinstance(reply, Failure):
         return reply
+    if reply.count != params.frames:
+        # #748 re-review (ARC-748-F007): the operation has no partial-success
+        # semantics — a self-consistent reply for a DIFFERENT frame budget is
+        # contract drift, refused before any file is written.
+        return make_failure(
+            "contract_violation",
+            f"the harness reply carries {reply.count} frames for a request "
+            f"of {params.frames}",
+            result.stdout,
+        )
     output_dir = Path(params.output_dir)
     written: list[ScreenFrame] = []
     for index, frame in enumerate(reply.frames):
@@ -895,8 +942,13 @@ def render_screen_frames(captured: "ScreenFramesResult") -> str:
     header = f"captured {captured.count} frames"
     if captured.summary is not None:
         aggregate = captured.summary
+        size = (
+            f"{aggregate.width}x{aggregate.height}"
+            if aggregate.width is not None
+            else "varied sizes"  # a legal mid-window resize (#748 re-review)
+        )
         return header + (
-            f"\n  {aggregate.width}x{aggregate.height} x{captured.count} "
+            f"\n  {size} x{captured.count} "
             f"({aggregate.total_bytes} bytes) -> "
             f"{aggregate.output_dir}/{aggregate.pattern}"
         )

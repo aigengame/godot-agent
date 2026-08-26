@@ -814,13 +814,19 @@ SCRIPT_STDOUT_CAP = 64 * 1024
 def _script_run_result_schema_extra(schema: dict) -> None:
     """Publish the bounded-stdout truth table into the OUTPUT schema (#748 review).
 
-    ADR-0015's one-authority rule, applied to a result model: the runtime
-    validator's cross-field rules must be visible to a standard Draft 2020-12
-    consumer too. Truncated implies a string spill file and a full-stream size
-    above the cap; untruncated implies a null spill file. (The untruncated
-    byte-count identity is value-dependent across two fields and stays
-    model-side, like the input models' one-clock rule.) A parity corpus keeps
-    validator and model agreeing.
+    ADR-0015's one-authority rule, applied to a result model: every
+    SCHEMA-EXPRESSIBLE row of the runtime validator's truth table is published —
+    truncated implies a string spill file, a full-stream size above the cap, and
+    a returned `stdout` within the cap (published as `maxLength`, the character
+    projection of the model's UTF-8 BYTE cap: byte length >= character length,
+    so the schema row is implied by the model row and rejects any over-cap
+    ASCII counterexample); untruncated implies a null spill file. EXACTLY TWO
+    value-dependent identities stay model-side, because Draft 2020-12 cannot
+    relate one field's value to another's length: an untruncated
+    `stdout_bytes` equals the returned stream's own UTF-8 length, and a
+    truncated `stdout`'s BYTE length (not only its character length) is within
+    the cap. The parity corpus asserts both directions for the published rows
+    AND pins the two disclosed divergences explicitly.
     """
     schema["allOf"] = [
         {
@@ -829,6 +835,7 @@ def _script_run_result_schema_extra(schema: dict) -> None:
                 "properties": {
                     "stdout_file": {"type": "string"},
                     "stdout_bytes": {"exclusiveMinimum": SCRIPT_STDOUT_CAP},
+                    "stdout": {"maxLength": SCRIPT_STDOUT_CAP},
                 }
             },
         },
@@ -1019,6 +1026,11 @@ class ScriptRunResult(BaseModel):
                 raise ValueError(
                     "a truncated stdout implies a full stream above the cap "
                     f"({SCRIPT_STDOUT_CAP} bytes)."
+                )
+            if len(self.stdout.encode("utf-8")) > SCRIPT_STDOUT_CAP:
+                raise ValueError(
+                    "a truncated stdout is the stream's leading cap bytes — it "
+                    f"cannot itself exceed {SCRIPT_STDOUT_CAP} bytes."
                 )
         else:
             if self.stdout_file is not None:

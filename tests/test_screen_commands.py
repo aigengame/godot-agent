@@ -15,6 +15,8 @@ headless guard) is the e2e in ``test_e2e_screen``.
 
 import base64
 import json
+
+import pytest
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -1616,6 +1618,117 @@ def test_frames_summary_reports_null_dims_for_a_nonuniform_sequence(
     aggregate = json.loads(result.stdout)["summary"]
     assert aggregate["width"] is None and aggregate["height"] is None
     assert aggregate["total_bytes"] == 2 * len(_PNG_1X1)
+
+
+def test_frames_budget_mismatch_is_contract_violation(monkeypatch, tmp_path):
+    # #748 re-review (ARC-748-F007): no partial-success semantics — a
+    # self-consistent reply for a DIFFERENT frame budget (here zero frames for
+    # a request of three) is contract drift, refused before any file effect.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({"count": 0, "frames": []}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "3",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation"
+    assert "0 frames for a request of 3" in data["error"]["message"]
+    assert not out_dir.exists()
+
+
+def test_summary_dims_are_a_pair_in_model_and_schema():
+    # #748 re-review (ARC-748-F006): both dims or neither — model and standard
+    # validator agree on the half-null counterexample.
+    import jsonschema
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        ScreenFramesSummary(
+            output_dir="/tmp",
+            pattern="frame_%04d.png",
+            width=1,
+            height=None,
+            total_bytes=1,
+        )
+    validator = jsonschema.Draft202012Validator(ScreenFramesSummary.model_json_schema())
+    assert not validator.is_valid(
+        {
+            "output_dir": "/tmp",
+            "pattern": "frame_%04d.png",
+            "width": 1,
+            "height": None,
+            "total_bytes": 1,
+        }
+    )
+    assert validator.is_valid(
+        {
+            "output_dir": "/tmp",
+            "pattern": "frame_%04d.png",
+            "width": None,
+            "height": None,
+            "total_bytes": 1,
+        }
+    )
+    assert validator.is_valid(
+        {
+            "output_dir": "/tmp",
+            "pattern": "frame_%04d.png",
+            "width": 2,
+            "height": 3,
+            "total_bytes": 1,
+        }
+    )
+
+
+def test_nonuniform_summary_renders_the_varied_size_state(monkeypatch, tmp_path):
+    # #748 re-review (Standards 3): the legal non-uniform aggregate renders an
+    # explicit state, never "NonexNone".
+    reply = screen_frames_reply([_PNG_B64, _PNG_B64])
+    reply["frames"][1]["width"] = 32
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "varied sizes x2" in result.stdout
+    assert "None" not in result.stdout
 
 
 def test_frames_xor_is_published_and_parity_held():
