@@ -407,6 +407,14 @@ mixing of numerically similar concepts such as health and mana; unit conversion 
 conversion require explicit registered operations (bADR-0016).
 _Avoid_: number with metadata, stat value, unit scalar
 
+**Stat contribution**:
+A typed Quantity produced through a Domain package's pure contribution Operation and its exact
+Model Source Formula binding. Progression, build, and effect packages own their respective
+contribution sources and slot contracts. Model Source owns the concrete Formula and the final
+derived-stat composition, including its rounding and cap policy. A contribution is not a dynamic
+registry entry, host callback, or generic modifier object (bADR-0017/0022).
+_Avoid_: modifier (ambiguous), contribution plugin, host stat hook
+
 **Symbol role**:
 The declared use of a typed symbol or component field — including `constant`, `parameter`, `input`,
 `state`, `derived`, `output`, and `random`, with domain roles such as `current`, `capacity`, `cost`,

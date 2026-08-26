@@ -22,6 +22,14 @@ distribution contract and a falsifiable definition of genre completeness.
 > Extension Invariance evidence must bind the replacement identity; evidence for the superseded
 > baseline does not carry forward.
 
+> **Amendment (2026-08-26, #546):** The `RPG-STAT-01` tracer found one more irreducible gap in the
+> unreleased Schema 2.0 baseline: exact integer percentage rules cannot round down without integer
+> division. Under bADR-0022's provisional-baseline rule, the Kernel adds only an exact-int64
+> `floor-divide` primitive. `core.quantity@2.2.0` exposes its typed wrapper and the other existing
+> primitive wrappers needed by the tracer. This replacement happens before the 2.0 baseline is
+> fixed. Later Core Extension Invariance evidence binds the replacement Kernel identity; it cannot
+> treat the superseded identity as evidence for the completed baseline.
+
 > **Amendment (2026-08-18, #708):** `game.combat` owns explicit defeat transition policy and
 > combat-action eligibility. `game.combat.eligible-cast-v1` checks the authored actor-health and
 > non-negative defeat-threshold ports before it delegates to the ordinary cast. A negative
@@ -130,10 +138,10 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.query` | typed target filters, ordering, cardinality, tie-break and empty behavior | target-side effects |
   | `game.check` | threshold/opposed checks, hit resolution, dice/pools, advantage and success degree | damage application |
   | `game.action` | closed immutable Action-plan schema, admission and identity; requirements, resource commitment, pending proposal identity, wind-up/channel, cooldown, completion, interruption, execution, cancellation and replacement | target enumeration, candidate/plan selection, Intent projection, response-window priority, or damage math |
-  | `game.effect` | application and capture-source/timing policy, buildup/activation, contributions, transitions, schedule, stacking/reapply/remove and immunity contracts | action lifecycle or combat pipeline |
+  | `game.effect` | application and capture-source/timing policy, buildup/activation, effect contribution sources and Formula-slot contracts, transitions, schedule, stacking/reapply/remove and immunity contracts | action lifecycle, final derived-stat composition, or combat pipeline |
   | `game.combat` | ordered typed damage-component and healing stages, criticals, per-kind mitigation/resistance, shield resolution, aggregation/rounding, defeat/revival transition policy, and the Formula-slot signature/context/refusal/budget plus Operation integration for the committed combat-damage path | entity/resource state storage, generic effect lifetime or inventory |
-  | `game.build` | equipment/skill/perk selection and atomic replacement, prerequisites, exclusivity, slots and synergy declarations | item ownership, reward sampling, or old-action/effect cancellation semantics |
-  | `game.progression` | XP, levels, growth, unlocks and progression gates | currency exchange or run reset |
+  | `game.build` | equipment/skill/perk selection and atomic replacement, prerequisites, exclusivity, slots, synergy declarations, and build contribution sources and Formula-slot contracts | item ownership, reward sampling, final derived-stat composition, or old-action/effect cancellation semantics |
+  | `game.progression` | XP, levels, growth, unlocks, progression gates, and progression contribution sources and Formula-slot contracts | final derived-stat composition, currency exchange, or run reset |
   | `game.economy` | currency, inventory, sources/sinks, transfer, exchange and pricing | stochastic reward selection |
   | `game.collection` | typed ordered instance collections, stable order, zone membership, legal moves, shuffle handoff and no-duplicate/no-loss conservation | turn windows, action lifecycle, build admission, economic ledgers, or Run/Meta retention |
   | `game.generation` | seeded weighted/constrained pools, closed fixed-weight/pity/guarantee rarity policies, separately declared exhaustion fallbacks, explicit selection exhaustion, and typed reward disposition results | destination collection/economy/effect mutation or meta retention |
@@ -147,6 +155,13 @@ distribution contract and a falsifiable definition of genre completeness.
   mechanic assignment: `game.combat` owns the committed combat-damage Formula slot and Operation
   integration, while `game.resource` and `game.check` remain separate dependencies and do not
   become a reconstructed RPG umbrella.
+
+  The `RPG-STAT-01` slice follows the same boundary. Progression, build, and effect packages each
+  own one pure contribution Operation and its Formula-slot contract. Model Source owns the
+  concrete bound Formulas and the named Formula graph that combines those contributions, applies
+  rounding and the final cap, and exposes read-only derived Symbols. No package owns a dynamic
+  contribution registry or the game's final stat policy. `game.combat` consumes the final derived
+  Quantity without taking ownership of its composition.
 
   Package names are stable conceptual namespaces; final operation/type inventories live only in the
   manifests of complete sealed Package Releases, and normative vectors live in their bound

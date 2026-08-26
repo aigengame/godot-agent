@@ -846,6 +846,20 @@ uses that vocabulary to define the complete language and Operations owned by Dom
 Operation definition declares its inputs, result, effects, refusals, numeric behavior, lowering,
 evaluation, and vectors. A host function with the same name is not an Operation definition.
 
+The unreleased 2.0 baseline includes exact-int64 addition, subtraction, multiplication, comparison,
+selection, maximum, and floor division. Floor division requires a positive divisor and rounds
+toward negative infinity. `core.quantity` exposes typed Operations over this vocabulary; it does
+not make the Kernel node a public, polymorphic numeric API. Other representations or Numeric
+profiles require an explicit later language decision.
+
+The `RPG-STAT-01` tracer composes progression, build, and effect contributions through their owning
+package Operations. Model Source owns one named Formula graph. It binds each package Formula slot,
+combines the contributions, rounds the percentage contribution down, and applies the final cap.
+Read-only derived Symbols make each contribution and the final Quantity observable through ordinary
+committed-Snapshot Metrics. `game.combat` consumes the final Quantity; it does not own or repeat the
+composition policy. The CLI and player-facing application consume the same maintained Model Source
+and Experiment inputs.
+
 Operation composition is explicit and directional:
 
 1. An LDB Operation is the sole authority for its named formal ports. Every nested call binds the
