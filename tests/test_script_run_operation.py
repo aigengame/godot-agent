@@ -38,6 +38,7 @@ from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023
     DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
     SCRIPT_RUN_ABORT_SILENCE_SECONDS,
     SCRIPT_RUN_COMMAND,
+    SCRIPT_STDOUT_CAP,
     ScriptRunResult,
     TerminationPhase,
     _CompletionMarkerWatch,
@@ -316,6 +317,9 @@ def test_result_is_the_thin_promotion_dropping_launch_failure():
         "exit_status": 7,
         "stdout": "out",
         "stderr": "err",
+        "stdout_bytes": 3,
+        "stdout_truncated": False,
+        "stdout_file": None,
         "diagnostics": [],
     }
 
@@ -1181,3 +1185,74 @@ def test_output_within_the_cap_is_never_re_encoded():
     assert isinstance(outcome, Failure)
     assert "界 ok" in outcome.error.diagnostics
     assert "Ω done" in outcome.error.diagnostics
+
+
+# --- the bounded stdout (#665, GDA-DF-036) -------------------------------------
+# The one qualification of the verbatim passthrough: a SUCCESS result's stdout
+# above SCRIPT_STDOUT_CAP returns as the stream's leading cap bytes while the
+# COMPLETE stream spills to a named file; the full byte count is always present.
+
+
+def test_stdout_at_the_cap_returns_verbatim():
+    exactly_cap = "x" * SCRIPT_STDOUT_CAP
+    outcome, _ = _run(RunResult(stdout=exactly_cap, stderr="", exit_code=0))
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.stdout == exactly_cap
+    assert outcome.stdout_bytes == SCRIPT_STDOUT_CAP
+    assert outcome.stdout_truncated is False
+    assert outcome.stdout_file is None
+
+
+def test_stdout_above_the_cap_is_truncated_and_spilled():
+    head = "h" * SCRIPT_STDOUT_CAP
+    tail = "TAIL-MARKER-" + "t" * 100
+    outcome, _ = _run(RunResult(stdout=head + tail, stderr="", exit_code=0))
+
+    assert isinstance(outcome, ScriptRunResult)
+    # The returned stdout is the stream's leading cap bytes; the tail is not in it.
+    assert outcome.stdout == head
+    assert "TAIL-MARKER" not in outcome.stdout
+    assert outcome.stdout_truncated is True
+    assert outcome.stdout_bytes == len((head + tail).encode("utf-8"))
+    # The COMPLETE stream — head and tail — is in the named spill file.
+    assert outcome.stdout_file is not None
+    spilled = Path(outcome.stdout_file)
+    try:
+        assert spilled.read_text(encoding="utf-8") == head + tail
+    finally:
+        spilled.unlink()
+
+
+def test_cap_cut_lands_on_a_utf8_boundary():
+    # A multi-byte character straddling the cap is dropped, never mangled: the
+    # returned head decodes cleanly and stays within the cap.
+    stream = "汉" * (SCRIPT_STDOUT_CAP // 3 + 100)  # 3 UTF-8 bytes each
+    outcome, _ = _run(RunResult(stdout=stream, stderr="", exit_code=0))
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.stdout_truncated is True
+    assert "�" not in outcome.stdout
+    assert set(outcome.stdout) == {"汉"}
+    assert len(outcome.stdout.encode("utf-8")) <= SCRIPT_STDOUT_CAP
+    assert outcome.stdout_file is not None
+    Path(outcome.stdout_file).unlink()
+
+
+def test_spill_failure_returns_the_full_stream_untruncated(monkeypatch):
+    # The cap is a bounding convenience and must never cost data: when the spill
+    # file cannot be written, the FULL stream returns untruncated.
+    import tempfile
+
+    def _refuse(*args, **kwargs):
+        raise OSError("no temp space")
+
+    monkeypatch.setattr(tempfile, "mkstemp", _refuse)
+    big = "y" * (SCRIPT_STDOUT_CAP + 5)
+    outcome, _ = _run(RunResult(stdout=big, stderr="", exit_code=0))
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.stdout == big
+    assert outcome.stdout_truncated is False
+    assert outcome.stdout_file is None
+    assert outcome.stdout_bytes == len(big)

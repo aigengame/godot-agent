@@ -16,7 +16,9 @@ C# (.cs) is out of scope for now — it needs the .NET build of Godot (ADR-0003
 targets the standard build) and a dedicated decision.
 """
 
+import os
 import re
+import tempfile
 from collections import deque
 from enum import Enum
 from pathlib import Path
@@ -797,6 +799,42 @@ class ScriptRunParams(BaseModel):
     )
 
 
+# The returned-stdout cap of a `script run` SUCCESS result (#665, GDA-DF-036):
+# production-scale inspector output grows linearly with content, and an envelope
+# that grows with it blows the consuming agent's context. 64 KiB keeps on the
+# order of a thousand record lines readable inline while bounding the envelope;
+# the COMPLETE stream above it spills to a named file, so nothing is lost —
+# bounded, not summarized (record semantics stay with the project tool). The cap
+# qualifies ONLY the success result's `stdout` field (ADR-0031 amendment):
+# `stderr` and the failure envelopes' partial-output evidence keep their shapes.
+SCRIPT_STDOUT_CAP = 64 * 1024
+
+
+def _bounded_stdout(stdout: str) -> "tuple[str, int, bool, str | None]":
+    """Bound a success result's stdout (#665): (returned, full_bytes, truncated, file).
+
+    At or below :data:`SCRIPT_STDOUT_CAP` the stream returns verbatim. Above it,
+    the COMPLETE stream is written to a gda-named spill file and the returned
+    text is the leading cap bytes, cut on a UTF-8 boundary (a multi-byte
+    character straddling the cap is dropped, never mangled). If the spill file
+    cannot be written, the FULL stream returns untruncated instead — the cap is
+    a bounding convenience and must never cost data.
+    """
+    data = stdout.encode("utf-8")
+    if len(data) <= SCRIPT_STDOUT_CAP:
+        return stdout, len(data), False, None
+    try:
+        fd, spill_path = tempfile.mkstemp(prefix="gda-script-stdout-", suffix=".log")
+        with os.fdopen(fd, "wb") as spill:
+            spill.write(data)
+    except OSError:
+        return stdout, len(data), False, None
+    # Interior bytes re-encoded from str are valid UTF-8; only the cut edge can
+    # split a character, so "ignore" drops at most that one partial character.
+    head = data[:SCRIPT_STDOUT_CAP].decode("utf-8", "ignore")
+    return head, len(data), True, spill_path
+
+
 class ScriptRunResult(BaseModel):
     """The result of ``gda script run``: the user script's own run, passed through (ADR-0031).
 
@@ -844,8 +882,38 @@ class ScriptRunResult(BaseModel):
             "gda failure, unless --strict was passed (ADR-0031)."
         )
     )
-    stdout: str = Field(description="The script's standard output, captured verbatim.")
+    stdout: str = Field(
+        description=(
+            "The script's standard output — verbatim up to the "
+            "64 KiB cap (#665): above it, this is the stream's leading cap "
+            "bytes (cut on a UTF-8 boundary) and the COMPLETE stream is at "
+            "'stdout_file'. Read 'stdout_truncated' before treating this as "
+            "the whole stream."
+        )
+    )
     stderr: str = Field(description="The script's standard error, captured verbatim.")
+    stdout_bytes: int = Field(
+        ge=0,
+        description=(
+            "The script's COMPLETE standard-output length in UTF-8 bytes "
+            "(#665) — the full stream's size whether or not 'stdout' was "
+            "truncated. Always present."
+        ),
+    )
+    stdout_truncated: bool = Field(
+        description=(
+            "Whether 'stdout' is the truncated head of a stream above the "
+            "64 KiB cap (#665). False means 'stdout' IS the whole stream. "
+            "Always present."
+        ),
+    )
+    stdout_file: str | None = Field(
+        description=(
+            "The file holding the script's COMPLETE standard output when "
+            "'stdout' was truncated (#665); null when it was not. Always "
+            "present (required-but-nullable)."
+        ),
+    )
     diagnostics: list[ScriptError] = Field(
         default_factory=list,
         description=(
@@ -1356,12 +1424,18 @@ def run_script_run_operation(
     # The public promotion of the internal Raw run: the thin boundary DTO built by
     # dropping launch_failure (lifted into the Error envelope above) and renaming
     # exit_code → exit_status, plus the parsed diagnostics. This is the one success
-    # result that can be non-zero.
+    # result that can be non-zero. The stdout is BOUNDED here (#665): above the
+    # cap the complete stream spills to a named file and the result carries its
+    # head — the one qualification of ADR-0031's verbatim passthrough.
+    stdout, full_bytes, truncated, spill = _bounded_stdout(raw.stdout)
     return ScriptRunResult(
         path=script,
         exit_status=raw.exit_code,
-        stdout=raw.stdout,
+        stdout=stdout,
         stderr=raw.stderr,
+        stdout_bytes=full_bytes,
+        stdout_truncated=truncated,
+        stdout_file=spill,
         diagnostics=diagnostics,
     )
 
@@ -1782,6 +1856,12 @@ def render_script_run(ran: "ScriptRunResult") -> str:
     parts = [f"exit_status: {ran.exit_status}"]
     if ran.stdout:
         parts.append(ran.stdout.rstrip("\n"))
+    if ran.stdout_truncated:
+        # The bounded head is above (#665); tell the reader where the rest is.
+        parts.append(
+            f"  [stdout truncated at {SCRIPT_STDOUT_CAP} of {ran.stdout_bytes} "
+            f"bytes; complete stream: {ran.stdout_file}]"
+        )
     if ran.stderr:
         parts.append(ran.stderr.rstrip("\n"))
     for diag in ran.diagnostics:

@@ -66,6 +66,7 @@ headless one-shot script controls its own exit code.
 import json
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
@@ -993,3 +994,54 @@ def test_script_run_abort_still_lands_within_its_stated_bound(godot_project):
     assert run.returncode == 4, run.stdout + run.stderr
     assert json.loads(run.stdout)["error"]["code"] == "script_aborted"
     assert elapsed < 10.0, f"the abort took {elapsed:.1f}s against a 120s ceiling"
+
+
+# A production-scale printer (#665, GDA-DF-036): emits well past the 64 KiB
+# stdout cap so the real engine round trip proves the truncate-and-spill path.
+BIG_PRINTER_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tfor i in range(3000):
+\t\tprint("record %05d: all checks passed on a reasonably long line" % i)
+\tprint("<<<LAST-RECORD>>>")
+\tquit(0)
+"""
+
+
+@pytest.mark.e2e
+def test_script_run_stdout_above_the_cap_truncates_and_spills(godot_project):
+    # #665 AC2: output above the threshold is truncated with byte counts
+    # reported and the COMPLETE stream written to a named file.
+    from gda.commands.script import SCRIPT_STDOUT_CAP
+
+    (godot_project / "big.gd").write_text(BIG_PRINTER_GD, encoding="utf-8")
+
+    run = _run_gda(
+        "script",
+        "run",
+        "res://big.gd",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+        retry=True,
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert data["exit_status"] == 0
+    assert data["stdout_truncated"] is True
+    assert data["stdout_bytes"] > SCRIPT_STDOUT_CAP
+    returned = data["stdout"].encode("utf-8")
+    assert len(returned) <= SCRIPT_STDOUT_CAP
+    assert "record 00000" in data["stdout"]  # the head is the stream's start
+    assert "<<<LAST-RECORD>>>" not in data["stdout"]
+    spill = Path(data["stdout_file"])
+    try:
+        complete = spill.read_text(encoding="utf-8")
+        assert len(complete.encode("utf-8")) == data["stdout_bytes"]
+        assert "<<<LAST-RECORD>>>" in complete  # nothing was lost
+    finally:
+        spill.unlink()

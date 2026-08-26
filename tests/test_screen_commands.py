@@ -21,7 +21,13 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
-from gda.commands.screen import ScreenCaptureParams, ScreenFramesParams
+from gda.commands.screen import (
+    ScreenCaptureParams,
+    ScreenFrame,
+    ScreenFramesParams,
+    ScreenFramesResult,
+    ScreenFramesSummary,
+)
 from gda.models import MAX_WINDOW_FRAMES
 from gda.runner import RunResult
 from tests.support import (
@@ -1407,3 +1413,185 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
         except pydantic.ValidationError:
             model_ok = False
         assert schema_ok == model_ok == accepted, (payload, schema_ok, model_ok)
+
+
+# --- the compact summary envelope (#665, GDA-DF-021) ---------------------------
+# The dogfooding loss boundary followed the RESULT LINE's byte size, not the
+# image payload (48 frames ≈ 11 KB fit the caller's output handling; 90 ≈ 20 KB
+# did not), so the gda-side guarantee is a completion envelope that does not
+# grow with the frame count: --summary writes every frame exactly as before and
+# returns the aggregate instead of the per-frame list.
+
+
+def test_frames_summary_returns_the_aggregate_and_still_writes_files(
+    monkeypatch, tmp_path
+):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64, _PNG_B64])),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "3",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["count"] == 3
+    # The per-frame list is replaced by the aggregate (exactly one projection).
+    assert data["frames"] is None
+    assert data["summary"] == {
+        "output_dir": str(out_dir),
+        "pattern": "frame_%04d.png",
+        "width": 16,
+        "height": 16,
+        "total_bytes": 3 * len(_PNG_1X1),
+    }
+    # Every frame is still written — the compaction is the ENVELOPE, not the work.
+    for index in range(3):
+        assert (out_dir / f"frame_{index:04d}.png").read_bytes() == _PNG_1X1
+
+
+def test_frames_default_form_is_unchanged_and_summary_null(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64])),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "1",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert len(data["frames"]) == 1
+    assert data["summary"] is None
+
+
+def test_frames_summary_rides_params_json_identically(monkeypatch, tmp_path):
+    # ADR-0015: the JSON path expresses the same summary switch the argv path does.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64])),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+    payload = json.dumps({"frames": 2, "output_dir": str(out_dir), "summary": True})
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--params-json",
+            payload,
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["frames"] is None and data["summary"]["total_bytes"] > 0
+
+
+def test_frames_result_carries_exactly_one_projection():
+    # The model refuses both-null and both-set: the result is either the
+    # per-frame list or the aggregate, never neither and never both.
+    import pydantic
+
+    frame = ScreenFrame(path="/tmp/f.png", width=1, height=1, bytes=1, format="png")
+    aggregate = ScreenFramesSummary(
+        output_dir="/tmp", pattern="frame_%04d.png", width=1, height=1, total_bytes=1
+    )
+    for frames, summary in ((None, None), ([frame], aggregate)):
+        try:
+            ScreenFramesResult(count=1, frames=frames, summary=summary)
+        except pydantic.ValidationError as error:
+            assert "exactly one projection" in str(error)
+        else:
+            raise AssertionError("both-null / both-set must be refused")
+
+
+def test_frames_schema_publishes_the_summary_contract():
+    schema = json.loads(
+        CliRunner().invoke(app, ["screen", "frames", "--schema"]).stdout
+    )
+    assert "summary" in schema["input"]["properties"]
+    output = schema["output"]
+    # Required-but-nullable (#746 review discipline): both projections are
+    # ALWAYS present keys; null is a value, not an omitted key.
+    assert {"frames", "summary"} <= set(output["required"])
+    assert "ScreenFramesSummary" in output["$defs"]
+    assert {"output_dir", "pattern", "width", "height", "total_bytes"} == set(
+        output["$defs"]["ScreenFramesSummary"]["properties"]
+    )
+
+
+def test_frames_summary_render_is_one_aggregate_line(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64])),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "captured 2 frames" in result.stdout
+    assert f"-> {out_dir}/frame_%04d.png" in result.stdout
+    assert "frame_0000.png\n" not in result.stdout  # no per-frame rows

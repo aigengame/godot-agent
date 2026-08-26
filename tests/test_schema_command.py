@@ -1235,8 +1235,20 @@ def test_script_run_command_schema_is_model_derived():
         "exit_status",
         "stdout",
         "stderr",
+        # The bounded-stdout markers (#665): full byte count, truncation flag,
+        # and the spill file (required-but-nullable).
+        "stdout_bytes",
+        "stdout_truncated",
+        "stdout_file",
         "diagnostics",
     }
+    # The markers are ALWAYS present (#665): a standard consumer sees them
+    # required, with the spill file required-but-nullable.
+    assert {"stdout_bytes", "stdout_truncated", "stdout_file"} <= set(
+        doc["output"]["required"]
+    )
+    spill_branches = doc["output"]["properties"]["stdout_file"]["anyOf"]
+    assert {"type": "null"} in spill_branches
     # `--strict` is a params field, so the JSON/MCP callers can opt in like argv (#651).
     # `timeout` / `completion_marker` are params for the same reason (#655): the
     # per-invocation ceiling and the opt-in early-termination marker have to be
