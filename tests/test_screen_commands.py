@@ -1552,6 +1552,30 @@ def test_frames_result_carries_exactly_one_projection():
             raise AssertionError("both-null / both-set must be refused")
 
 
+def test_frames_result_count_list_identity_is_model_side_and_disclosed():
+    # #748 third review (ARC-748-F006): the public result's concrete list must
+    # agree with its captured-frame count. Draft 2020-12 cannot relate an integer
+    # field to an array's length, so the standard schema accepts the counterexample
+    # and the test pins that disclosed model-only identity explicitly.
+    import jsonschema
+    import pydantic
+
+    frame = {"path": "/tmp/f.png", "width": 1, "height": 1, "bytes": 1, "format": "png"}
+    document = {"count": 2, "frames": [frame], "summary": None}
+
+    with pytest.raises(pydantic.ValidationError):
+        ScreenFramesResult.model_validate(document)
+    validator = jsonschema.Draft202012Validator(ScreenFramesResult.model_json_schema())
+    assert validator.is_valid(document)
+
+    # A requested window is never empty; unlike the cross-field identity, this
+    # lower bound is schema-expressible and therefore rejected by both owners.
+    empty = {"count": 0, "frames": [], "summary": None}
+    with pytest.raises(pydantic.ValidationError):
+        ScreenFramesResult.model_validate(empty)
+    assert not validator.is_valid(empty)
+
+
 def test_frames_reply_count_mismatch_is_contract_violation(monkeypatch, tmp_path):
     # #748 review (ARC-748-F002): the reply's count and frame list are ONE
     # claim; a drifted harness reply where they disagree is refused for BOTH

@@ -493,7 +493,10 @@ def _frames_result_schema_extra(schema: dict) -> None:
     validator's exactly-one rule must be visible to a standard Draft 2020-12
     consumer too, so a reply carrying both projections — or neither — is
     invalid to the published contract, not only to gda's runtime. A parity
-    corpus keeps validator and model agreeing.
+    corpus keeps validator and model agreeing on that published XOR. The
+    concrete-list `count == len(frames)` identity stays model-side because
+    Draft 2020-12 cannot relate an integer field to an array's length; its
+    regression test pins that disclosed schema-accept/model-reject boundary.
     """
     schema["oneOf"] = [
         {
@@ -525,7 +528,9 @@ class ScreenFramesResult(BaseModel):
     multi-frame).
     """
 
-    count: int = Field(description="The number of frames captured over the window.")
+    count: int = Field(
+        ge=1, description="The number of frames captured over the requested window."
+    )
     frames: "list[ScreenFrame] | None" = Field(
         description=(
             "The captured frames, in window order, each a written PNG path; "
@@ -546,11 +551,16 @@ class ScreenFramesResult(BaseModel):
     }
 
     @model_validator(mode="after")
-    def _exactly_one_projection(self) -> "ScreenFramesResult":
+    def _check_projection(self) -> "ScreenFramesResult":
         if (self.frames is None) == (self.summary is None):
             raise ValueError(
                 "a frames result carries exactly one projection: the per-frame "
                 "'frames' list, or the --summary aggregate."
+            )
+        if self.frames is not None and self.count != len(self.frames):
+            raise ValueError(
+                f"a frames result counts {self.count} captured frames but carries "
+                f"{len(self.frames)} frame entries."
             )
         return self
 

@@ -1321,6 +1321,10 @@ def test_result_truth_table_is_model_enforced():
     # untruncated whose byte count is not the returned stream's length
     with pytest.raises(pydantic.ValidationError):
         build("a", 2, False, None)
+    # untruncated whose complete stream is above the cap: above-cap output must
+    # take the truncated + spill row, never remain inline as a whole.
+    with pytest.raises(pydantic.ValidationError):
+        build("a" * (SCRIPT_STDOUT_CAP + 1), SCRIPT_STDOUT_CAP + 1, False, None)
     # truncated whose inline stdout itself exceeds the cap (#748 re-review):
     # the returned head IS the cap's leading bytes, so it can never be longer.
     with pytest.raises(pydantic.ValidationError):
@@ -1330,25 +1334,31 @@ def test_result_truth_table_is_model_enforced():
         build(
             "汉" * (SCRIPT_STDOUT_CAP // 2), SCRIPT_STDOUT_CAP * 2, True, "/tmp/s.log"
         )
-    # the two legal rows
+    # A truncated head is the MAXIMAL UTF-8-safe prefix at the byte cap. A cut
+    # can discard at most three bytes from one four-byte code point, never the
+    # whole inline projection.
+    with pytest.raises(pydantic.ValidationError):
+        build("a", SCRIPT_STDOUT_CAP + 1, True, "/tmp/spill.log")
+    # The legal rows, including both boundaries of the UTF-8-safe head range.
     build("a", 1, False, None)
-    build("a" * 10, SCRIPT_STDOUT_CAP + 1, True, "/tmp/spill.log")
+    build("a" * (SCRIPT_STDOUT_CAP - 3), SCRIPT_STDOUT_CAP + 1, True, "/tmp/spill.log")
+    build("a" * SCRIPT_STDOUT_CAP, SCRIPT_STDOUT_CAP + 1, True, "/tmp/spill.log")
 
 
-def test_result_truth_table_is_published_and_parity_held():
+def test_result_truth_table_schema_projections_and_disclosed_divergences():
     # #748 re-review (Standards 2): the parity CLAIM is exact. Every
     # schema-expressible truth-table row gives the SAME verdict to a standard
-    # Draft 2020-12 validator and the model; EXACTLY TWO value-dependent
-    # identities stay model-side (Draft 2020-12 cannot relate one field's value
-    # to another's length) and are pinned below as DISCLOSED divergences, not
-    # called parity: the untruncated byte identity, and the byte-vs-character
-    # remainder of the truncated inline cap.
+    # Draft 2020-12 validator and the model. Two CLASSES of value-dependent
+    # identities stay model-side and are pinned below as disclosed divergences,
+    # not called parity: the untruncated cross-field byte identity, and the
+    # byte-vs-character remainder of each branch's inline byte bounds.
     import jsonschema
+    import pydantic
 
     schema = ScriptRunResult.model_json_schema()
     validator = jsonschema.Draft202012Validator(schema)
 
-    def check(state: dict) -> bool:
+    def verdict(state: dict) -> tuple[bool, bool]:
         doc = {
             "path": "res://x.gd",
             "exit_status": 0,
@@ -1356,77 +1366,123 @@ def test_result_truth_table_is_published_and_parity_held():
             "diagnostics": [],
             **state,
         }
-        return validator.is_valid(doc)
+        try:
+            ScriptRunResult.model_validate(doc)
+        except pydantic.ValidationError:
+            model_accepts = False
+        else:
+            model_accepts = True
+        return model_accepts, validator.is_valid(doc)
 
     # Published rows: both-accept and both-reject.
-    assert check(
+    assert verdict(
         {
             "stdout": "a",
             "stdout_bytes": 1,
             "stdout_truncated": False,
             "stdout_file": None,
         }
-    )
-    assert check(
+    ) == (True, True)
+    assert verdict(
         {
-            "stdout": "a",
+            "stdout": "a" * SCRIPT_STDOUT_CAP,
             "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
             "stdout_truncated": True,
             "stdout_file": "/tmp/s.log",
         }
-    )
-    assert not check(
+    ) == (True, True)
+    assert verdict(
         {
             "stdout": "a",
             "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
             "stdout_truncated": True,
             "stdout_file": None,
         }
-    )
-    assert not check(
+    ) == (False, False)
+    assert verdict(
         {
             "stdout": "a",
             "stdout_bytes": 10,
             "stdout_truncated": True,
             "stdout_file": "/tmp/s.log",
         }
-    )
-    assert not check(
+    ) == (False, False)
+    # The untruncated ASCII projection publishes the cap too: this is rejected
+    # by BOTH sides, rather than accepted as an unbounded success row.
+    assert verdict(
+        {
+            "stdout": "a" * (SCRIPT_STDOUT_CAP + 1),
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    ) == (False, False)
+    # The truncated branch publishes the weakest safe character floor implied
+    # by a maximal UTF-8 prefix; the one-character impossible row is rejected
+    # by BOTH sides.
+    assert verdict(
+        {
+            "stdout": "a",
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    ) == (False, False)
+    assert verdict(
         {
             "stdout": "a",
             "stdout_bytes": 1,
             "stdout_truncated": False,
             "stdout_file": "/tmp/s.log",
         }
-    )
+    ) == (False, False)
     # The truncated inline cap's ASCII projection is published (maxLength):
     # an over-cap ASCII inline stdout is rejected by BOTH sides.
-    assert not check(
+    assert verdict(
         {
             "stdout": "a" * (SCRIPT_STDOUT_CAP + 1),
             "stdout_bytes": SCRIPT_STDOUT_CAP + 2,
             "stdout_truncated": True,
             "stdout_file": "/tmp/s.log",
         }
-    )
+    ) == (False, False)
     # DISCLOSED divergence 1: the untruncated byte identity is model-only —
     # the schema ACCEPTS this document, the model rejects it.
-    assert check(
+    assert verdict(
         {
             "stdout": "a",
             "stdout_bytes": 2,
             "stdout_truncated": False,
             "stdout_file": None,
         }
-    )
-    # DISCLOSED divergence 2: the byte-vs-character remainder of the inline cap
-    # — characters within maxLength but bytes above the cap: schema accepts,
-    # model rejects.
-    assert check(
+    ) == (False, True)
+    # DISCLOSED divergence class 2a: the untruncated byte cap's character
+    # projection cannot reject a multibyte string whose character count fits.
+    assert verdict(
+        {
+            "stdout": "汉" * (SCRIPT_STDOUT_CAP // 2),
+            "stdout_bytes": 3 * (SCRIPT_STDOUT_CAP // 2),
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    ) == (False, True)
+    # DISCLOSED divergence class 2b: the truncated upper byte bound has the same
+    # byte-vs-character remainder.
+    assert verdict(
         {
             "stdout": "汉" * (SCRIPT_STDOUT_CAP // 2),
             "stdout_bytes": SCRIPT_STDOUT_CAP * 2,
             "stdout_truncated": True,
             "stdout_file": "/tmp/s.log",
         }
-    )
+    ) == (False, True)
+    # DISCLOSED divergence class 2c: minLength can publish only a safe character
+    # floor; an ASCII string at that floor is still below the model's byte floor.
+    assert verdict(
+        {
+            "stdout": "a" * (SCRIPT_STDOUT_CAP // 4),
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    ) == (False, True)

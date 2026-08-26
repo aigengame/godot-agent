@@ -593,8 +593,9 @@ failure; `--strict` opts into a `script_failed` error for exit-code gates) plus 
 `stdout`/`stderr`. `stderr` is verbatim; `stdout` is verbatim up to a 64 KiB cap (#665,
 ADR-0031 amendment) — above it the result carries the stream's leading cap bytes while the
 COMPLETE stream spills to a named file, disclosed by three always-present fields
-(`stdout_bytes`, `stdout_truncated`, `stdout_file` — one machine-checked truth table,
-published in the output schema), so a production-scale inspector's linearly-growing output
+(`stdout_bytes`, `stdout_truncated`, `stdout_file`), enforced as one model truth table. The
+output schema publishes every Draft 2020-12-expressible projection and discloses the
+remaining byte/length identities, so a production-scale inspector's linearly-growing output
 bounds the envelope without losing a byte. A spill file gda cannot write is the typed
 `stdout_spill_failed` (never an unbounded result and never a silently lost tail); read the
 projection fields, not assumptions, when consuming `stdout`. Bounded, not summarized —
