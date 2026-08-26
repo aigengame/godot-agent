@@ -311,7 +311,7 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
     # #251: `daemon status` surfaces the running daemon's display mode. Like
     # `daemon start`, the marker shows only when windowed (headless is the default).
     windowed = DaemonStatusResult(
-        running=True, pid=42, socket_path="/tmp/x.sock", windowed=True
+        running=True, pid=42, socket_path="/tmp/x.sock", windowed=True, session_id=None
     )
     assert (
         render_daemon_status(windowed)
@@ -325,7 +325,13 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
     unknown = windowed.model_copy(update={"windowed": None})
     assert render_daemon_status(unknown) == "daemon running: pid 42 on /tmp/x.sock"
 
-    stopped = DaemonStatusResult(running=False, socket_path="/tmp/x.sock")
+    # The session identity (#660) prints only when a session was established.
+    identified = windowed.model_copy(update={"session_id": "a1b2c3d4e5f60718"})
+    assert render_daemon_status(identified).endswith(" session a1b2c3d4e5f60718")
+
+    stopped = DaemonStatusResult(
+        running=False, socket_path="/tmp/x.sock", session_id=None
+    )
     assert render_daemon_status(stopped) == "daemon not running"
 
 

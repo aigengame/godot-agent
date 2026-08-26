@@ -116,6 +116,28 @@ def test_windowed_daemon_captures_a_single_viewport_frame(tmp_path, daemon_runti
         assert doc["bytes"] == len(data) > 0
         # No --inline -> no base64 embedded (the default small reply).
         assert doc.get("inline") is None
+        # The evidence receipt (#660): the real harness binds the image to the
+        # session, the launched scene (uid-less: gda-authored, ADR-0036), the
+        # engine frame, and the exact bytes on disk.
+        import hashlib
+
+        receipt = doc["receipt"]
+        assert receipt["scene_path"] == "res://main.tscn"
+        assert receipt["scene_uid"] is None
+        assert receipt["engine_frame"] >= 0
+        assert receipt["observed"] is None
+        assert receipt["sha256"] == hashlib.sha256(data).hexdigest()
+        # The same identity is readable on `daemon status` (the correlation the
+        # issue requires), and stays stable across captures in one session.
+        status = json.loads(run("daemon", "status").stdout)
+        assert status["session_id"] == receipt["session_id"]
+        assert len(receipt["session_id"]) == 16
+        again = assert_windowed_ok(
+            run("screen", "capture", "--output", str(tmp_path / "shot2.png"))
+        )
+        assert (
+            json.loads(again.stdout)["receipt"]["session_id"] == receipt["session_id"]
+        )
     finally:
         run("daemon", "stop")
 
@@ -137,6 +159,91 @@ def test_windowed_daemon_inline_embeds_the_base64(tmp_path, daemon_runtime_dir):
         import base64
 
         assert base64.b64decode(doc["inline"]).startswith(PNG_MAGIC)
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+@pytest.mark.parametrize(
+    "header",
+    [
+        '[gd_scene format=3 uid="uid://c4qn8xbhw6kmv"]',
+        # Whitespace around `=` is a legal, engine-preserved header form the
+        # parse must accept too (#746 review Spec 2).
+        '[gd_scene format=3 uid = "uid://c4qn8xbhw6kmv"]',
+    ],
+    ids=["plain", "spaced-equals"],
+)
+def test_capture_receipt_reports_the_scene_uid_the_project_provides(
+    tmp_path, daemon_runtime_dir, header
+):
+    # The uid arm of the receipt (#660, ADR-0036 read-uid asymmetry): a scene
+    # whose FILE HEADER carries a uid (as every editor-authored scene does)
+    # reports it — read from the header itself, no `.godot/` cache needed. The
+    # uid-less arm is the single-frame test above.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(
+        f'{header}\n\n[node name="Main" type="Node2D"]\n',
+        encoding="utf-8",
+    )
+    run = _runner(GDA_CMD, tmp_path)
+    out = tmp_path / "shot.png"
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        cap = assert_windowed_ok(run("screen", "capture", "--output", str(out)))
+        receipt = json.loads(cap.stdout)["receipt"]
+        assert receipt["scene_path"] == "res://main.tscn"
+        assert receipt["scene_uid"] == "uid://c4qn8xbhw6kmv"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_capture_receipt_names_the_launched_scene_after_a_scene_switch(
+    tmp_path, daemon_runtime_dir
+):
+    # #660's authoritative semantics (#746 review Spec 1): the receipt's scene
+    # fields are the LAUNCHED scene — a session launch fact — so a game that
+    # switches scenes mid-session still receipts under the scene it launched.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(
+        "extends Node2D\n"
+        "var _frames := 0\n"
+        "func _process(_delta: float) -> void:\n"
+        "\t_frames += 1\n"
+        "\tif _frames == 5:\n"
+        '\t\tget_tree().change_scene_to_file("res://other.tscn")\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "main.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://main.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "other.tscn").write_text(
+        '[gd_scene format=3]\n\n[node name="Other" type="Node2D"]\n',
+        encoding="utf-8",
+    )
+    run = _runner(GDA_CMD, tmp_path)
+    out = tmp_path / "shot.png"
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        # Establish the session, then give the game time to switch scenes.
+        ready = run("daemon", "wait-ready")
+        assert ready.returncode == 0, ready.stdout + ready.stderr
+        tree = run("game", "tree")  # a round trip AFTER the switch frame
+        assert '"Other"' in tree.stdout, tree.stdout
+        cap = assert_windowed_ok(run("screen", "capture", "--output", str(out)))
+        receipt = json.loads(cap.stdout)["receipt"]
+        # The game now presents res://other.tscn; the receipt still names the
+        # launched scene — the session identity the issue binds evidence to.
+        assert receipt["scene_path"] == "res://main.tscn"
     finally:
         run("daemon", "stop")
 
@@ -389,6 +496,11 @@ def test_await_predicate_captures_the_matched_frames_pixels_repeatedly(
             assert doc["predicate"]["observed"] == 5, doc
             assert doc["predicate"]["frames_waited"] < 60
             assert doc["predicate"]["engine_frame"] > 0
+            # The receipt echoes the predicate evidence at the SAME frame (#660):
+            # the real harness stamps both in one tick, and the CLI's receipt
+            # gate has already verified the agreement before writing the file.
+            assert doc["receipt"]["observed"] == 5
+            assert doc["receipt"]["engine_frame"] == doc["predicate"]["engine_frame"]
             _assert_red(out)
     finally:
         run("daemon", "stop")

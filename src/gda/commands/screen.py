@@ -18,6 +18,7 @@ on a headless session a capture is the typed ``live_display_unavailable`` (#222)
 """
 
 import base64
+import hashlib
 import json
 from pathlib import Path
 from typing import Callable, Optional
@@ -229,7 +230,8 @@ class ScreenCaptureResult(BaseModel):
     ``height`` in pixels, the on-disk ``bytes``, and the ``format`` (``png``).
     ``inline`` carries the base64 PNG only when ``--inline`` was passed (otherwise
     null) — a single capture may be embedded for an in-context preview, but it is
-    opt-in so the default reply stays small.
+    opt-in so the default reply stays small. ``receipt`` (#660) is always present:
+    the evidence binding this image to the session, scene, frame, and output hash.
     """
 
     path: str = Field(description="The filesystem path the PNG frame was written to.")
@@ -246,6 +248,79 @@ class ScreenCaptureResult(BaseModel):
         description=(
             "The predicate report, present only when --await-* gated this "
             "capture (#661): what held, when, and what was observed."
+        ),
+    )
+    receipt: "CaptureReceipt" = Field(
+        description=(
+            "The evidence-grade receipt (#660): the identity facts binding THIS "
+            "image to the engine session, scene, and frame it came from, plus "
+            "the written file's SHA-256 — always present."
+        ),
+    )
+
+
+class CaptureReceipt(BaseModel):
+    """The capture's evidence receipt (#660, GDA-DF-026/GDA-DF-031).
+
+    Binds one captured image to the capture event in a single result, so a
+    downstream consumer can verify the join without hashing files itself: the
+    ``session_id`` correlates with ``gda daemon status`` (stable for one
+    `Engine session`, minted anew per relaunch — a receipt from a stale
+    session is detectable by the mismatch); ``scene_path``/``scene_uid`` are
+    the LAUNCHED scene's identity (#660); ``engine_frame`` is the frame the
+    pixels belong to; ``sha256`` is the hash of the bytes gda wrote to
+    ``path``. For a gated capture the receipt also echoes the predicate's
+    ``observed`` value at that same frame; the full predicate evidence (node,
+    property, expected) lives in the sibling ``predicate`` report, so a gated
+    capture's complete evidence is the pair, receipt + predicate report.
+    Every key is always present (required-but-nullable where null is a value).
+    """
+
+    session_id: str = Field(
+        min_length=1,
+        description=(
+            "The engine session's identity: minted by gda-daemon at session "
+            "launch, stable for the session's lifetime, and readable on "
+            "`gda daemon status` for correlation. A relaunch mints a new one."
+        ),
+    )
+    scene_path: str = Field(
+        description=(
+            "The res:// path of the scene the session LAUNCHED — the same "
+            "value the daemon verified at the session handshake (a launch "
+            "fact, not a per-frame claim: a game that switches scenes "
+            "mid-session still receipts under its launched scene). Empty for "
+            "a session that loaded no scene."
+        ),
+    )
+    scene_uid: str | None = Field(
+        description=(
+            "The launched scene FILE's own uid:// identity, as its header "
+            "declares it; null for a scene without a uid header — "
+            "gda-authored scenes carry none (ADR-0036). Always present."
+        ),
+    )
+    engine_frame: int = Field(
+        ge=0,
+        description=(
+            "The engine's absolute process-frame counter at the capture "
+            "boundary — the frame the image presents. For a gated capture this "
+            "is also the predicate's evaluation frame."
+        ),
+    )
+    observed: "bool | int | float | str | None" = Field(
+        description=(
+            "The predicate echo for a gated capture: the observed value the "
+            "predicate matched, evaluated at engine_frame (identical to "
+            "predicate.observed). Null on a plain capture. Always present."
+        ),
+    )
+    sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        description=(
+            "The SHA-256 hex digest of the PNG bytes gda wrote to `path`, "
+            "computed CLI-side over exactly the written bytes."
         ),
     )
 
@@ -381,6 +456,20 @@ class _PredicateReply(BaseModel):
     frames_waited: int = Field(ge=0)
 
 
+class _ReceiptReply(BaseModel):
+    # The harness-side half of the receipt (#660); the CLI adds sha256 after
+    # writing the file. `session_id` is required non-empty: every daemon-launched
+    # session has one, so a reply without it is a version-skewed or drifted
+    # harness — a contract violation, not a capture to trust. The nullable keys
+    # are REQUIRED too (the harness always sends them), mirroring the public
+    # model's required-but-nullable contract (#746 review).
+    session_id: str = Field(min_length=1)
+    scene_path: str
+    scene_uid: "str | None"
+    engine_frame: int = Field(ge=0)
+    observed: "bool | int | float | str | None"
+
+
 class _CaptureReply(BaseModel):
     width: int
     height: int
@@ -388,6 +477,9 @@ class _CaptureReply(BaseModel):
     bytes: int
     png_base64: str
     predicate: "_PredicateReply | None" = None
+    # Required (#660): a capture reply without the receipt is an old or drifted
+    # harness, surfaced as the typed contract_violation by classify_live.
+    receipt: "_ReceiptReply"
 
 
 class _FrameReply(BaseModel):
@@ -413,12 +505,16 @@ def _default_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRun
     return make_daemon_runner(project)
 
 
-def _write_png(png_base64: str, destination: Path) -> int:
-    """Decode a base64 PNG and write it to ``destination``; return the byte length."""
+def _write_png(png_base64: str, destination: Path) -> "tuple[int, str]":
+    """Decode a base64 PNG, write it to ``destination``; return (length, sha256 hex).
+
+    The hash is computed over EXACTLY the bytes written (#660): the one writer is
+    the one hasher, so the receipt's ``sha256`` can never drift from the file.
+    """
     raw = base64.b64decode(png_base64)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(raw)
-    return len(raw)
+    return len(raw), hashlib.sha256(raw).hexdigest()
 
 
 def _scalars_match(observed: object, expected: object) -> bool:
@@ -490,6 +586,43 @@ def _predicate_correlation_error(
     return None
 
 
+def _receipt_correlation_error(
+    predicate: "_PredicateReply | None", receipt: "_ReceiptReply"
+) -> "str | None":
+    """Why the reply's receipt does not answer this request, or None (#660).
+
+    The receipt's predicate echo must agree with the predicate report it rides
+    beside — same observed value, same frame — because both claim to describe
+    the ONE capture boundary; a reply where they disagree is describing two
+    different events and cannot be evidence for either. A plain capture must
+    echo nothing (mirroring the unsolicited-predicate refusal). Checked BEFORE
+    the output file is written, like the predicate gate.
+    """
+    if predicate is None:
+        if receipt.observed is not None:
+            return (
+                "the harness reply's receipt echoes a predicate observation "
+                f"({receipt.observed!r}) for a request that declared no "
+                "--await predicate"
+            )
+        return None
+    if receipt.observed is None or not _scalars_match(
+        receipt.observed, predicate.observed
+    ):
+        return (
+            f"the harness reply's receipt echoes {receipt.observed!r}, which "
+            f"does not match the predicate report's observed value "
+            f"{predicate.observed!r}"
+        )
+    if receipt.engine_frame != predicate.engine_frame:
+        return (
+            f"the harness reply's receipt names engine frame "
+            f"{receipt.engine_frame}, but the predicate report was evaluated "
+            f"at frame {predicate.engine_frame}"
+        )
+    return None
+
+
 def run_screen_capture_operation(
     project: Optional[Path],
     params: "ScreenCaptureParams",
@@ -527,11 +660,13 @@ def run_screen_capture_operation(
     reply = classify_live(result, None, _CaptureReply)
     if isinstance(reply, Failure):
         return reply
-    correlation = _predicate_correlation_error(params, reply.predicate)
+    correlation = _predicate_correlation_error(
+        params, reply.predicate
+    ) or _receipt_correlation_error(reply.predicate, reply.receipt)
     if correlation is not None:
         return make_failure("contract_violation", correlation, result.stdout)
     output = Path(params.output)
-    written = _write_png(reply.png_base64, output)
+    written, digest = _write_png(reply.png_base64, output)
     return ScreenCaptureResult(
         path=str(output),
         width=reply.width,
@@ -544,6 +679,7 @@ def run_screen_capture_operation(
             if reply.predicate is not None
             else None
         ),
+        receipt=CaptureReceipt(**reply.receipt.model_dump(), sha256=digest),
     )
 
 
@@ -569,7 +705,7 @@ def run_screen_frames_operation(
     written: list[ScreenFrame] = []
     for index, frame in enumerate(reply.frames):
         path = output_dir / f"frame_{index:04d}.png"
-        size = _write_png(frame.png_base64, path)
+        size, _ = _write_png(frame.png_base64, path)
         written.append(
             ScreenFrame(
                 path=str(path),
@@ -583,20 +719,34 @@ def run_screen_frames_operation(
 
 
 def render_screen_capture(captured: "ScreenCaptureResult") -> str:
-    """Render a captured viewport frame as ``captured WxH -> path`` (#222)."""
+    """Render a captured viewport frame as ``captured WxH -> path`` (#222).
+
+    The receipt line (#660) carries the binding evidence — session, scene,
+    frame, hash — so the human read is verifiable without opening the JSON.
+    """
     inline = " (+inline)" if captured.inline else ""
     head = (
         f"captured {captured.width}x{captured.height} "
         f"({captured.bytes} bytes) -> {captured.path}{inline}"
     )
-    if captured.predicate is None:
-        return head
-    pred = captured.predicate
-    return head + (
-        f"\n  predicate {pred.node}.{pred.property} == {pred.expected!r} held "
-        f"after {pred.frames_waited} frames "
-        f"(engine frame {pred.engine_frame}, observed {pred.observed!r})"
-    )
+    receipt = captured.receipt
+    scene = receipt.scene_path or "(no scene)"
+    uid = f" ({receipt.scene_uid})" if receipt.scene_uid else ""
+    lines = [
+        head,
+        (
+            f"  receipt session {receipt.session_id} scene {scene}{uid} "
+            f"frame {receipt.engine_frame} sha256 {receipt.sha256}"
+        ),
+    ]
+    if captured.predicate is not None:
+        pred = captured.predicate
+        lines.append(
+            f"  predicate {pred.node}.{pred.property} == {pred.expected!r} held "
+            f"after {pred.frames_waited} frames "
+            f"(engine frame {pred.engine_frame}, observed {pred.observed!r})"
+        )
+    return "\n".join(lines)
 
 
 def render_screen_frames(captured: "ScreenFramesResult") -> str:
@@ -741,6 +891,14 @@ def screen_capture(
     harness reads the viewport texture, PNG-encodes it, and returns it base64 in the
     sentinel; the CLI decodes it and WRITES the PNG to `--output`, returning the path
     + dims + bytes + format. `--inline` also embeds the base64.
+
+    Every result carries an evidence receipt (#660) binding the image to its
+    capture event: the engine session's identity (the same `session_id` that
+    `gda daemon status` reports; a new session mints a new one), the LAUNCHED
+    scene's path and header uid (uid null when the project provides none), the
+    engine frame the pixels belong to, and the written file's SHA-256. A gated
+    capture's receipt also echoes the predicate's observed value at that same
+    frame; the full predicate evidence is the sibling `predicate` report.
 
     The `--await-*` predicate (#661) holds the capture game-side until
     `node.property == value` first holds (checked once per process frame, up to

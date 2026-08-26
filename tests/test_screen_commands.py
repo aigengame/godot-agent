@@ -500,9 +500,21 @@ def _predicate_report(**overrides):
     return report
 
 
+def _align_receipt(reply):
+    # The harness stamps the receipt at the SAME tick it evaluates the predicate
+    # (#660), so a coherent fake gated reply mirrors the report's observed value
+    # and frame into the receipt — exactly what the CLI's receipt gate checks.
+    report = reply["predicate"]
+    reply["receipt"].update(
+        observed=report.get("observed"), engine_frame=report.get("engine_frame", 0)
+    )
+    return reply
+
+
 def test_await_predicate_rides_the_wire_with_the_default_ceiling(monkeypatch, tmp_path):
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report()
+    _align_receipt(reply)
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
@@ -540,6 +552,7 @@ def test_await_events_ride_the_same_window_and_report_surfaces(monkeypatch, tmp_
         "engine_frame": 240,
         "frames_waited": 5,
     }
+    _align_receipt(reply)
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
@@ -580,6 +593,7 @@ def test_await_bare_word_value_is_a_string_predicate(monkeypatch, tmp_path):
     reply["predicate"] = _predicate_report(
         property="anim", expected="peak", observed="peak"
     )
+    _align_receipt(reply)
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
@@ -614,6 +628,7 @@ def test_await_render_carries_the_predicate_line(monkeypatch, tmp_path):
         "engine_frame": 240,
         "frames_waited": 5,
     }
+    _align_receipt(reply)
     inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
@@ -753,6 +768,7 @@ def test_out_of_window_event_offset_is_accepted_and_rides_the_wire(
     # serialized live window bounded.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report()
+    _align_receipt(reply)
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
@@ -976,6 +992,198 @@ def test_plain_capture_with_unsolicited_predicate_is_contract_violation(
     result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
 
     _assert_contract_violation(result, out, "declared no --await predicate")
+
+
+# --- the capture receipt (#660) ------------------------------------------------
+# Every capture result binds the image to its capture event: the daemon-minted
+# session identity, the LAUNCHED scene (uid only when the project's file header
+# provides one, ADR-0036), the engine frame, the gated capture's observed echo,
+# and the SHA-256 of exactly the bytes the CLI wrote. The receipt is REQUIRED on
+# the wire — a reply without one is a version-skewed harness — and its predicate
+# echo must agree with the predicate report beside it, checked before any file
+# is written.
+
+
+def test_capture_receipt_surfaces_with_the_written_file_hash(monkeypatch, tmp_path):
+    import hashlib
+
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["receipt"].update(scene_uid="uid://c4qn8xbhw6kmv", engine_frame=412)
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)["receipt"]
+    assert receipt == {
+        "session_id": "a1b2c3d4e5f60718",
+        "scene_path": "res://main.tscn",
+        "scene_uid": "uid://c4qn8xbhw6kmv",
+        "engine_frame": 412,
+        "observed": None,
+        # The hash of EXACTLY the decoded bytes written to --output.
+        "sha256": hashlib.sha256(_PNG_1X1).hexdigest(),
+    }
+    assert out.read_bytes() == _PNG_1X1
+
+
+def test_gated_capture_receipt_echoes_the_predicate_evidence(monkeypatch, tmp_path):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
+    _align_receipt(reply)
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _await_argv(out, _project(tmp_path)))
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    # The receipt's echo agrees with the predicate report beside it — the same
+    # observed value at the same evaluation frame. What this proves is the
+    # AGREEMENT; a gated capture's complete evidence is still the pair, receipt
+    # + predicate report (which carries the node/property/expected).
+    assert data["receipt"]["observed"] == data["predicate"]["observed"] == 3
+    assert data["receipt"]["engine_frame"] == data["predicate"]["engine_frame"] == 240
+
+
+def test_capture_reply_without_a_receipt_is_contract_violation(monkeypatch, tmp_path):
+    # An old or drifted harness that predates the receipt cannot produce trusted
+    # evidence: the reply-shape breach is refused before any file is written.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    del reply["receipt"]
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation"
+    assert not out.exists()
+
+
+def test_receipt_missing_a_nullable_key_is_contract_violation(monkeypatch, tmp_path):
+    # The nullable keys are required on the wire too (#746 review): the harness
+    # always sends them, so a reply that omits one is shape drift, refused like
+    # a missing receipt.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    del reply["receipt"]["scene_uid"]
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+    assert not out.exists()
+
+
+def test_plain_capture_receipt_with_unsolicited_echo_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    # Mirrors the unsolicited-predicate refusal: a plain capture's receipt must
+    # echo nothing — an observation nobody asked for is fabricated evidence.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["receipt"]["observed"] = 3
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation"
+    assert "declared no --await predicate" in data["error"]["message"]
+    assert not out.exists()
+
+
+def test_gated_receipt_disagreeing_with_the_report_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    # The receipt and the predicate report both describe the ONE capture
+    # boundary; a reply where they disagree describes two different events and
+    # is evidence for neither. Both disagreement axes are refused.
+    for patch, needle in (
+        ({"observed": 2}, "does not match the predicate report"),
+        ({"observed": 3, "engine_frame": 999}, "names engine frame 999"),
+    ):
+        reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+        reply["predicate"] = _predicate_report()
+        _align_receipt(reply)
+        reply["receipt"].update(patch)
+
+        result, out = _await_capture(monkeypatch, tmp_path, reply)
+
+        data = json.loads(result.stdout)
+        assert data["error"]["code"] == "contract_violation", data
+        assert needle in data["error"]["message"]
+        assert not out.exists()
+
+
+def test_capture_render_carries_the_receipt_line(monkeypatch, tmp_path):
+    import hashlib
+
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+    argv = _capture_argv(out, _project(tmp_path))
+    argv.remove("--json")
+
+    result = CliRunner().invoke(app, argv)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert (
+        "receipt session a1b2c3d4e5f60718 scene res://main.tscn frame 400 "
+        f"sha256 {hashlib.sha256(_PNG_1X1).hexdigest()}"
+    ) in result.stdout
+
+
+def test_capture_schema_publishes_the_receipt_contract():
+    # The output schema is the public contract (ADR-0004): the receipt is a
+    # REQUIRED result field whose own shape (session/scene/frame/echo/sha256)
+    # a consumer can validate against.
+    schema = json.loads(
+        CliRunner().invoke(app, ["screen", "capture", "--schema"]).stdout
+    )
+    output = schema["output"]
+    assert "receipt" in output["properties"]
+    assert "receipt" in output.get("required", [])
+    receipt_def = output["$defs"]["CaptureReceipt"]
+    assert {
+        "session_id",
+        "scene_path",
+        "scene_uid",
+        "engine_frame",
+        "observed",
+        "sha256",
+    } <= set(receipt_def["properties"])
+    # Required-but-nullable (#746 review): the nullable keys are ALWAYS carried,
+    # so a standard consumer sees every field required — null is a value, not an
+    # omitted key.
+    assert set(receipt_def["required"]) == {
+        "session_id",
+        "scene_path",
+        "scene_uid",
+        "engine_frame",
+        "observed",
+        "sha256",
+    }
 
 
 # --- schema/model parity (#743 review, Standards 1; ADR-0015) ------------------

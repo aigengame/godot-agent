@@ -738,6 +738,65 @@ def test_status_windowed_is_null_when_the_control_round_trip_fails(
     assert status.windowed is None
 
 
+def test_status_reports_the_session_identity_from_the_control_op(
+    tmp_path, short_runtime, monkeypatch
+):
+    # #660: the running daemon is the one authority for which session it launched;
+    # status relays that identity so a capture receipt's session_id can be
+    # correlated after the fact.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(
+        daemon_ops,
+        "_control",
+        lambda sock, op, **kw: {
+            "ok": True,
+            "windowed": True,
+            "session_id": "a1b2c3d4e5f60718",
+        },
+    )
+
+    status = daemon_ops.run_daemon_status_operation(project)
+
+    assert isinstance(status, DaemonStatusResult), status
+    assert status.session_id == "a1b2c3d4e5f60718"
+
+
+def test_status_schema_publishes_session_id_as_required_but_nullable():
+    # #746 review: the docs promise the key is ALWAYS carried (null before a
+    # session), so a standard Draft 2020-12 consumer must see it required — and
+    # the non-null branch non-empty, matching the receipt's own constraint.
+    result = CliRunner().invoke(app, ["daemon", "status", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    output = json.loads(result.stdout)["output"]
+    assert "session_id" in output["required"]
+    branches = output["properties"]["session_id"]["anyOf"]
+    assert {"type": "string", "minLength": 1} in branches
+    assert {"type": "null"} in branches
+
+
+def test_status_session_identity_is_null_before_a_launch_or_on_drift(
+    tmp_path, short_runtime, monkeypatch
+):
+    # A daemon with no session this lifetime replies session_id=None; a drifted
+    # non-string value degrades to None rather than crashing the read.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    for raw in (None, 7, ""):
+        monkeypatch.setattr(
+            daemon_ops,
+            "_control",
+            lambda sock, op, _raw=raw, **kw: {
+                "ok": True,
+                "windowed": False,
+                "session_id": _raw,
+            },
+        )
+        status = daemon_ops.run_daemon_status_operation(project)
+        assert isinstance(status, DaemonStatusResult)
+        assert status.session_id is None
+
+
 # --- uninstall recipe (#225, D2) ----------------------------------------------
 
 
