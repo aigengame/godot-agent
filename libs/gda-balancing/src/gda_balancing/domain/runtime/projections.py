@@ -47,6 +47,7 @@ SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "guarded-outcome-block",
         "integer-add",
         "integer-compare",
+        "integer-floor-divide",
         "typed-literal",
         "integer-maximum",
         "integer-multiply",

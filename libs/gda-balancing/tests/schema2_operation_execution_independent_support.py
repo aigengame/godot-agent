@@ -632,6 +632,7 @@ def reference_execute_event(
                     )
                 elif operator in {
                     "integer-add",
+                    "integer-floor-divide",
                     "integer-subtract",
                     "integer-multiply",
                     "integer-maximum",
@@ -640,6 +641,7 @@ def reference_execute_event(
                     right = integer(cell(instruction["right"])["value"])
                     result = {
                         "integer-add": lambda: left + right,
+                        "integer-floor-divide": lambda: left // right,
                         "integer-subtract": lambda: left - right,
                         "integer-multiply": lambda: left * right,
                         "integer-maximum": lambda: max(left, right),

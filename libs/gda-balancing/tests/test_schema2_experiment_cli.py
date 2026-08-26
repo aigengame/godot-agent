@@ -216,6 +216,25 @@ def test_runtime_canonical_equality_compares_kernel_booleans():
     assert variables["result"] is True
 
 
+def test_runtime_and_replay_floor_divide_round_toward_negative_infinity():
+    instruction = {
+        "left": "dividend",
+        "node": "floor-divide",
+        "right": "divisor",
+        "target": "result",
+    }
+    node_contract = {"semantics": {"operator": "integer-floor-divide"}}
+    numeric = {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)}
+
+    for execute in (
+        experiment_runtime_module._execute_value_instruction,
+        experiment_artifact_replay_module.execute_value_instruction,
+    ):
+        variables = {"dividend": -5, "divisor": 2}
+        execute(instruction, variables, numeric, node_contract)
+        assert variables["result"] == -3
+
+
 def test_runtime_integer_projection_without_an_envelope_profile_is_not_applicable():
     authority_context = authority_module.packaged_authority_context()
     structured_authority = replace(

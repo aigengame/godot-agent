@@ -270,6 +270,7 @@ def execute_value_instruction(
         value = variables[cast(str, instruction["value"])]
     elif operator in {
         "integer-add",
+        "integer-floor-divide",
         "integer-subtract",
         "integer-multiply",
         "integer-maximum",
@@ -283,6 +284,8 @@ def execute_value_instruction(
         value = (
             left + right
             if operator == "integer-add"
+            else left // right
+            if operator == "integer-floor-divide"
             else left - right
             if operator == "integer-subtract"
             else left * right

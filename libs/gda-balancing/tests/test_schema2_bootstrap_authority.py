@@ -728,6 +728,37 @@ def test_cancel_target_is_a_kernel_owned_schedule_result_reference():
     }
 
 
+def test_kernel_owns_exact_int64_floor_divide_primitive():
+    runtime = _authority_candidate()["kernel"]["meta_format"]["runtime_program"]
+    node = next(row for row in runtime["nodes"] if row["id"] == "floor-divide")
+
+    assert node == {
+        "family": "expression",
+        "id": "floor-divide",
+        "operand_constraints": [
+            {"kind": "same-value-contract", "members": ["left", "right"]},
+            {"kind": "runtime-numeric", "members": ["left", "right"]},
+        ],
+        "refusals": [],
+        "required_members": ["node", "target", "left", "right"],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {
+            "kind": "local",
+            "typing": {
+                "kind": "same-as-references",
+                "members": ["left", "right"],
+            },
+        },
+        "semantics": {"operator": "integer-floor-divide"},
+    }
+    assert "floor-divide" in runtime["expression_nodes"]
+    assert any(
+        vector["id"] == "runtime.node.floor-divide"
+        and vector["node"] == "floor-divide"
+        for vector in runtime["vectors"]
+    )
+
+
 @pytest.mark.parametrize(
     "mutation",
     (
