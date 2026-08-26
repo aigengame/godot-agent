@@ -996,11 +996,12 @@ def test_plain_capture_with_unsolicited_predicate_is_contract_violation(
 
 # --- the capture receipt (#660) ------------------------------------------------
 # Every capture result binds the image to its capture event: the daemon-minted
-# session identity, the presented scene (uid only when the project provides one,
-# ADR-0036), the engine frame, the gated capture's observed echo, and the SHA-256
-# of exactly the bytes the CLI wrote. The receipt is REQUIRED on the wire — a
-# reply without one is a version-skewed harness — and its predicate echo must
-# agree with the predicate report beside it, checked before any file is written.
+# session identity, the LAUNCHED scene (uid only when the project's file header
+# provides one, ADR-0036), the engine frame, the gated capture's observed echo,
+# and the SHA-256 of exactly the bytes the CLI wrote. The receipt is REQUIRED on
+# the wire — a reply without one is a version-skewed harness — and its predicate
+# echo must agree with the predicate report beside it, checked before any file
+# is written.
 
 
 def test_capture_receipt_surfaces_with_the_written_file_hash(monkeypatch, tmp_path):
@@ -1044,8 +1045,10 @@ def test_gated_capture_receipt_echoes_the_predicate_evidence(monkeypatch, tmp_pa
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
-    # The receipt alone is complete evidence: the observed value and the frame it
-    # was evaluated at ride it, identical to the predicate report beside it.
+    # The receipt's echo agrees with the predicate report beside it — the same
+    # observed value at the same evaluation frame. What this proves is the
+    # AGREEMENT; a gated capture's complete evidence is still the pair, receipt
+    # + predicate report (which carries the node/property/expected).
     assert data["receipt"]["observed"] == data["predicate"]["observed"] == 3
     assert data["receipt"]["engine_frame"] == data["predicate"]["engine_frame"] == 240
 
