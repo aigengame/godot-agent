@@ -96,7 +96,11 @@ def infer_formula_operation_result(
                 raise ValueError("Formula copy inference source is unresolved")
             values[target] = deepcopy(values[source])
         elif rule_id in {
+            "closed-interval-add",
+            "closed-interval-floor-divide",
             "closed-interval-maximum",
+            "closed-interval-multiply",
+            "closed-interval-select",
             "closed-interval-subtract",
         }:
             operand_members = rule.get("operand_members")
@@ -116,12 +120,46 @@ def infer_formula_operation_result(
             left_interval, right_interval = interval(left), interval(right)
             if left_interval is None or right_interval is None:
                 values[target] = deepcopy(left)
+            elif rule_id == "closed-interval-add":
+                values[target] = with_interval(
+                    left,
+                    (
+                        left_interval[0] + right_interval[0],
+                        left_interval[1] + right_interval[1],
+                    ),
+                )
             elif rule_id == "closed-interval-subtract":
                 values[target] = with_interval(
                     left,
                     (
                         left_interval[0] - right_interval[1],
                         left_interval[1] - right_interval[0],
+                    ),
+                )
+            elif rule_id == "closed-interval-multiply":
+                products = tuple(
+                    left_value * right_value
+                    for left_value in left_interval
+                    for right_value in right_interval
+                )
+                values[target] = with_interval(left, (min(products), max(products)))
+            elif rule_id == "closed-interval-floor-divide":
+                if right_interval[0] <= 0:
+                    raise ValueError(
+                        "Formula floor-divide divisor domain is not positive"
+                    )
+                quotients = tuple(
+                    left_value // right_value
+                    for left_value in left_interval
+                    for right_value in right_interval
+                )
+                values[target] = with_interval(left, (min(quotients), max(quotients)))
+            elif rule_id == "closed-interval-select":
+                values[target] = with_interval(
+                    left,
+                    (
+                        min(left_interval[0], right_interval[0]),
+                        max(left_interval[1], right_interval[1]),
                     ),
                 )
             else:

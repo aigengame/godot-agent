@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:bb5226950964e12dc4ddf722e64502f4249f7253c2acd789f68834613a339d31"
+    "sha256:2f63d19c71b53b5c789a22eb93c3409da4c4017eda7523e962ea4923bdc30167"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -700,6 +700,7 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "add",
             "constant",
             "copy",
+            "floor-divide",
             "if",
             "maximum",
             "multiply",
@@ -993,6 +994,7 @@ def _consumer_b_value_program_instruction_is_closed(
     operand_fields = {
         "copy": ("value",),
         "add": ("left", "right"),
+        "floor-divide": ("left", "right"),
         "maximum": ("left", "right"),
         "multiply": ("left", "right"),
         "subtract": ("left", "right"),
@@ -2107,35 +2109,25 @@ def _consumer_b_package_semantic_projections_are_exact(
                 return False
             embedded.extend(entry["definitions"])
 
-        def definition_key(value: Any) -> tuple[str, bytes] | None:
-            if key_member is None:
-                try:
-                    return ("value", _encoded(value))
-                except (TypeError, ValueError, UnicodeEncodeError):
-                    return None
-            if (
+        def definition_value(value: Any) -> bytes | None:
+            if key_member is not None and (
                 not isinstance(key_member, str)
                 or not isinstance(value, dict)
                 or key_member not in value
             ):
                 return None
             try:
-                return ("member", _encoded(value[key_member]))
+                return _encoded(value)
             except (TypeError, ValueError, UnicodeEncodeError):
                 return None
 
-        embedded_keys = [definition_key(value) for value in embedded]
-        authority_keys = [definition_key(value) for value in authority_definitions]
-        if (
-            any(key is None for key in embedded_keys)
-            or any(key is None for key in authority_keys)
-            or len(set(embedded_keys)) != len(embedded_keys)
-            or len(set(authority_keys)) != len(authority_keys)
+        embedded_values = [definition_value(value) for value in embedded]
+        authority_values = [definition_value(value) for value in authority_definitions]
+        if any(value is None for value in embedded_values) or any(
+            value is None for value in authority_values
         ):
             return False
-        if dict(zip(embedded_keys, embedded, strict=True)) != dict(
-            zip(authority_keys, authority_definitions, strict=True)
-        ):
+        if set(embedded_values) != set(authority_values):
             return False
     return True
 
@@ -8807,6 +8799,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             }
             derived_diagnostics: list[Any] = []
             derived_vectors: list[Any] = []
+
+            def extend_unique(target: list[Any], definitions: list[Any]) -> None:
+                for definition in definitions:
+                    if definition not in target:
+                        target.append(deepcopy(definition))
+
             for release, vector_set in zip(
                 graph_releases, graph_vector_sets, strict=True
             ):
@@ -8818,7 +8816,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     ):
                         continue
                     if authority_path == "diagnostics":
-                        derived_diagnostics.extend(deepcopy(definitions))
+                        extend_unique(derived_diagnostics, definitions)
                         continue
                     if not authority_path.startswith("language."):
                         continue
@@ -8826,7 +8824,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     target = language
                     for segment in segments[:-1]:
                         target = target.setdefault(segment, {})
-                    target.setdefault(segments[-1], []).extend(deepcopy(definitions))
+                    extend_unique(target.setdefault(segments[-1], []), definitions)
                 derived_vectors.extend(
                     deepcopy(vector_set.get("vector_definitions", []))
                 )

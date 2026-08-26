@@ -1559,12 +1559,14 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
         if release["id"] == "core.quantity"
     )
     vector_sets = {
-        vector_set["package_id"]: vector_set
+        (vector_set["package_id"], vector_set["package_version"]): vector_set
         for vector_set in authority["package_conformance_vector_sets"]
     }
     admitted_oracles = [
         vector["expect"]["lock_oracle"]
-        for vector in vector_sets[quantity["id"]]["vector_definitions"]
+        for vector in vector_sets[(quantity["id"], quantity["version"])][
+            "vector_definitions"
+        ]
         if isinstance(vector.get("expect"), dict)
         and vector["expect"].get("outcome") == "admitted"
     ]
@@ -1917,13 +1919,13 @@ def test_diagnostic_catalog_is_reverse_closed_over_kernel_and_ldb(run_cli):
     assert (exit_code, stderr) == (0, "")
     authority = json.loads(authority_stdout)
     catalog = json.loads(stdout)
-    package_diagnostics = [
-        entry
+    package_diagnostics = {
+        (entry["code"], entry["stage"]): entry
         for release in authority["package_releases"]
         for closure in release["semantic_closure"]
         if closure["authority_path"] == "diagnostics"
         for entry in closure["definitions"]
-    ]
+    }.values()
     expected = sorted(
         [
             {"authority": owner, "code": entry["code"], "stage": entry["stage"]}

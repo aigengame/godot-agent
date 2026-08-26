@@ -35,12 +35,32 @@ def formula_contract_matches_operation(
     """Compare a resolved Formula contract with an Operation formal contract."""
     formula_type = formula_contract.get("type_identity")
     operation_type = operation_contract.get("type")
+    actual_domain = formula_contract.get("domain")
+    formal_domain = operation_contract.get("domain")
+    domain_matches = formal_domain == {"kind": "actual"} or (
+        actual_domain == formal_domain
+        or (
+            formula_contract.get("domain_kind") == "closed-interval"
+            and isinstance(actual_domain, dict)
+            and isinstance(formal_domain, dict)
+            and formal_domain.get("kind") == "closed-interval"
+            and all(
+                isinstance(domain.get(member), int)
+                and not isinstance(domain[member], bool)
+                for domain in (actual_domain, formal_domain)
+                for member in ("minimum", "maximum")
+            )
+            and formal_domain["minimum"] <= actual_domain["minimum"]
+            and actual_domain["maximum"] <= formal_domain["maximum"]
+        )
+    )
     return (
         isinstance(formula_type, dict)
         and isinstance(operation_type, dict)
         and formula_type.get("package") == operation_type.get("package")
         and formula_type.get("version") == operation_type.get("version")
         and formula_type.get("symbol") == operation_type.get("id")
+        and domain_matches
         and all(
             formula_contract.get(member) == operation_contract.get(member)
             for member in (

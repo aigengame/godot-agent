@@ -183,14 +183,17 @@ def package_structured_value_index(
     for package in packages:
         for constructor in _semantic_definitions(package, "language.constructors"):
             constructor_id = cast(str, constructor["id"])
-            if constructor_id in constructors:
+            if (
+                constructor_id in constructors
+                and constructors[constructor_id] != constructor
+            ):
                 raise ValueError("admitted constructor identity is duplicated")
             constructors[constructor_id] = constructor
         for operation in _semantic_definitions(
             package, "language.structured_operations"
         ):
             operation_id = cast(str, operation["id"])
-            if operation_id in operations:
+            if operation_id in operations and operations[operation_id] != operation:
                 raise ValueError("admitted structured operation identity is duplicated")
             operations[operation_id] = operation
         profiles.extend(
@@ -243,8 +246,9 @@ def language_structured_value_index(
     if not isinstance(language, dict):
         raise ValueError("admitted language content is unavailable")
     packages = cast(list[dict[str, Any]], language.get("packages"))
-    package_versions = {
-        cast(str, package["id"]): cast(str, package["version"]) for package in packages
+    package_coordinates = {
+        (cast(str, package["id"]), cast(str, package["version"]))
+        for package in packages
     }
     definitions: dict[_TypeKey, dict[str, Any]] = {}
     for package in packages:
@@ -269,7 +273,7 @@ def language_structured_value_index(
             cast(str, definition["version"]),
             cast(str, definition["id"]),
         )
-        if key not in definitions or package_versions.get(key[0]) != key[1]:
+        if key not in definitions or key[:2] not in package_coordinates:
             raise ValueError("nominal definition has no selected exported type")
         definitions[key] = definition
     constructors = {

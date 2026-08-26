@@ -1346,13 +1346,37 @@ def _reference_formula_contract_matches_operation(
 ) -> bool:
     formula_type = formula_contract["type_identity"]
     operation_type = operation_contract["type"]
-    return formula_type == {
-        "package": operation_type["package"],
-        "version": operation_type["version"],
-        "symbol": operation_type["id"],
-    } and all(
-        formula_contract[member] == operation_contract[member]
-        for member in ("representation", "kind", "unit", "numeric_policy")
+    actual_domain = formula_contract.get("domain")
+    formal_domain = operation_contract.get("domain")
+    domain_matches = formal_domain == {"kind": "actual"} or (
+        actual_domain == formal_domain
+        or (
+            formula_contract.get("domain_kind") == "closed-interval"
+            and isinstance(actual_domain, dict)
+            and isinstance(formal_domain, dict)
+            and formal_domain.get("kind") == "closed-interval"
+            and all(
+                isinstance(domain.get(member), int)
+                and not isinstance(domain[member], bool)
+                for domain in (actual_domain, formal_domain)
+                for member in ("minimum", "maximum")
+            )
+            and formal_domain["minimum"] <= actual_domain["minimum"]
+            and actual_domain["maximum"] <= formal_domain["maximum"]
+        )
+    )
+    return (
+        formula_type
+        == {
+            "package": operation_type["package"],
+            "version": operation_type["version"],
+            "symbol": operation_type["id"],
+        }
+        and domain_matches
+        and all(
+            formula_contract[member] == operation_contract[member]
+            for member in ("representation", "kind", "unit", "numeric_policy")
+        )
     )
 
 

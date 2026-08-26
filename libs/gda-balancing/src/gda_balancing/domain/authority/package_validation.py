@@ -1076,37 +1076,24 @@ def _package_semantic_projections_are_exact(
                 return False
             embedded.extend(entry["definitions"])
 
-        def definition_key(value: Any) -> tuple[str, bytes] | None:
-            if key_member is None:
-                try:
-                    return ("value", canonical_bytes(cast(JsonValue, value)))
-                except (TypeError, ValueError):
-                    return None
-            if (
+        def definition_value(value: Any) -> bytes | None:
+            if key_member is not None and (
                 not isinstance(key_member, str)
                 or not isinstance(value, dict)
                 or key_member not in value
             ):
                 return None
             try:
-                return (
-                    "member",
-                    canonical_bytes(cast(JsonValue, value[key_member])),
-                )
+                return canonical_bytes(cast(JsonValue, value))
             except (TypeError, ValueError):
                 return None
 
-        embedded_keys = [definition_key(value) for value in embedded]
-        authority_keys = [definition_key(value) for value in authority_definitions]
-        if (
-            any(key is None for key in embedded_keys)
-            or any(key is None for key in authority_keys)
-            or len(set(embedded_keys)) != len(embedded_keys)
-            or len(set(authority_keys)) != len(authority_keys)
+        embedded_values = [definition_value(value) for value in embedded]
+        authority_values = [definition_value(value) for value in authority_definitions]
+        if any(value is None for value in embedded_values) or any(
+            value is None for value in authority_values
         ):
             return False
-        embedded_by_key = dict(zip(embedded_keys, embedded, strict=True))
-        authority_by_key = dict(zip(authority_keys, authority_definitions, strict=True))
-        if embedded_by_key != authority_by_key:
+        if set(embedded_values) != set(authority_values):
             return False
     return True

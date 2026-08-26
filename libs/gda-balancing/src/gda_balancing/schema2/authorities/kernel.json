@@ -131,7 +131,8 @@
             },
             {
               "keys": [
-                "id"
+                "id",
+                "version"
               ],
               "path": "language_bundle.language.components",
               "subject": "language.components"
@@ -145,7 +146,8 @@
             },
             {
               "keys": [
-                "id"
+                "id",
+                "version"
               ],
               "path": "language_bundle.language.conversions",
               "subject": "language.conversions"
@@ -166,7 +168,8 @@
             },
             {
               "keys": [
-                "id"
+                "id",
+                "version"
               ],
               "path": "language_bundle.language.operations",
               "subject": "language.operations"
@@ -913,7 +916,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:bb5226950964e12dc4ddf722e64502f4249f7253c2acd789f68834613a339d31",
+  "content_identity": "sha256:2f63d19c71b53b5c789a22eb93c3409da4c4017eda7523e962ea4923bdc30167",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -4518,6 +4521,7 @@
             "add",
             "constant",
             "copy",
+            "floor-divide",
             "if",
             "maximum",
             "multiply",
@@ -5838,13 +5842,6 @@
           "id": "floor-divide",
           "operand_constraints": [
             {
-              "kind": "same-value-contract",
-              "members": [
-                "left",
-                "right"
-              ]
-            },
-            {
               "kind": "runtime-numeric",
               "members": [
                 "left",
@@ -5868,8 +5865,7 @@
             "typing": {
               "kind": "same-as-references",
               "members": [
-                "left",
-                "right"
+                "left"
               ]
             }
           },
@@ -6730,13 +6726,6 @@
             "charge": 1,
             "operand_constraints": [
               {
-                "kind": "same-value-contract",
-                "members": [
-                  "left",
-                  "right"
-                ]
-              },
-              {
                 "kind": "runtime-numeric",
                 "members": [
                   "left",
@@ -6749,8 +6738,7 @@
             "result_typing": {
               "kind": "same-as-references",
               "members": [
-                "left",
-                "right"
+                "left"
               ]
             }
           },

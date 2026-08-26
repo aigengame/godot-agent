@@ -49,7 +49,7 @@ from gda_balancing.domain.structured_values import (
     StructuredValueIndex,
     StructuredValueFault,
     admit_typed_value,
-    package_structured_value_index,
+    selected_structured_value_index,
     typed_envelope_members,
 )
 
@@ -617,11 +617,8 @@ def _check_experiment_value(
         canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
         for row in rir["declarations"]
     }
-    structured_authority = package_structured_value_index(
-        cast(
-            list[dict[str, Any]],
-            context.language_bundle["language"]["packages"],
-        ),
+    structured_authority = selected_structured_value_index(
+        selected,
         kernel=context.kernel,
     )
     structured_resource_limit = cast(

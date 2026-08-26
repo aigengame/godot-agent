@@ -1144,10 +1144,14 @@ def test_standard_compiler_owns_formula_notation_contextual_policy(run_cli) -> N
     assert {
         row["node"]: row["rule"] for row in conversion["local_result_inference"]
     } == {
+        "add": "closed-interval-add",
         "constant": "literal-closed-interval",
         "copy": "copy-contract",
+        "floor-divide": "closed-interval-floor-divide",
+        "if": "closed-interval-select",
         "less-than": "declared-result-contract",
         "maximum": "closed-interval-maximum",
+        "multiply": "closed-interval-multiply",
         "subtract": "closed-interval-subtract",
     }
 
