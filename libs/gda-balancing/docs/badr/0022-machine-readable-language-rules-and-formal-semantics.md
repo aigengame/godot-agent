@@ -36,6 +36,8 @@ structured formal judgments, and an honest proof/conformance boundary.
 > primitives. These Operations do not add floating arithmetic, ratio values, another Numeric
 > profile, or implicit conversions. A future numeric profile can extend the language through its
 > own demonstrated requirements; this first release does not promise polymorphic division.
+> bADR-0017 owns the compatible `RPG-STAT-01` consumer release chain. A Model cannot select this
+> Quantity release together with an older consumer that still requires `core.quantity@2.1.0`.
 
 > **Amendment (2026-08-03, #594):** The Experiment judgment admits one closed discriminated Event
 > plan, derives one-time initialization and observation members, and resolves Runtime-owned Event

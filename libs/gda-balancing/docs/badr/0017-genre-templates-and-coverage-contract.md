@@ -29,6 +29,29 @@ distribution contract and a falsifiable definition of genre completeness.
 > existing primitive wrappers needed by the tracer. This replacement happens before the 2.0
 > baseline is fixed. Later Core Extension Invariance evidence binds the replacement Kernel
 > identity; it cannot treat the superseded identity as evidence for the completed baseline.
+>
+> The Golden Model Source requires `core.quantity@2.2.0`, `game.progression@1.0.0`,
+> `game.build@1.1.0`, `game.effect@1.1.0`, and `game.combat@2.2.0`. Their exact selected dependency
+> edges are:
+>
+> - `core.quantity@2.2.0` → `standard.compiler@1.1.0`;
+> - `game.progression@1.0.0` → `core.quantity@2.2.0`;
+> - `game.check@1.1.0` → `core.quantity@2.2.0`, `standard.runtime@1.1.0`;
+> - `game.resource@1.1.0` → `core.quantity@2.2.0`, `standard.runtime@1.1.0`;
+> - `game.generation@1.1.0` → `core.quantity@2.2.0`, `standard.runtime@1.1.0`,
+>   `standard.schema@2.4.0`;
+> - `game.build@1.1.0` → `core.quantity@2.2.0`, `game.generation@1.1.0`,
+>   `standard.runtime@1.1.0`, `standard.schema@2.4.0`;
+> - `game.effect@1.1.0` → `core.quantity@2.2.0`, `standard.runtime@1.1.0`; and
+> - `game.combat@2.2.0` → `core.quantity@2.2.0`, `game.check@1.1.0`,
+>   `game.resource@1.1.0`, `standard.runtime@1.1.0`.
+>
+> The new check, resource, and generation releases preserve their earlier exports and behavior;
+> their manifest change is limited to selecting `core.quantity@2.2.0`. The new combat release also
+> preserves its earlier Operations and behavior. All earlier releases remain available unchanged.
+> Package Lock generation must prove this complete single-version graph before RIR. Changed
+> manifests, dependency vectors, Package Lock/RIR identities, examples, receipts, and production
+> and independent conformance evidence are rebuilt and revalidated together.
 
 > **Amendment (2026-08-18, #708):** `game.combat` owns explicit defeat transition policy and
 > combat-action eligibility. `game.combat.eligible-cast-v1` checks the authored actor-health and

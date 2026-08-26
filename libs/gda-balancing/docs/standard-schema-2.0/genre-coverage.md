@@ -74,6 +74,14 @@ primitives, core constructors, runtime phases, compiler dispatch, or evaluator d
 | Roguelike `ROGUE-REPLAY-01` | Reproduce the same RIR outcomes, trace, Metrics and evidence under identical reproduction identities. | core replay contract; all operations exercised by the scenario | bundle/RIR/runtime/experiment identities jointly define replay | `roguelike.replay-v1` | `roguelike.replay.identity-mismatch-refused-v1` | reproduction key, ordered trace/Snapshot hashes, Metric/evidence identities |
 | Variant `ROGUE-DECK-ZONE-01` | When selected, move unique card instances among ordered draw, hand, discard and exhaust zones, including one named-stream reshuffle handoff, without loss, duplication or host-container ordering. | `game.collection.ordered-zones-v1`; `game.collection.move@1`; `game.collection.shuffle@1`; `game.turn.advance@1`; `game.action.resolve@1` | collection owns zone order/moves/shuffle/conservation; turn owns windows; action owns play lifecycle; build owns deck admission | `roguelike.deck-zones-v1` | `roguelike.deck-zone.duplicate-instance-refused-v1`; `roguelike.deck-zone.reshuffle-boundary-v1` | exact per-zone instance order, move identities, named stream/draw trace, shuffle count and conservation proof |
 
+`RPG-STAT-01` uses one exact Package Lock. The Golden Model Source requires
+`core.quantity@2.2.0`, `game.progression@1.0.0`, `game.build@1.1.0`,
+`game.effect@1.1.0`, and `game.combat@2.2.0`. The resolved closure also selects
+`game.check@1.1.0`, `game.resource@1.1.0`, `game.generation@1.1.0`,
+`standard.compiler@1.1.0`, `standard.runtime@1.1.0`, and `standard.schema@2.4.0`. The row cannot
+close with a graph that also selects a release which requires `core.quantity@2.1.0`. bADR-0017 owns
+the exact dependency edges.
+
 ## Golden scenario contracts
 
 - `rpg.stat.composition-v1`: base and tunable typed symbols combine progression, equipment and

@@ -860,6 +860,17 @@ committed-Snapshot Metrics. `game.combat` consumes the final Quantity; it does n
 composition policy. The CLI and player-facing application consume the same maintained Model Source
 and Experiment inputs.
 
+The first `RPG-STAT-01` Model Source selects one compatible package closure. Its root requirements
+are `core.quantity@2.2.0`, `game.progression@1.0.0`, `game.build@1.1.0`,
+`game.effect@1.1.0`, and `game.combat@2.2.0`. The selected combat release depends on
+`game.check@1.1.0` and `game.resource@1.1.0`; the selected build release depends on
+`game.generation@1.1.0`. These three dependency releases preserve their earlier exports and
+behavior while selecting `core.quantity@2.2.0`. The new combat release also preserves its earlier
+Operations and behavior. The remaining transitive coordinates are `standard.compiler@1.1.0`,
+`standard.runtime@1.1.0`, and `standard.schema@2.4.0`. Earlier package releases remain available,
+but one Model cannot mix their `core.quantity@2.1.0` dependencies with the new closure. bADR-0017
+owns the exact dependency edges.
+
 Operation composition is explicit and directional:
 
 1. An LDB Operation is the sole authority for its named formal ports. Every nested call binds the
