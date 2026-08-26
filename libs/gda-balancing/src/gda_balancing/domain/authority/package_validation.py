@@ -98,6 +98,78 @@ def _canonical_equal(left: Any, right: Any) -> bool:
         return False
 
 
+def _replay_comparison_vector_is_closed(
+    package: dict[str, Any], vector: dict[str, Any], kind: dict[str, Any]
+) -> bool:
+    policy_entry = next(
+        (
+            entry
+            for entry in cast(list[dict[str, Any]], package.get("semantic_closure"))
+            if entry.get("authority_path") == "language.replay_comparison_policies"
+        ),
+        None,
+    )
+    policies = (
+        policy_entry.get("definitions") if isinstance(policy_entry, dict) else None
+    )
+    policy = (
+        next(
+            (
+                item
+                for item in policies
+                if isinstance(item, dict) and item.get("id") == vector.get("policy")
+            ),
+            None,
+        )
+        if isinstance(policies, list)
+        else None
+    )
+    inp = vector.get("input")
+    expect = vector.get("expect")
+    if (
+        not isinstance(policy, dict)
+        or policy.get("comparator") != "canonical-equal"
+        or not isinstance(policy.get("checks"), list)
+        or not policy["checks"]
+        or not isinstance(inp, dict)
+        or set(inp) != set(kind["input_members"])
+        or not isinstance(expect, dict)
+        or set(expect) != set(kind["expect_members"])
+        or expect.get("result") not in kind["results"]
+        or not isinstance(expect.get("checks"), list)
+    ):
+        return False
+    observation_members = cast(list[str], kind["observation_members"])
+    original = inp.get("original")
+    replay = inp.get("replay")
+    if (
+        not isinstance(original, dict)
+        or set(original) != set(observation_members)
+        or not isinstance(replay, dict)
+        or set(replay) != set(observation_members)
+    ):
+        return False
+    observed_checks = []
+    for member in observation_members:
+        key = member.replace("_", "-")
+        if key not in policy["checks"]:
+            return False
+        observed_checks.append(
+            {
+                "key": key,
+                "match": _canonical_equal(original[member], replay[member]),
+                "original": original[member],
+                "replay": replay[member],
+            }
+        )
+    matched = all(check["match"] for check in observed_checks)
+    return (
+        policy["checks"] == [check["key"] for check in observed_checks]
+        and _canonical_equal(expect["checks"], observed_checks)
+        and expect["result"] == ("matched" if matched else "mismatched")
+    )
+
+
 def _operation_relation_is_satisfied(
     operation: dict[str, Any],
     vector: dict[str, Any],
@@ -413,6 +485,10 @@ def _package_evidence_vectors_are_closed(
                 return False
             declared, observed = _exact_path_value(package, probe["path"])
             if not declared or not _canonical_equal(observed, vector.get("expect")):
+                return False
+            continue
+        if kind_id == "replay-comparison":
+            if not _replay_comparison_vector_is_closed(package, vector, kind):
                 return False
             continue
         if kind_id == "value-program":

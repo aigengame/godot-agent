@@ -1329,14 +1329,29 @@ Metric dataset. It records what ran and what was observed; it does not itself de
 (bADR-0018).
 _Avoid_: simulation result, run log, benchmark
 
+**Replay comparison policy**:
+A closed, versioned LDB policy that defines the ordered check keys and one policy-wide comparator
+for an exact Replay comparison. `standard.experiment@1.1.0` owns the initial `exact-replay-v1` at
+`language.replay_comparison_policies`. The admitted policy index is a read-only projection of that
+Package Release, not a host registry or peer authority. The exact Replay contract requires complete
+reproduction-identity equality before Runtime dispatch; this is not a caller-selectable policy mode.
+The initial policy applies `canonical-equal` to Evaluation outcome status, Event-trace identity,
+Snapshot-series identity, and Metric-dataset identity. Event-trace identity already closes the root
+Event map, terminal statuses, and Named RNG observations. A caller cannot select fields, omit
+checks, or change a comparator or tolerance. This policy is not a Portable Observation Policy and
+produces no Resolved Portable Observation Plan (bADR-0014/0018/0023).
+_Avoid_: replay options, tolerance flag, ignore list, generic JSON diff
+
 **Replay comparison**:
-An immutable artifact comparing declared observable fields across two or more Evaluation runs that
-share the same complete reproduction identity, including one identical Resolved Runtime profile.
-It binds the compared runs, replay policy, identity checks, observation checks, and any closed
-mismatch diagnostics. A successful comparison, not replay intent or a single successful run, is a
+An immutable artifact comparing one authenticated original Evaluation run with one Replay execution
+under the same complete reproduction identity, including one identical Resolved Runtime profile. It
+binds the original run, Replay policy, identities of the new observation artifacts, identity checks,
+observation checks, and any closed mismatch diagnostics. A match also binds the new Evaluation run.
+A mismatch binds the complete Replay observations without relabeling a rejected outcome as an
+Evaluation run. A successful comparison, not Replay intent or a single successful run, is a
 prerequisite for a separately issued `reproducible` Evidence assertion; the comparison is not that
-assertion and carries no embedded `reproducible` claim. Runs under different evaluator-bound profiles
-require a `Cross-evaluator comparison` instead (bADR-0014/0018).
+assertion and carries no embedded `reproducible` claim. Runs under different evaluator-bound
+profiles require a `Cross-evaluator comparison` instead (bADR-0014/0018).
 _Avoid_: replay succeeded, deterministic flag, matching logs
 
 **Observation model**:

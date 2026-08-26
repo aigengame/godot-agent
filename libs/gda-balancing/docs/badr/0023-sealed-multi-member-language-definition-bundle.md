@@ -25,6 +25,26 @@ admission boundary.
 > LDB. bADR-0024 owns the separate Package-Lock and RIR projection effects. No notation catalog enters
 > RIR, and no host notation registry or peer grammar authority is introduced.
 
+> **Amendment (2026-08-24, #545):** Replay comparison policies are ordinary sealed Package Release
+> content. The implementation advances `standard.experiment` from `1.0.0` to `1.1.0`; it does not
+> add a new package id such as `standard.comparison`. `standard.experiment@1.1.0` owns the first
+> policy, `exact-replay-v1`, at
+> `language.replay_comparison_policies`. The Kernel package contract admits a closed policy with
+> `id`, `version`, one policy-wide `comparator`, and ordered stable check keys. Complete
+> reproduction-identity equality is an exact Replay precondition, not a policy mode. The Kernel
+> includes the collection in required language members,
+> `exports.replay_comparison_policies` declares owned policy ids, semantic closure includes the
+> authority path, and admission derives one read-only index keyed by policy id. Introducing these
+> Kernel contract shapes reidentifies the Kernel, the whole LDB, and downstream exact wrappers. A
+> later policy-only change reidentifies the owning release's semantic and content identities, the
+> whole LDB, and downstream exact wrappers without changing the Kernel. The Kernel vector union adds
+> a `replay-comparison` variant that binds one policy, complete original and Replay observations,
+> and expected ordered checks and result. The package-owned vector child uses package-contract
+> vectors for structure, ownership, exports, and semantic closure; it uses `replay-comparison`
+> vectors with internally consistent observation bundles to exercise every check key and the
+> complete ordered result each bundle induces. The policy is not an independent artifact, registry,
+> or discovery source.
+
 ## Decision
 
 - **The LDB is one sealed multi-member artifact graph.** One canonical root manifest binds the
@@ -40,10 +60,10 @@ admission boundary.
   two authority JSON members: the manifest and one package-owned
   `package-conformance-vector-set`. The manifest closes exact `{id, version}` dependency
   coordinates, capabilities, types, components, operations, conversions, Diagnostics, profiles,
-  rules/bodies, resources, and a descriptor for that exact vector child. The child binds the owning
-  package id/version and closes the ordered vector id inventory and definitions, including a closed
-  empty set. The vector set is not independently versioned, selected, published, discovered, or
-  treated as a peer authority.
+  rules/bodies, Replay comparison policies, resources, and a descriptor for that exact vector child.
+  The child binds the owning package id/version and closes the ordered vector id inventory and
+  definitions, including a closed empty set. The vector set is not independently versioned,
+  selected, published, discovered, or treated as a peer authority.
 
 - **Each package has one independent physical directory.** The dot-separated package id maps to one
   hyphenated directory under `packages/`. For coordinate `game.combat@2.0.0`, the directory is
@@ -87,8 +107,9 @@ admission boundary.
 
 - **Flat language indexes are derived non-authorities.** After successful graph admission, a
   consumer may construct read-only indexes for operations, types, Diagnostics, profiles, rules,
-  schemas, and vectors. Those indexes are deterministic projections of the admitted children. They
-  are not packaged, independently hashed, edited, or consumed without graph admission.
+  schemas, Replay comparison policies, and vectors. Those indexes are deterministic projections of
+  the admitted children. They are not packaged, independently hashed, edited, or consumed without
+  graph admission.
 
 - **Public retrieval exposes the exact graph.** `schema get language-bundle` exposes the admitted
   root, Package Release manifests, and vector sets. `package list` enumerates root-declared
@@ -97,8 +118,9 @@ admission boundary.
   executions expose byte-identical members. A build fails if either declared member is absent or an
   undeclared JSON file appears in a package directory. Command success schemas close every vector
   definition's top-level shape as the Kernel-declared rule, Diagnostic, package-contract,
-  operation-contract, operation-execution, or model-program variant; an invented child object cannot
-  pass a public success schema merely because the enclosing vector set is closed.
+  operation-contract, operation-execution, model-program, or `replay-comparison` variant; an invented
+  child object cannot pass a public success schema merely because the enclosing vector set is
+  closed.
 
 - **The initial RPG tracer uses mechanic packages, not a genre umbrella.** `game.resource`,
   `game.check`, and `game.combat` own their bADR-0017 mechanics independently. The example composes

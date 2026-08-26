@@ -19,14 +19,23 @@ deterministic Runtime behavior, Evidence, publication atomicity, diagnostics, an
 outcomes remain governed by the existing bADRs. This decision changes implementation ownership and
 dependency direction, not Standard Schema semantics.
 
+> **Amendment (2026-08-24, #545):** Comparison semantics is one explicit Domain responsibility. It
+> consumes complete authenticated observation inputs and admitted LDB comparison policies, produces
+> ordered comparison facts, and independently validates each comparison. Application coordinates
+> authentication, execution, comparison, and publication without owning comparison rules. Artifact
+> policy owns set completeness and publication. Evidence validation consumes an already published
+> comparison and never produces or reinterprets it. The first Replay slice can use one cohesive
+> Domain module; it adds no layer, service locator, registry, Repository, or plug-in boundary.
+
 ## Decision
 
 - **The implementation has four layers, ordered from lowest to highest:**
   1. **Infrastructure** owns domain-neutral technical mechanisms such as bounded byte input,
      package-resource access, file locking, and atomic filesystem operations.
   2. **Domain** owns Standard Schema authority admission, the Kernel-defined canonical JSON
-     profile, and the Formula, Model, Runtime, Experiment, Evidence, Template, artifact-identity,
-     and publication rules that implement the accepted language and artifact contracts.
+     profile, and the Formula, Model, Runtime, Experiment, Comparison, Evidence, Template,
+     artifact-identity, and publication rules that implement the accepted language and artifact
+     contracts.
   3. **Application** owns end-to-end use-case orchestration. It resolves required inputs, invokes
      Domain behavior, coordinates Infrastructure operations, and returns typed results or
      refusals without knowing CLI syntax or rendering.
@@ -51,10 +60,10 @@ dependency direction, not Standard Schema semantics.
   source for CLI dispatch, help, command-schema projection, and the Surface manifest.
 
 - **Modules follow the ubiquitous language and one reason to change.** Authority, Formula, Model,
-  Runtime, Experiment/Evidence, and Template are candidate cohesive ownership areas, not a
-  predeclared internal dependency graph. Their actual boundaries are extracted and checked one
-  vertical slice at a time. Generic `common`, `shared`, catch-all artifact, and catch-all diagnostic
-  modules are prohibited because they hide ownership rather than establish it.
+  Runtime, Experiment, Comparison, Evidence, and Template are candidate cohesive ownership areas,
+  not a predeclared internal dependency graph. Their actual boundaries are extracted and checked
+  one vertical slice at a time. Generic `common`, `shared`, catch-all artifact, and catch-all
+  diagnostic modules are prohibited because they hide ownership rather than establish it.
 
 - **Downward calls are direct; upward observation creates no dependency.** Application and UI code
   call lower-layer behavior directly. Lower layers return typed results and refusals that callers

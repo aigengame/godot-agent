@@ -74,6 +74,7 @@ export GDA_BALANCING_STORE_DIR="$GDA_BALANCING_TUTORIAL_ROOT/store"
 export GDA_BALANCING_ANCHOR_KEY="$(openssl rand -hex 32)"
 export MODEL_BUILD_INVOCATION_KEY="$(openssl rand -hex 32)"
 export EXPERIMENT_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
+export EXPERIMENT_REPLAY_INVOCATION_KEY="$(openssl rand -hex 32)"
 ```
 
 Keep the anchor key stable for this store. Use a new Invocation key after you change an input.
@@ -241,7 +242,31 @@ replaces `starter_blade` with `volatile_crown`. The public Metrics are:
 - `reward_score = 80`;
 - `build_score = 90`.
 
-## 5. Tune one authored value and rerun
+## 5. Replay the exact baseline
+
+Replay the accepted baseline from its authenticated Artifact-set receipt:
+
+```bash
+export REPLAY_RESULT="$GDA_BALANCING_TUTORIAL_ROOT/replay-result.json"
+export REPLAY_COMPARISON="$GDA_BALANCING_TUTORIAL_ROOT/replay-comparison.json"
+
+uv run gda-balancing experiment replay \
+  "$BASELINE_EXPERIMENT" \
+  --original-experiment-run-artifact-set-receipt "$BASELINE_SET_RECEIPT" \
+  --out "$REPLAY_COMPARISON" \
+  --invocation-key "$EXPERIMENT_REPLAY_INVOCATION_KEY" \
+  | tee "$REPLAY_RESULT"
+
+jq '{result, policy, checks}' "$REPLAY_COMPARISON"
+```
+
+The command authenticates the complete original set, prepares the same reproduction identity,
+and dispatches the maintained Experiment through the same Runtime path as `experiment run`. The
+comparison reports `matched` for the Evaluation outcome, Event trace, Snapshot series, and Metric
+dataset. The command returns `claim_state: "candidate"`; it publishes a comparison, not an
+Evidence assertion.
+
+## 6. Tune one authored value and rerun
 
 Change only `rare_weight` from `5` to `2`. The Model, Package Lock, RIR, evaluator, seed, stream,
 option order, and build plans stay unchanged.
@@ -291,7 +316,7 @@ The RNG draw is still `3`. The lower threshold now selects `steady_guard`, and t
 replaces the slot with `steady_guard`. The Metrics change to `reward_score = 20` and
 `build_score = 30`. This change is explainable from one authored value and the unchanged draw.
 
-## 6. Change the Formula binding
+## 7. Change the Formula binding
 
 The slot has an explicit one-step resource bound. This example changes the binding without
 expanding that package contract. Add an equivalent Formula and bind the slot to it:
@@ -364,7 +389,7 @@ uv run gda-balancing experiment run \
 The exact Source, RIR, Resolved Model, Build receipt, and Experiment identities change. The Kernel,
 LDB, Package Lock, Operation slot, and evaluator dispatch do not change.
 
-## 7. Inspect failure and alternative outcomes
+## 8. Inspect failure and alternative outcomes
 
 The maintained tests drive these mutations through the public commands:
 
@@ -387,7 +412,7 @@ uv run pytest tests/test_schema2_experiment_cli.py \
 
 These cases are typed refusals or declared gameplay outcomes. They are not internal failures.
 
-## 8. Product-feedback boundary
+## 9. Product-feedback boundary
 
 This maintained example preserves the stable facts that a reader needs to understand its design:
 

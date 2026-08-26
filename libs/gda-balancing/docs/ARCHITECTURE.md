@@ -172,16 +172,18 @@ flowchart TB
             C["Model compiler"]
             X["Experiment semantics"]
             R["Runtime and evaluator"]
+            M["Comparison semantics"]
             V["Evidence validator"]
             Q["Artifact policy"]
 
             B -->|"provides admitted authority"| P
+            B -->|"provides admitted comparison policy"| M
             P -->|"provides Package Lock"| C
             C -->|"provides Resolved Model"| R
             X -->|"provides evaluation intent"| R
-            R -->|"provides evaluation facts"| V
             C -->|uses| Q
             R -->|uses| Q
+            M -->|uses| Q
             V -->|uses| Q
         end
         subgraph INF["Infrastructure"]
@@ -194,12 +196,14 @@ flowchart TB
         A -->|"invokes Model compiler"| C
         A -->|"invokes Experiment semantics"| X
         A -->|"invokes Runtime and evaluator"| R
+        A -->|"passes complete comparison inputs"| M
+        A -->|"invokes Evidence validation"| V
         A -->|"coordinates publication through Artifact policy"| Q
         B -->|"uses Input and resource access"| I
         Q -->|"uses Atomic filesystem mechanisms"| F
     end
 
-    O["Published immutable facts<br/>Resolved Model · Metric dataset · Evaluation run<br/>Evidence assertion · Locators · Receipts"]
+    O["Published immutable facts<br/>Resolved Model · Metric dataset · Evaluation run<br/>Replay comparison · Evidence assertion · Locators · Receipts"]
     S["Interface outcomes<br/>CLI envelope and channels · HTTP JSON response"]
     G["Approval Record<br/>independent governance decision"]
 
@@ -207,13 +211,14 @@ flowchart TB
     L -->|"supplies language content"| B
     H -->|supplies| U
     Q -->|publishes| O
+    O -. "supplies published comparison and prerequisites" .-> V
     U -->|renders| S
     O -. "Evidence assertion informs" .-> G
 ```
 
 The diagram omits internal representations and execution stages. Sections 5 through 10 define the
-Authoring AST, Typed HIR, RIR semantic payload, Runtime, Experiment, Evidence, and publication
-paths.
+Authoring AST, Typed HIR, RIR semantic payload, Runtime, Experiment, Comparison, Evidence, and
+publication paths.
 
 ### 3.3 Authority lifecycle and host boundaries
 
@@ -230,9 +235,10 @@ Release manifest and its vector child use one package-specific directory. The ve
 present even when it is empty.
 
 Package Releases own grammar, language types, structured rules, operations, post-admission
-diagnostics, runtime profile definitions, and normative vectors. Admission can derive read-only
-indexes. A serialized registry or directory listing is not another authority. The LDB cannot
-redefine Kernel laws. The Kernel does not contain ordinary language or game-domain evolution.
+diagnostics, runtime profile definitions, Replay comparison policies, and normative vectors.
+Admission can derive read-only indexes. A serialized registry or directory listing is not another
+authority. The LDB cannot redefine Kernel laws. The Kernel does not contain ordinary language or
+game-domain evolution.
 
 The Kernel owns package-coordinate patterns. It also owns the identity domains for the root,
 release, and evidence collections. Loaders, admission, public schemas, and rebuild tooling project
@@ -240,9 +246,9 @@ these contracts.
 
 The host loads and admits the packaged Kernel/LDB graph. It then indexes and freezes the graph. The
 host publishes the context only after these operations succeed. It stores the result in one deeply
-immutable `AdmittedAuthorityContext`. The compiler, Runtime, Experiment, Template, and CLI
-subsystems use this context. The context is a performance and ownership boundary. It is not a
-semantic authority.
+immutable `AdmittedAuthorityContext`. The compiler, Runtime, Experiment, Comparison, Evidence,
+Template, and CLI subsystems use this context. The context is a performance and ownership boundary.
+It is not a semantic authority.
 
 Explicitly injected Kernel/LDB candidates use separate contexts. They cannot change or populate the
 packaged baseline. The host caches canonical Wire-Schema meta-validation only for the actual schema
@@ -310,8 +316,12 @@ RR                 = one Resolved Runtime profile
 EIR                = one optional evaluator-private Execution IR
 D                  = one Metric dataset
 Run                = one Evaluation run
+EO                 = one Evaluation outcome: accepted or rejected
+OriginalObs        = the authenticated original Evaluation run and its complete observations
+ReplayObs          = the new Evaluation outcome and its complete observations
 RC                 = one Replay comparison
 CC                 = one Cross-evaluator comparison
+ComparisonInputs   = the published comparison artifacts supplied to one Evidence judgment
 C                  = the exact comparison artifacts required by one Evidence claim kind
 P_E                = the exact claim-specific Evidence prerequisite graph
 EA                 = one Evidence assertion
@@ -334,8 +344,8 @@ Evidence policy, and the issuer identity. `GovernanceInputs` groups the independ
 Approval policy, the human or organizational attestation, and the complete subject-identity graph.
 `EvaluatorBuild` identifies one exact evaluator implementation. `Runtime` and `Evaluator` name the
 host components that execute the admitted model. `Trace` and `Snapshots` are execution outputs.
-`ReplayPolicy` is the exact Replay comparison policy. `PortableObservationPolicy` is the exact
-LDB-owned Portable Observation Policy. `CalibrationArtifacts`, `HoldoutAssertions`, and
+`ReplayPolicy` is the exact LDB-owned Replay comparison policy. `PortableObservationPolicy` is the
+exact LDB-owned Portable Observation Policy. `CalibrationArtifacts`, `HoldoutAssertions`, and
 `DriftAssertions` are the exact claim-specific prerequisites selected under `ClaimKind`.
 
 `Seal(owner, members)` constructs one canonical, closed aggregate. The owner binds the exact,
@@ -348,8 +358,8 @@ meaning.
 
 #### 3.4.1 Compact mental model
 
-The following expressions show the end-to-end success path. They omit diagnostic and negative
-outcomes. Section 3.4.2 defines those outcomes and expands each authority boundary.
+The following expressions show the major end-to-end paths. They omit diagnostic detail and refusal
+branches. Section 3.4.2 defines those outcomes and expands each authority boundary.
 
 ```text
 # Authority admission and the frozen host context
@@ -365,20 +375,45 @@ Publish_A(AP_build, S_build, FS) ⇓ Success(Pub_build)
 # Experiment admission, Runtime admission, and execution
 (RR, D, Run) = Evaluate_A(E, RM)
 
-# Comparison, Evidence validation, and Evidence publication
-(C, S_comparison) = Compare_A(ClaimKind, <Run_i, D_i, RR_i>, ...)
-if C is not empty:
-    Publish_A(AP_comparison, S_comparison, FS) ⇓ Success(Pub_comparison)
-P_E = CloseEvidencePrerequisites_A(ClaimKind, C, ...)
-EA = ValidateAndIssueEvidence_A(EvidenceInputs, P_E)
-S_evidence = CompleteEvidenceSet_A(EA, P_E, ...)
-Publish_A(AP_evidence, S_evidence, FS) ⇓ Success(Pub_evidence)
+# Comparison publication
+OriginalObs = ValidateOriginalReplayInput_A(
+    Run_1,
+    Trace_1,
+    Snapshots_1,
+    D_1,
+    RR_1,
+)
+ReplayObs = ValidateReplayInput_A(EO_2, Trace_2, Snapshots_2, D_2, RR_2)
+RC = CompareReplay_A(
+    OriginalObs,
+    ReplayObs,
+    ReplayPolicy,
+)
+    if an exact Replay comparison is requested
+CC = CompareEvaluators_A(<Run_i, D_i, RR_i>, PortableObservationPolicy)
+    if a Cross-evaluator comparison is requested
+if RC is complete:
+    ValidateReplayComparison_A(RC, OriginalObs, ReplayObs, ReplayPolicy) ⇓ Success
+    S_replay = CompleteComparisonSet_A(RC)
+    Publish_A(AP_replay, S_replay, FS) ⇓ Success(Pub_replay)
+if CC is complete:
+    S_cross_evaluator = CompleteComparisonSet_A(CC)
+    Publish_A(AP_cross_evaluator, S_cross_evaluator, FS) ⇓ Success(Pub_cross_evaluator)
+
+# Evidence validation and Evidence publication
+if an Evidence judgment is requested:
+    C = ComparisonsRequiredBy_A(ClaimKind, ComparisonInputs)
+    P_E = CloseEvidencePrerequisites_A(ClaimKind, C, ...)
+    EA = ValidateAndIssueEvidence_A(EvidenceInputs, P_E)
+    S_evidence = CompleteEvidenceSet_A(EA, P_E, ...)
+    Publish_A(AP_evidence, S_evidence, FS) ⇓ Success(Pub_evidence)
 
 # External governance and separate Approval publication
-AR = Govern(GovernanceInputs, EA, ...)
-    # after the exact subjects and EA are published; outside host execution
-S_approval = CompleteApprovalSet_A(AR, ...)
-Publish_A(AP_approval, S_approval, FS) ⇓ Success(Pub_approval)
+if a governance decision is requested:
+    AR = Govern(GovernanceInputs, EA, ...)
+        # after the exact subjects and EA are published; outside host execution
+    S_approval = CompleteApprovalSet_A(AR, ...)
+    Publish_A(AP_approval, S_approval, FS) ⇓ Success(Pub_approval)
 
 # Host call and result flow
 Request -> UI -> Application -> Domain_A -> TypedOutcome -> UI
@@ -388,9 +423,10 @@ Domain_A -> Infrastructure
 ```
 
 `Build_A` summarizes resolution, compilation, companion generation, and complete-set assembly.
-`Evaluate_A` summarizes Experiment admission, Runtime admission, and execution. `Compare_A`
-produces the exact Replay or Cross-evaluator comparison artifacts required by `ClaimKind`; `C` is
-empty for claim kinds that require no comparison. Section 3.4.2 expands these mechanisms.
+`Evaluate_A` summarizes Experiment admission, Runtime admission, and execution. Each requested
+Replay or Cross-evaluator comparison publishes its own artifact set without issuing Evidence. If a
+later Evidence judgment is requested, `ClaimKind` selects the required published comparisons for
+`C`. It does not control comparison publication. Section 3.4.2 expands these mechanisms.
 
 #### 3.4.2 Detailed symbolic model
 
@@ -511,44 +547,70 @@ authority. `Run` records execution facts and binds `D`; neither artifact issues 
 A post-dispatch Runtime refusal produces the required terminal-audit artifact set instead of `D` or
 `Run`. An earlier refusal also produces no completed Evaluation run.
 
-**Evidence, governance, and publication are**:
+**Comparison, Evidence, governance, and publication are**:
 
 ```text
-RC = CompareReplay_A(<Run_1, D_1, RR_1>, <Run_2, D_2, RR_2>, ReplayPolicy)
-    if ClaimKind = reproducible
-CC = CompareEvaluators_A(<Run_i, D_i, RR_i>, PortableObservationPolicy)
-    if ClaimKind = cross_evaluator_conformant
-C = ComparisonsRequiredBy_A(ClaimKind, <RC, CC, ...>)
-if C is not empty:
-    S_comparison = CompleteComparisonSet_A(C)
-    Publish_A(AP_comparison, S_comparison, FS) ⇓ Success(Pub_comparison)
-
-P_E = CloseEvidencePrerequisites_A(
-    ClaimKind,
-    C,
-    CalibrationArtifacts,
-    HoldoutAssertions,
-    DriftAssertions,
-    ...,
+OriginalObs = ValidateOriginalReplayInput_A(
+    Run_1,
+    Trace_1,
+    Snapshots_1,
+    D_1,
+    RR_1,
 )
-ValidateAndIssueEvidence_A(EvidenceInputs, P_E) ⇓
-    Success(EA) | Verdict(report) | Refusal(stage, diagnostics)
-S_evidence = CompleteEvidenceSet_A(EA, P_E, ...)
-Publish_A(AP_evidence, S_evidence, FS) ⇓ Success(Pub_evidence)
+ReplayObs = ValidateReplayInput_A(EO_2, Trace_2, Snapshots_2, D_2, RR_2)
+RC = CompareReplay_A(
+    OriginalObs,
+    ReplayObs,
+    ReplayPolicy,
+)
+    if an exact Replay comparison is requested
+CC = CompareEvaluators_A(<Run_i, D_i, RR_i>, PortableObservationPolicy)
+    if a Cross-evaluator comparison is requested
+if RC is complete:
+    ValidateReplayComparison_A(RC, OriginalObs, ReplayObs, ReplayPolicy) ⇓ Success
+    S_replay = CompleteComparisonSet_A(RC)
+    Publish_A(AP_replay, S_replay, FS) ⇓ Success(Pub_replay)
+if CC is complete:
+    S_cross_evaluator = CompleteComparisonSet_A(CC)
+    Publish_A(AP_cross_evaluator, S_cross_evaluator, FS) ⇓ Success(Pub_cross_evaluator)
 
-Govern(GovernanceInputs, EA, ...) ⇓
-    Success(AR) | Verdict(report) | Refusal(stage, diagnostics)
-    # after the exact subjects and EA are published; outside host execution
-S_approval = CompleteApprovalSet_A(AR, ...)
-Publish_A(AP_approval, S_approval, FS) ⇓ Success(Pub_approval)
+if an Evidence judgment is requested:
+    C = ComparisonsRequiredBy_A(ClaimKind, ComparisonInputs)
+    P_E = CloseEvidencePrerequisites_A(
+        ClaimKind,
+        C,
+        CalibrationArtifacts,
+        HoldoutAssertions,
+        DriftAssertions,
+        ...,
+    )
+    ValidateAndIssueEvidence_A(EvidenceInputs, P_E) ⇓
+        Success(EA) | Verdict(report) | Refusal(stage, diagnostics)
+    S_evidence = CompleteEvidenceSet_A(EA, P_E, ...)
+    Publish_A(AP_evidence, S_evidence, FS) ⇓ Success(Pub_evidence)
+
+if a governance decision is requested:
+    Govern(GovernanceInputs, EA, ...) ⇓
+        Success(AR) | Verdict(report) | Refusal(stage, diagnostics)
+        # after the exact subjects and EA are published; outside host execution
+    S_approval = CompleteApprovalSet_A(AR, ...)
+    Publish_A(AP_approval, S_approval, FS) ⇓ Success(Pub_approval)
 ```
 
-Replay and Cross-evaluator comparisons are separately identified, published artifacts. They are
-Evidence inputs, not Evidence assertions. `P_E` closes the exact graph required by `ClaimKind`.
-That graph includes the applicable comparison artifacts and any required calibration, holdout, and
-drift artifacts. A comparison set is produced and published only when the exact claim contract
-requires it. The Evidence validator derives `EA` only after it validates the prerequisite graph.
-One `Run` or `D` cannot issue Evidence by itself.
+Replay and Cross-evaluator comparisons are separately identified, published artifacts. A completed
+comparison command publishes its set independently of Evidence. A later Evidence judgment can use
+that publication as an input, but the comparison is not an Evidence assertion. `P_E` closes the
+exact graph required by `ClaimKind`. That graph includes the applicable published comparison
+artifacts and any required calibration, holdout, and drift artifacts. `ClaimKind` does not decide
+whether a comparison is published. The Evidence validator derives `EA` only after it validates the
+prerequisite graph. One `Run` or `D` cannot issue Evidence by itself.
+
+Domain Comparison semantics validates `OriginalObs` and `ReplayObs`, applies the admitted
+policy, produces the ordered comparison facts, and independently validates the resulting comparison
+without a store lookup. Application passes the complete artifacts returned by original-set
+authentication and Replay execution. Artifact policy owns comparison-set completeness and
+publication. Evidence validation consumes an already published comparison and does not produce or
+reinterpret it.
 
 A person or governance system creates `AR` after the exact subject and Evidence artifacts are
 published. Governance is outside host execution and is not part of the Evidence publication
@@ -614,9 +676,9 @@ authority.
   ordering. It does not parse an external protocol, write presentation channels, build Interface
   envelopes, or own admission and Runtime semantics.
 - `domain` owns authority admission and lifecycle. It also owns the Kernel-defined canonical JSON
-  profile and the Formula, Model, Runtime, Experiment, Evidence, and Template rules. It owns
-  artifact identity and publication policy. Publication policy uses atomic filesystem mechanisms
-  directly. The host has no speculative Repository layer.
+  profile and the Formula, Model, Runtime, Experiment, Comparison, Evidence, and Template rules. It
+  owns artifact identity and publication policy. Publication policy uses atomic filesystem
+  mechanisms directly. The host has no speculative Repository layer.
 - `infrastructure` owns bounded byte input, package-resource access, distribution metadata, file
   locking, and atomic filesystem primitives. It does not select authority members. It does not
   define identity or refusal policy.
@@ -648,6 +710,7 @@ policy from domain-neutral storage mechanisms.
 | Domain | Model compiler | Parse and check source, lower it to RIR, and build exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |
 | Domain | Runtime and evaluator | Admit exact runtime capabilities and execute atomic Events | Resolved Runtime profile, Snapshots, gameplay outcomes, Refusals, and terminal-audit artifact sets |
 | Domain | Experiment semantics | Apply scenarios, inputs, Metric definitions, statistical policy, and acceptance intent | Metric datasets and Evaluation runs |
+| Domain | Comparison semantics | Validate complete comparison inputs, apply admitted comparison policies, and independently validate comparison facts | Replay comparisons, Cross-evaluator comparisons, and ordered mismatch diagnostics |
 | Domain | Evidence validation and issuance | Validate comparisons and prerequisite graphs; derive candidate/open judgments; issue assertions only after all issuance prerequisites pass | Candidate/open judgments and Evidence assertions |
 | Domain | Artifact policy | Define artifact identity, set completeness, publication, retrieval, and recovery | Artifact envelopes, Locators, and Receipts |
 | Infrastructure | Input and resource access | Read bounded input, packaged resources, and distribution metadata | Bytes, technical metadata, or explicit I/O failures |
@@ -1365,6 +1428,45 @@ their agreement is a **Cross-evaluator comparison**, not Replay. It may support 
 validated `cross_evaluator_conformant` claim but can never issue `reproducible` for a different
 profile.
 
+The #545 implementation advances `standard.experiment` from `1.0.0` to `1.1.0`; it does not add a
+new package id such as `standard.comparison`. `standard.experiment@1.1.0` owns `exact-replay-v1`
+under the Kernel-admitted `language.replay_comparison_policies` collection. One definition has `id`,
+`version`, one policy-wide `comparator`, and an ordered `checks` list of stable keys. The initial
+policy uses `canonical-equal` for these four keys:
+
+| Check key |
+| --- |
+| `evaluation-outcome-status` |
+| `event-trace-identity` |
+| `snapshot-series-identity` |
+| `metric-dataset-identity` |
+
+The exact Replay contract requires complete reproduction-identity equality before Runtime dispatch.
+This is a fixed precondition, not a policy field or caller-selectable mode. Event-trace identity
+already closes the root Event map, terminal statuses, and Named RNG observations, so the policy does
+not repeat those facts as separate checks.
+
+`exports.replay_comparison_policies` lists the policy id. The Kernel includes
+`replay_comparison_policies` in the required language members and the Package Release semantic
+closure. Introducing these Kernel contract shapes reidentifies the Kernel, the whole LDB, and
+downstream exact wrappers. A later policy-only change reidentifies the Package Release semantic and
+content identities, the whole LDB, and downstream exact wrappers without changing the Kernel. The
+Replay comparison binds the Package Release coordinate, policy id/version, and whole-LDB identity.
+The policy is not a separate published artifact.
+
+Kernel admission validates the closed definition shape, non-empty policy id and version, non-empty
+and unique check keys, fixed check order, supported policy-wide comparator, export ownership, and
+semantic-closure projection. It derives one read-only policy index keyed by id. The Kernel vector
+union adds one `replay-comparison` variant. It binds a policy id, complete original and Replay
+observations, and the expected ordered checks and result. The `standard.experiment` vector child uses
+package-contract vectors for missing, extra, duplicate, reordered, unsupported, export, and
+semantic-closure cases.
+Its `replay-comparison` vectors include a complete match and internally consistent mismatch bundles
+that exercise every check key. Each vector expects the complete ordered result induced by its
+bundle; it does not require an isolated mismatch that violates artifact bindings. Both the
+comparison producer and its independent validator must pass these vectors. No host constant,
+serialized registry, or directory scan can select the policy.
+
 Cross-evaluator comparison uses one exact LDB-owned **Portable Observation Policy**. That closed,
 versioned artifact owns the selector grammar, mandatory classes, projection/comparator mapping,
 applicable Runtime/Numeric profile scope, and deterministic closure/order algorithm. The algorithm
@@ -1715,6 +1817,57 @@ explicit external Kernel/LDB input, independent Verifier authentication, durable
 or claim aggregation. Add those capabilities when the application supplies the required authority
 and trust boundaries. Do not add download, cache, dynamic bootstrap, credential, signing,
 revocation, or aggregation mechanisms before that need exists.
+
+#### First exact Replay comparison slice
+
+Issue #545 defines the first public `experiment replay` vertical slice. The command takes one
+Experiment Specification and one authenticated Experiment-run Artifact-set receipt, plus the normal
+output locator and Invocation key. The receipt is the single anchor for the original run. The
+command does not accept a parallel list of member identities or find a run through a store scan.
+
+The initial slice accepts only an original producing outcome with an `evaluation-run` primary
+member. An Experiment Verdict or Runtime refusal is not an Evaluation run. The command returns a
+typed `evaluation` refusal for these ineligible outcomes. This boundary can change when a real
+application needs an explicit outcome-comparison contract. It is not a permanent prohibition.
+
+Replay first prepares the Evaluator Capability Manifest, Resolved Runtime profile, and Reproduction
+receipt without Event dispatch. It checks these prepared values against the original run. A mismatch
+in authority, model, Experiment, external input, seed, evaluator, or Runtime-profile identity refuses
+before dispatch. The same prepared value then enters the existing execution path, so `experiment
+run` and `experiment replay` do not own separate Runtime preparation rules.
+
+Application coordinates receipt input, original-set authentication, Replay execution, comparison,
+and publication. Domain Artifact policy authenticates the original set and returns its complete
+member map. Application passes those members and the new Replay observations directly to Domain
+Comparison semantics. The comparison owner performs no Locator or store lookup. It applies the
+admitted policy, produces the comparison, and validates every binding before Artifact policy can
+publish the declared set. Evidence validation is not part of this path.
+
+The `standard.experiment@1.1.0` Package Release owns `exact-replay-v1` under
+`language.replay_comparison_policies`. The policy fixes the ordered comparison checks. It compares the
+Evaluation outcome status (`accepted` or `rejected`), Event-trace identity, Snapshot-series identity,
+and Metric-dataset identity with one policy-wide canonical-equality comparator. The Event-trace
+contract already closes the root Event map, terminal statuses, and Named RNG observations. The
+caller cannot select fields, omit checks, or change a comparator or tolerance. The comparison tool
+uses one versioned implementation identity; this initial slice does not add a tool manifest or
+comparison plug-in system.
+
+A completed Replay comparison publishes one atomic Artifact set with the Replay comparison as its
+primary member. A match uses the success set, which also contains the new Evaluation run and its
+supporting artifacts. A mismatch uses one fixed Verdict set. It contains the comparison, Event
+trace, Snapshot series, Metric dataset, Reproduction receipt, Resolved Runtime profile, and
+Evaluator Capability Manifest from the Replay execution. It does not require an `evaluation-run` or
+`experiment-verdict` member, because those artifacts are mutually exclusive and the comparison
+already records the original and Replay outcome statuses. The original run remains a separate
+publication and is referenced by identity. A match returns success with `claim_state: candidate`.
+An observation mismatch returns a negative Verdict with the ordered mismatches. The comparison
+artifact contains no Evidence claim, and neither outcome issues `reproducible`. A post-dispatch
+Runtime refusal publishes only the existing refusal-only terminal-audit set.
+
+The initial command uses the installed package's admitted Kernel/LDB context. It does not add an
+external authority input, dynamic evaluator selection, an HTTP endpoint, or a Godot playtest path.
+These are delivery boundaries that can change when an application supplies a concrete need and the
+required authority contract.
 
 ### Gate 3 — production RPG tracer
 

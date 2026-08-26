@@ -34,6 +34,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_schema2_bootstrap_authority.py",
         "test_schema2_bootstrap_resources.py",
         "test_schema2_canonical.py",
+        "test_schema2_comparison.py",
         "test_schema2_migration_cli.py",
         "test_schema_command.py",
         "test_semantic_catalog.py",

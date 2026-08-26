@@ -1240,6 +1240,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "package_conformance_vector_set",
         "package_release",
         "package_vector",
+        "replay_comparison_policy",
         "resolution_judgment",
         "runtime_program",
         "runtime_profile_definition",

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
-from gda_balancing.domain.evidence import (
+from gda_balancing.domain.experiment_artifacts import (
     validate_experiment_artifact_set,
     validate_experiment_member,
 )

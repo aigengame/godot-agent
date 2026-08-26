@@ -84,6 +84,24 @@ class EvaluationArtifacts:
     failed_metrics: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class PreparedExperiment:
+    """One admitted Experiment and its complete pre-dispatch identity artifacts."""
+
+    checked: CheckedExperiment
+    evaluator: PublicationMember
+    resolved_runtime: PublicationMember
+    reproduction: PublicationMember
+
+    @property
+    def members(self) -> dict[str, PublicationMember]:
+        return {
+            "evaluator-capability-manifest": self.evaluator,
+            "reproduction-receipt": self.reproduction,
+            "resolved-runtime-profile": self.resolved_runtime,
+        }
+
+
 class _RuntimeExecutionFault(Exception):
     def __init__(
         self,
@@ -917,15 +935,32 @@ def _runtime_refusal_outcome(
     )
 
 
-def evaluate_experiment(
+def prepare_experiment(
     checked: CheckedExperiment,
-) -> EvaluationArtifacts | RuntimeRefusalOutcome | Schema2RefusalReport:
-    """Evaluate one checked deterministic-event Experiment without publishing."""
+) -> PreparedExperiment | Schema2RefusalReport:
+    """Bind complete reproduction identity without dispatching an Event."""
     evaluator = _evaluator_manifest(checked)
     capability_refusal = _check_evaluator_requirements(checked, evaluator)
     if capability_refusal is not None:
         return capability_refusal
     resolved_runtime = _resolved_runtime_profile(checked, evaluator)
+    reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
+    return PreparedExperiment(
+        checked=checked,
+        evaluator=evaluator,
+        resolved_runtime=resolved_runtime,
+        reproduction=reproduction,
+    )
+
+
+def evaluate_prepared_experiment(
+    prepared: PreparedExperiment,
+) -> EvaluationArtifacts | RuntimeRefusalOutcome | Schema2RefusalReport:
+    """Dispatch one prepared deterministic-event Experiment."""
+    checked = prepared.checked
+    evaluator = prepared.evaluator
+    resolved_runtime = prepared.resolved_runtime
+    reproduction = prepared.reproduction
     runtime_profile = next(
         row
         for row in checked.rir["selected_semantics"]["runtime_profiles"]
@@ -2583,7 +2618,6 @@ def evaluate_experiment(
             },
         ),
     )
-    reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
     failed_metrics = tuple(
         cast(str, sample["metric"])
         for sample in samples
@@ -2648,3 +2682,13 @@ def evaluate_experiment(
         accepted=not failed_metrics,
         failed_metrics=failed_metrics,
     )
+
+
+def evaluate_experiment(
+    checked: CheckedExperiment,
+) -> EvaluationArtifacts | RuntimeRefusalOutcome | Schema2RefusalReport:
+    """Prepare and evaluate one checked Experiment without publishing."""
+    prepared = prepare_experiment(checked)
+    if isinstance(prepared, Schema2RefusalReport):
+        return prepared
+    return evaluate_prepared_experiment(prepared)

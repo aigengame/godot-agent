@@ -69,6 +69,15 @@ _PACKAGE_VECTOR_KIND_MEMBERS = {
         "input_members",
         "required_members",
     },
+    "replay-comparison": {
+        "check_members",
+        "expect_members",
+        "id",
+        "input_members",
+        "observation_members",
+        "required_members",
+        "results",
+    },
 }
 
 
@@ -111,7 +120,13 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "resource_bounds",
         ]
         or contract.get("package_probe_roots")
-        != ["capabilities", "dependencies", "exports", "profiles"]
+        != [
+            "capabilities",
+            "dependencies",
+            "exports",
+            "profiles",
+            "semantic_closure",
+        ]
         or not isinstance(contract.get("kinds"), list)
     ):
         return False
@@ -175,6 +190,14 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "input",
             "kind",
         },
+        "replay-comparison": {
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+            "policy",
+        },
     }
     for kind_id, kind in kinds.items():
         if set(kind) != _PACKAGE_VECTOR_KIND_MEMBERS[kind_id] or kind.get(
@@ -219,6 +242,18 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
         and kinds["operation-execution"].get("rng_draw_members")
         == ["candidate_hex", "index", "stream", "value"]
         and kinds["operation-execution"].get("state_value_members") == ["name", "value"]
+        and kinds["replay-comparison"].get("input_members") == ["original", "replay"]
+        and kinds["replay-comparison"].get("observation_members")
+        == [
+            "evaluation_outcome_status",
+            "event_trace_identity",
+            "snapshot_series_identity",
+            "metric_dataset_identity",
+        ]
+        and kinds["replay-comparison"].get("expect_members") == ["checks", "result"]
+        and kinds["replay-comparison"].get("check_members")
+        == ["key", "match", "original", "replay"]
+        and kinds["replay-comparison"].get("results") == ["matched", "mismatched"]
         and kinds["value-program"].get("input_members")
         == [
             "cache",

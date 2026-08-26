@@ -30,6 +30,23 @@ append-only evidence graph.
 > Metric datasets and Evaluation/reproduction artifacts bind these trace/Snapshot/Runtime-profile
 > identities instead of copying Effect or Formula authority into evidence artifacts.
 
+> **Amendment (2026-08-24, #545):** The first public exact Replay slice accepts an authenticated
+> producing outcome whose primary member is an `evaluation-run`. An `experiment-verdict` or Runtime
+> refusal is not an Evaluation run and is not eligible for this initial Replay comparison. This is
+> an initial delivery boundary, not a permanent prohibition. A future application can define an
+> explicit outcome-comparison contract without relabeling a Verdict or refusal as an Evaluation run.
+> The Replay comparison records the complete ordered result of `exact-replay-v1`. Its first check is
+> the Evaluation outcome status: `accepted` or `rejected`. A match publishes the new Evaluation run.
+> A mismatch publishes the complete Replay observations without requiring an `evaluation-run` or
+> `experiment-verdict` member and without relabeling either outcome. The mismatch is a completed
+> negative Verdict. A match returns `claim_state: candidate` in the command result, but the
+> comparison artifact contains only comparison facts. It carries no Evidence claim.
+> `standard.experiment@1.1.0` owns `exact-replay-v1` under the Kernel-admitted
+> `language.replay_comparison_policies` collection. Domain Comparison semantics consumes the exact
+> admitted definition, complete authenticated observation inputs, and no ambient store state. It
+> produces and independently validates the Replay comparison. Artifact policy owns set publication;
+> Evidence validation only consumes an already published comparison.
+
 ## Decision
 
 - **One Metrics schema represents both simulated and observed samples.** Every Metric definition
@@ -138,14 +155,16 @@ append-only evidence graph.
   subject identity, or absent prerequisite is an `evaluation` refusal and emits no positive
   assertion.
 
-- **`reproducible` requires a Replay comparison.** The immutable comparison binds at least
-  two exact Evaluation runs with the same complete reproduction identity, including an identical
-  Resolved Runtime profile. It also binds the declared comparable fields,
-  canonicalization/tolerance policy, field-level matches/mismatches, and comparison-tool identity.
+- **`reproducible` requires a Replay comparison.** A positive comparison that is eligible for this
+  claim binds at least two exact Evaluation runs with the same complete reproduction identity,
+  including an identical Resolved Runtime profile. It also binds the ordered policy check keys, the
+  policy-wide comparator, ordered check results, and comparison-tool identity.
   One successful run, a replay request, cross-evaluator agreement, or byte-equality observed only
   inside a test cannot issue `reproducible`. The assertion is emitted only when the comparison
   completed positively and all prerequisite `resolved`/`evaluable` assertions verify; mismatch is a
-  completed negative Verdict, while missing/incompatible inputs are an `evaluation` refusal.
+  completed negative Verdict, while missing/incompatible inputs are an `evaluation` refusal. A
+  negative comparison can bind one original Evaluation run and the complete observations from a
+  Replay that ended with `rejected`; it cannot issue `reproducible`.
 
 - **Independent-evaluator agreement is a separate Evidence claim.** A Cross-evaluator comparison
   binds two or more evaluator/platform-specific Resolved Runtime profiles, their exact common Kernel
@@ -171,12 +190,14 @@ append-only evidence graph.
   therefore impossible when a required outcome, state, ordering, RNG, Effect, Metric, refusal, or
   terminal-audit observation was omitted.
 
-- **Comparison artifacts are Evidence inputs, never Evidence assertions.** Replay and
-  Cross-evaluator comparisons bind their exact runs, profiles, authorities, model, Experiment,
-  Scenario/external inputs, policy, observations, and typed result. They do not embed
-  `reproducible`, `cross_evaluator_conformant`, or another positive Evidence claim. A separate
-  Evidence-eligibility judgment validates the comparison and every prerequisite before issuing an
-  assertion; serialization success or a matching boolean cannot bypass that judgment.
+- **Comparison artifacts are Evidence inputs, never Evidence assertions.** A Replay comparison
+  binds its original Evaluation run and either the matching new Evaluation run or the complete
+  observations from a mismatch. A Cross-evaluator comparison binds its exact Evaluation runs. Both
+  comparison kinds bind the applicable profiles, authorities, model, Experiment, Scenario/external
+  inputs, policy, observations, and typed result. They do not embed `reproducible`,
+  `cross_evaluator_conformant`, or another positive Evidence claim. A separate Evidence-eligibility
+  judgment validates the comparison and every prerequisite before issuing an assertion;
+  serialization success or a matching boolean cannot bypass that judgment.
 
 - **Approval binds exact evidence.** An Approval Record references the precise Resolved Model,
   Experiment Specification, Resolved Runtime profile/evaluator, Metric datasets, Evaluation runs,

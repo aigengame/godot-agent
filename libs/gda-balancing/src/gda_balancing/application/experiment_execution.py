@@ -3,12 +3,16 @@
 from dataclasses import dataclass
 
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.evidence import runtime_terminal_audit_members
+from gda_balancing.domain.experiment_artifacts import runtime_terminal_audit_members
 from gda_balancing.domain.experiment import CheckedExperiment
 from gda_balancing.domain.publication_types import PublicationMember
 from gda_balancing.domain.runtime.execution import (
+    EvaluationArtifacts,
+    PreparedExperiment,
     RuntimeRefusalOutcome,
     evaluate_experiment,
+    evaluate_prepared_experiment,
+    prepare_experiment,
 )
 
 
@@ -38,13 +42,34 @@ class ExperimentExecutionRefusal:
 ExperimentExecutionOutcome = (
     ExperimentExecutionSuccess | ExperimentExecutionVerdict | ExperimentExecutionRefusal
 )
+PreparedExperimentExecution = PreparedExperiment
 
 
-def execute_checked_experiment(
+def prepare_checked_experiment(
     checked: CheckedExperiment,
+) -> PreparedExperimentExecution | ExperimentExecutionRefusal:
+    """Prepare complete reproduction identity without Event dispatch."""
+    prepared = prepare_experiment(checked)
+    if isinstance(prepared, Schema2RefusalReport):
+        return ExperimentExecutionRefusal(report=prepared, members={})
+    return prepared
+
+
+def execute_prepared_experiment(
+    prepared: PreparedExperimentExecution,
 ) -> ExperimentExecutionOutcome:
-    """Execute a fully admitted Experiment without filesystem publication."""
-    evaluation = evaluate_experiment(checked)
+    """Execute one prepared Experiment without filesystem publication."""
+    return _project_execution_outcome(
+        prepared.checked,
+        evaluate_prepared_experiment(prepared),
+    )
+
+
+def _project_execution_outcome(
+    checked: CheckedExperiment,
+    evaluation: EvaluationArtifacts | RuntimeRefusalOutcome | Schema2RefusalReport,
+) -> ExperimentExecutionOutcome:
+    """Project one Domain evaluation onto the shared Application outcome algebra."""
     if isinstance(evaluation, RuntimeRefusalOutcome):
         return ExperimentExecutionRefusal(
             report=evaluation.report,
@@ -58,3 +83,10 @@ def execute_checked_experiment(
         failed_metrics=evaluation.failed_metrics,
         members=evaluation.members,
     )
+
+
+def execute_checked_experiment(
+    checked: CheckedExperiment,
+) -> ExperimentExecutionOutcome:
+    """Execute through the shared prepare-then-dispatch runtime path."""
+    return _project_execution_outcome(checked, evaluate_experiment(checked))
