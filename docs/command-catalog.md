@@ -593,8 +593,11 @@ failure; `--strict` opts into a `script_failed` error for exit-code gates) plus 
 `stdout`/`stderr`. `stderr` is verbatim; `stdout` is verbatim up to a 64 KiB cap (#665,
 ADR-0031 amendment) — above it the result carries the stream's leading cap bytes while the
 COMPLETE stream spills to a named file, disclosed by three always-present fields
-(`stdout_bytes`, `stdout_truncated`, `stdout_file`), so a production-scale inspector's
-linearly-growing output bounds the envelope without losing a byte. Bounded, not summarized —
+(`stdout_bytes`, `stdout_truncated`, `stdout_file` — one machine-checked truth table,
+published in the output schema), so a production-scale inspector's linearly-growing output
+bounds the envelope without losing a byte. A spill file gda cannot write is the typed
+`stdout_spill_failed` (never an unbounded result and never a silently lost tail); read the
+projection fields, not assumptions, when consuming `stdout`. Bounded, not summarized —
 record semantics stay with the project tool. `--timeout <s>` bounds the wall clock; a run gda ends at that
 ceiling reports `launch_timeout` carrying the captured partial output, the elapsed seconds and
 a termination phase — `launched` (the engine wrote nothing at all) or `output_seen` (it was
@@ -893,14 +896,23 @@ headless is unaffected (4.4+, cross-platform).
   envelope COMPACT: every frame is still captured and written exactly as the
   default form does, but the result replaces the per-frame `frames` list with the
   aggregate `summary` (`output_dir`, filename `pattern`, frame size,
-  `total_bytes`; exactly one of the two projections is non-null,
-  required-but-nullable), so the envelope does not grow with `--frames`. The
-  dogfooding loss this bounds was located OUTSIDE gda: the exact release under
-  test and the current head both complete a 90-frame capture (up to a ~435 MB
-  single IPC reply) with the full envelope against a real engine, and the
-  reported failure boundary followed the result LINE's size, not the image
-  payload — a caller-side output-handling limit the compact envelope stays
-  under. The
+  `total_bytes` — the frame dims are the uniform size, or null when a legal
+  mid-window resize made the sequence non-uniform; exactly one of the two
+  projections is non-null, required-but-nullable, and the exactly-one rule is
+  published in the output schema), so the envelope does not grow with
+  `--frames`. What is PROVEN about the dogfooding loss (GDA-DF-021): gda's own
+  stack completes a 90-frame capture with the full envelope against a real
+  engine — on the exact release under test (gda 0.8.0) and on the current head,
+  up to ≈327 MB of PNG bytes (≈436 MB base64-expanded in the single IPC reply)
+  — and the reported observation (all PNGs present, no final JSON) itself shows
+  the reply had reached the CLI, which writes the files from it. The leading
+  BOUNDED HYPOTHESIS for the residual loss, not reproduced (the original
+  caller's automation was not re-run): a caller-side output-handling limit,
+  suggested by the failure boundary tracking the result line's size (~226 B per
+  frame entry: 30/36/48 frames ≤ ~11 KB reported good, 90 frames ≈ 20 KB lost)
+  — though those observations vary frame count and line length together, so
+  they establish correlation, not the specific cap. The compact envelope stays
+  well under any such limit either way. The
   `--await-*` predicate (shipped, #661) holds a `screen capture` game-side until
   `node.property == value` first holds — checked once per PROCESS frame, up to
   `--await-frames` (default 60, ceiling 600) — then captures at that SAME frame

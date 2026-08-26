@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0e8ad57ed36b91f657965f73bdc0b6791d2f2756b2d6bdf0d721f786f361b1a5 -->
+<!-- gda-readme-i18n: source=README.md sha256=d79443d83eb08a247b0990da4b2639352cc91a76ff9be954850f37aca13fc3fa -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -452,9 +452,13 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 的路径会让整个批次被提前拒绝并返回 `project_not_found`，同时指明文件与项目，而不是报出那一连串
 假错误；此时请用 `--project` 指定真正拥有这些文件的项目。
 
-`script run` 一次性执行一个具名项目脚本，并**将这次运行原样透传**：成功结果携带脚本自己的
+`script run` 一次性执行一个具名项目脚本，并**将这次运行透传**：成功结果携带脚本自己的
 `exit_status`（脚本有意的非零 `quit()` 是数据而不是 gda 失败——传 `--strict` 可把它变成
-`script_failed` 错误，供 shell `&&` 链使用），以及逐字捕获的 `stdout` 与 `stderr`。
+`script_failed` 错误，供 shell `&&` 链使用），以及捕获的 `stdout` 与 `stderr`。`stderr`
+逐字返回；`stdout` 在 64 KiB 以内逐字返回——超过后结果携带流的前缀字节，完整流落盘到
+`stdout_file` 命名的文件，`stdout_bytes` 与 `stdout_truncated` 始终报告完整大小与是否发生
+截断。gda 无法写出落盘文件时以类型化失败（`stdout_spill_failed`）报告，而不是返回无界结果，
+因此消费 `stdout` 时请读取这三个字段。
 `--timeout <s>` 约束这次运行的墙钟；gda 不得不终止的运行会报告 `launch_timeout`，
 **并携带截至当时捕获的部分输出**、已耗秒数与一个终止阶段。声明
 `--completion-marker <line>`——你的脚本在工作完成时打印的一行——之后，一次已出现可归因于
@@ -577,7 +581,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 | 命令 | 作用 |
 | ------- | ------------ |
 | `screen capture` | 捕获一帧视口并保存为一张 PNG。 |
-| `screen frames` | 捕获一个 N 帧的 PNG 序列。 |
+| `screen frames` | 捕获一个 N 帧的 PNG 序列（`--summary` 返回紧凑的聚合结果）。 |
 
 ### 全局 flag
 

@@ -1550,6 +1550,99 @@ def test_frames_result_carries_exactly_one_projection():
             raise AssertionError("both-null / both-set must be refused")
 
 
+def test_frames_reply_count_mismatch_is_contract_violation(monkeypatch, tmp_path):
+    # #748 review (ARC-748-F002): the reply's count and frame list are ONE
+    # claim; a drifted harness reply where they disagree is refused for BOTH
+    # result forms before any file is written.
+    reply = screen_frames_reply([_PNG_B64, _PNG_B64])
+    reply["count"] = 3
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "3",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+    assert not out_dir.exists()
+
+
+def test_frames_summary_reports_null_dims_for_a_nonuniform_sequence(
+    monkeypatch, tmp_path
+):
+    # #748 review: a mid-window viewport resize is engine-legal, so the
+    # aggregate makes the uniform-size claim only when it is TRUE — differing
+    # frame sizes report null dims, never the first frame's size as a false
+    # sequence invariant.
+    reply = screen_frames_reply([_PNG_B64, _PNG_B64])
+    reply["frames"][1]["width"] = 32  # the sequence is no longer uniform
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    aggregate = json.loads(result.stdout)["summary"]
+    assert aggregate["width"] is None and aggregate["height"] is None
+    assert aggregate["total_bytes"] == 2 * len(_PNG_1X1)
+
+
+def test_frames_xor_is_published_and_parity_held():
+    # #748 review (ARC-748-F001): the exactly-one rule the model enforces must
+    # give the SAME verdict to a standard Draft 2020-12 validator.
+    import jsonschema
+
+    schema = ScreenFramesResult.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    frame = {"path": "/tmp/f.png", "width": 1, "height": 1, "bytes": 1, "format": "png"}
+    aggregate = {
+        "output_dir": "/tmp",
+        "pattern": "frame_%04d.png",
+        "width": 1,
+        "height": 1,
+        "total_bytes": 1,
+    }
+
+    def check(frames, summary) -> bool:
+        return validator.is_valid({"count": 1, "frames": frames, "summary": summary})
+
+    assert check([frame], None)
+    assert check(None, aggregate)
+    assert not check(None, None)
+    assert not check([frame], aggregate)
+
+
 def test_frames_schema_publishes_the_summary_contract():
     schema = json.loads(
         CliRunner().invoke(app, ["screen", "frames", "--schema"]).stdout

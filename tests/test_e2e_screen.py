@@ -288,13 +288,19 @@ def test_ninety_frame_capture_completes_with_a_structured_envelope(
 ):
     # #665 AC1/AC3 (GDA-DF-021): a capture at the dogfooding failure scale must
     # END in a structured completion result (or the registered live_timeout —
-    # never silence). Root cause, established by reproduction: gda's own stack
-    # loses nothing — the exact release under test (gda 0.8.0, harness v6) and
-    # the current head both complete 90 frames x 3.6 MB (a ~435 MB single IPC
-    # reply) with the full envelope on real Godot 4.6.3. The dogfooding loss
-    # boundary followed the RESULT LINE's size (48 frames ≈ 11 KB fit, 90 ≈
-    # 20 KB lost), locating it in the caller's output handling — which is what
-    # the --summary envelope below bounds.
+    # never silence). PROVEN by reproduction: gda's own stack loses nothing —
+    # the exact release under test (gda 0.8.0, harness v6) and the current head
+    # both complete 90 frames x 3.6 MB (≈327 MB of PNG bytes, ≈436 MB
+    # base64-expanded in the single IPC reply) with the full envelope on real
+    # Godot 4.6.3; the original observation (all PNGs present, no final JSON)
+    # itself shows the reply reached the CLI, which writes the files from it.
+    # The residual loss's leading BOUNDED HYPOTHESIS — not reproduced (the
+    # original caller's automation was not re-run) — is a caller-side
+    # output-handling limit, suggested by the failure boundary tracking the
+    # result line's size (~226 B/frame entry: 30/36/48 ≤ ~11 KB good, 90 ≈
+    # 20 KB lost); those observations vary count and line length together, so
+    # they establish correlation, not the specific cap. The --summary envelope
+    # below stays well under any such limit either way.
     _scaffold(tmp_path)
     run = _runner(GDA_CMD, tmp_path)
     out_dir = tmp_path / "frames"

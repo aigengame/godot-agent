@@ -34,6 +34,7 @@ from gda.errors import (
     Failure,
     classify_launch_or_crash,
     classify_run,
+    make_failure,
     script_did_not_run_failure,
     script_exit_status_failure,
     script_outside_project_failure,
@@ -810,25 +811,98 @@ class ScriptRunParams(BaseModel):
 SCRIPT_STDOUT_CAP = 64 * 1024
 
 
-def _bounded_stdout(stdout: str) -> "tuple[str, int, bool, str | None]":
+def _script_run_result_schema_extra(schema: dict) -> None:
+    """Publish the bounded-stdout truth table into the OUTPUT schema (#748 review).
+
+    ADR-0015's one-authority rule, applied to a result model: the runtime
+    validator's cross-field rules must be visible to a standard Draft 2020-12
+    consumer too. Truncated implies a string spill file and a full-stream size
+    above the cap; untruncated implies a null spill file. (The untruncated
+    byte-count identity is value-dependent across two fields and stays
+    model-side, like the input models' one-clock rule.) A parity corpus keeps
+    validator and model agreeing.
+    """
+    schema["allOf"] = [
+        {
+            "if": {"properties": {"stdout_truncated": {"const": True}}},
+            "then": {
+                "properties": {
+                    "stdout_file": {"type": "string"},
+                    "stdout_bytes": {"exclusiveMinimum": SCRIPT_STDOUT_CAP},
+                }
+            },
+        },
+        {
+            "if": {"properties": {"stdout_truncated": {"const": False}}},
+            "then": {"properties": {"stdout_file": {"type": "null"}}},
+        },
+    ]
+
+
+def _spill_failure(exit_status: int, full_bytes: int, error: OSError) -> Failure:
+    """The typed ``stdout_spill_failed`` for a spill file gda could not write (#665).
+
+    The bound is unconditional (AC2): a stream above the cap either returns as
+    its truncated head WITH the complete stream persisted, or the operation is
+    this structured failure — never an unbounded result and never a silently
+    lost tail. The message carries the run's forensics (it DID run) and the
+    remediation: the spill lands in the platform temp dir, so point TMPDIR at a
+    writable location and re-run.
+    """
+    return make_failure(
+        "stdout_spill_failed",
+        f"the script ran (exit status {exit_status}) and printed {full_bytes} "
+        f"bytes of stdout — above the {SCRIPT_STDOUT_CAP} byte cap — but the "
+        f"complete-stream spill file could not be written ({error}); the "
+        "bounded result cannot be delivered without it. Point TMPDIR at a "
+        "writable directory and re-run",
+        "",
+    )
+
+
+def _bounded_stdout(
+    stdout: str, exit_status: int
+) -> "tuple[str, int, bool, str | None] | Failure":
     """Bound a success result's stdout (#665): (returned, full_bytes, truncated, file).
 
     At or below :data:`SCRIPT_STDOUT_CAP` the stream returns verbatim. Above it,
     the COMPLETE stream is written to a gda-named spill file and the returned
     text is the leading cap bytes, cut on a UTF-8 boundary (a multi-byte
-    character straddling the cap is dropped, never mangled). If the spill file
-    cannot be written, the FULL stream returns untruncated instead — the cap is
-    a bounding convenience and must never cost data.
+    character straddling the cap is dropped, never mangled). A spill file that
+    cannot be created OR completed is the typed ``stdout_spill_failed`` (#748
+    review: the bound is unconditional, and a post-create failure must not
+    leave a partial file or an open fd behind).
     """
     data = stdout.encode("utf-8")
     if len(data) <= SCRIPT_STDOUT_CAP:
         return stdout, len(data), False, None
     try:
         fd, spill_path = tempfile.mkstemp(prefix="gda-script-stdout-", suffix=".log")
-        with os.fdopen(fd, "wb") as spill:
-            spill.write(data)
-    except OSError:
-        return stdout, len(data), False, None
+    except OSError as error:
+        return _spill_failure(exit_status, len(data), error)
+    spill = None
+    try:
+        spill = os.fdopen(fd, "wb")
+        spill.write(data)
+        spill.close()
+    except OSError as error:
+        # Post-create failure: release what was created before failing typed —
+        # the fd (ours until fdopen takes it), then the partial file.
+        if spill is None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        else:
+            try:
+                spill.close()
+            except OSError:
+                pass
+        try:
+            os.unlink(spill_path)
+        except OSError:
+            pass
+        return _spill_failure(exit_status, len(data), error)
     # Interior bytes re-encoded from str are valid UTF-8; only the cut edge can
     # split a character, so "ignore" drops at most that one partial character.
     head = data[:SCRIPT_STDOUT_CAP].decode("utf-8", "ignore")
@@ -839,9 +913,12 @@ class ScriptRunResult(BaseModel):
     """The result of ``gda script run``: the user script's own run, passed through (ADR-0031).
 
     This is the **public promotion of the internal Raw-run shape**
-    (:class:`gda.runner.RunResult`): a THIN boundary DTO built from a ``RunResult``
-    by dropping its ``launch_failure`` axis (that becomes the Error envelope) and
-    renaming ``exit_code`` → ``exit_status``. Unlike every other command,
+    (:class:`gda.runner.RunResult`): a boundary DTO built from a ``RunResult``
+    by dropping its ``launch_failure`` axis (that becomes the Error envelope),
+    renaming ``exit_code`` → ``exit_status``, and — since #665 — BOUNDING the
+    promoted ``stdout`` at :data:`SCRIPT_STDOUT_CAP` (the command-owned bounded
+    public projection of the raw stream; the complete stream survives in the
+    spill file the result names). Unlike every other command,
     ``script run`` does not interpret the user script's semantics — a deliberate
     ``quit(1)`` is meaningful data the agent reads, not a gda failure — so this is
     the **one** command whose *success* result can carry a non-zero
@@ -885,10 +962,10 @@ class ScriptRunResult(BaseModel):
     stdout: str = Field(
         description=(
             "The script's standard output — verbatim up to the "
-            "64 KiB cap (#665): above it, this is the stream's leading cap "
-            "bytes (cut on a UTF-8 boundary) and the COMPLETE stream is at "
-            "'stdout_file'. Read 'stdout_truncated' before treating this as "
-            "the whole stream."
+            f"{SCRIPT_STDOUT_CAP // 1024} KiB cap (#665): above it, this is "
+            "the stream's leading cap bytes (cut on a UTF-8 boundary) and the "
+            "COMPLETE stream is at 'stdout_file'. Read 'stdout_truncated' "
+            "before treating this as the whole stream."
         )
     )
     stderr: str = Field(description="The script's standard error, captured verbatim.")
@@ -903,8 +980,8 @@ class ScriptRunResult(BaseModel):
     stdout_truncated: bool = Field(
         description=(
             "Whether 'stdout' is the truncated head of a stream above the "
-            "64 KiB cap (#665). False means 'stdout' IS the whole stream. "
-            "Always present."
+            f"{SCRIPT_STDOUT_CAP // 1024} KiB cap (#665). False means "
+            "'stdout' IS the whole stream. Always present."
         ),
     )
     stdout_file: str | None = Field(
@@ -922,6 +999,36 @@ class ScriptRunResult(BaseModel):
             "best-effort — the verbatim stream stays in 'stderr'."
         ),
     )
+
+    model_config = {
+        "json_schema_extra": lambda schema: _script_run_result_schema_extra(schema)
+    }
+
+    @model_validator(mode="after")
+    def _check_stdout_projection(self) -> "ScriptRunResult":
+        # The bounded-stdout truth table (#748 review): the three markers are
+        # ONE machine contract, not three independent fields. Truncated means a
+        # spill file exists and the full stream is above the cap; untruncated
+        # means no spill file and 'stdout' IS the whole stream.
+        if self.stdout_truncated:
+            if self.stdout_file is None:
+                raise ValueError(
+                    "a truncated stdout must name its complete-stream spill file."
+                )
+            if self.stdout_bytes <= SCRIPT_STDOUT_CAP:
+                raise ValueError(
+                    "a truncated stdout implies a full stream above the cap "
+                    f"({SCRIPT_STDOUT_CAP} bytes)."
+                )
+        else:
+            if self.stdout_file is not None:
+                raise ValueError("an untruncated stdout carries no spill file.")
+            if self.stdout_bytes != len(self.stdout.encode("utf-8")):
+                raise ValueError(
+                    "an untruncated stdout's byte count is the returned "
+                    "stream's own length."
+                )
+        return self
 
 
 # --- The ScriptRun operation — ``gda script run``'s user-script passthrough run
@@ -958,7 +1065,9 @@ class ScriptRunResult(BaseModel):
 #   evidence (:mod:`gda.script_errors`), never from the exit code.
 # - **the script ran to completion** — the engine exited normally
 #   (``exit_code >= 0``) → a **success** :class:`ScriptRunResult` carrying
-#   ``{exit_status, stdout, stderr, diagnostics}`` **passed through verbatim, even
+#   ``{exit_status, stdout, stderr, diagnostics}`` **passed through — stderr
+#   verbatim, stdout bounded at SCRIPT_STDOUT_CAP with the complete stream
+#   spilled to a named file (#665) — even
 #   when ``exit_status != 0``**. gda does not interpret the script's semantics: a
 #   deliberate ``quit(1)`` (e.g. an assertion-failed logic-seam test) is meaningful
 #   DATA the agent reads, not a gda failure. Under the opt-in ``--strict`` that one
@@ -1421,13 +1530,18 @@ def run_script_run_operation(
     if strict and raw.exit_code != 0:
         return script_exit_status_failure(script, raw.exit_code, raw.stdout, raw.stderr)
 
-    # The public promotion of the internal Raw run: the thin boundary DTO built by
+    # The public promotion of the internal Raw run: the boundary DTO built by
     # dropping launch_failure (lifted into the Error envelope above) and renaming
     # exit_code → exit_status, plus the parsed diagnostics. This is the one success
     # result that can be non-zero. The stdout is BOUNDED here (#665): above the
     # cap the complete stream spills to a named file and the result carries its
-    # head — the one qualification of ADR-0031's verbatim passthrough.
-    stdout, full_bytes, truncated, spill = _bounded_stdout(raw.stdout)
+    # head — the one qualification of ADR-0031's verbatim passthrough — and a
+    # spill gda cannot write is the typed stdout_spill_failed, never an
+    # unbounded result (#748 review, AC2).
+    bounded = _bounded_stdout(raw.stdout, raw.exit_code)
+    if isinstance(bounded, Failure):
+        return bounded
+    stdout, full_bytes, truncated, spill = bounded
     return ScriptRunResult(
         path=script,
         exit_status=raw.exit_code,
@@ -2403,7 +2517,13 @@ def run_script(
     an absolute path, so the two commands are not at full parity.
 
     Runs the user's own script as ``godot --headless --path <project>
-    --script <res://…>`` and returns its result verbatim (ADR-0031). This is the
+    --script <res://…>`` and passes its result through (ADR-0031): ``stderr``
+    verbatim, ``stdout`` verbatim up to a 64 KiB cap (#665) — above it the
+    result carries the stream's leading cap bytes while the COMPLETE stream is
+    written to the file named in ``stdout_file``, with ``stdout_bytes`` and
+    ``stdout_truncated`` always reporting the full size and whether truncation
+    happened; a spill file gda cannot write is the typed
+    ``stdout_spill_failed``, never an unbounded result. This is the
     ONE command whose success result can carry a non-zero ``exit_status``: gda does
     not interpret the script's semantics, so a deliberate ``quit(1)`` (e.g. an
     assertion-failed logic-seam test) is data the agent reads, not a gda failure —

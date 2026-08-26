@@ -474,7 +474,9 @@ data, not a gda failure — pass `--strict` to turn it into a `script_failed` er
 `&&` chains) plus its captured `stdout` and `stderr`. `stderr` is verbatim; `stdout` is
 verbatim up to 64 KiB — above that the result carries the stream's leading bytes and the
 complete stream spills to the file named in `stdout_file`, with `stdout_bytes` and
-`stdout_truncated` always reporting the full size and whether truncation happened. `--timeout <s>` bounds the
+`stdout_truncated` always reporting the full size and whether truncation happened. A spill
+file gda cannot write fails typed (`stdout_spill_failed`) rather than returning an
+unbounded result, so read the three fields when consuming `stdout`. `--timeout <s>` bounds the
 run's wall clock; a run gda has to end reports `launch_timeout` **with the partial output
 captured so far**, the elapsed seconds and a termination phase. Declare
 `--completion-marker <line>` — a line your script prints when its work is done — and a run

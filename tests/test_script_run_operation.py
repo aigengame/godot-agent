@@ -30,6 +30,7 @@ They are the recipe's own test surface, complementary to the e2e round-trip in
 ``tests/test_e2e_script_run.py`` (real Godot).
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -1239,9 +1240,11 @@ def test_cap_cut_lands_on_a_utf8_boundary():
     Path(outcome.stdout_file).unlink()
 
 
-def test_spill_failure_returns_the_full_stream_untruncated(monkeypatch):
-    # The cap is a bounding convenience and must never cost data: when the spill
-    # file cannot be written, the FULL stream returns untruncated.
+def test_spill_create_failure_is_the_typed_stdout_spill_failed(monkeypatch):
+    # #748 review (Spec 1): the bound is UNCONDITIONAL. A spill file gda cannot
+    # create makes the run the typed stdout_spill_failed — never an unbounded
+    # result and never a silently lost tail. The message carries the run's
+    # forensics (it DID run) and the remediation.
     import tempfile
 
     def _refuse(*args, **kwargs):
@@ -1249,10 +1252,136 @@ def test_spill_failure_returns_the_full_stream_untruncated(monkeypatch):
 
     monkeypatch.setattr(tempfile, "mkstemp", _refuse)
     big = "y" * (SCRIPT_STDOUT_CAP + 5)
+    outcome, _ = _run(RunResult(stdout=big, stderr="", exit_code=3))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "stdout_spill_failed"
+    assert "exit status 3" in outcome.error.message
+    assert str(SCRIPT_STDOUT_CAP + 5) in outcome.error.message
+    assert "TMPDIR" in outcome.error.message
+
+
+def test_post_create_spill_failure_cleans_up_and_fails_typed(monkeypatch, tmp_path):
+    # #748 review (ARC-748-F003): a failure AFTER the spill file was created
+    # must close the fd, remove the partial file, and still fail typed — no
+    # orphaned gda-script-stdout-*.log and no leaked descriptor.
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    real_fdopen = os.fdopen
+
+    def _broken_fdopen(fd, *args, **kwargs):
+        handle = real_fdopen(fd, *args, **kwargs)
+
+        class _BrokenWrite:
+            def write(self, data):
+                raise OSError("disk full mid-write")
+
+            def close(self):
+                handle.close()
+
+        return _BrokenWrite()
+
+    monkeypatch.setattr(os, "fdopen", _broken_fdopen)
+    big = "z" * (SCRIPT_STDOUT_CAP + 5)
     outcome, _ = _run(RunResult(stdout=big, stderr="", exit_code=0))
 
-    assert isinstance(outcome, ScriptRunResult)
-    assert outcome.stdout == big
-    assert outcome.stdout_truncated is False
-    assert outcome.stdout_file is None
-    assert outcome.stdout_bytes == len(big)
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "stdout_spill_failed"
+    # No partial spill file left behind.
+    assert list(tmp_path.glob("gda-script-stdout-*")) == []
+
+
+def test_result_truth_table_is_model_enforced():
+    # #748 review (ARC-748-F001): the three stdout markers are ONE contract.
+    import pydantic
+
+    def build(stdout: str, stdout_bytes: int, truncated: bool, file: "str | None"):
+        return ScriptRunResult(
+            path="res://x.gd",
+            exit_status=0,
+            stderr="",
+            diagnostics=[],
+            stdout=stdout,
+            stdout_bytes=stdout_bytes,
+            stdout_truncated=truncated,
+            stdout_file=file,
+        )
+
+    # truncated without a spill file
+    with pytest.raises(pydantic.ValidationError):
+        build("a", SCRIPT_STDOUT_CAP + 1, True, None)
+    # truncated but the full stream is not above the cap
+    with pytest.raises(pydantic.ValidationError):
+        build("a", 10, True, "/tmp/spill.log")
+    # untruncated carrying a spill file
+    with pytest.raises(pydantic.ValidationError):
+        build("a", 1, False, "/tmp/spill.log")
+    # untruncated whose byte count is not the returned stream's length
+    with pytest.raises(pydantic.ValidationError):
+        build("a", 2, False, None)
+    # the two legal rows
+    build("a", 1, False, None)
+    build("a" * 10, SCRIPT_STDOUT_CAP + 1, True, "/tmp/spill.log")
+
+
+def test_result_truth_table_is_published_and_parity_held():
+    # #748 review: a standard Draft 2020-12 validator gives the SAME verdict on
+    # the truth table the model enforces (the untruncated byte-count identity is
+    # value-dependent and stays model-side, disclosed in the schema helper).
+    import jsonschema
+
+    schema = ScriptRunResult.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+
+    def check(state: dict) -> bool:
+        doc = {
+            "path": "res://x.gd",
+            "exit_status": 0,
+            "stderr": "",
+            "diagnostics": [],
+            **state,
+        }
+        return validator.is_valid(doc)
+
+    assert check(
+        {
+            "stdout": "a",
+            "stdout_bytes": 1,
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    )
+    assert check(
+        {
+            "stdout": "a",
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    )
+    assert not check(
+        {
+            "stdout": "a",
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": True,
+            "stdout_file": None,
+        }
+    )
+    assert not check(
+        {
+            "stdout": "a",
+            "stdout_bytes": 10,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    )
+    assert not check(
+        {
+            "stdout": "a",
+            "stdout_bytes": 1,
+            "stdout_truncated": False,
+            "stdout_file": "/tmp/s.log",
+        }
+    )

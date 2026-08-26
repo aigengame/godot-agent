@@ -429,15 +429,49 @@ class ScreenFramesSummary(BaseModel):
             "(printf-style index, e.g. frame_%04d.png for indices 0..count-1)."
         )
     )
-    width: int = Field(
-        ge=0, description="The sequence's frame width in pixels (uniform per session)."
+    width: int | None = Field(
+        description=(
+            "The sequence's uniform frame width in pixels; null when the "
+            "captured frames differ in size (a legal mid-window viewport "
+            "resize) — the aggregate then makes no uniform-size claim and the "
+            "per-file sizes are on disk. Always present (required-but-nullable)."
+        )
     )
-    height: int = Field(
-        ge=0, description="The sequence's frame height in pixels (uniform per session)."
+    height: int | None = Field(
+        description=(
+            "The sequence's uniform frame height in pixels; null when the "
+            "captured frames differ in size. Always present "
+            "(required-but-nullable)."
+        )
     )
     total_bytes: int = Field(
         ge=0, description="The written sequence's total size in bytes on disk."
     )
+
+
+def _frames_result_schema_extra(schema: dict) -> None:
+    """Publish the frames-xor-summary invariant into the OUTPUT schema (#748 review).
+
+    ADR-0015's one-authority rule applied to a result model: the runtime
+    validator's exactly-one rule must be visible to a standard Draft 2020-12
+    consumer too, so a reply carrying both projections — or neither — is
+    invalid to the published contract, not only to gda's runtime. A parity
+    corpus keeps validator and model agreeing.
+    """
+    schema["oneOf"] = [
+        {
+            "properties": {
+                "frames": {"type": "array"},
+                "summary": {"type": "null"},
+            }
+        },
+        {
+            "properties": {
+                "frames": {"type": "null"},
+                "summary": {"type": "object"},
+            }
+        },
+    ]
 
 
 class ScreenFramesResult(BaseModel):
@@ -469,6 +503,10 @@ class ScreenFramesResult(BaseModel):
             "(required-but-nullable)."
         )
     )
+
+    model_config = {
+        "json_schema_extra": lambda schema: _frames_result_schema_extra(schema)
+    }
 
     @model_validator(mode="after")
     def _exactly_one_projection(self) -> "ScreenFramesResult":
@@ -557,6 +595,19 @@ class _FrameReply(BaseModel):
 class _FramesReply(BaseModel):
     count: int
     frames: list[_FrameReply]
+
+    @model_validator(mode="after")
+    def _count_matches(self) -> "_FramesReply":
+        # #748 review: the reply's count and its frame list are ONE claim, not
+        # two independent fields — a drifted harness reply where they disagree
+        # is a contract violation for BOTH result forms, refused before any
+        # file is written or any aggregate derived from either number.
+        if self.count != len(self.frames):
+            raise ValueError(
+                f"the harness reply counts {self.count} frames but carries "
+                f"{len(self.frames)}."
+            )
+        return self
 
 
 def _default_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRunner:
@@ -749,10 +800,8 @@ def run_screen_capture_operation(
 
 def run_screen_frames_operation(
     project: Optional[Path],
-    frames: int,
-    output_dir: Path,
+    params: "ScreenFramesParams",
     *,
-    summary: bool = False,
     make_runner: Optional[LiveRunnerFactory] = None,
 ) -> "ScreenFramesResult | Failure":
     """Capture a window of ``frames`` viewport frames, write each PNG, return paths.
@@ -766,10 +815,11 @@ def run_screen_frames_operation(
     completion envelope does not grow with the frame count.
     """
     runner = (make_runner or _default_runner)(None, project)
-    result = runner.run("screen-frames", {"frames": frames})
+    result = runner.run("screen-frames", {"frames": params.frames})
     reply = classify_live(result, None, _FramesReply)
     if isinstance(reply, Failure):
         return reply
+    output_dir = Path(params.output_dir)
     written: list[ScreenFrame] = []
     for index, frame in enumerate(reply.frames):
         path = output_dir / f"frame_{index:04d}.png"
@@ -783,15 +833,22 @@ def run_screen_frames_operation(
                 format=frame.format,
             )
         )
-    if summary:
+    if params.summary:
+        # The uniform-size claim is made only when it is TRUE (#748 review): a
+        # mid-window viewport resize is engine-legal, so differing frame sizes
+        # report null dims rather than promoting the first frame's size to a
+        # false sequence invariant. count == len(frames) is already enforced at
+        # the reply model, so the pattern's index range is the written range.
+        sizes = {(frame.width, frame.height) for frame in written}
+        uniform = sizes.pop() if len(sizes) == 1 else (None, None)
         return ScreenFramesResult(
             count=reply.count,
             frames=None,
             summary=ScreenFramesSummary(
                 output_dir=str(output_dir),
                 pattern="frame_%04d.png",
-                width=written[0].width if written else 0,
-                height=written[0].height if written else 0,
+                width=uniform[0],
+                height=uniform[1],
                 total_bytes=sum(frame.bytes for frame in written),
             ),
         )
@@ -876,9 +933,7 @@ def _screen_capture_recipe(params, *, project, godot):
 def _screen_frames_recipe(params, *, project, godot):
     return run_screen_frames_operation(
         project,
-        params.frames,
-        Path(params.output_dir),
-        summary=params.summary,
+        params,
         make_runner=dispatch.make_live_runner,
     )
 

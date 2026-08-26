@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0e8ad57ed36b91f657965f73bdc0b6791d2f2756b2d6bdf0d721f786f361b1a5 -->
+<!-- gda-readme-i18n: source=README.md sha256=d79443d83eb08a247b0990da4b2639352cc91a76ff9be954850f37aca13fc3fa -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -481,10 +481,16 @@ ruta *fuera* del proyecto resuelto rechaza el lote entero de entrada con
 `project_not_found`, nombrando tanto el archivo como el proyecto, en lugar de informar
 esos errores falsos; pasa `--project` con el proyecto al que pertenecen los archivos.
 
-`script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución tal
-cual**: el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de
+`script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución**:
+el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de
 cero deliberado es un dato, no un fallo de gda — pasa `--strict` para convertirlo en un error
-`script_failed` para cadenas `&&` del shell) más su `stdout` y `stderr` capturados literalmente.
+`script_failed` para cadenas `&&` del shell) más su `stdout` y `stderr` capturados. `stderr`
+se devuelve literalmente; `stdout` se devuelve literalmente hasta 64 KiB — por encima de eso
+el resultado lleva los bytes iniciales del flujo y el flujo completo se escribe en el archivo
+nombrado en `stdout_file`, con `stdout_bytes` y `stdout_truncated` informando siempre el
+tamaño completo y si hubo truncado. Un archivo de volcado que gda no puede escribir falla de
+forma tipada (`stdout_spill_failed`) en lugar de devolver un resultado sin límite, así que
+lee los tres campos al consumir `stdout`.
 `--timeout <s>` limita el reloj de pared de la ejecución; una ejecución que gda tiene que
 terminar informa `launch_timeout` **con la salida parcial capturada hasta entonces**, los
 segundos transcurridos y una fase de terminación. Declara `--completion-marker <line>` — una
@@ -613,7 +619,7 @@ de entrada.
 | Comando | Qué hace |
 | ------- | ------------ |
 | `screen capture` | Captura un frame del viewport a un PNG. |
-| `screen frames` | Captura una secuencia PNG de N frames. |
+| `screen frames` | Captura una secuencia PNG de N frames (`--summary` devuelve un resultado agregado compacto). |
 
 ### Flags globales
 
