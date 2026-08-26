@@ -65,11 +65,10 @@ def _await_schema_extra(schema: dict) -> None:
     validation and the published schema, so the model validator's cross-field
     rules must be visible to a standard Draft 2020-12 validator too: supplying
     any of the trio (non-null) requires the whole trio; the ceiling and the
-    events need the trio; the events are non-empty and process-clock only. A
-    parity corpus (tests/test_screen_commands.py) keeps validator and model
-    agreeing. One rule stays model-only, disclosed here: an event offset must
-    be INSIDE the window, a value-dependent relation across two fields that
-    Draft 2020-12 cannot state — the schema stays honestly LESS strict there.
+    events need the trio; the events are non-empty and process-clock only. The
+    imported event union publishes its scalar constraints, modifier vocabulary,
+    and shared total-window offset ceiling. A parity corpus
+    (tests/test_screen_commands.py) keeps validator and model agreeing.
     """
     scalar = {"type": ["boolean", "integer", "number", "string"]}
     trio = {
@@ -173,11 +172,13 @@ class ScreenCaptureParams(BaseModel):
             "cannot be missed by a second round trip. An event's effect is "
             "observable from the NEXT frame boundary, so leave at least one "
             "frame between the last state-changing event and the ceiling; an "
-            "offset at or beyond the ceiling still fires (the reply waits for "
-            "every declared event) but can no longer satisfy the predicate. A "
-            "declared event that fails makes the whole capture that typed "
-            "failure. Physics-clock offsets are not accepted. Needs the await "
-            "predicate."
+            "offset at or beyond the predicate ceiling still fires (the reply "
+            "waits for every declared event) but can no longer satisfy the "
+            f"predicate. Every offset remains at most {MAX_WINDOW_FRAMES - 1}, "
+            f"so the total drain stays within the shared {MAX_WINDOW_FRAMES}-frame "
+            "live-window ceiling. A declared event that fails makes the whole "
+            "capture that typed failure. Physics-clock offsets are not accepted. "
+            "Needs the await predicate."
         ),
     )
 

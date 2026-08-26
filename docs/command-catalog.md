@@ -894,9 +894,12 @@ headless is unaffected (4.4+, cross-platform).
   sequence` takes) INSIDE the same window at their process-clock `frame` offsets — the
   atomic input-and-capture form, so a 3–8-frame transient triggered by the input
   cannot be missed by a second CLI round trip; physics-clock offsets are refused. An
-  offset at or beyond the ceiling still fires — the reply waits for every declared
-  event — but can no longer satisfy the predicate, whose scan ends at the ceiling; the
-  published schema and the model accept exactly the same event set (ADR-0015). Every
+  offset at or beyond the PREDICATE ceiling still fires — the reply waits for every
+  declared event — but can no longer satisfy the predicate, whose scan ends at that
+  ceiling. Every event offset is nevertheless at most 599, so the TOTAL drain stays
+  within the shared 600-frame live-window ceiling; both limits and the modifier
+  vocabulary are published in the schema, and the schema/model event sets agree
+  (ADR-0015). Every
   declared event fires before the reply even when the predicate matches first, so no
   injected press is left held — and a declared event that FAILS makes the whole
   capture that typed failure (the capture payload is discarded, no file is written,

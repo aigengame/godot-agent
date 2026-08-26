@@ -1738,8 +1738,9 @@ def test_a_schema_client_can_validate_events_without_invoking_gda():
     # client would: validate candidate events against the EMITTED schema and get
     # the same verdict gda gives for what each kind requires and forbids. The
     # cross-field rules are a narrower claim — the mouse-button phase is published
-    # too (its own test below), while the one-clock rule, the modifier vocabulary
-    # and the window ceiling stay enforced model-side only.
+    # too (its own test below), while the one-clock rule stays model-side. The
+    # modifier vocabulary and per-event window ceiling are ordinary field
+    # constraints, so clients must see them here too.
     import jsonschema
 
     schema = _sequence_events_schema()
@@ -1759,6 +1760,8 @@ def test_a_schema_client_can_validate_events_without_invoking_gda():
     assert not check({"type": "key", "key": "A", "release": True})
     assert not check({"type": "mouse_move", "x": 1.0, "y": 2.0, "pressed": True})
     assert not check({"type": "key"})
+    assert not check({"type": "key", "key": "A", "modifiers": ["hyper"]})
+    assert not check({"type": "key", "key": "A", "frame": MAX_WINDOW_FRAMES})
 
 
 def _reject(monkeypatch, tmp_path, event: dict) -> str:

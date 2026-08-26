@@ -22,6 +22,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.commands.screen import ScreenCaptureParams, ScreenFramesParams
+from gda.models import MAX_WINDOW_FRAMES
 from gda.runner import RunResult
 from tests.support import (
     error_sentinel,
@@ -746,12 +747,10 @@ def test_await_events_refuse_the_physics_clock(monkeypatch, tmp_path):
 def test_out_of_window_event_offset_is_accepted_and_rides_the_wire(
     monkeypatch, tmp_path
 ):
-    # #743 second re-review: the offset-inside-window rule was model-only and
-    # JSON Schema cannot state it, so ADR-0015 parity removes it — the model
-    # and the published schema accept EXACTLY the same set. Semantics are
-    # documented instead: the reply waits for every declared event, so an
-    # offset at or beyond the ceiling still fires (it just cannot satisfy the
-    # predicate any more).
+    # #743 second re-review: an event may sit beyond the PREDICATE ceiling and
+    # still drain. That keeps schema/model parity without restoring the old
+    # cross-field rule; the separate per-event maximum below keeps the TOTAL
+    # serialized live window bounded.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report()
     fake = inject_live_runner(
@@ -777,6 +776,46 @@ def test_out_of_window_event_offset_is_accepted_and_rides_the_wire(
     assert params["await"]["frames"] == 10
     (event,) = params["events"]
     assert event["frame"] == 10
+
+
+def test_await_event_offset_must_fit_the_shared_total_window(monkeypatch, tmp_path):
+    # The predicate ceiling and the TOTAL drain ceiling are different: an event
+    # may sit after await_frames, but no accepted event may extend the serialized
+    # live operation beyond the repository-wide MAX_WINDOW_FRAMES bound (#223).
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_capture_reply(_PNG_B64, width=8, height=8)),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app,
+        _await_argv(
+            out,
+            _project(tmp_path),
+            "--await-frames",
+            "10",
+            "--await-events",
+            json.dumps(
+                [
+                    {
+                        "type": "key",
+                        "key": "Right",
+                        "released": True,
+                        "frame": MAX_WINDOW_FRAMES,
+                    }
+                ]
+            ),
+        ),
+    )
+
+    message = _usage_error_message(result)
+    assert str(MAX_WINDOW_FRAMES - 1) in message
+    assert fake.calls == []
 
 
 def test_await_frames_needs_the_predicate(monkeypatch, tmp_path):
@@ -837,6 +876,13 @@ def test_await_schema_publishes_the_predicate_contract():
         "KeySequenceEvent" in str(events) or "KeySequenceEvent" in key
         for key in schema["$defs"]
     )
+    event_frame = schema["$defs"]["KeySequenceEvent"]["properties"]["frame"]
+    maximums = [
+        branch["maximum"]
+        for branch in event_frame.get("anyOf", [event_frame])
+        if "maximum" in branch
+    ]
+    assert maximums == [MAX_WINDOW_FRAMES - 1]
 
 
 # --- the receipt correlation gate (#743 review, Standards 2 / Spec 2) ----------
@@ -937,10 +983,9 @@ def test_plain_capture_with_unsolicited_predicate_is_contract_violation(
 
 def test_await_schema_and_model_agree_on_the_cross_field_rules():
     # A standard Draft 2020-12 validator and the pydantic model must give the
-    # SAME verdict on the cross-field rules the model enforces. One disclosed
-    # exception (stated in the schema helper's docstring): an event offset
-    # outside the window is model-only — a value-dependent relation across two
-    # fields Draft 2020-12 cannot state.
+    # SAME verdict on the public capture contract: cross-field await rules,
+    # imported event scalar/vocabulary constraints, and both predicate and total
+    # window boundaries.
     import jsonschema
     import pydantic
 
@@ -976,6 +1021,22 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
                 "await_node": "/root/N",
                 "await_property": "p",
                 "await_value": None,
+            },
+            False,
+        ),
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_events": [
+                    {
+                        "type": "key",
+                        "key": "Right",
+                        "modifiers": ["hyper"],
+                    }
+                ],
             },
             False,
         ),
@@ -1097,6 +1158,22 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
                 "await_events": [{"type": "mouse_click", "x": 10, "y": 20}],
             },
             True,
+        ),
+        # The event may be beyond the predicate ceiling, but not beyond the
+        # shared TOTAL live-window ceiling. This keeps the drain bounded while
+        # preserving the both-accept offset-10 case below.
+        (
+            {
+                "output": "x.png",
+                "await_node": "/root/N",
+                "await_property": "p",
+                "await_value": 3,
+                "await_frames": 10,
+                "await_events": [
+                    {"type": "key", "key": "Right", "frame": MAX_WINDOW_FRAMES}
+                ],
+            },
+            False,
         ),
         # The former model-only residual, now a BOTH-ACCEPT case: the
         # offset-inside-window rule was removed for exact parity — the drain
