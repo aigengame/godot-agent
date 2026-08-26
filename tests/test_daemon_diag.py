@@ -152,11 +152,12 @@ def test_launch_session_inserts_scene_before_path_when_set(monkeypatch, tmp_path
     assert argv[argv.index("--scene") + 1] == "res://B.tscn"
     assert argv.index("--scene") < argv.index("--path")
     assert argv.index("--scene") < argv.index("--")
-    # The selector ALSO threads into the harness arg tail (the LAST arg, after the
-    # launch marker, socket, token) so the harness can verify the loaded scene.
-    assert argv[-1] == "res://B.tscn"
+    # The selector ALSO threads into the harness arg tail (after the launch
+    # marker, socket, token; the session-identity slot follows it, #660) so the
+    # harness can verify the loaded scene.
+    assert argv[-2] == "res://B.tscn"
     # The trailing selector slot sits after the `--` payload separator.
-    assert len(argv) - 1 > argv.index("--")
+    assert len(argv) - 2 > argv.index("--")
 
 
 def test_launch_session_accepts_a_uid_scene_selector(monkeypatch, tmp_path):
@@ -167,7 +168,7 @@ def test_launch_session_accepts_a_uid_scene_selector(monkeypatch, tmp_path):
 
     assert argv[argv.index("--scene") + 1] == "uid://abc123"
     assert argv.index("--scene") < argv.index("--path")
-    assert argv[-1] == "uid://abc123"
+    assert argv[-2] == "uid://abc123"
 
 
 def test_launch_session_omits_scene_by_default(monkeypatch, tmp_path):
@@ -178,8 +179,9 @@ def test_launch_session_omits_scene_by_default(monkeypatch, tmp_path):
     argv = _capture_launch_argv(monkeypatch, project)
 
     assert "--scene" not in argv
-    # The trailing harness-tail selector slot is the empty string (no selector).
-    assert argv[-1] == ""
+    # The trailing harness-tail slots are empty strings: no selector requested,
+    # and no session identity on a direct (non-daemon) launch (#660).
+    assert argv[-2] == "" and argv[-1] == ""
 
 
 # --- #278 (review): launch-time scene verification handshake ------------------

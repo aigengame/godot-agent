@@ -72,6 +72,7 @@ class SessionHandle(Protocol):
     """
 
     log_file: Optional[Path]
+    session_id: str
 
     def alive(self) -> bool: ...
 
@@ -115,6 +116,7 @@ class SessionLaunch(Protocol):
         windowed: bool = False,
         scene: Optional[str] = None,
         diagnostics: Optional[list[str]] = None,
+        session_id: str = "",
     ) -> Optional[SessionHandle]: ...
 
 
@@ -236,7 +238,19 @@ class DaemonServer:
             # `windowed` lets `gda daemon status` report the daemon's launch-time
             # display mode (#251): the running daemon is the only authority for the
             # mode it was started with, so it travels back on the control reply.
-            return {"ok": True, "pid": os.getpid(), "windowed": self.windowed}
+            # `session_id` (#660) is the identity of the session this daemon most
+            # recently launched — reported ALIVE OR DEAD, like the log ops serve a
+            # dead session's log, so a capture receipt from a session that then
+            # crashed stays correlatable until a relaunch replaces it; null before
+            # the first launch this daemon lifetime.
+            return {
+                "ok": True,
+                "pid": os.getpid(),
+                "windowed": self.windowed,
+                "session_id": (
+                    self._session.session_id if self._session is not None else None
+                ),
+            }
         if op == STOP_OP:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}
@@ -477,6 +491,13 @@ class DaemonServer:
             self.paths.harness_socket,
             self._token,
             log_file=self.paths.session_log,
+            # The session's identity (#660), minted HERE — the daemon is the
+            # authority for what it launches — and handed to the launch so the
+            # harness can stamp it into capture receipts while `daemon status`
+            # reports the same value from the held session. One mint per launch:
+            # a relaunch is a NEW identity, which is exactly what makes a receipt
+            # from a stale session detectable.
+            session_id=secrets.token_hex(8),
             # The caller's own deadline (#657 `daemon wait-ready --timeout`, #725
             # re-review), not a duration derived from it: the launcher spends what
             # is left of THIS instant on the spawn, the connect, the handshake

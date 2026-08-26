@@ -85,6 +85,10 @@ var _daemon_launched := false
 # and sends the result as the second handshake frame; _scene_verified gates serving
 # ops until that frame is sent (so a mismatch is caught before any op runs).
 var _requested_scene := ""
+# The daemon-minted Engine-session identity (#660), or "" when the launcher
+# predates it. Fixed for this run's lifetime; stamped into every capture
+# receipt so the image correlates with `gda daemon status`'s session_id.
+var _session_id := ""
 var _scene_verified := false
 var _verify_frames := 0
 var _pending = null
@@ -162,6 +166,10 @@ func _ready() -> void:
 	# The requested scene selector (#278) follows the token; "" (or absent) = none.
 	if idx + 3 < user_args.size():
 		_requested_scene = user_args[idx + 3]
+	# The daemon-minted session identity (#660) follows the selector; "" (or
+	# absent, from a launcher that predates it) = none.
+	if idx + 4 < user_args.size():
+		_session_id = user_args[idx + 4]
 
 	var peer := StreamPeerUDS.new()
 	peer.big_endian = true
@@ -1285,6 +1293,52 @@ func _capture_frame() -> Dictionary:
 	}
 
 
+# The capture receipt (#660, GDA-DF-026/031): the engine-side identity facts that
+# bind ONE captured image to the session, scene, and frame it came from, read at
+# the SAME frame boundary as the pixels. `session_id` is the daemon-minted
+# identity from the launch tail ("" from a launcher that predates it);
+# `scene_path` is the scene the session is PRESENTING at this boundary — the
+# launched scene unless the game switched scenes, in which case the presented one
+# is the truthful binding for the image; `scene_uid` is that scene file's own
+# uid:// as its header declares it (`_scene_header_uid`), so a gda-authored scene
+# (which carries none, ADR-0036) reports null; `observed` is the predicate echo
+# for a gated capture (null on a plain one — the CLI refuses an unsolicited
+# echo). The CLI adds the output hash after writing the file.
+func _capture_receipt(observed: Variant) -> Dictionary:
+	var current: Node = get_tree().current_scene
+	var scene_path := String(current.scene_file_path) if current != null else ""
+	return {
+		"session_id": _session_id,
+		"scene_path": scene_path,
+		"scene_uid": _scene_header_uid(scene_path),
+		"engine_frame": Engine.get_process_frames(),
+		"observed": observed,
+	}
+
+
+# The scene file's own uid:// identity, as the FILE HEADER declares it (#660;
+# ADR-0036's read side: "the project provides one" means the header carries it).
+# `ResourceLoader.get_resource_uid` cannot serve here: outside the editor it
+# consults only the runtime UID registry (core/io/resource_loader.cpp), which an
+# editor-never-opened project has no `.godot/uid_cache.bin` to fill — so read
+# the same header attribute the engine's TEXT loader reads in editor mode
+# (`ResourceFormatLoaderText::get_resource_uid`). Text scene formats only;
+# anything else — including a header without the attribute — reports null.
+func _scene_header_uid(scene_path: String) -> Variant:
+	if not (scene_path.ends_with(".tscn") or scene_path.ends_with(".tres")):
+		return null
+	var file := FileAccess.open(scene_path, FileAccess.READ)
+	if file == null:
+		return null
+	var header := file.get_line()
+	file.close()
+	var pattern := RegEx.new()
+	if pattern.compile("\\buid=\"(uid://[a-z0-9]+)\"") != OK:
+		return null
+	var found := pattern.search(header)
+	return found.get_string(1) if found != null else null
+
+
 # screen capture: capture ONE viewport frame, returned as a base64 PNG + dims (the
 # CLI writes the file). A 1-frame window so the capture lands on a _process tick
 # after the scene is up and a frame has rendered (the GPU-timing fix). A headless
@@ -1301,6 +1355,10 @@ func _handle_screen_capture(params: Dictionary) -> Variant:
 		var frame := _capture_frame()
 		if frame.has("error"):
 			return frame  # abort the window with the typed error envelope
+		# The receipt is built INSIDE the sample (#660), at the same frame
+		# boundary the pixels were read at, so its engine_frame is the frame
+		# the image presents. A plain capture echoes no predicate (null).
+		frame["receipt"] = _capture_receipt(null)
 		return frame
 	var finalize := func(samples: Array) -> String:
 		# A 1-frame window: the single sample is the captured frame, returned flat.
@@ -1414,6 +1472,12 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 							"engine_frame": Engine.get_process_frames(),
 							"frames_waited": current,
 						}
+						# Same tick as the evaluation and the pixels (#660), so
+						# the receipt's engine_frame IS the evaluation frame and
+						# its echo IS the predicate's — the CLI refuses a reply
+						# where the two disagree.
+						captured["receipt"] = _capture_receipt(
+								_predicate_echo(observed))
 						state["outcome"] = {"complete": captured}
 				elif current + 1 >= frames:
 					state["outcome"] = {"error": {

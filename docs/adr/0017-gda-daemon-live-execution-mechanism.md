@@ -243,6 +243,32 @@ headless.
 > path too). The one-shot RPC shape is unchanged: still exactly one reply per
 > request.
 
+> **Amendment (2026-08-26, #660) — every Engine session has a daemon-minted
+> identity, and a capture carries an evidence receipt bound to it.** gda had no
+> session identifier: an image could be a valid PNG while belonging to a stale
+> session or the wrong scene state, and nothing outside the capture result could
+> say which session produced it (GDA-DF-026/GDA-DF-031). Now the daemon — the
+> authority for what it launches — mints an opaque `session_id` per session
+> launch and hands it down the existing harness launch tail (after the scene
+> selector; positional and bounds-checked, so an older harness ignores it during
+> a transient skew). The identity is **bound to the session's lifetime**: stable
+> while the session serves, reported by `daemon status` even after the session
+> dies (the same alive-or-dead window the log ops serve a crashed session's log
+> in), and replaced only by the relaunch that replaces the session — which is
+> exactly what makes evidence from a stale session detectable.
+>
+> On this identity rides the **capture receipt**: every `screen capture` result
+> carries `{session_id, scene_path, scene_uid, engine_frame, observed, sha256}`,
+> the engine-side facts read at the SAME frame boundary as the pixels (the scene
+> the session is presenting, its own uid:// only when the project's file header
+> provides one — ADR-0036's read-uid asymmetry — and, for a gated capture, the
+> predicate's observed value at that frame), plus the CLI-computed SHA-256 of
+> exactly the bytes it wrote. The CLI refuses — as `contract_violation`, before
+> writing the file — a reply whose receipt is missing (a version-skewed
+> harness), echoes an observation no predicate asked for, or disagrees with the
+> predicate report it rides beside. The receipt is unconditional; existing
+> capture fields are unchanged.
+
 ## Considered options
 
 - **Attach to a human-opened editor via an EditorPlugin (godot-mcp-pro's model)** —

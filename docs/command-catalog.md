@@ -917,6 +917,19 @@ headless is unaffected (4.4+, cross-platform).
   ceiling); and a game that updates a visual one frame after the property it gates on
   trails by that game-side frame — gate on the visual's own property when exact
   pixels matter.
+  Every `screen capture` result also carries an evidence **receipt** (shipped, #660;
+  ADR-0017 amendment): `{session_id, scene_path, scene_uid, engine_frame, observed,
+  sha256}`. The engine-side facts are read at the SAME frame boundary as the pixels —
+  the scene the session is presenting (its own `uid://` only when the project's file
+  header provides one, ADR-0036; gda-authored scenes report null) and the absolute
+  process frame the image presents — while `session_id` is the daemon-minted engine
+  session identity that `gda daemon status` reports (a relaunch mints a new one, so a
+  receipt from a stale session is detectable by the mismatch) and `sha256` is
+  computed CLI-side over exactly the bytes written to `--output`. A gated capture's
+  receipt additionally echoes the predicate's `observed` value at that same frame, so
+  the receipt alone is complete evidence; a reply whose receipt is missing, echoes an
+  observation no predicate asked for, or disagrees with the predicate report beside
+  it is refused as `contract_violation` before any file is written.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
   monitor --property … --frames N` / `--signal … --frames N` collects a per-frame
@@ -992,7 +1005,12 @@ headless is unaffected (4.4+, cross-platform).
   false`, nothing relaunched). A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
   late reply can no longer be attributed — and the next operation that requires a session
-  relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon start --windowed` additionally
+  relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon status`
+  also reports `session_id` (#660): the daemon-minted identity of the session it most
+  recently launched — stable for that session's lifetime, reported for a dead session
+  too (mirroring how the log ops keep a crashed session diagnosable) until a relaunch
+  mints a new one, and the value a `screen capture` receipt's `session_id` correlates
+  with; null before the first launch this daemon lifetime. `daemon start --windowed` additionally
   requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
   `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two
