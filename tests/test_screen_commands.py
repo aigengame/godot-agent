@@ -1068,6 +1068,24 @@ def test_capture_reply_without_a_receipt_is_contract_violation(monkeypatch, tmp_
     assert not out.exists()
 
 
+def test_receipt_missing_a_nullable_key_is_contract_violation(monkeypatch, tmp_path):
+    # The nullable keys are required on the wire too (#746 review): the harness
+    # always sends them, so a reply that omits one is shape drift, refused like
+    # a missing receipt.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    del reply["receipt"]["scene_uid"]
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+    assert not out.exists()
+
+
 def test_plain_capture_receipt_with_unsolicited_echo_is_contract_violation(
     monkeypatch, tmp_path
 ):
@@ -1152,9 +1170,17 @@ def test_capture_schema_publishes_the_receipt_contract():
         "observed",
         "sha256",
     } <= set(receipt_def["properties"])
-    assert {"session_id", "scene_path", "engine_frame", "sha256"} <= set(
-        receipt_def["required"]
-    )
+    # Required-but-nullable (#746 review): the nullable keys are ALWAYS carried,
+    # so a standard consumer sees every field required — null is a value, not an
+    # omitted key.
+    assert set(receipt_def["required"]) == {
+        "session_id",
+        "scene_path",
+        "scene_uid",
+        "engine_frame",
+        "observed",
+        "sha256",
+    }
 
 
 # --- schema/model parity (#743 review, Standards 1; ADR-0015) ------------------

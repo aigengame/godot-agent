@@ -263,15 +263,17 @@ class CaptureReceipt(BaseModel):
     """The capture's evidence receipt (#660, GDA-DF-026/GDA-DF-031).
 
     Binds one captured image to the capture event in a single result, so a
-    downstream consumer can verify the join without re-reading game state or
-    hashing files itself: the ``session_id`` correlates with ``gda daemon
-    status`` (stable for one `Engine session`, minted anew per relaunch — a
-    receipt from a stale session is detectable by the mismatch); ``scene_path``
-    /``scene_uid`` name the scene the session was PRESENTING at the capture
-    boundary; ``engine_frame`` is the frame the pixels belong to; ``sha256``
-    is the hash of the bytes gda wrote to ``path``. For a gated capture the
-    receipt also echoes the predicate's ``observed`` value — evaluated at this
-    same ``engine_frame`` — so the receipt alone carries the state evidence.
+    downstream consumer can verify the join without hashing files itself: the
+    ``session_id`` correlates with ``gda daemon status`` (stable for one
+    `Engine session`, minted anew per relaunch — a receipt from a stale
+    session is detectable by the mismatch); ``scene_path``/``scene_uid`` are
+    the LAUNCHED scene's identity (#660); ``engine_frame`` is the frame the
+    pixels belong to; ``sha256`` is the hash of the bytes gda wrote to
+    ``path``. For a gated capture the receipt also echoes the predicate's
+    ``observed`` value at that same frame; the full predicate evidence (node,
+    property, expected) lives in the sibling ``predicate`` report, so a gated
+    capture's complete evidence is the pair, receipt + predicate report.
+    Every key is always present (required-but-nullable where null is a value).
     """
 
     session_id: str = Field(
@@ -284,17 +286,18 @@ class CaptureReceipt(BaseModel):
     )
     scene_path: str = Field(
         description=(
-            "The res:// path of the scene the session was presenting at the "
-            "capture boundary — the launched scene unless the game switched "
-            "scenes. Empty for a session presenting no scene."
+            "The res:// path of the scene the session LAUNCHED — the same "
+            "value the daemon verified at the session handshake (a launch "
+            "fact, not a per-frame claim: a game that switches scenes "
+            "mid-session still receipts under its launched scene). Empty for "
+            "a session that loaded no scene."
         ),
     )
     scene_uid: str | None = Field(
-        default=None,
         description=(
-            "That scene file's own uid:// identity, when the project provides "
-            "one; null for a scene without a uid header — gda-authored scenes "
-            "carry none (ADR-0036)."
+            "The launched scene FILE's own uid:// identity, as its header "
+            "declares it; null for a scene without a uid header — "
+            "gda-authored scenes carry none (ADR-0036). Always present."
         ),
     )
     engine_frame: int = Field(
@@ -306,12 +309,10 @@ class CaptureReceipt(BaseModel):
         ),
     )
     observed: "bool | int | float | str | None" = Field(
-        default=None,
         description=(
             "The predicate echo for a gated capture: the observed value the "
             "predicate matched, evaluated at engine_frame (identical to "
-            "predicate.observed — the receipt carries it so it is complete "
-            "evidence on its own). Null on a plain capture."
+            "predicate.observed). Null on a plain capture. Always present."
         ),
     )
     sha256: str = Field(
@@ -459,12 +460,14 @@ class _ReceiptReply(BaseModel):
     # The harness-side half of the receipt (#660); the CLI adds sha256 after
     # writing the file. `session_id` is required non-empty: every daemon-launched
     # session has one, so a reply without it is a version-skewed or drifted
-    # harness — a contract violation, not a capture to trust.
+    # harness — a contract violation, not a capture to trust. The nullable keys
+    # are REQUIRED too (the harness always sends them), mirroring the public
+    # model's required-but-nullable contract (#746 review).
     session_id: str = Field(min_length=1)
     scene_path: str
-    scene_uid: "str | None" = None
+    scene_uid: "str | None"
     engine_frame: int = Field(ge=0)
-    observed: "bool | int | float | str | None" = None
+    observed: "bool | int | float | str | None"
 
 
 class _CaptureReply(BaseModel):
@@ -891,11 +894,11 @@ def screen_capture(
 
     Every result carries an evidence receipt (#660) binding the image to its
     capture event: the engine session's identity (the same `session_id` that
-    `gda daemon status` reports; a relaunch mints a new one), the scene the
-    session was presenting at the capture boundary (with its uid:// only when
-    the project provides one), the engine frame the pixels belong to, and the
-    written file's SHA-256. A gated capture's receipt also echoes the
-    predicate's observed value at that same frame.
+    `gda daemon status` reports; a new session mints a new one), the LAUNCHED
+    scene's path and header uid (uid null when the project provides none), the
+    engine frame the pixels belong to, and the written file's SHA-256. A gated
+    capture's receipt also echoes the predicate's observed value at that same
+    frame; the full predicate evidence is the sibling `predicate` report.
 
     The `--await-*` predicate (#661) holds the capture game-side until
     `node.property == value` first holds (checked once per process frame, up to

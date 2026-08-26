@@ -592,6 +592,56 @@ def test_status_reports_the_minted_session_identity_across_the_lifecycle(
     assert second != first
 
 
+def test_a_failed_replacement_launch_retains_the_last_established_identity(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #746 review ARC-746-001: retirement drops the session OBJECT before the
+    # replacement launch, so the identity must live in a read model written only
+    # on success — a failed replacement replaces nothing and must not erase the
+    # identity `daemon status` promised to keep readable until replacement.
+    minted: list = []
+    sessions: list = []
+
+    class _Mortal(_ServedSession):
+        def __init__(self, session_id: str) -> None:
+            super().__init__(session_id)
+            self.dead = False
+
+        def alive(self) -> bool:
+            return not self.dead
+
+    def _launch(*args, **kwargs):
+        minted.append(kwargs["session_id"])
+        if len(minted) == 2:
+            return None  # the replacement launch FAILS
+        session = _Mortal(kwargs["session_id"])
+        sessions.append(session)
+        return session
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        _request(paths, {"op": "game-tree", "params": {}})  # establish
+        sessions[0].dead = True
+        failed = _request(paths, {"op": "game-tree", "params": {}})  # fails
+        retained = _request(paths, {"op": "__status__"})
+        recovered = _request(paths, {"op": "game-tree", "params": {}})  # succeeds
+        replaced = _request(paths, {"op": "__status__"})
+
+    assert failed is not None
+    assert (
+        parse_result(failed["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+    assert len(minted) == 3
+    # dead -> failed replacement -> the OLD identity is retained...
+    assert retained is not None and retained["session_id"] == minted[0]
+    # ...and only the successful replacement publishes the new one.
+    assert recovered is not None and recovered["stdout"] == "served:game-tree"
+    assert replaced is not None and replaced["session_id"] == minted[2]
+    assert replaced["session_id"] != minted[0]
+
+
 def test_launch_session_places_the_identity_on_the_harness_tail(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):

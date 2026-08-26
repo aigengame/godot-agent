@@ -254,20 +254,29 @@ headless.
 > a transient skew). The identity is **bound to the session's lifetime**: stable
 > while the session serves, reported by `daemon status` even after the session
 > dies (the same alive-or-dead window the log ops serve a crashed session's log
-> in), and replaced only by the relaunch that replaces the session — which is
+> in), and replaced only when a NEW session is successfully established — a
+> failed replacement launch replaces nothing, so the last established identity
+> stays readable (the daemon keeps it as a read model beside the session object,
+> written only on a successful launch). A new identity per establishment is
 > exactly what makes evidence from a stale session detectable.
 >
 > On this identity rides the **capture receipt**: every `screen capture` result
-> carries `{session_id, scene_path, scene_uid, engine_frame, observed, sha256}`,
-> the engine-side facts read at the SAME frame boundary as the pixels (the scene
-> the session is presenting, its own uid:// only when the project's file header
-> provides one — ADR-0036's read-uid asymmetry — and, for a gated capture, the
-> predicate's observed value at that frame), plus the CLI-computed SHA-256 of
-> exactly the bytes it wrote. The CLI refuses — as `contract_violation`, before
-> writing the file — a reply whose receipt is missing (a version-skewed
-> harness), echoes an observation no predicate asked for, or disagrees with the
-> predicate report it rides beside. The receipt is unconditional; existing
-> capture fields are unchanged.
+> carries `{session_id, scene_path, scene_uid, engine_frame, observed, sha256}`
+> — every key always present, the nullable ones required-but-nullable in the
+> published schema. `scene_path`/`scene_uid` are the **launched** scene's
+> identity per #660 — remembered at the handshake's scene verification, the
+> same value the daemon verified; a launch fact, not a claim about what an
+> individual frame presents — with the uid read from the scene FILE's header
+> (ADR-0036's read-uid asymmetry: null when the project provides none).
+> `engine_frame` is read at the SAME frame boundary as the pixels, and a gated
+> capture's receipt echoes the predicate's observed value at that frame (the
+> full predicate evidence — node, property, expected — is the sibling
+> `predicate` report; the pair is the gated capture's complete evidence).
+> `sha256` is the CLI-computed hash of exactly the bytes it wrote. The CLI
+> refuses — as `contract_violation`, before writing the file — a reply whose
+> receipt is missing (a version-skewed harness), echoes an observation no
+> predicate asked for, or disagrees with the predicate report it rides beside.
+> The receipt is unconditional; existing capture fields are unchanged.
 
 ## Considered options
 

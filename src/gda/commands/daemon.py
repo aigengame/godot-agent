@@ -209,14 +209,16 @@ class DaemonStatusResult(BaseModel):
         ),
     )
     session_id: str | None = Field(
-        default=None,
+        min_length=1,
         description=(
-            "The identity of the engine session this daemon most recently "
-            "launched (#660): minted per launch, stable for the session's "
+            "The identity of the last engine session this daemon SUCCESSFULLY "
+            "established (#660): minted per launch, stable for the session's "
             "lifetime, and the value a `screen capture` receipt's session_id "
             "correlates with. Reported for a dead session too — like the log "
-            "ops keep a crashed session diagnosable — until a relaunch mints a "
-            "new one. **null** when no session was launched this daemon "
+            "ops keep a crashed session diagnosable — and retained across a "
+            "FAILED replacement launch (nothing replaced the session it names) "
+            "until a new session is established. Always present, non-empty "
+            "when set; **null** when no session was established this daemon "
             "lifetime, no daemon is running, or the STATUS_OP round trip "
             "missed transiently."
         ),

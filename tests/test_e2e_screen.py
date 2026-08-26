@@ -117,7 +117,7 @@ def test_windowed_daemon_captures_a_single_viewport_frame(tmp_path, daemon_runti
         # No --inline -> no base64 embedded (the default small reply).
         assert doc.get("inline") is None
         # The evidence receipt (#660): the real harness binds the image to the
-        # session, the presented scene (uid-less: gda-authored, ADR-0036), the
+        # session, the launched scene (uid-less: gda-authored, ADR-0036), the
         # engine frame, and the exact bytes on disk.
         import hashlib
 
@@ -165,17 +165,26 @@ def test_windowed_daemon_inline_embeds_the_base64(tmp_path, daemon_runtime_dir):
 
 @pytest.mark.e2e
 @_needs_display
+@pytest.mark.parametrize(
+    "header",
+    [
+        '[gd_scene format=3 uid="uid://c4qn8xbhw6kmv"]',
+        # Whitespace around `=` is a legal, engine-preserved header form the
+        # parse must accept too (#746 review Spec 2).
+        '[gd_scene format=3 uid = "uid://c4qn8xbhw6kmv"]',
+    ],
+    ids=["plain", "spaced-equals"],
+)
 def test_capture_receipt_reports_the_scene_uid_the_project_provides(
-    tmp_path, daemon_runtime_dir
+    tmp_path, daemon_runtime_dir, header
 ):
     # The uid arm of the receipt (#660, ADR-0036 read-uid asymmetry): a scene
     # whose FILE HEADER carries a uid (as every editor-authored scene does)
-    # reports it — the engine's text loader reads it straight from the header,
-    # no `.godot/` cache needed. The uid-less arm is the single-frame test above.
+    # reports it — read from the header itself, no `.godot/` cache needed. The
+    # uid-less arm is the single-frame test above.
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(
-        '[gd_scene format=3 uid="uid://c4qn8xbhw6kmv"]\n\n'
-        '[node name="Main" type="Node2D"]\n',
+        f'{header}\n\n[node name="Main" type="Node2D"]\n',
         encoding="utf-8",
     )
     run = _runner(GDA_CMD, tmp_path)
@@ -187,6 +196,54 @@ def test_capture_receipt_reports_the_scene_uid_the_project_provides(
         receipt = json.loads(cap.stdout)["receipt"]
         assert receipt["scene_path"] == "res://main.tscn"
         assert receipt["scene_uid"] == "uid://c4qn8xbhw6kmv"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_capture_receipt_names_the_launched_scene_after_a_scene_switch(
+    tmp_path, daemon_runtime_dir
+):
+    # #660's authoritative semantics (#746 review Spec 1): the receipt's scene
+    # fields are the LAUNCHED scene — a session launch fact — so a game that
+    # switches scenes mid-session still receipts under the scene it launched.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(
+        "extends Node2D\n"
+        "var _frames := 0\n"
+        "func _process(_delta: float) -> void:\n"
+        "\t_frames += 1\n"
+        "\tif _frames == 5:\n"
+        '\t\tget_tree().change_scene_to_file("res://other.tscn")\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "main.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://main.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "other.tscn").write_text(
+        '[gd_scene format=3]\n\n[node name="Other" type="Node2D"]\n',
+        encoding="utf-8",
+    )
+    run = _runner(GDA_CMD, tmp_path)
+    out = tmp_path / "shot.png"
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        # Establish the session, then give the game time to switch scenes.
+        ready = run("daemon", "wait-ready")
+        assert ready.returncode == 0, ready.stdout + ready.stderr
+        tree = run("game", "tree")  # a round trip AFTER the switch frame
+        assert '"Other"' in tree.stdout, tree.stdout
+        cap = assert_windowed_ok(run("screen", "capture", "--output", str(out)))
+        receipt = json.loads(cap.stdout)["receipt"]
+        # The game now presents res://other.tscn; the receipt still names the
+        # launched scene — the session identity the issue binds evidence to.
+        assert receipt["scene_path"] == "res://main.tscn"
     finally:
         run("daemon", "stop")
 

@@ -89,6 +89,12 @@ var _requested_scene := ""
 # predates it. Fixed for this run's lifetime; stamped into every capture
 # receipt so the image correlates with `gda daemon status`'s session_id.
 var _session_id := ""
+# The LAUNCHED scene's identity (#660): the path the session verified at the
+# handshake and that scene file's own header uid, read once at verification —
+# the receipt reports the session's launch fact, per issue #660, not the scene
+# a later frame happens to present.
+var _launched_scene_path := ""
+var _launched_scene_uid: Variant = null
 var _scene_verified := false
 var _verify_frames := 0
 var _pending = null
@@ -254,6 +260,12 @@ func _send_scene_verification() -> void:
 	var ok := true
 	if not _requested_scene.is_empty():
 		ok = _scene_matches(_requested_scene, current_path)
+	# Remember the LAUNCHED scene's identity for capture receipts (#660, PR #746
+	# review): the receipt's scene fields are the session's launch fact per the
+	# issue, not a per-frame claim — so they are read ONCE here, at the same
+	# moment the daemon verifies the scene, never re-derived at capture time.
+	_launched_scene_path = current_path
+	_launched_scene_uid = _scene_header_uid(current_path)
 	var frame := {"scene_ok": ok, "current": current_path}
 	_send_frame(JSON.stringify(frame).to_utf8_buffer())
 
@@ -1294,23 +1306,22 @@ func _capture_frame() -> Dictionary:
 
 
 # The capture receipt (#660, GDA-DF-026/031): the engine-side identity facts that
-# bind ONE captured image to the session, scene, and frame it came from, read at
-# the SAME frame boundary as the pixels. `session_id` is the daemon-minted
-# identity from the launch tail ("" from a launcher that predates it);
-# `scene_path` is the scene the session is PRESENTING at this boundary — the
-# launched scene unless the game switched scenes, in which case the presented one
-# is the truthful binding for the image; `scene_uid` is that scene file's own
-# uid:// as its header declares it (`_scene_header_uid`), so a gda-authored scene
-# (which carries none, ADR-0036) reports null; `observed` is the predicate echo
-# for a gated capture (null on a plain one — the CLI refuses an unsolicited
-# echo). The CLI adds the output hash after writing the file.
+# bind ONE captured image to the session, its launched scene, and the frame it
+# came from. `session_id` is the daemon-minted identity from the launch tail (""
+# from a launcher that predates it); `scene_path` / `scene_uid` are the LAUNCHED
+# scene's identity per issue #660 — remembered at the handshake's scene
+# verification, the same value the daemon verified, so they are a launch fact,
+# not a claim about what an individual frame presents (a game that switches
+# scenes mid-session still receipts under its launched scene; the uid is the
+# scene FILE's own header declaration, null for a gda-authored scene, ADR-0036).
+# `engine_frame` is read at the SAME frame boundary as the pixels; `observed` is
+# the predicate echo for a gated capture (null on a plain one — the CLI refuses
+# an unsolicited echo). The CLI adds the output hash after writing the file.
 func _capture_receipt(observed: Variant) -> Dictionary:
-	var current: Node = get_tree().current_scene
-	var scene_path := String(current.scene_file_path) if current != null else ""
 	return {
 		"session_id": _session_id,
-		"scene_path": scene_path,
-		"scene_uid": _scene_header_uid(scene_path),
+		"scene_path": _launched_scene_path,
+		"scene_uid": _launched_scene_uid,
 		"engine_frame": Engine.get_process_frames(),
 		"observed": observed,
 	}
@@ -1333,7 +1344,10 @@ func _scene_header_uid(scene_path: String) -> Variant:
 	var header := file.get_line()
 	file.close()
 	var pattern := RegEx.new()
-	if pattern.compile("\\buid=\"(uid://[a-z0-9]+)\"") != OK:
+	# Godot's header parser accepts horizontal whitespace around `=` (PR #746
+	# review: `uid = "uid://…"` is a legal, engine-preserved header), so the
+	# match must too.
+	if pattern.compile("\\buid[ \\t]*=[ \\t]*\"(uid://[a-z0-9]+)\"") != OK:
 		return null
 	var found := pattern.search(header)
 	return found.get_string(1) if found != null else null

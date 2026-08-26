@@ -762,6 +762,19 @@ def test_status_reports_the_session_identity_from_the_control_op(
     assert status.session_id == "a1b2c3d4e5f60718"
 
 
+def test_status_schema_publishes_session_id_as_required_but_nullable():
+    # #746 review: the docs promise the key is ALWAYS carried (null before a
+    # session), so a standard Draft 2020-12 consumer must see it required — and
+    # the non-null branch non-empty, matching the receipt's own constraint.
+    result = CliRunner().invoke(app, ["daemon", "status", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    output = json.loads(result.stdout)["output"]
+    assert "session_id" in output["required"]
+    branches = output["properties"]["session_id"]["anyOf"]
+    assert {"type": "string", "minLength": 1} in branches
+    assert {"type": "null"} in branches
+
+
 def test_status_session_identity_is_null_before_a_launch_or_on_drift(
     tmp_path, short_runtime, monkeypatch
 ):

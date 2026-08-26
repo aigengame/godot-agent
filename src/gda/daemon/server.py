@@ -159,6 +159,13 @@ class DaemonServer:
         self._listener: socket.socket | None = None
         self._harness_listener: socket.socket | None = None
         self._session: SessionHandle | None = None
+        # The last SUCCESSFULLY ESTABLISHED session's identity (#660, PR #746
+        # review ARC-746-001): a read model beside the session object, because
+        # the identity must outlive it — retirement drops `_session` before the
+        # replacement launch, and a FAILED launch must not erase the identity
+        # nothing replaced. Written only when a launch succeeds, at the same
+        # place `_session` is assigned.
+        self._last_session_id: str | None = None
         self._pidfile_handle = None
 
     def serve(self) -> None:
@@ -238,18 +245,19 @@ class DaemonServer:
             # `windowed` lets `gda daemon status` report the daemon's launch-time
             # display mode (#251): the running daemon is the only authority for the
             # mode it was started with, so it travels back on the control reply.
-            # `session_id` (#660) is the identity of the session this daemon most
-            # recently launched — reported ALIVE OR DEAD, like the log ops serve a
-            # dead session's log, so a capture receipt from a session that then
-            # crashed stays correlatable until a relaunch replaces it; null before
-            # the first launch this daemon lifetime.
+            # `session_id` (#660) is the identity of the last session this daemon
+            # SUCCESSFULLY established — reported ALIVE OR DEAD, like the log ops
+            # serve a dead session's log, so a capture receipt from a session that
+            # then crashed stays correlatable until a NEW session replaces it. A
+            # failed replacement launch replaces nothing, so it must not erase
+            # the identity either (PR #746 review ARC-746-001) — hence the read
+            # model, not the (already-retired) session object. Null before the
+            # first successful launch this daemon lifetime.
             return {
                 "ok": True,
                 "pid": os.getpid(),
                 "windowed": self.windowed,
-                "session_id": (
-                    self._session.session_id if self._session is not None else None
-                ),
+                "session_id": self._last_session_id,
             }
         if op == STOP_OP:
             self._stopping = True
@@ -484,6 +492,15 @@ class DaemonServer:
             if not (self.paths.project / rel).expanduser().is_file():
                 raise SceneMismatch(scene)
         assert self._harness_listener is not None
+        # The session's identity (#660), minted HERE — the daemon is the
+        # authority for what it launches — and handed to the launch so the
+        # harness can stamp it into capture receipts while `daemon status`
+        # reports the same value. One mint per launch: a relaunch is a NEW
+        # identity, which is exactly what makes a receipt from a stale session
+        # detectable. Published to the status read model ONLY on success below —
+        # a failed launch replaces nothing, so the last established identity
+        # stays readable (PR #746 review ARC-746-001).
+        session_id = secrets.token_hex(8)
         self._session = self._launch(
             self.paths.project,
             self.godot,
@@ -491,13 +508,7 @@ class DaemonServer:
             self.paths.harness_socket,
             self._token,
             log_file=self.paths.session_log,
-            # The session's identity (#660), minted HERE — the daemon is the
-            # authority for what it launches — and handed to the launch so the
-            # harness can stamp it into capture receipts while `daemon status`
-            # reports the same value from the held session. One mint per launch:
-            # a relaunch is a NEW identity, which is exactly what makes a receipt
-            # from a stale session detectable.
-            session_id=secrets.token_hex(8),
+            session_id=session_id,
             # The caller's own deadline (#657 `daemon wait-ready --timeout`, #725
             # re-review), not a duration derived from it: the launcher spends what
             # is left of THIS instant on the spawn, the connect, the handshake
@@ -509,6 +520,7 @@ class DaemonServer:
         )
         if self._session is None:
             return None
+        self._last_session_id = session_id
         return _Established(self._session, launched=True)
 
     def _launch_failure_diagnostics(self, child_diagnostics: list[str]) -> str:
