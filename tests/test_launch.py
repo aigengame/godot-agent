@@ -10,6 +10,7 @@ channel-specific argv tail / export-only cwd stay tested in each runner's own
 suite.
 """
 
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -265,8 +266,10 @@ def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Pat
     on every single launch (#728).
     """
     script = tmp_path / "fast-fake-engine"
+    out = shlex.quote(stdout_line)
+    err = shlex.quote(stderr_line)
     script.write_text(
-        f"#!/bin/sh\necho '{stdout_line}'\necho '{stderr_line}' 1>&2\nexec sleep 30\n",
+        f"#!/bin/sh\necho {out}\necho {err} 1>&2\nexec sleep 30\n",
         encoding="utf-8",
     )
     script.chmod(0o755)
@@ -309,10 +312,14 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(tmp_path
     # single-digit milliseconds, two-plus orders of magnitude inside the deadline
     # instead of sharing its order of magnitude (see its docstring for the
     # measurements this margin is based on, not asserted from). The timeout is
-    # also doubled from the pre-#728 1.5s to 3.0s: cheap (the child never exits
-    # on its own, so this is the test's own wall-clock cost either way) real extra
-    # headroom against a sustained-contention tail the measurements still show
-    # is non-zero, on top of — not instead of — the margin the faster engine buys.
+    # also doubled from the pre-#728 1.5s to 3.0s: across 40 measured runs the
+    # observed worst-case time-to-first-output was ~312ms, and that max came
+    # from an UNLOADED run (12-way CPU load's own max was only ~20ms) — the
+    # tail is not purely load-driven, so reasoning from the typical case alone
+    # would repeat the error that produced the original flake. 1.5s leaves
+    # only ~4.8x headroom over that observed tail; 3.0s leaves ~9.6x, cheaply
+    # (the fake engine never exits on its own, so this is the test's own
+    # wall-clock cost either way).
     engine = _fast_fake_engine(tmp_path, "SUITE START", "boom")
 
     result = launch(
