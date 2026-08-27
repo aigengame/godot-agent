@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=615b253e46f722f873c269ba4785d04c914abd2e6708c68cb9ec5d65d2748d93 -->
+<!-- gda-readme-i18n: source=README.md sha256=7ea198a338ba1ee63a3dd740dab1cbd74f53abf3752fe825631f3bd47c311be7 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -574,10 +574,15 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 
 `game call` lee lo que `game get` no puede: un contrato de depuración o de estado que el
 proyecto expone como **método**. La clase declara los métodos invocables en una constante
-de script `GDA_CALLABLE` junto a ellos, y gda lee esa constante de forma estática — así que
-averiguar qué puede invocarse no ejecuta nada de tu código, y nada es invocable hasta que lo
-declares. gda no puede verificar que un método declarado no tenga efectos secundarios; lo que
-garantiza es que nunca invoca un método no declarado (ADR-0041).
+de script `GDA_CALLABLE` en su propio código, y gda lee esa constante de forma estática — así
+que averiguar qué puede invocarse no ejecuta nada de tu código, y nada es invocable hasta que
+lo declares. La constante es la declaración de toda la cadena de herencia: GDScript prohíbe
+redeclarar la constante de una clase base, así que exactamente una clase por cadena la declara
+(si la declara la base, también posee la superficie invocable de sus subclases). gda no puede
+verificar que un método declarado no tenga efectos secundarios; lo que garantiza es que nunca
+invoca un método no declarado (ADR-0041). Los argumentos que los parámetros declarados no
+pueden aceptar se rechazan antes de la llamada, así que un desajuste de tipo es un error
+tipado y no un `null` silencioso.
 
 `game set --property position` en vivo sigue la misma política de `Control` que
 `node set`; `game rect` sigue siendo una consulta de geometría renderizada de solo
@@ -695,6 +700,10 @@ arranca ningún motor). En concreto:
   código de los importadores — y cualquier plugin de importación que el proyecto registre — se ejecuta sobre el
   contenido de todo el proyecto. El pase arranca la ruta del importador del editor, no el juego: no se ejecuta
   ningún autoload. Una petición con la caché íntegra no arranca ningún motor.
+- **`gda game call` ejecuta un método declarado en el juego en ejecución.** Por petición se
+  ejecuta únicamente el método que la clase del nodo direccionado nombró en su constante de
+  script `GDA_CALLABLE`. Leer esa declaración no ejecuta nada — la constante la sirve el script
+  compilado — y nunca se invoca un método no declarado.
 
 `gda` trata el proyecto objetivo como de confianza, por lo que esto es intencionado — consulta
 [ADR-0009](adr/0009-trust-boundary-trusted-project.md) para el modelo de confianza.

@@ -11,12 +11,43 @@ RULES.md DoD the fake-runner command tests do not count toward this gate.
 import json
 import os
 import subprocess
+import time
 
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
 
 from tests.support import GDA_CMD
+
+
+def _gda_runner(project, timeout: int = 90):
+    """One project/Godot-aware `gda` invoker for this module's live e2es (#749 review).
+
+    The protocol arguments, environment and timeout were repeated per test and
+    could drift; this is the single place they live.
+    """
+    from gda.binary import resolve_godot_binary
+
+    godot = resolve_godot_binary()
+
+    def run(*args):
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(project),
+                "--godot",
+                str(godot),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env={**os.environ},
+            timeout=timeout,
+        )
+
+    return run
 
 
 @pytest.mark.e2e
@@ -157,7 +188,10 @@ CALL_CHILD_GD = (
 )
 CALL_MAIN_GD = (
     "extends Node2D\n\n"
-    'const GDA_CALLABLE := ["qa_current_state_contract", "with_args", "returns_nothing"]\n\n'
+    "const GDA_CALLABLE := [\n"
+    '\t"qa_current_state_contract", "with_args", "returns_nothing",\n'
+    '\t"typed", "untyped", "typed_array", "with_node", "takes_float",\n'
+    "]\n\n"
     "var _phase := 3\n\n"
     "func qa_current_state_contract() -> Dictionary:\n"
     '\treturn {"phase": _phase, "ready": true, "labels": ["a", "b"], "at": Vector2(1, 2)}\n\n'
@@ -166,7 +200,18 @@ CALL_MAIN_GD = (
     "func returns_nothing() -> void:\n"
     "\tpass\n\n"
     "func undeclared_secret() -> String:\n"
-    '\treturn "never reachable"\n'
+    '\treturn "never reachable"\n\n'
+    # The typed-parameter shapes the #749 review's false-success finding needs.
+    "func typed(value: int) -> int:\n"
+    "\treturn value * 2\n\n"
+    "func untyped(value) -> String:\n"
+    "\treturn str(value)\n\n"
+    "func typed_array(items: Array[int]) -> int:\n"
+    "\treturn items.size()\n\n"
+    "func with_node(n: Node2D) -> String:\n"
+    '\treturn "got " + str(n)\n\n'
+    "func takes_float(v: float) -> float:\n"
+    "\treturn v * 2.0\n"
 )
 CALL_MAIN_TSCN = (
     "[gd_scene load_steps=3 format=3]\n\n"
@@ -184,7 +229,6 @@ def test_game_call_serves_declared_methods_and_refuses_the_rest(
     tmp_path, daemon_runtime_dir
 ):
     from .conftest import project_godot
-    from gda.binary import resolve_godot_binary
 
     (tmp_path / "project.godot").write_text(
         project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
@@ -194,24 +238,7 @@ def test_game_call_serves_declared_methods_and_refuses_the_rest(
     (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
     (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
 
-    godot = resolve_godot_binary()
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(godot),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env={**os.environ},
-            timeout=90,
-        )
+    run = _gda_runner(tmp_path)
 
     def call(node, method, *extra):
         return run("game", "call", node, "--method", method, *extra)
@@ -300,7 +327,6 @@ def test_declaring_gda_callable_in_both_base_and_subclass_is_an_engine_parse_err
     # per inheritance chain declares. The failure is loud — the script does not
     # load — never a silently wrong allowlist.
     from .conftest import project_godot
-    from gda.binary import resolve_godot_binary
 
     (tmp_path / "project.godot").write_text(
         project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
@@ -321,24 +347,7 @@ def test_declaring_gda_callable_in_both_base_and_subclass_is_an_engine_parse_err
         encoding="utf-8",
     )
 
-    godot = resolve_godot_binary()
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(godot),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env={**os.environ},
-            timeout=90,
-        )
+    run = _gda_runner(tmp_path)
 
     try:
         assert run("daemon", "start").returncode == 0
@@ -354,5 +363,120 @@ def test_declaring_gda_callable_in_both_base_and_subclass_is_an_engine_parse_err
         )
         assert "GDA_CALLABLE" in messages
         assert "already exists in parent class" in messages
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_game_call_refuses_arguments_the_engine_would_not_convert(
+    tmp_path, daemon_runtime_dir
+):
+    # #749 review P1: only arity was checked, so `callv` was reached with values
+    # the engine could not convert — it pushed an error, returned null, and gda
+    # reported a SUCCESSFUL read of `null`, indistinguishable from a void return
+    # (and polluting the Session log). Every refusal below was a false success at
+    # the reviewed head; every acceptance below is a conversion the engine really
+    # performs, so the gate mirrors the engine rather than over-refusing.
+    from .conftest import project_godot
+
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
+    (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
+    (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
+
+    run = _gda_runner(tmp_path)
+
+    def call(method, args):
+        return run("game", "call", "/root/Main", "--method", method, "--args", args)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        for method, args, needle in (
+            ("typed", '["bad"]', "String value cannot convert to int"),
+            ("typed", "[null]", "Nil value cannot convert to int"),
+            ("with_node", '[{"a": 1}]', "Dictionary value cannot convert to Object"),
+            ("typed_array", "[[1, 2]]", "typed Array"),
+        ):
+            refused = call(method, args)
+            assert refused.returncode == EXIT_LIVE, refused.stdout
+            error = json.loads(refused.stdout)["error"]
+            assert error["code"] == "live_invalid_call_args", error
+            assert needle in error["message"], error["message"]
+
+        # The conversions the engine DOES perform still go through, so the gate
+        # mirrors `Variant::can_convert_strict` instead of refusing broadly.
+        for method, args, expected in (
+            ("typed", "[21]", 42),
+            ("typed", "[true]", 2),
+            ("typed", "[3.7]", 6),
+            ("takes_float", "[3]", 6.0),
+            ("with_node", "[null]", "got <null>"),
+            ("untyped", '[{"a": 1}]', '{ "a": 1.0 }'),
+        ):
+            ok = call(method, args)
+            assert ok.returncode == 0, ok.stdout + ok.stderr
+            assert json.loads(ok.stdout)["value"] == expected, (method, args)
+
+        # No refusal reached callv, so the engine's error stream stayed clean —
+        # the log pollution the false successes caused is gone too.
+        errors = run("diag", "errors")
+        assert errors.returncode == 0, errors.stdout + errors.stderr
+        assert json.loads(errors.stdout)["errors"] == []
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_game_call_non_finite_args_never_reach_the_session(
+    tmp_path, daemon_runtime_dir
+):
+    # #749 review P1: `--args '[NaN]'` produced a frame the harness could not
+    # parse, so the caller waited out the 30 s relay bound, got live_timeout, and
+    # the daemon retired the channel — the NEXT call relaunched the session and
+    # its runtime state was gone. The refusal now happens in the params model,
+    # before the wire: fast, typed, and the session identity is untouched.
+    from .conftest import project_godot
+
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
+    (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
+    (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
+
+    run = _gda_runner(tmp_path)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+        # Establish the session and record its identity (#660).
+        assert (
+            run(
+                "game", "call", "/root/Main", "--method", "typed", "--args", "[1]"
+            ).returncode
+            == 0
+        )
+        before = json.loads(run("daemon", "status").stdout)["session_id"]
+
+        started = time.monotonic()
+        refused = run(
+            "game", "call", "/root/Main", "--method", "typed", "--args", "[NaN]"
+        )
+        elapsed = time.monotonic() - started
+
+        assert refused.returncode != 0
+        # Refused at the input boundary, not by the 30 s relay bound.
+        assert elapsed < 10, elapsed
+        assert "live_timeout" not in refused.stdout
+
+        # The session is the SAME one — nothing was retired, no state was lost.
+        assert json.loads(run("daemon", "status").stdout)["session_id"] == before
+        after = run("game", "call", "/root/Main", "--method", "typed", "--args", "[2]")
+        assert after.returncode == 0, after.stdout + after.stderr
+        assert json.loads(run("daemon", "status").stdout)["session_id"] == before
     finally:
         run("daemon", "stop")

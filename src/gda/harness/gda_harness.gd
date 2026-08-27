@@ -564,9 +564,10 @@ func _handle_game_call(params: Dictionary) -> String:
 				+ GDA_CALLABLE_CONST + " := [\"" + method + "\"]` to allow it")
 	var raw_args: Variant = params.get("args", [])
 	var args: Array = raw_args if typeof(raw_args) == TYPE_ARRAY else []
-	var arity := _call_arity_error(node, method, args.size())
-	if not arity.is_empty():
-		return _error(LIVE_ERROR_INVALID_CALL_ARGS, arity)
+	var signature := _method_signature(node, method)
+	var refusal := _call_argument_error(signature, args)
+	if not refusal.is_empty():
+		return _error(LIVE_ERROR_INVALID_CALL_ARGS, refusal)
 	return _ok({
 		"path": path,
 		"name": String(node.name),
@@ -599,27 +600,87 @@ func _declared_callables(node: Node) -> Array:
 	return names
 
 
-# Why the supplied argument count cannot reach `method`, or "" when it can
-# (#673). Required = declared args minus defaults; a vararg method has no upper
-# bound. A method the list does not describe is not second-guessed here — the
-# has_method gate above already established it exists.
-func _call_arity_error(node: Node, method: String, supplied: int) -> String:
+# The method's own description from get_method_list(), or an empty Dictionary when the
+# list does not describe it (the has_method gate already established it exists).
+func _method_signature(node: Node, method: String) -> Dictionary:
 	for entry in node.get_method_list():
-		if String(entry.get("name", "")) != method:
-			continue
-		var declared_args: Array = entry.get("args", [])
-		var defaults: Array = entry.get("default_args", [])
-		var required := declared_args.size() - defaults.size()
-		var vararg := (int(entry.get("flags", 0)) & METHOD_FLAG_VARARG) != 0
-		if supplied < required:
-			return ("the method " + method + " needs at least " + str(required)
-					+ " argument(s); " + str(supplied) + " supplied")
-		if not vararg and supplied > declared_args.size():
-			return ("the method " + method + " accepts at most "
-					+ str(declared_args.size()) + " argument(s); " + str(supplied)
-					+ " supplied")
+		if String(entry.get("name", "")) == method:
+			return entry
+	return {}
+
+
+# Why the supplied arguments cannot reach the method, or "" when they can (#673,
+# PR #749 review). BOTH the count and each argument's TYPE are checked HERE,
+# before the call: `callv` with arguments it cannot convert pushes an engine
+# error, returns null, and pollutes the Session log — a failure gda would
+# otherwise report as a successful read of `null`, indistinguishable from a void
+# return (reproduced on Godot 4.6.3 for a String into `int`, a Dictionary into an
+# Object parameter, null into `int`, and a JSON array into `Array[int]`).
+func _call_argument_error(signature: Dictionary, args: Array) -> String:
+	if signature.is_empty():
 		return ""
+	var declared_args: Array = signature.get("args", [])
+	var defaults: Array = signature.get("default_args", [])
+	var method := String(signature.get("name", ""))
+	var required := declared_args.size() - defaults.size()
+	var vararg := (int(signature.get("flags", 0)) & METHOD_FLAG_VARARG) != 0
+	if args.size() < required:
+		return ("the method " + method + " needs at least " + str(required)
+				+ " argument(s); " + str(args.size()) + " supplied")
+	if not vararg and args.size() > declared_args.size():
+		return ("the method " + method + " accepts at most "
+				+ str(declared_args.size()) + " argument(s); " + str(args.size())
+				+ " supplied")
+	for index in range(mini(args.size(), declared_args.size())):
+		var spec: Dictionary = declared_args[index]
+		var reason := _argument_type_refusal(spec, args[index])
+		if not reason.is_empty():
+			return ("the method " + method + " cannot take argument "
+					+ str(index + 1) + " (" + String(spec.get("name", "")) + "): "
+					+ reason)
 	return ""
+
+
+# Why one JSON-supplied value cannot reach one declared parameter, or "" when it
+# can (#673, PR #749 review). This mirrors the engine's own strict-conversion
+# rule (`Variant::can_convert_strict`, core/variant/variant.cpp), which is NOT
+# exposed to GDScript — restricted to the SEVEN Variant types JSON can produce
+# (null, bool, int, float, String, Array, Dictionary), so the mirrored table is
+# closed and small. Where the engine converts, gda calls; where it refuses, gda
+# refuses FIRST, with the reason.
+func _argument_type_refusal(spec: Dictionary, value: Variant) -> String:
+	var to_type := int(spec.get("type", TYPE_NIL))
+	var from_type := typeof(value)
+	if to_type == TYPE_NIL:
+		return ""  # an untyped (Variant) parameter takes anything
+	if to_type == from_type:
+		# Identity — except a TYPED container, which an untyped JSON Array or
+		# Dictionary cannot satisfy whatever its contents: the engine refuses
+		# `Array` -> `Array[int]` outright ("Cannot convert argument 1 from
+		# Array to Array."), so no JSON value can reach such a parameter.
+		if (to_type == TYPE_ARRAY or to_type == TYPE_DICTIONARY) \
+				and int(spec.get("hint", PROPERTY_HINT_NONE)) != PROPERTY_HINT_NONE:
+			return ("it is a typed " + _type_name(to_type) + " ("
+					+ String(spec.get("hint_string", "")) + "), which a JSON "
+					+ "argument cannot satisfy; declare the parameter untyped to "
+					+ "make it callable")
+		return ""
+	var allowed: Array = []
+	match to_type:
+		TYPE_BOOL:
+			allowed = [TYPE_INT, TYPE_FLOAT]
+		TYPE_INT:
+			allowed = [TYPE_BOOL, TYPE_FLOAT]
+		TYPE_FLOAT:
+			allowed = [TYPE_BOOL, TYPE_INT]
+		TYPE_STRING_NAME, TYPE_NODE_PATH:
+			allowed = [TYPE_STRING]
+		TYPE_OBJECT:
+			allowed = [TYPE_NIL]
+	if allowed.has(from_type):
+		return ""
+	return ("a " + _type_name(from_type) + " value cannot convert to "
+			+ _type_name(to_type))
 
 
 func _handle_game_set(params: Dictionary) -> String:

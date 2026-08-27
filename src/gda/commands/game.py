@@ -17,10 +17,11 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 """
 
 import json
+import math
 from typing import Any, Optional
 
 import typer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
@@ -233,6 +234,39 @@ class GameSetResult(BaseModel):
     )
 
 
+# The NAME of the script constant a project class declares its gda-callable
+# methods in (ADR-0041). The runtime authority is the harness's own
+# ``GDA_CALLABLE_CONST``; this is the agent-facing copy the schema, help and
+# error prose quote, and a mirror test pins the two together (PR #749 review) —
+# the same cross-language idiom the op names and live error codes use.
+GDA_CALLABLE_CONST = "GDA_CALLABLE"
+
+
+def _reject_non_finite(value: Any, path: str = "args") -> None:
+    """Refuse NaN / Infinity anywhere in the arguments (PR #749 review).
+
+    JSON has no non-finite literals, but Python's ``json.loads`` accepts them by
+    extension and pydantic keeps them in an ``Any`` field — and the daemon then
+    writes a frame the harness's ``JSON.parse_string`` cannot read, so the call
+    never arrives: the caller waits out the 30 s relay bound, gets
+    ``live_timeout``, and the daemon retires the channel, LOSING the engine
+    session's runtime state (reproduced end to end). The params model is the one
+    authority both the argv and ``--params-json`` paths pass through (ADR-0015),
+    so the refusal belongs here — structurally, before the wire.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(
+            f"{path} must be finite JSON values; NaN and Infinity are not "
+            "representable on the live wire."
+        )
+    if isinstance(value, dict):
+        for key, item in value.items():
+            _reject_non_finite(item, f"{path}[{key!r}]")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_non_finite(item, f"{path}[{index}]")
+
+
 class GameCallParams(BaseModel):
     """The params of ``gda game call``: invoke one DECLARED read-only method (#673).
 
@@ -248,9 +282,9 @@ class GameCallParams(BaseModel):
         min_length=1,
         description=(
             "The method to invoke. It must be named in the node's class "
-            "`GDA_CALLABLE` script constant (ADR-0041); an undeclared method is "
-            "`live_method_not_allowlisted`, one the node does not have at all is "
-            "`live_unknown_method`."
+            f"`{GDA_CALLABLE_CONST}` script constant (ADR-0041); an undeclared "
+            "method is `live_method_not_allowlisted`, one the node does not have "
+            "at all is `live_unknown_method`."
         ),
     )
     args: list[Any] | None = Field(
@@ -258,11 +292,19 @@ class GameCallParams(BaseModel):
         description=(
             "The call's arguments as a JSON array, passed to the method as their "
             "natural Variant forms (JSON objects become Dictionary, arrays "
-            "Array); null or omitted calls it with none. An argument count "
-            "outside the method's accepted range is `live_invalid_call_args`, "
-            "refused before the call."
+            "Array); null or omitted calls it with none. Values must be finite "
+            "JSON (NaN/Infinity are refused here — they cannot cross the live "
+            "wire). An argument count outside the method's accepted range, or a "
+            "value the declared parameter cannot take, is "
+            "`live_invalid_call_args`, refused before the call."
         ),
     )
+
+    @model_validator(mode="after")
+    def _check_args(self) -> "GameCallParams":
+        if self.args is not None:
+            _reject_non_finite(self.args)
+        return self
 
 
 class GameCallResult(BaseModel):
@@ -594,9 +636,12 @@ def game_call(
     read uses (ADR-0035). Failures are distinguishable: a method the node does
     not have is `live_unknown_method`, one it has but never declared is
     `live_method_not_allowlisted` (its message names the declared set), an
-    argument count outside the method's range is `live_invalid_call_args`
-    (refused before the call), an unresolvable path is `live_node_not_found`,
-    and with no daemon it reports `daemon_not_running`.
+    an argument the declared parameters cannot take — wrong count, a value the
+    parameter type cannot convert from, or a typed `Array[int]` parameter no
+    JSON value can satisfy — is `live_invalid_call_args`, refused BEFORE the
+    call (a `callv` the engine cannot convert for returns null, which would
+    otherwise read as a successful null). An unresolvable path is
+    `live_node_not_found`, and with no daemon it reports `daemon_not_running`.
     """
     # The argv value is JSON, parsed here so argv and --params-json build the
     # SAME model (ADR-0015); a non-JSON string reaches the model, which refuses

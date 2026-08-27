@@ -843,13 +843,22 @@ headless is unaffected (4.4+, cross-platform).
   method the node does not have is `live_unknown_method` (existence is checked FIRST, so
   a wrong name is diagnosed as one), one it has but never declared is
   `live_method_not_allowlisted` — whose message names the class's declared set, so
-  discovery rides the failure — and an argument count outside the method's accepted
-  range is `live_invalid_call_args`, refused BEFORE the call (`callv` with a wrong count
-  pushes an engine error and returns null, which would otherwise read as a successful
-  null). One inheritance-chain limitation, engine-enforced and loud: GDScript forbids a
-  subclass from redeclaring a base class's constant, so exactly one class per chain
-  declares; a project that declares in both fails to parse with a message naming the
-  member.
+  discovery rides the failure — and arguments the declared method cannot take are
+  `live_invalid_call_args`, refused BEFORE the call. That covers the count AND each
+  argument's type: the check mirrors the engine's own `Variant::can_convert_strict`
+  (not exposed to GDScript) over the seven Variant types JSON can produce, so bool/int/
+  float interconvert and null reaches an `Object` parameter, while a String into `int`,
+  a Dictionary into an `Object` parameter, null into `int`, and any JSON array into a
+  typed `Array[int]` are refused with the reason. Without the check `callv` pushes an
+  engine error, returns null and writes to the Session log — a failure that would read
+  as a successful null. Non-finite numbers (`NaN`/`Infinity`, which JSON has no literals
+  for but Python's decoder accepts) are refused earlier still, in the params model both
+  invocation paths share: left through, they produced a frame the harness could not
+  parse, costing the caller a `live_timeout` and the session its runtime state. The constant is the inheritance CHAIN's declaration, not a per-class increment:
+  GDScript forbids a subclass from redeclaring a base class's constant, so exactly one
+  class per chain declares (a base that declares owns its subclasses' callable surface
+  too), and a project that declares in both fails to parse with a message naming the
+  member — loud, never a silently wrong allowlist.
 - **`input` (input simulation):** runtime input injection into the running game
   (shipped, #221). Single-frame ops `input key <KEY> [--modifiers …] [--released]`,
   `input mouse-move <x> <y>`, and `input action <NAME> [--release] [--strength F]`

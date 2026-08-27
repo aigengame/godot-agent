@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=615b253e46f722f873c269ba4785d04c914abd2e6708c68cb9ec5d65d2748d93 -->
+<!-- gda-readme-i18n: source=README.md sha256=7ea198a338ba1ee63a3dd740dab1cbd74f53abf3752fe825631f3bd47c311be7 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -539,9 +539,12 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | `game call` | 调用该节点所属类声明为可调用（`GDA_CALLABLE`）的一个方法，并投影其返回值。 |
 
 `game call` 读取 `game get` 无法读取的东西：项目以**方法**形式暴露的调试或状态契约。
-类在方法旁边的 `GDA_CALLABLE` 脚本常量中声明可被调用的方法，gda 以静态方式读取该常量——
-因此"哪些方法可调用"这一步不会运行你的任何代码，且未声明之前没有任何方法可调用。gda 无法
-验证已声明的方法没有副作用；它保证的是绝不调用未声明的方法（ADR-0041）。
+类在自己的源码中以 `GDA_CALLABLE` 脚本常量声明可被调用的方法，gda 以静态方式读取该常量——
+因此"哪些方法可调用"这一步不会运行你的任何代码，且未声明之前没有任何方法可调用。该常量是
+整条继承链的声明：GDScript 禁止子类重声明基类常量，因此一条链上恰有一个类声明（若由基类
+声明，它同时拥有其子类的可调用面）。gda 无法验证已声明的方法没有副作用；它保证的是绝不
+调用未声明的方法（ADR-0041）。已声明参数无法接受的实参会在调用前被拒绝，因此类型不匹配是
+一个类型化错误，而不是静默的 `null`。
 
 Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策略；
 `game rect` 仍然是只读的渲染几何查询。`game set` 的成功结果包含
@@ -647,6 +650,9 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 - **`gda resource import` 在缓存缺失时运行引擎导入 pass。** 导入器代码——以及项目注册的
   任何导入插件——会在整个项目的内容上运行。该 pass 启动的是编辑器导入器路径而非游戏：
   不执行 autoload。缓存完好的请求根本不启动引擎。
+- **`gda game call` 在运行中的游戏里执行一个已声明的方法。** 每次请求只执行被寻址节点所属
+  类在其 `GDA_CALLABLE` 脚本常量中声明的那一个方法。读取该声明不执行任何代码——常量由编译
+  后的脚本提供——且绝不会调用未声明的方法。
 
 `gda` 将目标项目视为可信，所以这是有意为之——信任模型参见
 [ADR-0009](adr/0009-trust-boundary-trusted-project.md)。

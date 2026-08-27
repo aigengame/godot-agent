@@ -558,11 +558,16 @@ reported as `script_aborted` with the captured error.
 | `game call` | Invoke one method the node's class declared callable (`GDA_CALLABLE`), and project what it returns. |
 
 `game call` reads what `game get` cannot: a debug or state contract your project
-exposes as a **method**. The class names the callable methods in a `GDA_CALLABLE`
-script constant beside them, and gda reads that constant statically — so learning
-what may be called runs none of your code, and nothing is callable until you
-declare it. gda cannot verify a declared method has no side effects; what it
-guarantees is that no undeclared method is called (ADR-0041).
+exposes as a **method**. A class names the callable methods in a `GDA_CALLABLE`
+script constant in its own source, and gda reads that constant statically — so
+learning what may be called runs none of your code, and nothing is callable until
+you declare it. The constant is the inheritance chain's declaration: GDScript
+forbids redeclaring a base class's constant, so exactly one class per chain
+declares (a base that declares owns its subclasses' callable surface too). gda
+cannot verify a declared method has no side effects; what it guarantees is that no
+undeclared method is called (ADR-0041). Arguments that the declared parameters
+cannot take are refused before the call, so a mismatch is a typed error rather
+than a silent `null`.
 
 Live `game set --property position` follows the same `Control` policy as
 `node set`; `game rect` remains a read-only rendered-geometry query. `game set`
@@ -678,6 +683,10 @@ it starts no engine). Concretely:
   any import plugins the project registers — runs over the whole project's content. The pass
   boots the editor importer path, not the game: no autoloads execute. A fully cached request
   starts no engine at all.
+- **`gda game call` runs one declared method in the running game.** The single method the
+  addressed node's class named in its `GDA_CALLABLE` script constant executes, once, per
+  request. Reading that declaration runs nothing — the constant is served by the compiled
+  script — and no undeclared method is ever called.
 
 `gda` treats the target project as trusted, so this is by design — see
 [ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md) for the trust model.

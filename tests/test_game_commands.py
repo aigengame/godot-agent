@@ -804,3 +804,57 @@ def test_game_call_schema_publishes_the_declaration_contract():
     # The declaration site is named in the published contract, so an agent
     # reading only the schema learns why a call can be refused.
     assert "GDA_CALLABLE" in json.dumps(doc["input"]["properties"]["method"])
+
+
+def test_game_call_refuses_non_finite_args_on_both_paths(monkeypatch, tmp_path):
+    # #749 review: JSON has no NaN/Infinity literals, but Python's decoder
+    # accepts them and an Any field keeps them — and the frame the daemon then
+    # writes is unreadable to the harness, so the caller waits out the relay
+    # bound, gets live_timeout, and the session is retired (state lost). The
+    # params model is the one authority both paths share (ADR-0015), so both
+    # are refused structurally, before the wire.
+    project = str(_project(tmp_path))
+    for argv in (
+        ["--method", "m", "--args", "[NaN]"],
+        ["--method", "m", "--args", '[{"deep": [Infinity]}]'],
+        ["--params-json", '{"node": "/root/M", "method": "m", "args": [NaN]}'],
+    ):
+        fake = inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(
+            app,
+            ["game", "call", "/root/M", *argv, "--project", project, "--json"],
+        )
+        assert result.exit_code != 0, result.stdout
+        # Nothing reached the live channel.
+        assert fake.calls == [], argv
+
+
+def test_game_call_accepts_finite_nested_json_args(monkeypatch, tmp_path):
+    # The guard bounds only what cannot cross the wire: ordinary nested JSON
+    # (including floats) still rides through untouched.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/M",
+            "--method",
+            "m",
+            "--args",
+            '[1, 2.5, {"a": [3.5, "x"]}]',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls[0][1]["args"] == [1, 2.5, {"a": [3.5, "x"]}]

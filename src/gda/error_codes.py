@@ -731,7 +731,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "A live game call supplied an argument count outside the declared method's accepted range.",
+        "A live game call supplied arguments the declared method cannot take: a count outside its accepted range, or a value the declared parameter type cannot convert from.",
     ),
     ErrorCodeSpec(
         "live_uncoercible_value",

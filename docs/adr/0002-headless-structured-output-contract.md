@@ -300,7 +300,7 @@ operation, and parse codes the CLI assigns).
 | `live_uncoercible_value` | `live` | `classifier` | `6` | A live game set value cannot be coerced to the addressed runtime property's or script variable's Godot type (Phase 2, #220, #422). |
 | `live_unknown_method` | `live` | `classifier` | `6` | A live game call named a method the addressed running node does not have (Phase 2, #673). |
 | `live_method_not_allowlisted` | `live` | `classifier` | `6` | A live game call named a method the addressed running node has but its class never declared gda-callable (Phase 2, #673, ADR-0041). |
-| `live_invalid_call_args` | `live` | `classifier` | `6` | A live game call supplied an argument count outside the declared method's accepted range (Phase 2, #673). |
+| `live_invalid_call_args` | `live` | `classifier` | `6` | A live game call supplied arguments the declared method cannot take — a count outside its accepted range, or a value the declared parameter type cannot convert from (Phase 2, #673). |
 | `live_log_unavailable` | `live` | `classifier` | `6` | A live engine session was launched but its diagnostics log file is missing or unreadable, so `gda diag` cannot read the running game's errors/output (Phase 2, #224). |
 | `live_scene_not_found` | `live` | `classifier` | `6` | A `gda daemon start --scene` selector did not load: the launched session ran a different scene (Godot silently falls back to main_scene for a missing/invalid path or UID), verified by the harness at launch — gda never falls back (Phase 2, #278). |
 | `live_perf_node_not_found` | `live` | `classifier` | `6` | A live perf monitor's node path does not resolve to a node in the running scene tree (Phase 2, #223). |

@@ -52,8 +52,16 @@ member is inherited.
 This implements the issue's triage decision — a **project-side** declaration rather
 than a per-invocation CLI flag, because a flag would let any caller assert anything ad
 hoc, reducing "no undeclared call" to nothing — and takes its rationale to the end: the
-read-only assertion is a property of the method, so it belongs beside the method, under
-the project's own code review.
+read-only assertion is a property of the method, so it lives in the class's own source,
+where the project's code review already looks, rather than in a separate registry that
+drifts from it.
+
+**It is an INHERITANCE-CHAIN declaration, owned by exactly one class of the chain** (see
+"Why one class per chain" below), not a per-class increment. A leaf class with no
+declaring base declares its own methods; a base that declares owns the callable surface
+of every subclass, so it must name the subclass methods it authorizes. A reader gets one
+authoritative list per chain, in one file — not necessarily the file of every method it
+names. That is a real cost of this format, stated here rather than implied away.
 
 Two properties decided the FORMAT (a constant, not a `_gda_callable()` hook method):
 
@@ -63,26 +71,32 @@ Two properties decided the FORMAT (a constant, not a `_gda_callable()` hook meth
   `game call` is to invoke an undeclared project method to learn which methods are
   declared — bootstrapping the very thing the allowlist exists to bound.
 - **The assertion is statically reviewable.** A reader (or a reviewer, or a linter)
-  sees the whole callable surface of a class by reading its source; nothing is decided
-  at runtime.
+  sees a chain's whole callable surface by reading the one class that declares it;
+  nothing is decided at runtime.
 
-> **Recorded deviation from the triage wording.** The triage decision says
-> "project-side declaration, read by the harness at `Engine session` start". Its
-> substance — project-side, not a per-invocation flag — is honoured. The *timing*
-> clause described the config-file shape the triage envisioned; with a per-class
-> declaration the read happens per call instead, which is strictly stronger: it cannot
-> go stale, and it covers nodes instantiated after session start. The format was
-> explicitly left to the implementer, and this ADR is the record the acceptance
-> criteria asked for.
+> **Amended triage decision (recorded on issue #673, 2026-08-27).** The triage comment
+> says "project-side declaration, read by the harness at `Engine session` start", and
+> names enumeration as the discovery path. Its substance — project-side, not a
+> per-invocation flag — is implemented unchanged. Two clauses were AMENDED on the
+> authoritative issue before this ADR was accepted, not merely deviated from here:
+> the read happens **per call** rather than at session start (a per-class declaration
+> has nothing to read at session start for a node that does not exist yet, and a
+> per-call read of a compiled constant cannot go stale), and **enumeration is
+> deferred** with the declared set carried on the `live_method_not_allowlisted`
+> message instead. The format was explicitly left to the implementer; the amendment
+> comment on #673 carries the decision, its rationale and this ADR's link.
 
-**Known limitation, engine-enforced and loud.** GDScript forbids a subclass from
+**Why one class per chain — engine-enforced and loud.** GDScript forbids a subclass from
 redeclaring a base class's constant: a subclass that declares its own `GDA_CALLABLE`
 while a base declares one fails to PARSE with
 `Parse Error: The member "GDA_CALLABLE" already exists in parent class <base>`
-(reproduced on Godot 4.6.3 while implementing this). So within one inheritance chain
-exactly one class declares: either the base (listing what its subclasses expose) or the
-leaf (with no base declaration above it). The failure is a parse error naming the exact
-member — the project does not load — never a silent wrong allowlist.
+(reproduced on Godot 4.6.3 while implementing this). Per-class INCREMENTAL declaration
+is therefore not available in this format, which is why the decision above defines the
+constant as the CHAIN's declaration rather than presenting an increment and then
+withdrawing it. The failure is a parse error naming the exact member — the project does
+not load — never a silent wrong allowlist. A project whose subclass must add methods
+moves the declaration down to that subclass (taking the base's names with it), or
+declares the union in the base.
 
 ### 2. Failures are distinguishable, and existence is checked first
 
@@ -93,7 +107,7 @@ each with its own remediation:
 | --- | --- | --- |
 | `live_unknown_method` | the node has no such method | fix the name |
 | `live_method_not_allowlisted` | the node has it; the class never declared it | add it to `GDA_CALLABLE` |
-| `live_invalid_call_args` | argument count outside the method's accepted range | fix the arguments |
+| `live_invalid_call_args` | argument count outside the accepted range, or a value the declared parameter type cannot take | fix the arguments |
 
 **Existence is checked before the allowlist.** For a name that is both absent and
 undeclared, the caller is told the name is wrong, which is the useful diagnosis. This
@@ -101,10 +115,34 @@ leaks which method names exist on a node — deliberately, since the project is 
 and `game get` already exposes its property surface; it is not a boundary this ADR
 defends.
 
-The arity check runs BEFORE the call, from the method's own `get_method_list()` entry
-(required = declared arguments minus defaults; a vararg method has no upper bound),
-because `callv` with a wrong argument count pushes an engine error and returns null —
-which gda would otherwise report as a successful read of `null`.
+The argument check runs BEFORE the call, from the method's own `get_method_list()`
+entry, and covers BOTH the count (required = declared arguments minus defaults; a vararg
+method has no upper bound) AND each argument's TYPE. `callv` with arguments it cannot
+convert pushes an engine error, returns null, and writes to the `Session log` — a
+failure gda would otherwise report as a successful read of `null`, indistinguishable
+from a void return (PR #749 review; reproduced on Godot 4.6.3 for a String into `int`,
+null into `int`, a Dictionary into an `Object` parameter, and a JSON array into
+`Array[int]`).
+
+The type rule MIRRORS the engine's own `Variant::can_convert_strict`
+(`core/variant/variant.cpp`), which is not exposed to GDScript, restricted to the SEVEN
+Variant types a JSON argument can produce — null, bool, int, float, String, Array,
+Dictionary — so the mirrored table is closed and small: an untyped (Variant) parameter
+takes anything; bool/int/float interconvert; a String reaches String / StringName /
+NodePath; an Array reaches an UNTYPED Array, a Dictionary an untyped Dictionary; null
+reaches an `Object` parameter; everything else is refused with the reason. A TYPED
+container parameter (`Array[int]`) is refused whatever its contents, because the engine
+refuses `Array` → `Array[int]` outright — no JSON argument can reach one, and saying so
+beats letting the call fail as a null. gda does not convert on the caller's behalf:
+where the engine converts, gda calls; where it refuses, gda refuses first.
+
+Arguments are also bounded at the CLI boundary, in the params model both invocation
+paths share (ADR-0015): a non-finite float (`NaN`, `Infinity` — which JSON has no
+literals for, but Python's decoder accepts by extension) is refused there. Left through,
+it produced a frame the harness's JSON parser could not read, so the call never arrived:
+the caller waited out the relay bound, got `live_timeout`, and the daemon retired the
+channel — losing the `Engine session`'s runtime state (reproduced end to end, PR #749
+review).
 
 The `live_method_not_allowlisted` message names the class's declared set, so discovery
 rides the failure an agent already has to read. A dedicated enumerate operation is

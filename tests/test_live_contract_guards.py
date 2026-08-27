@@ -46,6 +46,33 @@ def _leaf_commands(command, path):
     yield " ".join(path), command
 
 
+def test_gda_callable_constant_name_mirrors_the_harness():
+    """The declaration constant's NAME is one contract in two languages (#749 review).
+
+    The harness owns the runtime authority (``GDA_CALLABLE_CONST``); the command
+    group quotes it in the agent-facing schema, help and prose. A one-sided
+    rename would leave the published contract naming a constant the harness
+    never reads — invisible to every gate until a live call, since PR CI runs no
+    Godot e2e. Same mirror idiom as the op names and live error codes.
+    """
+    from gda.commands.game import GDA_CALLABLE_CONST
+
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = re.search(r'const GDA_CALLABLE_CONST := "([A-Z_]+)"', source)
+    assert match is not None, "the harness must declare GDA_CALLABLE_CONST"
+    assert match.group(1) == GDA_CALLABLE_CONST
+    # The published input contract quotes the same name, so an agent reading
+    # only the schema learns where to declare.
+    import json
+
+    from typer.testing import CliRunner
+
+    from gda.cli import app
+
+    doc = json.loads(CliRunner().invoke(app, ["game", "call", "--schema"]).stdout)
+    assert GDA_CALLABLE_CONST in json.dumps(doc["input"])
+
+
 def _descriptors():
     """The backing ``HeadlessCommand`` of every dispatchable leaf (ADR-0023).
 
