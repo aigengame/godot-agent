@@ -764,6 +764,8 @@ class TestKeyUserPath:
         )
         assert (built.returncode, built.stderr) == (0, ""), built.stdout
         build_receipt = json.loads(built.stdout)
+        build_receipt_path = tmp_path / "stat-composition-model-set-receipt.json"
+        build_receipt_path.write_text(json.dumps(build_receipt), encoding="utf-8")
         experiment = json.loads(
             (_RPG_STAT_COMPOSITION_EXAMPLE / "experiment.json").read_text(
                 encoding="utf-8"
@@ -805,6 +807,9 @@ class TestKeyUserPath:
         assert traces[0] == traces[1]
         members = _receipt_members(receipts[0])
         dataset = json.loads(members["metric-dataset"].read_text(encoding="utf-8"))
+        evaluation_run = json.loads(
+            members["evaluation-run"].read_text(encoding="utf-8")
+        )
         assert {sample["metric"]: sample["value"] for sample in dataset["samples"]} == {
             "attack_damage": 50,
             "build_damage": 8,
@@ -815,6 +820,38 @@ class TestKeyUserPath:
             "target_health": 70,
         }
         assert all(sample["within_target"] for sample in dataset["samples"])
+
+        run_receipt_path = tmp_path / "golden-first-set-receipt.json"
+        run_receipt_path.write_text(json.dumps(receipts[0]), encoding="utf-8")
+        verified = _run(
+            "evidence",
+            "verify",
+            "--claim-kind",
+            "evaluable",
+            "--source",
+            str(_RPG_STAT_COMPOSITION_EXAMPLE / "model-source.json"),
+            "--specification",
+            str(tmp_path / "golden-first.json"),
+            "--model-build-artifact-set-receipt",
+            str(build_receipt_path),
+            "--experiment-run-artifact-set-receipt",
+            str(run_receipt_path),
+        )
+        assert (verified.returncode, verified.stderr) == (0, ""), verified.stdout
+        candidate = json.loads(verified.stdout)
+        assert candidate["claim_kind"] == "evaluable"
+        assert candidate["claim_state"] == "candidate"
+        assert candidate["producing_outcome"] == "success"
+        assert candidate["model_source_identity"] == build_record["source_identity"]
+        assert candidate["experiment_identity"] == evaluation_run["experiment_identity"]
+        assert (
+            candidate["model_build_artifact_set_receipt_identity"]
+            == (build_receipt["content_identity"])
+        )
+        assert (
+            candidate["experiment_run_artifact_set_receipt_identity"]
+            == (receipts[0]["content_identity"])
+        )
 
     def test_stat_composition_boundary_vectors_use_the_shared_experiment(
         self, tmp_path, monkeypatch
