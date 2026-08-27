@@ -1,6 +1,9 @@
 class_name PeriodicEffectTrial
 extends RefCounted
 
+const GdaExecutionClient = preload(
+	"res://addons/gda_balancing_client/gda_execution_client.gd"
+)
 const POLICY_OPERATIONS := {
 	"dynamic": {
 		"apply": "game.effect.apply-live-periodic-v1",
@@ -41,6 +44,9 @@ func admit_run_result(
 		return _failure("missing_snapshot_series")
 	if metrics.get("artifact_kind") != "metric-dataset":
 		return _failure("missing_metric_dataset")
+	var provenance := GdaExecutionClient.project_run_provenance(run_result)
+	if provenance.is_empty():
+		return _failure("incomplete_artifact_provenance")
 
 	var transitions: Array[Dictionary] = []
 	for event in trace.get("events", []):
@@ -118,7 +124,7 @@ func admit_run_result(
 	_policy = policy
 	_cast_damage = int(pulse_damage[0]) if policy == "snapshot" else 0
 	_timeline = timeline
-	_provenance = _artifact_provenance(artifacts, trace, snapshots)
+	_provenance = provenance
 	return {"ok": true}
 
 
@@ -261,24 +267,6 @@ func _is_integer_number(value) -> bool:
 		value is int
 		or (value is float and is_finite(value) and float(int(value)) == value)
 	)
-
-
-func _artifact_provenance(
-	artifacts: Dictionary,
-	trace: Dictionary,
-	snapshots: Dictionary,
-) -> Dictionary:
-	return {
-		"evaluation_run_identity": str(
-			artifacts.get("evaluation-run", {}).get("content_identity", "")
-		),
-		"event_trace_identity": str(trace.get("content_identity", "")),
-		"experiment_identity": str(trace.get("experiment_identity", "")),
-		"reproduction_receipt_identity": str(
-			artifacts.get("reproduction-receipt", {}).get("content_identity", "")
-		),
-		"snapshot_series_identity": str(snapshots.get("content_identity", "")),
-	}
 
 
 func _failure(detail: String) -> Dictionary:

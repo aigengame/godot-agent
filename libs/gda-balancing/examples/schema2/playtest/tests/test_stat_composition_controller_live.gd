@@ -44,6 +44,25 @@ func _run() -> void:
 	var payload := controller.submit_feedback("5", "Yes", "Nothing", "Clear")
 	_expect(payload.get("attacks", []).size() == 3, "feedback retains every attack")
 	_expect(payload.get("reached_cap") == true, "feedback records that the player reached the cap")
+	for attack in payload.get("attacks", []):
+		var provenance: Dictionary = attack.get("provenance", {})
+		_expect(
+			provenance.get("primary_artifact_kind")
+			in ["evaluation-run", "experiment-verdict"],
+			"every attack records its actual primary artifact kind",
+		)
+		for member in [
+			"primary_artifact_identity",
+			"experiment_identity",
+			"event_trace_identity",
+			"snapshot_series_identity",
+			"metric_dataset_identity",
+			"reproduction_receipt_identity",
+		]:
+			_expect(
+				not str(provenance.get(member, "")).is_empty(),
+				"every attack records %s" % member,
+			)
 	controller.restart_training()
 	_expect(controller.current_state().get("target_health") == 120, "Restart restores the dummy")
 	_expect(

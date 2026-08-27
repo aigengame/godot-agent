@@ -1,6 +1,9 @@
 class_name StatCompositionAttack
 extends RefCounted
 
+const GdaExecutionClient = preload(
+	"res://addons/gda_balancing_client/gda_execution_client.gd"
+)
 const METRIC_IDS: Array[String] = [
 	"attack_damage",
 	"base_damage",
@@ -40,6 +43,9 @@ func admit_run_result(
 		return _failure("missing_snapshot_series")
 	if dataset.get("artifact_kind") != "metric-dataset":
 		return _failure("missing_metric_dataset")
+	var provenance := GdaExecutionClient.project_run_provenance(run_result)
+	if provenance.is_empty():
+		return _failure("incomplete_artifact_provenance")
 
 	var transitions: Array[Dictionary] = []
 	for event in trace.get("events", []):
@@ -82,7 +88,7 @@ func admit_run_result(
 	_attack_index = attack_index
 	_capped = int(metrics["attack_damage"]) == maximum_damage
 	_metrics = metrics.duplicate(true)
-	_provenance = _artifact_provenance(artifacts, trace, snapshots)
+	_provenance = provenance
 	_revision = revision
 	_settings = settings.duplicate(true)
 	return {"ok": true}
@@ -134,18 +140,6 @@ func _integer_metrics(rows: Array) -> Dictionary:
 		if metric in METRIC_IDS and _is_integer_number(row.get("value")):
 			metrics[metric] = int(row["value"])
 	return metrics
-
-
-func _artifact_provenance(
-	artifacts: Dictionary, trace: Dictionary, snapshots: Dictionary
-) -> Dictionary:
-	return {
-		"evaluation_run_identity": str(
-			artifacts.get("evaluation-run", {}).get("content_identity", "")
-		),
-		"event_trace_identity": str(trace.get("content_identity", "")),
-		"snapshot_series_identity": str(snapshots.get("content_identity", "")),
-	}
 
 
 func _is_integer_number(value) -> bool:
