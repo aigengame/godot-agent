@@ -851,10 +851,16 @@ headless is unaffected (4.4+, cross-platform).
   a Dictionary into an `Object` parameter, null into `int`, and any JSON array into a
   typed `Array[int]` are refused with the reason. Without the check `callv` pushes an
   engine error, returns null and writes to the Session log — a failure that would read
-  as a successful null. Non-finite numbers (`NaN`/`Infinity`, which JSON has no literals
-  for but Python's decoder accepts) are refused earlier still, in the params model both
-  invocation paths share: left through, they produced a frame the harness could not
-  parse, costing the caller a `live_timeout` and the session its runtime state. The constant is the inheritance CHAIN's declaration, not a per-class increment:
+  as a successful null. Values the wire cannot carry UNCHANGED are refused earlier still, in the
+  params model both invocation paths share (recursively, so a nested value counts):
+  non-finite numbers (`NaN`/`Infinity`, which JSON has no literals for but Python's
+  decoder accepts) — left through they produced a frame the harness could not parse,
+  costing the caller a `live_timeout` and the session its runtime state — and integers
+  outside ±(2^53 − 1), since the harness reads JSON numbers as doubles and a larger
+  integer arrives as a DIFFERENT value (a call that then succeeds on something the
+  caller never sent). The type table itself is the engine's `Variant::can_convert_strict`
+  closure over the seven JSON source types, pinned by a real-engine conformance matrix
+  whose oracle is a direct `callv` rather than a second copy of the table. The constant is the inheritance CHAIN's declaration, not a per-class increment:
   GDScript forbids a subclass from redeclaring a base class's constant, so exactly one
   class per chain declares (a base that declares owns its subclasses' callable surface
   too), and a project that declares in both fails to parse with a message naming the

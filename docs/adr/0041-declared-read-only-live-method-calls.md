@@ -44,10 +44,12 @@ func qa_current_state_contract() -> Dictionary:
 	return {"phase": _phase, "ready": true}
 ```
 
-`gda game call <node> --method <name>` invokes the method only when the addressed
-node's class names it there. The set is merged along the script's **base chain**, so a
-shared debug base class declares once for its subclasses, the way any other class
-member is inherited.
+**The public rule, stated once:** gda resolves the declaration from the addressed
+node's ATTACHED script along its **base chain**, and an opted-in chain has AT MOST ONE
+declaration owner — the class that carries the constant. That owner is not necessarily
+the class that defines every method it names: a base that declares owns the callable
+surface of its subclasses too. `gda game call <node> --method <name>` invokes the method
+only when the resolved declaration names it.
 
 This implements the issue's triage decision — a **project-side** declaration rather
 than a per-invocation CLI flag, because a flag would let any caller assert anything ad
@@ -56,12 +58,11 @@ read-only assertion is a property of the method, so it lives in the class's own 
 where the project's code review already looks, rather than in a separate registry that
 drifts from it.
 
-**It is an INHERITANCE-CHAIN declaration, owned by exactly one class of the chain** (see
-"Why one class per chain" below), not a per-class increment. A leaf class with no
-declaring base declares its own methods; a base that declares owns the callable surface
-of every subclass, so it must name the subclass methods it authorizes. A reader gets one
-authoritative list per chain, in one file — not necessarily the file of every method it
-names. That is a real cost of this format, stated here rather than implied away.
+It is therefore an INHERITANCE-CHAIN declaration, not a per-class increment (see "Why
+one class per chain" below): a leaf class with no declaring base declares its own
+methods; a base that declares must name the subclass methods it authorizes. One
+authoritative list per chain, in one file — a real cost of this format, stated rather
+than implied away.
 
 Two properties decided the FORMAT (a constant, not a `_gda_callable()` hook method):
 
@@ -124,25 +125,44 @@ from a void return (PR #749 review; reproduced on Godot 4.6.3 for a String into 
 null into `int`, a Dictionary into an `Object` parameter, and a JSON array into
 `Array[int]`).
 
-The type rule MIRRORS the engine's own `Variant::can_convert_strict`
+The type rule is the engine's own `Variant::can_convert_strict` closure
 (`core/variant/variant.cpp`), which is not exposed to GDScript, restricted to the SEVEN
 Variant types a JSON argument can produce — null, bool, int, float, String, Array,
-Dictionary — so the mirrored table is closed and small: an untyped (Variant) parameter
-takes anything; bool/int/float interconvert; a String reaches String / StringName /
-NodePath; an Array reaches an UNTYPED Array, a Dictionary an untyped Dictionary; null
-reaches an `Object` parameter; everything else is refused with the reason. A TYPED
+Dictionary. Restricted that way it is closed and small, so the harness carries it as a
+table keyed by the SOURCE type: bool/int/float interconvert, an int or a String also
+reaches `Color`, a String reaches `StringName` / `NodePath`, an Array reaches any of the
+ten `Packed*Array` types, null reaches an `Object` parameter, an untyped (Variant)
+parameter takes anything, and everything else is refused with the reason. A TYPED
 container parameter (`Array[int]`) is refused whatever its contents, because the engine
 refuses `Array` → `Array[int]` outright — no JSON argument can reach one, and saying so
-beats letting the call fail as a null. gda does not convert on the caller's behalf:
-where the engine converts, gda calls; where it refuses, gda refuses first.
+beats letting the call fail as a null.
+
+**Transcribing that closure by hand is exactly where this went wrong once** (PR #749
+re-review): a first version omitted the `Color` and `Packed*Array` rows and so REJECTED
+calls Godot performs. The table is therefore pinned by a real-engine conformance matrix
+whose ORACLE IS THE ENGINE, not a second copy of the table: a declared `probe_direct`
+method performs the call inside the game with `callv` and reports whether the method
+body RAN, and the matrix asserts gda's verdict equals the engine's for every
+(parameter type, JSON value) pair. gda does not convert on the caller's behalf: where
+the engine converts, gda calls; where it refuses, gda refuses first — and the matrix is
+what keeps that sentence true.
 
 Arguments are also bounded at the CLI boundary, in the params model both invocation
-paths share (ADR-0015): a non-finite float (`NaN`, `Infinity` — which JSON has no
-literals for, but Python's decoder accepts by extension) is refused there. Left through,
-it produced a frame the harness's JSON parser could not read, so the call never arrived:
-the caller waited out the relay bound, got `live_timeout`, and the daemon retired the
-channel — losing the `Engine session`'s runtime state (reproduced end to end, PR #749
-review).
+paths share (ADR-0015), for the values the live wire cannot carry UNCHANGED:
+
+- a non-finite float (`NaN`, `Infinity` — which JSON has no literals for, but Python's
+  decoder accepts by extension): left through, it produced a frame the harness's JSON
+  parser could not read, so the call never arrived — the caller waited out the relay
+  bound, got `live_timeout`, and the daemon retired the channel, losing the `Engine
+  session`'s runtime state; and
+- an integer outside ±(2^53 − 1): the harness's `JSON.parse_string` reads every number
+  as a double, so a larger integer arrives as a DIFFERENT number and the call succeeds
+  on a value the caller never sent (`9007199254740993` doubled to `…984` instead of
+  `…986`; `123456789012345678901234567890` arrived as `-2`). The bound is the
+  interoperable JSON integer range and is published in the params schema.
+
+Both are refused recursively — a value nested inside an argument is as harmful as a
+top-level one — and both were reproduced end to end before they were bounded.
 
 The `live_method_not_allowlisted` message names the class's declared set, so discovery
 rides the failure an agent already has to read. A dedicated enumerate operation is

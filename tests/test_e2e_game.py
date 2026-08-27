@@ -114,27 +114,7 @@ def test_game_get_projects_a_path_less_texture_with_optional_digest(
     (tmp_path / "main.tscn").write_text(TEXTURE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(TEXTURE_PLAYER_GD, encoding="utf-8")
 
-    from gda.binary import resolve_godot_binary
-
-    godot = resolve_godot_binary()
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(godot),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = _gda_runner(tmp_path)
 
     def texture_value(prop, *extra):
         got = run("game", "get", "/root/Main/Player", "--property", prop, *extra)
@@ -191,8 +171,11 @@ CALL_MAIN_GD = (
     "const GDA_CALLABLE := [\n"
     '\t"qa_current_state_contract", "with_args", "returns_nothing",\n'
     '\t"typed", "untyped", "typed_array", "with_node", "takes_float",\n'
+    '\t"takes_color", "takes_packed_int", "takes_packed_string",\n'
+    '\t"takes_vector2", "takes_string_name", "takes_dict", "probe_direct",\n'
     "]\n\n"
-    "var _phase := 3\n\n"
+    "var _phase := 3\n"
+    "var _hit := false\n\n"
     "func qa_current_state_contract() -> Dictionary:\n"
     '\treturn {"phase": _phase, "ready": true, "labels": ["a", "b"], "at": Vector2(1, 2)}\n\n'
     'func with_args(scale: int, tag: String = "idle") -> Dictionary:\n'
@@ -203,15 +186,46 @@ CALL_MAIN_GD = (
     '\treturn "never reachable"\n\n'
     # The typed-parameter shapes the #749 review's false-success finding needs.
     "func typed(value: int) -> int:\n"
+    "\t_hit = true\n"
     "\treturn value * 2\n\n"
     "func untyped(value) -> String:\n"
+    "\t_hit = true\n"
     "\treturn str(value)\n\n"
     "func typed_array(items: Array[int]) -> int:\n"
+    "\t_hit = true\n"
     "\treturn items.size()\n\n"
     "func with_node(n: Node2D) -> String:\n"
+    "\t_hit = true\n"
     '\treturn "got " + str(n)\n\n'
     "func takes_float(v: float) -> float:\n"
-    "\treturn v * 2.0\n"
+    "\t_hit = true\n"
+    "\treturn v * 2.0\n\n"
+    # The conversion matrix's parameter shapes, plus the ORACLE: `probe_direct`
+    # performs the call itself and reports whether the body RAN, so the engine —
+    # not a second copy of gda's table — decides what is convertible (#749
+    # re-review).
+    "func takes_color(c: Color) -> String:\n"
+    "\t_hit = true\n"
+    "\treturn str(c)\n\n"
+    "func takes_packed_int(items: PackedInt32Array) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
+    "func takes_packed_string(items: PackedStringArray) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
+    "func takes_vector2(v: Vector2) -> String:\n"
+    "\t_hit = true\n"
+    "\treturn str(v)\n\n"
+    "func takes_string_name(s: StringName) -> String:\n"
+    "\t_hit = true\n"
+    "\treturn String(s)\n\n"
+    "func takes_dict(d: Dictionary) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn d.size()\n\n"
+    "func probe_direct(method: String, call_args: Array) -> bool:\n"
+    "\t_hit = false\n"
+    "\tcallv(method, call_args)\n"
+    "\treturn _hit\n"
 )
 CALL_MAIN_TSCN = (
     "[gd_scene load_steps=3 format=3]\n\n"
@@ -477,6 +491,164 @@ def test_game_call_non_finite_args_never_reach_the_session(
         assert json.loads(run("daemon", "status").stdout)["session_id"] == before
         after = run("game", "call", "/root/Main", "--method", "typed", "--args", "[2]")
         assert after.returncode == 0, after.stdout + after.stderr
+        assert json.loads(run("daemon", "status").stdout)["session_id"] == before
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_game_call_argument_gate_agrees_with_the_engine(tmp_path, daemon_runtime_dir):
+    # #749 re-review P1: the first hand-transcribed conversion table REJECTED
+    # calls Godot accepts (a String into `Color`, a JSON array into
+    # `PackedInt32Array`). The table is now transcribed from the engine's own
+    # `Variant::can_convert_strict` closure — and pinned by THIS matrix, whose
+    # oracle is the engine itself: `probe_direct` performs the call inside the
+    # game and reports whether the method body RAN. gda must call exactly when
+    # the engine would, so the table can never drift silently again.
+    from .conftest import project_godot
+
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
+    (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
+    (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
+
+    run = _gda_runner(tmp_path)
+
+    # (method, JSON arguments) pairs spanning every JSON source type against
+    # engine parameter types that accept, convert, or refuse them.
+    matrix = [
+        ("typed", "[7]"),
+        ("typed", '["bad"]'),
+        ("typed", "[null]"),
+        ("typed", "[true]"),
+        ("typed", "[3.7]"),
+        ("takes_float", "[3]"),
+        ("takes_color", '["red"]'),
+        ("takes_color", "[16711680]"),
+        ("takes_color", "[[1, 0, 0]]"),
+        ("takes_packed_int", "[[1, 2, 3]]"),
+        ("takes_packed_int", '["nope"]'),
+        ("takes_packed_string", '[["a", "b"]]'),
+        ("takes_vector2", "[[1, 2]]"),
+        ("takes_string_name", '["x"]'),
+        ("takes_string_name", "[7]"),
+        ("takes_dict", '[{"a": 1}]'),
+        ("takes_dict", "[[1]]"),
+        ("with_node", "[null]"),
+        ("with_node", '[{"a": 1}]'),
+        ("untyped", '[{"a": 1}]'),
+        ("typed_array", "[[1, 2]]"),
+    ]
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        disagreements = []
+        for method, args in matrix:
+            gda = run("game", "call", "/root/Main", "--method", method, "--args", args)
+            gda_calls = gda.returncode == 0
+            if not gda_calls:
+                assert (
+                    json.loads(gda.stdout)["error"]["code"] == "live_invalid_call_args"
+                ), gda.stdout
+
+            probe = run(
+                "game",
+                "call",
+                "/root/Main",
+                "--method",
+                "probe_direct",
+                "--args",
+                f'["{method}", {args}]',
+            )
+            assert probe.returncode == 0, probe.stdout + probe.stderr
+            engine_calls = json.loads(probe.stdout)["value"]
+
+            if gda_calls != engine_calls:
+                disagreements.append((method, args, gda_calls, engine_calls))
+
+        assert not disagreements, disagreements
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_game_call_refuses_integers_the_wire_cannot_carry(tmp_path, daemon_runtime_dir):
+    # #749 re-review P1: the live wire's JSON parser reads every number as a
+    # double, so an integer past the exact-integer range arrived CHANGED and the
+    # call succeeded on a value the caller never sent (9007199254740993 doubled
+    # to …984 instead of …986; 1.2e29 arrived as -2). The bound is now refused at
+    # the input boundary; the largest exact value still goes through unchanged.
+    from gda.commands.game import MAX_EXACT_JSON_INT
+    from .conftest import project_godot
+
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
+    (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
+    (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
+
+    run = _gda_runner(tmp_path)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+        assert run("daemon", "wait-ready").returncode == 0
+        before = json.loads(run("daemon", "status").stdout)["session_id"]
+
+        # The boundary value round-trips exactly: doubled, it is still exact.
+        ok = run(
+            "game",
+            "call",
+            "/root/Main",
+            "--method",
+            "typed",
+            "--args",
+            f"[{MAX_EXACT_JSON_INT}]",
+        )
+        assert ok.returncode == 0, ok.stdout + ok.stderr
+        assert json.loads(ok.stdout)["value"] == MAX_EXACT_JSON_INT * 2
+
+        # Past it — both signs, and a value far outside int64 — the call is
+        # refused rather than silently altered.
+        for value in (
+            MAX_EXACT_JSON_INT + 2,
+            -(MAX_EXACT_JSON_INT + 2),
+            123456789012345678901234567890,
+        ):
+            refused = run(
+                "game",
+                "call",
+                "/root/Main",
+                "--method",
+                "typed",
+                "--args",
+                f"[{value}]",
+            )
+            assert refused.returncode != 0, refused.stdout
+            assert "live_timeout" not in refused.stdout
+
+        # Nested values are refused too, and the session is untouched throughout.
+        nested = run(
+            "game",
+            "call",
+            "/root/Main",
+            "--method",
+            "untyped",
+            "--params-json",
+            json.dumps(
+                {
+                    "node": "/root/Main",
+                    "method": "untyped",
+                    "args": [{"deep": [MAX_EXACT_JSON_INT + 2]}],
+                }
+            ),
+        )
+        assert nested.returncode != 0, nested.stdout
         assert json.loads(run("daemon", "status").stdout)["session_id"] == before
     finally:
         run("daemon", "stop")

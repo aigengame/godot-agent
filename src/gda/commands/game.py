@@ -242,29 +242,55 @@ class GameSetResult(BaseModel):
 GDA_CALLABLE_CONST = "GDA_CALLABLE"
 
 
-def _reject_non_finite(value: Any, path: str = "args") -> None:
-    """Refuse NaN / Infinity anywhere in the arguments (PR #749 review).
+# The largest magnitude an INTEGER argument can carry across the live wire
+# without changing value (PR #749 re-review). Godot's `JSON.parse_string` reads
+# every JSON number as a double, so an integer outside the IEEE-754 exact-integer
+# range arrives as a different number: 9007199254740993 became …992, and
+# 123456789012345678901234567890 became -2 — a SUCCESSFUL call on a value the
+# caller never sent. This is the interoperable JSON integer range every consumer
+# treats as safe, and it is published in the params schema.
+MAX_EXACT_JSON_INT = 2**53 - 1
 
-    JSON has no non-finite literals, but Python's ``json.loads`` accepts them by
-    extension and pydantic keeps them in an ``Any`` field — and the daemon then
-    writes a frame the harness's ``JSON.parse_string`` cannot read, so the call
-    never arrives: the caller waits out the 30 s relay bound, gets
-    ``live_timeout``, and the daemon retires the channel, LOSING the engine
-    session's runtime state (reproduced end to end). The params model is the one
-    authority both the argv and ``--params-json`` paths pass through (ADR-0015),
-    so the refusal belongs here — structurally, before the wire.
+
+def _reject_unrepresentable(value: Any, path: str = "args") -> None:
+    """Refuse argument values the live wire cannot carry unchanged (PR #749).
+
+    Two classes, both reproduced end to end, both refused recursively (a nested
+    value is as harmful as a top-level one):
+
+    - **Non-finite floats.** JSON has no ``NaN``/``Infinity`` literals, but
+      Python's ``json.loads`` accepts them by extension and pydantic keeps them
+      in an ``Any`` field — and the daemon then writes a frame the harness's
+      ``JSON.parse_string`` cannot read, so the call never arrives: the caller
+      waits out the 30 s relay bound, gets ``live_timeout``, and the daemon
+      retires the channel, LOSING the engine session's runtime state.
+    - **Integers outside the exact-integer range** of the double the wire's JSON
+      parser produces: those arrive as a different number and the call SUCCEEDS
+      on a value the caller never sent (PR #749 re-review).
+
+    The params model is the one authority both the argv and ``--params-json``
+    paths pass through (ADR-0015), so both refusals belong here — structurally,
+    before the wire.
     """
-    if isinstance(value, float) and not math.isfinite(value):
+    if isinstance(value, bool):
+        pass  # bool is not an int argument here, despite subclassing it
+    elif isinstance(value, float) and not math.isfinite(value):
         raise ValueError(
             f"{path} must be finite JSON values; NaN and Infinity are not "
             "representable on the live wire."
         )
+    elif isinstance(value, int) and abs(value) > MAX_EXACT_JSON_INT:
+        raise ValueError(
+            f"{path} must be within +/-{MAX_EXACT_JSON_INT} (the live wire "
+            "reads JSON numbers as doubles, so a larger integer arrives as a "
+            f"DIFFERENT value); got {value}."
+        )
     if isinstance(value, dict):
         for key, item in value.items():
-            _reject_non_finite(item, f"{path}[{key!r}]")
+            _reject_unrepresentable(item, f"{path}[{key!r}]")
     elif isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
-            _reject_non_finite(item, f"{path}[{index}]")
+            _reject_unrepresentable(item, f"{path}[{index}]")
 
 
 class GameCallParams(BaseModel):
@@ -303,7 +329,7 @@ class GameCallParams(BaseModel):
     @model_validator(mode="after")
     def _check_args(self) -> "GameCallParams":
         if self.args is not None:
-            _reject_non_finite(self.args)
+            _reject_unrepresentable(self.args)
         return self
 
 
@@ -600,7 +626,8 @@ def game_call(
         "--method",
         help=(
             "The method to invoke. Its class must name it in the "
-            "`GDA_CALLABLE` script constant; gda calls nothing undeclared."
+            f"`{GDA_CALLABLE_CONST}` script constant; gda calls nothing "
+            "undeclared."
         ),
     ),
     args: Optional[str] = typer.Option(

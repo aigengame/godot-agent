@@ -527,10 +527,12 @@ func _handle_game_rect(params: Dictionary) -> String:
 # state contract exposed as a method was unreadable — `game get` reads stored
 # properties only — so evidence fell back to index properties plus screenshots.
 #
-# The declaration site is the class's own script constant `GDA_CALLABLE` (an
-# Array of method names), merged across the script's base chain, so the
-# read-only assertion sits beside the code it describes and is reviewed with it
-# (ADR-0041). It is read STATICALLY from the script constant map: learning what
+# The declaration is resolved from the node's ATTACHED script along its base
+# chain: the script constant `GDA_CALLABLE` (an Array of method names), carried
+# by AT MOST ONE class of the chain — GDScript forbids redeclaring a base's
+# constant — so the read-only assertion lives in the project's own source, under
+# its own code review, though not necessarily in the file of every method it
+# names (ADR-0041). It is read STATICALLY from the script constant map: learning what
 # may be called runs no project code, so the bootstrap itself cannot have side
 # effects. A node with no script, no constant, or a constant that does not name
 # the method declares nothing — default deny.
@@ -641,13 +643,35 @@ func _call_argument_error(signature: Dictionary, args: Array) -> String:
 	return ""
 
 
+# The engine's own strict-conversion closure for the SEVEN Variant types a JSON
+# argument can produce, keyed by the SOURCE type (#673, PR #749 re-review). Every
+# row is transcribed mechanically from `Variant::can_convert_strict`
+# (core/variant/variant.cpp), which is NOT exposed to GDScript: its per-target
+# `valid[]` lists are NIL-TERMINATED, so a NIL entry is the terminator rather than
+# a legal source, and `from NIL` is decided by an early return (only OBJECT).
+# Transcribing the closure by hand made a first version REJECT calls Godot
+# accepts (String -> Color, Array -> Packed*Array), so a real-engine conformance
+# matrix now uses a direct `callv` as the ORACLE — the engine decides, this table
+# only has to agree with it.
+const JSON_ARGUMENT_CONVERSIONS := {
+	TYPE_NIL: [TYPE_OBJECT],
+	TYPE_BOOL: [TYPE_INT, TYPE_FLOAT],
+	TYPE_INT: [TYPE_BOOL, TYPE_FLOAT, TYPE_COLOR],
+	TYPE_FLOAT: [TYPE_BOOL, TYPE_INT],
+	TYPE_STRING: [TYPE_STRING_NAME, TYPE_NODE_PATH, TYPE_COLOR],
+	TYPE_ARRAY: [
+		TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_INT64_ARRAY,
+		TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY,
+		TYPE_PACKED_STRING_ARRAY, TYPE_PACKED_COLOR_ARRAY,
+		TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY,
+		TYPE_PACKED_VECTOR4_ARRAY,
+	],
+	TYPE_DICTIONARY: [],
+}
+
+
 # Why one JSON-supplied value cannot reach one declared parameter, or "" when it
-# can (#673, PR #749 review). This mirrors the engine's own strict-conversion
-# rule (`Variant::can_convert_strict`, core/variant/variant.cpp), which is NOT
-# exposed to GDScript — restricted to the SEVEN Variant types JSON can produce
-# (null, bool, int, float, String, Array, Dictionary), so the mirrored table is
-# closed and small. Where the engine converts, gda calls; where it refuses, gda
-# refuses FIRST, with the reason.
+# can (#673). Reads the closure above; where the engine converts, gda calls.
 func _argument_type_refusal(spec: Dictionary, value: Variant) -> String:
 	var to_type := int(spec.get("type", TYPE_NIL))
 	var from_type := typeof(value)
@@ -665,19 +689,8 @@ func _argument_type_refusal(spec: Dictionary, value: Variant) -> String:
 					+ "argument cannot satisfy; declare the parameter untyped to "
 					+ "make it callable")
 		return ""
-	var allowed: Array = []
-	match to_type:
-		TYPE_BOOL:
-			allowed = [TYPE_INT, TYPE_FLOAT]
-		TYPE_INT:
-			allowed = [TYPE_BOOL, TYPE_FLOAT]
-		TYPE_FLOAT:
-			allowed = [TYPE_BOOL, TYPE_INT]
-		TYPE_STRING_NAME, TYPE_NODE_PATH:
-			allowed = [TYPE_STRING]
-		TYPE_OBJECT:
-			allowed = [TYPE_NIL]
-	if allowed.has(from_type):
+	var reachable: Array = JSON_ARGUMENT_CONVERSIONS.get(from_type, [])
+	if reachable.has(to_type):
 		return ""
 	return ("a " + _type_name(from_type) + " value cannot convert to "
 			+ _type_name(to_type))

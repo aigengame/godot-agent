@@ -69,8 +69,22 @@ def test_gda_callable_constant_name_mirrors_the_harness():
 
     from gda.cli import app
 
-    doc = json.loads(CliRunner().invoke(app, ["game", "call", "--schema"]).stdout)
+    runner = CliRunner()
+    schema = runner.invoke(app, ["game", "call", "--schema"]).stdout
+    help_text = runner.invoke(app, ["game", "call", "--help"]).stdout
+    doc = json.loads(schema)
     assert GDA_CALLABLE_CONST in json.dumps(doc["input"])
+    # EXACT rendered consistency (#749 re-review): docstrings cannot interpolate
+    # the constant, so a coordinated rename could leave published text naming the
+    # old one while the two constants still matched. Every declaration-constant
+    # token the public schema and help render must BE the constant — a stale name
+    # shows up here as a different token.
+    for rendered, label in ((schema, "schema"), (help_text, "help")):
+        # Normalized, because Rich wraps help lines mid-sentence.
+        flat = " ".join(rendered.split())
+        named = re.findall(r"`?\b(GDA_[A-Z_]+)\b`? script constant", flat)
+        assert named, f"{label} must name the declaration constant"
+        assert set(named) == {GDA_CALLABLE_CONST}, (label, set(named))
 
 
 def _descriptors():

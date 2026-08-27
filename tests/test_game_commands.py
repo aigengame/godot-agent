@@ -858,3 +858,55 @@ def test_game_call_accepts_finite_nested_json_args(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert fake.calls[0][1]["args"] == [1, 2.5, {"a": [3.5, "x"]}]
+
+
+def test_game_call_refuses_integers_beyond_the_exact_json_range(monkeypatch, tmp_path):
+    # #749 re-review: the live wire reads JSON numbers as doubles, so an integer
+    # past the exact-integer range arrives CHANGED and the call succeeds on a
+    # value the caller never sent. Refused in the params model, so both paths and
+    # nested positions are covered; the boundary value still rides through.
+    from gda.commands.game import MAX_EXACT_JSON_INT
+
+    project = str(_project(tmp_path))
+    for argv in (
+        ["--method", "m", "--args", f"[{MAX_EXACT_JSON_INT + 2}]"],
+        ["--method", "m", "--args", f"[-{MAX_EXACT_JSON_INT + 2}]"],
+        ["--method", "m", "--args", f'[{{"deep": [{MAX_EXACT_JSON_INT + 2}]}}]'],
+        [
+            "--params-json",
+            f'{{"node": "/root/M", "method": "m", "args": [{MAX_EXACT_JSON_INT + 2}]}}',
+        ],
+    ):
+        fake = inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(
+            app,
+            ["game", "call", "/root/M", *argv, "--project", project, "--json"],
+        )
+        assert result.exit_code != 0, result.stdout
+        assert fake.calls == [], argv
+
+    # The boundary itself is representable and goes through unchanged.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+    ok = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/M",
+            "--method",
+            "m",
+            "--args",
+            f"[{MAX_EXACT_JSON_INT}]",
+            "--project",
+            project,
+            "--json",
+        ],
+    )
+    assert ok.exit_code == 0, ok.stdout + ok.stderr
+    assert fake.calls[0][1]["args"] == [MAX_EXACT_JSON_INT]
