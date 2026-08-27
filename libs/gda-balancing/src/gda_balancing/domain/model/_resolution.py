@@ -365,6 +365,7 @@ def _selected_source_operation_coordinates(
     source: dict[str, Any],
     lock: dict[str, Any],
     operation_node_ids: set[str],
+    additional_roots: set[tuple[str, str, str]] | None = None,
 ) -> set[tuple[str, str, str]]:
     """Close the exact Operation-valued graph from authored entrypoints."""
     package_versions = {
@@ -388,6 +389,7 @@ def _selected_source_operation_coordinates(
         for entrypoint in cast(list[dict[str, Any]], source.get("entrypoints", []))
         if isinstance((operation := entrypoint.get("operation")), dict)
     }
+    selected.update(additional_roots or set())
     if any(coordinate not in operations for coordinate in selected):
         # Exact Operation-resolution diagnostics own precedence over Formula
         # reachability when an authored root coordinate cannot resolve.
@@ -399,8 +401,9 @@ def _selected_resolved_operation_coordinates(
     entrypoints: list[dict[str, Any]],
     selected_semantics: dict[str, Any],
     operation_node_ids: set[str],
+    additional_roots: set[tuple[str, str, str]] | None = None,
 ) -> set[tuple[str, str, str]]:
-    """Close Operation-valued instructions from admitted entrypoints."""
+    """Close Operation-valued instructions from all admitted roots."""
     package_versions = {
         cast(str, row["id"]): cast(str, row["version"])
         for row in cast(list[dict[str, Any]], selected_semantics["packages"])
@@ -422,6 +425,7 @@ def _selected_resolved_operation_coordinates(
         for entrypoint in entrypoints
         if isinstance((operation := entrypoint.get("operation")), dict)
     }
+    selected.update(additional_roots or set())
     return closed_operation_coordinates(selected, operations, operation_node_ids)
 
 

@@ -465,15 +465,16 @@ def test_quantity_2_2_has_one_compatible_downstream_release_chain():
         "game.combat": "2.1.0",
     }
 
-    assert {(package, version) for package, version in retained_versions.items()} <= set(
-        releases
-    )
+    assert {
+        (package, version) for package, version in retained_versions.items()
+    } <= set(releases)
     for coordinate, dependencies in expected_dependencies.items():
         release = releases[coordinate]
         assert release["dependencies"]["required"] == dependencies
-        assert release["exports"] == releases[
-            (coordinate[0], retained_versions[coordinate[0]])
-        ]["exports"]
+        assert (
+            release["exports"]
+            == releases[(coordinate[0], retained_versions[coordinate[0]])]["exports"]
+        )
 
         vector_set = next(
             item
@@ -487,6 +488,73 @@ def test_quantity_2_2_has_one_compatible_downstream_release_chain():
             and vector.get("probe") == {"path": "dependencies.required"}
         ]
         assert [vector["expect"] for vector in dependency_vectors] == [dependencies]
+
+
+def test_stat_contribution_releases_own_pure_formula_slots():
+    ldb = _authority_candidate()["language_bundle"]
+    releases = {
+        (package["id"], package["version"]): package
+        for package in ldb["language"]["packages"]
+    }
+    expected = {
+        ("game.progression", "1.0.0"): {
+            "dependencies": [{"id": "core.quantity", "version": "2.2.0"}],
+            "operation": "game.progression.contribution@1",
+            "slot": "progression-policy",
+            "parameters": ["level", "damage_per_level"],
+        },
+        ("game.build", "1.1.0"): {
+            "dependencies": [
+                {"id": "core.quantity", "version": "2.2.0"},
+                {"id": "game.generation", "version": "1.1.0"},
+                {"id": "standard.runtime", "version": "1.1.0"},
+                {"id": "standard.schema", "version": "2.4.0"},
+            ],
+            "operation": "game.build.contribution@1",
+            "slot": "build-policy",
+            "parameters": ["weapon_damage_bonus"],
+        },
+        ("game.effect", "1.1.0"): {
+            "dependencies": [
+                {"id": "core.quantity", "version": "2.2.0"},
+                {"id": "standard.runtime", "version": "1.1.0"},
+            ],
+            "operation": "game.effect.contribute@1",
+            "slot": "effect-policy",
+            "parameters": ["pre_buff_damage", "buff_percent", "buff_enabled"],
+        },
+    }
+
+    for coordinate, contract in expected.items():
+        release = releases[coordinate]
+        assert release["dependencies"]["required"] == contract["dependencies"]
+        assert contract["operation"] in release["exports"]["operations"]
+        operations = next(
+            entry["definitions"]
+            for entry in release["semantic_closure"]
+            if entry["authority_path"] == "language.operations"
+        )
+        operation = next(
+            item for item in operations if item["id"] == contract["operation"]
+        )
+        assert operation["operation_kind"] == "pure-expression"
+        assert operation["effects"] == []
+        assert operation["result"]["source"] == {"kind": "local", "name": "result"}
+        [slot] = operation["extensions"]["standard.formula-slots"]
+        assert slot["id"] == contract["slot"]
+        assert slot["context"] == {
+            "frame": "pre-event-snapshot",
+            "phase": "event",
+        }
+        assert [parameter["id"] for parameter in slot["parameters"]] == contract[
+            "parameters"
+        ]
+        assert [parameter["source"] for parameter in slot["parameters"]] == [
+            {"kind": "port", "name": name} for name in contract["parameters"]
+        ]
+        assert slot["target"] == "result"
+        assert slot["placeholder_index"] == 0
+        assert slot["placeholder_length"] == len(operation["body"])
 
 
 def test_coherent_package_semantic_change_changes_the_release_identity():

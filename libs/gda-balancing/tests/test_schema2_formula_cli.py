@@ -1804,7 +1804,7 @@ def test_formula_render_reports_invalid_notation_port_closure_as_type_mismatch(
     assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/body"
 
 
-def test_formula_render_refuses_a_body_that_cannot_round_trip_after_port_reordering(
+def test_formula_render_round_trips_a_body_after_port_reordering(
     tmp_path: Path,
     run_cli,
     pristine_authority_context,
@@ -1863,13 +1863,12 @@ def test_formula_render_refuses_a_body_that_cannot_round_trip_after_port_reorder
 
     exit_code, stdout, stderr = run_cli(["formula", "render", str(source)])
 
-    assert (exit_code, stderr) == (2, "")
-    error = json.loads(stdout)["error"]
-    assert error["stage"] == "static"
-    assert [item["code"] for item in error["diagnostics"]] == [
-        "language.formula_notation_mismatch"
-    ]
-    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/body"
+    assert (exit_code, stderr) == (0, "")
+    assert json.loads(stdout)["expression"] == (
+        "let raw_damage = mitigation - damage_before_defense;\n"
+        "let damage = floor_zero(raw_damage);\n"
+        "damage"
+    )
 
 
 def test_formula_parse_refuses_expression_bytes_above_the_admitted_limit(

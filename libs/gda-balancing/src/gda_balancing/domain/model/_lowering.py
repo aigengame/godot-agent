@@ -1184,10 +1184,25 @@ def _resolved_formula_programs_and_bindings_impl(
     selected_slots: dict[
         tuple[str, str, str, str], tuple[dict[str, Any], dict[str, Any], str]
     ] = {}
+    formula_operation_roots = {
+        (
+            cast(str, operation["package"]),
+            cast(str, operation["version"]),
+            cast(str, operation["id"]),
+        )
+        for key in selected_formula_keys
+        for node in cast(
+            list[dict[str, Any]],
+            cast(dict[str, Any], resolved_by_key[key]["body"])["nodes"],
+        )
+        if node.get("node") == "operation-call"
+        and isinstance((operation := node.get("operation")), dict)
+    }
     selected_operation_coordinates = _selected_source_operation_coordinates(
         checked.source,
         lock,
         _operation_reference_node_ids(checked.kernel),
+        formula_operation_roots,
     )
     for operation_row in cast(list[dict[str, Any]], lock["operations"]):
         package_id = cast(str, operation_row["package"])
@@ -2160,8 +2175,8 @@ def _specialize_operation_formula_slots(
             int,
             cast(dict[str, Any], formula["closure"])["resource_charge"]["max_steps"],
         )
-        if len(compiled) != expected_steps:
-            raise ValueError("generic event lowering does not preserve Formula charge")
+        if len(compiled) > expected_steps:
+            raise ValueError("generic event lowering exceeds Formula charge")
         placeholder_index = cast(int, slot["placeholder_index"])
         placeholder_length = cast(int, slot["placeholder_length"])
         replacements.setdefault(coordinate, []).append(
@@ -2485,10 +2500,8 @@ def _compile_initialization_programs(
             int,
             cast(dict[str, Any], formula["closure"])["resource_charge"]["max_steps"],
         )
-        if len(instructions) != expected_steps:
-            raise ValueError(
-                "generic initialization lowering does not preserve Formula charge"
-            )
+        if len(instructions) > expected_steps:
+            raise ValueError("generic initialization lowering exceeds Formula charge")
         body = cast(
             dict[str, JsonValue],
             {

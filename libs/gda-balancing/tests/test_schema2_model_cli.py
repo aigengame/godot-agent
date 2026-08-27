@@ -51,7 +51,10 @@ from gda_balancing.infrastructure.input_bytes import InputTooLargeError
 from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
 )
-from schema2_authority_support import mutable_authorities
+from schema2_authority_support import (
+    definition_matches_package_coordinate,
+    mutable_authorities,
+)
 
 
 _ROGUELIKE_EXAMPLE_DIR = (
@@ -2345,6 +2348,17 @@ def test_model_check_reaches_formula_slots_through_scheduled_operations(
     assert (exit_code, stderr) == (0, ""), stdout
 
 
+def test_model_check_reaches_operations_called_by_bound_formulas(run_cli):
+    source = (
+        Path(__file__).parents[1]
+        / "examples/schema2/rpg-stat-composition/model-source.json"
+    )
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (0, ""), stdout
+
+
 def test_operation_reachability_follows_kernel_operation_members_after_node_rename():
     kernel = {
         "meta_format": {
@@ -4214,6 +4228,12 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                         else definition
                     )
                     in owners
+                    and definition_matches_package_coordinate(
+                        definition,
+                        authority_path=entry["authority_path"],
+                        package_id=package["id"],
+                        package_version=package["version"],
+                    )
                 ]
             )
         semantic_projection = kernel["meta_format"]["package_release"][
@@ -5081,6 +5101,82 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
     assert error["diagnostics"][0]["primary"]["pointer"] == (
         "/entrypoints/0/arguments/1/operand"
     )
+
+
+def test_model_entrypoint_lowers_a_kernel_boolean_literal(tmp_path):
+    source_path = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source_value = json.loads(source_path.read_text(encoding="utf-8"))
+    source_value["formula_bindings"] = [
+        binding
+        for binding in source_value["formula_bindings"]
+        if binding["site"]["kind"] == "operation-slot"
+    ]
+    source_value["entrypoints"] = [
+        {
+            "id": "combat.damage",
+            "operation": {
+                "package": "game.combat",
+                "version": "2.1.0",
+                "id": "game.combat.damage-v1",
+            },
+            "arguments": [
+                {
+                    "port": "base_damage",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "player_base_damage",
+                    },
+                },
+                {
+                    "port": "critical",
+                    "operand": {"kind": "literal", "value": False},
+                },
+                {
+                    "port": "mitigation",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "enemy_defense",
+                    },
+                },
+                {
+                    "port": "target_health",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "enemy_health",
+                    },
+                },
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "combat",
+                "symbol": "player_damage_dealt",
+            },
+        }
+    ]
+    source = tmp_path / "boolean-literal.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    checked = model_checking_module.check_model_source(str(source))
+
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_compilation_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    entrypoint = cast(list[dict[str, Any]], rir["entrypoints"])[0]
+    operand = cast(dict[str, Any], entrypoint["arguments"][1]["operand"])
+    assert operand["value"] is False
+    assert operand["context_type"] == {
+        "type": {"package": "kernel", "version": "2.0.0", "id": "Boolean"},
+        "representation": "Bool",
+        "kind": "boolean",
+        "unit": "1",
+        "domain": {"kind": "boolean"},
+        "numeric_policy": "exact-bool",
+    }
 
 
 @pytest.mark.parametrize(

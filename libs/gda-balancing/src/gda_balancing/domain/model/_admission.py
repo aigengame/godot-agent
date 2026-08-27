@@ -795,6 +795,7 @@ def _formula_program_graph_is_admitted(
     operation_dependencies_by_key: dict[
         tuple[str, str], list[tuple[str, dict[str, Any]]]
     ] = {}
+    formula_operation_roots: set[tuple[str, str, str]] = set()
     for key, formula in formulas_by_key.items():
         parameters = {parameter["id"]: parameter for parameter in formula["parameters"]}
         locals_by_id: dict[str, dict[str, Any]] = {}
@@ -969,6 +970,7 @@ def _formula_program_graph_is_admitted(
                 operation_dependencies_by_key[key].append(
                     (cast(str, operation_ref["identity"]), operation)
                 )
+                formula_operation_roots.add(coordinate)
             elif node.get("node") == "conditional":
                 if set(node) != {
                     "id",
@@ -1089,6 +1091,7 @@ def _formula_program_graph_is_admitted(
         cast(list[dict[str, Any]], entrypoints),
         cast(dict[str, Any], selected_semantics),
         _operation_reference_node_ids(kernel),
+        formula_operation_roots,
     )
     for operation_row in cast(list[dict[str, Any]], selected_semantics["operations"]):
         package_id = cast(str, operation_row["package"])

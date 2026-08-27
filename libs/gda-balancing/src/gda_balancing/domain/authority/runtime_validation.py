@@ -141,6 +141,26 @@ def operation_literal_context_contract(
         return {
             member: context[member] for member in _STRUCTURED_LITERAL_CONTEXT_MEMBERS
         }
+    if isinstance(value, bool):
+        boolean_contract = fixed_operation_value_contract(kernel, "kernel-boolean")
+        if boolean_contract is None or not operation_value_contract_matches(
+            boolean_contract, formal
+        ):
+            return None
+        return cast(
+            dict[str, JsonValue],
+            {
+                member: boolean_contract[member]
+                for member in (
+                    "type",
+                    "representation",
+                    "kind",
+                    "unit",
+                    "domain",
+                    "numeric_policy",
+                )
+            },
+        )
     if not isinstance(value, int) or isinstance(value, bool):
         return None
     matches = [

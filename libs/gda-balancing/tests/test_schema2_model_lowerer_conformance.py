@@ -33,7 +33,10 @@ from gda_balancing.domain.model import (
     check_model_source,
 )
 from gda_balancing.domain.model._compilation import lower_checked_model
-from schema2_authority_support import mutable_authorities
+from schema2_authority_support import (
+    definition_matches_package_coordinate,
+    mutable_authorities,
+)
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -288,6 +291,12 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                     for definition in definitions
                     if (definition if key_member is None else definition[key_member])
                     in owned
+                    and definition_matches_package_coordinate(
+                        definition,
+                        authority_path=entry["authority_path"],
+                        package_id=package["id"],
+                        package_version=package["version"],
+                    )
                 ]
             )
         runtime_paths = set(package["runtime_semantic_paths"])

@@ -47,6 +47,7 @@ from gda_balancing.domain.wire_schema import (
     wire_schema_identity as schema_definition_identity,
     wire_schema_identity_for_kind,
 )
+from schema2_authority_support import definition_matches_package_coordinate
 
 
 def _reidentify_release(release):
@@ -120,6 +121,12 @@ def _reidentify_language_bundle(kernel, language_bundle):
                         else definition
                     )
                     in owners
+                    and definition_matches_package_coordinate(
+                        definition,
+                        authority_path=entry["authority_path"],
+                        package_id=package["id"],
+                        package_version=package["version"],
+                    )
                 ]
             )
         semantic_projection = kernel["meta_format"]["package_release"][
@@ -914,7 +921,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:590ac096ee10cb60af9157a046b6c52391328c605254818e34e74ceeb7d0fda1"
+                    "sha256:2b8db4f6d9be1440f7ce06bdc276c90e5e326a2a8410a2d8c905b0a959d93a3e"
                 ),
             }
         ]
