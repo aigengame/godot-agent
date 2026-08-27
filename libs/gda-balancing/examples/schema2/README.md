@@ -11,6 +11,7 @@ are two entry points to those shared sources. Neither entry point owns a second 
 | [`roguelike-reward-build/`](roguelike-reward-build/) | `model-source.json`, `experiment.json` | [Reward and build tutorial](roguelike-reward-build/README.md) | [Reward Run](playtest/README.md#reward-run) |
 | [`rpg-combat-cast/`](rpg-combat-cast/) | `model-source.json`, `experiment.json`, `multi-time-experiment.json` | [RPG combat tutorial](rpg-combat-cast/README.md) | [Arcane Duel](playtest/README.md#arcane-duel) |
 | [`rpg-periodic-effect/`](rpg-periodic-effect/) | `model-source.json`, `experiment.json`, `same-time-experiment.json` | [Periodic Effect tutorial](rpg-periodic-effect/README.md) | [Curse Timing](playtest/README.md#curse-timing) |
+| [`rpg-stat-composition/`](rpg-stat-composition/) | `model-source.json`, `experiment.json` | [Attack Damage composition tutorial](rpg-stat-composition/README.md) | [Attack Damage Training](playtest/README.md#attack-damage-training) |
 | [`structured-selection/`](structured-selection/) | `model-source.json`, `experiment.json` | [Structured selection tutorial](structured-selection/README.md) | Not required for this conformance-focused example |
 
 The feature directories own the maintained authored inputs and explain their semantics. The

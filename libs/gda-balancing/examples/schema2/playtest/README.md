@@ -2,13 +2,14 @@
 
 [Schema 2.x examples](../README.md) · [CLI index](../cli/README.md)
 
-This repository-local Godot project contains three small, player-facing applications:
+This repository-local Godot project contains four small, player-facing applications:
 
 | Application | Player experience | Feature under test |
 | --- | --- | --- |
 | Reward Run | Break targets, equip a reward, and compare two builds. | Reward frequency and build impact |
 | Arcane Duel | Choose a spell style and trade casts until one mage is defeated. | Damage, mana cost, opponent pressure, and combat pacing |
 | Curse Timing | Compare a Dynamic Curse with a Fixed Curse across two pulses and an intervening strike. | Per-pulse recalculation and cast-time damage |
+| Attack Damage Training | Adjust Level, Weapon Damage Bonus, and Damage Buff while attacking a training dummy. | Contribution clarity, round-down behavior, and the 60 damage maximum |
 
 Each application uses blockout shapes, short Tween animations, mouse and keyboard controls, and a
 feature-specific feedback form. A player does not need to know how `gda-balancing` compiles or
@@ -32,6 +33,9 @@ GDA_GODOT=/absolute/path/to/godot \
 
 GDA_GODOT=/absolute/path/to/godot \
   examples/schema2/playtest/scripts/run_periodic_effect.sh
+
+GDA_GODOT=/absolute/path/to/godot \
+  examples/schema2/playtest/scripts/run_stat_composition.sh
 ```
 
 The common launcher finds `gda-balancing` from `GDA_BALANCING_EXECUTABLE` or the current `PATH`.
@@ -40,7 +44,7 @@ its own `PATH` lookup. An invalid explicit path produces a visible retry action.
 silently select another installation.
 
 See [scripts/ENV.md](scripts/ENV.md) for package setup, explicit-path examples, `PATH` fallback,
-and commands for all three applications.
+and commands for all four applications.
 
 These are repository-local products. They do not embed Python, package a companion executable, or
 claim standalone export support.
@@ -58,6 +62,7 @@ Each application saves a different feedback file:
 | Reward Run | `user://reward_run_feedback.json` |
 | Arcane Duel | `user://rpg_combat_cast_feedback.json` |
 | Curse Timing | `user://rpg_periodic_effect_feedback.json` |
+| Attack Damage Training | `user://rpg_stat_composition_feedback.json` |
 
 After a playthrough, **Save & Copy Feedback** writes the file, shows its platform-specific absolute
 path, and copies the same JSON payload to the clipboard. The payload contains the player's answers,
@@ -110,6 +115,19 @@ Both trials derive from the maintained same-time experiment and use the same vis
 Effect entrypoint is the only comparison variable. Godot presents the validated lifecycle and
 damage. It does not calculate effect magnitude, damage, timing, or scheduling.
 
+### Attack Damage Training
+
+1. Adjust Level, Weapon Damage Bonus, and the Damage Buff switch.
+2. Attack the 120-HP training dummy.
+3. Read the returned Base Damage, Level Bonus, Weapon Bonus, Damage Buff, and Attack Damage.
+4. Change settings before the next attack and try to reach the 60 damage maximum.
+5. Continue until the dummy is defeated, then Restart or save feedback.
+
+Each attack is one complete immutable Experiment revision. The application reads the validated
+Metrics and applies the returned terminal HP atomically. It does not calculate damage. A failed
+request changes no HP and records no successful attack. The saved payload keeps internal
+identifiers as opaque maintainer provenance; the player UI does not show them.
+
 ## Architecture
 
 The project uses four downward dependency layers. Each application has a thin composition root.
@@ -151,6 +169,7 @@ map between maintained sources, CLI tutorials, and player applications:
 | Reward Run | `examples/schema2/roguelike-reward-build/` | `model-source.json` | `experiment.json` |
 | Arcane Duel | `examples/schema2/rpg-combat-cast/` | `model-source.json` | `experiment.json` |
 | Curse Timing | `examples/schema2/rpg-periodic-effect/` | `model-source.json` | `same-time-experiment.json` |
+| Attack Damage Training | `examples/schema2/rpg-stat-composition/` | `model-source.json` | `experiment.json` |
 
 Content sends complete JSON values to the generic local service. Each edit produces a complete,
 immutable Experiment revision. Runs always name an exact revision.
@@ -190,6 +209,13 @@ PATH="$PWD/.venv/bin:$PATH" \
   uv run --directory ../.. --frozen gda \
   --user-data-root "$PLAYTEST_USER_DATA_ROOT" \
   script run res://tests/test_periodic_effect_main_live.gd \
+  --project "$PWD/examples/schema2/playtest" --json
+
+export PLAYTEST_USER_DATA_ROOT="$(mktemp -d /tmp/gda-playtest-stat.XXXXXX)"
+PATH="$PWD/.venv/bin:$PATH" \
+  uv run --directory ../.. --frozen gda \
+  --user-data-root "$PLAYTEST_USER_DATA_ROOT" \
+  script run res://tests/test_stat_composition_main_live.gd \
   --project "$PWD/examples/schema2/playtest" --json
 ```
 
