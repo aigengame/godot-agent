@@ -263,9 +263,13 @@ def resolve_set_mode(
     The single home of the edit-mode rule, shared by ``script set`` and ``shader
     set`` and by BOTH input paths (ADR-0015): exactly one of the three
     mutually-exclusive modes must be supplied. Raises ``ValueError`` on a
-    violation — the CLI wrapper translates it to a usage error (exit 2) for argv,
-    while the params models surface it as the structured ``invalid_params`` for
-    ``--params-json``.
+    violation. Its only callers are the two params models' ``_resolve_mode``
+    ``model_validator``s (:class:`ScriptSetParams` here, :class:`ShaderSetParams`
+    in ``gda.commands.shader``) — so the rule runs exactly ONCE per invocation,
+    on both commands (issue #713). The argv body builds that model through
+    :func:`~gda.dispatch.params_or_bad_parameter`, which turns the raised error
+    into the Click usage error (exit 2); ``--params-json`` builds the same model
+    and surfaces it as the structured ``invalid_params`` instead.
     """
     has_search = search is not None or replace is not None
     has_line_range = start_line is not None or end_line is not None
@@ -2344,12 +2348,16 @@ def set_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Edit a .gd script via search-replace, line-range, or full overwrite."""
-    mode = parse_set_mode_argv(search, replace, start_line, end_line, content)
+    # The model owns the mode-selection rule and the argv body does not restate
+    # it: the shared builder turns any model-construction failure (resolve_set_mode,
+    # via ScriptSetParams's validator) into the Click usage error (exit 2) — the
+    # same translation an argv-side pre-check used to do by hand — so the rule
+    # runs once per invocation on both input paths (ADR-0015, issue #713).
     dispatch_domain(
         SCRIPT_SET_COMMAND,
-        ScriptSetParams(
+        params_or_bad_parameter(
+            ScriptSetParams,
             path=path,
-            mode=mode,
             search=search,
             replace=replace,
             start_line=start_line,
@@ -2360,27 +2368,6 @@ def set_script(
         godot=godot,
         project=project,
     )
-
-
-def parse_set_mode_argv(
-    search: Optional[str],
-    replace: Optional[str],
-    start_line: Optional[int],
-    end_line: Optional[int],
-    content: Optional[str],
-) -> ScriptSetMode:
-    """Resolve a set command's edit mode for the argv path (issue #133).
-
-    The rule itself lives in :func:`resolve_set_mode` — the single source shared
-    with ``ScriptSetParams`` / ``ShaderSetParams`` (ADR-0015). This thin wrapper
-    translates its ``ValueError`` into a Click usage error (exit 2) so the argv
-    path keeps its usage-error ergonomics, while ``--params-json`` surfaces the
-    same rule as a structured ``invalid_params`` via the model.
-    """
-    try:
-        return resolve_set_mode(search, replace, start_line, end_line, content)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
 
 
 @_app.command(name="attach", cls=SCRIPT_ATTACH_COMMAND.command_class())
