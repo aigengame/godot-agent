@@ -136,10 +136,11 @@ The project uses four downward dependency layers. Each application has a thin co
 apps/<application>/main
           |
           v
-ui/<application> -> content/<application> -> systems/<application>
-                              |
-                              v
-                 addons/gda_balancing_client -> local gda-balancing service
+ui/<application> -> content/<application> -> addons/gda_balancing_client
+                              |                         |
+                              |                         v
+                              +-> systems/<application> local gda-balancing service
+                                  (when gameplay state needs one)
 ```
 
 - `apps/` creates one view, one Content controller, and one game-neutral execution client for each
@@ -147,8 +148,10 @@ ui/<application> -> content/<application> -> systems/<application>
 - `ui/` owns player presentation, feature controls, feature questions, localization, and Tweens.
 - `content/` reads maintained documents, creates complete Experiment revisions, validates returned
   relationships, projects gameplay values, coordinates application flow, and records feedback.
-- `systems/` advances only validated gameplay values. It does not parse protocol or Standard Schema
-  structures and does not repeat calculations already performed by `gda-balancing`.
+- `systems/` is optional. It advances validated gameplay values when an application has a gameplay
+  state machine. It does not parse protocol or Standard Schema structures and does not repeat
+  calculations already performed by `gda-balancing`. Attack Damage Training consumes validated
+  results directly through Content, so it intentionally has no `systems/` module.
 - `addons/gda_balancing_client/` owns executable discovery, child-process lifetime, readiness,
   credentials, generic `/v1` requests, handles, and shutdown. It contains no Reward, Combat, or
   Effect fields.
