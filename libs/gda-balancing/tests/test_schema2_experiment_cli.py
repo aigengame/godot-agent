@@ -5064,19 +5064,13 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
         build_receipt=build_receipt,
         base_damage=24,
     )
-    specification["runtime"]["required_evaluator"]["instruction_nodes"] = [
-        "add",
-        "constant",
-        "copy",
-        "draw",
-        "if",
-        "invoke",
-        "less-than",
-        "less-than-or-equal",
-        "multiply",
-        "precondition-greater-than-or-equal",
-        "subtract-state",
-    ]
+    requirements, _ = experiment_admission_module.derive_scenario_program_requirements(
+        rir,
+        entrypoint_id="combat.cast",
+        runtime_profile=specification["runtime"]["profile"],
+        rng_algorithm=specification["seed"]["algorithm"],
+    )
+    specification["runtime"]["required_evaluator"] = requirements
     specification_path = tmp_path / "conditional-formula-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
@@ -7778,7 +7772,22 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         checked.rir["selected_semantics"]
     )
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
-    assert set(first.value["instruction_nodes"]) == {
+    selected_entrypoints = [
+        entrypoints[event["entrypoint"]]
+        for scenario in checked.value["scenarios"]
+        for event in runtime_projection_module.scenario_transition_events(scenario)
+    ]
+    formula_nodes = {
+        row["instruction"]["node"]
+        for phase in ("initialization", "event", "observation")
+        for program in runtime_projection_module.formula_programs_reachable_from_entrypoints(
+            checked,
+            selected_entrypoints,
+            phase=phase,
+        )
+        for row in program["body"]
+    }
+    operation_nodes = {
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for event in scenario["event_plan"]
@@ -7789,6 +7798,7 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
             operations,
         )
     }
+    assert set(first.value["instruction_nodes"]) == formula_nodes | operation_nodes
     assert first.value["evaluator_build_identity"] == (
         runtime_projection_module.evaluator_build_identity()
     )

@@ -31,7 +31,7 @@ messages = {
 [&"", &"STAT_ACTION_FEEDBACK"]: [&"GIVE FEEDBACK"],
 [&"", &"STAT_ATTACK_RESULT"]: [&"Attack Damage %d. Dealt %d damage. Dummy HP: %d."],
 [&"", &"STAT_FEEDBACK_CLARITY"]: [&"How clear was it how Level, Weapon Damage, and Damage Buff changed Attack Damage?"],
-[&"", &"STAT_FEEDBACK_MAXIMUM"]: [&"Was the 60 damage maximum clear?"],
+[&"", &"STAT_FEEDBACK_MAXIMUM"]: [&"Was the %d damage maximum clear?"],
 [&"", &"STAT_FEEDBACK_LEAST_CLEAR"]: [&"Which part was least clear?"],
 [&"", &"STAT_CLARITY_5"]: [&"5 — Very clear"],
 [&"", &"STAT_CLARITY_4"]: [&"4"],

@@ -211,9 +211,7 @@ func _run_attack() -> void:
 	var attack_index := _attacks.size() + 1
 	var authored := _documents.experiment_for_attack(
 		_target_health,
-		int(_settings["level"]),
-		int(_settings["weapon_damage_bonus"]),
-		bool(_settings["buff_enabled"]),
+		_settings,
 		attack_index,
 	)
 	if not authored.get("ok", false):

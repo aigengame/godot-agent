@@ -503,7 +503,7 @@ def test_stat_contribution_releases_own_pure_formula_slots():
             "slot": "progression-policy",
             "parameters": ["level", "damage_per_level"],
         },
-        ("game.build", "1.1.0"): {
+        ("game.build", "2.0.0"): {
             "dependencies": [
                 {"id": "core.quantity", "version": "2.2.0"},
                 {"id": "game.generation", "version": "1.1.0"},
@@ -514,7 +514,7 @@ def test_stat_contribution_releases_own_pure_formula_slots():
             "slot": "build-policy",
             "parameters": ["weapon_damage_bonus"],
         },
-        ("game.effect", "1.1.0"): {
+        ("game.effect", "2.0.0"): {
             "dependencies": [
                 {"id": "core.quantity", "version": "2.2.0"},
                 {"id": "standard.runtime", "version": "1.1.0"},
@@ -555,6 +555,28 @@ def test_stat_contribution_releases_own_pure_formula_slots():
         assert slot["target"] == "result"
         assert slot["placeholder_index"] == 0
         assert slot["placeholder_length"] == len(operation["body"])
+
+
+@pytest.mark.parametrize(
+    ("package_id", "previous_version", "breaking_version"),
+    (
+        ("game.build", "1.0.0", "2.0.0"),
+        ("game.effect", "1.0.0", "2.0.0"),
+    ),
+)
+def test_stat_contribution_breaking_releases_retain_the_previous_major_line(
+    package_id,
+    previous_version,
+    breaking_version,
+):
+    ldb = _authority_candidate()["language_bundle"]
+    releases = {
+        (package["id"], package["version"]): package
+        for package in ldb["language"]["packages"]
+    }
+    assert (package_id, previous_version) in releases
+    assert (package_id, breaking_version) in releases
+    assert (package_id, "1.1.0") not in releases
 
 
 def test_coherent_package_semantic_change_changes_the_release_identity():

@@ -38,6 +38,7 @@ var _current_phase := ""
 var _last_state: Dictionary = {}
 var _rendering := false
 var _shown_attack_count := 0
+var _health_tween: Tween
 var _settings_panel: PanelContainer
 var _level: HSlider
 var _level_label: Label
@@ -230,6 +231,7 @@ func _build_feedback(content: VBoxContainer) -> void:
 	_clarity = _make_options(CLARITY_KEYS, CLARITY_VALUES)
 	content.add_child(_clarity)
 	_maximum_label = _make_label("", 15, Color("9fb0ca"))
+	_maximum_label.name = "MaximumFeedbackQuestion"
 	content.add_child(_maximum_label)
 	_maximum = _make_options(MAXIMUM_KEYS, MAXIMUM_VALUES)
 	content.add_child(_maximum)
@@ -269,6 +271,9 @@ func _render(state: Dictionary) -> void:
 			int(rules["buff_percent"]),
 			int(rules["maximum_damage"]),
 		]
+		_maximum_label.text = tr("STAT_FEEDBACK_MAXIMUM") % int(
+			rules["maximum_damage"]
+		)
 	_dummy_health.max_value = float(state.get("target_max_health", 120))
 	_dummy_health_label.text = tr("STAT_HEALTH") % [
 		int(state.get("target_health", 120)), int(state.get("target_max_health", 120))
@@ -296,10 +301,11 @@ func _render(state: Dictionary) -> void:
 func _render_last_attack(state: Dictionary) -> void:
 	var attack: Dictionary = state.get("last_attack", {})
 	if attack.is_empty():
+		_reset_attack_display(state)
 		return
 	var metrics: Dictionary = attack["metrics"]
 	var rules: Dictionary = state["rules"]
-	_base_value.text = str(int(rules["base_damage"]))
+	_base_value.text = str(int(metrics["base_damage"]))
 	_progression_value.text = "+%d" % int(metrics["progression_damage"])
 	_build_value.text = "+%d" % int(metrics["build_damage"])
 	_effect_value.text = "+%d" % int(metrics["effect_damage"])
@@ -321,8 +327,10 @@ func _render_last_attack(state: Dictionary) -> void:
 
 
 func _animate_hit(damage: int, target_health: int) -> void:
-	var health_tween := create_tween()
-	health_tween.tween_property(_dummy_health, "value", float(target_health), 0.25)
+	if _health_tween != null and _health_tween.is_valid():
+		_health_tween.kill()
+	_health_tween = create_tween()
+	_health_tween.tween_property(_dummy_health, "value", float(target_health), 0.25)
 	_dummy_block.pivot_offset = _dummy_block.size * 0.5
 	var hit_tween := create_tween()
 	hit_tween.tween_property(_dummy_block, "position:x", _dummy_block.position.x + 12, 0.05)
@@ -334,6 +342,19 @@ func _animate_hit(damage: int, target_health: int) -> void:
 	var float_tween := create_tween()
 	float_tween.tween_property(_damage_float, "position:y", _damage_float.position.y - 20, 0.3)
 	float_tween.parallel().tween_property(_damage_float, "modulate:a", 0.0, 0.3)
+
+
+func _reset_attack_display(state: Dictionary) -> void:
+	if _health_tween != null and _health_tween.is_valid():
+		_health_tween.kill()
+	_dummy_health.value = float(state.get("target_health", 120))
+	_shown_attack_count = int(state.get("attack_count", 0))
+	for value in [_base_value, _progression_value, _build_value, _effect_value, _attack_value]:
+		value.text = "—"
+	_cap_label.text = ""
+	_result_label.text = ""
+	_damage_float.text = ""
+	_damage_float.modulate.a = 0
 
 
 func _on_primary_action() -> void:
@@ -390,7 +411,12 @@ func _refresh_translations() -> void:
 	_buff.text = tr("STAT_DAMAGE_BUFF")
 	_feedback_action.text = tr("STAT_ACTION_FEEDBACK")
 	_clarity_label.text = tr("STAT_FEEDBACK_CLARITY")
-	_maximum_label.text = tr("STAT_FEEDBACK_MAXIMUM")
+	var rules: Dictionary = _last_state.get("rules", {})
+	_maximum_label.text = (
+		tr("STAT_FEEDBACK_MAXIMUM") % int(rules["maximum_damage"])
+		if rules.has("maximum_damage")
+		else ""
+	)
 	_least_clear_label.text = tr("STAT_FEEDBACK_LEAST_CLEAR")
 	_populate_options(_clarity, CLARITY_KEYS, CLARITY_VALUES)
 	_populate_options(_maximum, MAXIMUM_KEYS, MAXIMUM_VALUES)

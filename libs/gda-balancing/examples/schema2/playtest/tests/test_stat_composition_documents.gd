@@ -30,7 +30,11 @@ func _init() -> void:
 			},
 			"visible rules come from the maintained Experiment",
 		)
-		var authored := documents.experiment_for_attack(70, 6, 18, false, 2)
+		var authored := documents.experiment_for_attack(
+			70,
+			{"buff_enabled": 0, "level": 6, "weapon_damage_bonus": 18},
+			2,
+		)
 		_expect(authored.get("ok", false), "Content authors a complete attack revision")
 		if authored.get("ok", false):
 			var experiment: Dictionary = authored["value"]

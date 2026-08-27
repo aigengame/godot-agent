@@ -3,13 +3,13 @@
   "id": "example.rpg-stat-composition.golden-attack",
   "version": "1.0.0",
   "kernel_identity": "sha256:2f63d19c71b53b5c789a22eb93c3409da4c4017eda7523e962ea4923bdc30167",
-  "language_bundle_identity": "sha256:d4c23fd00a5ddd86af1a0b8ee61177a3b584ceaef4a4b71f0b1dc0c6eff0efbb",
+  "language_bundle_identity": "sha256:ac9f75047a210763c63000daa86dc6069f633de17ec0920bcf97e230de7782df",
   "model": {
-    "source_identity": "sha256:7e035301e3834275ccfb3bf3982b3898db9e34fb301e09b9a6dc2e55cca06c5e",
-    "build_receipt_identity": "sha256:b949602a9cfcaa1855f9a5ea1760c9e8d8c8146c0370e1bfc860e132035bfe32",
-    "resolved_model_identity": "sha256:a5dc331e0915e3425c553a79a13695fb29fae2f02c0662b4efc44d80a92d9dbd",
-    "package_lock_identity": "sha256:f4ab1e07cbce99fe64600c09b41fbf3d8540c3d8726e78045d9e20a91ec1b2fb",
-    "rir_identity": "sha256:6a91d345bc20a6c4ae442d43c428fb4e51893262d5958c17fa9a606386d961a7"
+    "source_identity": "sha256:034a0feeb5ebb2011fe24a2b2eaa5d54f2ff44f88c0ecb73612a5f28667d25c4",
+    "build_receipt_identity": "sha256:4ba0ec0e90fa7b0246d8a43848948352e333d4c78dcae6227aa75e37f5dc3031",
+    "resolved_model_identity": "sha256:b4b4fef9a1059b20f96a2a143d65cf8404ce62488e06fca56a13c6dddb72a199",
+    "package_lock_identity": "sha256:284cddaedcad44cb78cefc49b88a1b3a3100bdd44d401ce50fc984587f1f9018",
+    "rir_identity": "sha256:bfcfb071848b7cacc2c00d8cbee6aba8610c0d363ccbe2d0915564a7db4e2b77"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -18,9 +18,12 @@
         "event-fragment"
       ],
       "instruction_nodes": [
+        "add",
         "constant",
         "copy",
+        "floor-divide",
         "if",
+        "less-than",
         "less-than-or-equal",
         "maximum",
         "multiply",
@@ -134,6 +137,36 @@
     }
   ],
   "metrics": [
+    {
+      "id": "base_damage",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "scenario",
+          "value": "golden-attack"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "applied",
+        "member": "base_damage"
+      },
+      "target": {
+        "minimum": 20,
+        "maximum": 20
+      }
+    },
     {
       "id": "progression_damage",
       "kind": "scalar",

@@ -88,9 +88,7 @@ func load(model_source_path: String, experiment_path: String) -> Dictionary:
 
 func experiment_for_attack(
 	target_health: int,
-	level: int,
-	weapon_damage_bonus: int,
-	buff_enabled: bool,
+	settings: Dictionary,
 	action_index: int,
 ) -> Dictionary:
 	if _experiment.is_empty():
@@ -99,11 +97,11 @@ func experiment_for_attack(
 		return _failure("invalid_target_health", str(target_health))
 	if action_index <= 0:
 		return _failure("invalid_action_index", str(action_index))
-	var selected := {
-		"buff_enabled": 1 if buff_enabled else 0,
-		"level": level,
-		"weapon_damage_bonus": weapon_damage_bonus,
-	}
+	var selected: Dictionary = {}
+	for name in EDITABLE_NAMES:
+		if not settings.has(name):
+			return _failure("missing_player_setting", name)
+		selected[name] = int(settings[name])
 	for name in selected:
 		var contract: Dictionary = _settings[name]
 		var value := int(selected[name])

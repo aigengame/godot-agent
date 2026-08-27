@@ -3,6 +3,7 @@ extends RefCounted
 
 const METRIC_IDS: Array[String] = [
 	"attack_damage",
+	"base_damage",
 	"build_damage",
 	"damage_dealt",
 	"effect_damage",

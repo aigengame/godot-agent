@@ -16,11 +16,11 @@
     },
     {
       "id": "game.build",
-      "version": "1.1.0"
+      "version": "2.0.0"
     },
     {
       "id": "game.effect",
-      "version": "1.1.0"
+      "version": "2.0.0"
     },
     {
       "id": "game.combat",
@@ -856,7 +856,7 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "game.build",
-                  "version": "1.1.0",
+                  "version": "2.0.0",
                   "id": "game.build.contribution@1"
                 },
                 "arguments": [
@@ -1090,7 +1090,7 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "game.effect",
-                  "version": "1.1.0",
+                  "version": "2.0.0",
                   "id": "game.effect.contribute@1"
                 },
                 "arguments": [
@@ -1524,7 +1524,7 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.build",
-          "version": "1.1.0",
+          "version": "2.0.0",
           "id": "game.build.contribution@1"
         },
         "slot": "build-policy"
@@ -1548,7 +1548,7 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.effect",
-          "version": "1.1.0",
+          "version": "2.0.0",
           "id": "game.effect.contribute@1"
         },
         "slot": "effect-policy"

@@ -31,7 +31,7 @@ messages = {
 [&"", &"STAT_ACTION_FEEDBACK"]: [&"填写反馈"],
 [&"", &"STAT_ATTACK_RESULT"]: [&"攻击伤害 %d，实际造成 %d 点伤害，假人剩余生命 %d。"],
 [&"", &"STAT_FEEDBACK_CLARITY"]: [&"等级、武器伤害和伤害增益对攻击伤害的影响是否清楚？"],
-[&"", &"STAT_FEEDBACK_MAXIMUM"]: [&"60 点伤害上限是否清楚？"],
+[&"", &"STAT_FEEDBACK_MAXIMUM"]: [&"%d 点伤害上限是否清楚？"],
 [&"", &"STAT_FEEDBACK_LEAST_CLEAR"]: [&"哪一部分最难理解？"],
 [&"", &"STAT_CLARITY_5"]: [&"5：非常清楚"],
 [&"", &"STAT_CLARITY_4"]: [&"4"],

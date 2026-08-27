@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -325,7 +325,16 @@ def derive_scenario_program_requirements(
     if operation["runtime_profile"] != runtime_profile:
         raise ValueError("Scenario Operation requires another Runtime profile")
     expanded_body = expanded_operation_body(root_coordinate, operations)
-    instruction_nodes = {instruction["node"] for instruction in expanded_body}
+    instruction_nodes = {instruction["node"] for instruction in expanded_body} | {
+        row["instruction"]["node"]
+        for phase in ("initialization", "event", "observation")
+        for program in reachable_formula_programs(
+            rir,
+            [entrypoint],
+            phase=phase,
+        )
+        for row in cast(list[dict[str, Any]], program["body"])
+    }
     requirements = {
         "operation_kinds": sorted(
             {
@@ -355,6 +364,45 @@ def derive_scenario_program_requirements(
         }
     )
     return requirements, named_streams
+
+
+def reachable_formula_programs(
+    rir: Mapping[str, Any],
+    selected_entrypoints: Sequence[dict[str, Any]],
+    *,
+    phase: str,
+) -> list[dict[str, Any]]:
+    """Project one lifecycle phase to the Formula sites selected by a Scenario."""
+    programs = [
+        program
+        for program in cast(list[dict[str, Any]], rir["initialization_programs"])
+        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
+    ]
+    reachable_targets = {
+        canonical_bytes(cast(JsonValue, operand["symbol"]))
+        for entrypoint in selected_entrypoints
+        for binding in cast(list[dict[str, Any]], entrypoint["arguments"])
+        if (operand := cast(dict[str, Any], binding["operand"]))["kind"] == "symbol"
+    }
+    while True:
+        previous_targets = len(reachable_targets)
+        for program in programs:
+            target = canonical_bytes(cast(JsonValue, program["target"]))
+            if target not in reachable_targets:
+                continue
+            reachable_targets.update(
+                canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
+                for row in cast(list[dict[str, Any]], program["inputs"])
+                if (operand := cast(dict[str, Any], row["operand"]))["kind"]
+                != "literal"
+            )
+        if len(reachable_targets) == previous_targets:
+            break
+    return [
+        program
+        for program in programs
+        if canonical_bytes(cast(JsonValue, program["target"])) in reachable_targets
+    ]
 
 
 def check_experiment(

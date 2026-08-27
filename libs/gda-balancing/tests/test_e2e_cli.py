@@ -807,11 +807,24 @@ class TestKeyUserPath:
         assert traces[0] == traces[1]
         members = _receipt_members(receipts[0])
         dataset = json.loads(members["metric-dataset"].read_text(encoding="utf-8"))
+        evaluator = json.loads(
+            members["evaluator-capability-manifest"].read_text(encoding="utf-8")
+        )
         evaluation_run = json.loads(
             members["evaluation-run"].read_text(encoding="utf-8")
         )
+        assert {
+            "add",
+            "floor-divide",
+            "less-than",
+        } <= set(evaluator["instruction_nodes"])
+        assert (
+            evaluator["instruction_nodes"]
+            == experiment["runtime"]["required_evaluator"]["instruction_nodes"]
+        )
         assert {sample["metric"]: sample["value"] for sample in dataset["samples"]} == {
             "attack_damage": 50,
+            "base_damage": 20,
             "build_damage": 8,
             "damage_dealt": 50,
             "effect_damage": 10,
@@ -880,6 +893,7 @@ class TestKeyUserPath:
                 10,
                 {
                     "attack_damage": 52,
+                    "base_damage": 20,
                     "build_damage": 10,
                     "damage_dealt": 52,
                     "effect_damage": 10,
@@ -893,6 +907,7 @@ class TestKeyUserPath:
                 16,
                 {
                     "attack_damage": 60,
+                    "base_damage": 20,
                     "build_damage": 16,
                     "damage_dealt": 60,
                     "effect_damage": 12,
@@ -906,6 +921,7 @@ class TestKeyUserPath:
                 18,
                 {
                     "attack_damage": 60,
+                    "base_damage": 20,
                     "build_damage": 18,
                     "damage_dealt": 60,
                     "effect_damage": 12,

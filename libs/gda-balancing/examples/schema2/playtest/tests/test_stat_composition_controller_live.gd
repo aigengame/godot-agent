@@ -50,6 +50,11 @@ func _run() -> void:
 		controller.current_state().get("settings", {}).get("weapon_damage_bonus") == 18,
 		"Restart retains the selected settings",
 	)
+	controller.primary_action()
+	_expect(
+		await _wait_for_attack(controller, 1, "ready"),
+		"the first attack after Restart resolves",
+	)
 	await controller.shutdown()
 	controller.queue_free()
 	client.queue_free()

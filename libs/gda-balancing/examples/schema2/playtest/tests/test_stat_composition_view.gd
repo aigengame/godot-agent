@@ -67,6 +67,7 @@ func _run() -> void:
 		"capped": true,
 		"metrics": {
 			"attack_damage": 60,
+			"base_damage": 20,
 			"build_damage": 18,
 			"damage_dealt": 60,
 			"effect_damage": 12,
@@ -84,6 +85,19 @@ func _run() -> void:
 		"the result uses direct player wording",
 	)
 	_expect(badge != null and badge.text == "MAX 60 REACHED", "the cap is explicit")
+	var alternate_maximum := resolved.duplicate(true)
+	alternate_maximum["rules"]["maximum_damage"] = 75
+	alternate_maximum["last_attack"]["capped"] = false
+	controller.view_state_changed.emit(alternate_maximum)
+	await process_frame
+	var maximum_question := view.find_child(
+		"MaximumFeedbackQuestion", true, false
+	) as Label
+	_expect(
+		maximum_question != null
+		and maximum_question.text == "Was the 75 damage maximum clear?",
+		"the feedback question follows the maintained maximum",
+	)
 	var health := view.find_child("DummyHealth", true, false) as ProgressBar
 	_expect(_bar_color(health) == Color("d64545"), "the HP bar uses the red gameplay color")
 	var defeated := resolved.duplicate(true)
@@ -99,6 +113,21 @@ func _run() -> void:
 	if action != null:
 		action.pressed.emit()
 	_expect(controller.primary_actions == 2, "the terminal primary action offers Restart")
+	controller.view_state_changed.emit(_state("ready"))
+	await process_frame
+	var base_value := view.find_child("BaseValue", true, false) as Label
+	_expect(health != null and health.value == 120, "Restart restores visible HP")
+	_expect(result != null and result.text.is_empty(), "Restart clears the previous result")
+	_expect(base_value != null and base_value.text == "—", "Restart clears the breakdown")
+	var restarted_attack := resolved.duplicate(true)
+	restarted_attack["last_attack"]["metrics"]["damage_dealt"] = 30
+	controller.view_state_changed.emit(restarted_attack)
+	await process_frame
+	var floating_damage := view.find_child("FloatingDamage", true, false) as Label
+	_expect(
+		floating_damage != null and floating_damage.text == "-30",
+		"the first attack after Restart animates again",
+	)
 	view.queue_free()
 	controller.queue_free()
 	_finish()
