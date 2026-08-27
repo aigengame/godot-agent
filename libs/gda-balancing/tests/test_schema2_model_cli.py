@@ -60,6 +60,13 @@ from schema2_authority_support import (
 _ROGUELIKE_EXAMPLE_DIR = (
     Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
 )
+_RPG_STAT_COMPOSITION_SOURCE = (
+    Path(__file__).parents[1]
+    / "examples"
+    / "schema2"
+    / "rpg-stat-composition"
+    / "model-source.json"
+)
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -2349,14 +2356,93 @@ def test_model_check_reaches_formula_slots_through_scheduled_operations(
 
 
 def test_model_check_reaches_operations_called_by_bound_formulas(run_cli):
-    source = (
-        Path(__file__).parents[1]
-        / "examples/schema2/rpg-stat-composition/model-source.json"
+    exit_code, stdout, stderr = run_cli(
+        ["model", "check", str(_RPG_STAT_COMPOSITION_SOURCE)]
     )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+
+
+@pytest.mark.parametrize(
+    ("vector_id", "mutation", "expected_diagnostic", "expected_pointer"),
+    (
+        (
+            "rpg.stat.dependency-cycle-refused-v1",
+            "dependency-cycle",
+            "language.formula_cycle",
+            "/formula_bindings/5/formula",
+        ),
+        (
+            "rpg.stat.kind-mismatch-refused-v1",
+            "kind-mismatch",
+            "language.formula_kind_mismatch",
+            "/formula_bindings/6/arguments/0/operand",
+        ),
+        (
+            "rpg.stat.unit-mismatch-refused-v1",
+            "unit-mismatch",
+            "language.formula_unit_mismatch",
+            "/formula_bindings/6/arguments/0/operand",
+        ),
+    ),
+)
+def test_stat_composition_refusal_vectors_use_the_shared_model_source(
+    vector_id, mutation, expected_diagnostic, expected_pointer, tmp_path, run_cli
+):
+    source_document = json.loads(
+        _RPG_STAT_COMPOSITION_SOURCE.read_text(encoding="utf-8")
+    )
+    formulas = source_document["modules"][0]["formulas"]
+    if mutation == "dependency-cycle":
+        formula = next(row for row in formulas if row["id"] == "progression-policy")
+        formula["body"] = {
+            "nodes": [
+                {
+                    "id": "result",
+                    "node": "operation-call",
+                    "operation": {
+                        "package": "game.progression",
+                        "version": "1.0.0",
+                        "id": "game.progression.contribution@1",
+                    },
+                    "arguments": [
+                        {
+                            "port": "damage_per_level",
+                            "operand": {
+                                "kind": "parameter",
+                                "parameter": "damage_per_level",
+                            },
+                        },
+                        {
+                            "port": "level",
+                            "operand": {"kind": "parameter", "parameter": "level"},
+                        },
+                    ],
+                    "result": deepcopy(formula["result"]),
+                }
+            ],
+            "result": {"kind": "local", "local": "result"},
+        }
+        formula["expression"] = (
+            "let result = progression_contribution(level, damage_per_level);\nresult"
+        )
+    else:
+        formula = next(row for row in formulas if row["id"] == "build-policy")
+        member, value = (
+            ("kind", "boolean") if mutation == "kind-mismatch" else ("unit", "turn")
+        )
+        formula["parameters"][0][member] = value
+        formula["result"][member] = value
+
+    source = tmp_path / f"{vector_id}.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
-    assert (exit_code, stderr) == (0, ""), stdout
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == expected_diagnostic
+    assert diagnostic["primary"]["pointer"] == expected_pointer
 
 
 def test_operation_reachability_follows_kernel_operation_members_after_node_rename():

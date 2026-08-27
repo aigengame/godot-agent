@@ -1411,6 +1411,14 @@ def _resolved_formula_programs_and_bindings_impl(
                     f"{binding_pointer}/formula",
                     "Formula closure widens its Operation-slot refusals",
                 )
+            if operation_identity in set(
+                cast(list[str], closure["operation_dependencies"])
+            ):
+                raise _FormulaResolutionError(
+                    _FORMULA_REASON["cycle"],
+                    f"{binding_pointer}/formula",
+                    "Formula closure cycles through its Operation slot",
+                )
             if cast(
                 int,
                 cast(dict[str, Any], closure["resource_charge"])["max_steps"],
@@ -1421,14 +1429,6 @@ def _resolved_formula_programs_and_bindings_impl(
                     _FORMULA_REASON["resource-exhausted"],
                     f"{binding_pointer}/formula",
                     "Formula closure exceeds its Operation-slot resource contract",
-                )
-            if operation_identity in set(
-                cast(list[str], closure["operation_dependencies"])
-            ):
-                raise _FormulaResolutionError(
-                    _FORMULA_REASON["cycle"],
-                    f"{binding_pointer}/formula",
-                    "Formula closure cycles through its Operation slot",
                 )
             bound_operation_slots.add(slot_key)
             exact_operation = cast(

@@ -816,6 +816,97 @@ class TestKeyUserPath:
         }
         assert all(sample["within_target"] for sample in dataset["samples"])
 
+    def test_stat_composition_boundary_vectors_use_the_shared_experiment(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        built = _run(
+            "model",
+            "build",
+            str(_RPG_STAT_COMPOSITION_EXAMPLE / "model-source.json"),
+            "--out",
+            str(tmp_path / "stat-composition-model"),
+            "--invocation-key",
+            "4" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, ""), built.stdout
+        baseline = json.loads(
+            (_RPG_STAT_COMPOSITION_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(baseline, json.loads(built.stdout))
+        vectors = (
+            (
+                "rpg.stat.round-down-boundary-v1",
+                10,
+                {
+                    "attack_damage": 52,
+                    "build_damage": 10,
+                    "damage_dealt": 52,
+                    "effect_damage": 10,
+                    "pre_buff_damage": 42,
+                    "progression_damage": 12,
+                    "target_health": 68,
+                },
+            ),
+            (
+                "rpg.stat.cap-exact-boundary-v1",
+                16,
+                {
+                    "attack_damage": 60,
+                    "build_damage": 16,
+                    "damage_dealt": 60,
+                    "effect_damage": 12,
+                    "pre_buff_damage": 48,
+                    "progression_damage": 12,
+                    "target_health": 60,
+                },
+            ),
+            (
+                "rpg.stat.cap-clamped-boundary-v1",
+                18,
+                {
+                    "attack_damage": 60,
+                    "build_damage": 18,
+                    "damage_dealt": 60,
+                    "effect_damage": 12,
+                    "pre_buff_damage": 50,
+                    "progression_damage": 12,
+                    "target_health": 60,
+                },
+            ),
+        )
+
+        for index, (vector_id, weapon_bonus, expected) in enumerate(vectors, start=5):
+            experiment = json.loads(json.dumps(baseline))
+            experiment["id"] = vector_id
+            scenario = experiment["scenarios"][0]
+            next(
+                row
+                for row in scenario["assignments"]
+                if row["target"]["name"] == "weapon_damage_bonus"
+            )["value"] = weapon_bonus
+            for metric in experiment["metrics"]:
+                value = expected[metric["id"]]
+                metric["target"] = {"minimum": value, "maximum": value}
+            receipt, _trace = _run_experiment_variant(
+                tmp_path,
+                experiment,
+                name=vector_id,
+                invocation_key=str(index) * 64,
+            )
+            dataset = json.loads(
+                _receipt_members(receipt)["metric-dataset"].read_text(encoding="utf-8")
+            )
+            assert {
+                sample["metric"]: sample["value"] for sample in dataset["samples"]
+            } == expected, vector_id
+            assert all(sample["within_target"] for sample in dataset["samples"]), (
+                vector_id
+            )
+
     def test_periodic_effect_snapshot_and_live_policies_observe_same_time_order(
         self, tmp_path, monkeypatch
     ):
