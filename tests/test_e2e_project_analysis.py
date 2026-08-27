@@ -482,3 +482,95 @@ def test_dependencies_without_project_is_project_not_found(tmp_path):
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
     assert err["code"] == "project_not_found"
+
+
+# --- every project walk agrees on a nested `.godot` directory (#712) ----------
+
+# A project-local custom Node declared inside a NESTED `.godot` directory — the
+# class the class_name index must find once the resource walk stops excluding
+# that directory by name.
+NESTED_THING_GD = """\
+class_name NestedThing
+extends Node
+"""
+
+# The same declaration authored INTO the engine's own root cache. It must stay
+# invisible, so the correction does not swap one wrong enumeration for another.
+CACHED_THING_GD = """\
+class_name CachedThing
+extends Node
+"""
+
+BARE_TSCN = """\
+[gd_scene format=3]
+
+[node name="Root" type="Node2D"]
+"""
+
+
+@pytest.mark.e2e
+def test_project_walks_agree_on_a_nested_dot_godot_directory(tmp_path):
+    # The exclusion is the engine's ONE cache directory, `res://.godot` — not
+    # every directory that happens to be named `.godot`. A nested one is user
+    # content (an addon vendoring a sample project, a fixture tree). #710 fixed
+    # the SCRIPT walk that way and left three siblings comparing the entry name,
+    # so one project answered two ways: `script list` reported a script that
+    # `project statistics` counted as zero, and `node add --type` could not
+    # resolve a class_name `script list` had just shown (#712). This test is that
+    # cross-command agreement, not four per-walker checks — each command below
+    # rides a different walk over the same tree.
+    project = tmp_path / "nested-cache"
+    (project / "nested" / ".godot").mkdir(parents=True)
+    (project / ".godot").mkdir(parents=True, exist_ok=True)
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-nested-walks"), encoding="utf-8"
+    )
+    (project / "top.tscn").write_text(BARE_TSCN, encoding="utf-8")
+    (project / "nested" / ".godot" / "hidden.tscn").write_text(
+        BARE_TSCN, encoding="utf-8"
+    )
+    (project / "nested" / ".godot" / "hidden.gd").write_text(
+        NESTED_THING_GD, encoding="utf-8"
+    )
+    (project / ".godot" / "engine_cache.tscn").write_text(BARE_TSCN, encoding="utf-8")
+    (project / ".godot" / "engine_cache.gd").write_text(
+        CACHED_THING_GD, encoding="utf-8"
+    )
+
+    scene_proc = _gda(project, "scene", "list", "--json")
+    script_proc = _gda(project, "script", "list", "--json")
+    stats_proc = _gda(project, "project", "statistics", "--json")
+
+    assert scene_proc.returncode == 0, scene_proc.stdout + scene_proc.stderr
+    assert script_proc.returncode == 0, script_proc.stdout + script_proc.stderr
+    assert stats_proc.returncode == 0, stats_proc.stdout + stats_proc.stderr
+    scenes = {s["path"] for s in json.loads(scene_proc.stdout)["scenes"]}
+    scripts = {s["path"] for s in json.loads(script_proc.stdout)["scripts"]}
+    stats = json.loads(stats_proc.stdout)
+
+    # The nested content is authored content: every walk enumerates it.
+    assert scenes == {"res://top.tscn", "res://nested/.godot/hidden.tscn"}
+    assert scripts == {"res://nested/.godot/hidden.gd"}
+    # The counts and the listings are the same project, so they agree.
+    assert stats["scene_count"] == len(scenes)
+    assert stats["script_count"] == len(scripts)
+    # The root cache stays invisible — in the listings and in the counts alike
+    # (it holds one .gd and one .tscn of its own, which must not be counted).
+    assert not any(p.startswith("res://.godot/") for p in scenes | scripts)
+    by_ext = {e["extension"]: e for e in stats["by_extension"]}
+    assert by_ext["gd"]["files"] == 1
+    assert by_ext["tscn"]["files"] == 2
+
+    # The class_name index rides the resource walk, so node/resource creation
+    # resolves the nested declaration `script list` reports...
+    added = _gda(
+        project, "node", "add", "res://top.tscn", "--type", "NestedThing", "--json"
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert json.loads(added.stdout)["script_class"] == "NestedThing"
+    # ...and still does not resolve one authored into the engine's own cache.
+    cached = _gda(
+        project, "node", "add", "res://top.tscn", "--type", "CachedThing", "--json"
+    )
+    assert cached.returncode == 4, cached.stdout + cached.stderr
+    assert json.loads(cached.stdout)["error"]["code"] == "invalid_node_type"

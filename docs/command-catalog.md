@@ -69,6 +69,11 @@ they are provenance, not status markers.
 | `gda scene validate` | Check statically that a scene's dependencies resolve and its scripts compile |
 | `gda scene preflight` | Boot a scene headless and report its startup verdict |
 
+**Enumeration** (established by #54): `scene list` walks the project's `res://`
+tree under the one exclusion every `res://` walk applies — the engine's own
+`res://.godot` cache, and only that path, never a directory that merely bears
+that name (stated in full with `script list` below; #712).
+
 **Static instance reporting** (established by #400): `scene get` reads the stored
 `SceneState` without instantiating the host scene, but an instanced node is still
 identifiable. Its `type` is resolved to the referenced scene's root node type
@@ -452,7 +457,11 @@ one directory — the engine's own cache at `res://.godot`, whose contents are i
 agent authored. **Only that path**, not every directory named `.godot`: a nested one is authored
 content, and excluding it hid real scripts from the listing and let `script validate --all` report
 a valid aggregate for a project holding an invalid script (#663 review). Hidden entries are
-otherwise enumerated as promised (#54). `gda script delete`
+otherwise enumerated as promised (#54). **This is the rule for every `res://` walk** — `script
+list`, `scene list`, and the static-analysis scan that backs `project statistics`,
+`find-references`, `dependencies`, `find-unused-resources` and the `class_name` index — so one
+project cannot answer two ways. It once did: three of the four walks compared the directory NAME,
+so `script list` reported a script `project statistics` counted as zero (#712). `gda script delete`
 removes a script file and reports the removed script's `class_name`/`extends` (parsed before
 deletion), so the result names the content, not just the path. Delete honors the same addressing
 boundary as the rest of the group — only a `.gd` path is removed (a non-`.gd` target is refused
@@ -786,6 +795,11 @@ These create or edit resource files (`.gdshader`, `.tres`) and so are headless.
 | `gda project find-references` | Find references to a script/class |
 | `gda project dependencies` | Map scene → scene references |
 | `gda project statistics` | File/line counts, autoloads, plugins |
+
+One static scan backs all four (and the `class_name` index node/resource creation
+resolves through). It reads the project's `res://` tree under the one exclusion every
+`res://` walk applies — the engine's own `res://.godot` cache, and only that path
+(stated in full with `script list` above; #712).
 
 ---
 

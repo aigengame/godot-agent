@@ -118,10 +118,13 @@ const SCENE_STARTUP_NOT_READY := "not_ready"
 # The ONE directory a res:// walk excludes: the engine's own import/cache tree at
 # the project root. Compared as a full path, never as a directory NAME, because a
 # `.godot` deeper in the tree is not the engine's — it is user content (an addon
-# vendoring a sample project, a test fixture tree) and its scripts are the
+# vendoring a sample project, a test fixture tree) and its files are the
 # project's like any other. Excluding those made `script validate --all` report a
 # valid aggregate for a project holding an invalid script (#663 review), and hid
-# them from `script list` too.
+# them from `script list` too. Every walk over res:// compares against this one
+# constant (scripts, scenes, graph resources, all files), so one project cannot
+# answer two ways — `script list` reporting a script `project statistics` counts
+# as zero was exactly that (#712).
 const ENGINE_CACHE_DIR := "res://.godot"
 
 # The project-info settings (issue #111), read with a default so a project that
@@ -3671,8 +3674,8 @@ func _resolve_project_class_script(class_token: String) -> Dictionary:
 
 # Build (once per process) the class_name → declaring-.gd-paths index for the
 # resolver's tier-3 static scan (ADR-0032). Walks the full res:// tree skipping
-# .godot — reusing the shared recursive walker (_collect_resource_paths, which
-# already enumerates .gd among the graph resources) — and parses each .gd's
+# the root cache — reusing the shared recursive walker (_collect_resource_paths,
+# which already enumerates .gd among the graph resources) — and parses each .gd's
 # class_name from raw source with the existing never-compiled parser
 # (_script_metadata). A class_name declared in more than one .gd maps to multiple
 # paths (sorted, so an ambiguous_class_name error is deterministic regardless of
@@ -3713,8 +3716,9 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 # can carry references (.tscn/.tres scenes & resources, .gd scripts) AND the leaf
 # asset resources (everything else except import sidecars, the project file, and
 # the .godot cache). Mirrors _collect_scene_paths: hidden entries enumerated,
-# navigational entries off, res://.godot skipped. This is the universe both the
-# reference graph and find-unused range over.
+# navigational entries off, the ROOT cache path (ENGINE_CACHE_DIR) skipped — a
+# nested `.godot` is authored content and stays in (#712). This is the universe
+# the reference graph, find-unused and the class_name index range over.
 func _collect_resource_paths(dir_path: String, out: Array[String]) -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
@@ -3725,7 +3729,7 @@ func _collect_resource_paths(dir_path: String, out: Array[String]) -> void:
 	while not entry.is_empty():
 		var child := dir_path.path_join(entry)
 		if dir.current_is_dir():
-			if entry != ".godot":
+			if child != ENGINE_CACHE_DIR:
 				_collect_resource_paths(child, out)
 		elif _is_graph_resource_path(child):
 			out.append(child)
@@ -3733,9 +3737,10 @@ func _collect_resource_paths(dir_path: String, out: Array[String]) -> void:
 	dir.list_dir_end()
 
 
-# Recursively collect EVERY file under res:// (skipping only the .godot cache) for
-# the statistics counts — unlike _collect_resource_paths this keeps import
-# sidecars, project.godot and every asset, since statistics counts all files.
+# Recursively collect EVERY file under res:// (skipping only the root cache at
+# ENGINE_CACHE_DIR, never a nested `.godot`, #712) for the statistics counts —
+# unlike _collect_resource_paths this keeps import sidecars, project.godot and
+# every asset, since statistics counts all files.
 func _collect_all_file_paths(dir_path: String, out: Array[String]) -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
@@ -3746,7 +3751,7 @@ func _collect_all_file_paths(dir_path: String, out: Array[String]) -> void:
 	while not entry.is_empty():
 		var child := dir_path.path_join(entry)
 		if dir.current_is_dir():
-			if entry != ".godot":
+			if child != ENGINE_CACHE_DIR:
 				_collect_all_file_paths(child, out)
 		else:
 			out.append(child)
@@ -4240,10 +4245,11 @@ func _has_project() -> bool:
 
 # Recursively collect every .tscn under res:// (issue #54), skipping only the
 # engine's own res://.godot cache directory (import artifacts, not authored
-# scenes). The skip is scoped to that one directory name rather than every
-# dot-prefixed entry, so legitimately hidden scenes (a .hidden.tscn, or a scene
-# under a dot-prefixed directory) are still enumerated as promised (issue #54
-# review). Paths are returned as res:// paths so they round-trip into other
+# scenes). The skip is the ROOT cache path exactly (ENGINE_CACHE_DIR), not every
+# directory named `.godot` and not every dot-prefixed entry, so legitimately
+# hidden scenes (a .hidden.tscn, a scene under a dot-prefixed directory, a scene
+# under a NESTED `.godot`) are all enumerated as promised (issue #54 review,
+# #712). Paths are returned as res:// paths so they round-trip into other
 # scene commands.
 func _collect_scene_paths(dir_path: String, out: Array[String]) -> void:
 	var dir := DirAccess.open(dir_path)
@@ -4258,7 +4264,7 @@ func _collect_scene_paths(dir_path: String, out: Array[String]) -> void:
 	while not entry.is_empty():
 		var child := dir_path.path_join(entry)
 		if dir.current_is_dir():
-			if entry != ".godot":
+			if child != ENGINE_CACHE_DIR:
 				_collect_scene_paths(child, out)
 		elif entry.get_extension() == "tscn":
 			out.append(child)
