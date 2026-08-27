@@ -215,6 +215,12 @@ the Python registry in `src/gda/error_codes.py`; the table below mirrors that
 source and is checked by tests. GDScript mirrors only the rows whose source is
 `operation`, because only those codes can be reported by headless operations.
 
+The `Meaning` column is pinned too (#701): it must match the registry's
+`description` once markup and wrapping are normalized. A trailing parenthetical
+naming the deciding ADR or issue is provenance for *this* record rather than part
+of the code's meaning, so it rides these rows only and is not compared —
+`tests/test_error_registry.py` is the single home of that rule.
+
 Each row carries the process `Exit Code` a shell consumer keys on. It is
 per-code, not per-category: within `environment`, `binary_not_found` exits `127`
 but `launch_timeout` exits `124`. The `exit_codes.py` registry defines the
@@ -224,7 +230,7 @@ operation, and parse codes the CLI assigns).
 | Code | Category | Source | Exit Code | Meaning |
 | --- | --- | --- | --- | --- |
 | `binary_not_found` | `environment` | `runner` | `127` | The Godot binary could not be launched. |
-| `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. One command does not report it — see the 2026-08-19 scope note (#664). |
+| `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. One command does not report it: `scene preflight` reports its own `timeout` status instead (#664). |
 | `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
 | `unknown_command` | `usage` | `classifier` | `2` | gda has no such command; discover the surface with `gda schema` or `gda --help`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unknown_option` | `usage` | `classifier` | `2` | The command exists but has no such option; read its options with `--help` or its input contract with `--schema`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
@@ -265,7 +271,7 @@ operation, and parse codes the CLI assigns).
 | `no_search_match` | `operation` | `operation` | `4` | A search-replace script edit found no occurrence of the search string. |
 | `invalid_line_range` | `operation` | `operation` | `4` | A line-range script edit specified lines outside the script's bounds, or end before start. |
 | `script_compile_failed` | `operation` | `operation` | `4` | A script does not compile, so the requested work could not proceed: `script attach` refuses to bind it to a node, and `script run` reports that the entry script (or a dependency it preloads) never ran (#651). |
-| `script_not_found` | `operation` | `classifier` | `4` | A `script run` entry script does not exist in the project, so the engine never ran it — read from stderr, since the engine still exits 0 (#651). |
+| `script_not_found` | `operation` | `classifier` | `4` | A `script run` entry script does not exist in the project, so the engine never ran it — it still exits 0, and gda reads the failure from stderr (#651). |
 | `script_failed` | `operation` | `classifier` | `4` | A `script run --strict` script ran to completion and chose a non-zero exit status; strict mode maps that opted-in failure onto the uniform error envelope. Never reported without `--strict` (ADR-0031 amendment, #651). |
 | `script_aborted` | `operation` | `classifier` | `4` | A `script run` was ended early, before its `--timeout`: a script error appeared on stderr, the caller's declared `--completion-marker` did not, and the run then went silent. Reported only when `--completion-marker` is declared (ADR-0031 amendment, #655). |
 | `incompatible_script_type` | `operation` | `operation` | `4` | A script compiles but its base type is incompatible with the requested use: `script attach`'s target node type, or `script run`'s requirement that a one-shot entry script extend `SceneTree`/`MainLoop` (#651). |
@@ -276,9 +282,9 @@ operation, and parse codes the CLI assigns).
 | `export_presets_not_found` | `operation` | `operation` | `4` | The project has no export_presets.cfg, so it defines no export presets. |
 | `export_preset_not_found` | `operation` | `operation` | `4` | No export preset with the requested name exists in export_presets.cfg. |
 | `export_path_unset` | `operation` | `classifier` | `4` | An export run has no destination — neither a `--output` override nor a configured `export_path` (#170). |
-| `export_templates_missing` | `operation` | `classifier` | `4` | A release/debug export needs the export templates for the running engine version, which are not installed (pack needs no platform templates and is exempt; #170). |
+| `export_templates_missing` | `operation` | `classifier` | `4` | A release/debug export needs the export templates for the running engine version, which are not installed; `pack` needs no platform templates and is exempt (#170). |
 | `export_output_parent_failed` | `operation` | `classifier` | `4` | An export run could not create the output parent directory before native export (#402). |
-| `stdout_spill_failed` | `operation` | `classifier` | `4` | A `script run` stdout exceeded the cap but the complete-stream spill file could not be written, so the bounded result cannot be delivered (#665). |
+| `stdout_spill_failed` | `operation` | `classifier` | `4` | A `script run`'s stdout exceeded the cap but the complete-stream spill file could not be written, so the bounded result cannot be delivered (#665). |
 | `export_failed` | `operation` | `classifier` | `4` | A native Godot export run failed (the engine reported the export did not complete). |
 | `invalid_uid` | `operation` | `operation` | `4` | A requested `uid://` value is not a syntactically valid resource UID. |
 | `unknown_uid` | `operation` | `operation` | `4` | A syntactically valid resource UID is not registered in the engine's UID cache. |
@@ -291,7 +297,7 @@ operation, and parse codes the CLI assigns).
 | `daemon_not_running` | `live` | `classifier` | `6` | A live command found no running gda-daemon for the project; start one with `gda daemon start` (Phase 2, ADR-0017 / ADR-0021). |
 | `engine_session_not_running` | `live` | `classifier` | `6` | The daemon is running but holds no live engine session to serve the live operation (Phase 2). |
 | `engine_disconnected` | `live` | `classifier` | `6` | The engine session disconnected before the live operation returned — the game crashed or the harness connection dropped (Phase 2). |
-| `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout (Phase 2). |
+| `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout. The session is discarded: its reply is no longer attributable, so the next operation relaunches it and runtime state does not survive (Phase 2). |
 | `daemon_running` | `live` | `classifier` | `6` | A daemon-lifecycle command was refused because a gda-daemon is running for the project; stop it first with `gda daemon stop` (Phase 2, #225). |
 | `daemon_already_running` | `live` | `classifier` | `6` | A `gda daemon start --scene` was refused because a gda-daemon is already running for the project; `--scene` only takes effect at start, so stop it with `gda daemon stop` then start again with `--scene` (Phase 2, #278). |
 | `live_node_not_found` | `live` | `classifier` | `6` | A live game operation's node path does not resolve to a node in the running scene tree (Phase 2, #220). |
@@ -299,8 +305,8 @@ operation, and parse codes the CLI assigns).
 | `live_unknown_property` | `live` | `classifier` | `6` | A live game get or set targeted a property name the running node does not expose as an addressable runtime, storage, or attached-script property (Phase 2, #220, #422). |
 | `live_uncoercible_value` | `live` | `classifier` | `6` | A live game set value cannot be coerced to the addressed runtime property's or script variable's Godot type (Phase 2, #220, #422). |
 | `live_unknown_method` | `live` | `classifier` | `6` | A live game call named a method the addressed running node does not have (Phase 2, #673). |
-| `live_method_not_allowlisted` | `live` | `classifier` | `6` | A live game call named a method the addressed running node has but its class never declared gda-callable (Phase 2, #673, ADR-0041). |
-| `live_invalid_call_args` | `live` | `classifier` | `6` | A live game call supplied arguments the declared method cannot take — a count outside its accepted range, or a value the declared parameter type cannot convert from (Phase 2, #673). |
+| `live_method_not_allowlisted` | `live` | `classifier` | `6` | A live game call named a method the addressed running node has but its attached-script chain never declared gda-callable (Phase 2, #673, ADR-0041). |
+| `live_invalid_call_args` | `live` | `classifier` | `6` | A live game call supplied arguments the declared method cannot take: a count outside its accepted range, or a value the declared parameter type cannot convert from (Phase 2, #673). |
 | `live_log_unavailable` | `live` | `classifier` | `6` | A live engine session was launched but its diagnostics log file is missing or unreadable, so `gda diag` cannot read the running game's errors/output (Phase 2, #224). |
 | `live_scene_not_found` | `live` | `classifier` | `6` | A `gda daemon start --scene` selector did not load: the launched session ran a different scene (Godot silently falls back to main_scene for a missing/invalid path or UID), verified by the harness at launch — gda never falls back (Phase 2, #278). |
 | `live_perf_node_not_found` | `live` | `classifier` | `6` | A live perf monitor's node path does not resolve to a node in the running scene tree (Phase 2, #223). |
@@ -309,11 +315,11 @@ operation, and parse codes the CLI assigns).
 | `live_invalid_key` | `live` | `classifier` | `6` | A live input key event named a key the engine could not resolve to a keycode (Phase 2, #221). |
 | `live_unknown_action` | `live` | `classifier` | `6` | A live input action targeted an action the running game's InputMap does not declare (Phase 2, #221). |
 | `live_invalid_event_spec` | `live` | `classifier` | `6` | A live input sequence event has a type the harness does not recognize (Phase 2, #221). |
-| `live_predicate_unmet` | `live` | `classifier` | `6` | A live `screen capture` predicate (`--await-*`, #661) did not hold within its declared frame bound (Phase 2). |
+| `live_predicate_unmet` | `live` | `classifier` | `6` | A live `screen capture` predicate (`--await-*`) did not hold within its declared frame bound (Phase 2, #661). |
 | `live_display_unavailable` | `live` | `classifier` | `6` | A live `screen` capture ran on a headless engine session (the dummy DisplayServer cannot read pixels); start the daemon windowed with `gda daemon start --windowed` (Phase 2, #222). |
-| `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
-| `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed Engine session (`gda daemon start --windowed`) was requested but the host has no usable DisplayServer (no on-console GUI session / no `$DISPLAY`), so the session cannot come up; refused before spawning Godot (Phase 2, #345). |
-| `live_windowed_permission_denied` | `environment` | `classifier` | `127` | A windowed Engine session (`gda daemon start --windowed`) was requested but this process is denied the window-server lookup (e.g. a sandbox), so gda cannot tell whether the host has one; re-run outside the restriction to find out rather than recording the host as display-less (Phase 2, #667). |
+| `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, which are unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
+| `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed Engine session was requested (`gda daemon start --windowed`) but the host has no usable DisplayServer (no on-console GUI session / no `$DISPLAY`), so the session cannot come up; refused before spawning Godot (Phase 2, #345). |
+| `live_windowed_permission_denied` | `environment` | `classifier` | `127` | A windowed Engine session was requested (`gda daemon start --windowed`) but this process is denied the window-server lookup (e.g. a sandbox), so gda cannot tell whether the host has one; re-run outside the restriction to find out rather than recording the host as display-less (Phase 2, #667). |
 
 ## Considered options
 

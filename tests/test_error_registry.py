@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -46,7 +47,9 @@ ADR_0002 = ROOT / "docs" / "adr" / "0002-headless-structured-output-contract.md"
 OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
 
-ADR_REGISTRY_ROW = re.compile(r"^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \| `(\d+)` \|")
+ADR_REGISTRY_ROW = re.compile(
+    r"^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \| `(\d+)` \| (.+?) \|$"
+)
 GDSCRIPT_OPERATION_CODE = re.compile(
     r'^const OP_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE
 )
@@ -84,19 +87,83 @@ HARNESS_LIVE_ERROR_CODES = (
 )
 
 
-def _adr_registry() -> dict[str, tuple[str, str, int]]:
-    rows: dict[str, tuple[str, str, int]] = {}
+# --- How a code's DESCRIPTION is compared across the two artifacts (#701) -----
+#
+# ADR-0002's table and `gda.error_codes` carry the same per-code description, and
+# the equality pin below compares it. Two normalizations run first. Both are
+# decisions with a stated reason, because a rule buried in a regex is a rule the
+# next reader cannot tell from a bug.
+#
+# 1. **Markdown prose vs a Python string.** The ADR cell is Markdown (`code
+#    spans`, one long line); the registry is an implicitly-concatenated,
+#    formatter-wrapped string. Backticks are dropped, whitespace runs collapse to
+#    one space, and a trailing period is ignored — so a reflow or a code-span
+#    added on one side is never a failure. Every other character must match.
+#
+# 2. **Provenance references are not part of a code's meaning.** 41 rows end with
+#    a parenthetical naming when, and under which decision, the row entered the
+#    contract: `(Phase 2, ADR-0017 / ADR-0021)`, `(ADR-0033, #363)`, `(#170)`.
+#    Saying which decision added a row is the ADR's job as a decision record; the
+#    registry's `description` is the code's MEANING — the sentence a caller reads
+#    next to the code, where an unresolvable issue number is noise. So a trailing
+#    parenthetical made of nothing but provenance tokens is stripped and not
+#    compared. It is stripped on BOTH sides, not just the ADR's: the two artifacts
+#    cite decisions for different readers, and five registry rows already carry a
+#    pointer (`invalid_params` -> ADR-0015) that is worth keeping where it is.
+#    Rejected alternative: have the registry adopt the ADR's refs. That copies 41
+#    references an agent cannot resolve into the public code descriptions and makes
+#    appending an issue number a standing obligation for every new code.
+#
+# The rule is deliberately narrow. A parenthetical that MIXES prose with a ref is
+# not provenance and is compared verbatim, so content can never hide behind the
+# rule. #701 found exactly that: `(pack needs no platform templates and is
+# exempt; #170)` — a real exemption the registry had lost. It was reconciled into
+# both artifacts, not normalized away.
+#
+# A new provenance form (a date, a PR link) will fail this pin rather than being
+# silently accepted. That is intended: widening PROVENANCE_TOKEN is a conscious
+# edit.
+PROVENANCE_TOKEN = r"(?:Phase \d+|ADR-\d{4}(?: amendment)?|#\d+)"
+TRAILING_PROVENANCE = re.compile(
+    rf"\s*\({PROVENANCE_TOKEN}(?:\s*[,/]\s*{PROVENANCE_TOKEN})*\)\.?\s*$"
+)
+
+
+def _normalized_description(text: str) -> str:
+    """The comparable part of a description — see the rule above."""
+    flattened = " ".join(text.replace("`", "").split()).rstrip(". ")
+    return TRAILING_PROVENANCE.sub("", flattened).rstrip(". ")
+
+
+class ErrorRow(NamedTuple):
+    """One code's full public shape, as both artifacts must state it."""
+
+    category: str
+    source: str
+    exit_code: int
+    description: str
+
+
+def _adr_registry() -> dict[str, ErrorRow]:
+    rows: dict[str, ErrorRow] = {}
     for line in ADR_0002.read_text(encoding="utf-8").splitlines():
         match = ADR_REGISTRY_ROW.match(line)
         if match:
-            code, category, source, exit_code = match.groups()
-            rows[code] = (category, source, int(exit_code))
+            code, category, source, exit_code, description = match.groups()
+            rows[code] = ErrorRow(
+                category, source, int(exit_code), _normalized_description(description)
+            )
     return rows
 
 
-def _python_registry() -> dict[str, tuple[str, str, int]]:
+def _python_registry() -> dict[str, ErrorRow]:
     return {
-        spec.code: (spec.category.value, spec.source.value, spec.exit_code)
+        spec.code: ErrorRow(
+            spec.category.value,
+            spec.source.value,
+            spec.exit_code,
+            _normalized_description(spec.description),
+        )
         for spec in ERROR_CODES
     }
 
@@ -123,7 +190,37 @@ def test_failure_builder_rejects_unregistered_public_codes():
 
 
 def test_adr_registry_matches_python_authoritative_registry():
+    # Every column of a code's public shape, the `Meaning` prose included (#701).
+    # The description used to be parsed out of the ADR row and thrown away, so the
+    # two artifacts could describe the same code differently and nothing noticed —
+    # wave 2 shipped three PRs whose description edits had to be checked by eye,
+    # and 15 rows had already drifted apart in substance (a producing condition the
+    # registry omitted, an exemption it had lost, a remedy it stated incompletely).
+    # Comparison rule: see `_normalized_description` above.
     assert _adr_registry() == _python_registry()
+
+
+def test_description_normalization_ignores_only_provenance_refs():
+    # Pins the boundary of the rule stated above, so widening it stays a conscious
+    # edit rather than a side effect of a regex tweak.
+    #
+    # Ignored: markup, wrapping, a trailing period, and a trailing parenthetical
+    # that is nothing but provenance tokens.
+    assert _normalized_description("A `code` span.") == "A code span"
+    assert _normalized_description("Wrapped\n  text") == "Wrapped text"
+    assert _normalized_description("Meaning (Phase 2, ADR-0017 / ADR-0021).") == (
+        _normalized_description("Meaning.")
+    )
+    assert _normalized_description("Meaning (ADR-0031 amendment, #655).") == "Meaning"
+    # NOT ignored: a parenthetical carrying prose, even when a ref rides along —
+    # that is content, and dropping it is how a real divergence would hide.
+    assert _normalized_description("Meaning (pack is exempt; #170).") == (
+        "Meaning (pack is exempt; #170)"
+    )
+    # NOT ignored: a provenance-looking parenthetical mid-sentence.
+    assert _normalized_description("Meaning (#170) and more.") == (
+        "Meaning (#170) and more"
+    )
 
 
 def test_gdscript_operation_error_codes_mirror_python_operation_subset():
