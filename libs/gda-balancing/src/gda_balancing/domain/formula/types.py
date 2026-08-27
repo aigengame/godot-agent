@@ -28,6 +28,36 @@ def formula_contract_matches(
     )
 
 
+def formula_contract_contains(
+    container: dict[str, Any],
+    actual: dict[str, Any],
+) -> bool:
+    """Return whether one Formula contract accepts every value in another."""
+    if container.get("type_identity") != actual.get("type_identity") or any(
+        container.get(member) != actual.get(member)
+        for member in ("representation", "kind", "unit", "numeric_policy")
+    ):
+        return False
+    container_domain = container.get("domain")
+    actual_domain = actual.get("domain")
+    if (
+        container.get("domain_kind") != "closed-interval"
+        or actual.get("domain_kind") != "closed-interval"
+        or not isinstance(container_domain, dict)
+        or not isinstance(actual_domain, dict)
+        or not all(
+            isinstance(domain.get(member), int) and not isinstance(domain[member], bool)
+            for domain in (container_domain, actual_domain)
+            for member in ("minimum", "maximum")
+        )
+    ):
+        return container_domain == actual_domain
+    return (
+        container_domain["minimum"] <= actual_domain["minimum"]
+        and actual_domain["maximum"] <= container_domain["maximum"]
+    )
+
+
 def formula_contract_matches_operation(
     formula_contract: dict[str, Any],
     operation_contract: dict[str, Any],

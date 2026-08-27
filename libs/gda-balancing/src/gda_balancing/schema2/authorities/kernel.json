@@ -916,7 +916,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:2f63d19c71b53b5c789a22eb93c3409da4c4017eda7523e962ea4923bdc30167",
+  "content_identity": "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -5847,6 +5847,12 @@
                 "left",
                 "right"
               ]
+            },
+            {
+              "kind": "positive-runtime-numeric-domain",
+              "members": [
+                "right"
+              ]
             }
           ],
           "refusals": [],
@@ -6729,6 +6735,12 @@
                 "kind": "runtime-numeric",
                 "members": [
                   "left",
+                  "right"
+                ]
+              },
+              {
+                "kind": "positive-runtime-numeric-domain",
+                "members": [
                   "right"
                 ]
               }

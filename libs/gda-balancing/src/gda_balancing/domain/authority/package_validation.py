@@ -553,7 +553,8 @@ def _package_evidence_vectors_are_closed(
                     or (
                         expect["outcome"] == "refused"
                         and expect.get("result") is None
-                        and expect.get("signal") in {"numeric-overflow", "step-limit"}
+                        and expect.get("signal")
+                        in {"invalid-domain", "numeric-overflow", "step-limit"}
                         and expect["result_artifact"] is False
                     )
                 )

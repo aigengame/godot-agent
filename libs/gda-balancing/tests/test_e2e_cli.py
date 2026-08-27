@@ -890,7 +890,7 @@ class TestKeyUserPath:
         vectors = (
             (
                 "rpg.stat.round-down-boundary-v1",
-                10,
+                {"weapon_damage_bonus": 10},
                 {
                     "attack_damage": 52,
                     "base_damage": 20,
@@ -904,7 +904,7 @@ class TestKeyUserPath:
             ),
             (
                 "rpg.stat.cap-exact-boundary-v1",
-                16,
+                {"weapon_damage_bonus": 16},
                 {
                     "attack_damage": 60,
                     "base_damage": 20,
@@ -918,7 +918,7 @@ class TestKeyUserPath:
             ),
             (
                 "rpg.stat.cap-clamped-boundary-v1",
-                18,
+                {"weapon_damage_bonus": 18},
                 {
                     "attack_damage": 60,
                     "base_damage": 20,
@@ -930,17 +930,41 @@ class TestKeyUserPath:
                     "target_health": 60,
                 },
             ),
+            (
+                "rpg.stat.maximum-domain-v1",
+                {
+                    "base_damage": 1000,
+                    "buff_enabled": 1,
+                    "buff_percent": 100,
+                    "damage_per_level": 100,
+                    "level": 10,
+                    "maximum_damage": 1000,
+                    "target_health": 1000,
+                    "weapon_damage_bonus": 20,
+                },
+                {
+                    "attack_damage": 1000,
+                    "base_damage": 1000,
+                    "build_damage": 20,
+                    "damage_dealt": 1000,
+                    "effect_damage": 2020,
+                    "pre_buff_damage": 2020,
+                    "progression_damage": 1000,
+                    "target_health": 0,
+                },
+            ),
         )
 
-        for index, (vector_id, weapon_bonus, expected) in enumerate(vectors, start=5):
+        for index, (vector_id, assignments, expected) in enumerate(vectors, start=5):
             experiment = json.loads(json.dumps(baseline))
             experiment["id"] = vector_id
             scenario = experiment["scenarios"][0]
-            next(
-                row
-                for row in scenario["assignments"]
-                if row["target"]["name"] == "weapon_damage_bonus"
-            )["value"] = weapon_bonus
+            for name, value in assignments.items():
+                next(
+                    row
+                    for row in scenario["assignments"]
+                    if row["target"]["name"] == name
+                )["value"] = value
             for metric in experiment["metrics"]:
                 value = expected[metric["id"]]
                 metric["target"] = {"minimum": value, "maximum": value}

@@ -73,7 +73,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:2f63d19c71b53b5c789a22eb93c3409da4c4017eda7523e962ea4923bdc30167"
+    "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -3657,6 +3657,34 @@ def _operation_composition_diagnostic_subjects(
                                 for candidate in candidates
                                 if candidate.get("numeric_policy")
                                 in runtime_numeric_policies
+                            )
+                            if not narrowed:
+                                refuse(
+                                    owner,
+                                    operation,
+                                    str(instruction_index),
+                                    "typing",
+                                )
+                                return None
+                            narrow_reference(
+                                instruction,
+                                member,
+                                narrowed,
+                            )
+                    if constraint_kind == "positive-runtime-numeric-domain":
+                        for member, candidates in zip(
+                            members,
+                            referenced,
+                            strict=True,
+                        ):
+                            narrowed = tuple(
+                                candidate
+                                for candidate in candidates
+                                if isinstance(candidate.get("domain"), dict)
+                                and candidate["domain"].get("kind") == "closed-interval"
+                                and isinstance(candidate["domain"].get("minimum"), int)
+                                and not isinstance(candidate["domain"]["minimum"], bool)
+                                and candidate["domain"]["minimum"] > 0
                             )
                             if not narrowed:
                                 refuse(

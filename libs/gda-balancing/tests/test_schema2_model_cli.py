@@ -2363,6 +2363,115 @@ def test_model_check_reaches_operations_called_by_bound_formulas(run_cli):
     assert (exit_code, stderr) == (0, ""), stdout
 
 
+def test_stat_composition_formula_domains_cover_the_complete_legal_input_space(
+    tmp_path, run_cli
+):
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(_RPG_STAT_COMPOSITION_SOURCE),
+            "--out",
+            str(tmp_path / "stat-composition-model.json"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    rir = json.loads(
+        (
+            _artifact_directory(json.loads(stdout)) / "rir-semantic-payload.json"
+        ).read_text(encoding="utf-8")
+    )
+    effect_policy = next(
+        formula for formula in rir["formulas"] if formula["id"] == "effect-policy"
+    )
+    parameters = {
+        parameter["id"]: parameter for parameter in effect_policy["parameters"]
+    }
+    locals_by_id = {
+        node["id"]: node["result"] for node in effect_policy["body"]["nodes"]
+    }
+
+    assert parameters["pre_buff_damage"]["domain"] == {
+        "minimum": 0,
+        "maximum": 2020,
+    }
+    assert locals_by_id["scaled-damage"]["domain"] == {
+        "minimum": 0,
+        "maximum": 202000,
+    }
+    assert locals_by_id["enabled-damage"]["domain"] == {
+        "minimum": 0,
+        "maximum": 202000,
+    }
+    assert effect_policy["result"]["domain"] == {
+        "minimum": 0,
+        "maximum": 2020,
+    }
+
+
+def test_model_check_refuses_a_formula_slot_domain_narrower_than_its_call_site(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        _RPG_STAT_COMPOSITION_SOURCE.read_text(encoding="utf-8")
+    )
+    effect_policy = next(
+        formula
+        for formula in source_document["modules"][0]["formulas"]
+        if formula["id"] == "effect-policy"
+    )
+    parameter = next(
+        row for row in effect_policy["parameters"] if row["id"] == "pre_buff_damage"
+    )
+    parameter["domain"]["maximum"] = 1000
+    effect_policy["result"]["domain"]["maximum"] = 1000
+    for node in effect_policy["body"]["nodes"]:
+        if node["id"] in {"scaled-damage", "enabled-damage"}:
+            node["result"]["domain"]["maximum"] = 100000
+        elif node["id"] == "result":
+            node["result"]["domain"]["maximum"] = 1000
+    source = tmp_path / "narrow-operation-slot-domain.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_type_mismatch"
+    assert diagnostic["primary"]["pointer"] == (
+        "/formula_bindings/7/arguments/0/operand"
+    )
+
+
+def test_model_check_refuses_a_formula_local_that_understates_its_inferred_domain(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        _RPG_STAT_COMPOSITION_SOURCE.read_text(encoding="utf-8")
+    )
+    effect_policy = next(
+        formula
+        for formula in source_document["modules"][0]["formulas"]
+        if formula["id"] == "effect-policy"
+    )
+    scaled_damage = next(
+        node for node in effect_policy["body"]["nodes"] if node["id"] == "scaled-damage"
+    )
+    scaled_damage["result"]["domain"]["maximum"] = 100000
+    source = tmp_path / "understated-formula-local.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_notation_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/3/expression"
+
+
 @pytest.mark.parametrize(
     ("vector_id", "mutation", "expected_diagnostic", "expected_pointer"),
     (

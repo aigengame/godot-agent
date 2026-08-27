@@ -1065,6 +1065,7 @@ def _runtime_authority_is_closed(
                 constraint_kind
                 not in {
                     "fixed-value-contract",
+                    "positive-runtime-numeric-domain",
                     "runtime-numeric",
                     "same-value-contract",
                     "writable-port",

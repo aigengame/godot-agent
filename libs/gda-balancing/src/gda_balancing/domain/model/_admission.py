@@ -28,6 +28,7 @@ from gda_balancing.domain.formula.notation import (
     formula_schema_version,
 )
 from gda_balancing.domain.formula.types import (
+    formula_contract_contains as _formula_contract_contains,
     formula_contract_matches as _formula_contract_matches,
     formula_contract_matches_operation as _formula_contract_matches_operation,
 )
@@ -796,6 +797,7 @@ def _formula_program_graph_is_admitted(
         tuple[str, str], list[tuple[str, dict[str, Any]]]
     ] = {}
     formula_operation_roots: set[tuple[str, str, str]] = set()
+    concrete_formula_calls: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for key, formula in formulas_by_key.items():
         parameters = {parameter["id"]: parameter for parameter in formula["parameters"]}
         locals_by_id: dict[str, dict[str, Any]] = {}
@@ -957,20 +959,30 @@ def _formula_program_graph_is_admitted(
                     or set(port_ids) != set(ports)
                 ):
                     return False
+                call_arguments: dict[str, dict[str, Any]] = {}
                 for argument in arguments:
                     if (
                         set(argument) != {"port", "operand"}
                         or (contract := operand_contract(argument.get("operand")))
                         is None
-                        or not _formula_contract_matches_operation(
-                            contract, ports[argument["port"]]
-                        )
                     ):
                         return False
+                    port_id = cast(str, argument["port"])
+                    if not _formula_contract_matches_operation(
+                        contract, ports[port_id]
+                    ):
+                        return False
+                    call_arguments[port_id] = contract
                 operation_dependencies_by_key[key].append(
                     (cast(str, operation_ref["identity"]), operation)
                 )
                 formula_operation_roots.add(coordinate)
+                concrete_formula_calls.setdefault(coordinate, []).append(
+                    {
+                        "arguments": call_arguments,
+                        "result": node["result"],
+                    }
+                )
             elif node.get("node") == "conditional":
                 if set(node) != {
                     "id",
@@ -1255,6 +1267,7 @@ def _formula_program_graph_is_admitted(
                 cast(str, parameter["id"]): parameter
                 for parameter in cast(list[dict[str, Any]], slot["parameters"])
             }
+            concrete_calls = concrete_formula_calls.get(slot_key[:3], [])
             for argument in arguments:
                 operand = argument.get("operand")
                 if (
@@ -1267,11 +1280,28 @@ def _formula_program_graph_is_admitted(
                 operand_body = {
                     key: value for key, value in operand.items() if key != "identity"
                 }
+                slot_parameter = slot_parameters[cast(str, operand["parameter"])]
                 if operand.get("identity") != content_identity(
                     actual_operand_domain, cast(JsonValue, operand_body)
                 ) or not _formula_contract_matches_operation(
                     parameters[argument["parameter"]],
-                    slot_parameters[cast(str, operand["parameter"])],
+                    slot_parameter,
+                ):
+                    return False
+                slot_source = slot_parameter.get("source")
+                concrete_port = (
+                    cast(str, slot_source["name"])
+                    if isinstance(slot_source, dict)
+                    and slot_source.get("kind") == "port"
+                    and isinstance(slot_source.get("name"), str)
+                    else None
+                )
+                if concrete_port is not None and any(
+                    not _formula_contract_contains(
+                        parameters[argument["parameter"]],
+                        cast(dict[str, Any], call["arguments"])[concrete_port],
+                    )
+                    for call in concrete_calls
                 ):
                     return False
             closure = cast(dict[str, Any], bound_formula["closure"])
@@ -1291,6 +1321,13 @@ def _formula_program_graph_is_admitted(
                 > cast(int, slot["termination_measure"])
                 or operation_identity
                 in set(cast(list[str], closure["operation_dependencies"]))
+                or any(
+                    not _formula_contract_contains(
+                        cast(dict[str, Any], call["result"]),
+                        cast(dict[str, Any], bound_formula["result"]),
+                    )
+                    for call in concrete_calls
+                )
             ):
                 return False
             bound_operation_slots.add(slot_key)

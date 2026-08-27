@@ -17,6 +17,7 @@ from gda_balancing.domain.canonical import (
     content_identity,
 )
 from gda_balancing.domain.formula.types import (
+    formula_contract_contains as _formula_contract_contains,
     formula_contract_matches as _formula_contract_matches,
     formula_contract_matches_operation as _formula_contract_matches_operation,
     resolve_formula_contract as _resolved_formula_contract,
@@ -473,6 +474,83 @@ def _resolved_formula_operand(
         },
         contract,
     )
+
+
+def _resolved_formula_call_arguments(
+    formula: dict[str, Any],
+    node: dict[str, Any],
+    operation: dict[str, Any],
+    declarations_by_source: dict[tuple[str, str], dict[str, Any]],
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Project concrete value contracts for one resolved Formula Operation call."""
+    parameters = {
+        cast(str, parameter["id"]): parameter
+        for parameter in cast(list[dict[str, Any]], formula["parameters"])
+    }
+    locals_by_id = {
+        cast(str, item["id"]): cast(dict[str, Any], item["result"])
+        for item in cast(
+            list[dict[str, Any]], cast(dict[str, Any], formula["body"])["nodes"]
+        )
+    }
+    ports = {
+        cast(str, port["id"]): port
+        for port in cast(list[dict[str, Any]], operation["inputs"])
+    }
+    resolved: dict[str, dict[str, Any]] = {}
+    for argument in cast(list[dict[str, Any]], node["arguments"]):
+        port_id = cast(str, argument["port"])
+        operand = cast(dict[str, Any], argument["operand"])
+        operand_kind = operand.get("kind")
+        if operand_kind == "parameter":
+            contract = parameters[cast(str, operand["parameter"])]
+        elif operand_kind == "local":
+            contract = locals_by_id[cast(str, operand["local"])]
+        elif operand_kind == "symbol":
+            symbol = cast(dict[str, str], operand["resolved_symbol"])
+            contract = declarations_by_source[(symbol["module"], symbol["name"])]
+        elif operand_kind == "literal":
+            value = operand.get("value")
+            literal_context = _literal_context_contract(
+                value,
+                ports[port_id],
+                kernel,
+                {
+                    "literal_typing_profiles": [
+                        {"definition": profile}
+                        for profile in cast(
+                            list[dict[str, Any]],
+                            _language(language_bundle)["literal_typing_profiles"],
+                        )
+                    ]
+                },
+            )
+            if (
+                literal_context is None
+                or not isinstance(value, int)
+                or isinstance(value, bool)
+            ):
+                raise ValueError("Formula literal has no concrete call-site contract")
+            literal_type = cast(dict[str, str], literal_context["type"])
+            contract = {
+                "type_identity": {
+                    "package": literal_type["package"],
+                    "version": literal_type["version"],
+                    "symbol": literal_type["id"],
+                },
+                "representation": literal_context["representation"],
+                "kind": literal_context["kind"],
+                "unit": literal_context["unit"],
+                "domain_kind": "closed-interval",
+                "domain": {"minimum": value, "maximum": value},
+                "numeric_policy": literal_context["numeric_policy"],
+            }
+        else:
+            raise ValueError("Formula call operand has no concrete contract")
+        resolved[port_id] = contract
+    return resolved
 
 
 def _derived_formula_evaluation_site(
@@ -1198,6 +1276,36 @@ def _resolved_formula_programs_and_bindings_impl(
         if node.get("node") == "operation-call"
         and isinstance((operation := node.get("operation")), dict)
     }
+    concrete_formula_calls: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for key in selected_formula_keys:
+        resolved_formula = resolved_by_key[key]
+        for node in cast(
+            list[dict[str, Any]],
+            cast(dict[str, Any], resolved_formula["body"])["nodes"],
+        ):
+            operation_ref = node.get("operation")
+            if node.get("node") != "operation-call" or not isinstance(
+                operation_ref, dict
+            ):
+                continue
+            coordinate = (
+                cast(str, operation_ref["package"]),
+                cast(str, operation_ref["version"]),
+                cast(str, operation_ref["id"]),
+            )
+            concrete_formula_calls.setdefault(coordinate, []).append(
+                {
+                    "arguments": _resolved_formula_call_arguments(
+                        cast(dict[str, Any], resolved_formula),
+                        node,
+                        operations_by_coordinate[coordinate],
+                        declarations_by_source,
+                        checked.kernel,
+                        checked.language_bundle,
+                    ),
+                    "result": node["result"],
+                }
+            )
     selected_operation_coordinates = _selected_source_operation_coordinates(
         checked.source,
         lock,
@@ -1346,6 +1454,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(str, parameter["id"]): parameter
                 for parameter in cast(list[dict[str, Any]], slot["parameters"])
             }
+            concrete_calls = concrete_formula_calls.get(slot_key[:3], [])
             for source_argument in source_arguments:
                 parameter_id = cast(str, source_argument[binding_parameter_member])
                 source_operand = cast(
@@ -1373,6 +1482,29 @@ def _resolved_formula_programs_and_bindings_impl(
                         f"{binding_pointer}/arguments/{len(arguments)}/operand",
                         "Formula Operation-slot argument is incompatible",
                     )
+                slot_source = slot_parameter.get("source")
+                concrete_port = (
+                    cast(str, slot_source["name"])
+                    if isinstance(slot_source, dict)
+                    and slot_source.get("kind") == "port"
+                    and isinstance(slot_source.get("name"), str)
+                    else None
+                )
+                if concrete_port is not None:
+                    for call in concrete_calls:
+                        actual_contract = cast(
+                            dict[str, Any],
+                            cast(dict[str, Any], call["arguments"])[concrete_port],
+                        )
+                        if not _formula_contract_contains(
+                            binding_parameters[parameter_id], actual_contract
+                        ):
+                            raise _FormulaResolutionError(
+                                _FORMULA_REASON["type-mismatch"],
+                                f"{binding_pointer}/arguments/{len(arguments)}/operand",
+                                "Formula Operation-slot parameter does not cover its "
+                                "concrete call-site domain",
+                            )
                 operand_body = cast(
                     dict[str, JsonValue],
                     {
@@ -1402,6 +1534,17 @@ def _resolved_formula_programs_and_bindings_impl(
                     f"{binding_pointer}/formula",
                     "Formula result is incompatible with its Operation slot",
                 )
+            for call in concrete_calls:
+                if not _formula_contract_contains(
+                    cast(dict[str, Any], call["result"]),
+                    cast(dict[str, Any], formula["result"]),
+                ):
+                    raise _FormulaResolutionError(
+                        _FORMULA_REASON["type-mismatch"],
+                        f"{binding_pointer}/formula",
+                        "Formula Operation-slot result exceeds its concrete "
+                        "call-site domain",
+                    )
             closure = cast(dict[str, Any], formula["closure"])
             if not set(cast(list[str], closure["refusals"])) <= set(
                 cast(list[str], slot["permitted_refusals"])

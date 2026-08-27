@@ -523,6 +523,8 @@ def _execute_value_instruction(
         right = _require_runtime_integer(
             variables[cast(str, instruction["right"])], structured_authority
         )
+        if operator == "integer-floor-divide" and right <= 0:
+            raise ValueError("floor-divide divisor must be positive")
         value = (
             left + right
             if operator == "integer-add"
@@ -692,6 +694,13 @@ def _evaluate_value_program_vector(
                 )
             except OverflowError:
                 signal = "numeric-overflow"
+                refusing_site = cast(str, row["evaluation_site_identity"])
+                result_value = None
+                break
+            except ValueError as error:
+                if str(error) != "floor-divide divisor must be positive":
+                    raise
+                signal = "invalid-domain"
                 refusing_site = cast(str, row["evaluation_site_identity"])
                 result_value = None
                 break

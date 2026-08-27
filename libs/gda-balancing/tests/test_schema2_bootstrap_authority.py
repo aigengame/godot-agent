@@ -737,6 +737,7 @@ def test_kernel_owns_exact_int64_floor_divide_primitive():
         "id": "floor-divide",
         "operand_constraints": [
             {"kind": "runtime-numeric", "members": ["left", "right"]},
+            {"kind": "positive-runtime-numeric-domain", "members": ["right"]},
         ],
         "refusals": [],
         "required_members": ["node", "target", "left", "right"],

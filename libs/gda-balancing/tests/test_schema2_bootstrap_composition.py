@@ -1456,6 +1456,38 @@ def test_operation_body_typing_uses_the_complete_sequential_lexical_scope(mutati
     assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
 
 
+def test_two_consumers_refuse_a_floor_divide_operation_with_a_non_positive_domain():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "quantity.floor-divide" and row["version"] == "2.2.0"
+    )
+    next(row for row in operation["inputs"] if row["id"] == "right")["domain"][
+        "minimum"
+    ] = 0
+    positive_literal = next(
+        row
+        for row in ldb["language"]["literal_typing_profiles"]
+        if row["id"] == "quantity.positive-dimensionless-int64-v2-2"
+    )
+    positive_literal["minimum"] = 0
+    positive_literal["domain"]["minimum"] = 0
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.operations.core.quantity@2.2.0.quantity.floor-divide.body.0.typing",
+    ) in first["diagnostics"]
+
+
 def test_operation_result_source_refuses_a_non_successful_producer_path():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]

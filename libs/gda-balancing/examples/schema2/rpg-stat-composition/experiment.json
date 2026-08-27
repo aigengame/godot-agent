@@ -2,14 +2,14 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-stat-composition.golden-attack",
   "version": "1.0.0",
-  "kernel_identity": "sha256:2f63d19c71b53b5c789a22eb93c3409da4c4017eda7523e962ea4923bdc30167",
-  "language_bundle_identity": "sha256:ac9f75047a210763c63000daa86dc6069f633de17ec0920bcf97e230de7782df",
+  "kernel_identity": "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6",
+  "language_bundle_identity": "sha256:bc712dac8a8468269f62da07fbcc2c940dc8fd48c6bfe5ee49158dc1abc74088",
   "model": {
-    "source_identity": "sha256:034a0feeb5ebb2011fe24a2b2eaa5d54f2ff44f88c0ecb73612a5f28667d25c4",
-    "build_receipt_identity": "sha256:4ba0ec0e90fa7b0246d8a43848948352e333d4c78dcae6227aa75e37f5dc3031",
-    "resolved_model_identity": "sha256:b4b4fef9a1059b20f96a2a143d65cf8404ce62488e06fca56a13c6dddb72a199",
-    "package_lock_identity": "sha256:284cddaedcad44cb78cefc49b88a1b3a3100bdd44d401ce50fc984587f1f9018",
-    "rir_identity": "sha256:bfcfb071848b7cacc2c00d8cbee6aba8610c0d363ccbe2d0915564a7db4e2b77"
+    "source_identity": "sha256:044d3eadf249238949e42ca9973bd8c9e680ee95e7b791c8662acb8c6340d23a",
+    "build_receipt_identity": "sha256:094323ea8ce01f29b0e660806f4d8275e77f95954d973ee2f4bbdc5dbb83077c",
+    "resolved_model_identity": "sha256:ed350061103d5506655f37398f48468934320a7deeb20244c05313629cc16eee",
+    "package_lock_identity": "sha256:6575f95ce9078031217f346ce9d9c65c775b5baa685b8228b9f39c1d8b6be144",
+    "rir_identity": "sha256:987ddf53bae473ff0c48fe2a7c7361d857368ca57ec28b3379bd3787dc3dedbc"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",

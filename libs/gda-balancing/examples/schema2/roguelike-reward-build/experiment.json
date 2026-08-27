@@ -2,13 +2,13 @@
   "schema_version": "2.0.0",
   "id": "roguelike.reward-build-feedback.baseline",
   "version": "1.0.0",
-  "kernel_identity": "sha256:2f63d19c71b53b5c789a22eb93c3409da4c4017eda7523e962ea4923bdc30167",
-  "language_bundle_identity": "sha256:ac9f75047a210763c63000daa86dc6069f633de17ec0920bcf97e230de7782df",
+  "kernel_identity": "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6",
+  "language_bundle_identity": "sha256:bc712dac8a8468269f62da07fbcc2c940dc8fd48c6bfe5ee49158dc1abc74088",
   "model": {
     "source_identity": "sha256:127290ec462bc061097c6650d644739d73cd9fd3fbeed735eb06ed1cc286db2f",
-    "build_receipt_identity": "sha256:4abe2911408301830340b6ff799d4687a7f2fc0ea920ce5b8c028b3ae6b02025",
-    "resolved_model_identity": "sha256:9ba219085a360910fa037b2ddab208f570cb01c624f4b8835d96041c75f213af",
-    "package_lock_identity": "sha256:38cd0182be78d90a50f62843f9919537b281abf649a9da15a65ec01a218853d6",
+    "build_receipt_identity": "sha256:6bb036063a0b86b3b96c18174037f35f25fa114a6fba54f2018e0b02c2814f66",
+    "resolved_model_identity": "sha256:5b87758faa859bd6e8e68c5c7bdbe551ea421d3f425e7d5d6b69b7904c555f80",
+    "package_lock_identity": "sha256:2fd61cfdd92658182637a29ba3ed636d18546982af828c836e727c5e2bb6e81d",
     "rir_identity": "sha256:70fbf1a3049537a2aa815136a9e6f9a088f50a7bdfcfde76196267a47fe2ede4"
   },
   "runtime": {

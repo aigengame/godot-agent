@@ -235,6 +235,30 @@ def test_runtime_and_replay_floor_divide_round_toward_negative_infinity():
         assert variables["result"] == -3
 
 
+@pytest.mark.parametrize("divisor", [0, -2], ids=["zero", "negative"])
+def test_runtime_and_replay_refuse_a_non_positive_floor_divisor(divisor):
+    instruction = {
+        "left": "dividend",
+        "node": "floor-divide",
+        "right": "divisor",
+        "target": "result",
+    }
+    node_contract = {"semantics": {"operator": "integer-floor-divide"}}
+    numeric = {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)}
+
+    for execute in (
+        experiment_runtime_module._execute_value_instruction,
+        experiment_artifact_replay_module.execute_value_instruction,
+    ):
+        with pytest.raises(ValueError, match="floor-divide divisor must be positive"):
+            execute(
+                instruction,
+                {"dividend": 5, "divisor": divisor},
+                numeric,
+                node_contract,
+            )
+
+
 def test_runtime_integer_projection_without_an_envelope_profile_is_not_applicable():
     authority_context = authority_module.packaged_authority_context()
     structured_authority = replace(
@@ -587,7 +611,11 @@ def _reference_evaluate_value_program_vector(
                 value = values[instruction["left"]] * values[instruction["right"]]
             elif node == "floor-divide":
                 divisor = values[instruction["right"]]
-                assert divisor > 0
+                if divisor <= 0:
+                    signal = "invalid-domain"
+                    site = row["evaluation_site_identity"]
+                    result = None
+                    break
                 value = values[instruction["left"]] // divisor
             elif node == "maximum":
                 value = max(
@@ -7400,6 +7428,8 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         "formula.runtime.observation.refusal.atomic-prefix",
         "formula.runtime.floor-divide.exact",
         "formula.runtime.floor-divide.negative-non-exact",
+        "formula.runtime.floor-divide.refuse.zero-divisor",
+        "formula.runtime.floor-divide.refuse.negative-divisor",
     }
     for vector in vectors:
         production = experiment_runtime_module._evaluate_value_program_vector(vector)

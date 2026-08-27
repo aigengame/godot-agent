@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:2f63d19c71b53b5c789a22eb93c3409da4c4017eda7523e962ea4923bdc30167"
+    "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -1534,7 +1534,8 @@ def _consumer_b_package_evidence_vectors_are_closed(
                     or (
                         expect["outcome"] == "refused"
                         and expect.get("result") is None
-                        and expect.get("signal") in {"numeric-overflow", "step-limit"}
+                        and expect.get("signal")
+                        in {"invalid-domain", "numeric-overflow", "step-limit"}
                         and expect["result_artifact"] is False
                     )
                 )
@@ -6808,6 +6809,7 @@ def _consumer_b_runtime_authority_is_closed(
                 kind
                 not in {
                     "fixed-value-contract",
+                    "positive-runtime-numeric-domain",
                     "runtime-numeric",
                     "same-value-contract",
                     "writable-port",
@@ -7911,6 +7913,35 @@ def _consumer_b_operation_composition_subjects(
                                 for candidate in candidates
                                 if candidate.get("numeric_policy")
                                 in runtime_numeric_policies
+                            )
+                            if not narrowed:
+                                found.add(
+                                    subject(
+                                        coordinate,
+                                        str(instruction_index),
+                                        "typing",
+                                    )
+                                )
+                                return None
+                            narrow_reference(
+                                instruction,
+                                member,
+                                narrowed,
+                            )
+                    if kind == "positive-runtime-numeric-domain":
+                        for member, candidates in zip(
+                            members,
+                            resolved,
+                            strict=True,
+                        ):
+                            narrowed = tuple(
+                                candidate
+                                for candidate in candidates
+                                if isinstance(candidate.get("domain"), dict)
+                                and candidate["domain"].get("kind") == "closed-interval"
+                                and isinstance(candidate["domain"].get("minimum"), int)
+                                and not isinstance(candidate["domain"]["minimum"], bool)
+                                and candidate["domain"]["minimum"] > 0
                             )
                             if not narrowed:
                                 found.add(
