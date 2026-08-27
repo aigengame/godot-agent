@@ -1417,6 +1417,17 @@ def test_result_truth_table_schema_projections_and_disclosed_divergences():
             "stdout_file": None,
         }
     ) == (False, False)
+    # The full-stream byte count is independently schema-expressible: an
+    # untruncated result cannot claim an above-cap stream even when its inline
+    # stdout is short enough to satisfy the character projection.
+    assert verdict(
+        {
+            "stdout": "a",
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    ) == (False, False)
     # The truncated branch publishes the weakest safe character floor implied
     # by a maximal UTF-8 prefix; the one-character impossible row is rejected
     # by BOTH sides.
@@ -1461,7 +1472,9 @@ def test_result_truth_table_schema_projections_and_disclosed_divergences():
     assert verdict(
         {
             "stdout": "汉" * (SCRIPT_STDOUT_CAP // 2),
-            "stdout_bytes": 3 * (SCRIPT_STDOUT_CAP // 2),
+            # Keep the declared count within the newly published numeric cap;
+            # only the string's UTF-8 byte length exceeds the inline bound.
+            "stdout_bytes": SCRIPT_STDOUT_CAP,
             "stdout_truncated": False,
             "stdout_file": None,
         }

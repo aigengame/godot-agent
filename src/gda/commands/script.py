@@ -819,7 +819,8 @@ def _script_run_result_schema_extra(schema: dict) -> None:
     published. Truncated implies a string spill file, a full-stream size above
     the cap, and a maximal UTF-8-safe inline head; `minLength` / `maxLength`
     publish the safe CHARACTER bounds implied by its BYTE range. Untruncated
-    implies a null spill file and publishes the safe character cap too.
+    implies a null spill file, a full-stream size at or below the cap, and the
+    safe character cap.
 
     Two CLASSES of value-dependent identities stay model-side: Draft 2020-12
     cannot relate `stdout_bytes` to another field's encoded length, and its
@@ -849,6 +850,7 @@ def _script_run_result_schema_extra(schema: dict) -> None:
             "then": {
                 "properties": {
                     "stdout_file": {"type": "null"},
+                    "stdout_bytes": {"maximum": SCRIPT_STDOUT_CAP},
                     "stdout": {"maxLength": SCRIPT_STDOUT_CAP},
                 }
             },
