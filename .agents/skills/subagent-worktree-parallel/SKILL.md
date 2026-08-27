@@ -49,7 +49,9 @@ the cost/benefit table).
   or unavailable hardware as **CI-only**. If a gate cannot run, record why, the substitute
   evidence, and the remaining risk; never report it as passed. A capability-gated test must
   demonstrably execute in at least one enforced tier — split the core behavior out of the
-  gate. (REFERENCE §3, §6)
+  gate. Report the numbers you MEASURED, quoting the tool's own summary line and naming the
+  host: a count from memory, or a capability-rich host's total presented as CI's, reads as a
+  defect in the claim. (REFERENCE §3, §6)
 - **The orchestrator (the "lead") independently re-verifies before merging.** Subagent implements and
   produces the authorized local artifact in its worktree; the lead re-runs locally
   reproducible gates and spot-checks the diff. "Done but no artifact" = needs takeover.
@@ -103,7 +105,9 @@ choose mode/permissions → decompose + dependency analysis → plan waves
    validation gates. (REFERENCE §3)
 5. **Verify, hand off, or publish.** As each implementer finishes, run locally reproducible
    gates, serialize shared-global-resource tests (REFERENCE §6: lock-directory protocol and
-   stale-lock arbitration), audit affected public surfaces, and record
+   stale-lock arbitration), red-proof each fix round's regression against the head that was
+   reviewed — from COMMITTED state, since the red-proof swaps the source tree — audit
+   affected public surfaces, and record
    every CI-only or unavailable gate with substitute evidence and remaining risk. If remote
    writes are not authorized, return the local artifact and stop. If they are authorized,
    the orchestrator performs only the listed remote actions. (REFERENCE §6, §7)

@@ -134,6 +134,10 @@ You are implementing <slice> in an ISOLATED git worktree.
   `git rev-parse --show-toplevel` is your worktree root — NEVER run git ops against the
   shared checkout.
 - To name your branch, RENAME the pre-created branch in place: `git branch -m <name>`.
+  Do it BEFORE the first push: renaming a branch that already carries an open change
+  request CLOSES that request on the host (`head_ref_deleted`), and reopening is
+  refused — the only recovery is a successor request from the renamed branch plus
+  cross-links, which scatters one slice's review trail across two.
   Do NOT use `git switch -c <name>` (your shell cwd can reset to the shared checkout
   between calls, so `switch -c` may create a stray branch there).
 - If local commits are authorized, follow the repository's commit-history and checkpoint policy.
@@ -379,6 +383,12 @@ the documented environment can be reproduced safely. If it cannot, record the li
   (fakes/mocks/in-memory doubles) never executes the merged artifact, so it passes on a
   broken merge. After touching an integration point, run the real tier (integration /
   e2e / compile / parse-check).
+- **Report gate numbers you measured, and name the environment that produced them.** A count
+  written from memory ("1899 passed") differed from the run ("1898 passed, 538 deselected"),
+  and a display-capable host's "N passed" is not the CI line when tests are capability-gated
+  (CI: "N-2 passed, 2 skipped" for the same selection). Reviewers re-run the gate, so a
+  mismatched count reads as a defect in the claim and costs a round. Quote the tool's own
+  summary line, distinguish selected/passed/skipped, and say which host ran it.
 - **A green DoD is not requirement conformance — re-read each slice against its source
   requirement.** Passing its own tests and hosted gates shows what the implementation does, not what
   the spec/decision required; the author's tests inherit the author's blind spot. Before
@@ -468,6 +478,29 @@ the documented environment can be reproduced safely. If it cannot, record the li
   re-verification, same merge-before-next-slice — parallelism is the only thing removed (§1's
   serialization rule; §8's cure applies when the conflict tax justifies the split). A five-slice
   serial wave shipped this way with zero merge conflicts and no cross-slice contamination.
+- **Red-proof a fix round against the head that was REVIEWED, from committed state.** Two
+  rules, both learned the hard way. (a) Commit first: the red-proof swaps the source tree for
+  another revision's (`git checkout <other-head> -- <src>`), which silently destroys an
+  uncommitted fix — one round lost its edits that way, and the manual replay dropped a file
+  (a bundled agent-guidance doc) that the next review caught as "the response claims a change
+  absent from the diff". (b) Check the regression against the REVIEWED head, not the wave
+  base: red on the base only proves the feature is new, while red on the reviewed head proves
+  the test would have caught the reported defect. Honest corollary: a guard that prevents
+  FUTURE drift (a rename guard, a mirror check) does not go red on the reviewed head — say so
+  instead of listing it as regression coverage.
+- **A drift guard must be anchored to an authority the same change cannot rewrite.** An
+  "append-only" version/hash history kept inside the test file was defeated in one edit —
+  change the artifact, update the current pin, rewrite the last history row, and both guard
+  tests still passed. The replacement compares the merge base against the head in CI, so the
+  authority is git history rather than data the change can touch. Ask of every guard: what
+  stops this change from editing the evidence?
+- **A hand-transcribed mirror of another system's rules is a second authority — pin it with
+  that system as the ORACLE.** A conversion table copied by hand from an engine's source
+  rejected inputs the engine actually accepts (two rows missed), and the misses were invisible
+  because the test compared the table to itself. The fix extracted the rows mechanically AND
+  added a differential matrix whose reference is the system itself: the target reports whether
+  it really ran, and the guard must agree with it on every case. Where you cannot avoid
+  mirroring, make the mirror falsifiable by the original.
 
 ## 7. Resilience & takeover
 
