@@ -126,11 +126,15 @@ HARNESS_LIVE_ERROR_CODES = (
 #    unstrip `(Phase 2, ADR-0017 / ADR-0021)` and turn a third of the cited rows
 #    into false divergences.
 #
-#    Residual, stated rather than overclaimed: a `Phase N` riding inside a cluster
-#    is stripped with it and so is not compared. What actually pins those rows is
-#    the `Category` column beside them — `live` exists only in Phase 2 (ADR-0021),
-#    and that column IS compared. The three rows that used to end in a bare
-#    `(Phase 2)` no longer carry one at all; see the ADR-side note.
+#    Residual, stated exactly: a `Phase N` riding inside a citation cluster is
+#    stripped with it and so is not compared. For 20 of the 23 rows carrying a
+#    phase label the compared `Category` column pins the distinction indirectly —
+#    `live` exists only in Phase 2 (ADR-0021) — but the other three are
+#    ENVIRONMENT-category (`live_unsupported_platform`, `live_windowed_unavailable`,
+#    `live_windowed_permission_denied`), so for those a phase mislabel inside a
+#    citation cluster is caught by neither mechanism. Left that way deliberately:
+#    three docs-only rows in a field with no runtime consumer do not justify the
+#    27 rows of churn that closing the riding case would cost.
 #
 # The rule is deliberately narrow. A parenthetical that MIXES prose with a ref is
 # not a citation and is compared verbatim, so content can never hide behind the
