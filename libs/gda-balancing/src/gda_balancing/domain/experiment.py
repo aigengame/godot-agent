@@ -342,7 +342,9 @@ def derive_scenario_program_requirements(
         "instruction_nodes": sorted(instruction_nodes),
         "effects": sorted(set(operation["effects"])),
         "numeric_policies": [operation["numeric_policy"]],
-        "rng_algorithms": [rng_algorithm] if "draw" in instruction_nodes else [],
+        # Every Experiment declares a Seed contract. The evaluator therefore
+        # admits its algorithm even when this particular program performs no draw.
+        "rng_algorithms": [rng_algorithm],
         "runtime_profiles": [runtime_profile],
     }
     named_streams = sorted(

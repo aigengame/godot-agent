@@ -40,6 +40,9 @@ _RPG_PERIODIC_EFFECT_EXAMPLE = (
 _ROGUELIKE_REWARD_BUILD_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
 )
+_RPG_STAT_COMPOSITION_EXAMPLE = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "rpg-stat-composition"
+)
 
 
 def _console_script() -> str:
@@ -744,6 +747,74 @@ class TestKeyUserPath:
             _receipt_members(receipt)["snapshot-series"].read_text(encoding="utf-8")
         )["snapshots"]
         assert len(snapshots) == len(trace["events"]) + 1
+
+    def test_stat_composition_runs_the_golden_attack_and_replays_exactly(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        built = _run(
+            "model",
+            "build",
+            str(_RPG_STAT_COMPOSITION_EXAMPLE / "model-source.json"),
+            "--out",
+            str(tmp_path / "stat-composition-model"),
+            "--invocation-key",
+            "1" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, ""), built.stdout
+        build_receipt = json.loads(built.stdout)
+        experiment = json.loads(
+            (_RPG_STAT_COMPOSITION_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        build_record = json.loads(
+            _receipt_members(build_receipt)["build-receipt"].read_text(encoding="utf-8")
+        )
+        assert {
+            "kernel_identity": experiment["kernel_identity"],
+            "language_bundle_identity": experiment["language_bundle_identity"],
+            **experiment["model"],
+        } == {
+            "kernel_identity": build_record["kernel_identity"],
+            "language_bundle_identity": build_record["language_bundle_identity"],
+            "source_identity": build_record["source_identity"],
+            "build_receipt_identity": build_record["content_identity"],
+            "resolved_model_identity": build_record["resolved_model_identity"],
+            "package_lock_identity": build_record["package_lock_identity"],
+            "rir_identity": build_record["rir_identity"],
+        }
+        assert experiment["runtime"]["required_evaluator"]["rng_algorithms"] == [
+            "splitmix64-v1"
+        ]
+        assert experiment["scenarios"][0]["named_streams"] == []
+
+        receipts = []
+        traces = []
+        for name, key in (("golden-first", "2" * 64), ("golden-replay", "3" * 64)):
+            receipt, trace = _run_experiment_variant(
+                tmp_path,
+                experiment,
+                name=name,
+                invocation_key=key,
+            )
+            receipts.append(receipt)
+            traces.append(trace)
+
+        assert traces[0] == traces[1]
+        members = _receipt_members(receipts[0])
+        dataset = json.loads(members["metric-dataset"].read_text(encoding="utf-8"))
+        assert {sample["metric"]: sample["value"] for sample in dataset["samples"]} == {
+            "attack_damage": 50,
+            "build_damage": 8,
+            "damage_dealt": 50,
+            "effect_damage": 10,
+            "pre_buff_damage": 40,
+            "progression_damage": 12,
+            "target_health": 70,
+        }
+        assert all(sample["within_target"] for sample in dataset["samples"])
 
     def test_periodic_effect_snapshot_and_live_policies_observe_same_time_order(
         self, tmp_path, monkeypatch
