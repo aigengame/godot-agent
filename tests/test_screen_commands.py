@@ -15,13 +15,21 @@ headless guard) is the e2e in ``test_e2e_screen``.
 
 import base64
 import json
+
+import pytest
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
-from gda.commands.screen import ScreenCaptureParams, ScreenFramesParams
+from gda.commands.screen import (
+    ScreenCaptureParams,
+    ScreenFrame,
+    ScreenFramesParams,
+    ScreenFramesResult,
+    ScreenFramesSummary,
+)
 from gda.models import MAX_WINDOW_FRAMES
 from gda.runner import RunResult
 from tests.support import (
@@ -1407,3 +1415,413 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
         except pydantic.ValidationError:
             model_ok = False
         assert schema_ok == model_ok == accepted, (payload, schema_ok, model_ok)
+
+
+# --- the compact summary envelope (#665, GDA-DF-021) ---------------------------
+# The dogfooding loss boundary followed the RESULT LINE's byte size, not the
+# image payload (48 frames ≈ 11 KB fit the caller's output handling; 90 ≈ 20 KB
+# did not), so the gda-side guarantee is a completion envelope that does not
+# grow with the frame count: --summary writes every frame exactly as before and
+# returns the aggregate instead of the per-frame list.
+
+
+def test_frames_summary_returns_the_aggregate_and_still_writes_files(
+    monkeypatch, tmp_path
+):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64, _PNG_B64])),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "3",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["count"] == 3
+    # The per-frame list is replaced by the aggregate (exactly one projection).
+    assert data["frames"] is None
+    assert data["summary"] == {
+        "output_dir": str(out_dir),
+        "pattern": "frame_%04d.png",
+        "width": 16,
+        "height": 16,
+        "total_bytes": 3 * len(_PNG_1X1),
+    }
+    # Every frame is still written — the compaction is the ENVELOPE, not the work.
+    for index in range(3):
+        assert (out_dir / f"frame_{index:04d}.png").read_bytes() == _PNG_1X1
+
+
+def test_frames_default_form_is_unchanged_and_summary_null(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64])),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "1",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert len(data["frames"]) == 1
+    assert data["summary"] is None
+
+
+def test_frames_summary_rides_params_json_identically(monkeypatch, tmp_path):
+    # ADR-0015: the JSON path expresses the same summary switch the argv path does.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64])),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+    payload = json.dumps({"frames": 2, "output_dir": str(out_dir), "summary": True})
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--params-json",
+            payload,
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["frames"] is None and data["summary"]["total_bytes"] > 0
+
+
+def test_frames_result_carries_exactly_one_projection():
+    # The model refuses both-null and both-set: the result is either the
+    # per-frame list or the aggregate, never neither and never both.
+    import pydantic
+
+    frame = ScreenFrame(path="/tmp/f.png", width=1, height=1, bytes=1, format="png")
+    aggregate = ScreenFramesSummary(
+        output_dir="/tmp", pattern="frame_%04d.png", width=1, height=1, total_bytes=1
+    )
+    for frames, summary in ((None, None), ([frame], aggregate)):
+        try:
+            ScreenFramesResult(count=1, frames=frames, summary=summary)
+        except pydantic.ValidationError as error:
+            assert "exactly one projection" in str(error)
+        else:
+            raise AssertionError("both-null / both-set must be refused")
+
+
+def test_frames_result_count_list_identity_is_model_side_and_disclosed():
+    # #748 third review (ARC-748-F006): the public result's concrete list must
+    # agree with its captured-frame count. Draft 2020-12 cannot relate an integer
+    # field to an array's length, so the standard schema accepts the counterexample
+    # and the test pins that disclosed model-only identity explicitly.
+    import jsonschema
+    import pydantic
+
+    frame = {"path": "/tmp/f.png", "width": 1, "height": 1, "bytes": 1, "format": "png"}
+    document = {"count": 2, "frames": [frame], "summary": None}
+
+    with pytest.raises(pydantic.ValidationError):
+        ScreenFramesResult.model_validate(document)
+    validator = jsonschema.Draft202012Validator(ScreenFramesResult.model_json_schema())
+    assert validator.is_valid(document)
+
+    # A requested window is never empty; unlike the cross-field identity, this
+    # lower bound is schema-expressible and therefore rejected by both owners.
+    empty = {"count": 0, "frames": [], "summary": None}
+    with pytest.raises(pydantic.ValidationError):
+        ScreenFramesResult.model_validate(empty)
+    assert not validator.is_valid(empty)
+
+
+def test_frames_reply_count_mismatch_is_contract_violation(monkeypatch, tmp_path):
+    # #748 review (ARC-748-F002): the reply's count and frame list are ONE
+    # claim; a drifted harness reply where they disagree is refused for BOTH
+    # result forms before any file is written.
+    reply = screen_frames_reply([_PNG_B64, _PNG_B64])
+    reply["count"] = 3
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "3",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+    assert not out_dir.exists()
+
+
+def test_frames_summary_reports_null_dims_for_a_nonuniform_sequence(
+    monkeypatch, tmp_path
+):
+    # #748 review: a mid-window viewport resize is engine-legal, so the
+    # aggregate makes the uniform-size claim only when it is TRUE — differing
+    # frame sizes report null dims, never the first frame's size as a false
+    # sequence invariant.
+    reply = screen_frames_reply([_PNG_B64, _PNG_B64])
+    reply["frames"][1]["width"] = 32  # the sequence is no longer uniform
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    aggregate = json.loads(result.stdout)["summary"]
+    assert aggregate["width"] is None and aggregate["height"] is None
+    assert aggregate["total_bytes"] == 2 * len(_PNG_1X1)
+
+
+def test_frames_budget_mismatch_is_contract_violation(monkeypatch, tmp_path):
+    # #748 re-review (ARC-748-F007): no partial-success semantics — a
+    # self-consistent reply for a DIFFERENT frame budget (here zero frames for
+    # a request of three) is contract drift, refused before any file effect.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({"count": 0, "frames": []}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "3",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation"
+    assert "0 frames for a request of 3" in data["error"]["message"]
+    assert not out_dir.exists()
+
+
+def test_summary_dims_are_a_pair_in_model_and_schema():
+    # #748 re-review (ARC-748-F006): both dims or neither — model and standard
+    # validator agree on the half-null counterexample.
+    import jsonschema
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        ScreenFramesSummary(
+            output_dir="/tmp",
+            pattern="frame_%04d.png",
+            width=1,
+            height=None,
+            total_bytes=1,
+        )
+    validator = jsonschema.Draft202012Validator(ScreenFramesSummary.model_json_schema())
+    assert not validator.is_valid(
+        {
+            "output_dir": "/tmp",
+            "pattern": "frame_%04d.png",
+            "width": 1,
+            "height": None,
+            "total_bytes": 1,
+        }
+    )
+    assert validator.is_valid(
+        {
+            "output_dir": "/tmp",
+            "pattern": "frame_%04d.png",
+            "width": None,
+            "height": None,
+            "total_bytes": 1,
+        }
+    )
+    assert validator.is_valid(
+        {
+            "output_dir": "/tmp",
+            "pattern": "frame_%04d.png",
+            "width": 2,
+            "height": 3,
+            "total_bytes": 1,
+        }
+    )
+
+
+def test_nonuniform_summary_renders_the_varied_size_state(monkeypatch, tmp_path):
+    # #748 re-review (Standards 3): the legal non-uniform aggregate renders an
+    # explicit state, never "NonexNone".
+    reply = screen_frames_reply([_PNG_B64, _PNG_B64])
+    reply["frames"][1]["width"] = 32
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "varied sizes x2" in result.stdout
+    assert "None" not in result.stdout
+
+
+def test_frames_xor_is_published_and_parity_held():
+    # #748 review (ARC-748-F001): the exactly-one rule the model enforces must
+    # give the SAME verdict to a standard Draft 2020-12 validator.
+    import jsonschema
+
+    schema = ScreenFramesResult.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    frame = {"path": "/tmp/f.png", "width": 1, "height": 1, "bytes": 1, "format": "png"}
+    aggregate = {
+        "output_dir": "/tmp",
+        "pattern": "frame_%04d.png",
+        "width": 1,
+        "height": 1,
+        "total_bytes": 1,
+    }
+
+    def check(frames, summary) -> bool:
+        return validator.is_valid({"count": 1, "frames": frames, "summary": summary})
+
+    assert check([frame], None)
+    assert check(None, aggregate)
+    assert not check(None, None)
+    assert not check([frame], aggregate)
+
+
+def test_frames_schema_publishes_the_summary_contract():
+    schema = json.loads(
+        CliRunner().invoke(app, ["screen", "frames", "--schema"]).stdout
+    )
+    assert "summary" in schema["input"]["properties"]
+    output = schema["output"]
+    # Required-but-nullable (#746 review discipline): both projections are
+    # ALWAYS present keys; null is a value, not an omitted key.
+    assert {"frames", "summary"} <= set(output["required"])
+    assert "ScreenFramesSummary" in output["$defs"]
+    assert {"output_dir", "pattern", "width", "height", "total_bytes"} == set(
+        output["$defs"]["ScreenFramesSummary"]["properties"]
+    )
+
+
+def test_frames_summary_render_is_one_aggregate_line(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64])),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--summary",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "captured 2 frames" in result.stdout
+    assert f"-> {out_dir}/frame_%04d.png" in result.stdout
+    assert "frame_0000.png\n" not in result.stdout  # no per-frame rows

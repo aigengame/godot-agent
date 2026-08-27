@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=de7b87f2b2f920f174da2066e3f4ea95c46ca800577f5b6607ca594f8eab1b41 -->
+<!-- gda-readme-i18n: source=README.md sha256=d79443d83eb08a247b0990da4b2639352cc91a76ff9be954850f37aca13fc3fa -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -479,10 +479,15 @@ offset プロパティを明示的に設定してください。
 プロジェクトの両方を示した `project_not_found` でバッチ全体が事前に拒否されます。その場合は
 それらのファイルを所有するプロジェクトを `--project` で指定してください。
 
-`script run` は指名されたプロジェクトスクリプトをワンショットで実行し、**その実行をそのまま
+`script run` は指名されたプロジェクトスクリプトをワンショットで実行し、**その実行を
 通します**。成功結果はスクリプト自身の `exit_status`(意図的な非ゼロの `quit()` は gda の失敗
 ではなくデータです——シェルの `&&` 連鎖用に `--strict` を渡すと `script_failed` エラーに
-変わります)と、逐語的にキャプチャした `stdout`/`stderr` を持ちます。`--timeout <s>` は実行の
+変わります)と、キャプチャした `stdout`/`stderr` を持ちます。`stderr` は逐語的に返され、
+`stdout` は 64 KiB までは逐語的に返されます——それを超えると結果はストリームの先頭バイトを
+持ち、完全なストリームは `stdout_file` が名指すファイルに書き出されます。`stdout_bytes` と
+`stdout_truncated` は常に完全なサイズと切り詰めの有無を報告します。gda がスピルファイルを
+書けない場合は、無制限の結果を返す代わりに型付き失敗(`stdout_spill_failed`)になります。
+`stdout` を消費するときはこの 3 つのフィールドを読んでください。`--timeout <s>` は実行の
 実時間を制限し、gda が終わらせざるを得なかった実行は、**それまでにキャプチャした部分出力**・
 経過秒数・終了フェーズを添えた `launch_timeout` を報告します。`--completion-marker <line>`
 (作業完了時にスクリプトが出力する 1 行)を宣言すると、エントリスクリプトに帰属する認識済み
@@ -606,7 +611,7 @@ Godot は daemon セッション内で `get_mouse_position()` /
 | コマンド | 機能 |
 | ------- | ------------ |
 | `screen capture` | ビューポートの 1 フレームを PNG にキャプチャします。 |
-| `screen frames` | N フレームの PNG シーケンスをキャプチャします。 |
+| `screen frames` | N フレームの PNG シーケンスをキャプチャします(`--summary` でコンパクトな集約結果を返します)。 |
 
 ### グローバルフラグ
 

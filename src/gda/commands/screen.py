@@ -382,6 +382,16 @@ class ScreenFramesParams(BaseModel):
             "Part of the input contract (ADR-0004/ADR-0015), ~-normalized (ADR-0006)."
         )
     )
+    summary: bool = Field(
+        default=False,
+        description=(
+            "Return the COMPACT completion envelope (#665): every frame is "
+            "still captured and written, but the result carries an aggregate "
+            "'summary' (directory, filename pattern, frame size, total bytes) "
+            "instead of the per-frame 'frames' list — so the envelope does not "
+            "grow with the frame count. Default false returns the full list."
+        ),
+    )
 
 
 class ScreenFrame(BaseModel):
@@ -401,19 +411,158 @@ class ScreenFrame(BaseModel):
     format: str = Field(default="png", description="The image format (png).")
 
 
+def _frames_summary_schema_extra(schema: dict) -> None:
+    """Publish the dims-are-a-pair rule (#748 re-review, ADR-0015).
+
+    The aggregate makes one of two claims: a uniform sequence (both dims
+    integers) or a non-uniform one (both null) — never half of each.
+    """
+    schema["oneOf"] = [
+        {
+            "properties": {
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+            }
+        },
+        {
+            "properties": {
+                "width": {"type": "null"},
+                "height": {"type": "null"},
+            }
+        },
+    ]
+
+
+class ScreenFramesSummary(BaseModel):
+    """The compact aggregate of a ``--summary`` frames capture (#665).
+
+    Everything an agent needs to consume the written sequence without a
+    per-frame list: where the files are, how each is named, the sequence's
+    frame size, and the total bytes on disk. The per-frame ``count`` stays on
+    the result itself. The dims are a PAIR (#748 re-review): both integers for
+    a uniform sequence, both null for a non-uniform one — model-validated and
+    published as ``oneOf``.
+    """
+
+    model_config = {
+        "json_schema_extra": lambda schema: _frames_summary_schema_extra(schema)
+    }
+
+    @model_validator(mode="after")
+    def _dims_are_a_pair(self) -> "ScreenFramesSummary":
+        if (self.width is None) != (self.height is None):
+            raise ValueError(
+                "the aggregate's dims are a pair: both set (uniform sequence) "
+                "or both null (non-uniform)."
+            )
+        return self
+
+    output_dir: str = Field(
+        description="The directory every frame's PNG was written into."
+    )
+    pattern: str = Field(
+        description=(
+            "The per-frame filename pattern inside output_dir "
+            "(printf-style index, e.g. frame_%04d.png for indices 0..count-1)."
+        )
+    )
+    width: int | None = Field(
+        description=(
+            "The sequence's uniform frame width in pixels; null when the "
+            "captured frames differ in size (a legal mid-window viewport "
+            "resize) — the aggregate then makes no uniform-size claim and the "
+            "per-file sizes are on disk. Always present (required-but-nullable)."
+        )
+    )
+    height: int | None = Field(
+        description=(
+            "The sequence's uniform frame height in pixels; null when the "
+            "captured frames differ in size. Always present "
+            "(required-but-nullable)."
+        )
+    )
+    total_bytes: int = Field(
+        ge=0, description="The written sequence's total size in bytes on disk."
+    )
+
+
+def _frames_result_schema_extra(schema: dict) -> None:
+    """Publish the frames-xor-summary invariant into the OUTPUT schema (#748 review).
+
+    ADR-0015's one-authority rule applied to a result model: the runtime
+    validator's exactly-one rule must be visible to a standard Draft 2020-12
+    consumer too, so a reply carrying both projections — or neither — is
+    invalid to the published contract, not only to gda's runtime. A parity
+    corpus keeps validator and model agreeing on that published XOR. The
+    concrete-list `count == len(frames)` identity stays model-side because
+    Draft 2020-12 cannot relate an integer field to an array's length; its
+    regression test pins that disclosed schema-accept/model-reject boundary.
+    """
+    schema["oneOf"] = [
+        {
+            "properties": {
+                "frames": {"type": "array"},
+                "summary": {"type": "null"},
+            }
+        },
+        {
+            "properties": {
+                "frames": {"type": "null"},
+                "summary": {"type": "object"},
+            }
+        },
+    ]
+
+
 class ScreenFramesResult(BaseModel):
     """The result of ``gda screen frames``: the written PNG sequence (#222).
 
-    Carries the ``count`` of frames captured and the per-frame ``frames`` list, each
-    a written PNG path (path-only, ADR-0019 distinct output schema from the single
-    ``screen capture``). The window collects one frame per frame boundary over the
-    requested count (ADR-0020 multi-frame).
+    Carries the ``count`` of frames captured and — by default — the per-frame
+    ``frames`` list, each a written PNG path (path-only, ADR-0019 distinct
+    output schema from the single ``screen capture``). With ``--summary``
+    (#665) the per-frame list is replaced by the compact aggregate ``summary``,
+    so the completion envelope does not grow with the frame count; every frame
+    is still captured and written either way. Exactly one of ``frames`` /
+    ``summary`` is non-null (both required-but-nullable). The window collects
+    one frame per frame boundary over the requested count (ADR-0020
+    multi-frame).
     """
 
-    count: int = Field(description="The number of frames captured over the window.")
-    frames: list[ScreenFrame] = Field(
-        description="The captured frames, in window order, each a written PNG path."
+    count: int = Field(
+        ge=1, description="The number of frames captured over the requested window."
     )
+    frames: "list[ScreenFrame] | None" = Field(
+        description=(
+            "The captured frames, in window order, each a written PNG path; "
+            "null with --summary, whose aggregate replaces the list (#665). "
+            "Always present (required-but-nullable)."
+        )
+    )
+    summary: "ScreenFramesSummary | None" = Field(
+        description=(
+            "The compact aggregate, present only with --summary (#665); null "
+            "on the default full-list form. Always present "
+            "(required-but-nullable)."
+        )
+    )
+
+    model_config = {
+        "json_schema_extra": lambda schema: _frames_result_schema_extra(schema)
+    }
+
+    @model_validator(mode="after")
+    def _check_projection(self) -> "ScreenFramesResult":
+        if (self.frames is None) == (self.summary is None):
+            raise ValueError(
+                "a frames result carries exactly one projection: the per-frame "
+                "'frames' list, or the --summary aggregate."
+            )
+        if self.frames is not None and self.count != len(self.frames):
+            raise ValueError(
+                f"a frames result counts {self.count} captured frames but carries "
+                f"{len(self.frames)} frame entries."
+            )
+        return self
 
 
 # --- the capture operations (formerly ``gda.screen_ops``) ---------------------
@@ -493,6 +642,19 @@ class _FrameReply(BaseModel):
 class _FramesReply(BaseModel):
     count: int
     frames: list[_FrameReply]
+
+    @model_validator(mode="after")
+    def _count_matches(self) -> "_FramesReply":
+        # #748 review: the reply's count and its frame list are ONE claim, not
+        # two independent fields — a drifted harness reply where they disagree
+        # is a contract violation for BOTH result forms, refused before any
+        # file is written or any aggregate derived from either number.
+        if self.count != len(self.frames):
+            raise ValueError(
+                f"the harness reply counts {self.count} frames but carries "
+                f"{len(self.frames)}."
+            )
+        return self
 
 
 def _default_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRunner:
@@ -685,8 +847,7 @@ def run_screen_capture_operation(
 
 def run_screen_frames_operation(
     project: Optional[Path],
-    frames: int,
-    output_dir: Path,
+    params: "ScreenFramesParams",
     *,
     make_runner: Optional[LiveRunnerFactory] = None,
 ) -> "ScreenFramesResult | Failure":
@@ -696,12 +857,26 @@ def run_screen_frames_operation(
     ``screen-frames`` live op, surface any LIVE failure via ``classify_live``, then
     write one PNG per captured frame into ``output_dir`` (``frame_0000.png`` …) and
     return the path-only sequence — no base64, which would blow the agent's context.
+    With ``summary`` (#665) the same frames are captured and written, but the
+    result carries the compact aggregate instead of the per-frame list, so the
+    completion envelope does not grow with the frame count.
     """
     runner = (make_runner or _default_runner)(None, project)
-    result = runner.run("screen-frames", {"frames": frames})
+    result = runner.run("screen-frames", {"frames": params.frames})
     reply = classify_live(result, None, _FramesReply)
     if isinstance(reply, Failure):
         return reply
+    if reply.count != params.frames:
+        # #748 re-review (ARC-748-F007): the operation has no partial-success
+        # semantics — a self-consistent reply for a DIFFERENT frame budget is
+        # contract drift, refused before any file is written.
+        return make_failure(
+            "contract_violation",
+            f"the harness reply carries {reply.count} frames for a request "
+            f"of {params.frames}",
+            result.stdout,
+        )
+    output_dir = Path(params.output_dir)
     written: list[ScreenFrame] = []
     for index, frame in enumerate(reply.frames):
         path = output_dir / f"frame_{index:04d}.png"
@@ -715,7 +890,26 @@ def run_screen_frames_operation(
                 format=frame.format,
             )
         )
-    return ScreenFramesResult(count=reply.count, frames=written)
+    if params.summary:
+        # The uniform-size claim is made only when it is TRUE (#748 review): a
+        # mid-window viewport resize is engine-legal, so differing frame sizes
+        # report null dims rather than promoting the first frame's size to a
+        # false sequence invariant. count == len(frames) is already enforced at
+        # the reply model, so the pattern's index range is the written range.
+        sizes = {(frame.width, frame.height) for frame in written}
+        uniform = sizes.pop() if len(sizes) == 1 else (None, None)
+        return ScreenFramesResult(
+            count=reply.count,
+            frames=None,
+            summary=ScreenFramesSummary(
+                output_dir=str(output_dir),
+                pattern="frame_%04d.png",
+                width=uniform[0],
+                height=uniform[1],
+                total_bytes=sum(frame.bytes for frame in written),
+            ),
+        )
+    return ScreenFramesResult(count=reply.count, frames=written, summary=None)
 
 
 def render_screen_capture(captured: "ScreenCaptureResult") -> str:
@@ -750,10 +944,27 @@ def render_screen_capture(captured: "ScreenCaptureResult") -> str:
 
 
 def render_screen_frames(captured: "ScreenFramesResult") -> str:
-    """Render a captured frame sequence: a header + one ``WxH -> path`` per frame (#222)."""
+    """Render a captured frame sequence: a header + one ``WxH -> path`` per frame (#222).
+
+    The ``--summary`` form (#665) renders the aggregate on one line instead of a
+    row per frame, mirroring the compact JSON envelope.
+    """
     header = f"captured {captured.count} frames"
+    if captured.summary is not None:
+        aggregate = captured.summary
+        size = (
+            f"{aggregate.width}x{aggregate.height}"
+            if aggregate.width is not None
+            else "varied sizes"  # a legal mid-window resize (#748 re-review)
+        )
+        return header + (
+            f"\n  {size} x{captured.count} "
+            f"({aggregate.total_bytes} bytes) -> "
+            f"{aggregate.output_dir}/{aggregate.pattern}"
+        )
     rows = [
-        f"  {frame.width}x{frame.height} -> {frame.path}" for frame in captured.frames
+        f"  {frame.width}x{frame.height} -> {frame.path}"
+        for frame in captured.frames or []
     ]
     return "\n".join([header, *rows])
 
@@ -784,8 +995,7 @@ def _screen_capture_recipe(params, *, project, godot):
 def _screen_frames_recipe(params, *, project, godot):
     return run_screen_frames_operation(
         project,
-        params.frames,
-        Path(params.output_dir),
+        params,
         make_runner=dispatch.make_live_runner,
     )
 
@@ -972,6 +1182,15 @@ def screen_frames(
         "-d",
         help="The directory to write the captured PNG frames into (frame_NNNN.png).",
     ),
+    summary: bool = typer.Option(
+        False,
+        "--summary",
+        help=(
+            "Return the compact completion envelope (#665): all frames are "
+            "still written, but the result carries an aggregate summary "
+            "instead of the per-frame list, so it does not grow with --frames."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = SCREEN_FRAMES_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -984,15 +1203,19 @@ def screen_frames(
     collects one frame per frame boundary over `--frames` frames, returned as one
     blocking payload (ADR-0017 one-shot RPC, ADR-0020 multi-frame). Each frame's PNG
     is written into `--output-dir` (path-only — an N-frame base64 sequence would blow
-    the agent's context). Needs a WINDOWED session; a headless one is
-    `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
+    the agent's context). `--summary` (#665) keeps the completion envelope
+    COMPACT for large captures: every frame is still written, and the result
+    carries the aggregate (directory, filename pattern, frame size, total
+    bytes) instead of the per-frame list. Needs a WINDOWED session; a headless
+    one is `live_display_unavailable`. With no daemon it reports
+    `daemon_not_running`.
     """
     # Same params model the --params-json path builds (ADR-0015): `output_dir` is
     # validated and ~-normalized through it, not passed as a raw Path. Dispatch
     # through the descriptor's recipe, exactly as the --params-json path (ADR-0023).
     dispatch_recipe(
         SCREEN_FRAMES_COMMAND,
-        ScreenFramesParams(frames=frames, output_dir=str(output_dir)),
+        ScreenFramesParams(frames=frames, output_dir=str(output_dir), summary=summary),
         json_output=json_output,
         godot=godot,
         project=project,

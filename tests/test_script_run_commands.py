@@ -64,6 +64,11 @@ def test_clean_run_emits_the_passthrough_result(monkeypatch, tmp_path):
         "exit_status": 0,
         "stdout": "hi\n",
         "stderr": "",
+        # The stdout cap (#665): a small stream returns verbatim, with the
+        # full byte count and the untruncated markers always present.
+        "stdout_bytes": 3,
+        "stdout_truncated": False,
+        "stdout_file": None,
         # A clean run recognizes no script errors, so the #651 diagnostics channel
         # is present but empty — never absent, so an agent can read it unguarded.
         "diagnostics": [],

@@ -278,6 +278,7 @@ operation, and parse codes the CLI assigns).
 | `export_path_unset` | `operation` | `classifier` | `4` | An export run has no destination — neither a `--output` override nor a configured `export_path` (#170). |
 | `export_templates_missing` | `operation` | `classifier` | `4` | A release/debug export needs the export templates for the running engine version, which are not installed (pack needs no platform templates and is exempt; #170). |
 | `export_output_parent_failed` | `operation` | `classifier` | `4` | An export run could not create the output parent directory before native export (#402). |
+| `stdout_spill_failed` | `operation` | `classifier` | `4` | A `script run` stdout exceeded the cap but the complete-stream spill file could not be written, so the bounded result cannot be delivered (#665). |
 | `export_failed` | `operation` | `classifier` | `4` | A native Godot export run failed (the engine reported the export did not complete). |
 | `invalid_uid` | `operation` | `operation` | `4` | A requested `uid://` value is not a syntactically valid resource UID. |
 | `unknown_uid` | `operation` | `operation` | `4` | A syntactically valid resource UID is not registered in the engine's UID cache. |

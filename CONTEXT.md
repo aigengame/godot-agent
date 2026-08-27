@@ -137,8 +137,10 @@ are empty on a timeout and `elapsed_seconds` is `None` (#655). Those launch-back
 channels all return the one `RunResult` shape. Normally internal, it is **promoted to
 a public result by `gda script run`** — the one operation whose success result *is* a
 Raw run (minus `launch_failure`, `elapsed_seconds`, and the streams' timeout
-semantics, all of which are lifted out into an `Error envelope`), so its
-`exit_status` can be non-zero on success (ADR-0031).
+semantics, all of which are lifted out into an `Error envelope`; since #665 the
+promoted `stdout` is additionally a BOUNDED projection — verbatim up to a cap,
+above it the leading cap bytes with the complete stream spilled to a file the
+result names), so its `exit_status` can be non-zero on success (ADR-0031).
 _Avoid_: run output, export output
 
 **Completion marker**:

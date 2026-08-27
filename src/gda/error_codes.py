@@ -547,6 +547,14 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "An export run could not create the output parent directory before native export.",
     ),
     ErrorCodeSpec(
+        "stdout_spill_failed",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A script run's stdout exceeded the cap but the complete-stream spill "
+        "file could not be written, so the bounded result cannot be delivered.",
+    ),
+    ErrorCodeSpec(
         "export_failed",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,

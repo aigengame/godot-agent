@@ -590,7 +590,16 @@ mismatch, pending the ADR-0006 amendment tracked in #697.
 **`script run`** (ADR-0031, #655) is the pass-through channel: its *success* result is the run
 itself — the script's own `exit_status` (a deliberate non-zero `quit()` is data, not a gda
 failure; `--strict` opts into a `script_failed` error for exit-code gates) plus the captured
-`stdout`/`stderr` verbatim. `--timeout <s>` bounds the wall clock; a run gda ends at that
+`stdout`/`stderr`. `stderr` is verbatim; `stdout` is verbatim up to a 64 KiB cap (#665,
+ADR-0031 amendment) — above it the result carries the stream's leading cap bytes while the
+COMPLETE stream spills to a named file, disclosed by three always-present fields
+(`stdout_bytes`, `stdout_truncated`, `stdout_file`), enforced as one model truth table. The
+output schema publishes every Draft 2020-12-expressible projection and discloses the
+remaining byte/length identities, so a production-scale inspector's linearly-growing output
+bounds the envelope without losing a byte. A spill file gda cannot write is the typed
+`stdout_spill_failed` (never an unbounded result and never a silently lost tail); read the
+projection fields, not assumptions, when consuming `stdout`. Bounded, not summarized —
+record semantics stay with the project tool. `--timeout <s>` bounds the wall clock; a run gda ends at that
 ceiling reports `launch_timeout` carrying the captured partial output, the elapsed seconds and
 a termination phase — `launched` (the engine wrote nothing at all) or `output_seen` (it was
 alive and did not finish) — so a slow suite is distinguishable from a hang.
@@ -883,7 +892,28 @@ headless is unaffected (4.4+, cross-platform).
   spelling differs by kind — `pressed` belongs to `mouse_button` alone, an `action`
   releases with `release`, a `key` with `released` — and a field from another kind is
   refused with the spelling this kind uses instead.
-- **`screen` / capture:** running-game viewport screenshot, multi-frame capture. The
+- **`screen` / capture:** running-game viewport screenshot, multi-frame capture.
+  `screen frames --summary` (#665, GDA-DF-021) keeps a large capture's completion
+  envelope COMPACT: every frame is still captured and written exactly as the
+  default form does, but the result replaces the per-frame `frames` list with the
+  aggregate `summary` (`output_dir`, filename `pattern`, frame size,
+  `total_bytes` — the frame dims are the uniform size, or null when a legal
+  mid-window resize made the sequence non-uniform; exactly one of the two
+  projections is non-null, required-but-nullable, and the exactly-one rule is
+  published in the output schema), so the envelope does not grow with
+  `--frames`. What is PROVEN about the dogfooding loss (GDA-DF-021): gda's own
+  stack completes a 90-frame capture with the full envelope against a real
+  engine — on the exact release under test (gda 0.8.0) and on the current head,
+  up to ≈327 MB of PNG bytes (≈436 MB base64-expanded in the single IPC reply)
+  — and the reported observation (all PNGs present, no final JSON) itself shows
+  the reply had reached the CLI, which writes the files from it. The leading
+  BOUNDED HYPOTHESIS for the residual loss, not reproduced (the original
+  caller's automation was not re-run): a caller-side output-handling limit,
+  suggested by the failure boundary tracking the result line's size (~226 B per
+  frame entry: 30/36/48 frames ≤ ~11 KB reported good, 90 frames ≈ 20 KB lost)
+  — though those observations vary frame count and line length together, so
+  they establish correlation, not the specific cap. The compact envelope stays
+  well under any such limit either way. The
   `--await-*` predicate (shipped, #661) holds a `screen capture` game-side until
   `node.property == value` first holds — checked once per PROCESS frame, up to
   `--await-frames` (default 60, ceiling 600) — then captures at that SAME frame

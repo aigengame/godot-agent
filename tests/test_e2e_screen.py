@@ -282,6 +282,70 @@ def test_windowed_daemon_captures_a_frame_window(tmp_path, daemon_runtime_dir):
 
 
 @pytest.mark.e2e
+@_needs_display
+def test_ninety_frame_capture_completes_with_a_structured_envelope(
+    tmp_path, daemon_runtime_dir
+):
+    # #665 AC1/AC3 (GDA-DF-021): a capture at the dogfooding failure scale must
+    # END in a structured completion result (or the registered live_timeout —
+    # never silence). PROVEN by reproduction: gda's own stack loses nothing —
+    # the exact release under test (gda 0.8.0, harness v6) and the current head
+    # both complete 90 frames x 3.6 MB (≈327 MB of PNG bytes, ≈436 MB
+    # base64-expanded in the single IPC reply) with the full envelope on real
+    # Godot 4.6.3; the original observation (all PNGs present, no final JSON)
+    # itself shows the reply reached the CLI, which writes the files from it.
+    # The residual loss's leading BOUNDED HYPOTHESIS — not reproduced (the
+    # original caller's automation was not re-run) — is a caller-side
+    # output-handling limit, suggested by the failure boundary tracking the
+    # result line's size (~226 B/frame entry: 30/36/48 ≤ ~11 KB good, 90 ≈
+    # 20 KB lost); those observations vary count and line length together, so
+    # they establish correlation, not the specific cap. The --summary envelope
+    # below stays well under any such limit either way.
+    _scaffold(tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
+    out_dir = tmp_path / "frames"
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        full = assert_windowed_ok(
+            run("screen", "frames", "--frames", "90", "--output-dir", str(out_dir))
+        )
+        doc = json.loads(full.stdout)
+        assert doc["count"] == 90
+        assert len(doc["frames"]) == 90
+        assert len(list(out_dir.glob("frame_*.png"))) == 90
+
+        # The compact form at the same scale: every frame still written, and the
+        # completion envelope no longer grows with the frame count.
+        summary_dir = tmp_path / "frames-summary"
+        compact = assert_windowed_ok(
+            run(
+                "screen",
+                "frames",
+                "--frames",
+                "90",
+                "--summary",
+                "--output-dir",
+                str(summary_dir),
+            )
+        )
+        summary_doc = json.loads(compact.stdout)
+        assert summary_doc["count"] == 90
+        assert summary_doc["frames"] is None
+        aggregate = summary_doc["summary"]
+        assert aggregate["pattern"] == "frame_%04d.png"
+        assert aggregate["width"] > 0 and aggregate["height"] > 0
+        written = sorted(summary_dir.glob("frame_*.png"))
+        assert len(written) == 90
+        assert aggregate["total_bytes"] == sum(f.stat().st_size for f in written)
+        # The compact envelope is bounded: an order of magnitude under the
+        # per-frame form's line at the same count.
+        assert len(compact.stdout) < len(full.stdout) / 10
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
 def test_headless_session_reports_live_display_unavailable(
     tmp_path, daemon_runtime_dir
 ):

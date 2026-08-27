@@ -394,3 +394,23 @@ added incrementally under ADR-0025 if a concrete need appears.
 > ADR-0004 envelope decision, and this change adopts its outcome rather than pre-empting
 > it. The gap named at the end of that amendment is therefore unchanged in kind, only
 > narrowed in content: a failure path now carries far more evidence, still untyped.
+
+> **Amendment (2026-08-26, #665) — the success result's `stdout` is bounded, the ONE
+> qualification of the verbatim passthrough.** Production-scale dogfooding
+> (GDA-DF-036) showed a project inspector's stdout growing linearly with content
+> (1,128 → 1,288 all-passing per-frame records), and an envelope that grows with the
+> project blows the consuming agent's context. Above a 64 KiB cap the returned
+> `stdout` is the stream's LEADING cap bytes (cut on a UTF-8 boundary) and the
+> COMPLETE stream spills to a gda-named file; three always-present result fields
+> disclose it — `stdout_bytes` (the full stream's size, reported whether or not
+> truncation happened), `stdout_truncated`, and `stdout_file`
+> (required-but-nullable). Bounded, not summarized: gda still does not parse or
+> interpret the script's output — record semantics stay with the project tool
+> (per-file aggregate verdicts are #663's surface) — and nothing is lost, since the
+> spill file holds every byte. **The bound is unconditional** (PR #748 review): a
+> spill file gda cannot create or complete is the registered typed failure
+> `stdout_spill_failed` — never an unbounded success and never a silently lost
+> tail — whose message carries the run's forensics (it DID run, with its exit
+> status and full byte count) and the TMPDIR remediation; a post-create failure
+> releases the descriptor and unlinks the partial file before failing. `stderr`
+> and the failure envelopes' partial-output evidence keep their existing shapes.
