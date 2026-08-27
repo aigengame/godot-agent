@@ -312,14 +312,14 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(tmp_path
     # single-digit milliseconds, two-plus orders of magnitude inside the deadline
     # instead of sharing its order of magnitude (see its docstring for the
     # measurements this margin is based on, not asserted from). The timeout is
-    # also doubled from the pre-#728 1.5s to 3.0s: across 40 measured runs the
-    # observed worst-case time-to-first-output was ~312ms, and that max came
-    # from an UNLOADED run (12-way CPU load's own max was only ~20ms) — the
-    # tail is not purely load-driven, so reasoning from the typical case alone
-    # would repeat the error that produced the original flake. 1.5s leaves
-    # only ~4.8x headroom over that observed tail; 3.0s leaves ~9.6x, cheaply
-    # (the fake engine never exits on its own, so this is the test's own
-    # wall-clock cost either way).
+    # also doubled from the pre-#728 1.5s to 3.0s: steady state is tight (180
+    # measured runs, ~4ms typical, max 5.1ms), but isolated FIRST-invocation
+    # outliers of 312ms and 1110ms were observed across independent
+    # measurement runs — and this test spawns the engine exactly once per
+    # suite, so that cold start IS its normal path, not a rare one the steady
+    # state can stand in for. Against the worst observed outlier, 1.5s leaves
+    # only ~1.35x headroom; 3.0s leaves ~2.7x, cheaply (the fake engine never
+    # exits on its own, so this is the test's own wall-clock cost either way).
     engine = _fast_fake_engine(tmp_path, "SUITE START", "boom")
 
     result = launch(
