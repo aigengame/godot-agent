@@ -26,7 +26,7 @@ another environment can have different capabilities._
   can be called directly after confirming that it belongs to the exact checkout. If the
   rerun reaches the requested command, treat the first failure as environment evidence
   rather than a product or test failure.
-- **Last verified:** 2026-08-24 in a managed Codex desktop environment.
+- **Last verified:** 2026-08-27 in a managed Codex desktop environment.
 
 ## Pytest cache in a read-only worktree
 
@@ -57,7 +57,7 @@ another environment can have different capabilities._
   can be a suitable writable temporary location.
 - **Recovery:** Retry the read with the writable cache. Distinguish a repeated GitHub or
   network error from the original local-cache failure.
-- **Last verified:** 2026-08-21 in a managed Codex review environment.
+- **Last verified:** 2026-08-27 in a managed Codex review environment.
 
 ## Restricted Git metadata during isolated review
 
@@ -105,11 +105,30 @@ another environment can have different capabilities._
   result before classifying the change.
 - **Last verified:** 2026-08 in godot-agent review worktrees.
 
+## Godot `user://` writes in a restricted environment
+
+- **Applies when:** A sandbox or remote execution environment does not allow Godot to
+  write to its default application-data location, and a headless or rendered validation
+  launches the engine or writes files through `user://`.
+- **Symptom:** Godot can fail before the test script starts because it cannot open
+  `user://logs`, or a script can fail to save feedback or another `user://` file even
+  after the engine log is redirected with an absolute `--log-file`.
+- **Cause:** The default Godot application-data location is outside the environment's
+  writable paths. `--log-file` redirects the engine log only; it does not relocate
+  `user://`.
+- **Prevention:** Prefer the repository's supported `gda` runner with a unique writable
+  `--user-data-root <writable-temp-dir>/<task>-godot-data` for each concurrent process.
+  A direct Godot run that does not use `user://` may use an absolute `--log-file`, but
+  this does not make other application-data paths writable.
+- **Recovery:** Rerun through `gda --user-data-root` and check the structured result and
+  script `exit_status`. If that run reaches and passes the requested behavior, classify
+  the first failure as environment evidence rather than a product defect.
+- **Last verified:** 2026-08-27 with Godot 4.6.3 in a managed environment.
+
 ## Rendered Godot validation in a restricted environment
 
 - **Applies when:** A sandbox or remote execution environment does not provide the
-  window, display, input, or application-data permissions needed by a rendered Godot
-  run.
+  window, display, or input capabilities needed by a rendered Godot run.
 - **Symptom:** Headless checks pass, while a rendered or interactive run cannot start or
   cannot complete its user path.
 - **Cause:** The environment lacks a runtime capability that the rendered check needs.
