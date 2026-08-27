@@ -853,16 +853,23 @@ headless is unaffected (4.4+, cross-platform).
   a Dictionary into an `Object` parameter, null into `int`, and any JSON array into a
   typed `Array[int]` are refused with the reason. Without the check `callv` pushes an
   engine error, returns null and writes to the Session log — a failure that would read
-  as a successful null. Values the wire cannot carry UNCHANGED are refused earlier still, in the
-  params model both invocation paths share (recursively, so a nested value counts):
+  as a successful null. Two reproduced unsafe argument classes are refused earlier
+  still, in the params model both invocation paths share (recursively, so a nested
+  value counts):
   non-finite numbers (`NaN`/`Infinity`, which JSON has no literals for but Python's
   decoder accepts) — left through they produced a frame the harness could not parse,
-  costing the caller a `live_timeout` and the session its runtime state — and integral
-  values outside ±(2^53 − 1), since the harness reads JSON numbers as doubles and a larger
-  value arrives as a DIFFERENT value (a call that then succeeds on something the
-  caller never sent). The type table itself is the engine's `Variant::can_convert_strict`
-  closure over the six live JSON source types, pinned by a real-engine conformance matrix
-  that first asserts the observed numeric type and then uses direct `callv` as its oracle.
+  costing the caller a `live_timeout` and the session its runtime state — and JSON
+  integer values outside ±(2^53 − 1), since the harness reads JSON numbers as binary64
+  and a larger integer can arrive as a DIFFERENT value (a call that then succeeds on
+  something the caller never sent). Finite floats already are binary64 and do not
+  inherit that integer bound; real-engine tests pin the high-range values `1e17`,
+  `2.5e17`, and `1e300` unchanged. Standard JSON Schema cannot distinguish an
+  exponent-form float from the equal mathematical integer, so its recursive number
+  branch stays broad and discloses that the params model enforces the integer-token
+  bound at execution. The type table itself is the
+  engine's `Variant::can_convert_strict` closure over the six live JSON source types,
+  pinned by a real-engine conformance matrix that first asserts the observed numeric
+  type and then uses direct `callv` as its oracle.
   The constant is the inheritance CHAIN's declaration, not a per-class increment:
   GDScript forbids a subclass from redeclaring a base class's constant, so an opted-in
   chain has at most one declaration owner (a base owner covers its subclasses and need

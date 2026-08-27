@@ -152,21 +152,32 @@ value) pair. gda does not convert on the caller's behalf: where the engine conve
 wire value, gda calls; where it refuses, gda refuses first.
 
 Arguments are also bounded at the CLI boundary, in the params model both invocation
-paths share (ADR-0015), for the values the live wire cannot carry UNCHANGED:
+paths share (ADR-0015), for two reproduced wire failures:
 
 - a non-finite float (`NaN`, `Infinity` — which JSON has no literals for, but Python's
   decoder accepts by extension): left through, it produced a frame the harness's JSON
   parser could not read, so the call never arrived — the caller waited out the relay
   bound, got `live_timeout`, and the daemon retired the channel, losing the `Engine
   session`'s runtime state; and
-- an integral value outside ±(2^53 − 1): the harness's `JSON.parse_string` reads every
-  number as a double, so a larger value arrives as a DIFFERENT number and the call succeeds
-  on a value the caller never sent (`9007199254740993` doubled to `…984` instead of
-  `…986`; `123456789012345678901234567890` arrived as `-2`). The bound is the
-  interoperable JSON integer range and is published in the params schema.
+- a JSON integer value outside ±(2^53 − 1): the harness's `JSON.parse_string` reads every
+  number as binary64, so an integer outside that guaranteed-exact range can arrive as a
+  DIFFERENT value and make the call succeed on something the caller never sent
+  (`9007199254740993` doubled to `…984` instead of `…986`;
+  `123456789012345678901234567890` arrived as `-2`). The params model therefore
+  applies the interoperable bound to values the Python JSON decoder materializes as
+  `int`. A finite Python `float` already is binary64 and does not inherit that integer
+  bound; real-engine regressions pin the high-range values `1e17`, `2.5e17`, and
+  `1e300` unchanged at the method.
 
-Both are refused recursively — a value nested inside an argument is as harmful as a
-top-level one — and both were reproduced end to end before they were bounded.
+Standard JSON Schema cannot express that lexical distinction: it treats an exponent-form
+float such as `1e17` and the equal integer value as the same mathematical integer.
+Applying `minimum` / `maximum` to that schema type would again block valid high-range
+float parameters. The recursive schema therefore leaves its finite `number` branch broad
+and publishes this limitation in the number and `args` descriptions; the params model is
+the execution authority for the integer-token bound on both argv and `--params-json`.
+
+Both refusals are recursive — a nested value is as harmful as a top-level one — and
+both failure modes were reproduced end to end before they were bounded.
 
 The `live_method_not_allowlisted` message names the script chain's declared set, so discovery
 rides the failure an agent already has to read. A dedicated enumerate operation is

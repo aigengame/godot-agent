@@ -242,13 +242,11 @@ class GameSetResult(BaseModel):
 GDA_CALLABLE_CONST = "GDA_CALLABLE"
 
 
-# The largest magnitude an INTEGER argument can carry across the live wire
-# without changing value (PR #749 re-review). Godot's `JSON.parse_string` reads
-# every JSON number as a double, so an integral value outside the IEEE-754
-# exact-integer range arrives as a different number: 9007199254740993 became …992, and
-# 123456789012345678901234567890 became -2 — a SUCCESSFUL call on a value the
-# caller never sent. This is the interoperable JSON integer range every consumer
-# treats as safe, and it is published in the params schema.
+# The interoperable range for JSON INTEGER values decoded as Python ``int``
+# (PR #749 review). Godot's `JSON.parse_string` reads every number as binary64,
+# so an int outside this guaranteed-exact range may arrive changed:
+# 9007199254740993 became …992, and 123456789012345678901234567890 became -2.
+# A Python float is already binary64 and does not inherit this integer bound.
 MAX_EXACT_JSON_INT = 2**53 - 1
 
 
@@ -256,14 +254,16 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
     """Publish the recursive live-argument numeric domain (#749 third review).
 
     ``args`` remains ``list[Any]`` at runtime because a method may accept any JSON
-    shape. The schema cannot stay ``items: {}``, however: the shared params model
-    refuses integral values outside the live wire's exact range. Attach one recursive
-    JSON-value definition and point the array items at it, so schema-driven callers
-    and ``--params-json`` accept the same numeric domain (ADR-0015).
+    shape. Attach one recursive JSON-value definition so schema-driven callers can
+    discover that structure and its wire limits.
 
-    JSON Schema treats ``1`` and ``1.0`` as the same integer-valued instance. The
-    runtime validator therefore applies the bound to both Python ints and integral
-    floats; non-integral finite numbers use the second branch.
+    Standard JSON Schema has no numeric lexical types: it treats ``1e17`` and the
+    equal integer value as the same mathematical integer. The Python decoder does
+    retain the useful distinction — an exponent or fractional token becomes float,
+    while a bare integer becomes int. Constraining the schema's ``integer`` type
+    would therefore reject valid high-range binary64 float arguments. Keep the
+    machine number branch broad, disclose the distinction in its description, and
+    let the same params model that accepts input enforce the int-only bound.
     """
     # `$dynamicRef` keeps the recursive definition standard Draft 2020-12 while
     # avoiding a Pydantic-internal `$ref` lookup: this definition is attached by
@@ -275,11 +275,15 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
             {"type": "null"},
             {"type": "boolean"},
             {
-                "type": "integer",
-                "minimum": -MAX_EXACT_JSON_INT,
-                "maximum": MAX_EXACT_JSON_INT,
+                "type": "number",
+                "description": (
+                    "A finite binary64 value. JSON integer tokens decoded as int "
+                    f"must stay within +/-{MAX_EXACT_JSON_INT}; standard JSON "
+                    "Schema cannot distinguish those tokens from equal "
+                    "high-range float values, so the params model enforces that "
+                    "integer-token limit at execution."
+                ),
             },
-            {"type": "number", "not": {"type": "integer"}},
             {"type": "string"},
             {"type": "array", "items": value_ref},
             {"type": "object", "additionalProperties": value_ref},
@@ -295,7 +299,7 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
 
 
 def _reject_unrepresentable(value: Any, path: str = "args") -> None:
-    """Refuse argument values the live wire cannot carry unchanged (PR #749).
+    """Refuse two reproduced unsafe argument classes before the wire (PR #749).
 
     Two classes, both reproduced end to end, both refused recursively (a nested
     value is as harmful as a top-level one):
@@ -306,9 +310,11 @@ def _reject_unrepresentable(value: Any, path: str = "args") -> None:
       ``JSON.parse_string`` cannot read, so the call never arrives: the caller
       waits out the 30 s relay bound, gets ``live_timeout``, and the daemon
       retires the channel, LOSING the engine session's runtime state.
-    - **Integral values outside the exact-integer range** of the double the wire's
-      JSON parser produces: those arrive as a different number and the call
-      SUCCEEDS on a value the caller never sent (PR #749 re-review).
+    - **Python ints outside the exact-integer range** guaranteed by the live
+      parser's binary64 number domain: those may arrive as a different number and
+      make the call SUCCEED on a value the caller never sent (PR #749 re-review).
+      Python floats already are binary64 values and do not inherit the integer
+      safe-range bound; high-range values such as ``1e300`` cross unchanged.
 
     The params model is the one authority both the argv and ``--params-json``
     paths pass through (ADR-0015), so both refusals belong here — structurally,
@@ -321,13 +327,11 @@ def _reject_unrepresentable(value: Any, path: str = "args") -> None:
             f"{path} must be finite JSON values; NaN and Infinity are not "
             "representable on the live wire."
         )
-    elif (
-        isinstance(value, int) or (isinstance(value, float) and value.is_integer())
-    ) and abs(value) > MAX_EXACT_JSON_INT:
+    elif isinstance(value, int) and abs(value) > MAX_EXACT_JSON_INT:
         raise ValueError(
-            f"{path} must be within +/-{MAX_EXACT_JSON_INT} when integral (the "
-            "live wire reads JSON numbers as doubles, so a larger value arrives as a "
-            f"DIFFERENT value); got {value}."
+            f"{path} integer values must be within +/-{MAX_EXACT_JSON_INT} (the "
+            "live wire reads JSON numbers as binary64, so a larger integer may "
+            f"arrive as a DIFFERENT value); got {value}."
         )
     if isinstance(value, dict):
         for key, item in value.items():
@@ -369,8 +373,12 @@ class GameCallParams(BaseModel):
             "Array, and every number becomes float); null or omitted calls it "
             "with none. Values must be finite "
             "JSON (NaN/Infinity are refused here — they cannot cross the live "
-            f"wire); integral values must stay within +/-{MAX_EXACT_JSON_INT} "
-            "recursively, the live wire's exact range. An argument count outside "
+            "wire). Finite float values are not subject to the integer safe-range "
+            "bound; real-engine tests pin 1e17, 2.5e17, and 1e300 unchanged. JSON "
+            f"integer tokens must stay within +/-{MAX_EXACT_JSON_INT} recursively; "
+            "standard JSON Schema cannot distinguish those tokens from equal "
+            "high-range float values, so the params model enforces this limit. "
+            "An argument count outside "
             "the method's accepted range, or a "
             "value the declared parameter cannot take, is "
             "`live_invalid_call_args`, refused before the call."
@@ -688,8 +696,8 @@ def game_call(
         help=(
             "JSON array of arguments, passed as the live parser's Variant forms "
             "(every number becomes float; e.g. '[1, \"idle\"]'). Values are "
-            "checked recursively: NaN and "
-            f"Infinity are refused, and integral values must stay within +/-"
+            "checked recursively: NaN and Infinity are refused; finite floats are "
+            "not subject to the integer bound; JSON integer values must stay within +/-"
             f"{MAX_EXACT_JSON_INT}. Omit to call with none."
         ),
     ),

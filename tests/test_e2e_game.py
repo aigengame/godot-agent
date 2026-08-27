@@ -176,6 +176,7 @@ CALL_MAIN_GD = (
     '\t"takes_packed_float32", "takes_packed_float64", "takes_packed_string",\n'
     '\t"takes_packed_color", "takes_packed_vector2", "takes_packed_vector3",\n'
     '\t"takes_packed_vector4", "takes_vector2", "takes_dict", "argument_type",\n'
+    '\t"float_argument_preserved",\n'
     '\t"probe_direct",\n'
     "]\n\n"
     "var _phase := 3\n"
@@ -258,6 +259,12 @@ CALL_MAIN_GD = (
     "\treturn d.size()\n\n"
     "func argument_type(value) -> String:\n"
     "\treturn type_string(typeof(value))\n\n"
+    "func float_argument_preserved(value: float, expected: String) -> bool:\n"
+    "\tmatch expected:\n"
+    '\t\t"1e17": return value == 1e17\n'
+    '\t\t"2.5e17": return value == 2.5e17\n'
+    '\t\t"1e300": return value == 1e300\n'
+    "\treturn false\n\n"
     "func probe_direct(method: String, call_args: Array) -> bool:\n"
     "\t_hit = false\n"
     "\tcallv(method, call_args)\n"
@@ -735,5 +742,38 @@ def test_game_call_refuses_integers_the_wire_cannot_carry(tmp_path, daemon_runti
         assert nested_error["code"] == "invalid_params"
         assert str(MAX_EXACT_JSON_INT) in nested_error["message"]
         assert json.loads(run("daemon", "status").stdout)["session_id"] == before
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_game_call_preserves_large_finite_float_arguments(tmp_path, daemon_runtime_dir):
+    """The live wire preserves high-range finite binary64 arguments."""
+    from .conftest import project_godot
+
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
+    (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
+    (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
+
+    run = _gda_runner(tmp_path)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+        for literal in ("1e17", "2.5e17", "1e300"):
+            result = run(
+                "game",
+                "call",
+                "/root/Main",
+                "--method",
+                "float_argument_preserved",
+                "--args",
+                f'[{literal}, "{literal}"]',
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert json.loads(result.stdout)["value"] is True, literal
     finally:
         run("daemon", "stop")

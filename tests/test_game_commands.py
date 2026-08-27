@@ -9,6 +9,7 @@ the e2e.
 import json
 
 import jsonschema
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -809,9 +810,10 @@ def test_game_call_schema_publishes_the_declaration_contract():
     # reading only the schema learns why a call can be refused.
     assert "GDA_CALLABLE" in json.dumps(doc["input"]["properties"]["method"])
 
-    # The machine contract and the params model publish the SAME recursive
-    # safe-integer boundary (#749 third review). A schema-driven caller must not
-    # construct a request the CLI will always refuse.
+    # Standard JSON Schema has one mathematical number model: it cannot tell a
+    # float token such as `1e17` from the equal integer value. The public schema
+    # must therefore keep the high-range finite-float domain open and disclose
+    # that the params model applies the safe bound only to values decoded as ints.
     validator = jsonschema.Draft202012Validator(doc["input"])
     assert validator.is_valid(
         {"node": "/root/M", "method": "m", "args": [MAX_EXACT_JSON_INT]}
@@ -819,42 +821,28 @@ def test_game_call_schema_publishes_the_declaration_contract():
     assert validator.is_valid(
         {"node": "/root/M", "method": "m", "args": [-MAX_EXACT_JSON_INT]}
     )
-    assert not validator.is_valid(
-        {"node": "/root/M", "method": "m", "args": [MAX_EXACT_JSON_INT + 1]}
-    )
-    assert not validator.is_valid(
-        {
-            "node": "/root/M",
-            "method": "m",
-            "args": [{"deep": [-(MAX_EXACT_JSON_INT + 1)]}],
-        }
-    )
-
-    # Keep the machine schema and runtime model aligned on a mixed recursive
-    # corpus, including JSON Schema's integer-valued-float semantics.
     from gda.commands.game import GameCallParams
 
-    argument_corpus = [
-        None,
-        True,
-        MAX_EXACT_JSON_INT,
-        -MAX_EXACT_JSON_INT,
-        MAX_EXACT_JSON_INT + 1,
-        float(MAX_EXACT_JSON_INT + 1),
-        1.25,
-        {"deep": [-(MAX_EXACT_JSON_INT + 1)]},
-        ["x", None, {"n": 2}],
-    ]
-    for argument in argument_corpus:
+    for argument in (1e17, 2.5e17, 1e300, {"deep": [-1e300]}):
         payload = {"node": "/root/M", "method": "m", "args": [argument]}
-        schema_accepts = validator.is_valid(payload)
-        try:
-            GameCallParams.model_validate(payload)
-        except ValueError:
-            model_accepts = False
-        else:
-            model_accepts = True
-        assert schema_accepts == model_accepts, argument
+        assert validator.is_valid(payload), argument
+        GameCallParams.model_validate(payload)
+
+    oversized_integer = {
+        "node": "/root/M",
+        "method": "m",
+        "args": [MAX_EXACT_JSON_INT + 2],
+    }
+    # This standard-schema over-acceptance is deliberate and disclosed: adding
+    # an integer maximum also rejects equal high-range floats, which the wire
+    # carries exactly. The params model remains the execution authority.
+    assert validator.is_valid(oversized_integer)
+    with pytest.raises(ValueError, match=str(MAX_EXACT_JSON_INT)):
+        GameCallParams.model_validate(oversized_integer)
+
+    args_description = doc["input"]["properties"]["args"]["description"]
+    assert "finite float values are not subject" in args_description.lower()
+    assert "JSON Schema cannot distinguish" in args_description
 
 
 def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words():
@@ -863,8 +851,11 @@ def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words
     result = CliRunner().invoke(app, ["game", "call", "--help"])
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    assert str(MAX_EXACT_JSON_INT) in result.stdout
-    assert "an an argument" not in result.stdout
+    rendered = " ".join(result.stdout.split())
+    assert str(MAX_EXACT_JSON_INT) in rendered
+    assert "finite floats are not subject to the integer" in rendered
+    assert "JSON integer values must stay within" in rendered
+    assert "an an argument" not in rendered
 
 
 def test_game_call_refuses_non_finite_args_on_both_paths(monkeypatch, tmp_path):
@@ -940,6 +931,46 @@ def test_game_call_accepts_finite_nested_json_args(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert fake.calls[0][1]["args"] == [1, 2.5, {"a": [3.5, "x"]}]
+
+
+def test_game_call_accepts_large_finite_float_args_on_both_paths(monkeypatch, tmp_path):
+    """Finite floats already are binary64 and must not inherit the integer bound."""
+    project = str(_project(tmp_path))
+    expected = [1e17, 2.5e17, {"deep": [1e300]}]
+
+    invocations = (
+        [
+            "game",
+            "call",
+            "/root/M",
+            "--method",
+            "m",
+            "--args",
+            '[1e17, 2.5e17, {"deep": [1e300]}]',
+            "--project",
+            project,
+            "--json",
+        ],
+        [
+            "game",
+            "call",
+            "--params-json",
+            '{"node": "/root/M", "method": "m", '
+            '"args": [1e17, 2.5e17, {"deep": [1e300]}]}',
+            "--project",
+            project,
+            "--json",
+        ],
+    )
+    for invocation in invocations:
+        fake = inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(app, invocation)
+
+        assert result.exit_code == 0, result.stdout + result.stderr
+        assert fake.calls[0][1]["args"] == expected
 
 
 def test_game_call_refuses_integers_beyond_the_exact_json_range(monkeypatch, tmp_path):
