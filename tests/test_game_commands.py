@@ -840,9 +840,30 @@ def test_game_call_schema_publishes_the_declaration_contract():
     with pytest.raises(ValueError, match=str(MAX_EXACT_JSON_INT)):
         GameCallParams.model_validate(oversized_integer)
 
+    # The schema consumes RFC JSON data, whose number grammar excludes these
+    # values. Some in-memory validators still accept Python's non-finite float
+    # extensions as `number`; the params model is the execution authority and
+    # refuses the permissive decoder extensions before the live wire.
+    for non_finite in (float("nan"), float("inf"), float("-inf")):
+        payload = {"node": "/root/M", "method": "m", "args": [non_finite]}
+        assert validator.is_valid(payload)
+        with pytest.raises(ValueError, match="finite"):
+            GameCallParams.model_validate(payload)
+
     args_description = doc["input"]["properties"]["args"]["description"]
+    number_description = next(
+        branch
+        for branch in doc["input"]["$defs"]["LiveCallArgument"]["anyOf"]
+        if branch.get("type") == "number"
+    )["description"]
     assert "finite float values are not subject" in args_description.lower()
     assert "JSON Schema cannot distinguish" in args_description
+    assert "in-memory validators" in args_description
+    assert "small-magnitude" in args_description
+    assert "1.2345678901234567e-300" in args_description
+    assert "0.0" in args_description
+    assert "in-memory JSON Schema validators" in number_description
+    assert "issue #752" in number_description
 
 
 def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words():
@@ -854,7 +875,9 @@ def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words
     rendered = " ".join(result.stdout.split())
     assert str(MAX_EXACT_JSON_INT) in rendered
     assert "finite floats are not subject to the integer" in rendered
-    assert "JSON integer values must stay within" in rendered
+    assert "integer values must stay within" in rendered
+    assert "small-magnitude floats can arrive" in rendered
+    assert "1.2345678901234567e-300" in rendered
     assert "an an argument" not in rendered
 
 
@@ -934,7 +957,7 @@ def test_game_call_accepts_finite_nested_json_args(monkeypatch, tmp_path):
 
 
 def test_game_call_accepts_large_finite_float_args_on_both_paths(monkeypatch, tmp_path):
-    """Finite floats already are binary64 and must not inherit the integer bound."""
+    """High-range floats already are binary64 and do not inherit the int bound."""
     project = str(_project(tmp_path))
     expected = [1e17, 2.5e17, {"deep": [1e300]}]
 

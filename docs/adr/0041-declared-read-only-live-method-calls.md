@@ -152,7 +152,8 @@ value) pair. gda does not convert on the caller's behalf: where the engine conve
 wire value, gda calls; where it refuses, gda refuses first.
 
 Arguments are also bounded at the CLI boundary, in the params model both invocation
-paths share (ADR-0015), for two reproduced wire failures:
+paths share (ADR-0015), for two reproduced argument classes this slice can refuse
+without changing the live protocol:
 
 - a non-finite float (`NaN`, `Infinity` — which JSON has no literals for, but Python's
   decoder accepts by extension): left through, it produced a frame the harness's JSON
@@ -166,8 +167,20 @@ paths share (ADR-0015), for two reproduced wire failures:
   `123456789012345678901234567890` arrived as `-2`). The params model therefore
   applies the interoperable bound to values the Python JSON decoder materializes as
   `int`. A finite Python `float` already is binary64 and does not inherit that integer
-  bound; real-engine regressions pin the high-range values `1e17`, `2.5e17`, and
-  `1e300` unchanged at the method.
+  bound; real-engine regressions pin the reproduced high-range values `1e17`,
+  `2.5e17`, and `1e300` unchanged at the method.
+
+That high-range evidence is not a full binary64 preservation guarantee. Godot 4.6.3
+`JSON.parse_string` also has a decimal-shape-dependent lower-range defect: `1e-300`
+and `1e-308` remain non-zero, but the ordinary normal value
+`1.2345678901234567e-300`, `DBL_MIN` (`2.2250738585072014e-308`), and subnormal
+values such as `1e-320` can become `0.0`. Python's `json.dumps` emits the failing
+full-precision form for that normal value, so this is reachable from an ordinary
+computed float. A CLI exponent/significant-digit heuristic would over-refuse valid
+values and cover only requests; Godot's `JSON.stringify` can lose small result values
+too. [Issue #752](https://github.com/aigengame/godot-agent/issues/752) owns the
+cross-operation transport policy and fix. This slice discloses the limitation instead
+of adding a partial guard.
 
 Standard JSON Schema cannot express that lexical distinction: it treats an exponent-form
 float such as `1e17` and the equal integer value as the same mathematical integer.
@@ -175,6 +188,10 @@ Applying `minimum` / `maximum` to that schema type would again block valid high-
 float parameters. The recursive schema therefore leaves its finite `number` branch broad
 and publishes this limitation in the number and `args` descriptions; the params model is
 the execution authority for the integer-token bound on both argv and `--params-json`.
+The schema consumes RFC JSON, whose grammar excludes `NaN` and `Infinity`; some
+in-memory JSON Schema validators accept those Python float extensions as `number`, so
+the model/schema corpus pins that second deliberate over-acceptance and the params
+model remains the execution authority for it too.
 
 Both refusals are recursive — a nested value is as harmful as a top-level one — and
 both failure modes were reproduced end to end before they were bounded.
@@ -192,6 +209,10 @@ projection kinds and whitelist. A method returning nothing projects as `null`. T
 per-read `--texture-digest` opt-in that `game get` offers is NOT part of this first
 version: a path-less `Texture2D` returned by a call projects with a null digest. Adding
 it is a one-field change if a package needs it.
+
+The projected value is still framed with Godot `JSON.stringify`. As recorded above and
+in #752, Godot 4.6.3 can serialize small non-zero floats as `0.0`; the limitation affects
+the shared live-result path, not only `game call` arguments.
 
 Arguments are JSON values passed as the live parser's Variant forms (a JSON object
 becomes a Dictionary, an array an Array, and every number a float). The string-to-Godot-type coercion table that

@@ -862,11 +862,17 @@ headless is unaffected (4.4+, cross-platform).
   integer values outside ±(2^53 − 1), since the harness reads JSON numbers as binary64
   and a larger integer can arrive as a DIFFERENT value (a call that then succeeds on
   something the caller never sent). Finite floats already are binary64 and do not
-  inherit that integer bound; real-engine tests pin the high-range values `1e17`,
-  `2.5e17`, and `1e300` unchanged. Standard JSON Schema cannot distinguish an
-  exponent-form float from the equal mathematical integer, so its recursive number
+  inherit that integer bound; real-engine tests pin the reproduced high-range values
+  `1e17`, `2.5e17`, and `1e300` unchanged. This is not a full-range preservation
+  guarantee: Godot 4.6.3 parses some small-magnitude normal values, including
+  `1.2345678901234567e-300` and `DBL_MIN`, as `0.0`, and its `JSON.stringify` can
+  also lose small live-result values. [Issue #752](https://github.com/aigengame/godot-agent/issues/752)
+  owns that cross-operation transport defect. Standard JSON Schema cannot distinguish
+  an exponent-form float from the equal mathematical integer, so its recursive number
   branch stays broad and discloses that the params model enforces the integer-token
-  bound at execution. The type table itself is the
+  bound at execution. RFC JSON excludes `NaN` and `Infinity`; some in-memory schema
+  validators accept those extensions as numbers, but the params model refuses them and
+  the model/schema corpus pins that deliberate over-acceptance. The type table itself is the
   engine's `Variant::can_convert_strict` closure over the six live JSON source types,
   pinned by a real-engine conformance matrix that first asserts the observed numeric
   type and then uses direct `callv` as its oracle.
