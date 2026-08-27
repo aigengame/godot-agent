@@ -67,7 +67,7 @@ const LIVE_ERROR_UNKNOWN_METHOD := "live_unknown_method"
 const LIVE_ERROR_METHOD_NOT_ALLOWLISTED := "live_method_not_allowlisted"
 const LIVE_ERROR_INVALID_CALL_ARGS := "live_invalid_call_args"
 
-# The script constant a project class declares its gda-callable methods in
+# The script constant an opted-in inheritance chain declares its gda-callable methods in
 # (#673): `const GDA_CALLABLE := ["method_name"]`. Read STATICALLY from the
 # script's constant map, so learning what may be called never runs project code.
 const GDA_CALLABLE_CONST := "GDA_CALLABLE"
@@ -522,7 +522,7 @@ func _handle_game_rect(params: Dictionary) -> String:
 # returns whether that observed read-back value matches the coerced requested
 # value; the harness does not guess whether a mismatch is a no-op or an
 # edge-triggered/self-consuming variable.
-# game call: invoke ONE method the addressed node's class DECLARED as callable,
+# game call: invoke ONE method the addressed node's script chain DECLARED callable,
 # and project its return value (#673, GDA-DF-033). The dogfooding gap: a debug
 # state contract exposed as a method was unreadable — `game get` reads stored
 # properties only — so evidence fell back to index properties plus screenshots.
@@ -543,7 +543,7 @@ func _handle_game_rect(params: Dictionary) -> String:
 # have is live_unknown_method (checked first — the project is trusted, ADR-0009,
 # so the more precise diagnosis is the useful one), a method it has but never
 # declared is live_method_not_allowlisted (whose message names the declared set),
-# and an argument count outside the method's accepted range is
+# and an argument the method cannot take (count or type) is
 # live_invalid_call_args — refused BEFORE the call, since callv would otherwise
 # push an engine error and return a null gda would report as a successful read.
 func _handle_game_call(params: Dictionary) -> String:
@@ -561,7 +561,7 @@ func _handle_game_call(params: Dictionary) -> String:
 		var names := ", ".join(declared) if not declared.is_empty() else "(none)"
 		return _error(LIVE_ERROR_METHOD_NOT_ALLOWLISTED,
 				"the method " + method + " is not declared callable by the node at "
-				+ path + "; its class declares: " + names
+				+ path + "; its script chain declares: " + names
 				+ ". Declare it in the script constant `const "
 				+ GDA_CALLABLE_CONST + " := [\"" + method + "\"]` to allow it")
 	var raw_args: Variant = params.get("args", [])
@@ -579,9 +579,9 @@ func _handle_game_call(params: Dictionary) -> String:
 	})
 
 
-# The method names a node's class declared gda-callable (#673), merged along the
-# script's base chain so a base class's declaration covers its subclasses the way
-# any other class member would. Read from the constant map — never by calling
+# The gda-callable method names resolved from the node's attached script along its
+# base chain (#673), so a base declaration covers its subclasses. Read from the
+# constant map — never by calling
 # into the project — and normalized to Strings, so a malformed declaration (a
 # non-Array constant, or entries that are not names) declares nothing rather
 # than failing the call with an unrelated error.
@@ -643,9 +643,12 @@ func _call_argument_error(signature: Dictionary, args: Array) -> String:
 	return ""
 
 
-# The engine's own strict-conversion closure for the SEVEN Variant types a JSON
-# argument can produce, keyed by the SOURCE type (#673, PR #749 re-review). Every
-# row is transcribed mechanically from `Variant::can_convert_strict`
+# The engine's own strict-conversion closure for the SIX Variant types the live
+# JSON parser can produce, keyed by the SOURCE type (#673, PR #749 re-review).
+# Godot's JSON.parse_string materializes every number as TYPE_FLOAT, including a
+# literal without a fractional part; TYPE_INT is therefore a reachable TARGET
+# (from bool/float) but not a live JSON SOURCE. Every row is transcribed
+# mechanically from `Variant::can_convert_strict`
 # (core/variant/variant.cpp), which is NOT exposed to GDScript: its per-target
 # `valid[]` lists are NIL-TERMINATED, so a NIL entry is the terminator rather than
 # a legal source, and `from NIL` is decided by an early return (only OBJECT).
@@ -656,7 +659,6 @@ func _call_argument_error(signature: Dictionary, args: Array) -> String:
 const JSON_ARGUMENT_CONVERSIONS := {
 	TYPE_NIL: [TYPE_OBJECT],
 	TYPE_BOOL: [TYPE_INT, TYPE_FLOAT],
-	TYPE_INT: [TYPE_BOOL, TYPE_FLOAT, TYPE_COLOR],
 	TYPE_FLOAT: [TYPE_BOOL, TYPE_INT],
 	TYPE_STRING: [TYPE_STRING_NAME, TYPE_NODE_PATH, TYPE_COLOR],
 	TYPE_ARRAY: [

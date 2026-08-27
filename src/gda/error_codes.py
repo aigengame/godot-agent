@@ -724,7 +724,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "A live game call named a method the addressed running node has but its class never declared gda-callable.",
+        "A live game call named a method the addressed running node has but its attached-script chain never declared gda-callable.",
     ),
     ErrorCodeSpec(
         "live_invalid_call_args",

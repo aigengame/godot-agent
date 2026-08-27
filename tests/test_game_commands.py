@@ -8,6 +8,7 @@ the e2e.
 
 import json
 
+import jsonschema
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -595,7 +596,7 @@ def test_game_set_schema_is_self_describing():
 
 # --- game call: the declared read-only method surface (#673, ADR-0041) --------
 # The live read `game get` cannot serve: a debug/state contract exposed as a
-# METHOD. The class declares what gda may call in its `GDA_CALLABLE` script
+# METHOD. The attached-script chain declares what gda may call in its `GDA_CALLABLE`
 # constant; gda calls nothing undeclared, and the three refusals are distinct.
 
 
@@ -665,8 +666,9 @@ def test_game_call_threads_json_args_as_values(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    # JSON values ride the wire as values — ints stay int, objects stay objects —
-    # never as the CLI string (no coercion table here, ADR-0041).
+    # JSON values reach the daemon model as values, never as the CLI string (no
+    # property-coercion table here, ADR-0041). The Godot-side live parser later
+    # materializes every JSON number as float; its type domain is pinned by e2e.
     assert fake.calls == [
         (
             "game-call",
@@ -793,6 +795,8 @@ def test_game_call_human_render_names_the_method_and_value(monkeypatch, tmp_path
 
 
 def test_game_call_schema_publishes_the_declaration_contract():
+    from gda.commands.game import MAX_EXACT_JSON_INT
+
     doc = json.loads(CliRunner().invoke(app, ["game", "call", "--schema"]).stdout)
     assert doc["kind"] == "live"
     assert {"node", "method", "args"} <= set(doc["input"]["properties"])
@@ -804,6 +808,63 @@ def test_game_call_schema_publishes_the_declaration_contract():
     # The declaration site is named in the published contract, so an agent
     # reading only the schema learns why a call can be refused.
     assert "GDA_CALLABLE" in json.dumps(doc["input"]["properties"]["method"])
+
+    # The machine contract and the params model publish the SAME recursive
+    # safe-integer boundary (#749 third review). A schema-driven caller must not
+    # construct a request the CLI will always refuse.
+    validator = jsonschema.Draft202012Validator(doc["input"])
+    assert validator.is_valid(
+        {"node": "/root/M", "method": "m", "args": [MAX_EXACT_JSON_INT]}
+    )
+    assert validator.is_valid(
+        {"node": "/root/M", "method": "m", "args": [-MAX_EXACT_JSON_INT]}
+    )
+    assert not validator.is_valid(
+        {"node": "/root/M", "method": "m", "args": [MAX_EXACT_JSON_INT + 1]}
+    )
+    assert not validator.is_valid(
+        {
+            "node": "/root/M",
+            "method": "m",
+            "args": [{"deep": [-(MAX_EXACT_JSON_INT + 1)]}],
+        }
+    )
+
+    # Keep the machine schema and runtime model aligned on a mixed recursive
+    # corpus, including JSON Schema's integer-valued-float semantics.
+    from gda.commands.game import GameCallParams
+
+    argument_corpus = [
+        None,
+        True,
+        MAX_EXACT_JSON_INT,
+        -MAX_EXACT_JSON_INT,
+        MAX_EXACT_JSON_INT + 1,
+        float(MAX_EXACT_JSON_INT + 1),
+        1.25,
+        {"deep": [-(MAX_EXACT_JSON_INT + 1)]},
+        ["x", None, {"n": 2}],
+    ]
+    for argument in argument_corpus:
+        payload = {"node": "/root/M", "method": "m", "args": [argument]}
+        schema_accepts = validator.is_valid(payload)
+        try:
+            GameCallParams.model_validate(payload)
+        except ValueError:
+            model_accepts = False
+        else:
+            model_accepts = True
+        assert schema_accepts == model_accepts, argument
+
+
+def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words():
+    from gda.commands.game import MAX_EXACT_JSON_INT
+
+    result = CliRunner().invoke(app, ["game", "call", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert str(MAX_EXACT_JSON_INT) in result.stdout
+    assert "an an argument" not in result.stdout
 
 
 def test_game_call_refuses_non_finite_args_on_both_paths(monkeypatch, tmp_path):
@@ -817,7 +878,6 @@ def test_game_call_refuses_non_finite_args_on_both_paths(monkeypatch, tmp_path):
     for argv in (
         ["--method", "m", "--args", "[NaN]"],
         ["--method", "m", "--args", '[{"deep": [Infinity]}]'],
-        ["--params-json", '{"node": "/root/M", "method": "m", "args": [NaN]}'],
     ):
         fake = inject_live_runner(
             monkeypatch,
@@ -830,6 +890,28 @@ def test_game_call_refuses_non_finite_args_on_both_paths(monkeypatch, tmp_path):
         assert result.exit_code != 0, result.stdout
         # Nothing reached the live channel.
         assert fake.calls == [], argv
+
+    # Pure --params-json: adding the positional node would stop at the
+    # mutual-exclusion usage error instead of testing the shared model.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+    params_refused = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "--params-json",
+            '{"node": "/root/M", "method": "m", "args": [NaN]}',
+            "--project",
+            project,
+            "--json",
+        ],
+    )
+    assert params_refused.exit_code != 0, params_refused.stdout
+    assert json.loads(params_refused.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
 
 
 def test_game_call_accepts_finite_nested_json_args(monkeypatch, tmp_path):
@@ -872,10 +954,6 @@ def test_game_call_refuses_integers_beyond_the_exact_json_range(monkeypatch, tmp
         ["--method", "m", "--args", f"[{MAX_EXACT_JSON_INT + 2}]"],
         ["--method", "m", "--args", f"[-{MAX_EXACT_JSON_INT + 2}]"],
         ["--method", "m", "--args", f'[{{"deep": [{MAX_EXACT_JSON_INT + 2}]}}]'],
-        [
-            "--params-json",
-            f'{{"node": "/root/M", "method": "m", "args": [{MAX_EXACT_JSON_INT + 2}]}}',
-        ],
     ):
         fake = inject_live_runner(
             monkeypatch,
@@ -888,25 +966,52 @@ def test_game_call_refuses_integers_beyond_the_exact_json_range(monkeypatch, tmp
         assert result.exit_code != 0, result.stdout
         assert fake.calls == [], argv
 
-    # The boundary itself is representable and goes through unchanged.
+    # `--params-json` supplies every operation argument. Do not combine it with
+    # the positional node: that only tests the mutual-exclusion `usage_error`
+    # and never reaches this validator (#749 third review).
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
     )
-    ok = CliRunner().invoke(
+    params_refused = CliRunner().invoke(
         app,
         [
             "game",
             "call",
-            "/root/M",
-            "--method",
-            "m",
-            "--args",
-            f"[{MAX_EXACT_JSON_INT}]",
+            "--params-json",
+            f'{{"node": "/root/M", "method": "m", "args": [{MAX_EXACT_JSON_INT + 2}]}}',
             "--project",
             project,
             "--json",
         ],
     )
-    assert ok.exit_code == 0, ok.stdout + ok.stderr
-    assert fake.calls[0][1]["args"] == [MAX_EXACT_JSON_INT]
+    assert params_refused.exit_code != 0, params_refused.stdout
+    error = json.loads(params_refused.stdout)["error"]
+    assert error["code"] == "invalid_params"
+    assert str(MAX_EXACT_JSON_INT) in error["message"]
+    assert fake.calls == []
+
+    # Both boundaries are representable and go through unchanged on the normal
+    # argv path.
+    for boundary in (MAX_EXACT_JSON_INT, -MAX_EXACT_JSON_INT):
+        fake = inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+        )
+        ok = CliRunner().invoke(
+            app,
+            [
+                "game",
+                "call",
+                "/root/M",
+                "--method",
+                "m",
+                "--args",
+                f"[{boundary}]",
+                "--project",
+                project,
+                "--json",
+            ],
+        )
+        assert ok.exit_code == 0, ok.stdout + ok.stderr
+        assert fake.calls[0][1]["args"] == [boundary]

@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# Live method calls are declared by the class, in a statically-read script constant
+# Live method calls are declared once per opted-in script chain, in a statically-read constant
 
 `gda game get` reads a running node's stored properties. Dogfooding the kung-fu card
 game hit the gap that leaves (GDA-DF-033, #673): a project exposed its debug state as
@@ -31,9 +31,10 @@ is that **no undeclared method is callable**.
 
 ## Decision
 
-### 1. The declaration site is the class's own script constant, read statically
+### 1. The declaration is resolved statically along the attached script's base chain
 
-A class declares what gda may call in a script constant on the node's attached script:
+An inheritance chain opts in when one script in the addressed node's attached-script
+base chain defines the constant:
 
 ```gdscript
 extends Node2D
@@ -53,16 +54,16 @@ only when the resolved declaration names it.
 
 This implements the issue's triage decision — a **project-side** declaration rather
 than a per-invocation CLI flag, because a flag would let any caller assert anything ad
-hoc, reducing "no undeclared call" to nothing — and takes its rationale to the end: the
-read-only assertion is a property of the method, so it lives in the class's own source,
+hoc, reducing "no undeclared call" to nothing. The declaration stays in project source,
 where the project's code review already looks, rather than in a separate registry that
-drifts from it.
+drifts from it. It may live in a base or leaf script and need not share a file with every
+method it names.
 
 It is therefore an INHERITANCE-CHAIN declaration, not a per-class increment (see "Why
-one class per chain" below): a leaf class with no declaring base declares its own
-methods; a base that declares must name the subclass methods it authorizes. One
-authoritative list per chain, in one file — a real cost of this format, stated rather
-than implied away.
+at most one owner per opted-in chain" below): a leaf class with no declaring base
+declares its own methods; a base that declares must name the subclass methods it
+authorizes. One authoritative list per opted-in chain, in one file — a real cost of
+this format, stated rather than implied away.
 
 Two properties decided the FORMAT (a constant, not a `_gda_callable()` hook method):
 
@@ -72,8 +73,8 @@ Two properties decided the FORMAT (a constant, not a `_gda_callable()` hook meth
   `game call` is to invoke an undeclared project method to learn which methods are
   declared — bootstrapping the very thing the allowlist exists to bound.
 - **The assertion is statically reviewable.** A reader (or a reviewer, or a linter)
-  sees a chain's whole callable surface by reading the one class that declares it;
-  nothing is decided at runtime.
+  sees an opted-in chain's complete declaration in its one owner file; nothing is
+  decided at runtime.
 
 > **Amended triage decision (recorded on issue #673, 2026-08-27).** The triage comment
 > says "project-side declaration, read by the harness at `Engine session` start", and
@@ -87,7 +88,7 @@ Two properties decided the FORMAT (a constant, not a `_gda_callable()` hook meth
 > message instead. The format was explicitly left to the implementer; the amendment
 > comment on #673 carries the decision, its rationale and this ADR's link.
 
-**Why one class per chain — engine-enforced and loud.** GDScript forbids a subclass from
+**Why at most one owner per opted-in chain — engine-enforced and loud.** GDScript forbids a subclass from
 redeclaring a base class's constant: a subclass that declares its own `GDA_CALLABLE`
 while a base declares one fails to PARSE with
 `Parse Error: The member "GDA_CALLABLE" already exists in parent class <base>`
@@ -107,7 +108,7 @@ each with its own remediation:
 | Code | Condition | What the caller does |
 | --- | --- | --- |
 | `live_unknown_method` | the node has no such method | fix the name |
-| `live_method_not_allowlisted` | the node has it; the class never declared it | add it to `GDA_CALLABLE` |
+| `live_method_not_allowlisted` | the node has it; its script chain never declared it | add it to `GDA_CALLABLE` |
 | `live_invalid_call_args` | argument count outside the accepted range, or a value the declared parameter type cannot take | fix the arguments |
 
 **Existence is checked before the allowlist.** For a name that is both absent and
@@ -126,13 +127,15 @@ null into `int`, a Dictionary into an `Object` parameter, and a JSON array into
 `Array[int]`).
 
 The type rule is the engine's own `Variant::can_convert_strict` closure
-(`core/variant/variant.cpp`), which is not exposed to GDScript, restricted to the SEVEN
-Variant types a JSON argument can produce — null, bool, int, float, String, Array,
-Dictionary. Restricted that way it is closed and small, so the harness carries it as a
-table keyed by the SOURCE type: bool/int/float interconvert, an int or a String also
-reaches `Color`, a String reaches `StringName` / `NodePath`, an Array reaches any of the
-ten `Packed*Array` types, null reaches an `Object` parameter, an untyped (Variant)
-parameter takes anything, and everything else is refused with the reason. A TYPED
+(`core/variant/variant.cpp`), which is not exposed to GDScript, restricted to the SIX
+Variant types the live JSON parser produces — null, bool, float, String, Array, and
+Dictionary. Godot's `JSON.parse_string` materializes every JSON number as float,
+including a literal without a fractional part; `int` is therefore a reachable target
+type, not a live JSON source type. Restricted that way the closure is small, so the
+harness carries it as a table keyed by the SOURCE type: bool/float reach `int`/`float`,
+a String reaches `Color` / `StringName` / `NodePath`, an Array reaches any of the ten
+`Packed*Array` types, null reaches an `Object` parameter, an untyped (Variant) parameter
+takes anything, and everything else is refused with the reason. A TYPED
 container parameter (`Array[int]`) is refused whatever its contents, because the engine
 refuses `Array` → `Array[int]` outright — no JSON argument can reach one, and saying so
 beats letting the call fail as a null.
@@ -140,12 +143,13 @@ beats letting the call fail as a null.
 **Transcribing that closure by hand is exactly where this went wrong once** (PR #749
 re-review): a first version omitted the `Color` and `Packed*Array` rows and so REJECTED
 calls Godot performs. The table is therefore pinned by a real-engine conformance matrix
-whose ORACLE IS THE ENGINE, not a second copy of the table: a declared `probe_direct`
-method performs the call inside the game with `callv` and reports whether the method
-body RAN, and the matrix asserts gda's verdict equals the engine's for every
-(parameter type, JSON value) pair. gda does not convert on the caller's behalf: where
-the engine converts, gda calls; where it refuses, gda refuses first — and the matrix is
-what keeps that sentence true.
+whose ORACLE IS THE ENGINE, not a second copy of the table. The test first asserts with
+a declared `argument_type` method that both integer-looking and fractional-form number
+literals reach the harness as float. A declared `probe_direct` method then performs the
+call inside the game with `callv` and reports whether the method body RAN, and the matrix
+asserts gda's verdict equals the engine's for every retained (parameter type, live JSON
+value) pair. gda does not convert on the caller's behalf: where the engine converts the
+wire value, gda calls; where it refuses, gda refuses first.
 
 Arguments are also bounded at the CLI boundary, in the params model both invocation
 paths share (ADR-0015), for the values the live wire cannot carry UNCHANGED:
@@ -155,8 +159,8 @@ paths share (ADR-0015), for the values the live wire cannot carry UNCHANGED:
   parser could not read, so the call never arrived — the caller waited out the relay
   bound, got `live_timeout`, and the daemon retired the channel, losing the `Engine
   session`'s runtime state; and
-- an integer outside ±(2^53 − 1): the harness's `JSON.parse_string` reads every number
-  as a double, so a larger integer arrives as a DIFFERENT number and the call succeeds
+- an integral value outside ±(2^53 − 1): the harness's `JSON.parse_string` reads every
+  number as a double, so a larger value arrives as a DIFFERENT number and the call succeeds
   on a value the caller never sent (`9007199254740993` doubled to `…984` instead of
   `…986`; `123456789012345678901234567890` arrived as `-2`). The bound is the
   interoperable JSON integer range and is published in the params schema.
@@ -164,7 +168,7 @@ paths share (ADR-0015), for the values the live wire cannot carry UNCHANGED:
 Both are refused recursively — a value nested inside an argument is as harmful as a
 top-level one — and both were reproduced end to end before they were bounded.
 
-The `live_method_not_allowlisted` message names the class's declared set, so discovery
+The `live_method_not_allowlisted` message names the script chain's declared set, so discovery
 rides the failure an agent already has to read. A dedicated enumerate operation is
 DEFERRED, not rejected: if agents need the list without a failed call, it is a `game`
 operation of its own, decided on its own evidence.
@@ -178,8 +182,8 @@ per-read `--texture-digest` opt-in that `game get` offers is NOT part of this fi
 version: a path-less `Texture2D` returned by a call projects with a null digest. Adding
 it is a one-field change if a package needs it.
 
-Arguments are JSON values passed as their natural Variant forms (a JSON object becomes
-a Dictionary, an array an Array). The string-to-Godot-type coercion table that
+Arguments are JSON values passed as the live parser's Variant forms (a JSON object
+becomes a Dictionary, an array an Array, and every number a float). The string-to-Godot-type coercion table that
 `node set` / `game set` own is deliberately NOT reused here: a call's arguments are
 typed by the method, not by a stored property's declared type, and inventing a second
 coercion authority for them would create exactly the drift ADR-0015 exists to prevent.
@@ -187,7 +191,7 @@ coercion authority for them would create exactly the drift ADR-0015 exists to pr
 ## Consequences
 
 - The `Project-code execution surface` (CONTEXT.md) gains one point: a `game call`
-  runs one method the target class declared. Reading the declaration adds none — it is
+  runs one method the target node's script chain declared. Reading the declaration adds none — it is
   a constant-map read. The trust axis is unchanged (ADR-0009).
 - `game call` is a `kind = LIVE` `game` command, served by the existing harness op
   dispatch and single-writer serialization — one method per request, at a frame

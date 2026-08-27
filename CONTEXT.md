@@ -260,7 +260,7 @@ any import plugins the project registers) over project content, WITHOUT the
 autoloads: the pass boots the editor importer path, not the game's scene
 stack.
 `gda game call` (#673) contributes ONE narrow point: the single method the
-addressed node's class DECLARED callable in its `GDA_CALLABLE` script constant
+addressed node's attached-script chain named in its `GDA_CALLABLE` declaration
 runs, once, per request. Reading that declaration adds no point at all — the
 constant map is served by the compiled script, so learning what may be called
 executes nothing (ADR-0041).

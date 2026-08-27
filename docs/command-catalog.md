@@ -826,28 +826,30 @@ headless is unaffected (4.4+, cross-platform).
   (ADR-0019).
   `game call <node> --method NAME [--args JSON]` (shipped, #673, ADR-0041) serves the
   read `game get` cannot: a debug or state contract the project exposes as a METHOD
-  rather than a stored property (GDA-DF-033). The method must be named in the addressed
-  node's class **`GDA_CALLABLE` script constant** — an Array of method names, merged
-  along the script's base chain — which gda reads STATICALLY from the script's constant
+  rather than a stored property (GDA-DF-033). The method must be named by the
+  **`GDA_CALLABLE` declaration** resolved from the addressed node's attached script
+  along its base chain — which gda reads STATICALLY from the script's constant
   map, so learning what may be called runs no project code. The allowlist is NOT a trust
   boundary (the project is trusted, ADR-0009, and `script run` already executes
   arbitrary project code): it keeps the live READ surface free of side effects gda did
   not ask for and bounds results to the value projection. gda cannot verify that a
   declared method has no side effects — the declaration records the DECLARER's
   assertion; what gda guarantees is that no UNDECLARED method is callable. Arguments are
-  JSON values passed as their natural Variant forms (no string-coercion table — a call's
+  JSON values passed as the live parser's Variant forms, where every number is float
+  (no string-coercion table — a call's
   arguments are typed by the method, not by a stored property). The return value goes
   through the shared value projection; a method returning nothing projects as null, and
   the `--texture-digest` opt-in is not part of this first version (a path-less
   `Texture2D` return projects with a null digest). Three distinguishable refusals: a
   method the node does not have is `live_unknown_method` (existence is checked FIRST, so
   a wrong name is diagnosed as one), one it has but never declared is
-  `live_method_not_allowlisted` — whose message names the class's declared set, so
+  `live_method_not_allowlisted` — whose message names the script chain's declared set, so
   discovery rides the failure — and arguments the declared method cannot take are
   `live_invalid_call_args`, refused BEFORE the call. That covers the count AND each
   argument's type: the check mirrors the engine's own `Variant::can_convert_strict`
-  (not exposed to GDScript) over the seven Variant types JSON can produce, so bool/int/
-  float interconvert and null reaches an `Object` parameter, while a String into `int`,
+  (not exposed to GDScript) over the six Variant types the live JSON parser produces.
+  Every JSON number arrives as float; bool/float reach numeric parameters and null
+  reaches an `Object` parameter, while a String into `int`,
   a Dictionary into an `Object` parameter, null into `int`, and any JSON array into a
   typed `Array[int]` are refused with the reason. Without the check `callv` pushes an
   engine error, returns null and writes to the Session log — a failure that would read
@@ -855,15 +857,16 @@ headless is unaffected (4.4+, cross-platform).
   params model both invocation paths share (recursively, so a nested value counts):
   non-finite numbers (`NaN`/`Infinity`, which JSON has no literals for but Python's
   decoder accepts) — left through they produced a frame the harness could not parse,
-  costing the caller a `live_timeout` and the session its runtime state — and integers
-  outside ±(2^53 − 1), since the harness reads JSON numbers as doubles and a larger
-  integer arrives as a DIFFERENT value (a call that then succeeds on something the
+  costing the caller a `live_timeout` and the session its runtime state — and integral
+  values outside ±(2^53 − 1), since the harness reads JSON numbers as doubles and a larger
+  value arrives as a DIFFERENT value (a call that then succeeds on something the
   caller never sent). The type table itself is the engine's `Variant::can_convert_strict`
-  closure over the seven JSON source types, pinned by a real-engine conformance matrix
-  whose oracle is a direct `callv` rather than a second copy of the table. The constant is the inheritance CHAIN's declaration, not a per-class increment:
-  GDScript forbids a subclass from redeclaring a base class's constant, so exactly one
-  class per chain declares (a base that declares owns its subclasses' callable surface
-  too), and a project that declares in both fails to parse with a message naming the
+  closure over the six live JSON source types, pinned by a real-engine conformance matrix
+  that first asserts the observed numeric type and then uses direct `callv` as its oracle.
+  The constant is the inheritance CHAIN's declaration, not a per-class increment:
+  GDScript forbids a subclass from redeclaring a base class's constant, so an opted-in
+  chain has at most one declaration owner (a base owner covers its subclasses and need
+  not define every method it names); a project that declares in both fails to parse with a message naming the
   member — loud, never a silently wrong allowlist.
 - **`input` (input simulation):** runtime input injection into the running game
   (shipped, #221). Single-frame ops `input key <KEY> [--modifiers …] [--released]`,

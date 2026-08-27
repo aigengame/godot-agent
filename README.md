@@ -555,15 +555,15 @@ reported as `script_aborted` with the captured error.
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game. |
-| `game call` | Invoke one method the node's class declared callable (`GDA_CALLABLE`), and project what it returns. |
+| `game call` | Invoke one method named by the node's attached-script-chain declaration (`GDA_CALLABLE`), and project what it returns. |
 
 `game call` reads what `game get` cannot: a debug or state contract your project
-exposes as a **method**. A class names the callable methods in a `GDA_CALLABLE`
-script constant in its own source, and gda reads that constant statically — so
-learning what may be called runs none of your code, and nothing is callable until
-you declare it. The constant is the inheritance chain's declaration: GDScript
-forbids redeclaring a base class's constant, so exactly one class per chain
-declares (a base that declares owns its subclasses' callable surface too). gda
+exposes as a **method**. gda resolves the `GDA_CALLABLE` declaration statically
+from the node's attached script along its base chain — so learning what may be
+called runs none of your code, and nothing is callable until a chain opts in.
+GDScript forbids redeclaring a base class's constant, so an opted-in chain has at
+most one declaration owner (a base owner covers its subclasses and need not define
+every method it names). gda
 cannot verify a declared method has no side effects; what it guarantees is that no
 undeclared method is called (ADR-0041). Arguments that the declared parameters
 cannot take are refused before the call, so a mismatch is a typed error rather
@@ -684,7 +684,7 @@ it starts no engine). Concretely:
   boots the editor importer path, not the game: no autoloads execute. A fully cached request
   starts no engine at all.
 - **`gda game call` runs one declared method in the running game.** The single method the
-  addressed node's class named in its `GDA_CALLABLE` script constant executes, once, per
+  addressed node's attached-script chain named in its `GDA_CALLABLE` declaration executes, once, per
   request. Reading that declaration runs nothing — the constant is served by the compiled
   script — and no undeclared method is ever called.
 

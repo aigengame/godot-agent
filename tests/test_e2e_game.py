@@ -151,8 +151,8 @@ def test_game_get_projects_a_path_less_texture_with_optional_digest(
 
 # --- game call: the declared read-only method surface (#673, ADR-0041) --------
 # The dogfooding shape (GDA-DF-033): a debug/state contract exposed as a METHOD.
-# `main.gd` declares its own callable set; `child.gd` declares none and inherits
-# the base's, proving the base-chain merge. Both classes also carry a method they
+# `main.gd` owns its chain's callable declaration; `child.gd` declares none and
+# inherits the base's, proving base-chain resolution. Both classes also carry a method they
 # never declared, so the default-deny path is real rather than hypothetical.
 
 CALL_BASE_GD = (
@@ -170,9 +170,13 @@ CALL_MAIN_GD = (
     "extends Node2D\n\n"
     "const GDA_CALLABLE := [\n"
     '\t"qa_current_state_contract", "with_args", "returns_nothing",\n'
-    '\t"typed", "untyped", "typed_array", "with_node", "takes_float",\n'
-    '\t"takes_color", "takes_packed_int", "takes_packed_string",\n'
-    '\t"takes_vector2", "takes_string_name", "takes_dict", "probe_direct",\n'
+    '\t"typed", "untyped", "typed_array", "with_node", "takes_bool", "takes_float",\n'
+    '\t"takes_color", "takes_node_path", "takes_string_name",\n'
+    '\t"takes_packed_byte", "takes_packed_int", "takes_packed_int64",\n'
+    '\t"takes_packed_float32", "takes_packed_float64", "takes_packed_string",\n'
+    '\t"takes_packed_color", "takes_packed_vector2", "takes_packed_vector3",\n'
+    '\t"takes_packed_vector4", "takes_vector2", "takes_dict", "argument_type",\n'
+    '\t"probe_direct",\n'
     "]\n\n"
     "var _phase := 3\n"
     "var _hit := false\n\n"
@@ -197,6 +201,9 @@ CALL_MAIN_GD = (
     "func with_node(n: Node2D) -> String:\n"
     "\t_hit = true\n"
     '\treturn "got " + str(n)\n\n'
+    "func takes_bool(v: bool) -> bool:\n"
+    "\t_hit = true\n"
+    "\treturn v\n\n"
     "func takes_float(v: float) -> float:\n"
     "\t_hit = true\n"
     "\treturn v * 2.0\n\n"
@@ -207,21 +214,50 @@ CALL_MAIN_GD = (
     "func takes_color(c: Color) -> String:\n"
     "\t_hit = true\n"
     "\treturn str(c)\n\n"
+    "func takes_node_path(p: NodePath) -> String:\n"
+    "\t_hit = true\n"
+    "\treturn String(p)\n\n"
+    "func takes_string_name(s: StringName) -> String:\n"
+    "\t_hit = true\n"
+    "\treturn String(s)\n\n"
+    "func takes_packed_byte(items: PackedByteArray) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
     "func takes_packed_int(items: PackedInt32Array) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
+    "func takes_packed_int64(items: PackedInt64Array) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
+    "func takes_packed_float32(items: PackedFloat32Array) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
+    "func takes_packed_float64(items: PackedFloat64Array) -> int:\n"
     "\t_hit = true\n"
     "\treturn items.size()\n\n"
     "func takes_packed_string(items: PackedStringArray) -> int:\n"
     "\t_hit = true\n"
     "\treturn items.size()\n\n"
+    "func takes_packed_color(items: PackedColorArray) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
+    "func takes_packed_vector2(items: PackedVector2Array) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
+    "func takes_packed_vector3(items: PackedVector3Array) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
+    "func takes_packed_vector4(items: PackedVector4Array) -> int:\n"
+    "\t_hit = true\n"
+    "\treturn items.size()\n\n"
     "func takes_vector2(v: Vector2) -> String:\n"
     "\t_hit = true\n"
     "\treturn str(v)\n\n"
-    "func takes_string_name(s: StringName) -> String:\n"
-    "\t_hit = true\n"
-    "\treturn String(s)\n\n"
     "func takes_dict(d: Dictionary) -> int:\n"
     "\t_hit = true\n"
     "\treturn d.size()\n\n"
+    "func argument_type(value) -> String:\n"
+    "\treturn type_string(typeof(value))\n\n"
     "func probe_direct(method: String, call_args: Array) -> bool:\n"
     "\t_hit = false\n"
     "\tcallv(method, call_args)\n"
@@ -337,9 +373,9 @@ def test_declaring_gda_callable_in_both_base_and_subclass_is_an_engine_parse_err
     tmp_path, daemon_runtime_dir
 ):
     # ADR-0041's known limitation, pinned against the ENGINE rather than prose:
-    # GDScript forbids redeclaring a base class's constant, so exactly one class
-    # per inheritance chain declares. The failure is loud — the script does not
-    # load — never a silently wrong allowlist.
+    # GDScript forbids redeclaring a base class's constant, so an opted-in chain
+    # has at most one declaration owner. The failure is loud — the script does
+    # not load — never a silently wrong allowlist.
     from .conftest import project_godot
 
     (tmp_path / "project.godot").write_text(
@@ -476,19 +512,36 @@ def test_game_call_non_finite_args_never_reach_the_session(
         )
         before = json.loads(run("daemon", "status").stdout)["session_id"]
 
-        started = time.monotonic()
-        refused = run(
-            "game", "call", "/root/Main", "--method", "typed", "--args", "[NaN]"
-        )
-        elapsed = time.monotonic() - started
+        invocations = [
+            (
+                "argv",
+                ("game", "call", "/root/Main", "--method", "typed", "--args", "[NaN]"),
+            ),
+            (
+                "params-json",
+                (
+                    "game",
+                    "call",
+                    "--params-json",
+                    '{"node": "/root/Main", "method": "untyped", '
+                    '"args": [{"deep": [Infinity]}]}',
+                ),
+            ),
+        ]
+        for label, invocation in invocations:
+            started = time.monotonic()
+            refused = run(*invocation)
+            elapsed = time.monotonic() - started
 
-        assert refused.returncode != 0
-        # Refused at the input boundary, not by the 30 s relay bound.
-        assert elapsed < 10, elapsed
-        assert "live_timeout" not in refused.stdout
+            assert refused.returncode != 0, (label, refused.stdout)
+            # Refused at the input boundary, not by the 30 s relay bound.
+            assert elapsed < 10, (label, elapsed)
+            assert "live_timeout" not in refused.stdout
+            if label == "params-json":
+                assert json.loads(refused.stdout)["error"]["code"] == "invalid_params"
+            # The session is the SAME one — nothing was retired, no state was lost.
+            assert json.loads(run("daemon", "status").stdout)["session_id"] == before
 
-        # The session is the SAME one — nothing was retired, no state was lost.
-        assert json.loads(run("daemon", "status").stdout)["session_id"] == before
         after = run("game", "call", "/root/Main", "--method", "typed", "--args", "[2]")
         assert after.returncode == 0, after.stdout + after.stderr
         assert json.loads(run("daemon", "status").stdout)["session_id"] == before
@@ -501,7 +554,8 @@ def test_game_call_argument_gate_agrees_with_the_engine(tmp_path, daemon_runtime
     # #749 re-review P1: the first hand-transcribed conversion table REJECTED
     # calls Godot accepts (a String into `Color`, a JSON array into
     # `PackedInt32Array`). The table is now transcribed from the engine's own
-    # `Variant::can_convert_strict` closure — and pinned by THIS matrix, whose
+    # `Variant::can_convert_strict` closure over the SIX Variant types the live
+    # JSON parser produces — and pinned by THIS matrix, whose
     # oracle is the engine itself: `probe_direct` performs the call inside the
     # game and reports whether the method body RAN. gda must call exactly when
     # the engine would, so the table can never drift silently again.
@@ -517,8 +571,9 @@ def test_game_call_argument_gate_agrees_with_the_engine(tmp_path, daemon_runtime
 
     run = _gda_runner(tmp_path)
 
-    # (method, JSON arguments) pairs spanning every JSON source type against
-    # engine parameter types that accept, convert, or refuse them.
+    # (method, JSON arguments) pairs spanning every retained live source-to-target
+    # conversion edge, plus identity and refusal boundaries. Empty Arrays isolate
+    # the container conversion itself from element-conversion policy.
     matrix = [
         ("typed", "[7]"),
         ("typed", '["bad"]'),
@@ -526,12 +581,23 @@ def test_game_call_argument_gate_agrees_with_the_engine(tmp_path, daemon_runtime
         ("typed", "[true]"),
         ("typed", "[3.7]"),
         ("takes_float", "[3]"),
+        ("takes_float", "[true]"),
+        ("takes_bool", "[1]"),
         ("takes_color", '["red"]'),
         ("takes_color", "[16711680]"),
         ("takes_color", "[[1, 0, 0]]"),
+        ("takes_node_path", '["root/player"]'),
+        ("takes_packed_byte", "[[]]"),
         ("takes_packed_int", "[[1, 2, 3]]"),
+        ("takes_packed_int64", "[[]]"),
+        ("takes_packed_float32", "[[]]"),
+        ("takes_packed_float64", "[[]]"),
         ("takes_packed_int", '["nope"]'),
         ("takes_packed_string", '[["a", "b"]]'),
+        ("takes_packed_color", "[[]]"),
+        ("takes_packed_vector2", "[[]]"),
+        ("takes_packed_vector3", "[[]]"),
+        ("takes_packed_vector4", "[[]]"),
         ("takes_vector2", "[[1, 2]]"),
         ("takes_string_name", '["x"]'),
         ("takes_string_name", "[7]"),
@@ -545,6 +611,22 @@ def test_game_call_argument_gate_agrees_with_the_engine(tmp_path, daemon_runtime
 
     try:
         assert run("daemon", "start").returncode == 0
+
+        # Godot's live JSON parser materializes every number as float, even when
+        # the source literal has no fractional part. This pins the source domain
+        # before the conversion oracle: there is no reachable TYPE_INT row.
+        for literal in ("16711680", "16711680.0"):
+            observed = run(
+                "game",
+                "call",
+                "/root/Main",
+                "--method",
+                "argument_type",
+                "--args",
+                f"[{literal}]",
+            )
+            assert observed.returncode == 0, observed.stdout + observed.stderr
+            assert json.loads(observed.stdout)["value"] == "float"
 
         disagreements = []
         for method, args in matrix:
@@ -600,18 +682,19 @@ def test_game_call_refuses_integers_the_wire_cannot_carry(tmp_path, daemon_runti
         assert run("daemon", "wait-ready").returncode == 0
         before = json.loads(run("daemon", "status").stdout)["session_id"]
 
-        # The boundary value round-trips exactly: doubled, it is still exact.
-        ok = run(
-            "game",
-            "call",
-            "/root/Main",
-            "--method",
-            "typed",
-            "--args",
-            f"[{MAX_EXACT_JSON_INT}]",
-        )
-        assert ok.returncode == 0, ok.stdout + ok.stderr
-        assert json.loads(ok.stdout)["value"] == MAX_EXACT_JSON_INT * 2
+        # Both boundary values round-trip exactly: doubled, they are still exact.
+        for boundary in (MAX_EXACT_JSON_INT, -MAX_EXACT_JSON_INT):
+            ok = run(
+                "game",
+                "call",
+                "/root/Main",
+                "--method",
+                "typed",
+                "--args",
+                f"[{boundary}]",
+            )
+            assert ok.returncode == 0, ok.stdout + ok.stderr
+            assert json.loads(ok.stdout)["value"] == boundary * 2
 
         # Past it — both signs, and a value far outside int64 — the call is
         # refused rather than silently altered.
@@ -632,13 +715,12 @@ def test_game_call_refuses_integers_the_wire_cannot_carry(tmp_path, daemon_runti
             assert refused.returncode != 0, refused.stdout
             assert "live_timeout" not in refused.stdout
 
-        # Nested values are refused too, and the session is untouched throughout.
+        # A pure --params-json request (no individual node/method arguments)
+        # reaches the integer validator. Mixing the two forms only tests the
+        # mutual-exclusion usage error and gave the old regression a false pass.
         nested = run(
             "game",
             "call",
-            "/root/Main",
-            "--method",
-            "untyped",
             "--params-json",
             json.dumps(
                 {
@@ -649,6 +731,9 @@ def test_game_call_refuses_integers_the_wire_cannot_carry(tmp_path, daemon_runti
             ),
         )
         assert nested.returncode != 0, nested.stdout
+        nested_error = json.loads(nested.stdout)["error"]
+        assert nested_error["code"] == "invalid_params"
+        assert str(MAX_EXACT_JSON_INT) in nested_error["message"]
         assert json.loads(run("daemon", "status").stdout)["session_id"] == before
     finally:
         run("daemon", "stop")

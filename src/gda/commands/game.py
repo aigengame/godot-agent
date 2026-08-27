@@ -21,7 +21,7 @@ import math
 from typing import Any, Optional
 
 import typer
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
@@ -234,8 +234,8 @@ class GameSetResult(BaseModel):
     )
 
 
-# The NAME of the script constant a project class declares its gda-callable
-# methods in (ADR-0041). The runtime authority is the harness's own
+# The NAME of the script constant an opted-in inheritance chain declares its
+# gda-callable methods in (ADR-0041). The runtime authority is the harness's own
 # ``GDA_CALLABLE_CONST``; this is the agent-facing copy the schema, help and
 # error prose quote, and a mirror test pins the two together (PR #749 review) —
 # the same cross-language idiom the op names and live error codes use.
@@ -244,12 +244,54 @@ GDA_CALLABLE_CONST = "GDA_CALLABLE"
 
 # The largest magnitude an INTEGER argument can carry across the live wire
 # without changing value (PR #749 re-review). Godot's `JSON.parse_string` reads
-# every JSON number as a double, so an integer outside the IEEE-754 exact-integer
-# range arrives as a different number: 9007199254740993 became …992, and
+# every JSON number as a double, so an integral value outside the IEEE-754
+# exact-integer range arrives as a different number: 9007199254740993 became …992, and
 # 123456789012345678901234567890 became -2 — a SUCCESSFUL call on a value the
 # caller never sent. This is the interoperable JSON integer range every consumer
 # treats as safe, and it is published in the params schema.
 MAX_EXACT_JSON_INT = 2**53 - 1
+
+
+def _game_call_params_schema(schema: dict[str, Any]) -> None:
+    """Publish the recursive live-argument numeric domain (#749 third review).
+
+    ``args`` remains ``list[Any]`` at runtime because a method may accept any JSON
+    shape. The schema cannot stay ``items: {}``, however: the shared params model
+    refuses integral values outside the live wire's exact range. Attach one recursive
+    JSON-value definition and point the array items at it, so schema-driven callers
+    and ``--params-json`` accept the same numeric domain (ADR-0015).
+
+    JSON Schema treats ``1`` and ``1.0`` as the same integer-valued instance. The
+    runtime validator therefore applies the bound to both Python ints and integral
+    floats; non-integral finite numbers use the second branch.
+    """
+    # `$dynamicRef` keeps the recursive definition standard Draft 2020-12 while
+    # avoiding a Pydantic-internal `$ref` lookup: this definition is attached by
+    # the schema projection rather than generated from a core model type.
+    value_ref = {"$dynamicRef": "#liveCallArgument"}
+    schema.setdefault("$defs", {})["LiveCallArgument"] = {
+        "$dynamicAnchor": "liveCallArgument",
+        "anyOf": [
+            {"type": "null"},
+            {"type": "boolean"},
+            {
+                "type": "integer",
+                "minimum": -MAX_EXACT_JSON_INT,
+                "maximum": MAX_EXACT_JSON_INT,
+            },
+            {"type": "number", "not": {"type": "integer"}},
+            {"type": "string"},
+            {"type": "array", "items": value_ref},
+            {"type": "object", "additionalProperties": value_ref},
+        ],
+    }
+    args_schema = schema["properties"]["args"]
+    array_schema = next(
+        candidate
+        for candidate in args_schema["anyOf"]
+        if candidate.get("type") == "array"
+    )
+    array_schema["items"] = value_ref
 
 
 def _reject_unrepresentable(value: Any, path: str = "args") -> None:
@@ -264,9 +306,9 @@ def _reject_unrepresentable(value: Any, path: str = "args") -> None:
       ``JSON.parse_string`` cannot read, so the call never arrives: the caller
       waits out the 30 s relay bound, gets ``live_timeout``, and the daemon
       retires the channel, LOSING the engine session's runtime state.
-    - **Integers outside the exact-integer range** of the double the wire's JSON
-      parser produces: those arrive as a different number and the call SUCCEEDS
-      on a value the caller never sent (PR #749 re-review).
+    - **Integral values outside the exact-integer range** of the double the wire's
+      JSON parser produces: those arrive as a different number and the call
+      SUCCEEDS on a value the caller never sent (PR #749 re-review).
 
     The params model is the one authority both the argv and ``--params-json``
     paths pass through (ADR-0015), so both refusals belong here — structurally,
@@ -279,10 +321,12 @@ def _reject_unrepresentable(value: Any, path: str = "args") -> None:
             f"{path} must be finite JSON values; NaN and Infinity are not "
             "representable on the live wire."
         )
-    elif isinstance(value, int) and abs(value) > MAX_EXACT_JSON_INT:
+    elif (
+        isinstance(value, int) or (isinstance(value, float) and value.is_integer())
+    ) and abs(value) > MAX_EXACT_JSON_INT:
         raise ValueError(
-            f"{path} must be within +/-{MAX_EXACT_JSON_INT} (the live wire "
-            "reads JSON numbers as doubles, so a larger integer arrives as a "
+            f"{path} must be within +/-{MAX_EXACT_JSON_INT} when integral (the "
+            "live wire reads JSON numbers as doubles, so a larger value arrives as a "
             f"DIFFERENT value); got {value}."
         )
     if isinstance(value, dict):
@@ -298,17 +342,21 @@ class GameCallParams(BaseModel):
 
     The live read that ``game get`` cannot serve: a debug/state contract exposed
     as a METHOD rather than a stored property (GDA-DF-033). ``method`` must be
-    named by the addressed node's class in its ``GDA_CALLABLE`` script constant
-    (ADR-0041) — gda calls nothing a class did not declare. ``args`` are JSON
-    values passed to the method as their natural Variant forms.
+    named by the ``GDA_CALLABLE`` declaration resolved from the addressed node's
+    attached script along its base chain (ADR-0041) — gda calls nothing the chain
+    did not declare. ``args`` are JSON values passed to the method as their live
+    Variant forms; the harness's JSON parser materializes every number as float.
     """
+
+    model_config = ConfigDict(json_schema_extra=_game_call_params_schema)
 
     node: str = Field(description=RUNTIME_NODE_DESC)
     method: str = Field(
         min_length=1,
         description=(
-            "The method to invoke. It must be named in the node's class "
-            f"`{GDA_CALLABLE_CONST}` script constant (ADR-0041); an undeclared "
+            "The method to invoke. It must be named by the "
+            f"`{GDA_CALLABLE_CONST}` script constant declaration resolved along the node's "
+            "attached-script base chain (ADR-0041); an undeclared "
             "method is `live_method_not_allowlisted`, one the node does not have "
             "at all is `live_unknown_method`."
         ),
@@ -316,11 +364,14 @@ class GameCallParams(BaseModel):
     args: list[Any] | None = Field(
         default=None,
         description=(
-            "The call's arguments as a JSON array, passed to the method as their "
-            "natural Variant forms (JSON objects become Dictionary, arrays "
-            "Array); null or omitted calls it with none. Values must be finite "
+            "The call's arguments as a JSON array, passed to the method as the "
+            "live parser's Variant forms (JSON objects become Dictionary, arrays "
+            "Array, and every number becomes float); null or omitted calls it "
+            "with none. Values must be finite "
             "JSON (NaN/Infinity are refused here — they cannot cross the live "
-            "wire). An argument count outside the method's accepted range, or a "
+            f"wire); integral values must stay within +/-{MAX_EXACT_JSON_INT} "
+            "recursively, the live wire's exact range. An argument count outside "
+            "the method's accepted range, or a "
             "value the declared parameter cannot take, is "
             "`live_invalid_call_args`, refused before the call."
         ),
@@ -625,8 +676,9 @@ def game_call(
         ...,
         "--method",
         help=(
-            "The method to invoke. Its class must name it in the "
-            f"`{GDA_CALLABLE_CONST}` script constant; gda calls nothing "
+            "The method to invoke. The node's attached-script base chain must "
+            f"name it in its `{GDA_CALLABLE_CONST}` script constant declaration; "
+            "gda calls nothing "
             "undeclared."
         ),
     ),
@@ -634,8 +686,11 @@ def game_call(
         None,
         "--args",
         help=(
-            "JSON array of arguments, passed as their natural Variant forms "
-            "(e.g. '[1, \"idle\"]'). Omit to call with none."
+            "JSON array of arguments, passed as the live parser's Variant forms "
+            "(every number becomes float; e.g. '[1, \"idle\"]'). Values are "
+            "checked recursively: NaN and "
+            f"Infinity are refused, and integral values must stay within +/-"
+            f"{MAX_EXACT_JSON_INT}. Omit to call with none."
         ),
     ),
     json_output: bool = json_option(),
@@ -648,8 +703,8 @@ def game_call(
 
     The live read `game get` cannot serve: a debug or state contract the project
     exposes as a METHOD rather than a stored property (#673). The method must be
-    named in the addressed node's class `GDA_CALLABLE` script constant — an Array
-    of method names, merged along the script's base chain — which gda reads
+    named by the `GDA_CALLABLE` declaration resolved from the addressed node's
+    attached script along its base chain — which gda reads
     STATICALLY from the script's constant map, so learning what may be called
     runs no project code (ADR-0041).
 
@@ -663,7 +718,7 @@ def game_call(
     read uses (ADR-0035). Failures are distinguishable: a method the node does
     not have is `live_unknown_method`, one it has but never declared is
     `live_method_not_allowlisted` (its message names the declared set), an
-    an argument the declared parameters cannot take — wrong count, a value the
+    argument the declared parameters cannot take — wrong count, a value the
     parameter type cannot convert from, or a typed `Array[int]` parameter no
     JSON value can satisfy — is `live_invalid_call_args`, refused BEFORE the
     call (a `callv` the engine cannot convert for returns null, which would

@@ -87,6 +87,33 @@ def test_gda_callable_constant_name_mirrors_the_harness():
         assert set(named) == {GDA_CALLABLE_CONST}, (label, set(named))
 
 
+def test_game_call_conversion_table_uses_only_live_json_source_types():
+    """The preflight table must start from types the Godot wire can produce.
+
+    ``JSON.parse_string`` materializes every JSON number as ``TYPE_FLOAT``. A
+    ``TYPE_INT`` source row therefore advertises an engine conversion no live
+    argument can exercise, and a direct-call oracle reached through the same wire
+    cannot expose that vacuity (#749 third review). The real-engine e2e separately
+    pins the observed numeric type; this unit guard pins the table's source set.
+    """
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = re.search(
+        r"const JSON_ARGUMENT_CONVERSIONS := \{(?P<body>.*?)\n\}", source, re.DOTALL
+    )
+    assert match is not None, "the harness must declare JSON_ARGUMENT_CONVERSIONS"
+    sources = set(
+        re.findall(r"^\s*(TYPE_[A-Z0-9_]+):", match.group("body"), re.MULTILINE)
+    )
+    assert sources == {
+        "TYPE_NIL",
+        "TYPE_BOOL",
+        "TYPE_FLOAT",
+        "TYPE_STRING",
+        "TYPE_ARRAY",
+        "TYPE_DICTIONARY",
+    }
+
+
 def _descriptors():
     """The backing ``HeadlessCommand`` of every dispatchable leaf (ADR-0023).
 
