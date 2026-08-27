@@ -574,3 +574,43 @@ def test_project_walks_agree_on_a_nested_dot_godot_directory(tmp_path):
     )
     assert cached.returncode == 4, cached.stdout + cached.stderr
     assert json.loads(cached.stdout)["error"]["code"] == "invalid_node_type"
+
+    # The three remaining consumers of that same walk. They run AFTER the node
+    # add, which wrote an [ext_resource] to the nested script into
+    # `res://top.tscn` — so the nested content is a real reference target here,
+    # not just an enumerated path.
+    deps_proc = _gda(project, "project", "dependencies", "--json")
+    refs_proc = _gda(
+        project, "project", "find-references", "res://nested/.godot/hidden.gd", "--json"
+    )
+    unused_proc = _gda(project, "project", "find-unused-resources", "--json")
+
+    assert deps_proc.returncode == 0, deps_proc.stdout + deps_proc.stderr
+    assert refs_proc.returncode == 0, refs_proc.stdout + refs_proc.stderr
+    assert unused_proc.returncode == 0, unused_proc.stdout + unused_proc.stderr
+    by_source = {
+        row["path"]: row["depends_on"]
+        for row in json.loads(deps_proc.stdout)["dependencies"]
+    }
+    references = json.loads(refs_proc.stdout)["references"]
+    unused = json.loads(unused_proc.stdout)["unused"]
+
+    # Both nested files are graph sources, and top.tscn's edge to the nested
+    # script is reported from both ends.
+    assert set(by_source) == {
+        "res://top.tscn",
+        "res://nested/.godot/hidden.tscn",
+        "res://nested/.godot/hidden.gd",
+    }
+    assert by_source["res://top.tscn"] == [
+        {"path": "res://nested/.godot/hidden.gd", "kind": "ext_resource"}
+    ]
+    assert [(r["path"], r["kind"]) for r in references] == [
+        ("res://top.tscn", "ext_resource")
+    ]
+    # The nested script is referenced now, so only the two scenes are orphans.
+    assert unused == ["res://nested/.godot/hidden.tscn", "res://top.tscn"]
+    # The root cache is invisible to all three. Its `.gd` and `.tscn` would
+    # otherwise BOTH be dependency source rows and unused candidates, so this
+    # arm fails if the exclusion ever widens past `res://.godot` itself.
+    assert not any(p.startswith("res://.godot/") for p in [*by_source, *unused])

@@ -70,9 +70,8 @@ they are provenance, not status markers.
 | `gda scene preflight` | Boot a scene headless and report its startup verdict |
 
 **Enumeration** (established by #54): `scene list` walks the project's `res://`
-tree under the one exclusion every `res://` walk applies — the engine's own
-`res://.godot` cache, and only that path, never a directory that merely bears
-that name (stated in full with `script list` below; #712).
+tree under the same exclusion rule `script list` states below, so the two see the
+same directories and differ only in the extension they collect (#712).
 
 **Static instance reporting** (established by #400): `scene get` reads the stored
 `SceneState` without instantiating the host scene, but an instanced node is still
@@ -458,14 +457,15 @@ agent authored. **Only that path**, not every directory named `.godot`: a nested
 authored content, and excluding it hid real scripts from the listing and let `script validate --all`
 report a valid aggregate for a project holding an invalid script (#663 review). Sometimes it is not
 authored content — a vendored sub-project checked out under `res://` and opened once in an editor
-keeps an engine cache of its own, whose import artefacts then count in `project statistics`,
-`find-unused-resources` and `dependencies`. That cost is accepted deliberately: gda cannot tell the
+keeps an engine cache of its own, whose import artefacts then count in `project statistics` and
+become `find-unused-resources` candidates. That cost is accepted deliberately: gda cannot tell the
 two apart from the directory alone, and a false-valid aggregate is the worse failure. Hidden entries
 are otherwise enumerated as promised (#54). **This is the rule for every `res://` walk** — `script
-list`, `scene list`, and the static-analysis scan that backs `project statistics`,
-`find-references`, `dependencies`, `find-unused-resources` and the `class_name` index — so one
-project cannot answer two ways. It once did: three of the four walks compared the directory NAME,
-so `script list` reported a script `project statistics` counted as zero (#712). `gda script delete`
+list`, `scene list`, and both static-analysis walks (the extension-filtered one behind
+`find-references`, `dependencies`, `find-unused-resources` and the `class_name` index, and the
+unfiltered one `project statistics` counts with) — so one project cannot answer two ways. It once
+did: three of the four walks compared the directory NAME, so `script list` reported a script
+`project statistics` counted as zero (#712). `gda script delete`
 removes a script file and reports the removed script's `class_name`/`extends` (parsed before
 deletion), so the result names the content, not just the path. Delete honors the same addressing
 boundary as the rest of the group — only a `.gd` path is removed (a non-`.gd` target is refused
@@ -800,10 +800,12 @@ These create or edit resource files (`.gdshader`, `.tres`) and so are headless.
 | `gda project dependencies` | Map scene → scene references |
 | `gda project statistics` | File/line counts, autoloads, plugins |
 
-One static scan backs all four (and the `class_name` index node/resource creation
-resolves through). It reads the project's `res://` tree under the one exclusion every
-`res://` walk applies — the engine's own `res://.godot` cache, and only that path
-(stated in full with `script list` above; #712).
+Two static walks back these, over different file universes: `find-references`,
+`dependencies`, `find-unused-resources` and the `class_name` index (which node/resource
+creation resolves through) share the extension-filtered one, while `project statistics`
+counts with an unfiltered one that also sees `.import` sidecars and `project.godot` — so
+its file total does not reconcile with the others' candidate set. What is shared is the
+directory exclusion, the rule `script list` states above (#712).
 
 ---
 
