@@ -585,6 +585,10 @@ def _reference_evaluate_value_program_vector(
                 value = values[instruction["left"]] - values[instruction["right"]]
             elif node == "multiply":
                 value = values[instruction["left"]] * values[instruction["right"]]
+            elif node == "floor-divide":
+                divisor = values[instruction["right"]]
+                assert divisor > 0
+                value = values[instruction["left"]] // divisor
             elif node == "maximum":
                 value = max(
                     values[instruction["left"]],
@@ -6698,11 +6702,7 @@ def test_operation_conformance_indexes_same_named_package_definitions_exactly():
 def test_generation_operation_vectors_cover_success_fallback_and_refusals():
     _kernel, ldb = mutable_authorities()
 
-    assert {
-        vector["id"]: vector["category"]
-        for package_id, _package_version, vector in operation_execution_vectors(ldb)
-        if package_id == "game.generation"
-    } == {
+    expected = {
         "generation.select.success": "deterministic-rng",
         "generation.select.no-reward-outcome": "outcome",
         "generation.select.empty-refusal": "boundary",
@@ -6711,15 +6711,26 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
         "generation.select.invalid-fallback-policy-after-refusal": "rollback-replay",
         "generation.select.invalid-option-refusal": "semantic-mutation",
     }
+    vectors_by_version = {
+        version: {
+            vector["id"]: vector["category"]
+            for package_id, package_version, vector in operation_execution_vectors(ldb)
+            if package_id == "game.generation" and package_version == version
+        }
+        for version in ("1.0.0", "1.1.0")
+    }
+    assert vectors_by_version["1.0.0"] == expected
+    assert vectors_by_version["1.1.0"] == {
+        f"game.generation.v1-1.{vector_id}": category
+        for vector_id, category in expected.items()
+    }
 
 
 def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
     kernel, ldb = mutable_authorities()
     context = authority_module.admit_authority_context(kernel, ldb)
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
-    operations = {
-        operation["id"]: operation for operation in ldb["language"]["operations"]
-    }
+    operations = conformance_operation_index(ldb)
     vectors = [
         (package_id, package_version, vector)
         for package_id, package_version, vector in operation_execution_vectors(ldb)
@@ -6729,13 +6740,15 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
     assert {vector["id"] for _package, _version, vector in vectors} == {
         "generation.select.invalid-fallback-policy-before-refusal",
         "generation.select.invalid-fallback-policy-after-refusal",
+        "game.generation.v1-1.generation.select.invalid-fallback-policy-before-refusal",
+        "game.generation.v1-1.generation.select.invalid-fallback-policy-after-refusal",
         "build.replace.invalid-plan-refusal",
     }
 
     harnesses = {}
     for package_id, package_version, vector in vectors:
-        operation = operations[vector["operation"]]
         coordinate = (package_id, package_version, vector["operation"])
+        operation = operations[coordinate]
         harness = harnesses.get(coordinate)
         if harness is None:
             harness = operation_conformance_module.compile_operation_execution_harness(
@@ -7391,6 +7404,8 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         "formula.runtime.observation.positive.post-transition-snapshot",
         "formula.runtime.observation.boundary.snapshot-cache-key",
         "formula.runtime.observation.refusal.atomic-prefix",
+        "formula.runtime.floor-divide.exact",
+        "formula.runtime.floor-divide.negative-non-exact",
     }
     for vector in vectors:
         production = experiment_runtime_module._evaluate_value_program_vector(vector)

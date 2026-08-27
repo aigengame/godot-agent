@@ -22,6 +22,7 @@ from gda_balancing.domain.runtime.execution import (
 )
 
 OperationCoordinate = tuple[str, str, str]
+PackageCoordinate = tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,29 @@ def _language_operation_index(
         if closure["authority_path"] == "language.operations"
         for definition in cast(list[dict[str, Any]], closure["definitions"])
     }
+
+
+def _reachable_package_coordinates(
+    language: dict[str, Any], root: PackageCoordinate
+) -> set[PackageCoordinate]:
+    packages = {
+        (cast(str, package["id"]), cast(str, package["version"])): package
+        for package in cast(list[dict[str, Any]], language["packages"])
+    }
+    selected: set[PackageCoordinate] = set()
+
+    def visit(coordinate: PackageCoordinate) -> None:
+        if coordinate in selected:
+            return
+        selected.add(coordinate)
+        package = packages[coordinate]
+        for dependency in cast(
+            list[dict[str, Any]], package["dependencies"]["required"]
+        ):
+            visit((cast(str, dependency["id"]), cast(str, dependency["version"])))
+
+    visit(root)
+    return selected
 
 
 def _type_coordinate(contract: dict[str, Any]) -> tuple[str, str, str]:
@@ -175,10 +199,13 @@ def _formula_sources(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     language = cast(dict[str, Any], context.language_bundle["language"])
     operations = _language_operation_index(language)
+    selected_packages = _reachable_package_coordinates(language, root[:2])
     runtime = cast(dict[str, Any], context.kernel["meta_format"]["runtime_program"])
     numeric = cast(dict[str, int], runtime["numeric"])
     expression_operations: list[tuple[OperationCoordinate, dict[str, Any]]] = []
     for coordinate, operation in operations.items():
+        if coordinate[:2] not in selected_packages:
+            continue
         body = operation.get("body")
         result = operation.get("result")
         if (
@@ -383,7 +410,18 @@ def _candidate_model_source(
     runtime = cast(dict[str, Any], context.kernel["meta_format"]["runtime_program"])
     numeric = cast(dict[str, int], runtime["numeric"])
     operation_owner = operation_coordinate[:2]
-    quantity_coordinate = ("core.quantity", "2.1.0", "Quantity")
+    selected_packages = _reachable_package_coordinates(
+        cast(dict[str, Any], context.language_bundle["language"]), operation_owner
+    )
+    quantity_packages = {
+        coordinate
+        for coordinate in selected_packages
+        if coordinate[0] == "core.quantity"
+    }
+    if len(quantity_packages) != 1:
+        raise ValueError("operation vector does not select one Quantity package")
+    quantity_package = next(iter(quantity_packages))
+    quantity_coordinate = (*quantity_package, "Quantity")
     contracts = [*operation["inputs"], operation["result"]]
     coordinates = sorted(
         {*(_type_coordinate(contract) for contract in contracts), quantity_coordinate},
