@@ -454,10 +454,14 @@ issue #30) — null when the source declares neither, so the listing names every
 Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
 `--project`); an empty project is a valid, empty listing, not an error. The walk excludes exactly
 one directory — the engine's own cache at `res://.godot`, whose contents are import artefacts no
-agent authored. **Only that path**, not every directory named `.godot`: a nested one is authored
-content, and excluding it hid real scripts from the listing and let `script validate --all` report
-a valid aggregate for a project holding an invalid script (#663 review). Hidden entries are
-otherwise enumerated as promised (#54). **This is the rule for every `res://` walk** — `script
+agent authored. **Only that path**, not every directory named `.godot`: a nested one is usually
+authored content, and excluding it hid real scripts from the listing and let `script validate --all`
+report a valid aggregate for a project holding an invalid script (#663 review). Sometimes it is not
+authored content — a vendored sub-project checked out under `res://` and opened once in an editor
+keeps an engine cache of its own, whose import artefacts then count in `project statistics`,
+`find-unused-resources` and `dependencies`. That cost is accepted deliberately: gda cannot tell the
+two apart from the directory alone, and a false-valid aggregate is the worse failure. Hidden entries
+are otherwise enumerated as promised (#54). **This is the rule for every `res://` walk** — `script
 list`, `scene list`, and the static-analysis scan that backs `project statistics`,
 `find-references`, `dependencies`, `find-unused-resources` and the `class_name` index — so one
 project cannot answer two ways. It once did: three of the four walks compared the directory NAME,
