@@ -72,6 +72,15 @@ HARNESS_LIVE_ERROR_CODES = (
     # #222: a `screen` capture op on a headless engine session — the dummy
     # DisplayServer cannot read pixels (the session was not started --windowed).
     "live_display_unavailable",
+    # #661: a `screen capture --await-*` predicate that never held within its
+    # declared frame bound.
+    "live_predicate_unmet",
+    # #673: the `game call` allowlist's three distinguishable refusals — a
+    # method the node does not have, one it has but never declared callable,
+    # and an argument count outside the declared method's range.
+    "live_unknown_method",
+    "live_method_not_allowlisted",
+    "live_invalid_call_args",
 )
 
 

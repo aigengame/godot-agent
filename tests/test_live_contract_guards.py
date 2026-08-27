@@ -46,6 +46,74 @@ def _leaf_commands(command, path):
     yield " ".join(path), command
 
 
+def test_gda_callable_constant_name_mirrors_the_harness():
+    """The declaration constant's NAME is one contract in two languages (#749 review).
+
+    The harness owns the runtime authority (``GDA_CALLABLE_CONST``); the command
+    group quotes it in the agent-facing schema, help and prose. A one-sided
+    rename would leave the published contract naming a constant the harness
+    never reads — invisible to every gate until a live call, since PR CI runs no
+    Godot e2e. Same mirror idiom as the op names and live error codes.
+    """
+    from gda.commands.game import GDA_CALLABLE_CONST
+
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = re.search(r'const GDA_CALLABLE_CONST := "([A-Z_]+)"', source)
+    assert match is not None, "the harness must declare GDA_CALLABLE_CONST"
+    assert match.group(1) == GDA_CALLABLE_CONST
+    # The published input contract quotes the same name, so an agent reading
+    # only the schema learns where to declare.
+    import json
+
+    from typer.testing import CliRunner
+
+    from gda.cli import app
+
+    runner = CliRunner()
+    schema = runner.invoke(app, ["game", "call", "--schema"]).stdout
+    help_text = runner.invoke(app, ["game", "call", "--help"]).stdout
+    doc = json.loads(schema)
+    assert GDA_CALLABLE_CONST in json.dumps(doc["input"])
+    # EXACT rendered consistency (#749 re-review): docstrings cannot interpolate
+    # the constant, so a coordinated rename could leave published text naming the
+    # old one while the two constants still matched. Every declaration-constant
+    # token the public schema and help render must BE the constant — a stale name
+    # shows up here as a different token.
+    for rendered, label in ((schema, "schema"), (help_text, "help")):
+        # Normalized, because Rich wraps help lines mid-sentence.
+        flat = " ".join(rendered.split())
+        named = re.findall(r"`?\b(GDA_[A-Z_]+)\b`? script constant", flat)
+        assert named, f"{label} must name the declaration constant"
+        assert set(named) == {GDA_CALLABLE_CONST}, (label, set(named))
+
+
+def test_game_call_conversion_table_uses_only_live_json_source_types():
+    """The preflight table must start from types the Godot wire can produce.
+
+    ``JSON.parse_string`` materializes every JSON number as ``TYPE_FLOAT``. A
+    ``TYPE_INT`` source row therefore advertises an engine conversion no live
+    argument can exercise, and a direct-call oracle reached through the same wire
+    cannot expose that vacuity (#749 third review). The real-engine e2e separately
+    pins the observed numeric type; this unit guard pins the table's source set.
+    """
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = re.search(
+        r"const JSON_ARGUMENT_CONVERSIONS := \{(?P<body>.*?)\n\}", source, re.DOTALL
+    )
+    assert match is not None, "the harness must declare JSON_ARGUMENT_CONVERSIONS"
+    sources = set(
+        re.findall(r"^\s*(TYPE_[A-Z0-9_]+):", match.group("body"), re.MULTILINE)
+    )
+    assert sources == {
+        "TYPE_NIL",
+        "TYPE_BOOL",
+        "TYPE_FLOAT",
+        "TYPE_STRING",
+        "TYPE_ARRAY",
+        "TYPE_DICTIONARY",
+    }
+
+
 def _descriptors():
     """The backing ``HeadlessCommand`` of every dispatchable leaf (ADR-0023).
 

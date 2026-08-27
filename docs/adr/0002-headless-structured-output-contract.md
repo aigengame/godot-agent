@@ -278,6 +278,7 @@ operation, and parse codes the CLI assigns).
 | `export_path_unset` | `operation` | `classifier` | `4` | An export run has no destination — neither a `--output` override nor a configured `export_path` (#170). |
 | `export_templates_missing` | `operation` | `classifier` | `4` | A release/debug export needs the export templates for the running engine version, which are not installed (pack needs no platform templates and is exempt; #170). |
 | `export_output_parent_failed` | `operation` | `classifier` | `4` | An export run could not create the output parent directory before native export (#402). |
+| `stdout_spill_failed` | `operation` | `classifier` | `4` | A `script run` stdout exceeded the cap but the complete-stream spill file could not be written, so the bounded result cannot be delivered (#665). |
 | `export_failed` | `operation` | `classifier` | `4` | A native Godot export run failed (the engine reported the export did not complete). |
 | `invalid_uid` | `operation` | `operation` | `4` | A requested `uid://` value is not a syntactically valid resource UID. |
 | `unknown_uid` | `operation` | `operation` | `4` | A syntactically valid resource UID is not registered in the engine's UID cache. |
@@ -297,6 +298,9 @@ operation, and parse codes the CLI assigns).
 | `live_not_control` | `live` | `classifier` | `6` | A live game rect operation targeted a running node that is not a Control (Phase 2, #419). |
 | `live_unknown_property` | `live` | `classifier` | `6` | A live game get or set targeted a property name the running node does not expose as an addressable runtime, storage, or attached-script property (Phase 2, #220, #422). |
 | `live_uncoercible_value` | `live` | `classifier` | `6` | A live game set value cannot be coerced to the addressed runtime property's or script variable's Godot type (Phase 2, #220, #422). |
+| `live_unknown_method` | `live` | `classifier` | `6` | A live game call named a method the addressed running node does not have (Phase 2, #673). |
+| `live_method_not_allowlisted` | `live` | `classifier` | `6` | A live game call named a method the addressed running node has but its class never declared gda-callable (Phase 2, #673, ADR-0041). |
+| `live_invalid_call_args` | `live` | `classifier` | `6` | A live game call supplied arguments the declared method cannot take — a count outside its accepted range, or a value the declared parameter type cannot convert from (Phase 2, #673). |
 | `live_log_unavailable` | `live` | `classifier` | `6` | A live engine session was launched but its diagnostics log file is missing or unreadable, so `gda diag` cannot read the running game's errors/output (Phase 2, #224). |
 | `live_scene_not_found` | `live` | `classifier` | `6` | A `gda daemon start --scene` selector did not load: the launched session ran a different scene (Godot silently falls back to main_scene for a missing/invalid path or UID), verified by the harness at launch — gda never falls back (Phase 2, #278). |
 | `live_perf_node_not_found` | `live` | `classifier` | `6` | A live perf monitor's node path does not resolve to a node in the running scene tree (Phase 2, #223). |
@@ -305,6 +309,7 @@ operation, and parse codes the CLI assigns).
 | `live_invalid_key` | `live` | `classifier` | `6` | A live input key event named a key the engine could not resolve to a keycode (Phase 2, #221). |
 | `live_unknown_action` | `live` | `classifier` | `6` | A live input action targeted an action the running game's InputMap does not declare (Phase 2, #221). |
 | `live_invalid_event_spec` | `live` | `classifier` | `6` | A live input sequence event has a type the harness does not recognize (Phase 2, #221). |
+| `live_predicate_unmet` | `live` | `classifier` | `6` | A live `screen capture` predicate (`--await-*`, #661) did not hold within its declared frame bound (Phase 2). |
 | `live_display_unavailable` | `live` | `classifier` | `6` | A live `screen` capture ran on a headless engine session (the dummy DisplayServer cannot read pixels); start the daemon windowed with `gda daemon start --windowed` (Phase 2, #222). |
 | `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
 | `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed Engine session (`gda daemon start --windowed`) was requested but the host has no usable DisplayServer (no on-console GUI session / no `$DISPLAY`), so the session cannot come up; refused before spawning Godot (Phase 2, #345). |

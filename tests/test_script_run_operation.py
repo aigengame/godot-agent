@@ -30,6 +30,7 @@ They are the recipe's own test surface, complementary to the e2e round-trip in
 ``tests/test_e2e_script_run.py`` (real Godot).
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,7 @@ from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023
     DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
     SCRIPT_RUN_ABORT_SILENCE_SECONDS,
     SCRIPT_RUN_COMMAND,
+    SCRIPT_STDOUT_CAP,
     ScriptRunResult,
     TerminationPhase,
     _CompletionMarkerWatch,
@@ -316,6 +318,9 @@ def test_result_is_the_thin_promotion_dropping_launch_failure():
         "exit_status": 7,
         "stdout": "out",
         "stderr": "err",
+        "stdout_bytes": 3,
+        "stdout_truncated": False,
+        "stdout_file": None,
         "diagnostics": [],
     }
 
@@ -1181,3 +1186,316 @@ def test_output_within_the_cap_is_never_re_encoded():
     assert isinstance(outcome, Failure)
     assert "界 ok" in outcome.error.diagnostics
     assert "Ω done" in outcome.error.diagnostics
+
+
+# --- the bounded stdout (#665, GDA-DF-036) -------------------------------------
+# The one qualification of the verbatim passthrough: a SUCCESS result's stdout
+# above SCRIPT_STDOUT_CAP returns as the stream's leading cap bytes while the
+# COMPLETE stream spills to a named file; the full byte count is always present.
+
+
+def test_stdout_at_the_cap_returns_verbatim():
+    exactly_cap = "x" * SCRIPT_STDOUT_CAP
+    outcome, _ = _run(RunResult(stdout=exactly_cap, stderr="", exit_code=0))
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.stdout == exactly_cap
+    assert outcome.stdout_bytes == SCRIPT_STDOUT_CAP
+    assert outcome.stdout_truncated is False
+    assert outcome.stdout_file is None
+
+
+def test_stdout_above_the_cap_is_truncated_and_spilled():
+    head = "h" * SCRIPT_STDOUT_CAP
+    tail = "TAIL-MARKER-" + "t" * 100
+    outcome, _ = _run(RunResult(stdout=head + tail, stderr="", exit_code=0))
+
+    assert isinstance(outcome, ScriptRunResult)
+    # The returned stdout is the stream's leading cap bytes; the tail is not in it.
+    assert outcome.stdout == head
+    assert "TAIL-MARKER" not in outcome.stdout
+    assert outcome.stdout_truncated is True
+    assert outcome.stdout_bytes == len((head + tail).encode("utf-8"))
+    # The COMPLETE stream — head and tail — is in the named spill file.
+    assert outcome.stdout_file is not None
+    spilled = Path(outcome.stdout_file)
+    try:
+        assert spilled.read_text(encoding="utf-8") == head + tail
+    finally:
+        spilled.unlink()
+
+
+def test_cap_cut_lands_on_a_utf8_boundary():
+    # A multi-byte character straddling the cap is dropped, never mangled: the
+    # returned head decodes cleanly and stays within the cap.
+    stream = "汉" * (SCRIPT_STDOUT_CAP // 3 + 100)  # 3 UTF-8 bytes each
+    outcome, _ = _run(RunResult(stdout=stream, stderr="", exit_code=0))
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.stdout_truncated is True
+    assert "�" not in outcome.stdout
+    assert set(outcome.stdout) == {"汉"}
+    assert len(outcome.stdout.encode("utf-8")) <= SCRIPT_STDOUT_CAP
+    assert outcome.stdout_file is not None
+    Path(outcome.stdout_file).unlink()
+
+
+def test_spill_create_failure_is_the_typed_stdout_spill_failed(monkeypatch):
+    # #748 review (Spec 1): the bound is UNCONDITIONAL. A spill file gda cannot
+    # create makes the run the typed stdout_spill_failed — never an unbounded
+    # result and never a silently lost tail. The message carries the run's
+    # forensics (it DID run) and the remediation.
+    import tempfile
+
+    def _refuse(*args, **kwargs):
+        raise OSError("no temp space")
+
+    monkeypatch.setattr(tempfile, "mkstemp", _refuse)
+    big = "y" * (SCRIPT_STDOUT_CAP + 5)
+    outcome, _ = _run(RunResult(stdout=big, stderr="", exit_code=3))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "stdout_spill_failed"
+    assert "exit status 3" in outcome.error.message
+    assert str(SCRIPT_STDOUT_CAP + 5) in outcome.error.message
+    assert "TMPDIR" in outcome.error.message
+
+
+def test_post_create_spill_failure_cleans_up_and_fails_typed(monkeypatch, tmp_path):
+    # #748 review (ARC-748-F003): a failure AFTER the spill file was created
+    # must close the fd, remove the partial file, and still fail typed — no
+    # orphaned gda-script-stdout-*.log and no leaked descriptor.
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    real_fdopen = os.fdopen
+
+    def _broken_fdopen(fd, *args, **kwargs):
+        handle = real_fdopen(fd, *args, **kwargs)
+
+        class _BrokenWrite:
+            def write(self, data):
+                raise OSError("disk full mid-write")
+
+            def close(self):
+                handle.close()
+
+        return _BrokenWrite()
+
+    monkeypatch.setattr(os, "fdopen", _broken_fdopen)
+    big = "z" * (SCRIPT_STDOUT_CAP + 5)
+    outcome, _ = _run(RunResult(stdout=big, stderr="", exit_code=0))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "stdout_spill_failed"
+    # No partial spill file left behind.
+    assert list(tmp_path.glob("gda-script-stdout-*")) == []
+
+
+def test_result_truth_table_is_model_enforced():
+    # #748 review (ARC-748-F001): the three stdout markers are ONE contract.
+    import pydantic
+
+    def build(stdout: str, stdout_bytes: int, truncated: bool, file: "str | None"):
+        return ScriptRunResult(
+            path="res://x.gd",
+            exit_status=0,
+            stderr="",
+            diagnostics=[],
+            stdout=stdout,
+            stdout_bytes=stdout_bytes,
+            stdout_truncated=truncated,
+            stdout_file=file,
+        )
+
+    # truncated without a spill file
+    with pytest.raises(pydantic.ValidationError):
+        build("a", SCRIPT_STDOUT_CAP + 1, True, None)
+    # truncated but the full stream is not above the cap
+    with pytest.raises(pydantic.ValidationError):
+        build("a", 10, True, "/tmp/spill.log")
+    # untruncated carrying a spill file
+    with pytest.raises(pydantic.ValidationError):
+        build("a", 1, False, "/tmp/spill.log")
+    # untruncated whose byte count is not the returned stream's length
+    with pytest.raises(pydantic.ValidationError):
+        build("a", 2, False, None)
+    # untruncated whose complete stream is above the cap: above-cap output must
+    # take the truncated + spill row, never remain inline as a whole.
+    with pytest.raises(pydantic.ValidationError):
+        build("a" * (SCRIPT_STDOUT_CAP + 1), SCRIPT_STDOUT_CAP + 1, False, None)
+    # truncated whose inline stdout itself exceeds the cap (#748 re-review):
+    # the returned head IS the cap's leading bytes, so it can never be longer.
+    with pytest.raises(pydantic.ValidationError):
+        build("a" * (SCRIPT_STDOUT_CAP + 1), SCRIPT_STDOUT_CAP + 2, True, "/tmp/s.log")
+    # ...including by BYTES when the characters fit (the model rule is a byte cap)
+    with pytest.raises(pydantic.ValidationError):
+        build(
+            "汉" * (SCRIPT_STDOUT_CAP // 2), SCRIPT_STDOUT_CAP * 2, True, "/tmp/s.log"
+        )
+    # A truncated head is the MAXIMAL UTF-8-safe prefix at the byte cap. A cut
+    # can discard at most three bytes from one four-byte code point, never the
+    # whole inline projection.
+    with pytest.raises(pydantic.ValidationError):
+        build("a", SCRIPT_STDOUT_CAP + 1, True, "/tmp/spill.log")
+    # The legal rows, including both boundaries of the UTF-8-safe head range.
+    build("a", 1, False, None)
+    build("a" * (SCRIPT_STDOUT_CAP - 3), SCRIPT_STDOUT_CAP + 1, True, "/tmp/spill.log")
+    build("a" * SCRIPT_STDOUT_CAP, SCRIPT_STDOUT_CAP + 1, True, "/tmp/spill.log")
+
+
+def test_result_truth_table_schema_projections_and_disclosed_divergences():
+    # #748 re-review (Standards 2): the parity CLAIM is exact. Every
+    # schema-expressible truth-table row gives the SAME verdict to a standard
+    # Draft 2020-12 validator and the model. Two CLASSES of value-dependent
+    # identities stay model-side and are pinned below as disclosed divergences,
+    # not called parity: the untruncated cross-field byte identity, and the
+    # byte-vs-character remainder of each branch's inline byte bounds.
+    import jsonschema
+    import pydantic
+
+    schema = ScriptRunResult.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+
+    def verdict(state: dict) -> tuple[bool, bool]:
+        doc = {
+            "path": "res://x.gd",
+            "exit_status": 0,
+            "stderr": "",
+            "diagnostics": [],
+            **state,
+        }
+        try:
+            ScriptRunResult.model_validate(doc)
+        except pydantic.ValidationError:
+            model_accepts = False
+        else:
+            model_accepts = True
+        return model_accepts, validator.is_valid(doc)
+
+    # Published rows: both-accept and both-reject.
+    assert verdict(
+        {
+            "stdout": "a",
+            "stdout_bytes": 1,
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    ) == (True, True)
+    assert verdict(
+        {
+            "stdout": "a" * SCRIPT_STDOUT_CAP,
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    ) == (True, True)
+    assert verdict(
+        {
+            "stdout": "a",
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": True,
+            "stdout_file": None,
+        }
+    ) == (False, False)
+    assert verdict(
+        {
+            "stdout": "a",
+            "stdout_bytes": 10,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    ) == (False, False)
+    # The untruncated ASCII projection publishes the cap too: this is rejected
+    # by BOTH sides, rather than accepted as an unbounded success row.
+    assert verdict(
+        {
+            "stdout": "a" * (SCRIPT_STDOUT_CAP + 1),
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    ) == (False, False)
+    # The full-stream byte count is independently schema-expressible: an
+    # untruncated result cannot claim an above-cap stream even when its inline
+    # stdout is short enough to satisfy the character projection.
+    assert verdict(
+        {
+            "stdout": "a",
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    ) == (False, False)
+    # The truncated branch publishes the weakest safe character floor implied
+    # by a maximal UTF-8 prefix; the one-character impossible row is rejected
+    # by BOTH sides.
+    assert verdict(
+        {
+            "stdout": "a",
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    ) == (False, False)
+    assert verdict(
+        {
+            "stdout": "a",
+            "stdout_bytes": 1,
+            "stdout_truncated": False,
+            "stdout_file": "/tmp/s.log",
+        }
+    ) == (False, False)
+    # The truncated inline cap's ASCII projection is published (maxLength):
+    # an over-cap ASCII inline stdout is rejected by BOTH sides.
+    assert verdict(
+        {
+            "stdout": "a" * (SCRIPT_STDOUT_CAP + 1),
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 2,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    ) == (False, False)
+    # DISCLOSED divergence 1: the untruncated byte identity is model-only —
+    # the schema ACCEPTS this document, the model rejects it.
+    assert verdict(
+        {
+            "stdout": "a",
+            "stdout_bytes": 2,
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    ) == (False, True)
+    # DISCLOSED divergence class 2a: the untruncated byte cap's character
+    # projection cannot reject a multibyte string whose character count fits.
+    assert verdict(
+        {
+            "stdout": "汉" * (SCRIPT_STDOUT_CAP // 2),
+            # Keep the declared count within the newly published numeric cap;
+            # only the string's UTF-8 byte length exceeds the inline bound.
+            "stdout_bytes": SCRIPT_STDOUT_CAP,
+            "stdout_truncated": False,
+            "stdout_file": None,
+        }
+    ) == (False, True)
+    # DISCLOSED divergence class 2b: the truncated upper byte bound has the same
+    # byte-vs-character remainder.
+    assert verdict(
+        {
+            "stdout": "汉" * (SCRIPT_STDOUT_CAP // 2),
+            "stdout_bytes": SCRIPT_STDOUT_CAP * 2,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    ) == (False, True)
+    # DISCLOSED divergence class 2c: minLength can publish only a safe character
+    # floor; an ASCII string at that floor is still below the model's byte floor.
+    assert verdict(
+        {
+            "stdout": "a" * (SCRIPT_STDOUT_CAP // 4),
+            "stdout_bytes": SCRIPT_STDOUT_CAP + 1,
+            "stdout_truncated": True,
+            "stdout_file": "/tmp/s.log",
+        }
+    ) == (False, True)

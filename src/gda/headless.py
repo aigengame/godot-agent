@@ -310,14 +310,26 @@ def _takes_a_json_value(
     A compound property reaches argv as a REPEATED token, which ``multiple``
     already reports, or as a single token carrying its JSON. ``False`` without a
     property link: unknown, and a wrong ``true`` would send a caller to encode a
-    plain string. Reads a DECLARED ``type`` only, so a compound behind an
-    ``anyOf`` is not seen — no case exists, and a registration test fails if one
-    appears (``tests/test_schema_command.py``).
+    plain string. Sees a declared ``type`` and a compound behind an ``anyOf`` /
+    ``oneOf`` — the nullable-compound shape (``list | null``) that
+    ``--await-events`` introduced (#661); a registration test keeps this
+    detector and the published bindings agreeing
+    (``tests/test_schema_command.py``).
     """
     spec = properties.get(bound or "")
     if not isinstance(spec, dict) or multiple:
         return False
-    return spec.get("type") in ("array", "object")
+    return _is_compound_spec(spec)
+
+
+def _is_compound_spec(spec: "dict[str, Any]") -> bool:
+    """Whether a property schema is an array/object, INCLUDING behind an anyOf."""
+    if spec.get("type") in ("array", "object"):
+        return True
+    branches = spec.get("anyOf") or spec.get("oneOf") or []
+    return any(
+        _is_compound_spec(branch) for branch in branches if isinstance(branch, dict)
+    )
 
 
 def schema_command_class(

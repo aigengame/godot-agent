@@ -161,6 +161,17 @@ def test_wait_ready_makes_a_first_diag_errors_serve(tmp_path, daemon_runtime_dir
         assert errors.returncode == 0, errors.stdout + errors.stderr
         assert "errors" in json.loads(errors.stdout)
 
+        # The launched session carries its identity on `daemon status` (#660):
+        # a real daemon-minted 16-hex value, stable across status reads.
+        status = json.loads(run("daemon", "status").stdout)
+        assert isinstance(status["session_id"], str)
+        assert len(status["session_id"]) == 16
+        assert set(status["session_id"]) <= set("0123456789abcdef")
+        assert (
+            json.loads(run("daemon", "status").stdout)["session_id"]
+            == status["session_id"]
+        )
+
         # Idempotent while the session is alive: nothing is relaunched.
         again = run("daemon", "wait-ready")
         assert again.returncode == 0, again.stdout + again.stderr

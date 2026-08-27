@@ -46,11 +46,11 @@ from gda.headless import (
 )
 from gda.models import MAX_WINDOW_FRAMES
 
-# The keyboard modifier names a key/sequence event may carry, mapped to the
-# InputEventKey modifier flag the harness sets. Bounding the set model-side means a
-# typo'd modifier ("control" for "ctrl") is a clean usage/invalid_params error, not
-# a silently-dropped flag.
-INPUT_MODIFIERS = ("shift", "ctrl", "alt", "meta")
+# The keyboard modifier names a key/sequence/tap may carry, mapped to the
+# InputEventKey modifier flag the harness sets. A Literal is the ONE authority for
+# runtime validation and the emitted enum (ADR-0015), so a schema client rejects a
+# typo such as "control" before it ever becomes a silently dropped harness flag.
+InputModifier = Literal["shift", "ctrl", "alt", "meta"]
 
 
 class MouseButton(str, Enum):
@@ -64,21 +64,6 @@ class MouseButton(str, Enum):
     LEFT = "left"
     RIGHT = "right"
     MIDDLE = "middle"
-
-
-def _validate_modifiers(modifiers: list[str]) -> list[str]:
-    """Reject any modifier outside the known set (the single home of the rule).
-
-    Shared by ``InputKeyParams`` and a sequence key event so the argv and
-    ``--params-json`` paths — and a sequence event nested in a JSON object —
-    validate modifiers identically (ADR-0015).
-    """
-    unknown = [m for m in modifiers if m not in INPUT_MODIFIERS]
-    if unknown:
-        raise ValueError(
-            f"unknown modifier(s) {unknown}; allowed: {list(INPUT_MODIFIERS)}."
-        )
-    return modifiers
 
 
 class InputKeyParams(BaseModel):
@@ -96,7 +81,7 @@ class InputKeyParams(BaseModel):
         min_length=1,
         description="A Godot key name to inject (e.g. Right, A, Space, Escape).",
     )
-    modifiers: list[str] = Field(
+    modifiers: list[InputModifier] = Field(
         default_factory=list,
         description=(
             "Modifier keys held with the key, any of: shift, ctrl, alt, meta."
@@ -104,13 +89,9 @@ class InputKeyParams(BaseModel):
     )
     released: bool = Field(
         default=False,
+        strict=True,
         description="Inject a key RELEASE instead of a press (default: press).",
     )
-
-    @model_validator(mode="after")
-    def _check_modifiers(self) -> "InputKeyParams":
-        _validate_modifiers(self.modifiers)
-        return self
 
 
 class InputKeyResult(BaseModel):
@@ -150,22 +131,26 @@ class InputMouseClickParams(BaseModel):
     """
 
     x: float = Field(
+        strict=True,
         description=(
             "The click's x position in the viewport. Read it from the mouse event; "
             "engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
     y: float = Field(
+        strict=True,
         description=(
             "The click's y position in the viewport. Read it from the mouse event; "
             "engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
     button: MouseButton = Field(
         default=MouseButton.LEFT,
         description="Which mouse button to click: left, right, or middle.",
     )
-    double: bool = Field(default=False, description="Mark the event a double click.")
+    double: bool = Field(
+        default=False, strict=True, description="Mark the event a double click."
+    )
 
 
 class InputMouseMoveParams(BaseModel):
@@ -181,16 +166,18 @@ class InputMouseMoveParams(BaseModel):
     """
 
     x: float = Field(
+        strict=True,
         description=(
             "The motion's target x position in the viewport. Read it from the "
             "mouse event; engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
     y: float = Field(
+        strict=True,
         description=(
             "The motion's target y position in the viewport. Read it from the "
             "mouse event; engine-tracked mouse positions may remain stale."
-        )
+        ),
     )
 
 
@@ -324,12 +311,15 @@ class InputActionParams(BaseModel):
         min_length=1, description="The input action name (must be in the InputMap)."
     )
     release: bool = Field(
-        default=False, description="Release the action instead of pressing it."
+        default=False,
+        strict=True,
+        description="Release the action instead of pressing it.",
     )
     strength: float = Field(
         default=1.0,
         ge=0.0,
         le=1.0,
+        strict=True,
         description="The analog press strength, 0..1 (ignored on a release).",
     )
 
@@ -385,7 +375,7 @@ class InputTapParams(BaseModel):
             "one of key/action."
         ),
     )
-    modifiers: list[str] = Field(
+    modifiers: list[InputModifier] = Field(
         default_factory=list,
         description=(
             "Modifier keys held through a KEY tap, any of: shift, ctrl, alt, "
@@ -443,7 +433,6 @@ class InputTapParams(BaseModel):
             # declared default remains null purely to distinguish "omitted" from
             # "set", so the key-tap refusal above can name a real mistake.
             self.strength = 1.0
-        _validate_modifiers(self.modifiers)
         window = self.hold_frames + self.settle_frames + 1
         if window > MAX_WINDOW_FRAMES:
             raise ValueError(
@@ -483,7 +472,7 @@ class InputTapResult(BaseModel):
             "echoes KEY_NONE); null for an action tap."
         ),
     )
-    modifiers: list[str] | None = Field(
+    modifiers: list[InputModifier] | None = Field(
         default=None,
         description="The modifiers held through a key tap; null for an action tap.",
     )
@@ -548,10 +537,6 @@ class InputTapResult(BaseModel):
                 "a tap result carries exactly one target family: "
                 "key + keycode + modifiers, or action + strength."
             )
-        if self.modifiers is not None:
-            # The same vocabulary rule the request enforces, from its one home:
-            # a reply echoing a modifier outside it is contract drift.
-            _validate_modifiers(self.modifiers)
         if self.frames != self.hold_frames + self.settle_frames + 1:
             raise ValueError(
                 "a tap result's frames is hold_frames + settle_frames + 1."
@@ -608,12 +593,16 @@ _FRAME_DESC = (
     "The 0-based relative harness/process-frame offset to apply this event at. "
     "This is the original `input sequence` clock, driven by the harness "
     "`_process` loop; it is not Godot's fixed physics clock. Omit both `frame` "
-    "and `physics_frame` to use process frame 0."
+    "and `physics_frame` to use process frame 0. The largest accepted offset is "
+    f"{MAX_WINDOW_FRAMES - 1}, keeping the total live window within the shared "
+    f"{MAX_WINDOW_FRAMES}-frame ceiling."
 )
 _PHYSICS_FRAME_DESC = (
     "The 0-based relative physics-frame offset to apply this event at, driven by "
     "Godot `_physics_process` ticks. Use this instead of `frame` when an input "
-    "hold must map to a deterministic physics simulation duration."
+    "hold must map to a deterministic physics simulation duration. The largest "
+    f"accepted offset is {MAX_WINDOW_FRAMES - 1}, keeping the total live window "
+    f"within the shared {MAX_WINDOW_FRAMES}-frame ceiling."
 )
 _MOUSE_X_DESC = (
     "The event's x position in the viewport. Read it from the event; "
@@ -711,9 +700,21 @@ class _SequenceEvent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    frame: int | None = Field(default=None, ge=0, description=_FRAME_DESC)
+    # strict=True: the published schema says `integer`, so the runtime must
+    # not quietly coerce "1" (#743 re-review — schema/model parity, ADR-0015).
+    frame: int | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_WINDOW_FRAMES - 1,
+        strict=True,
+        description=_FRAME_DESC,
+    )
     physics_frame: int | None = Field(
-        default=None, ge=0, description=_PHYSICS_FRAME_DESC
+        default=None,
+        ge=0,
+        le=MAX_WINDOW_FRAMES - 1,
+        strict=True,
+        description=_PHYSICS_FRAME_DESC,
     )
 
     @model_validator(mode="before")
@@ -755,18 +756,15 @@ class KeySequenceEvent(_SequenceEvent):
 
     type: Literal[InputEventType.KEY] = Field(description="The event kind.")
     key: str = Field(min_length=1, description="The key name to inject (e.g. Right).")
-    modifiers: list[str] = Field(
+    modifiers: list[InputModifier] = Field(
         default_factory=list,
         description="Modifier keys held with the key, any of: shift, ctrl, alt, meta.",
     )
     released: bool = Field(
-        default=False, description="Inject a key RELEASE instead of a press."
+        default=False,
+        strict=True,
+        description="Inject a key RELEASE instead of a press.",
     )
-
-    @model_validator(mode="after")
-    def _check_modifiers(self) -> "KeySequenceEvent":
-        _validate_modifiers(self.modifiers)
-        return self
 
 
 class MouseClickSequenceEvent(_SequenceEvent):
@@ -781,12 +779,14 @@ class MouseClickSequenceEvent(_SequenceEvent):
     """
 
     type: Literal[InputEventType.MOUSE_CLICK] = Field(description="The event kind.")
-    x: float = Field(description=_MOUSE_X_DESC)
-    y: float = Field(description=_MOUSE_Y_DESC)
+    x: float = Field(strict=True, description=_MOUSE_X_DESC)
+    y: float = Field(strict=True, description=_MOUSE_Y_DESC)
     button: MouseButton | None = Field(
         default=MouseButton.LEFT, description=_BUTTON_DESC
     )
-    double: bool = Field(default=False, description="Mark the event a double click.")
+    double: bool = Field(
+        default=False, strict=True, description="Mark the event a double click."
+    )
 
     @model_validator(mode="after")
     def _default_button(self) -> "MouseClickSequenceEvent":
@@ -829,18 +829,22 @@ class MouseButtonSequenceEvent(_SequenceEvent):
     model_config = ConfigDict(json_schema_extra=_MOUSE_BUTTON_PHASE_SCHEMA)
 
     type: Literal[InputEventType.MOUSE_BUTTON] = Field(description="The event kind.")
-    x: float = Field(description=_MOUSE_X_DESC)
-    y: float = Field(description=_MOUSE_Y_DESC)
+    x: float = Field(strict=True, description=_MOUSE_X_DESC)
+    y: float = Field(strict=True, description=_MOUSE_Y_DESC)
     button: MouseButton | None = Field(
         default=MouseButton.LEFT, description=_BUTTON_DESC
     )
-    double: bool = Field(default=False, description="Mark the event a double click.")
+    double: bool = Field(
+        default=False, strict=True, description="Mark the event a double click."
+    )
     pressed: bool | None = Field(
         default=None,
+        strict=True,
         description="Press the button. Use exactly one of `pressed` or `release`.",
     )
     release: bool = Field(
         default=False,
+        strict=True,
         description="Release the button. Use exactly one of `pressed` or `release`.",
     )
 
@@ -870,8 +874,8 @@ class MouseMoveSequenceEvent(_SequenceEvent):
     """A mouse motion event in a sequence: the ``gda input mouse-move`` shape."""
 
     type: Literal[InputEventType.MOUSE_MOVE] = Field(description="The event kind.")
-    x: float = Field(description=_MOUSE_X_DESC)
-    y: float = Field(description=_MOUSE_Y_DESC)
+    x: float = Field(strict=True, description=_MOUSE_X_DESC)
+    y: float = Field(strict=True, description=_MOUSE_Y_DESC)
 
 
 class ActionSequenceEvent(_SequenceEvent):
@@ -888,10 +892,16 @@ class ActionSequenceEvent(_SequenceEvent):
         min_length=1, description="The action name (must be in the InputMap)."
     )
     release: bool = Field(
-        default=False, description="Release the action instead of pressing it."
+        default=False,
+        strict=True,
+        description="Release the action instead of pressing it.",
     )
     strength: float = Field(
-        default=1.0, ge=0.0, le=1.0, description="The analog press strength, 0..1."
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        strict=True,
+        description="The analog press strength, 0..1.",
     )
 
 
@@ -900,10 +910,10 @@ class ActionSequenceEvent(_SequenceEvent):
 # kind's field set — what it requires and what it forbids — is machine-checkable:
 # a client validates a candidate event against the published contract instead of
 # learning the per-kind fields from prose or from a failed invocation
-# (GDA-DF-037/GDA-DF-032). The CROSS-FIELD rules are a narrower story: the
-# mouse-button phase is published too (`_MOUSE_BUTTON_PHASE_SCHEMA`), while the
-# one-clock rule, the modifier vocabulary and the window ceiling stay enforced
-# model-side only, as they were before this union.
+# (GDA-DF-037/GDA-DF-032). The modifier vocabulary and per-event window ceiling
+# are ordinary schema-visible field constraints. The CROSS-FIELD rules are a
+# narrower story: the mouse-button phase is published too
+# (`_MOUSE_BUTTON_PHASE_SCHEMA`), while the one-clock rule stays model-side.
 InputSequenceEvent = Annotated[
     KeySequenceEvent
     | MouseClickSequenceEvent

@@ -8,12 +8,15 @@ the e2e.
 
 import json
 
+import jsonschema
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from tests.support import (
+    GAME_CALL_RESULT,
     GAME_GET_RESULT,
     GAME_RECT_RESULT,
     GAME_SET_RESULT,
@@ -590,3 +593,479 @@ def test_game_set_schema_is_self_describing():
     value_description = schema["output"]["properties"]["value"]["description"]
     assert "observed read-back value" in value_description
     assert "coerced value" not in value_description
+
+
+# --- game call: the declared read-only method surface (#673, ADR-0041) --------
+# The live read `game get` cannot serve: a debug/state contract exposed as a
+# METHOD. The attached-script chain declares what gda may call in its `GDA_CALLABLE`
+# constant; gda calls nothing undeclared, and the three refusals are distinct.
+
+
+def test_game_call_invokes_the_method_and_projects_its_return(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "qa_current_state_contract",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["path"] == "/root/Main/QA"
+    assert data["method"] == "qa_current_state_contract"
+    # The return rides the shared value projection: a Dictionary arrives
+    # structured, not as a str() dump.
+    assert data["value"] == {"phase": 3, "ready": True, "labels": ["a", "b"]}
+    # No --args -> a null on the wire, the same full-model shape every other
+    # dispatch_domain command in this group sends (cf. game get's property:
+    # None). The harness treats any non-Array args as none, so the method is
+    # called with no arguments.
+    assert fake.calls == [
+        (
+            "game-call",
+            {
+                "node": "/root/Main/QA",
+                "method": "qa_current_state_contract",
+                "args": None,
+            },
+        )
+    ]
+
+
+def test_game_call_threads_json_args_as_values(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "with_args",
+            "--args",
+            '[2, "peak", {"deep": [1]}]',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    # JSON values reach the daemon model as values, never as the CLI string (no
+    # property-coercion table here, ADR-0041). The Godot-side live parser later
+    # materializes every JSON number as float; its type domain is pinned by e2e.
+    assert fake.calls == [
+        (
+            "game-call",
+            {
+                "node": "/root/Main/QA",
+                "method": "with_args",
+                "args": [2, "peak", {"deep": [1]}],
+            },
+        )
+    ]
+
+
+def test_game_call_non_json_args_is_refused_before_the_wire(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "with_args",
+            "--args",
+            "not json",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_game_call_undeclared_method_reports_not_allowlisted(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "live_method_not_allowlisted",
+                "the method undeclared_secret is not declared callable",
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "undeclared_secret",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE
+    assert json.loads(result.stdout)["error"]["code"] == "live_method_not_allowlisted"
+
+
+def test_game_call_distinguishes_missing_from_undeclared_and_bad_args(
+    monkeypatch, tmp_path
+):
+    # The three refusals are distinct registered codes, each with its own
+    # remediation (ADR-0041): fix the name, declare it, fix the arguments.
+    for code, message in (
+        ("live_unknown_method", "has no method named nope"),
+        ("live_method_not_allowlisted", "is not declared callable"),
+        ("live_invalid_call_args", "needs at least 1 argument(s)"),
+    ):
+        inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=error_sentinel(code, message), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(
+            app,
+            [
+                "game",
+                "call",
+                "/root/Main/QA",
+                "--method",
+                "whatever",
+                "--project",
+                str(_project(tmp_path)),
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_LIVE
+        error = json.loads(result.stdout)["error"]
+        assert error["code"] == code, error
+        assert error["category"] == "live"
+
+
+def test_game_call_human_render_names_the_method_and_value(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "qa_current_state_contract",
+            "--project",
+            str(_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "call /root/Main/QA.qa_current_state_contract() ->" in result.stdout
+
+
+def test_game_call_schema_publishes_the_declaration_contract():
+    from gda.commands.game import MAX_EXACT_JSON_INT
+
+    doc = json.loads(CliRunner().invoke(app, ["game", "call", "--schema"]).stdout)
+    assert doc["kind"] == "live"
+    assert {"node", "method", "args"} <= set(doc["input"]["properties"])
+    # `method` is required (there is no default method); `args` is optional.
+    assert set(doc["input"]["required"]) == {"node", "method"}
+    assert {"path", "name", "type", "method", "value"} <= set(
+        doc["output"]["properties"]
+    )
+    # The declaration site is named in the published contract, so an agent
+    # reading only the schema learns why a call can be refused.
+    assert "GDA_CALLABLE" in json.dumps(doc["input"]["properties"]["method"])
+
+    # Standard JSON Schema has one mathematical number model: it cannot tell a
+    # float token such as `1e17` from the equal integer value. The public schema
+    # must therefore keep the high-range finite-float domain open and disclose
+    # that the params model applies the safe bound only to values decoded as ints.
+    validator = jsonschema.Draft202012Validator(doc["input"])
+    assert validator.is_valid(
+        {"node": "/root/M", "method": "m", "args": [MAX_EXACT_JSON_INT]}
+    )
+    assert validator.is_valid(
+        {"node": "/root/M", "method": "m", "args": [-MAX_EXACT_JSON_INT]}
+    )
+    from gda.commands.game import GameCallParams
+
+    for argument in (1e17, 2.5e17, 1e300, {"deep": [-1e300]}):
+        payload = {"node": "/root/M", "method": "m", "args": [argument]}
+        assert validator.is_valid(payload), argument
+        GameCallParams.model_validate(payload)
+
+    oversized_integer = {
+        "node": "/root/M",
+        "method": "m",
+        "args": [MAX_EXACT_JSON_INT + 2],
+    }
+    # This standard-schema over-acceptance is deliberate and disclosed: adding
+    # an integer maximum also rejects equal high-range floats, which the wire
+    # carries exactly. The params model remains the execution authority.
+    assert validator.is_valid(oversized_integer)
+    with pytest.raises(ValueError, match=str(MAX_EXACT_JSON_INT)):
+        GameCallParams.model_validate(oversized_integer)
+
+    # The schema consumes RFC JSON data, whose number grammar excludes these
+    # values. Some in-memory validators still accept Python's non-finite float
+    # extensions as `number`; the params model is the execution authority and
+    # refuses the permissive decoder extensions before the live wire.
+    for non_finite in (float("nan"), float("inf"), float("-inf")):
+        payload = {"node": "/root/M", "method": "m", "args": [non_finite]}
+        assert validator.is_valid(payload)
+        with pytest.raises(ValueError, match="finite"):
+            GameCallParams.model_validate(payload)
+
+    args_description = doc["input"]["properties"]["args"]["description"]
+    number_description = next(
+        branch
+        for branch in doc["input"]["$defs"]["LiveCallArgument"]["anyOf"]
+        if branch.get("type") == "number"
+    )["description"]
+    assert "finite float values are not subject" in args_description.lower()
+    assert "JSON Schema cannot distinguish" in args_description
+    assert "in-memory validators" in args_description
+    assert "small-magnitude" in args_description
+    assert "1.2345678901234567e-300" in args_description
+    assert "0.0" in args_description
+    assert "in-memory JSON Schema validators" in number_description
+    assert "issue #752" in number_description
+
+
+def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words():
+    from gda.commands.game import MAX_EXACT_JSON_INT
+
+    result = CliRunner().invoke(app, ["game", "call", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    rendered = " ".join(result.stdout.split())
+    assert str(MAX_EXACT_JSON_INT) in rendered
+    assert "finite floats are not subject to the integer" in rendered
+    assert "integer values must stay within" in rendered
+    assert "small-magnitude floats can arrive" in rendered
+    assert "1.2345678901234567e-300" in rendered
+    assert "an an argument" not in rendered
+
+
+def test_game_call_refuses_non_finite_args_on_both_paths(monkeypatch, tmp_path):
+    # #749 review: JSON has no NaN/Infinity literals, but Python's decoder
+    # accepts them and an Any field keeps them — and the frame the daemon then
+    # writes is unreadable to the harness, so the caller waits out the relay
+    # bound, gets live_timeout, and the session is retired (state lost). The
+    # params model is the one authority both paths share (ADR-0015), so both
+    # are refused structurally, before the wire.
+    project = str(_project(tmp_path))
+    for argv in (
+        ["--method", "m", "--args", "[NaN]"],
+        ["--method", "m", "--args", '[{"deep": [Infinity]}]'],
+    ):
+        fake = inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(
+            app,
+            ["game", "call", "/root/M", *argv, "--project", project, "--json"],
+        )
+        assert result.exit_code != 0, result.stdout
+        # Nothing reached the live channel.
+        assert fake.calls == [], argv
+
+    # Pure --params-json: adding the positional node would stop at the
+    # mutual-exclusion usage error instead of testing the shared model.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+    params_refused = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "--params-json",
+            '{"node": "/root/M", "method": "m", "args": [NaN]}',
+            "--project",
+            project,
+            "--json",
+        ],
+    )
+    assert params_refused.exit_code != 0, params_refused.stdout
+    assert json.loads(params_refused.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
+
+
+def test_game_call_accepts_finite_nested_json_args(monkeypatch, tmp_path):
+    # The guard bounds only what cannot cross the wire: ordinary nested JSON
+    # (including floats) still rides through untouched.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/M",
+            "--method",
+            "m",
+            "--args",
+            '[1, 2.5, {"a": [3.5, "x"]}]',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls[0][1]["args"] == [1, 2.5, {"a": [3.5, "x"]}]
+
+
+def test_game_call_accepts_large_finite_float_args_on_both_paths(monkeypatch, tmp_path):
+    """High-range floats already are binary64 and do not inherit the int bound."""
+    project = str(_project(tmp_path))
+    expected = [1e17, 2.5e17, {"deep": [1e300]}]
+
+    invocations = (
+        [
+            "game",
+            "call",
+            "/root/M",
+            "--method",
+            "m",
+            "--args",
+            '[1e17, 2.5e17, {"deep": [1e300]}]',
+            "--project",
+            project,
+            "--json",
+        ],
+        [
+            "game",
+            "call",
+            "--params-json",
+            '{"node": "/root/M", "method": "m", '
+            '"args": [1e17, 2.5e17, {"deep": [1e300]}]}',
+            "--project",
+            project,
+            "--json",
+        ],
+    )
+    for invocation in invocations:
+        fake = inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(app, invocation)
+
+        assert result.exit_code == 0, result.stdout + result.stderr
+        assert fake.calls[0][1]["args"] == expected
+
+
+def test_game_call_refuses_integers_beyond_the_exact_json_range(monkeypatch, tmp_path):
+    # #749 re-review: the live wire reads JSON numbers as doubles, so an integer
+    # past the exact-integer range arrives CHANGED and the call succeeds on a
+    # value the caller never sent. Refused in the params model, so both paths and
+    # nested positions are covered; the boundary value still rides through.
+    from gda.commands.game import MAX_EXACT_JSON_INT
+
+    project = str(_project(tmp_path))
+    for argv in (
+        ["--method", "m", "--args", f"[{MAX_EXACT_JSON_INT + 2}]"],
+        ["--method", "m", "--args", f"[-{MAX_EXACT_JSON_INT + 2}]"],
+        ["--method", "m", "--args", f'[{{"deep": [{MAX_EXACT_JSON_INT + 2}]}}]'],
+    ):
+        fake = inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(
+            app,
+            ["game", "call", "/root/M", *argv, "--project", project, "--json"],
+        )
+        assert result.exit_code != 0, result.stdout
+        assert fake.calls == [], argv
+
+    # `--params-json` supplies every operation argument. Do not combine it with
+    # the positional node: that only tests the mutual-exclusion `usage_error`
+    # and never reaches this validator (#749 third review).
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+    params_refused = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "--params-json",
+            f'{{"node": "/root/M", "method": "m", "args": [{MAX_EXACT_JSON_INT + 2}]}}',
+            "--project",
+            project,
+            "--json",
+        ],
+    )
+    assert params_refused.exit_code != 0, params_refused.stdout
+    error = json.loads(params_refused.stdout)["error"]
+    assert error["code"] == "invalid_params"
+    assert str(MAX_EXACT_JSON_INT) in error["message"]
+    assert fake.calls == []
+
+    # Both boundaries are representable and go through unchanged on the normal
+    # argv path.
+    for boundary in (MAX_EXACT_JSON_INT, -MAX_EXACT_JSON_INT):
+        fake = inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+        )
+        ok = CliRunner().invoke(
+            app,
+            [
+                "game",
+                "call",
+                "/root/M",
+                "--method",
+                "m",
+                "--args",
+                f"[{boundary}]",
+                "--project",
+                project,
+                "--json",
+            ],
+        )
+        assert ok.exit_code == 0, ok.stdout + ok.stderr
+        assert fake.calls[0][1]["args"] == [boundary]

@@ -231,6 +231,53 @@ that implements it (ADR-0002), not by this ADR. The agent-facing contract (typed
 models, `--json`, `--schema` gate, registered `GdaError.code`s) is identical to
 headless.
 
+> **Amendment (2026-08-25, #661; revised same day after the #743 re-review):**
+> a multi-frame live operation's declared frame count is a CEILING, not the
+> required duration. The harness window may complete EARLY with a success
+> payload once its outcome is decided (the predicate capture completes on the
+> first frame its predicate holds), provided every input event the request
+> declared has been applied before the reply — an early completion never skips
+> an accepted event, and a declared event that FAILS makes the reply that
+> typed failure even when a capture already succeeded (the capture payload is
+> discarded; later events still drain, so scheduled releases fire on the error
+> path too). The one-shot RPC shape is unchanged: still exactly one reply per
+> request.
+
+> **Amendment (2026-08-26, #660) — every Engine session has a daemon-minted
+> identity, and a capture carries an evidence receipt bound to it.** gda had no
+> session identifier: an image could be a valid PNG while belonging to a stale
+> session or the wrong scene state, and nothing outside the capture result could
+> say which session produced it (GDA-DF-026/GDA-DF-031). Now the daemon — the
+> authority for what it launches — mints an opaque `session_id` per session
+> launch and hands it down the existing harness launch tail (after the scene
+> selector; positional and bounds-checked, so an older harness ignores it during
+> a transient skew). The identity is **bound to the session's lifetime**: stable
+> while the session serves, reported by `daemon status` even after the session
+> dies (the same alive-or-dead window the log ops serve a crashed session's log
+> in), and replaced only when a NEW session is successfully established — a
+> failed replacement launch replaces nothing, so the last established identity
+> stays readable (the daemon keeps it as a read model beside the session object,
+> written only on a successful launch). A new identity per establishment is
+> exactly what makes evidence from a stale session detectable.
+>
+> On this identity rides the **capture receipt**: every `screen capture` result
+> carries `{session_id, scene_path, scene_uid, engine_frame, observed, sha256}`
+> — every key always present, the nullable ones required-but-nullable in the
+> published schema. `scene_path`/`scene_uid` are the **launched** scene's
+> identity per #660 — remembered at the handshake's scene verification, the
+> same value the daemon verified; a launch fact, not a claim about what an
+> individual frame presents — with the uid read from the scene FILE's header
+> (ADR-0036's read-uid asymmetry: null when the project provides none).
+> `engine_frame` is read at the SAME frame boundary as the pixels, and a gated
+> capture's receipt echoes the predicate's observed value at that frame (the
+> full predicate evidence — node, property, expected — is the sibling
+> `predicate` report; the pair is the gated capture's complete evidence).
+> `sha256` is the CLI-computed hash of exactly the bytes it wrote. The CLI
+> refuses — as `contract_violation`, before writing the file — a reply whose
+> receipt is missing (a version-skewed harness), echoes an observation no
+> predicate asked for, or disagrees with the predicate report it rides beside.
+> The receipt is unconditional; existing capture fields are unchanged.
+
 ## Considered options
 
 - **Attach to a human-opened editor via an EditorPlugin (godot-mcp-pro's model)** —

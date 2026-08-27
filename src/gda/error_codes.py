@@ -547,6 +547,14 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "An export run could not create the output parent directory before native export.",
     ),
     ErrorCodeSpec(
+        "stdout_spill_failed",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A script run's stdout exceeded the cap but the complete-stream spill "
+        "file could not be written, so the bounded result cannot be delivered.",
+    ),
+    ErrorCodeSpec(
         "export_failed",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
@@ -705,6 +713,27 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A live game get or set targeted a property name the running node does not expose as an addressable runtime, storage, or attached-script property.",
     ),
     ErrorCodeSpec(
+        "live_unknown_method",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game call named a method the addressed running node does not have.",
+    ),
+    ErrorCodeSpec(
+        "live_method_not_allowlisted",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game call named a method the addressed running node has but its attached-script chain never declared gda-callable.",
+    ),
+    ErrorCodeSpec(
+        "live_invalid_call_args",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game call supplied arguments the declared method cannot take: a count outside its accepted range, or a value the declared parameter type cannot convert from.",
+    ),
+    ErrorCodeSpec(
         "live_uncoercible_value",
         ErrorCategory.LIVE,
         EXIT_LIVE,
@@ -801,6 +830,18 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
         "A live input sequence event has a type the harness does not recognize.",
+    ),
+    # The predicate-capture failure the gda harness reports for #661: a
+    # `screen capture --await-*` predicate that never held within its declared
+    # frame bound. LIVE-category, classifier-source, harness-mirrored like the
+    # other per-op codes; the message carries the last observed value so the
+    # agent can see how far the state got.
+    ErrorCodeSpec(
+        "live_predicate_unmet",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live capture predicate did not hold within its declared frame bound.",
     ),
     # The `screen` capture failure the gda harness reports for #222. Same shape as
     # the other per-op LIVE codes (LIVE-category, classifier-source, exit_code

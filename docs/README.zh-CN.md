@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=de7b87f2b2f920f174da2066e3f4ea95c46ca800577f5b6607ca594f8eab1b41 -->
+<!-- gda-readme-i18n: source=README.md sha256=e36950ec63b4fd8122f2d674ee234169abbc4b15d4803a650cf2e44eabdf253f -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -452,9 +452,13 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 的路径会让整个批次被提前拒绝并返回 `project_not_found`，同时指明文件与项目，而不是报出那一连串
 假错误；此时请用 `--project` 指定真正拥有这些文件的项目。
 
-`script run` 一次性执行一个具名项目脚本，并**将这次运行原样透传**：成功结果携带脚本自己的
+`script run` 一次性执行一个具名项目脚本，并**将这次运行透传**：成功结果携带脚本自己的
 `exit_status`（脚本有意的非零 `quit()` 是数据而不是 gda 失败——传 `--strict` 可把它变成
-`script_failed` 错误，供 shell `&&` 链使用），以及逐字捕获的 `stdout` 与 `stderr`。
+`script_failed` 错误，供 shell `&&` 链使用），以及捕获的 `stdout` 与 `stderr`。`stderr`
+逐字返回；`stdout` 在 64 KiB 以内逐字返回——超过后结果携带流的前缀字节，完整流落盘到
+`stdout_file` 命名的文件，`stdout_bytes` 与 `stdout_truncated` 始终报告完整大小与是否发生
+截断。gda 无法写出落盘文件时以类型化失败（`stdout_spill_failed`）报告，而不是返回无界结果，
+因此消费 `stdout` 时请读取这三个字段。
 `--timeout <s>` 约束这次运行的墙钟；gda 不得不终止的运行会报告 `launch_timeout`，
 **并携带截至当时捕获的部分输出**、已耗秒数与一个终止阶段。声明
 `--completion-marker <line>`——你的脚本在工作完成时打印的一行——之后，一次已出现可归因于
@@ -532,6 +536,15 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量。 |
+| `game call` | 调用该节点附加脚本链声明（`GDA_CALLABLE`）所列的一个方法，并投影其返回值。 |
+
+`game call` 读取 `game get` 无法读取的东西：项目以**方法**形式暴露的调试或状态契约。
+gda 从节点附加脚本开始沿基类链静态解析 `GDA_CALLABLE` 声明，因此"哪些方法可调用"这一步
+不会运行你的任何代码，且继承链选择加入之前没有任何方法可调用。GDScript 禁止子类重声明
+基类常量，因此一条已加入的继承链至多有一个声明所有者（基类所有者覆盖其子类，且不必亲自
+定义它列出的每个方法）。gda 无法验证已声明的方法没有副作用；它保证的是绝不
+调用未声明的方法（ADR-0041）。已声明参数无法接受的实参会在调用前被拒绝，因此类型不匹配是
+一个类型化错误，而不是静默的 `null`。
 
 Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策略；
 `game rect` 仍然是只读的渲染几何查询。`game set` 的成功结果包含
@@ -577,7 +590,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 | 命令 | 作用 |
 | ------- | ------------ |
 | `screen capture` | 捕获一帧视口并保存为一张 PNG。 |
-| `screen frames` | 捕获一个 N 帧的 PNG 序列。 |
+| `screen frames` | 捕获一个 N 帧的 PNG 序列（`--summary` 返回紧凑的聚合结果）。 |
 
 ### 全局 flag
 
@@ -637,6 +650,9 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 - **`gda resource import` 在缓存缺失时运行引擎导入 pass。** 导入器代码——以及项目注册的
   任何导入插件——会在整个项目的内容上运行。该 pass 启动的是编辑器导入器路径而非游戏：
   不执行 autoload。缓存完好的请求根本不启动引擎。
+- **`gda game call` 在运行中的游戏里执行一个已声明的方法。** 每次请求只执行被寻址节点的
+  附加脚本链在 `GDA_CALLABLE` 声明中列出的那一个方法。读取该声明不执行任何代码——常量由编译
+  后的脚本提供——且绝不会调用未声明的方法。
 
 `gda` 将目标项目视为可信，所以这是有意为之——信任模型参见
 [ADR-0009](adr/0009-trust-boundary-trusted-project.md)。

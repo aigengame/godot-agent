@@ -208,6 +208,21 @@ class DaemonStatusResult(BaseModel):
             "but its bounded STATUS_OP round trip missed transiently."
         ),
     )
+    session_id: str | None = Field(
+        min_length=1,
+        description=(
+            "The identity of the last engine session this daemon SUCCESSFULLY "
+            "established (#660): minted per launch, stable for the session's "
+            "lifetime, and the value a `screen capture` receipt's session_id "
+            "correlates with. Reported for a dead session too — like the log "
+            "ops keep a crashed session diagnosable — and retained across a "
+            "FAILED replacement launch (nothing replaced the session it names) "
+            "until a new session is established. Always present, non-empty "
+            "when set; **null** when no session was established this daemon "
+            "lifetime, no daemon is running, or the STATUS_OP round trip "
+            "missed transiently."
+        ),
+    )
 
 
 class DaemonWaitReadyParams(BaseModel):
@@ -751,15 +766,23 @@ def run_daemon_status_operation(
     # (#251). No daemon -> no round trip; a transient round-trip miss on a dying
     # daemon -> `windowed` stays None. `_control`'s bounded timeout means no hang.
     windowed = None
+    session_id = None
     if pid is not None:
         reply = _control(paths.cli_socket, STATUS_OP)
         if reply and reply.get("ok"):
             windowed = reply.get("windowed")
+            # The session identity (#660) rides the same authority: only the
+            # running daemon knows which session it launched. Guarded to a
+            # string so a drifted reply degrades to null, not a crash.
+            raw_session = reply.get("session_id")
+            if isinstance(raw_session, str) and raw_session:
+                session_id = raw_session
     return DaemonStatusResult(
         running=pid is not None,
         pid=pid,
         socket_path=str(paths.cli_socket),
         windowed=windowed,
+        session_id=session_id,
     )
 
 
@@ -857,7 +880,12 @@ def render_daemon_status(status: "DaemonStatusResult") -> str:
         # Mirror `daemon start`: note the display mode only when windowed (#251),
         # since headless is the default and an unknown mode (null) has nothing to say.
         mode = " [windowed]" if status.windowed else ""
-        return f"daemon running: pid {status.pid} on {status.socket_path}{mode}"
+        # The session identity (#660) prints only when a session was launched:
+        # null has nothing to correlate a receipt against.
+        session = f" session {status.session_id}" if status.session_id else ""
+        return (
+            f"daemon running: pid {status.pid} on {status.socket_path}{mode}{session}"
+        )
     return "daemon not running"
 
 

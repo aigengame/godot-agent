@@ -101,10 +101,16 @@ class EngineSession:
         conn: socket.socket | None,
         log_file: Optional[Path] = None,
         owned_pgid: Optional[int] = None,
+        session_id: str = "",
     ) -> None:
         self._proc = proc
         self._conn = conn
         self.log_file = log_file
+        # The session's identity (#660): minted by the daemon per launch, fixed for
+        # this session's lifetime, and REMEMBERED like ``log_file`` — readable on
+        # ``daemon status`` even after the process dies, so a capture receipt
+        # stays correlatable until the relaunch that replaces the session.
+        self.session_id = session_id
         self._channel_stale = False
         # The process group gda owns for this session, captured at spawn and
         # REMEMBERED (#725 re-review). It cannot be rediscovered at teardown:
@@ -211,6 +217,7 @@ def launch_session(
     windowed: bool = False,
     scene: Optional[str] = None,
     diagnostics: Optional[list[str]] = None,
+    session_id: str = "",
 ) -> Optional[EngineSession]:
     """Launch an engine session and wait for the harness to connect.
 
@@ -307,7 +314,11 @@ def launch_session(
     # before the `--` payload separator) alongside the other engine args (#278).
     scene_args = ["--scene", scene] if scene is not None else []
     # The harness tail also carries the selector (empty string when none) so the
-    # harness can verify the loaded scene against it at launch (#278).
+    # harness can verify the loaded scene against it at launch (#278), and — after
+    # it — the daemon-minted session identity (#660), which the harness stamps
+    # into every capture receipt so the receipt correlates with `daemon status`.
+    # Positional and bounds-checked harness-side, so an older harness that reads
+    # fewer args ignores the extra one during a transient version skew.
     requested_scene = scene if scene is not None else ""
     if _left() <= 0:
         # Re-checked immediately before the spawn (#725 re-review). The preparation
@@ -333,6 +344,7 @@ def launch_session(
             str(harness_socket),
             token,
             requested_scene,
+            session_id,
         ],
         start_new_session=True,
         stdin=subprocess.DEVNULL,
@@ -428,7 +440,9 @@ def launch_session(
         _close(conn)
         _teardown()
         raise SceneMismatch(scene if scene is not None else "", str(current))
-    return EngineSession(proc, conn, log_file=log_file, owned_pgid=owned_pgid)
+    return EngineSession(
+        proc, conn, log_file=log_file, owned_pgid=owned_pgid, session_id=session_id
+    )
 
 
 def _child_exit_diagnostic(proc: subprocess.Popen, budget: float) -> str:

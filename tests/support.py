@@ -147,13 +147,33 @@ def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     return fake
 
 
+def capture_receipt_reply(**overrides) -> dict:
+    """A canned harness-side capture receipt (#660), with per-test overrides.
+
+    The identity half the harness stamps into every capture reply; the CLI adds
+    ``sha256`` after writing the file. Defaults describe a plain capture of a
+    gda-authored scene (no uid, no predicate echo).
+    """
+    receipt = {
+        "session_id": "a1b2c3d4e5f60718",
+        "scene_path": "res://main.tscn",
+        "scene_uid": None,
+        "engine_frame": 400,
+        "observed": None,
+    }
+    receipt.update(overrides)
+    return receipt
+
+
 def screen_capture_reply(png_base64: str, *, width: int, height: int) -> dict:
     """A canned ``screen capture`` HARNESS reply payload (#222).
 
     The wire shape the gda harness emits in the ADR-0002 sentinel for a single
-    frame: the PNG bytes base64-encoded plus the frame's dims and format. The CLI
-    recipe decodes ``png_base64`` and WRITES a file, so a command test drives the
-    real decode/write path with a tiny real PNG.
+    frame: the PNG bytes base64-encoded plus the frame's dims and format — and,
+    since #660, the capture ``receipt`` (always present on the wire; a test
+    exercising the missing-receipt violation deletes the key explicitly). The
+    CLI recipe decodes ``png_base64`` and WRITES a file, so a command test
+    drives the real decode/write path with a tiny real PNG.
     """
     import base64
 
@@ -164,6 +184,7 @@ def screen_capture_reply(png_base64: str, *, width: int, height: int) -> dict:
         "format": "png",
         "bytes": len(raw),
         "png_base64": png_base64,
+        "receipt": capture_receipt_reply(),
     }
 
 
@@ -515,6 +536,16 @@ GAME_SET_RESULT = {
     "type": "Vector2",
     "value": [10.0, 20.0],
     "verified": True,
+}
+
+# Sample ``gda game call`` result — the projected return of a method the node's
+# class declared callable in its ``GDA_CALLABLE`` script constant (#673).
+GAME_CALL_RESULT = {
+    "path": "/root/Main/QA",
+    "name": "QA",
+    "type": "Node2D",
+    "method": "qa_current_state_contract",
+    "value": {"phase": 3, "ready": True, "labels": ["a", "b"]},
 }
 
 # Sample ``gda game rect`` result — a running Control's rendered viewport-space

@@ -590,7 +590,16 @@ mismatch, pending the ADR-0006 amendment tracked in #697.
 **`script run`** (ADR-0031, #655) is the pass-through channel: its *success* result is the run
 itself — the script's own `exit_status` (a deliberate non-zero `quit()` is data, not a gda
 failure; `--strict` opts into a `script_failed` error for exit-code gates) plus the captured
-`stdout`/`stderr` verbatim. `--timeout <s>` bounds the wall clock; a run gda ends at that
+`stdout`/`stderr`. `stderr` is verbatim; `stdout` is verbatim up to a 64 KiB cap (#665,
+ADR-0031 amendment) — above it the result carries the stream's leading cap bytes while the
+COMPLETE stream spills to a named file, disclosed by three always-present fields
+(`stdout_bytes`, `stdout_truncated`, `stdout_file`), enforced as one model truth table. The
+output schema publishes every Draft 2020-12-expressible projection and discloses the
+remaining byte/length identities, so a production-scale inspector's linearly-growing output
+bounds the envelope without losing a byte. A spill file gda cannot write is the typed
+`stdout_spill_failed` (never an unbounded result and never a silently lost tail); read the
+projection fields, not assumptions, when consuming `stdout`. Bounded, not summarized —
+record semantics stay with the project tool. `--timeout <s>` bounds the wall clock; a run gda ends at that
 ceiling reports `launch_timeout` carrying the captured partial output, the elapsed seconds and
 a termination phase — `launched` (the engine wrote nothing at all) or `output_seen` (it was
 alive and did not finish) — so a slow suite is distinguishable from a hang.
@@ -815,6 +824,63 @@ headless is unaffected (4.4+, cross-platform).
   uncoercible value `live_uncoercible_value`, and a `game rect` target that is not a
   `Control` is `live_not_control`. The on-disk counterparts stay under `scene` / `node`
   (ADR-0019).
+  `game call <node> --method NAME [--args JSON]` (shipped, #673, ADR-0041) serves the
+  read `game get` cannot: a debug or state contract the project exposes as a METHOD
+  rather than a stored property (GDA-DF-033). The method must be named by the
+  **`GDA_CALLABLE` declaration** resolved from the addressed node's attached script
+  along its base chain — which gda reads STATICALLY from the script's constant
+  map, so learning what may be called runs no project code. The allowlist is NOT a trust
+  boundary (the project is trusted, ADR-0009, and `script run` already executes
+  arbitrary project code): it keeps the live READ surface free of side effects gda did
+  not ask for and bounds results to the value projection. gda cannot verify that a
+  declared method has no side effects — the declaration records the DECLARER's
+  assertion; what gda guarantees is that no UNDECLARED method is callable. Arguments are
+  JSON values passed as the live parser's Variant forms, where every number is float
+  (no string-coercion table — a call's
+  arguments are typed by the method, not by a stored property). The return value goes
+  through the shared value projection; a method returning nothing projects as null, and
+  the `--texture-digest` opt-in is not part of this first version (a path-less
+  `Texture2D` return projects with a null digest). Three distinguishable refusals: a
+  method the node does not have is `live_unknown_method` (existence is checked FIRST, so
+  a wrong name is diagnosed as one), one it has but never declared is
+  `live_method_not_allowlisted` — whose message names the script chain's declared set, so
+  discovery rides the failure — and arguments the declared method cannot take are
+  `live_invalid_call_args`, refused BEFORE the call. That covers the count AND each
+  argument's type: the check mirrors the engine's own `Variant::can_convert_strict`
+  (not exposed to GDScript) over the six Variant types the live JSON parser produces.
+  Every JSON number arrives as float; bool/float reach numeric parameters and null
+  reaches an `Object` parameter, while a String into `int`,
+  a Dictionary into an `Object` parameter, null into `int`, and any JSON array into a
+  typed `Array[int]` are refused with the reason. Without the check `callv` pushes an
+  engine error, returns null and writes to the Session log — a failure that would read
+  as a successful null. Two reproduced unsafe argument classes are refused earlier
+  still, in the params model both invocation paths share (recursively, so a nested
+  value counts):
+  non-finite numbers (`NaN`/`Infinity`, which JSON has no literals for but Python's
+  decoder accepts) — left through they produced a frame the harness could not parse,
+  costing the caller a `live_timeout` and the session its runtime state — and JSON
+  integer values outside ±(2^53 − 1), since the harness reads JSON numbers as binary64
+  and a larger integer can arrive as a DIFFERENT value (a call that then succeeds on
+  something the caller never sent). Finite floats already are binary64 and do not
+  inherit that integer bound; real-engine tests pin the reproduced high-range values
+  `1e17`, `2.5e17`, and `1e300` unchanged. This is not a full-range preservation
+  guarantee: Godot 4.6.3 parses some small-magnitude normal values, including
+  `1.2345678901234567e-300` and `DBL_MIN`, as `0.0`, and its `JSON.stringify` can
+  also lose small live-result values. [Issue #752](https://github.com/aigengame/godot-agent/issues/752)
+  owns that cross-operation transport defect. Standard JSON Schema cannot distinguish
+  an exponent-form float from the equal mathematical integer, so its recursive number
+  branch stays broad and discloses that the params model enforces the integer-token
+  bound at execution. RFC JSON excludes `NaN` and `Infinity`; some in-memory schema
+  validators accept those extensions as numbers, but the params model refuses them and
+  the model/schema corpus pins that deliberate over-acceptance. The type table itself is the
+  engine's `Variant::can_convert_strict` closure over the six live JSON source types,
+  pinned by a real-engine conformance matrix that first asserts the observed numeric
+  type and then uses direct `callv` as its oracle.
+  The constant is the inheritance CHAIN's declaration, not a per-class increment:
+  GDScript forbids a subclass from redeclaring a base class's constant, so an opted-in
+  chain has at most one declaration owner (a base owner covers its subclasses and need
+  not define every method it names); a project that declares in both fails to parse with a message naming the
+  member — loud, never a silently wrong allowlist.
 - **`input` (input simulation):** runtime input injection into the running game
   (shipped, #221). Single-frame ops `input key <KEY> [--modifiers …] [--released]`,
   `input mouse-move <x> <y>`, and `input action <NAME> [--release] [--strength F]`
@@ -884,6 +950,78 @@ headless is unaffected (4.4+, cross-platform).
   releases with `release`, a `key` with `released` — and a field from another kind is
   refused with the spelling this kind uses instead.
 - **`screen` / capture:** running-game viewport screenshot, multi-frame capture.
+  `screen frames --summary` (#665, GDA-DF-021) keeps a large capture's completion
+  envelope COMPACT: every frame is still captured and written exactly as the
+  default form does, but the result replaces the per-frame `frames` list with the
+  aggregate `summary` (`output_dir`, filename `pattern`, frame size,
+  `total_bytes` — the frame dims are the uniform size, or null when a legal
+  mid-window resize made the sequence non-uniform; exactly one of the two
+  projections is non-null, required-but-nullable, and the exactly-one rule is
+  published in the output schema), so the envelope does not grow with
+  `--frames`. What is PROVEN about the dogfooding loss (GDA-DF-021): gda's own
+  stack completes a 90-frame capture with the full envelope against a real
+  engine — on the exact release under test (gda 0.8.0) and on the current head,
+  up to ≈327 MB of PNG bytes (≈436 MB base64-expanded in the single IPC reply)
+  — and the reported observation (all PNGs present, no final JSON) itself shows
+  the reply had reached the CLI, which writes the files from it. The leading
+  BOUNDED HYPOTHESIS for the residual loss, not reproduced (the original
+  caller's automation was not re-run): a caller-side output-handling limit,
+  suggested by the failure boundary tracking the result line's size (~226 B per
+  frame entry: 30/36/48 frames ≤ ~11 KB reported good, 90 frames ≈ 20 KB lost)
+  — though those observations vary frame count and line length together, so
+  they establish correlation, not the specific cap. The compact envelope stays
+  well under any such limit either way. The
+  `--await-*` predicate (shipped, #661) holds a `screen capture` game-side until
+  `node.property == value` first holds — checked once per PROCESS frame, up to
+  `--await-frames` (default 60, ceiling 600) — then captures at that SAME frame
+  boundary and reports the predicate evidence (`observed` value, absolute
+  `engine_frame`, window-relative `frames_waited`); a predicate that never holds is
+  the typed `live_predicate_unmet` carrying the last observed value. `--await-events`
+  additionally applies input-sequence events (the same discriminated union `input
+  sequence` takes) INSIDE the same window at their process-clock `frame` offsets — the
+  atomic input-and-capture form, so a 3–8-frame transient triggered by the input
+  cannot be missed by a second CLI round trip; physics-clock offsets are refused. An
+  offset at or beyond the PREDICATE ceiling still fires — the reply waits for every
+  declared event — but can no longer satisfy the predicate, whose scan ends at that
+  ceiling. Every event offset is nevertheless at most 599, so the TOTAL drain stays
+  within the shared 600-frame live-window ceiling; both limits and the modifier
+  vocabulary are published in the schema, and the schema/model event sets agree
+  (ADR-0015). Every
+  declared event fires before the reply even when the predicate matches first, so no
+  injected press is left held — and a declared event that FAILS makes the whole
+  capture that typed failure (the capture payload is discarded, no file is written,
+  later events still drain). The predicate compares JSON scalars (numbers
+  numerically, strings against the String rendering). The coherence contract,
+  verified live on both trigger paths (ADR-0020 amendment): each tick EVALUATES
+  BEFORE it injects, so the observed property is always the state of the previously
+  COMPLETED frame — exactly the frame the captured texture presents. A
+  `_process`-driven flip is observed with its own presentation; a state written by an
+  injected event's synchronous callback is observed one boundary later, together with
+  its presentation. Consequences: the predicate sees frame-boundary state only (a
+  value overwritten before its frame completes is never observable — the typed unmet
+  error, never a capture of mismatched pixels); an event's effect is observable from
+  the NEXT boundary (leave one frame between the last state-changing event and the
+  ceiling); and a game that updates a visual one frame after the property it gates on
+  trails by that game-side frame — gate on the visual's own property when exact
+  pixels matter.
+  Every `screen capture` result also carries an evidence **receipt** (shipped, #660;
+  ADR-0017 amendment): `{session_id, scene_path, scene_uid, engine_frame, observed,
+  sha256}`, every key always present (the nullable ones required-but-nullable in the
+  published schema). `scene_path`/`scene_uid` are the LAUNCHED scene's identity —
+  remembered at the session handshake, the same value the daemon verified; a launch
+  fact, not a claim about what an individual frame presents — with the `uid://` read
+  from the scene file's header (ADR-0036; gda-authored scenes report null).
+  `engine_frame` is read at the SAME frame boundary as the pixels; `session_id` is
+  the daemon-minted engine session identity that `gda daemon status` reports (a new
+  session mints a new one, so a receipt from a stale session is detectable by the
+  mismatch); `sha256` is computed CLI-side over exactly the bytes written to
+  `--output`. A plain capture's receipt binds session, scene, and frame and removes
+  the local hashing step; a gated capture's receipt additionally echoes the
+  predicate's `observed` value at that same frame, and its COMPLETE evidence is the
+  pair receipt + `predicate` report (which carries the node, property, and expected
+  value). A reply whose receipt is missing, echoes an observation no predicate asked
+  for, or disagrees with the predicate report beside it is refused as
+  `contract_violation` before any file is written.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
   monitor --property … --frames N` / `--signal … --frames N` collects a per-frame
@@ -959,7 +1097,14 @@ headless is unaffected (4.4+, cross-platform).
   false`, nothing relaunched). A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
   late reply can no longer be attributed — and the next operation that requires a session
-  relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon start --windowed` additionally
+  relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon status`
+  also reports `session_id` (#660): the daemon-minted identity of the last session it
+  SUCCESSFULLY established — stable for that session's lifetime, reported for a dead
+  session too (mirroring how the log ops keep a crashed session diagnosable), and
+  retained across a failed replacement launch (nothing replaced the session it names)
+  until a new session is established. It is the value a `screen capture` receipt's
+  `session_id` correlates with; null before the first established session this daemon
+  lifetime. `daemon start --windowed` additionally
   requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
   `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two

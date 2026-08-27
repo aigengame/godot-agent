@@ -34,6 +34,7 @@ const OP_GAME_TREE := "game-tree"
 const OP_GAME_GET := "game-get"
 const OP_GAME_RECT := "game-rect"
 const OP_GAME_SET := "game-set"
+const OP_GAME_CALL := "game-call"
 const OP_PERF_MONITORS := "perf-monitors"
 const OP_PERF_MONITOR := "perf-monitor"
 const OP_PERF_SAMPLE := "perf-sample"
@@ -61,6 +62,15 @@ const LIVE_ERROR_INVALID_KEY := "live_invalid_key"
 const LIVE_ERROR_UNKNOWN_ACTION := "live_unknown_action"
 const LIVE_ERROR_INVALID_EVENT_SPEC := "live_invalid_event_spec"
 const LIVE_ERROR_DISPLAY_UNAVAILABLE := "live_display_unavailable"
+const LIVE_ERROR_PREDICATE_UNMET := "live_predicate_unmet"
+const LIVE_ERROR_UNKNOWN_METHOD := "live_unknown_method"
+const LIVE_ERROR_METHOD_NOT_ALLOWLISTED := "live_method_not_allowlisted"
+const LIVE_ERROR_INVALID_CALL_ARGS := "live_invalid_call_args"
+
+# The script constant an opted-in inheritance chain declares its gda-callable methods in
+# (#673): `const GDA_CALLABLE := ["method_name"]`. Read STATICALLY from the
+# script's constant map, so learning what may be called never runs project code.
+const GDA_CALLABLE_CONST := "GDA_CALLABLE"
 
 # The frame count a time-windowed op may request (#223). A window collects one
 # sample per frame, so an unbounded N would block the one-shot RPC for an unbounded
@@ -84,6 +94,16 @@ var _daemon_launched := false
 # and sends the result as the second handshake frame; _scene_verified gates serving
 # ops until that frame is sent (so a mismatch is caught before any op runs).
 var _requested_scene := ""
+# The daemon-minted Engine-session identity (#660), or "" when the launcher
+# predates it. Fixed for this run's lifetime; stamped into every capture
+# receipt so the image correlates with `gda daemon status`'s session_id.
+var _session_id := ""
+# The LAUNCHED scene's identity (#660): the path the session verified at the
+# handshake and that scene file's own header uid, read once at verification —
+# the receipt reports the session's launch fact, per issue #660, not the scene
+# a later frame happens to present.
+var _launched_scene_path := ""
+var _launched_scene_uid: Variant = null
 var _scene_verified := false
 var _verify_frames := 0
 var _pending = null
@@ -161,6 +181,10 @@ func _ready() -> void:
 	# The requested scene selector (#278) follows the token; "" (or absent) = none.
 	if idx + 3 < user_args.size():
 		_requested_scene = user_args[idx + 3]
+	# The daemon-minted session identity (#660) follows the selector; "" (or
+	# absent, from a launcher that predates it) = none.
+	if idx + 4 < user_args.size():
+		_session_id = user_args[idx + 4]
 
 	var peer := StreamPeerUDS.new()
 	peer.big_endian = true
@@ -245,6 +269,12 @@ func _send_scene_verification() -> void:
 	var ok := true
 	if not _requested_scene.is_empty():
 		ok = _scene_matches(_requested_scene, current_path)
+	# Remember the LAUNCHED scene's identity for capture receipts (#660, PR #746
+	# review): the receipt's scene fields are the session's launch fact per the
+	# issue, not a per-frame claim — so they are read ONCE here, at the same
+	# moment the daemon verifies the scene, never re-derived at capture time.
+	_launched_scene_path = current_path
+	_launched_scene_uid = _scene_header_uid(current_path)
 	var frame := {"scene_ok": ok, "current": current_path}
 	_send_frame(JSON.stringify(frame).to_utf8_buffer())
 
@@ -306,9 +336,11 @@ func _window_clock() -> String:
 
 
 # Advance the active window one frame. Collects one sample; finalizes once the
-# frame budget is met. A sample handler may abort the window early by returning a
-# Dictionary carrying an "error" key (e.g. a node that vanished mid-window) — that
-# envelope is sent verbatim.
+# frame budget is met. A sample handler may end the window early two ways: a
+# Dictionary carrying an "error" key aborts with that envelope verbatim (e.g. a
+# node that vanished mid-window), and a Dictionary carrying a "complete" key
+# finishes successfully with _ok of that payload (e.g. a predicate capture that
+# just held, #661) — the budget is the CEILING, not the required duration.
 func _advance_window() -> void:
 	var state: Dictionary = _window_state
 	var sampler: Callable = state["sample"]
@@ -317,6 +349,10 @@ func _advance_window() -> void:
 	# (e.g. the monitored node was freed mid-window): send that envelope verbatim.
 	if typeof(sampled) == TYPE_DICTIONARY and (sampled as Dictionary).has("error"):
 		_finish_window(RESULT_BEGIN + JSON.stringify(sampled) + RESULT_END)
+		return
+	# ...or complete it early with a success payload (#661 predicate capture).
+	if typeof(sampled) == TYPE_DICTIONARY and (sampled as Dictionary).has("complete"):
+		_finish_window(_ok((sampled as Dictionary)["complete"]))
 		return
 	var samples: Array = state["samples"]
 	samples.append(sampled)
@@ -354,6 +390,8 @@ func _run(request) -> Variant:
 			return _handle_game_rect(params)
 		OP_GAME_SET:
 			return _handle_game_set(params)
+		OP_GAME_CALL:
+			return _handle_game_call(params)
 		OP_PERF_MONITORS:
 			return _handle_perf_monitors()
 		OP_PERF_MONITOR:
@@ -437,8 +475,7 @@ func _explicit_script_variable_property(
 	for prop in node.get_property_list():
 		if String(prop.get("name", "")) != prop_name:
 			continue
-		var usage := int(prop.get("usage", 0))
-		if (usage & PROPERTY_USAGE_SCRIPT_VARIABLE) == 0:
+		if not _is_script_variable(prop):
 			continue
 		var value: Variant = node.get(prop_name)
 		var declared_type := int(prop.get("type", TYPE_NIL))
@@ -485,6 +522,182 @@ func _handle_game_rect(params: Dictionary) -> String:
 # returns whether that observed read-back value matches the coerced requested
 # value; the harness does not guess whether a mismatch is a no-op or an
 # edge-triggered/self-consuming variable.
+# game call: invoke ONE method the addressed node's script chain DECLARED callable,
+# and project its return value (#673, GDA-DF-033). The dogfooding gap: a debug
+# state contract exposed as a method was unreadable — `game get` reads stored
+# properties only — so evidence fell back to index properties plus screenshots.
+#
+# The declaration is resolved from the node's ATTACHED script along its base
+# chain: the script constant `GDA_CALLABLE` (an Array of method names), carried
+# by AT MOST ONE class of the chain — GDScript forbids redeclaring a base's
+# constant — so the read-only assertion lives in the project's own source, under
+# its own code review, though not necessarily in the file of every method it
+# names (ADR-0041). It is read STATICALLY from the script constant map: learning what
+# may be called runs no project code, so the bootstrap itself cannot have side
+# effects. A node with no script, no constant, or a constant that does not name
+# the method declares nothing — default deny.
+#
+# gda cannot verify that a declared method has no side effects; the allowlist
+# records the DECLARER's assertion. What gda guarantees is that no UNDECLARED
+# method is callable. Failures are distinguishable: a method the node does not
+# have is live_unknown_method (checked first — the project is trusted, ADR-0009,
+# so the more precise diagnosis is the useful one), a method it has but never
+# declared is live_method_not_allowlisted (whose message names the declared set),
+# and an argument the method cannot take (count or type) is
+# live_invalid_call_args — refused BEFORE the call, since callv would otherwise
+# push an engine error and return a null gda would report as a successful read.
+func _handle_game_call(params: Dictionary) -> String:
+	var path := _string_param(params, "node")
+	var node := _resolve_runtime_node(path)
+	if node == null:
+		return _error(LIVE_ERROR_NODE_NOT_FOUND,
+				"no node at runtime path: " + path)
+	var method := _string_param(params, "method")
+	if not node.has_method(method):
+		return _error(LIVE_ERROR_UNKNOWN_METHOD,
+				"the node at " + path + " has no method named " + method)
+	var declared := _declared_callables(node)
+	if not declared.has(method):
+		var names := ", ".join(declared) if not declared.is_empty() else "(none)"
+		return _error(LIVE_ERROR_METHOD_NOT_ALLOWLISTED,
+				"the method " + method + " is not declared callable by the node at "
+				+ path + "; its script chain declares: " + names
+				+ ". Declare it in the script constant `const "
+				+ GDA_CALLABLE_CONST + " := [\"" + method + "\"]` to allow it")
+	var raw_args: Variant = params.get("args", [])
+	var args: Array = raw_args if typeof(raw_args) == TYPE_ARRAY else []
+	var signature := _method_signature(node, method)
+	var refusal := _call_argument_error(signature, args)
+	if not refusal.is_empty():
+		return _error(LIVE_ERROR_INVALID_CALL_ARGS, refusal)
+	return _ok({
+		"path": path,
+		"name": String(node.name),
+		"type": node.get_class(),
+		"method": method,
+		"value": _jsonify(node.callv(method, args)),
+	})
+
+
+# The gda-callable method names resolved from the node's attached script along its
+# base chain (#673), so a base declaration covers its subclasses. Read from the
+# constant map — never by calling
+# into the project — and normalized to Strings, so a malformed declaration (a
+# non-Array constant, or entries that are not names) declares nothing rather
+# than failing the call with an unrelated error.
+func _declared_callables(node: Node) -> Array:
+	var names: Array = []
+	var script: Script = node.get_script() as Script
+	while script != null:
+		var constants: Dictionary = script.get_script_constant_map()
+		var declared: Variant = constants.get(GDA_CALLABLE_CONST, null)
+		if typeof(declared) == TYPE_ARRAY or typeof(declared) == TYPE_PACKED_STRING_ARRAY:
+			for entry in declared:
+				if typeof(entry) != TYPE_STRING and typeof(entry) != TYPE_STRING_NAME:
+					continue
+				var entry_name := String(entry)
+				if not names.has(entry_name):
+					names.append(entry_name)
+		script = script.get_base_script()
+	return names
+
+
+# The method's own description from get_method_list(), or an empty Dictionary when the
+# list does not describe it (the has_method gate already established it exists).
+func _method_signature(node: Node, method: String) -> Dictionary:
+	for entry in node.get_method_list():
+		if String(entry.get("name", "")) == method:
+			return entry
+	return {}
+
+
+# Why the supplied arguments cannot reach the method, or "" when they can (#673,
+# PR #749 review). BOTH the count and each argument's TYPE are checked HERE,
+# before the call: `callv` with arguments it cannot convert pushes an engine
+# error, returns null, and pollutes the Session log — a failure gda would
+# otherwise report as a successful read of `null`, indistinguishable from a void
+# return (reproduced on Godot 4.6.3 for a String into `int`, a Dictionary into an
+# Object parameter, null into `int`, and a JSON array into `Array[int]`).
+func _call_argument_error(signature: Dictionary, args: Array) -> String:
+	if signature.is_empty():
+		return ""
+	var declared_args: Array = signature.get("args", [])
+	var defaults: Array = signature.get("default_args", [])
+	var method := String(signature.get("name", ""))
+	var required := declared_args.size() - defaults.size()
+	var vararg := (int(signature.get("flags", 0)) & METHOD_FLAG_VARARG) != 0
+	if args.size() < required:
+		return ("the method " + method + " needs at least " + str(required)
+				+ " argument(s); " + str(args.size()) + " supplied")
+	if not vararg and args.size() > declared_args.size():
+		return ("the method " + method + " accepts at most "
+				+ str(declared_args.size()) + " argument(s); " + str(args.size())
+				+ " supplied")
+	for index in range(mini(args.size(), declared_args.size())):
+		var spec: Dictionary = declared_args[index]
+		var reason := _argument_type_refusal(spec, args[index])
+		if not reason.is_empty():
+			return ("the method " + method + " cannot take argument "
+					+ str(index + 1) + " (" + String(spec.get("name", "")) + "): "
+					+ reason)
+	return ""
+
+
+# The engine's own strict-conversion closure for the SIX Variant types the live
+# JSON parser can produce, keyed by the SOURCE type (#673, PR #749 re-review).
+# Godot's JSON.parse_string materializes every number as TYPE_FLOAT, including a
+# literal without a fractional part; TYPE_INT is therefore a reachable TARGET
+# (from bool/float) but not a live JSON SOURCE. Every row is transcribed
+# mechanically from `Variant::can_convert_strict`
+# (core/variant/variant.cpp), which is NOT exposed to GDScript: its per-target
+# `valid[]` lists are NIL-TERMINATED, so a NIL entry is the terminator rather than
+# a legal source, and `from NIL` is decided by an early return (only OBJECT).
+# Transcribing the closure by hand made a first version REJECT calls Godot
+# accepts (String -> Color, Array -> Packed*Array), so a real-engine conformance
+# matrix now uses a direct `callv` as the ORACLE — the engine decides, this table
+# only has to agree with it.
+const JSON_ARGUMENT_CONVERSIONS := {
+	TYPE_NIL: [TYPE_OBJECT],
+	TYPE_BOOL: [TYPE_INT, TYPE_FLOAT],
+	TYPE_FLOAT: [TYPE_BOOL, TYPE_INT],
+	TYPE_STRING: [TYPE_STRING_NAME, TYPE_NODE_PATH, TYPE_COLOR],
+	TYPE_ARRAY: [
+		TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_INT64_ARRAY,
+		TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY,
+		TYPE_PACKED_STRING_ARRAY, TYPE_PACKED_COLOR_ARRAY,
+		TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY,
+		TYPE_PACKED_VECTOR4_ARRAY,
+	],
+	TYPE_DICTIONARY: [],
+}
+
+
+# Why one JSON-supplied value cannot reach one declared parameter, or "" when it
+# can (#673). Reads the closure above; where the engine converts, gda calls.
+func _argument_type_refusal(spec: Dictionary, value: Variant) -> String:
+	var to_type := int(spec.get("type", TYPE_NIL))
+	var from_type := typeof(value)
+	if to_type == TYPE_NIL:
+		return ""  # an untyped (Variant) parameter takes anything
+	if to_type == from_type:
+		# Identity — except a TYPED container, which an untyped JSON Array or
+		# Dictionary cannot satisfy whatever its contents: the engine refuses
+		# `Array` -> `Array[int]` outright ("Cannot convert argument 1 from
+		# Array to Array."), so no JSON value can reach such a parameter.
+		if (to_type == TYPE_ARRAY or to_type == TYPE_DICTIONARY) \
+				and int(spec.get("hint", PROPERTY_HINT_NONE)) != PROPERTY_HINT_NONE:
+			return ("it is a typed " + _type_name(to_type) + " ("
+					+ String(spec.get("hint_string", "")) + "), which a JSON "
+					+ "argument cannot satisfy; declare the parameter untyped to "
+					+ "make it callable")
+		return ""
+	var reachable: Array = JSON_ARGUMENT_CONVERSIONS.get(from_type, [])
+	if reachable.has(to_type):
+		return ""
+	return ("a " + _type_name(from_type) + " value cannot convert to "
+			+ _type_name(to_type))
+
+
 func _handle_game_set(params: Dictionary) -> String:
 	var path := _string_param(params, "node")
 	var node := _resolve_runtime_node(path)
@@ -1279,19 +1492,74 @@ func _capture_frame() -> Dictionary:
 	}
 
 
+# The capture receipt (#660, GDA-DF-026/031): the engine-side identity facts that
+# bind ONE captured image to the session, its launched scene, and the frame it
+# came from. `session_id` is the daemon-minted identity from the launch tail (""
+# from a launcher that predates it); `scene_path` / `scene_uid` are the LAUNCHED
+# scene's identity per issue #660 — remembered at the handshake's scene
+# verification, the same value the daemon verified, so they are a launch fact,
+# not a claim about what an individual frame presents (a game that switches
+# scenes mid-session still receipts under its launched scene; the uid is the
+# scene FILE's own header declaration, null for a gda-authored scene, ADR-0036).
+# `engine_frame` is read at the SAME frame boundary as the pixels; `observed` is
+# the predicate echo for a gated capture (null on a plain one — the CLI refuses
+# an unsolicited echo). The CLI adds the output hash after writing the file.
+func _capture_receipt(observed: Variant) -> Dictionary:
+	return {
+		"session_id": _session_id,
+		"scene_path": _launched_scene_path,
+		"scene_uid": _launched_scene_uid,
+		"engine_frame": Engine.get_process_frames(),
+		"observed": observed,
+	}
+
+
+# The scene file's own uid:// identity, as the FILE HEADER declares it (#660;
+# ADR-0036's read side: "the project provides one" means the header carries it).
+# `ResourceLoader.get_resource_uid` cannot serve here: outside the editor it
+# consults only the runtime UID registry (core/io/resource_loader.cpp), which an
+# editor-never-opened project has no `.godot/uid_cache.bin` to fill — so read
+# the same header attribute the engine's TEXT loader reads in editor mode
+# (`ResourceFormatLoaderText::get_resource_uid`). Text scene formats only;
+# anything else — including a header without the attribute — reports null.
+func _scene_header_uid(scene_path: String) -> Variant:
+	if not (scene_path.ends_with(".tscn") or scene_path.ends_with(".tres")):
+		return null
+	var file := FileAccess.open(scene_path, FileAccess.READ)
+	if file == null:
+		return null
+	var header := file.get_line()
+	file.close()
+	var pattern := RegEx.new()
+	# Godot's header parser accepts horizontal whitespace around `=` (PR #746
+	# review: `uid = "uid://…"` is a legal, engine-preserved header), so the
+	# match must too.
+	if pattern.compile("\\buid[ \\t]*=[ \\t]*\"(uid://[a-z0-9]+)\"") != OK:
+		return null
+	var found := pattern.search(header)
+	return found.get_string(1) if found != null else null
+
+
 # screen capture: capture ONE viewport frame, returned as a base64 PNG + dims (the
 # CLI writes the file). A 1-frame window so the capture lands on a _process tick
 # after the scene is up and a frame has rendered (the GPU-timing fix). A headless
 # session is the typed live_display_unavailable, refused up front.
-func _handle_screen_capture(_params: Dictionary) -> Variant:
+func _handle_screen_capture(params: Dictionary) -> Variant:
 	if _display_is_headless():
 		return _error(LIVE_ERROR_DISPLAY_UNAVAILABLE,
 				"the engine session is headless (no DisplayServer to render pixels); "
 				+ "start the daemon with `gda daemon start --windowed`")
+	var await_spec: Variant = params.get("await", null)
+	if typeof(await_spec) == TYPE_DICTIONARY:
+		return _begin_predicate_capture(await_spec, params.get("events", []))
 	var sample := func() -> Variant:
 		var frame := _capture_frame()
 		if frame.has("error"):
 			return frame  # abort the window with the typed error envelope
+		# The receipt is built INSIDE the sample (#660), at the same frame
+		# boundary the pixels were read at, so its engine_frame is the frame
+		# the image presents. A plain capture echoes no predicate (null).
+		frame["receipt"] = _capture_receipt(null)
 		return frame
 	var finalize := func(samples: Array) -> String:
 		# A 1-frame window: the single sample is the captured frame, returned flat.
@@ -1320,6 +1588,186 @@ func _handle_screen_frames(params: Dictionary) -> Variant:
 			"frames": samples,
 		})
 	return _begin_window(frames, sample, finalize)
+
+
+# screen capture --await (#661): the predicate-gated capture, GDA-DF-023. Input
+# and capture as separate round trips routinely miss a 3-8 frame transient, so
+# the window arms at request arrival and does the whole job game-side, on the
+# PROCESS clock (physics-clock event offsets are refused): each frame it first
+# applies the inline input events due at that offset (the atomic
+# input-and-capture form; the events reuse the input-sequence shapes and
+# _apply_sequence_event verbatim), then evaluates the predicate
+# `node.property == value`. Each tick EVALUATES BEFORE it injects (#743
+# re-review, ARC-743-004): the property is read before this tick's events run,
+# so the observed value is always the state of the previously COMPLETED frame —
+# exactly the frame the viewport texture presents — and the pixels are read at
+# that same boundary. This holds for both trigger paths, verified live: a
+# _process-driven flip is observed with its own presentation, and a state an
+# injected event writes (a synchronous _input callback) is observed one
+# boundary LATER, together with its presentation. Two declared consequences:
+# the predicate sees frame-boundary state only (a value overwritten before its
+# frame completes is never observable — the typed unmet error, not a capture
+# of mismatched pixels), and an event's effect is observable from the NEXT
+# boundary, so the last state-changing event needs at least one frame of
+# window left. The reply waits for every accepted event — an early match must
+# not leave a scheduled release unexecuted — and a DECLARED EVENT FAILURE is
+# the reply even after a capture succeeded (#743 re-review, ARC-743-001): the
+# capture payload is discarded, later events still drain, and the CLI writes
+# no file. A predicate that never holds within `frames` is the typed
+# live_predicate_unmet, carrying the last observed value.
+func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Variant:
+	var node_path := String(await_spec.get("node", ""))
+	var node := _resolve_runtime_node(node_path)
+	if node == null:
+		return _error(LIVE_ERROR_NODE_NOT_FOUND,
+				"no node at runtime path: " + node_path)
+	var prop := String(await_spec.get("property", ""))
+	if not _runtime_property_declared(node, prop):
+		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
+				_unknown_runtime_property_message(node_path, prop))
+	var expected: Variant = await_spec.get("value", null)
+	var frames := _int_param(await_spec, "frames", 60)
+	var events: Array = raw_events if typeof(raw_events) == TYPE_ARRAY else []
+	var last_event := -1
+	for event in events:
+		if typeof(event) != TYPE_DICTIONARY:
+			continue
+		if _sequence_event_uses_physics(event):
+			return _error(LIVE_ERROR_INVALID_EVENT_SPEC,
+					"a predicate capture applies its events on the process clock; "
+					+ "'physics_frame' offsets are not accepted")
+		last_event = maxi(last_event, _sequence_event_offset(event))
+	var state := {"n": 0, "observed": null, "outcome": null}
+	_injected_mouse_button_mask = 0
+	var sample := func() -> Variant:
+		var current := int(state["n"])
+		state["n"] = current + 1
+		# Evaluate BEFORE this tick's events run (#743 re-review): the read
+		# then always sees the previously completed frame — the same frame the
+		# texture presents — never a mid-tick write from a synchronous input
+		# callback. The value is read HERE only; the up-front resolution is
+		# metadata-only, so a scripted getter runs exactly once per sampled
+		# frame (#743 review, ARC-743-002).
+		if state["outcome"] == null:
+			if not is_instance_valid(node):
+				state["outcome"] = {"error": {
+					"code": LIVE_ERROR_NODE_NOT_FOUND,
+					"message": "the awaited node was freed mid-window: " + node_path,
+				}}
+			else:
+				var observed: Variant = node.get(prop)
+				state["observed"] = observed
+				if _predicate_matches(observed, expected):
+					# Capture at the SAME boundary the predicate was observed
+					# at — property and presentation both belong to the frame
+					# that just completed (verified live, see above).
+					var captured := _capture_frame()
+					if captured.has("error"):
+						state["outcome"] = captured
+					else:
+						captured["predicate"] = {
+							"node": node_path,
+							"property": prop,
+							"expected": expected,
+							"observed": _predicate_echo(observed),
+							"engine_frame": Engine.get_process_frames(),
+							"frames_waited": current,
+						}
+						# Same tick as the evaluation and the pixels (#660), so
+						# the receipt's engine_frame IS the evaluation frame and
+						# its echo IS the predicate's — the CLI refuses a reply
+						# where the two disagree.
+						captured["receipt"] = _capture_receipt(
+								_predicate_echo(observed))
+						state["outcome"] = {"complete": captured}
+				elif current + 1 >= frames:
+					state["outcome"] = {"error": {
+						"code": LIVE_ERROR_PREDICATE_UNMET,
+						"message": "the predicate " + node_path + "." + prop
+								+ " == " + JSON.stringify(expected)
+								+ " did not hold within " + str(frames)
+								+ " frames (last observed: "
+								+ str(state["observed"]) + ")",
+					}}
+		# Then inject: every ACCEPTED event fires at its offset, even after
+		# the outcome is decided, so a press injected early is never left held
+		# (#743 review). A declared event FAILURE becomes the reply — it
+		# replaces a captured success (the CLI then writes no file) but never
+		# an earlier error — while later events still drain, best effort.
+		for event in events:
+			if typeof(event) != TYPE_DICTIONARY:
+				continue
+			if _sequence_event_offset(event) != current:
+				continue
+			var err: Variant = _apply_sequence_event(event)
+			if err != null:
+				var outcome: Variant = state["outcome"]
+				if outcome == null or (outcome as Dictionary).has("complete"):
+					state["outcome"] = {"error": err}
+		if state["outcome"] != null and current >= last_event:
+			_injected_mouse_button_mask = 0
+			return state["outcome"]
+		return current
+	var finalize := func(_samples: Array) -> String:
+		# Defensive only: the sampler decides every path within the budget.
+		_injected_mouse_button_mask = 0
+		return _error(LIVE_ERROR_PREDICATE_UNMET,
+				"the predicate " + node_path + "." + prop + " == "
+				+ JSON.stringify(expected) + " did not hold within "
+				+ str(frames) + " frames (last observed: "
+				+ str(state["observed"]) + ")")
+	return _begin_window(maxi(frames, last_event + 1) + 1, sample, finalize)
+
+
+# The one runtime-property resolution rule, metadata only (#743 review,
+# ARC-743-002): a STORAGE property or an explicit SCRIPT VARIABLE — the same
+# two-step game get resolves with — decided from get_property_list() alone, so
+# resolving NEVER invokes a getter; the owning use case reads the value.
+func _runtime_property_declared(node: Node, prop_name: String) -> bool:
+	for entry in node.get_property_list():
+		if String(entry.get("name", "")) != prop_name:
+			continue
+		if _is_storage_property(entry) or _is_script_variable(entry):
+			return true
+	return false
+
+
+func _is_script_variable(prop: Dictionary) -> bool:
+	return (int(prop.get("usage", 0)) & PROPERTY_USAGE_SCRIPT_VARIABLE) != 0
+
+
+# JSON-typed predicate equality (#661): bool compares to bool, numbers
+# numerically (int frame counters match JSON integers), strings against the
+# String rendering (covers StringName), anything else never matches — the
+# predicate is a JSON-scalar contract, not a Variant matcher.
+func _predicate_matches(observed: Variant, expected: Variant) -> bool:
+	match typeof(expected):
+		TYPE_BOOL:
+			return typeof(observed) == TYPE_BOOL and observed == expected
+		TYPE_INT, TYPE_FLOAT:
+			if typeof(observed) == TYPE_INT or typeof(observed) == TYPE_FLOAT:
+				return float(observed) == float(expected)
+			return false
+		TYPE_STRING:
+			if typeof(observed) == TYPE_STRING or typeof(observed) == TYPE_STRING_NAME:
+				return String(observed) == String(expected)
+			return false
+		TYPE_NIL:
+			return typeof(observed) == TYPE_NIL
+	return false
+
+
+# The JSON-safe echo of the observed value for the result (#661; #660's receipt
+# echoes it onward): scalars pass through, everything else the diagnostic
+# String form — the predicate compares scalars, so the echo never needs the
+# full Value projection.
+func _predicate_echo(observed: Variant) -> Variant:
+	match typeof(observed):
+		TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING:
+			return observed
+		TYPE_NIL:
+			return null
+	return str(observed)
 
 
 # Read a float param defensively (the params arrive as arbitrary JSON): a missing

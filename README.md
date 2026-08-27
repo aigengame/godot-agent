@@ -471,7 +471,12 @@ files.
 `script run` executes a named project script one-shot and **passes its run through**: the
 success result carries the script's own `exit_status` (a deliberate non-zero `quit()` is
 data, not a gda failure — pass `--strict` to turn it into a `script_failed` error for shell
-`&&` chains) plus its captured `stdout` and `stderr` verbatim. `--timeout <s>` bounds the
+`&&` chains) plus its captured `stdout` and `stderr`. `stderr` is verbatim; `stdout` is
+verbatim up to 64 KiB — above that the result carries the stream's leading bytes and the
+complete stream spills to the file named in `stdout_file`, with `stdout_bytes` and
+`stdout_truncated` always reporting the full size and whether truncation happened. A spill
+file gda cannot write fails typed (`stdout_spill_failed`) rather than returning an
+unbounded result, so read the three fields when consuming `stdout`. `--timeout <s>` bounds the
 run's wall clock; a run gda has to end reports `launch_timeout` **with the partial output
 captured so far**, the elapsed seconds and a termination phase. Declare
 `--completion-marker <line>` — a line your script prints when its work is done — and a run
@@ -550,6 +555,19 @@ reported as `script_aborted` with the captured error.
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game. |
+| `game call` | Invoke one method named by the node's attached-script-chain declaration (`GDA_CALLABLE`), and project what it returns. |
+
+`game call` reads what `game get` cannot: a debug or state contract your project
+exposes as a **method**. gda resolves the `GDA_CALLABLE` declaration statically
+from the node's attached script along its base chain — so learning what may be
+called runs none of your code, and nothing is callable until a chain opts in.
+GDScript forbids redeclaring a base class's constant, so an opted-in chain has at
+most one declaration owner (a base owner covers its subclasses and need not define
+every method it names). gda
+cannot verify a declared method has no side effects; what it guarantees is that no
+undeclared method is called (ADR-0041). Arguments that the declared parameters
+cannot take are refused before the call, so a mismatch is a typed error rather
+than a silent `null`.
 
 Live `game set --property position` follows the same `Control` policy as
 `node set`; `game rect` remains a read-only rendered-geometry query. `game set`
@@ -598,7 +616,7 @@ input event.
 | Command | What it does |
 | ------- | ------------ |
 | `screen capture` | Capture one viewport frame to a PNG. |
-| `screen frames` | Capture an N-frame PNG sequence. |
+| `screen frames` | Capture an N-frame PNG sequence (`--summary` for a compact aggregate result). |
 
 ### Global flags
 
@@ -665,6 +683,10 @@ it starts no engine). Concretely:
   any import plugins the project registers — runs over the whole project's content. The pass
   boots the editor importer path, not the game: no autoloads execute. A fully cached request
   starts no engine at all.
+- **`gda game call` runs one declared method in the running game.** The single method the
+  addressed node's attached-script chain named in its `GDA_CALLABLE` declaration executes, once, per
+  request. Reading that declaration runs nothing — the constant is served by the compiled
+  script — and no undeclared method is ever called.
 
 `gda` treats the target project as trusted, so this is by design — see
 [ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md) for the trust model.

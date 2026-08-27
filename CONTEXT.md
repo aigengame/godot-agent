@@ -137,8 +137,10 @@ are empty on a timeout and `elapsed_seconds` is `None` (#655). Those launch-back
 channels all return the one `RunResult` shape. Normally internal, it is **promoted to
 a public result by `gda script run`** — the one operation whose success result *is* a
 Raw run (minus `launch_failure`, `elapsed_seconds`, and the streams' timeout
-semantics, all of which are lifted out into an `Error envelope`), so its
-`exit_status` can be non-zero on success (ADR-0031).
+semantics, all of which are lifted out into an `Error envelope`; since #665 the
+promoted `stdout` is additionally a BOUNDED projection — verbatim up to a cap,
+above it the leading cap bytes with the complete stream spilled to a file the
+result names), so its `exit_status` can be non-zero on success (ADR-0031).
 _Avoid_: run output, export output
 
 **Completion marker**:
@@ -257,9 +259,14 @@ a missing or stale cache runs the **engine import pass** — importer code (and
 any import plugins the project registers) over project content, WITHOUT the
 autoloads: the pass boots the editor importer path, not the game's scene
 stack.
+`gda game call` (#673) contributes ONE narrow point: the single method the
+addressed node's attached-script chain named in its `GDA_CALLABLE` declaration
+runs, once, per request. Reading that declaration adds no point at all — the
+constant map is served by the compiled script, so learning what may be called
+executes nothing (ADR-0041).
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
-loaded-value assignment (ADR-0033), the startup preflight, and the import pass
-widen this surface without adding a new trust axis.
+loaded-value assignment (ADR-0033), the startup preflight, the import pass, and
+the declared method call widen this surface without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:

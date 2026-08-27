@@ -40,6 +40,7 @@ from gda.daemon.discovery import (
 from gda.daemon.protocol import read_message, write_frame, write_message
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
 from gda.daemon.session import (
+    LAUNCH_MARKER,
     EngineSession,
     _capture_owned_pgid,
     _group_standing,
@@ -184,8 +185,9 @@ class _ServedSession:
 
     log_file: "Path | None" = None
 
-    def __init__(self) -> None:
+    def __init__(self, session_id: str = "fake-session") -> None:
         self.closed = False
+        self.session_id = session_id
 
     def alive(self) -> bool:
         return True
@@ -255,7 +257,13 @@ def test_serve_binds_both_sockets_and_answers_status(
         assert paths.cli_socket.exists()
         assert paths.harness_socket.exists()
         reply = _request(paths, {"op": "__status__"})
-        assert reply == {"ok": True, "pid": os.getpid(), "windowed": False}
+        assert reply == {
+            "ok": True,
+            "pid": os.getpid(),
+            "windowed": False,
+            # No session launched this lifetime -> nothing to correlate (#660).
+            "session_id": None,
+        }
 
 
 def test_a_stale_slot_left_by_a_crash_is_reclaimed(
@@ -533,6 +541,151 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
     # The slack is the request's own transit: the daemon starts the clock when it
     # RECEIVES the call, so the instant is 7.5s from there, not from here.
     assert asked < launches[0] <= asked + 7.5 + _SCHEDULING_SLACK
+
+
+def test_status_reports_the_minted_session_identity_across_the_lifecycle(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #660 over the real loop: no identity before a launch; the launch boundary
+    # MINTS one and hands it to the launcher (the daemon is the authority for
+    # what it launches); `__status__` reports the SAME value while the session
+    # lives AND after it dies — a crashed session stays correlatable, like the
+    # log ops keep it diagnosable — and a relaunch mints a fresh one.
+    minted: list = []
+    sessions: list = []
+
+    class _Mortal(_ServedSession):
+        def __init__(self, session_id: str) -> None:
+            super().__init__(session_id)
+            self.dead = False
+
+        def alive(self) -> bool:
+            return not self.dead
+
+    def _launch(*args, **kwargs):
+        minted.append(kwargs["session_id"])
+        session = _Mortal(kwargs["session_id"])
+        sessions.append(session)
+        return session
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        before = _request(paths, {"op": "__status__"})
+        _request(paths, {"op": "game-tree", "params": {}})  # the lazy launch
+        alive_status = _request(paths, {"op": "__status__"})
+        sessions[0].dead = True  # the session dies, nothing has replaced it yet
+        dead_status = _request(paths, {"op": "__status__"})
+        _request(paths, {"op": "game-tree", "params": {}})  # the relaunch
+        relaunched = _request(paths, {"op": "__status__"})
+
+    assert before is not None and before["session_id"] is None
+    assert len(minted) == 2
+    first, second = minted
+    # An opaque daemon-minted identity: 16 lowercase hex chars, fresh per launch.
+    assert isinstance(first, str) and len(first) == 16
+    assert set(first) <= set("0123456789abcdef")
+    assert alive_status is not None and alive_status["session_id"] == first
+    assert dead_status is not None and dead_status["session_id"] == first
+    assert relaunched is not None and relaunched["session_id"] == second
+    assert second != first
+
+
+def test_a_failed_replacement_launch_retains_the_last_established_identity(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #746 review ARC-746-001: retirement drops the session OBJECT before the
+    # replacement launch, so the identity must live in a read model written only
+    # on success — a failed replacement replaces nothing and must not erase the
+    # identity `daemon status` promised to keep readable until replacement.
+    minted: list = []
+    sessions: list = []
+
+    class _Mortal(_ServedSession):
+        def __init__(self, session_id: str) -> None:
+            super().__init__(session_id)
+            self.dead = False
+
+        def alive(self) -> bool:
+            return not self.dead
+
+    def _launch(*args, **kwargs):
+        minted.append(kwargs["session_id"])
+        if len(minted) == 2:
+            return None  # the replacement launch FAILS
+        session = _Mortal(kwargs["session_id"])
+        sessions.append(session)
+        return session
+
+    paths = daemon_paths(_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        _request(paths, {"op": "game-tree", "params": {}})  # establish
+        sessions[0].dead = True
+        failed = _request(paths, {"op": "game-tree", "params": {}})  # fails
+        retained = _request(paths, {"op": "__status__"})
+        recovered = _request(paths, {"op": "game-tree", "params": {}})  # succeeds
+        replaced = _request(paths, {"op": "__status__"})
+
+    assert failed is not None
+    assert (
+        parse_result(failed["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+    assert len(minted) == 3
+    # dead -> failed replacement -> the OLD identity is retained...
+    assert retained is not None and retained["session_id"] == minted[0]
+    # ...and only the successful replacement publishes the new one.
+    assert recovered is not None and recovered["stdout"] == "served:game-tree"
+    assert replaced is not None and replaced["session_id"] == minted[2]
+    assert replaced["session_id"] != minted[0]
+
+
+def test_launch_session_places_the_identity_on_the_harness_tail(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # The identity travels to the harness on the existing launch tail (#660):
+    # LAST, after the marker, socket, token, and scene selector — positional and
+    # bounds-checked harness-side, so an older harness ignores it.
+    spawned: list = []
+
+    def _record_spawn(argv, **kwargs):
+        spawned.append(argv)
+        return _Proc(code=None)
+
+    monkeypatch.setattr(subprocess, "Popen", _record_spawn)
+    no_engine_teardown(monkeypatch)
+    paths = daemon_paths(_project(tmp_path))
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(paths.harness_socket))
+    listener.listen()
+
+    try:
+        outcome = launch_session(
+            paths.project,
+            "godot",
+            listener,
+            paths.harness_socket,
+            "expected-token",
+            deadline=time.monotonic() + 0.2,  # no harness will connect: bounded
+            scene="res://main.tscn",
+            session_id="a1b2c3d4e5f60718",
+        )
+    finally:
+        listener.close()
+
+    assert outcome is None  # nothing connected — only the spawn matters here
+    assert len(spawned) == 1
+    tail = spawned[0][spawned[0].index(LAUNCH_MARKER) :]
+    assert tail == [
+        LAUNCH_MARKER,
+        str(paths.harness_socket),
+        "expected-token",
+        "res://main.tscn",
+        "a1b2c3d4e5f60718",
+    ]
 
 
 def test_wait_ready_relays_the_typed_launch_failure(

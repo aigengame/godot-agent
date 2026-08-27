@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=de7b87f2b2f920f174da2066e3f4ea95c46ca800577f5b6607ca594f8eab1b41 -->
+<!-- gda-readme-i18n: source=README.md sha256=e36950ec63b4fd8122f2d674ee234169abbc4b15d4803a650cf2e44eabdf253f -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -481,10 +481,16 @@ ruta *fuera* del proyecto resuelto rechaza el lote entero de entrada con
 `project_not_found`, nombrando tanto el archivo como el proyecto, en lugar de informar
 esos errores falsos; pasa `--project` con el proyecto al que pertenecen los archivos.
 
-`script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución tal
-cual**: el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de
+`script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución**:
+el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de
 cero deliberado es un dato, no un fallo de gda — pasa `--strict` para convertirlo en un error
-`script_failed` para cadenas `&&` del shell) más su `stdout` y `stderr` capturados literalmente.
+`script_failed` para cadenas `&&` del shell) más su `stdout` y `stderr` capturados. `stderr`
+se devuelve literalmente; `stdout` se devuelve literalmente hasta 64 KiB — por encima de eso
+el resultado lleva los bytes iniciales del flujo y el flujo completo se escribe en el archivo
+nombrado en `stdout_file`, con `stdout_bytes` y `stdout_truncated` informando siempre el
+tamaño completo y si hubo truncado. Un archivo de volcado que gda no puede escribir falla de
+forma tipada (`stdout_spill_failed`) en lugar de devolver un resultado sin límite, así que
+lee los tres campos al consumir `stdout`.
 `--timeout <s>` limita el reloj de pared de la ejecución; una ejecución que gda tiene que
 terminar informa `launch_timeout` **con la salida parcial capturada hasta entonces**, los
 segundos transcurridos y una fase de terminación. Declara `--completion-marker <line>` — una
@@ -564,6 +570,19 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
 | `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
 | `game set` | Define una propiedad de un nodo de runtime, o una variable explícita del script adjunto, en el juego en ejecución. |
+| `game call` | Invoca un método nombrado por la declaración de la cadena de scripts adjuntos del nodo (`GDA_CALLABLE`) y proyecta lo que devuelve. |
+
+`game call` lee lo que `game get` no puede: un contrato de depuración o de estado que el
+proyecto expone como **método**. gda resuelve la declaración `GDA_CALLABLE` de forma estática
+desde el script adjunto al nodo a lo largo de su cadena de clases base; así, averiguar qué puede
+invocarse no ejecuta nada de tu código y nada es invocable hasta que una cadena lo declara.
+GDScript prohíbe redeclarar la constante de una clase base, por lo que una cadena que la usa
+tiene como máximo una clase propietaria de la declaración (una base propietaria cubre sus
+subclases y no tiene que definir todos los métodos que nombra). gda no puede
+verificar que un método declarado no tenga efectos secundarios; lo que garantiza es que nunca
+invoca un método no declarado (ADR-0041). Los argumentos que los parámetros declarados no
+pueden aceptar se rechazan antes de la llamada, así que un desajuste de tipo es un error
+tipado y no un `null` silencioso.
 
 `game set --property position` en vivo sigue la misma política de `Control` que
 `node set`; `game rect` sigue siendo una consulta de geometría renderizada de solo
@@ -613,7 +632,7 @@ de entrada.
 | Comando | Qué hace |
 | ------- | ------------ |
 | `screen capture` | Captura un frame del viewport a un PNG. |
-| `screen frames` | Captura una secuencia PNG de N frames. |
+| `screen frames` | Captura una secuencia PNG de N frames (`--summary` devuelve un resultado agregado compacto). |
 
 ### Flags globales
 
@@ -681,6 +700,10 @@ arranca ningún motor). En concreto:
   código de los importadores — y cualquier plugin de importación que el proyecto registre — se ejecuta sobre el
   contenido de todo el proyecto. El pase arranca la ruta del importador del editor, no el juego: no se ejecuta
   ningún autoload. Una petición con la caché íntegra no arranca ningún motor.
+- **`gda game call` ejecuta un método declarado en el juego en ejecución.** Por petición se
+  ejecuta únicamente el método que la cadena de scripts adjuntos del nodo direccionado nombró
+  en su declaración `GDA_CALLABLE`. Leer esa declaración no ejecuta nada — la constante la sirve el script
+  compilado — y nunca se invoca un método no declarado.
 
 `gda` trata el proyecto objetivo como de confianza, por lo que esto es intencionado — consulta
 [ADR-0009](adr/0009-trust-boundary-trusted-project.md) para el modelo de confianza.
