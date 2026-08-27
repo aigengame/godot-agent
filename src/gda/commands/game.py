@@ -16,12 +16,14 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 ``scene`` / ``node``, not a different phase (ADR-0017/0019).
 """
 
+import json
+import math
 from typing import Any, Optional
 
 import typer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from gda.dispatch import dispatch_domain
+from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -232,6 +234,206 @@ class GameSetResult(BaseModel):
     )
 
 
+# The NAME of the script constant an opted-in inheritance chain declares its
+# gda-callable methods in (ADR-0041). The runtime authority is the harness's own
+# ``GDA_CALLABLE_CONST``; this is the agent-facing copy the schema, help and
+# error prose quote, and a mirror test pins the two together (PR #749 review) —
+# the same cross-language idiom the op names and live error codes use.
+GDA_CALLABLE_CONST = "GDA_CALLABLE"
+
+
+# The interoperable range for JSON INTEGER values decoded as Python ``int``
+# (PR #749 review). Godot's `JSON.parse_string` reads every number as binary64,
+# so an int outside this guaranteed-exact range may arrive changed:
+# 9007199254740993 became …992, and 123456789012345678901234567890 became -2.
+# A Python float is already binary64 and does not inherit this integer bound.
+# This is not a promise that Godot preserves every binary64 JSON literal: #752
+# tracks small-magnitude normal and subnormal values that its parser can flatten.
+MAX_EXACT_JSON_INT = 2**53 - 1
+
+
+def _game_call_params_schema(schema: dict[str, Any]) -> None:
+    """Publish the recursive live-argument numeric domain (#749 third review).
+
+    ``args`` remains ``list[Any]`` at runtime because a method may accept any JSON
+    shape. Attach one recursive JSON-value definition so schema-driven callers can
+    discover that structure and its wire limits.
+
+    Standard JSON Schema has no numeric lexical types: it treats ``1e17`` and the
+    equal integer value as the same mathematical integer. The Python decoder does
+    retain the useful distinction — an exponent or fractional token becomes float,
+    while a bare integer becomes int. Constraining the schema's ``integer`` type
+    would therefore reject valid high-range binary64 float arguments. Keep the
+    machine number branch broad, disclose the distinction and Godot's known
+    small-magnitude precision gap in its description, and let the same params model
+    that accepts input enforce the int-only bound.
+    """
+    # `$dynamicRef` keeps the recursive definition standard Draft 2020-12 while
+    # avoiding a Pydantic-internal `$ref` lookup: this definition is attached by
+    # the schema projection rather than generated from a core model type.
+    value_ref = {"$dynamicRef": "#liveCallArgument"}
+    schema.setdefault("$defs", {})["LiveCallArgument"] = {
+        "$dynamicAnchor": "liveCallArgument",
+        "anyOf": [
+            {"type": "null"},
+            {"type": "boolean"},
+            {
+                "type": "number",
+                "description": (
+                    "An RFC JSON number transported through Godot's binary64 "
+                    "parser. RFC JSON excludes NaN and Infinity; some in-memory "
+                    "JSON Schema validators accept those extensions, but the params "
+                    "model rejects them. JSON integer tokens decoded as int must "
+                    f"stay within +/-{MAX_EXACT_JSON_INT}; standard JSON Schema "
+                    "cannot distinguish those tokens from equal high-range float "
+                    "values, so the params model enforces that integer-token limit "
+                    "at execution. Godot 4.6.3 can also change some small-magnitude "
+                    "finite literals to 0.0; issue #752 tracks that transport defect."
+                ),
+            },
+            {"type": "string"},
+            {"type": "array", "items": value_ref},
+            {"type": "object", "additionalProperties": value_ref},
+        ],
+    }
+    args_schema = schema["properties"]["args"]
+    array_schema = next(
+        candidate
+        for candidate in args_schema["anyOf"]
+        if candidate.get("type") == "array"
+    )
+    array_schema["items"] = value_ref
+
+
+def _reject_unrepresentable(value: Any, path: str = "args") -> None:
+    """Refuse two reproduced unsafe argument classes before the wire (PR #749).
+
+    Two classes, both reproduced end to end, both refused recursively (a nested
+    value is as harmful as a top-level one):
+
+    - **Non-finite floats.** JSON has no ``NaN``/``Infinity`` literals, but
+      Python's ``json.loads`` accepts them by extension and pydantic keeps them
+      in an ``Any`` field — and the daemon then writes a frame the harness's
+      ``JSON.parse_string`` cannot read, so the call never arrives: the caller
+      waits out the 30 s relay bound, gets ``live_timeout``, and the daemon
+      retires the channel, LOSING the engine session's runtime state.
+    - **Python ints outside the exact-integer range** guaranteed by the live
+      parser's binary64 number domain: those may arrive as a different number and
+      make the call SUCCEED on a value the caller never sent (PR #749 re-review).
+      Python floats already are binary64 values and do not inherit the integer
+      safe-range bound; the reproduced high-range values such as ``1e300`` cross
+      unchanged.
+
+    This function does not reject every float that Godot can change. Godot 4.6.3
+    parses some small-magnitude finite literals — including the normal binary64
+    value ``1.2345678901234567e-300`` — as ``0.0``. A decimal heuristic would
+    over-refuse and would not cover Godot's result stringifier, so #752 owns the
+    cross-direction transport policy instead of adding a partial guard here.
+
+    The params model is the one authority both the argv and ``--params-json``
+    paths pass through (ADR-0015), so both refusals belong here — structurally,
+    before the wire.
+    """
+    if isinstance(value, bool):
+        pass  # bool is not an int argument here, despite subclassing it
+    elif isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(
+            f"{path} must be finite JSON values; NaN and Infinity are not "
+            "representable on the live wire."
+        )
+    elif isinstance(value, int) and abs(value) > MAX_EXACT_JSON_INT:
+        raise ValueError(
+            f"{path} integer values must be within +/-{MAX_EXACT_JSON_INT} (the "
+            "live wire reads JSON numbers as binary64, so a larger integer may "
+            f"arrive as a DIFFERENT value); got {value}."
+        )
+    if isinstance(value, dict):
+        for key, item in value.items():
+            _reject_unrepresentable(item, f"{path}[{key!r}]")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_unrepresentable(item, f"{path}[{index}]")
+
+
+class GameCallParams(BaseModel):
+    """The params of ``gda game call``: invoke one DECLARED read-only method (#673).
+
+    The live read that ``game get`` cannot serve: a debug/state contract exposed
+    as a METHOD rather than a stored property (GDA-DF-033). ``method`` must be
+    named by the ``GDA_CALLABLE`` declaration resolved from the addressed node's
+    attached script along its base chain (ADR-0041) — gda calls nothing the chain
+    did not declare. ``args`` are JSON values passed to the method as their live
+    Variant forms; the harness's JSON parser materializes every number as float.
+    """
+
+    model_config = ConfigDict(json_schema_extra=_game_call_params_schema)
+
+    node: str = Field(description=RUNTIME_NODE_DESC)
+    method: str = Field(
+        min_length=1,
+        description=(
+            "The method to invoke. It must be named by the "
+            f"`{GDA_CALLABLE_CONST}` script constant declaration resolved along the node's "
+            "attached-script base chain (ADR-0041); an undeclared "
+            "method is `live_method_not_allowlisted`, one the node does not have "
+            "at all is `live_unknown_method`."
+        ),
+    )
+    args: list[Any] | None = Field(
+        default=None,
+        description=(
+            "The call's arguments as a JSON array, passed to the method as the "
+            "live parser's Variant forms (JSON objects become Dictionary, arrays "
+            "Array, and every number becomes float); null or omitted calls it "
+            "with none. Values must be finite "
+            "JSON (NaN/Infinity are refused here — they cannot cross the live "
+            "wire; some in-memory validators still accept them as numbers). Finite "
+            "float values are not subject to the integer safe-range bound; "
+            "real-engine tests pin 1e17, 2.5e17, and 1e300 unchanged. This is not a "
+            "full-range preservation guarantee: Godot 4.6.3 parses some "
+            "small-magnitude finite literals, including 1.2345678901234567e-300, "
+            "as 0.0; issue #752 tracks the input and result transport defect. JSON "
+            f"integer tokens must stay within +/-{MAX_EXACT_JSON_INT} recursively; "
+            "standard JSON Schema cannot distinguish those tokens from equal "
+            "high-range float values, so the params model enforces this limit. "
+            "An argument count outside "
+            "the method's accepted range, or a "
+            "value the declared parameter cannot take, is "
+            "`live_invalid_call_args`, refused before the call."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_args(self) -> "GameCallParams":
+        if self.args is not None:
+            _reject_unrepresentable(self.args)
+        return self
+
+
+class GameCallResult(BaseModel):
+    """The result of ``gda game call``: the declared method's projected return (#673).
+
+    Echoes the addressed node (runtime ``path``/``name``/``type``) and the
+    ``method`` invoked, plus its return ``value`` through the SAME recursive
+    value projection every gda read uses (ADR-0035), so a returned Dictionary
+    arrives structured rather than as a ``str()`` dump. A method returning
+    nothing projects as null.
+    """
+
+    path: str = Field(description="The addressed node's runtime (absolute) path.")
+    name: str
+    type: str = Field(description="The node's engine class (e.g. Node2D).")
+    method: str = Field(description="The declared method this call invoked.")
+    value: Any = Field(
+        description=(
+            "The method's return value as JSON, in the same recursive value "
+            "projection game get reports (ADR-0035); null when it returns "
+            "nothing."
+        ),
+        json_schema_extra=projected_value_schema_extra,
+    )
+
+
 def render_game_tree(game: "GameTreeResult") -> str:
     """Render the running game's runtime scene tree (ADR-0019).
 
@@ -267,6 +469,11 @@ def render_game_set(was_set: "GameSetResult") -> str:
     )
 
 
+def render_game_call(called: "GameCallResult") -> str:
+    """Render a declared method call as ``call <path>.<method>() -> <value>`` (#673)."""
+    return f"call {called.path}.{called.method}() -> {format_value(called.value)}"
+
+
 GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
     operation="game-tree",
     input_model=GameTreeParams,
@@ -299,6 +506,14 @@ GAME_SET_COMMAND: HeadlessCommand[GameSetResult] = HeadlessCommand(
     input_model=GameSetParams,
     output_model=GameSetResult,
     render=render_game_set,
+    kind=ExecutionKind.LIVE,
+)
+
+GAME_CALL_COMMAND: HeadlessCommand[GameCallResult] = HeadlessCommand(
+    operation="game-call",
+    input_model=GameCallParams,
+    output_model=GameCallResult,
+    render=render_game_call,
     kind=ExecutionKind.LIVE,
 )
 
@@ -471,6 +686,85 @@ def game_set(
     dispatch_domain(
         GAME_SET_COMMAND,
         GameSetParams(node=node, property=property, value=value),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="call", cls=GAME_CALL_COMMAND.command_class())
+def game_call(
+    node: str = typer.Argument(
+        ...,
+        help="Runtime node path as `game tree` reports it (absolute, e.g. /root/Main/QA).",
+    ),
+    method: str = typer.Option(
+        ...,
+        "--method",
+        help=(
+            "The method to invoke. The node's attached-script base chain must "
+            f"name it in its `{GDA_CALLABLE_CONST}` script constant declaration; "
+            "gda calls nothing "
+            "undeclared."
+        ),
+    ),
+    args: Optional[str] = typer.Option(
+        None,
+        "--args",
+        help=(
+            "JSON array of arguments, passed as the live parser's Variant forms "
+            "(every number becomes float; e.g. '[1, \"idle\"]'). Values are "
+            "checked recursively: NaN and Infinity are refused; finite floats are "
+            "not subject to the integer bound, but small-magnitude floats can arrive "
+            "changed (Godot 4.6.3 parses 1.2345678901234567e-300 as 0.0; #752); "
+            "JSON integer values must stay within +/-"
+            f"{MAX_EXACT_JSON_INT}. Omit to call with none."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = GAME_CALL_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Invoke one DECLARED read-only method on a running node (live).
+
+    The live read `game get` cannot serve: a debug or state contract the project
+    exposes as a METHOD rather than a stored property (#673). The method must be
+    named by the `GDA_CALLABLE` declaration resolved from the addressed node's
+    attached script along its base chain — which gda reads
+    STATICALLY from the script's constant map, so learning what may be called
+    runs no project code (ADR-0041).
+
+    The allowlist is NOT a trust boundary: the target project is trusted
+    (ADR-0009), and gda cannot verify that a declared method has no side
+    effects. The declaration records the project's own read-only assertion; what
+    gda guarantees is that no UNDECLARED method is callable, keeping the live
+    READ surface free of side effects gda did not ask for.
+
+    The return value goes through the same recursive value projection every gda
+    read uses (ADR-0035). Failures are distinguishable: a method the node does
+    not have is `live_unknown_method`, one it has but never declared is
+    `live_method_not_allowlisted` (its message names the declared set), an
+    argument the declared parameters cannot take — wrong count, a value the
+    parameter type cannot convert from, or a typed `Array[int]` parameter no
+    JSON value can satisfy — is `live_invalid_call_args`, refused BEFORE the
+    call (a `callv` the engine cannot convert for returns null, which would
+    otherwise read as a successful null). An unresolvable path is
+    `live_node_not_found`, and with no daemon it reports `daemon_not_running`.
+    """
+    # The argv value is JSON, parsed here so argv and --params-json build the
+    # SAME model (ADR-0015); a non-JSON string reaches the model, which refuses
+    # it structurally rather than passing prose to the harness.
+    parsed: Any = None
+    if args is not None:
+        try:
+            parsed = json.loads(args)
+        except ValueError:
+            parsed = args
+    dispatch_domain(
+        GAME_CALL_COMMAND,
+        params_or_bad_parameter(GameCallParams, node=node, method=method, args=parsed),
         json_output=json_output,
         godot=godot,
         project=project,

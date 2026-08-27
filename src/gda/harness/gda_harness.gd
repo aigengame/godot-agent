@@ -34,6 +34,7 @@ const OP_GAME_TREE := "game-tree"
 const OP_GAME_GET := "game-get"
 const OP_GAME_RECT := "game-rect"
 const OP_GAME_SET := "game-set"
+const OP_GAME_CALL := "game-call"
 const OP_PERF_MONITORS := "perf-monitors"
 const OP_PERF_MONITOR := "perf-monitor"
 const OP_PERF_SAMPLE := "perf-sample"
@@ -62,6 +63,14 @@ const LIVE_ERROR_UNKNOWN_ACTION := "live_unknown_action"
 const LIVE_ERROR_INVALID_EVENT_SPEC := "live_invalid_event_spec"
 const LIVE_ERROR_DISPLAY_UNAVAILABLE := "live_display_unavailable"
 const LIVE_ERROR_PREDICATE_UNMET := "live_predicate_unmet"
+const LIVE_ERROR_UNKNOWN_METHOD := "live_unknown_method"
+const LIVE_ERROR_METHOD_NOT_ALLOWLISTED := "live_method_not_allowlisted"
+const LIVE_ERROR_INVALID_CALL_ARGS := "live_invalid_call_args"
+
+# The script constant an opted-in inheritance chain declares its gda-callable methods in
+# (#673): `const GDA_CALLABLE := ["method_name"]`. Read STATICALLY from the
+# script's constant map, so learning what may be called never runs project code.
+const GDA_CALLABLE_CONST := "GDA_CALLABLE"
 
 # The frame count a time-windowed op may request (#223). A window collects one
 # sample per frame, so an unbounded N would block the one-shot RPC for an unbounded
@@ -381,6 +390,8 @@ func _run(request) -> Variant:
 			return _handle_game_rect(params)
 		OP_GAME_SET:
 			return _handle_game_set(params)
+		OP_GAME_CALL:
+			return _handle_game_call(params)
 		OP_PERF_MONITORS:
 			return _handle_perf_monitors()
 		OP_PERF_MONITOR:
@@ -511,6 +522,182 @@ func _handle_game_rect(params: Dictionary) -> String:
 # returns whether that observed read-back value matches the coerced requested
 # value; the harness does not guess whether a mismatch is a no-op or an
 # edge-triggered/self-consuming variable.
+# game call: invoke ONE method the addressed node's script chain DECLARED callable,
+# and project its return value (#673, GDA-DF-033). The dogfooding gap: a debug
+# state contract exposed as a method was unreadable — `game get` reads stored
+# properties only — so evidence fell back to index properties plus screenshots.
+#
+# The declaration is resolved from the node's ATTACHED script along its base
+# chain: the script constant `GDA_CALLABLE` (an Array of method names), carried
+# by AT MOST ONE class of the chain — GDScript forbids redeclaring a base's
+# constant — so the read-only assertion lives in the project's own source, under
+# its own code review, though not necessarily in the file of every method it
+# names (ADR-0041). It is read STATICALLY from the script constant map: learning what
+# may be called runs no project code, so the bootstrap itself cannot have side
+# effects. A node with no script, no constant, or a constant that does not name
+# the method declares nothing — default deny.
+#
+# gda cannot verify that a declared method has no side effects; the allowlist
+# records the DECLARER's assertion. What gda guarantees is that no UNDECLARED
+# method is callable. Failures are distinguishable: a method the node does not
+# have is live_unknown_method (checked first — the project is trusted, ADR-0009,
+# so the more precise diagnosis is the useful one), a method it has but never
+# declared is live_method_not_allowlisted (whose message names the declared set),
+# and an argument the method cannot take (count or type) is
+# live_invalid_call_args — refused BEFORE the call, since callv would otherwise
+# push an engine error and return a null gda would report as a successful read.
+func _handle_game_call(params: Dictionary) -> String:
+	var path := _string_param(params, "node")
+	var node := _resolve_runtime_node(path)
+	if node == null:
+		return _error(LIVE_ERROR_NODE_NOT_FOUND,
+				"no node at runtime path: " + path)
+	var method := _string_param(params, "method")
+	if not node.has_method(method):
+		return _error(LIVE_ERROR_UNKNOWN_METHOD,
+				"the node at " + path + " has no method named " + method)
+	var declared := _declared_callables(node)
+	if not declared.has(method):
+		var names := ", ".join(declared) if not declared.is_empty() else "(none)"
+		return _error(LIVE_ERROR_METHOD_NOT_ALLOWLISTED,
+				"the method " + method + " is not declared callable by the node at "
+				+ path + "; its script chain declares: " + names
+				+ ". Declare it in the script constant `const "
+				+ GDA_CALLABLE_CONST + " := [\"" + method + "\"]` to allow it")
+	var raw_args: Variant = params.get("args", [])
+	var args: Array = raw_args if typeof(raw_args) == TYPE_ARRAY else []
+	var signature := _method_signature(node, method)
+	var refusal := _call_argument_error(signature, args)
+	if not refusal.is_empty():
+		return _error(LIVE_ERROR_INVALID_CALL_ARGS, refusal)
+	return _ok({
+		"path": path,
+		"name": String(node.name),
+		"type": node.get_class(),
+		"method": method,
+		"value": _jsonify(node.callv(method, args)),
+	})
+
+
+# The gda-callable method names resolved from the node's attached script along its
+# base chain (#673), so a base declaration covers its subclasses. Read from the
+# constant map — never by calling
+# into the project — and normalized to Strings, so a malformed declaration (a
+# non-Array constant, or entries that are not names) declares nothing rather
+# than failing the call with an unrelated error.
+func _declared_callables(node: Node) -> Array:
+	var names: Array = []
+	var script: Script = node.get_script() as Script
+	while script != null:
+		var constants: Dictionary = script.get_script_constant_map()
+		var declared: Variant = constants.get(GDA_CALLABLE_CONST, null)
+		if typeof(declared) == TYPE_ARRAY or typeof(declared) == TYPE_PACKED_STRING_ARRAY:
+			for entry in declared:
+				if typeof(entry) != TYPE_STRING and typeof(entry) != TYPE_STRING_NAME:
+					continue
+				var entry_name := String(entry)
+				if not names.has(entry_name):
+					names.append(entry_name)
+		script = script.get_base_script()
+	return names
+
+
+# The method's own description from get_method_list(), or an empty Dictionary when the
+# list does not describe it (the has_method gate already established it exists).
+func _method_signature(node: Node, method: String) -> Dictionary:
+	for entry in node.get_method_list():
+		if String(entry.get("name", "")) == method:
+			return entry
+	return {}
+
+
+# Why the supplied arguments cannot reach the method, or "" when they can (#673,
+# PR #749 review). BOTH the count and each argument's TYPE are checked HERE,
+# before the call: `callv` with arguments it cannot convert pushes an engine
+# error, returns null, and pollutes the Session log — a failure gda would
+# otherwise report as a successful read of `null`, indistinguishable from a void
+# return (reproduced on Godot 4.6.3 for a String into `int`, a Dictionary into an
+# Object parameter, null into `int`, and a JSON array into `Array[int]`).
+func _call_argument_error(signature: Dictionary, args: Array) -> String:
+	if signature.is_empty():
+		return ""
+	var declared_args: Array = signature.get("args", [])
+	var defaults: Array = signature.get("default_args", [])
+	var method := String(signature.get("name", ""))
+	var required := declared_args.size() - defaults.size()
+	var vararg := (int(signature.get("flags", 0)) & METHOD_FLAG_VARARG) != 0
+	if args.size() < required:
+		return ("the method " + method + " needs at least " + str(required)
+				+ " argument(s); " + str(args.size()) + " supplied")
+	if not vararg and args.size() > declared_args.size():
+		return ("the method " + method + " accepts at most "
+				+ str(declared_args.size()) + " argument(s); " + str(args.size())
+				+ " supplied")
+	for index in range(mini(args.size(), declared_args.size())):
+		var spec: Dictionary = declared_args[index]
+		var reason := _argument_type_refusal(spec, args[index])
+		if not reason.is_empty():
+			return ("the method " + method + " cannot take argument "
+					+ str(index + 1) + " (" + String(spec.get("name", "")) + "): "
+					+ reason)
+	return ""
+
+
+# The engine's own strict-conversion closure for the SIX Variant types the live
+# JSON parser can produce, keyed by the SOURCE type (#673, PR #749 re-review).
+# Godot's JSON.parse_string materializes every number as TYPE_FLOAT, including a
+# literal without a fractional part; TYPE_INT is therefore a reachable TARGET
+# (from bool/float) but not a live JSON SOURCE. Every row is transcribed
+# mechanically from `Variant::can_convert_strict`
+# (core/variant/variant.cpp), which is NOT exposed to GDScript: its per-target
+# `valid[]` lists are NIL-TERMINATED, so a NIL entry is the terminator rather than
+# a legal source, and `from NIL` is decided by an early return (only OBJECT).
+# Transcribing the closure by hand made a first version REJECT calls Godot
+# accepts (String -> Color, Array -> Packed*Array), so a real-engine conformance
+# matrix now uses a direct `callv` as the ORACLE — the engine decides, this table
+# only has to agree with it.
+const JSON_ARGUMENT_CONVERSIONS := {
+	TYPE_NIL: [TYPE_OBJECT],
+	TYPE_BOOL: [TYPE_INT, TYPE_FLOAT],
+	TYPE_FLOAT: [TYPE_BOOL, TYPE_INT],
+	TYPE_STRING: [TYPE_STRING_NAME, TYPE_NODE_PATH, TYPE_COLOR],
+	TYPE_ARRAY: [
+		TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_INT64_ARRAY,
+		TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY,
+		TYPE_PACKED_STRING_ARRAY, TYPE_PACKED_COLOR_ARRAY,
+		TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY,
+		TYPE_PACKED_VECTOR4_ARRAY,
+	],
+	TYPE_DICTIONARY: [],
+}
+
+
+# Why one JSON-supplied value cannot reach one declared parameter, or "" when it
+# can (#673). Reads the closure above; where the engine converts, gda calls.
+func _argument_type_refusal(spec: Dictionary, value: Variant) -> String:
+	var to_type := int(spec.get("type", TYPE_NIL))
+	var from_type := typeof(value)
+	if to_type == TYPE_NIL:
+		return ""  # an untyped (Variant) parameter takes anything
+	if to_type == from_type:
+		# Identity — except a TYPED container, which an untyped JSON Array or
+		# Dictionary cannot satisfy whatever its contents: the engine refuses
+		# `Array` -> `Array[int]` outright ("Cannot convert argument 1 from
+		# Array to Array."), so no JSON value can reach such a parameter.
+		if (to_type == TYPE_ARRAY or to_type == TYPE_DICTIONARY) \
+				and int(spec.get("hint", PROPERTY_HINT_NONE)) != PROPERTY_HINT_NONE:
+			return ("it is a typed " + _type_name(to_type) + " ("
+					+ String(spec.get("hint_string", "")) + "), which a JSON "
+					+ "argument cannot satisfy; declare the parameter untyped to "
+					+ "make it callable")
+		return ""
+	var reachable: Array = JSON_ARGUMENT_CONVERSIONS.get(from_type, [])
+	if reachable.has(to_type):
+		return ""
+	return ("a " + _type_name(from_type) + " value cannot convert to "
+			+ _type_name(to_type))
+
+
 func _handle_game_set(params: Dictionary) -> String:
 	var path := _string_param(params, "node")
 	var node := _resolve_runtime_node(path)

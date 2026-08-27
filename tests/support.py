@@ -538,6 +538,16 @@ GAME_SET_RESULT = {
     "verified": True,
 }
 
+# Sample ``gda game call`` result — the projected return of a method the node's
+# class declared callable in its ``GDA_CALLABLE`` script constant (#673).
+GAME_CALL_RESULT = {
+    "path": "/root/Main/QA",
+    "name": "QA",
+    "type": "Node2D",
+    "method": "qa_current_state_contract",
+    "value": {"phase": 3, "ready": True, "labels": ["a", "b"]},
+}
+
 # Sample ``gda game rect`` result — a running Control's rendered viewport-space
 # rectangle, addressed by the absolute runtime path (#419).
 GAME_RECT_RESULT = {
