@@ -19,6 +19,7 @@ from pydantic import BaseModel, ValidationError
 from gda.errors import (
     Failure,
     invalid_project_failure,
+    validation_error_message,
 )
 from gda.execution import ExecutionKind
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
@@ -50,57 +51,21 @@ def params_or_bad_parameter(model_cls: type[P], /, **kwargs: Any) -> P:
 
     A raw ``ValueError``'s ``str()`` is already the plain sentence a validator
     wrote, so it passes through as-is. A pydantic ``ValidationError`` is
-    rendered through :func:`_validation_message` instead of its own ``str()`` —
-    which dumps the model's class name, a ``[type=..., input_value=...,
-    input_type=...]`` tag PER ERROR, and a pydantic.dev URL, and can echo back
-    an arbitrary caller value (including a large or sensitive one) inside
-    ``input_value=`` (#713 review).
+    rendered through :func:`~gda.errors.validation_error_message` instead of its
+    own ``str()`` — which dumps the model's class name, a ``[type=...,
+    input_value=..., input_type=...]`` tag PER ERROR, and a pydantic.dev URL, and
+    can echo back an arbitrary caller value (including a large or sensitive one)
+    inside ``input_value=`` (#713 review). That renderer is shared with
+    ``--params-json``'s OWN model-construction failure (:mod:`gda.headless`), so
+    the two input channels report the identical sentence for the identical
+    refusal (#713 review, round 3) — not just the same error class.
     """
     try:
         return model_cls(**kwargs)
     except ValidationError as exc:
-        raise typer.BadParameter(_validation_message(exc)) from exc
+        raise typer.BadParameter(validation_error_message(exc)) from exc
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
-
-
-def _validation_message(exc: ValidationError) -> str:
-    """Render a ``ValidationError`` as the sentence(s) its checks actually wrote.
-
-    Reads each error's own ``msg`` — already the clean, human-readable text for
-    a built-in pydantic check (a type mismatch, a missing field, an out-of-range
-    value) — rather than ``str(exc)``, which additionally dumps the model class
-    name and a ``[type=..., input_value=..., input_type=...]`` tag per error
-    (the defect: ``input_value`` echoes the caller's raw field value, which can
-    be large or sensitive, e.g. a ``script set --content`` payload).
-
-    For a model or field validator's raised ``ValueError`` (pydantic's
-    ``"value_error"`` type, e.g. :func:`~gda.commands.script.resolve_set_mode`),
-    ``msg`` is pydantic's OWN ``"Value error, "``-prefixed rendering of it; this
-    reads the original exception back out of ``ctx['error']`` instead, so the
-    message is exactly the sentence the validator wrote, unprefixed.
-
-    Each message is tagged with its field path (``loc``, dotted) when the error
-    is field-scoped; a model-level validator's error (``loc == ()``, e.g.
-    ``resolve_set_mode``'s mode-selection rule, which has no single field to
-    name) carries no tag. Multiple errors join on ``"; "`` — a command usually
-    raises exactly one, but pydantic can report several at once (e.g. two
-    independently-invalid fields), and nothing here assumes otherwise.
-    """
-    parts: list[str] = []
-    for err in exc.errors():
-        ctx = err.get("ctx")
-        if err["type"] == "value_error" and isinstance(ctx, dict) and "error" in ctx:
-            message = str(ctx["error"])
-        else:
-            message = err["msg"]
-        loc = err.get("loc") or ()
-        if loc:
-            field = ".".join(str(part) for part in loc)
-            parts.append(f"{field}: {message}")
-        else:
-            parts.append(message)
-    return "; ".join(parts)
 
 
 def make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:

@@ -1,22 +1,36 @@
-"""``gda.dispatch.params_or_bad_parameter``'s usage-error rendering (issue #713).
+"""The argv and ``--params-json`` model-refusal rendering (issue #713).
 
-``params_or_bad_parameter`` is the shared argv seam every ``set``/``validate``-style
-params model runs through (ADR-0015): a model-construction failure becomes a Click
-usage error (exit 2). Its rendering used to be ``str(exc)`` on whatever pydantic
-raised, which for a ``ValidationError`` dumps the model's class name, a
-``[type=..., input_value=..., input_type=...]`` tag PER ERROR, and a
-``pydantic.dev`` URL — and can echo an arbitrary caller value (e.g. a
-``script set --content`` payload) back inside ``input_value=`` (found in PR #754's
-review). These tests pin the clean replacement: the validator's own sentence(s),
-with none of that dump noise and no leaked caller value, for a plain
-``ValueError``, a single-error ``ValidationError`` (both a model-level and a
-field-level validator), and a multi-error ``ValidationError``.
+Both input channels construct a command's params model directly from
+caller-supplied values (ADR-0015) and must translate a construction failure
+into a human message: the argv path's
+:func:`~gda.dispatch.params_or_bad_parameter` and the ``--params-json``
+path's ``invoke()`` (:mod:`gda.headless`). Both used to render a pydantic
+``ValidationError`` with its own ``str()``, which dumps the model's class
+name, a ``[type=..., input_value=..., input_type=...]`` tag PER ERROR, and a
+``pydantic.dev`` URL — and echoes an arbitrary caller value (e.g. a
+``script set --content`` payload) back inside ``input_value=`` (found in PR
+#754's review, round 2 for argv, round 3 for ``--params-json``).
+
+Both now go through the ONE shared renderer, :func:`gda.errors.validation_error_message`
+(round 3: moved out of ``gda.dispatch`` to a home below both channels, since
+``gda.dispatch`` imports ``gda.headless`` and the reverse would cycle). These
+tests pin the clean replacement directly against ``params_or_bad_parameter``
+(the validator's own sentence(s), for a plain ``ValueError``, a single-error
+``ValidationError`` — model-level and field-level — and a multi-error
+``ValidationError``), then pin the SAME clean shape end-to-end through an
+actual command's ``--params-json`` route, and finally assert the two channels
+report byte-identical sentences for the identical refusal.
 """
+
+import json
+import re
 
 import typer
 import pytest
 from pydantic import BaseModel, field_validator, model_validator
+from typer.testing import CliRunner
 
+from gda.cli import app
 from gda.dispatch import params_or_bad_parameter
 
 # The exact dump fragments str(ValidationError) used to leak (PR #754 review).
@@ -26,6 +40,32 @@ _FORBIDDEN_FRAGMENTS = ("pydantic.dev", "input_value=", "[type=")
 def _assert_clean(message: str) -> None:
     for fragment in _FORBIDDEN_FRAGMENTS:
         assert fragment not in message, f"{fragment!r} leaked into {message!r}"
+
+
+def _argv_usage_error_message(result) -> str:
+    # Click/Rich renders the usage-error panel with ANSI color and box-drawing
+    # borders even under CliRunner; strip both before matching (mirrors
+    # tests/test_screen_commands.py's `_usage_error_message`).
+    assert result.exit_code == 2, result.stdout + result.stderr
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stderr)
+    plain = re.sub(r"[─-╿]", " ", plain)  # rich panel borders
+    plain = re.sub(r"\s+", " ", plain).strip()
+    # The panel is preceded by the "Usage: ..." / "Try '... --help'" preamble
+    # and an "Error" heading, so find the marker rather than assume it leads.
+    prefix = "Invalid value: "
+    marker = plain.rfind(prefix)
+    assert marker != -1, plain
+    return plain[marker + len(prefix) :]
+
+
+def _params_json_invalid_params_message(result) -> str:
+    assert result.exit_code != 0, result.stdout
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "invalid_params", data
+    message = data["error"]["message"]
+    prefix = "--params-json is not a valid params object: "
+    assert message.startswith(prefix), message
+    return message[len(prefix) :]
 
 
 class _ModelLevelRuleModel(BaseModel):
@@ -137,3 +177,75 @@ def test_no_caller_value_leaks_into_the_refusal(monkeypatch):
     assert secret not in message
     assert message == "'search' and 'replace' must be used together."
     _assert_clean(message)
+
+
+# --- end-to-end: --params-json through an actual command (round 3) ------------
+
+
+def test_params_json_validation_error_is_also_rendered_clean():
+    # script set's search/replace mutual-exclusion rule (resolve_set_mode),
+    # refused via --params-json this time, not argv.
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "--params-json",
+            json.dumps({"path": "/tmp/nonexist.gd", "search": "foo"}),
+            "--json",
+        ],
+    )
+
+    message = _params_json_invalid_params_message(result)
+    assert message == "'search' and 'replace' must be used together."
+    _assert_clean(message)
+
+
+def test_params_json_does_not_leak_the_callers_other_field_value():
+    # The exact channel this round's review caught: --content rode inside
+    # input_value= in the structured envelope's message, secret and all.
+    secret = "SECRET_MARKER_abcdefghijklmnopqrstuvwxyz0123456789_END"
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "--params-json",
+            json.dumps(
+                {"path": "/tmp/nonexist.gd", "search": "foo", "content": secret}
+            ),
+            "--json",
+        ],
+    )
+
+    message = _params_json_invalid_params_message(result)
+    assert secret not in message
+    assert message == "'search' and 'replace' must be used together."
+    _assert_clean(message)
+
+
+def test_argv_and_params_json_report_the_identical_sentence():
+    # #713's own acceptance criterion 2 pairs the two channels ("the same
+    # error class"); this pins them to the same MESSAGE too, not just the
+    # same class, for the identical refusal.
+    argv_result = CliRunner().invoke(
+        app, ["script", "set", "/tmp/nonexist.gd", "--search", "foo", "--json"]
+    )
+    params_json_result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "--params-json",
+            json.dumps({"path": "/tmp/nonexist.gd", "search": "foo"}),
+            "--json",
+        ],
+    )
+
+    argv_message = _argv_usage_error_message(argv_result)
+    params_json_message = _params_json_invalid_params_message(params_json_result)
+    assert (
+        argv_message
+        == params_json_message
+        == ("'search' and 'replace' must be used together.")
+    )
