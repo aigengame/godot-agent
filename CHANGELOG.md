@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/aigengame/godot-agent/compare/v0.11.0...v0.12.0) (2026-08-27)
+
+
+### Features
+
+* **gda:** bounded result payloads — frames summary envelope and script-run stdout cap ([#665](https://github.com/aigengame/godot-agent/issues/665)) ([#748](https://github.com/aigengame/godot-agent/issues/748)) ([878b6da](https://github.com/aigengame/godot-agent/commit/878b6da4ead780937e7094ac4d5f6408c266ee0b))
+* **gda:** capture receipt binds session, scene, state, and output hash ([#660](https://github.com/aigengame/godot-agent/issues/660)) ([#746](https://github.com/aigengame/godot-agent/issues/746)) ([d186a66](https://github.com/aigengame/godot-agent/commit/d186a66c2e97a0645e87cd1609ddf612a8e6d6e7))
+* **gda:** declared read-only game call surface ([#673](https://github.com/aigengame/godot-agent/issues/673)) ([#749](https://github.com/aigengame/godot-agent/issues/749)) ([d66decb](https://github.com/aigengame/godot-agent/commit/d66decb69aeccb27dd6213ab12b9334f73840064))
+* **gda:** dogfooding wave 5 — live capture closure (dev→main promotion) ([9509403](https://github.com/aigengame/godot-agent/commit/950940369ed7cc70a5716a5bd6fdbe44a93490cd))
+* **gda:** predicate-gated screen capture with atomic input events ([#661](https://github.com/aigengame/godot-agent/issues/661)) ([#743](https://github.com/aigengame/godot-agent/issues/743)) ([4a2fb0c](https://github.com/aigengame/godot-agent/commit/4a2fb0cbdadee965af4685df19b9793c66c4281a))
+
 ## [0.11.0](https://github.com/aigengame/godot-agent/compare/v0.10.0...v0.11.0) (2026-08-25)
 
 
