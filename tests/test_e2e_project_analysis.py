@@ -1,8 +1,11 @@
 """S1 (e2e): the project static-analysis reads against the real Godot engine (issue #116).
 
 The four read-only, project-wide analysis commands — find-references,
-dependencies, find-unused-resources, statistics — backed by a single static scan
-that parses files as text (no instantiation, issue #30). These tests build a
+dependencies, find-unused-resources, statistics — backed by two static scans
+over different file universes (the first three share the extension-filtered
+walk; statistics counts with an unfiltered one that also sees ``.import``
+sidecars and ``project.godot``) under one shared directory-exclusion rule,
+both parsing files as text (no instantiation, issue #30). These tests build a
 small fixture project WITH cross-references (a main scene that ext_resources a
 sub-scene, a script and an image; a script that preloads a sibling; an autoload;
 an unreferenced resource) and assert each command reports it correctly off the
