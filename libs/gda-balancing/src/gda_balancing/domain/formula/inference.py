@@ -8,18 +8,19 @@ from typing import Any, cast
 from gda_balancing.domain.formula.types import formula_contract_from_operation
 
 
-def infer_formula_operation_result(
+def infer_formula_operation_local_contract(
     operation: dict[str, Any],
     ports: list[str],
     operand_contracts: list[dict[str, Any]],
+    local: str,
     fallback: dict[str, Any],
     conversion_policy: dict[str, Any],
     source_type_aliases: dict[tuple[str, str, str], str],
+    known_operand_values: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Infer one Operation-call result by interpreting compiler-owned transfer rules."""
+    """Infer one Operation local by interpreting compiler-owned transfer rules."""
     rules = conversion_policy.get("local_result_inference")
-    result_source_policy = conversion_policy.get("operation_result_source")
-    if not isinstance(rules, list) or not isinstance(result_source_policy, dict):
+    if not isinstance(rules, list):
         raise ValueError("Formula notation inference policy is malformed")
     rules_by_node = {
         row.get("node"): row
@@ -34,6 +35,9 @@ def infer_formula_operation_result(
         port: deepcopy(contract)
         for port, contract in zip(ports, operand_contracts, strict=True)
     }
+    known_values = deepcopy(known_operand_values or {})
+    if not set(known_values) <= set(ports):
+        raise ValueError("Formula known operand is not an Operation port")
 
     def interval(contract: dict[str, Any]) -> tuple[int, int] | None:
         domain = contract.get("domain")
@@ -85,6 +89,7 @@ def infer_formula_operation_result(
             if not isinstance(literal, int) or isinstance(literal, bool):
                 raise ValueError("Formula literal inference source is malformed")
             values[target] = with_interval(contextual, (literal, literal))
+            known_values[target] = literal
         elif rule_id == "copy-contract":
             source_member = rule.get("source_member")
             source = (
@@ -95,6 +100,8 @@ def infer_formula_operation_result(
             if not isinstance(source, str) or source not in values:
                 raise ValueError("Formula copy inference source is unresolved")
             values[target] = deepcopy(values[source])
+            if source in known_values:
+                known_values[target] = known_values[source]
         elif rule_id in {
             "closed-interval-add",
             "closed-interval-floor-divide",
@@ -118,7 +125,21 @@ def infer_formula_operation_result(
             left = values[cast(str, operands[0])]
             right = values[cast(str, operands[1])]
             left_interval, right_interval = interval(left), interval(right)
-            if left_interval is None or right_interval is None:
+            condition = instruction.get("condition")
+            if (
+                rule_id == "closed-interval-select"
+                and isinstance(condition, str)
+                and isinstance(known_values.get(condition), bool)
+            ):
+                selected = (
+                    cast(str, operands[0])
+                    if known_values[condition]
+                    else cast(str, operands[1])
+                )
+                values[target] = deepcopy(values[selected])
+                if selected in known_values:
+                    known_values[target] = known_values[selected]
+            elif left_interval is None or right_interval is None:
                 values[target] = deepcopy(left)
             elif rule_id == "closed-interval-add":
                 values[target] = with_interval(
@@ -190,6 +211,70 @@ def infer_formula_operation_result(
             values[target] = declared
         else:
             raise ValueError("Formula notation inference rule is unknown")
+        if target == local:
+            return values[target]
+
+    raise ValueError("Formula operation local source is unresolved")
+
+
+def infer_formula_slot_parameter_contract(
+    operation: dict[str, Any],
+    slot_parameter: dict[str, Any],
+    concrete_call: dict[str, Any],
+    conversion_policy: dict[str, Any],
+) -> dict[str, Any]:
+    """Project one Formula-slot parameter at a concrete Operation call site."""
+    source = slot_parameter.get("source")
+    arguments = concrete_call.get("arguments")
+    if not isinstance(source, dict) or not isinstance(arguments, dict):
+        raise ValueError("Formula slot source is unresolved")
+    name = source.get("name")
+    if not isinstance(name, str):
+        raise ValueError("Formula slot source has no name")
+    if source.get("kind") == "port":
+        contract = arguments.get(name)
+        if not isinstance(contract, dict):
+            raise ValueError("Formula slot port source is unresolved")
+        return contract
+    if source.get("kind") != "local":
+        raise ValueError("Formula slot source kind is not admitted")
+
+    ports = [
+        port.get("id") for port in operation.get("inputs", []) if isinstance(port, dict)
+    ]
+    if (
+        not ports
+        or not all(isinstance(port, str) for port in ports)
+        or set(ports) != set(arguments)
+    ):
+        raise ValueError("Formula slot call arguments are incomplete")
+    contracts = [arguments[port] for port in ports]
+    if not all(isinstance(contract, dict) for contract in contracts):
+        raise ValueError("Formula slot call contract is malformed")
+    return infer_formula_operation_local_contract(
+        operation,
+        cast(list[str], ports),
+        cast(list[dict[str, Any]], contracts),
+        name,
+        cast(dict[str, Any], contracts[0]),
+        conversion_policy,
+        {},
+        cast(dict[str, Any], concrete_call.get("known_arguments", {})),
+    )
+
+
+def infer_formula_operation_result(
+    operation: dict[str, Any],
+    ports: list[str],
+    operand_contracts: list[dict[str, Any]],
+    fallback: dict[str, Any],
+    conversion_policy: dict[str, Any],
+    source_type_aliases: dict[tuple[str, str, str], str],
+) -> dict[str, Any]:
+    """Infer one Operation-call result by interpreting compiler-owned transfer rules."""
+    result_source_policy = conversion_policy.get("operation_result_source")
+    if not isinstance(result_source_policy, dict):
+        raise ValueError("Formula notation inference policy is malformed")
 
     result = operation.get("result")
     source_member = result_source_policy.get("source_member")
@@ -209,7 +294,14 @@ def infer_formula_operation_result(
         not isinstance(source, dict)
         or source.get("kind") != expected_kind
         or not isinstance(name, str)
-        or name not in values
     ):
         raise ValueError("Formula operation result source is unresolved")
-    return values[name]
+    return infer_formula_operation_local_contract(
+        operation,
+        ports,
+        operand_contracts,
+        name,
+        fallback,
+        conversion_policy,
+        source_type_aliases,
+    )

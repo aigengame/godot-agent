@@ -2446,6 +2446,97 @@ def test_model_check_refuses_a_formula_slot_domain_narrower_than_its_call_site(
     )
 
 
+def test_model_check_refuses_a_local_formula_slot_domain_narrower_than_its_call_site(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        _RPG_STAT_COMPOSITION_SOURCE.read_text(encoding="utf-8")
+    )
+    critical = next(
+        argument
+        for argument in source_document["entrypoints"][0]["arguments"]
+        if argument["port"] == "critical"
+    )
+    critical["operand"]["value"] = True
+    source = tmp_path / "narrow-operation-local-slot-domain.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_type_mismatch"
+    assert diagnostic["primary"]["pointer"] == (
+        "/formula_bindings/8/arguments/0/operand"
+    )
+
+
+def test_resolved_model_admission_rejects_a_reidentified_local_slot_domain_escape():
+    checked = model_checking_module.check_model_source(
+        str(_RPG_STAT_COMPOSITION_SOURCE)
+    )
+    assert isinstance(checked, model_module.CheckedModel)
+    lowered = model_compilation_module.lower_checked_model(checked)
+    artifacts = {
+        name: deepcopy(lowered[name])
+        for name in ("package-lock", "rir-semantic-payload", "resolved-model")
+    }
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    kernel, language_bundle = mutable_authorities()
+    invocation_domains = kernel["meta_format"]["runtime_program"][
+        "invocation_contract"
+    ]["identity_domains"]
+    actual_operand_domain = invocation_domains["actual_operand"]
+    entrypoint = next(
+        row
+        for row in cast(list[dict[str, Any]], rir["entrypoints"])
+        if row["operation"]["id"] == "game.combat.damage-v1"
+    )
+    critical_argument = next(
+        argument
+        for argument in entrypoint["arguments"]
+        if argument["port"]["name"] == "critical"
+    )
+    operand = cast(dict[str, Any], critical_argument["operand"])
+    operand["value"] = True
+    operand["identity"] = content_identity(
+        actual_operand_domain,
+        cast(
+            JsonValue,
+            {key: value for key, value in operand.items() if key != "identity"},
+        ),
+    )
+    entrypoint["identity"] = content_identity(
+        invocation_domains["entrypoint"],
+        cast(
+            JsonValue,
+            {key: value for key, value in entrypoint.items() if key != "identity"},
+        ),
+    )
+
+    assert (
+        model_admission_module._formula_program_graph_is_admitted(
+            kernel,
+            language_bundle,
+            cast(list[dict[str, Any]], rir["declarations"]),
+            cast(list[Any], rir["formulas"]),
+            rir["formula_bindings"],
+            rir["entrypoints"],
+            rir["selected_semantics"],
+        )
+        is False
+    )
+    _reidentify(rir, "rir-semantic-payload-v2")
+    resolved_model = cast(dict[str, Any], artifacts["resolved-model"])
+    resolved_model["rir_identity"] = rir["content_identity"]
+    _reidentify(resolved_model, "resolved-model-v2")
+
+    admission = model_admission_module.admit_resolved_model(artifacts)
+
+    assert admission.admitted is False
+    assert admission.diagnostics == ("language.resolved_authority_mismatch",)
+
+
 def test_model_check_refuses_a_formula_local_that_understates_its_inferred_domain(
     tmp_path, run_cli
 ):
