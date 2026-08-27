@@ -217,9 +217,12 @@ source and is checked by tests. GDScript mirrors only the rows whose source is
 
 The `Meaning` column is pinned too (#701): it must match the registry's
 `description` once markup and wrapping are normalized. A trailing parenthetical
-naming the deciding ADR or issue is provenance for *this* record rather than part
-of the code's meaning, so it rides these rows only and is not compared —
-`tests/test_error_registry.py` is the single home of that rule.
+that cites at least one ADR or issue — a `Phase N` label may ride along inside
+it — is a citation rather than part of the code's meaning, so it is not compared.
+41 rows here carry one; so do 5 registry descriptions, which is allowed, not a
+mistake to tidy away. A bare `(Phase N)` is *not* a citation and IS compared,
+which is why the live rows below state their phase through the `Category` column
+instead. `tests/test_error_registry.py` is the single home of that rule.
 
 Each row carries the process `Exit Code` a shell consumer keys on. It is
 per-code, not per-category: within `environment`, `binary_not_found` exits `127`
@@ -295,9 +298,9 @@ operation, and parse codes the CLI assigns).
 | `contract_violation` | `parse` | `parser` | `5` | The process claimed success but violated the structured-output contract. |
 | `tree_too_deep` | `parse` | `classifier` | `5` | The engine emitted a valid result tree that nests past gda's recursion limit; the payload is contract-conformant, the limit is wrapper-side (shares the `parse` exit code; the `code` distinguishes it from `contract_violation`). |
 | `daemon_not_running` | `live` | `classifier` | `6` | A live command found no running gda-daemon for the project; start one with `gda daemon start` (Phase 2, ADR-0017 / ADR-0021). |
-| `engine_session_not_running` | `live` | `classifier` | `6` | The daemon is running but holds no live engine session to serve the live operation (Phase 2). |
-| `engine_disconnected` | `live` | `classifier` | `6` | The engine session disconnected before the live operation returned — the game crashed or the harness connection dropped (Phase 2). |
-| `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout. The session is discarded: its reply is no longer attributable, so the next operation relaunches it and runtime state does not survive (Phase 2). |
+| `engine_session_not_running` | `live` | `classifier` | `6` | The daemon is running but holds no live engine session to serve the live operation. |
+| `engine_disconnected` | `live` | `classifier` | `6` | The engine session disconnected before the live operation returned — the game crashed or the harness connection dropped. |
+| `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout. The session is discarded: its reply is no longer attributable, so the next operation relaunches it and runtime state does not survive. |
 | `daemon_running` | `live` | `classifier` | `6` | A daemon-lifecycle command was refused because a gda-daemon is running for the project; stop it first with `gda daemon stop` (Phase 2, #225). |
 | `daemon_already_running` | `live` | `classifier` | `6` | A `gda daemon start --scene` was refused because a gda-daemon is already running for the project; `--scene` only takes effect at start, so stop it with `gda daemon stop` then start again with `--scene` (Phase 2, #278). |
 | `live_node_not_found` | `live` | `classifier` | `6` | A live game operation's node path does not resolve to a node in the running scene tree (Phase 2, #220). |

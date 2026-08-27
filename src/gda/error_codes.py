@@ -3,6 +3,12 @@
 The registry is the machine-readable companion to ADR-0002's table. Every code
 emitted in a public ``GdaError`` must be declared here.
 
+**Editing a ``description``.** Its wording is pinned against that ADR's ``Meaning``
+column, so a change here needs the same change there (#701). What the pin
+normalizes away — markup, wrapping, and a trailing ADR/issue citation — is stated
+with its reasoning in ``tests/test_error_registry.py``, the single home of that
+rule.
+
 **What ``source`` means.** It names a code's *authoritative origin channel* — the
 layer that defines the failure and owns reporting it — and it governs **GDScript
 mirror membership**: ``operations.gd`` declares exactly the ``operation``-source
