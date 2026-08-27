@@ -136,3 +136,223 @@ def test_game_get_projects_a_path_less_texture_with_optional_digest(
         assert tex_a2["digest"] == tex_a["digest"]
     finally:
         run("daemon", "stop")
+
+
+# --- game call: the declared read-only method surface (#673, ADR-0041) --------
+# The dogfooding shape (GDA-DF-033): a debug/state contract exposed as a METHOD.
+# `main.gd` declares its own callable set; `child.gd` declares none and inherits
+# the base's, proving the base-chain merge. Both classes also carry a method they
+# never declared, so the default-deny path is real rather than hypothetical.
+
+CALL_BASE_GD = (
+    "extends Node2D\n\n"
+    'const GDA_CALLABLE := ["base_declared"]\n\n'
+    "func base_declared() -> String:\n"
+    '\treturn "from base"\n'
+)
+CALL_CHILD_GD = (
+    'extends "res://call_base.gd"\n\n'
+    "func child_extra() -> String:\n"
+    '\treturn "never reachable"\n'
+)
+CALL_MAIN_GD = (
+    "extends Node2D\n\n"
+    'const GDA_CALLABLE := ["qa_current_state_contract", "with_args", "returns_nothing"]\n\n'
+    "var _phase := 3\n\n"
+    "func qa_current_state_contract() -> Dictionary:\n"
+    '\treturn {"phase": _phase, "ready": true, "labels": ["a", "b"], "at": Vector2(1, 2)}\n\n'
+    'func with_args(scale: int, tag: String = "idle") -> Dictionary:\n'
+    '\treturn {"scaled": _phase * scale, "tag": tag}\n\n'
+    "func returns_nothing() -> void:\n"
+    "\tpass\n\n"
+    "func undeclared_secret() -> String:\n"
+    '\treturn "never reachable"\n'
+)
+CALL_MAIN_TSCN = (
+    "[gd_scene load_steps=3 format=3]\n\n"
+    '[ext_resource type="Script" path="res://call_main.gd" id="1"]\n'
+    '[ext_resource type="Script" path="res://call_child.gd" id="2"]\n\n'
+    '[node name="Main" type="Node2D"]\n'
+    'script = ExtResource("1")\n\n'
+    '[node name="Inherited" type="Node2D" parent="."]\n'
+    'script = ExtResource("2")\n'
+)
+
+
+@pytest.mark.e2e
+def test_game_call_serves_declared_methods_and_refuses_the_rest(
+    tmp_path, daemon_runtime_dir
+):
+    from .conftest import project_godot
+    from gda.binary import resolve_godot_binary
+
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
+    (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
+    (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
+
+    godot = resolve_godot_binary()
+
+    def run(*args):
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(godot),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env={**os.environ},
+            timeout=90,
+        )
+
+    def call(node, method, *extra):
+        return run("game", "call", node, "--method", method, *extra)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        # AC2: a declared method is invoked and its return is PROJECTED — the
+        # Dictionary arrives structured, with the nested Array and Vector2 in
+        # the same shapes every gda read uses (ADR-0035).
+        ok = call("/root/Main", "qa_current_state_contract")
+        assert ok.returncode == 0, ok.stdout + ok.stderr
+        doc = json.loads(ok.stdout)
+        assert doc["path"] == "/root/Main"
+        assert doc["method"] == "qa_current_state_contract"
+        assert doc["value"] == {
+            "phase": 3,
+            "ready": True,
+            "labels": ["a", "b"],
+            "at": [1.0, 2.0],
+        }
+
+        # Arguments ride as values, and a declared default fills the rest.
+        one = call("/root/Main", "with_args", "--args", "[2]")
+        assert one.returncode == 0, one.stdout + one.stderr
+        assert json.loads(one.stdout)["value"] == {"scaled": 6, "tag": "idle"}
+        both = call("/root/Main", "with_args", "--args", '[2, "peak"]')
+        assert json.loads(both.stdout)["value"] == {"scaled": 6, "tag": "peak"}
+
+        # A method returning nothing projects as null, not as an error.
+        void = call("/root/Main", "returns_nothing")
+        assert void.returncode == 0, void.stdout + void.stderr
+        assert json.loads(void.stdout)["value"] is None
+
+        # The declaration is inherited: the subclass node declares nothing of
+        # its own and the base's set still authorizes the call.
+        inherited = call("/root/Main/Inherited", "base_declared")
+        assert inherited.returncode == 0, inherited.stdout + inherited.stderr
+        assert json.loads(inherited.stdout)["value"] == "from base"
+
+        # AC3, refusal 1: a method the node HAS but never declared. The message
+        # names the declared set, so discovery rides the failure.
+        undeclared = call("/root/Main", "undeclared_secret")
+        assert undeclared.returncode == EXIT_LIVE
+        error = json.loads(undeclared.stdout)["error"]
+        assert error["code"] == "live_method_not_allowlisted"
+        assert "qa_current_state_contract" in error["message"]
+        assert "GDA_CALLABLE" in error["message"]
+
+        # ...including a subclass method the BASE's declaration does not name.
+        assert (
+            json.loads(call("/root/Main/Inherited", "child_extra").stdout)["error"][
+                "code"
+            ]
+            == "live_method_not_allowlisted"
+        )
+
+        # AC3, refusal 2: a method the node does not have at all — a DISTINCT
+        # code from the undeclared one.
+        missing = call("/root/Main", "nope")
+        assert missing.returncode == EXIT_LIVE
+        assert json.loads(missing.stdout)["error"]["code"] == "live_unknown_method"
+
+        # Refusal 3: an argument count outside the method's range, refused
+        # BEFORE the call (callv would push an engine error and return null).
+        too_few = call("/root/Main", "with_args", "--args", "[]")
+        assert json.loads(too_few.stdout)["error"]["code"] == "live_invalid_call_args"
+        too_many = call("/root/Main", "with_args", "--args", '[1, "a", 9]')
+        assert json.loads(too_many.stdout)["error"]["code"] == "live_invalid_call_args"
+
+        # None of the refusals ran project code that polluted the engine's error
+        # stream: the whole matrix above leaves diag errors empty.
+        errors = run("diag", "errors")
+        assert errors.returncode == 0, errors.stdout + errors.stderr
+        assert json.loads(errors.stdout)["errors"] == []
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_declaring_gda_callable_in_both_base_and_subclass_is_an_engine_parse_error(
+    tmp_path, daemon_runtime_dir
+):
+    # ADR-0041's known limitation, pinned against the ENGINE rather than prose:
+    # GDScript forbids redeclaring a base class's constant, so exactly one class
+    # per inheritance chain declares. The failure is loud — the script does not
+    # load — never a silently wrong allowlist.
+    from .conftest import project_godot
+    from gda.binary import resolve_godot_binary
+
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
+    )
+    (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
+    (tmp_path / "call_main.gd").write_text(
+        'extends "res://call_base.gd"\n\n'
+        'const GDA_CALLABLE := ["also_declared"]\n\n'
+        "func also_declared() -> String:\n"
+        '\treturn "shadowed"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "main.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://call_main.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+
+    godot = resolve_godot_binary()
+
+    def run(*args):
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(godot),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env={**os.environ},
+            timeout=90,
+        )
+
+    try:
+        assert run("daemon", "start").returncode == 0
+        # `diag errors` never launches a session itself (ADR-0022), so establish
+        # one explicitly first — the documented bounded wait (#657).
+        ready = run("daemon", "wait-ready")
+        assert ready.returncode == 0, ready.stdout + ready.stderr
+        # The engine refuses the script itself; the parse error names the member.
+        errors = run("diag", "errors")
+        assert errors.returncode == 0, errors.stdout + errors.stderr
+        messages = " ".join(
+            entry["message"] for entry in json.loads(errors.stdout)["errors"]
+        )
+        assert "GDA_CALLABLE" in messages
+        assert "already exists in parent class" in messages
+    finally:
+        run("daemon", "stop")

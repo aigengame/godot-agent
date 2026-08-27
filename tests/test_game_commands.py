@@ -14,6 +14,7 @@ from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from tests.support import (
+    GAME_CALL_RESULT,
     GAME_GET_RESULT,
     GAME_RECT_RESULT,
     GAME_SET_RESULT,
@@ -590,3 +591,216 @@ def test_game_set_schema_is_self_describing():
     value_description = schema["output"]["properties"]["value"]["description"]
     assert "observed read-back value" in value_description
     assert "coerced value" not in value_description
+
+
+# --- game call: the declared read-only method surface (#673, ADR-0041) --------
+# The live read `game get` cannot serve: a debug/state contract exposed as a
+# METHOD. The class declares what gda may call in its `GDA_CALLABLE` script
+# constant; gda calls nothing undeclared, and the three refusals are distinct.
+
+
+def test_game_call_invokes_the_method_and_projects_its_return(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "qa_current_state_contract",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["path"] == "/root/Main/QA"
+    assert data["method"] == "qa_current_state_contract"
+    # The return rides the shared value projection: a Dictionary arrives
+    # structured, not as a str() dump.
+    assert data["value"] == {"phase": 3, "ready": True, "labels": ["a", "b"]}
+    # No --args -> a null on the wire, the same full-model shape every other
+    # dispatch_domain command in this group sends (cf. game get's property:
+    # None). The harness treats any non-Array args as none, so the method is
+    # called with no arguments.
+    assert fake.calls == [
+        (
+            "game-call",
+            {
+                "node": "/root/Main/QA",
+                "method": "qa_current_state_contract",
+                "args": None,
+            },
+        )
+    ]
+
+
+def test_game_call_threads_json_args_as_values(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "with_args",
+            "--args",
+            '[2, "peak", {"deep": [1]}]',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    # JSON values ride the wire as values — ints stay int, objects stay objects —
+    # never as the CLI string (no coercion table here, ADR-0041).
+    assert fake.calls == [
+        (
+            "game-call",
+            {
+                "node": "/root/Main/QA",
+                "method": "with_args",
+                "args": [2, "peak", {"deep": [1]}],
+            },
+        )
+    ]
+
+
+def test_game_call_non_json_args_is_refused_before_the_wire(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "with_args",
+            "--args",
+            "not json",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_game_call_undeclared_method_reports_not_allowlisted(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "live_method_not_allowlisted",
+                "the method undeclared_secret is not declared callable",
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "undeclared_secret",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE
+    assert json.loads(result.stdout)["error"]["code"] == "live_method_not_allowlisted"
+
+
+def test_game_call_distinguishes_missing_from_undeclared_and_bad_args(
+    monkeypatch, tmp_path
+):
+    # The three refusals are distinct registered codes, each with its own
+    # remediation (ADR-0041): fix the name, declare it, fix the arguments.
+    for code, message in (
+        ("live_unknown_method", "has no method named nope"),
+        ("live_method_not_allowlisted", "is not declared callable"),
+        ("live_invalid_call_args", "needs at least 1 argument(s)"),
+    ):
+        inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=error_sentinel(code, message), stderr="", exit_code=0),
+        )
+        result = CliRunner().invoke(
+            app,
+            [
+                "game",
+                "call",
+                "/root/Main/QA",
+                "--method",
+                "whatever",
+                "--project",
+                str(_project(tmp_path)),
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_LIVE
+        error = json.loads(result.stdout)["error"]
+        assert error["code"] == code, error
+        assert error["category"] == "live"
+
+
+def test_game_call_human_render_names_the_method_and_value(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_CALL_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "call",
+            "/root/Main/QA",
+            "--method",
+            "qa_current_state_contract",
+            "--project",
+            str(_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "call /root/Main/QA.qa_current_state_contract() ->" in result.stdout
+
+
+def test_game_call_schema_publishes_the_declaration_contract():
+    doc = json.loads(CliRunner().invoke(app, ["game", "call", "--schema"]).stdout)
+    assert doc["kind"] == "live"
+    assert {"node", "method", "args"} <= set(doc["input"]["properties"])
+    # `method` is required (there is no default method); `args` is optional.
+    assert set(doc["input"]["required"]) == {"node", "method"}
+    assert {"path", "name", "type", "method", "value"} <= set(
+        doc["output"]["properties"]
+    )
+    # The declaration site is named in the published contract, so an agent
+    # reading only the schema learns why a call can be refused.
+    assert "GDA_CALLABLE" in json.dumps(doc["input"]["properties"]["method"])

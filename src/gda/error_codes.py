@@ -713,6 +713,27 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A live game get or set targeted a property name the running node does not expose as an addressable runtime, storage, or attached-script property.",
     ),
     ErrorCodeSpec(
+        "live_unknown_method",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game call named a method the addressed running node does not have.",
+    ),
+    ErrorCodeSpec(
+        "live_method_not_allowlisted",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game call named a method the addressed running node has but its class never declared gda-callable.",
+    ),
+    ErrorCodeSpec(
+        "live_invalid_call_args",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game call supplied an argument count outside the declared method's accepted range.",
+    ),
+    ErrorCodeSpec(
         "live_uncoercible_value",
         ErrorCategory.LIVE,
         EXIT_LIVE,

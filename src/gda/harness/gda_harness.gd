@@ -34,6 +34,7 @@ const OP_GAME_TREE := "game-tree"
 const OP_GAME_GET := "game-get"
 const OP_GAME_RECT := "game-rect"
 const OP_GAME_SET := "game-set"
+const OP_GAME_CALL := "game-call"
 const OP_PERF_MONITORS := "perf-monitors"
 const OP_PERF_MONITOR := "perf-monitor"
 const OP_PERF_SAMPLE := "perf-sample"
@@ -62,6 +63,14 @@ const LIVE_ERROR_UNKNOWN_ACTION := "live_unknown_action"
 const LIVE_ERROR_INVALID_EVENT_SPEC := "live_invalid_event_spec"
 const LIVE_ERROR_DISPLAY_UNAVAILABLE := "live_display_unavailable"
 const LIVE_ERROR_PREDICATE_UNMET := "live_predicate_unmet"
+const LIVE_ERROR_UNKNOWN_METHOD := "live_unknown_method"
+const LIVE_ERROR_METHOD_NOT_ALLOWLISTED := "live_method_not_allowlisted"
+const LIVE_ERROR_INVALID_CALL_ARGS := "live_invalid_call_args"
+
+# The script constant a project class declares its gda-callable methods in
+# (#673): `const GDA_CALLABLE := ["method_name"]`. Read STATICALLY from the
+# script's constant map, so learning what may be called never runs project code.
+const GDA_CALLABLE_CONST := "GDA_CALLABLE"
 
 # The frame count a time-windowed op may request (#223). A window collects one
 # sample per frame, so an unbounded N would block the one-shot RPC for an unbounded
@@ -381,6 +390,8 @@ func _run(request) -> Variant:
 			return _handle_game_rect(params)
 		OP_GAME_SET:
 			return _handle_game_set(params)
+		OP_GAME_CALL:
+			return _handle_game_call(params)
 		OP_PERF_MONITORS:
 			return _handle_perf_monitors()
 		OP_PERF_MONITOR:
@@ -511,6 +522,106 @@ func _handle_game_rect(params: Dictionary) -> String:
 # returns whether that observed read-back value matches the coerced requested
 # value; the harness does not guess whether a mismatch is a no-op or an
 # edge-triggered/self-consuming variable.
+# game call: invoke ONE method the addressed node's class DECLARED as callable,
+# and project its return value (#673, GDA-DF-033). The dogfooding gap: a debug
+# state contract exposed as a method was unreadable — `game get` reads stored
+# properties only — so evidence fell back to index properties plus screenshots.
+#
+# The declaration site is the class's own script constant `GDA_CALLABLE` (an
+# Array of method names), merged across the script's base chain, so the
+# read-only assertion sits beside the code it describes and is reviewed with it
+# (ADR-0041). It is read STATICALLY from the script constant map: learning what
+# may be called runs no project code, so the bootstrap itself cannot have side
+# effects. A node with no script, no constant, or a constant that does not name
+# the method declares nothing — default deny.
+#
+# gda cannot verify that a declared method has no side effects; the allowlist
+# records the DECLARER's assertion. What gda guarantees is that no UNDECLARED
+# method is callable. Failures are distinguishable: a method the node does not
+# have is live_unknown_method (checked first — the project is trusted, ADR-0009,
+# so the more precise diagnosis is the useful one), a method it has but never
+# declared is live_method_not_allowlisted (whose message names the declared set),
+# and an argument count outside the method's accepted range is
+# live_invalid_call_args — refused BEFORE the call, since callv would otherwise
+# push an engine error and return a null gda would report as a successful read.
+func _handle_game_call(params: Dictionary) -> String:
+	var path := _string_param(params, "node")
+	var node := _resolve_runtime_node(path)
+	if node == null:
+		return _error(LIVE_ERROR_NODE_NOT_FOUND,
+				"no node at runtime path: " + path)
+	var method := _string_param(params, "method")
+	if not node.has_method(method):
+		return _error(LIVE_ERROR_UNKNOWN_METHOD,
+				"the node at " + path + " has no method named " + method)
+	var declared := _declared_callables(node)
+	if not declared.has(method):
+		var names := ", ".join(declared) if not declared.is_empty() else "(none)"
+		return _error(LIVE_ERROR_METHOD_NOT_ALLOWLISTED,
+				"the method " + method + " is not declared callable by the node at "
+				+ path + "; its class declares: " + names
+				+ ". Declare it in the script constant `const "
+				+ GDA_CALLABLE_CONST + " := [\"" + method + "\"]` to allow it")
+	var raw_args: Variant = params.get("args", [])
+	var args: Array = raw_args if typeof(raw_args) == TYPE_ARRAY else []
+	var arity := _call_arity_error(node, method, args.size())
+	if not arity.is_empty():
+		return _error(LIVE_ERROR_INVALID_CALL_ARGS, arity)
+	return _ok({
+		"path": path,
+		"name": String(node.name),
+		"type": node.get_class(),
+		"method": method,
+		"value": _jsonify(node.callv(method, args)),
+	})
+
+
+# The method names a node's class declared gda-callable (#673), merged along the
+# script's base chain so a base class's declaration covers its subclasses the way
+# any other class member would. Read from the constant map — never by calling
+# into the project — and normalized to Strings, so a malformed declaration (a
+# non-Array constant, or entries that are not names) declares nothing rather
+# than failing the call with an unrelated error.
+func _declared_callables(node: Node) -> Array:
+	var names: Array = []
+	var script: Script = node.get_script() as Script
+	while script != null:
+		var constants: Dictionary = script.get_script_constant_map()
+		var declared: Variant = constants.get(GDA_CALLABLE_CONST, null)
+		if typeof(declared) == TYPE_ARRAY or typeof(declared) == TYPE_PACKED_STRING_ARRAY:
+			for entry in declared:
+				if typeof(entry) != TYPE_STRING and typeof(entry) != TYPE_STRING_NAME:
+					continue
+				var entry_name := String(entry)
+				if not names.has(entry_name):
+					names.append(entry_name)
+		script = script.get_base_script()
+	return names
+
+
+# Why the supplied argument count cannot reach `method`, or "" when it can
+# (#673). Required = declared args minus defaults; a vararg method has no upper
+# bound. A method the list does not describe is not second-guessed here — the
+# has_method gate above already established it exists.
+func _call_arity_error(node: Node, method: String, supplied: int) -> String:
+	for entry in node.get_method_list():
+		if String(entry.get("name", "")) != method:
+			continue
+		var declared_args: Array = entry.get("args", [])
+		var defaults: Array = entry.get("default_args", [])
+		var required := declared_args.size() - defaults.size()
+		var vararg := (int(entry.get("flags", 0)) & METHOD_FLAG_VARARG) != 0
+		if supplied < required:
+			return ("the method " + method + " needs at least " + str(required)
+					+ " argument(s); " + str(supplied) + " supplied")
+		if not vararg and supplied > declared_args.size():
+			return ("the method " + method + " accepts at most "
+					+ str(declared_args.size()) + " argument(s); " + str(supplied)
+					+ " supplied")
+		return ""
+	return ""
+
+
 func _handle_game_set(params: Dictionary) -> String:
 	var path := _string_param(params, "node")
 	var node := _resolve_runtime_node(path)

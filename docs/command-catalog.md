@@ -824,6 +824,32 @@ headless is unaffected (4.4+, cross-platform).
   uncoercible value `live_uncoercible_value`, and a `game rect` target that is not a
   `Control` is `live_not_control`. The on-disk counterparts stay under `scene` / `node`
   (ADR-0019).
+  `game call <node> --method NAME [--args JSON]` (shipped, #673, ADR-0041) serves the
+  read `game get` cannot: a debug or state contract the project exposes as a METHOD
+  rather than a stored property (GDA-DF-033). The method must be named in the addressed
+  node's class **`GDA_CALLABLE` script constant** — an Array of method names, merged
+  along the script's base chain — which gda reads STATICALLY from the script's constant
+  map, so learning what may be called runs no project code. The allowlist is NOT a trust
+  boundary (the project is trusted, ADR-0009, and `script run` already executes
+  arbitrary project code): it keeps the live READ surface free of side effects gda did
+  not ask for and bounds results to the value projection. gda cannot verify that a
+  declared method has no side effects — the declaration records the DECLARER's
+  assertion; what gda guarantees is that no UNDECLARED method is callable. Arguments are
+  JSON values passed as their natural Variant forms (no string-coercion table — a call's
+  arguments are typed by the method, not by a stored property). The return value goes
+  through the shared value projection; a method returning nothing projects as null, and
+  the `--texture-digest` opt-in is not part of this first version (a path-less
+  `Texture2D` return projects with a null digest). Three distinguishable refusals: a
+  method the node does not have is `live_unknown_method` (existence is checked FIRST, so
+  a wrong name is diagnosed as one), one it has but never declared is
+  `live_method_not_allowlisted` — whose message names the class's declared set, so
+  discovery rides the failure — and an argument count outside the method's accepted
+  range is `live_invalid_call_args`, refused BEFORE the call (`callv` with a wrong count
+  pushes an engine error and returns null, which would otherwise read as a successful
+  null). One inheritance-chain limitation, engine-enforced and loud: GDScript forbids a
+  subclass from redeclaring a base class's constant, so exactly one class per chain
+  declares; a project that declares in both fails to parse with a message naming the
+  member.
 - **`input` (input simulation):** runtime input injection into the running game
   (shipped, #221). Single-frame ops `input key <KEY> [--modifiers …] [--released]`,
   `input mouse-move <x> <y>`, and `input action <NAME> [--release] [--strength F]`

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d79443d83eb08a247b0990da4b2639352cc91a76ff9be954850f37aca13fc3fa -->
+<!-- gda-readme-i18n: source=README.md sha256=615b253e46f722f873c269ba4785d04c914abd2e6708c68cb9ec5d65d2748d93 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -536,6 +536,12 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量。 |
+| `game call` | 调用该节点所属类声明为可调用（`GDA_CALLABLE`）的一个方法，并投影其返回值。 |
+
+`game call` 读取 `game get` 无法读取的东西：项目以**方法**形式暴露的调试或状态契约。
+类在方法旁边的 `GDA_CALLABLE` 脚本常量中声明可被调用的方法，gda 以静态方式读取该常量——
+因此"哪些方法可调用"这一步不会运行你的任何代码，且未声明之前没有任何方法可调用。gda 无法
+验证已声明的方法没有副作用；它保证的是绝不调用未声明的方法（ADR-0041）。
 
 Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策略；
 `game rect` 仍然是只读的渲染几何查询。`game set` 的成功结果包含

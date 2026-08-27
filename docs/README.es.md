@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d79443d83eb08a247b0990da4b2639352cc91a76ff9be954850f37aca13fc3fa -->
+<!-- gda-readme-i18n: source=README.md sha256=615b253e46f722f873c269ba4785d04c914abd2e6708c68cb9ec5d65d2748d93 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -570,6 +570,14 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
 | `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
 | `game set` | Define una propiedad de un nodo de runtime, o una variable explícita del script adjunto, en el juego en ejecución. |
+| `game call` | Invoca un método que la clase del nodo declaró invocable (`GDA_CALLABLE`) y proyecta lo que devuelve. |
+
+`game call` lee lo que `game get` no puede: un contrato de depuración o de estado que el
+proyecto expone como **método**. La clase declara los métodos invocables en una constante
+de script `GDA_CALLABLE` junto a ellos, y gda lee esa constante de forma estática — así que
+averiguar qué puede invocarse no ejecuta nada de tu código, y nada es invocable hasta que lo
+declares. gda no puede verificar que un método declarado no tenga efectos secundarios; lo que
+garantiza es que nunca invoca un método no declarado (ADR-0041).
 
 `game set --property position` en vivo sigue la misma política de `Control` que
 `node set`; `game rect` sigue siendo una consulta de geometría renderizada de solo

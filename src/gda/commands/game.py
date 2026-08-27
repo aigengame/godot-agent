@@ -16,12 +16,13 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 ``scene`` / ``node``, not a different phase (ADR-0017/0019).
 """
 
+import json
 from typing import Any, Optional
 
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import dispatch_domain
+from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -232,6 +233,62 @@ class GameSetResult(BaseModel):
     )
 
 
+class GameCallParams(BaseModel):
+    """The params of ``gda game call``: invoke one DECLARED read-only method (#673).
+
+    The live read that ``game get`` cannot serve: a debug/state contract exposed
+    as a METHOD rather than a stored property (GDA-DF-033). ``method`` must be
+    named by the addressed node's class in its ``GDA_CALLABLE`` script constant
+    (ADR-0041) — gda calls nothing a class did not declare. ``args`` are JSON
+    values passed to the method as their natural Variant forms.
+    """
+
+    node: str = Field(description=RUNTIME_NODE_DESC)
+    method: str = Field(
+        min_length=1,
+        description=(
+            "The method to invoke. It must be named in the node's class "
+            "`GDA_CALLABLE` script constant (ADR-0041); an undeclared method is "
+            "`live_method_not_allowlisted`, one the node does not have at all is "
+            "`live_unknown_method`."
+        ),
+    )
+    args: list[Any] | None = Field(
+        default=None,
+        description=(
+            "The call's arguments as a JSON array, passed to the method as their "
+            "natural Variant forms (JSON objects become Dictionary, arrays "
+            "Array); null or omitted calls it with none. An argument count "
+            "outside the method's accepted range is `live_invalid_call_args`, "
+            "refused before the call."
+        ),
+    )
+
+
+class GameCallResult(BaseModel):
+    """The result of ``gda game call``: the declared method's projected return (#673).
+
+    Echoes the addressed node (runtime ``path``/``name``/``type``) and the
+    ``method`` invoked, plus its return ``value`` through the SAME recursive
+    value projection every gda read uses (ADR-0035), so a returned Dictionary
+    arrives structured rather than as a ``str()`` dump. A method returning
+    nothing projects as null.
+    """
+
+    path: str = Field(description="The addressed node's runtime (absolute) path.")
+    name: str
+    type: str = Field(description="The node's engine class (e.g. Node2D).")
+    method: str = Field(description="The declared method this call invoked.")
+    value: Any = Field(
+        description=(
+            "The method's return value as JSON, in the same recursive value "
+            "projection game get reports (ADR-0035); null when it returns "
+            "nothing."
+        ),
+        json_schema_extra=projected_value_schema_extra,
+    )
+
+
 def render_game_tree(game: "GameTreeResult") -> str:
     """Render the running game's runtime scene tree (ADR-0019).
 
@@ -267,6 +324,11 @@ def render_game_set(was_set: "GameSetResult") -> str:
     )
 
 
+def render_game_call(called: "GameCallResult") -> str:
+    """Render a declared method call as ``call <path>.<method>() -> <value>`` (#673)."""
+    return f"call {called.path}.{called.method}() -> {format_value(called.value)}"
+
+
 GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
     operation="game-tree",
     input_model=GameTreeParams,
@@ -299,6 +361,14 @@ GAME_SET_COMMAND: HeadlessCommand[GameSetResult] = HeadlessCommand(
     input_model=GameSetParams,
     output_model=GameSetResult,
     render=render_game_set,
+    kind=ExecutionKind.LIVE,
+)
+
+GAME_CALL_COMMAND: HeadlessCommand[GameCallResult] = HeadlessCommand(
+    operation="game-call",
+    input_model=GameCallParams,
+    output_model=GameCallResult,
+    render=render_game_call,
     kind=ExecutionKind.LIVE,
 )
 
@@ -471,6 +541,75 @@ def game_set(
     dispatch_domain(
         GAME_SET_COMMAND,
         GameSetParams(node=node, property=property, value=value),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="call", cls=GAME_CALL_COMMAND.command_class())
+def game_call(
+    node: str = typer.Argument(
+        ...,
+        help="Runtime node path as `game tree` reports it (absolute, e.g. /root/Main/QA).",
+    ),
+    method: str = typer.Option(
+        ...,
+        "--method",
+        help=(
+            "The method to invoke. Its class must name it in the "
+            "`GDA_CALLABLE` script constant; gda calls nothing undeclared."
+        ),
+    ),
+    args: Optional[str] = typer.Option(
+        None,
+        "--args",
+        help=(
+            "JSON array of arguments, passed as their natural Variant forms "
+            "(e.g. '[1, \"idle\"]'). Omit to call with none."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = GAME_CALL_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Invoke one DECLARED read-only method on a running node (live).
+
+    The live read `game get` cannot serve: a debug or state contract the project
+    exposes as a METHOD rather than a stored property (#673). The method must be
+    named in the addressed node's class `GDA_CALLABLE` script constant — an Array
+    of method names, merged along the script's base chain — which gda reads
+    STATICALLY from the script's constant map, so learning what may be called
+    runs no project code (ADR-0041).
+
+    The allowlist is NOT a trust boundary: the target project is trusted
+    (ADR-0009), and gda cannot verify that a declared method has no side
+    effects. The declaration records the project's own read-only assertion; what
+    gda guarantees is that no UNDECLARED method is callable, keeping the live
+    READ surface free of side effects gda did not ask for.
+
+    The return value goes through the same recursive value projection every gda
+    read uses (ADR-0035). Failures are distinguishable: a method the node does
+    not have is `live_unknown_method`, one it has but never declared is
+    `live_method_not_allowlisted` (its message names the declared set), an
+    argument count outside the method's range is `live_invalid_call_args`
+    (refused before the call), an unresolvable path is `live_node_not_found`,
+    and with no daemon it reports `daemon_not_running`.
+    """
+    # The argv value is JSON, parsed here so argv and --params-json build the
+    # SAME model (ADR-0015); a non-JSON string reaches the model, which refuses
+    # it structurally rather than passing prose to the harness.
+    parsed: Any = None
+    if args is not None:
+        try:
+            parsed = json.loads(args)
+        except ValueError:
+            parsed = args
+    dispatch_domain(
+        GAME_CALL_COMMAND,
+        params_or_bad_parameter(GameCallParams, node=node, method=method, args=parsed),
         json_output=json_output,
         godot=godot,
         project=project,

@@ -555,6 +555,14 @@ reported as `script_aborted` with the captured error.
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game. |
+| `game call` | Invoke one method the node's class declared callable (`GDA_CALLABLE`), and project what it returns. |
+
+`game call` reads what `game get` cannot: a debug or state contract your project
+exposes as a **method**. The class names the callable methods in a `GDA_CALLABLE`
+script constant beside them, and gda reads that constant statically — so learning
+what may be called runs none of your code, and nothing is callable until you
+declare it. gda cannot verify a declared method has no side effects; what it
+guarantees is that no undeclared method is called (ADR-0041).
 
 Live `game set --property position` follows the same `Control` policy as
 `node set`; `game rect` remains a read-only rendered-geometry query. `game set`
