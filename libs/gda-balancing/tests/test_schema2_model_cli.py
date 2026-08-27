@@ -6228,12 +6228,15 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
         "tag": "literal",
         "value": "lowered-by-ldb",
     }
-    vector = next(
+    lower_vectors = [
         item
         for item in candidate_ldb["vectors"]
-        if item["id"] == "quantity.lower.valid"
-    )
-    vector["expect"]["fields"]["role"] = "lowered-by-ldb"
+        if item.get("rule") == "quantity.lower"
+        and item.get("input", {}).get("judgment") == "lower-quantity"
+    ]
+    assert lower_vectors
+    for vector in lower_vectors:
+        vector["expect"]["fields"]["role"] = "lowered-by-ldb"
     candidate_ldb["language"]["quantity"]["symbol_roles"].append("lowered-by-ldb")
     candidate_ldb["language"]["packages"][0]["exports"]["symbol_roles"].append(
         "lowered-by-ldb"
