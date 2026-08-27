@@ -560,6 +560,14 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
             "game.combat.cast-v1.body.apply-damage.arguments",
         ),
     ),
+    ids=(
+        "effect-language.operations.game.combat@2.1.0.game.combat.cast-v1.body.hit-check.effects",
+        "refusal-language.operations.game.combat@2.1.0.game.combat.cast-v1.body.hit-check.refusals",
+        "resource-language.operations.game.combat@2.1.0.game.combat.cast-v1.resource_bounds",
+        "cycle-language.operations.game.check@1.0.1.game.check.hit-v1.body.cycle.operation",
+        "argument-contract-language.operations.game.combat@2.1.0.game.combat.cast-v1.body.hit-check.arguments",
+        "literal-contract-language.operations.game.combat@2.1.0.game.combat.cast-v1.body.apply-damage.arguments",
+    ),
 )
 def test_two_consumers_refuse_every_reidentified_operation_composition_violation(
     mutation,
