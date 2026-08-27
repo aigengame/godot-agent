@@ -7324,28 +7324,43 @@ def _consumer_b_operation_composition_subjects(
             for member in ("package", "version", "id")
         )
     }
-    owners: dict[str, tuple[str, str]] = {}
+    by_coordinate: dict[tuple[str, str, str], dict[str, Any]] = {}
     for package in packages:
         if not isinstance(package, dict):
             continue
         package_id = package.get("id")
         package_version = package.get("version")
-        if not isinstance(package_id, str) or not isinstance(package_version, str):
+        semantic_closure = package.get("semantic_closure")
+        if (
+            not isinstance(package_id, str)
+            or not isinstance(package_version, str)
+            or not isinstance(semantic_closure, list)
+        ):
             continue
-        exports = package.get("exports")
-        exported = exports.get("operations") if isinstance(exports, dict) else None
-        if not isinstance(exported, list):
+        operations_entry = next(
+            (
+                entry
+                for entry in semantic_closure
+                if isinstance(entry, dict)
+                and entry.get("authority_path") == "language.operations"
+            ),
+            None,
+        )
+        definitions = (
+            operations_entry.get("definitions")
+            if isinstance(operations_entry, dict)
+            else None
+        )
+        if not isinstance(definitions, list):
             continue
-        for operation_id in exported:
-            if isinstance(operation_id, str):
-                owners[operation_id] = (package_id, package_version)
-    by_coordinate = {
-        (*owners[operation["id"]], operation["id"]): operation
-        for operation in operations
-        if isinstance(operation, dict)
-        and isinstance(operation.get("id"), str)
-        and operation["id"] in owners
-    }
+        for operation in definitions:
+            operation_id = operation.get("id") if isinstance(operation, dict) else None
+            if not isinstance(operation_id, str):
+                continue
+            coordinate = (package_id, package_version, operation_id)
+            if coordinate in by_coordinate:
+                return (f"language.operations.{package_id}@{package_version}",)
+            by_coordinate[coordinate] = operation
     found: set[str] = set()
     closed: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
     guard_body_coordinates: set[tuple[str, str, str]] = set()
@@ -7496,6 +7511,7 @@ def _consumer_b_operation_composition_subjects(
                 if isinstance(profile, dict)
                 and profile.get("source_kind") == "integer"
                 and profile.get("type") == exact_type
+                and profile.get("domain") == {"kind": "actual"}
             ]
             if len(scalar_profiles) == 1:
                 profile = scalar_profiles[0]

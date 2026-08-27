@@ -239,6 +239,7 @@ class OperationValueContracts:
                 for profile in self.literal_profiles
                 if profile.get("source_kind") == "integer"
                 and profile.get("type") == exact_type
+                and profile.get("domain") == {"kind": "actual"}
             ]
             if len(scalar_profiles) == 1:
                 profile = scalar_profiles[0]

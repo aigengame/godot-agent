@@ -431,6 +431,64 @@ def test_quantity_2_2_composition_inference_and_positive_divisor_contract():
         )
 
 
+def test_quantity_2_2_has_one_compatible_downstream_release_chain():
+    ldb = _authority_candidate()["language_bundle"]
+    releases = {
+        (package["id"], package["version"]): package
+        for package in ldb["language"]["packages"]
+    }
+    expected_dependencies = {
+        ("game.check", "1.1.0"): [
+            {"id": "core.quantity", "version": "2.2.0"},
+            {"id": "standard.runtime", "version": "1.1.0"},
+        ],
+        ("game.resource", "1.1.0"): [
+            {"id": "core.quantity", "version": "2.2.0"},
+            {"id": "standard.runtime", "version": "1.1.0"},
+        ],
+        ("game.generation", "1.1.0"): [
+            {"id": "core.quantity", "version": "2.2.0"},
+            {"id": "standard.runtime", "version": "1.1.0"},
+            {"id": "standard.schema", "version": "2.4.0"},
+        ],
+        ("game.combat", "2.2.0"): [
+            {"id": "core.quantity", "version": "2.2.0"},
+            {"id": "game.check", "version": "1.1.0"},
+            {"id": "game.resource", "version": "1.1.0"},
+            {"id": "standard.runtime", "version": "1.1.0"},
+        ],
+    }
+    retained_versions = {
+        "game.check": "1.0.1",
+        "game.resource": "1.0.1",
+        "game.generation": "1.0.0",
+        "game.combat": "2.1.0",
+    }
+
+    assert {(package, version) for package, version in retained_versions.items()} <= set(
+        releases
+    )
+    for coordinate, dependencies in expected_dependencies.items():
+        release = releases[coordinate]
+        assert release["dependencies"]["required"] == dependencies
+        assert release["exports"] == releases[
+            (coordinate[0], retained_versions[coordinate[0]])
+        ]["exports"]
+
+        vector_set = next(
+            item
+            for item in ldb.package_conformance_vector_sets
+            if (item["package_id"], item["package_version"]) == coordinate
+        )
+        dependency_vectors = [
+            vector
+            for vector in vector_set["vector_definitions"]
+            if vector.get("kind") == "package-contract"
+            and vector.get("probe") == {"path": "dependencies.required"}
+        ]
+        assert [vector["expect"] for vector in dependency_vectors] == [dependencies]
+
+
 def test_coherent_package_semantic_change_changes_the_release_identity():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
