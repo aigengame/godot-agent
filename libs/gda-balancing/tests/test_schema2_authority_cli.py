@@ -1396,36 +1396,36 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
         (instruction["node"], instruction["operation"]) for instruction in cast["body"]
     ] == [
         (
-            "invoke",
-            {
-                "package": "game.resource",
-                "version": "1.0.1",
-                "id": "game.resource.spend-v1",
-            },
+                "invoke",
+                {
+                    "package": "game.resource",
+                    "version": "1.1.0",
+                    "id": "game.resource.spend-v1",
+                },
         ),
         (
-            "invoke",
-            {
-                "package": "game.check",
-                "version": "1.0.1",
-                "id": "game.check.hit-v1",
-            },
+                "invoke",
+                {
+                    "package": "game.check",
+                    "version": "1.1.0",
+                    "id": "game.check.hit-v1",
+                },
         ),
         (
-            "invoke",
-            {
-                "package": "game.check",
-                "version": "1.0.1",
-                "id": "game.check.critical-v1",
-            },
+                "invoke",
+                {
+                    "package": "game.check",
+                    "version": "1.1.0",
+                    "id": "game.check.critical-v1",
+                },
         ),
         (
-            "invoke",
-            {
-                "package": "game.combat",
-                "version": "2.1.0",
-                "id": "game.combat.damage-v1",
-            },
+                "invoke",
+                {
+                    "package": "game.combat",
+                    "version": "2.2.0",
+                    "id": "game.combat.damage-v1",
+                },
         ),
     ]
     assert all(item["type"]["id"] == "Quantity" for item in cast["inputs"])
