@@ -43,6 +43,8 @@ func _run() -> void:
 	view.bind(controller)
 	controller.view_state_changed.emit(_state("ready"))
 	await process_frame
+	var floating_damage := view.find_child("FloatingDamage", true, false) as Label
+	var floating_damage_origin_y := floating_damage.position.y
 	var level := view.find_child("StatLevel", true, false) as HSlider
 	var weapon := view.find_child("WeaponDamageBonus", true, false) as HSlider
 	var buff := view.find_child("DamageBuff", true, false) as CheckButton
@@ -77,7 +79,8 @@ func _run() -> void:
 		},
 	}
 	controller.view_state_changed.emit(resolved)
-	await process_frame
+	await create_timer(0.35).timeout
+	var first_float_end_y := floating_damage.position.y
 	var result := view.find_child("AttackResult", true, false) as Label
 	var badge := view.find_child("MaximumBadge", true, false) as Label
 	_expect(
@@ -97,6 +100,14 @@ func _run() -> void:
 		maximum_question != null
 		and maximum_question.text == "Was the 75 damage maximum clear?",
 		"the feedback question follows the maintained maximum",
+	)
+	var repeated_attack := resolved.duplicate(true)
+	repeated_attack["attack_count"] = 2
+	controller.view_state_changed.emit(repeated_attack)
+	await create_timer(0.35).timeout
+	_expect(
+		is_equal_approx(floating_damage.position.y, first_float_end_y),
+		"repeated attacks animate from the same floating-damage origin",
 	)
 	var health := view.find_child("DummyHealth", true, false) as ProgressBar
 	_expect(_bar_color(health) == Color("d64545"), "the HP bar uses the red gameplay color")
@@ -119,11 +130,14 @@ func _run() -> void:
 	_expect(health != null and health.value == 120, "Restart restores visible HP")
 	_expect(result != null and result.text.is_empty(), "Restart clears the previous result")
 	_expect(base_value != null and base_value.text == "—", "Restart clears the breakdown")
+	_expect(
+		is_equal_approx(floating_damage.position.y, floating_damage_origin_y),
+		"Restart restores the floating-damage origin",
+	)
 	var restarted_attack := resolved.duplicate(true)
 	restarted_attack["last_attack"]["metrics"]["damage_dealt"] = 30
 	controller.view_state_changed.emit(restarted_attack)
 	await process_frame
-	var floating_damage := view.find_child("FloatingDamage", true, false) as Label
 	_expect(
 		floating_damage != null and floating_damage.text == "-30",
 		"the first attack after Restart animates again",

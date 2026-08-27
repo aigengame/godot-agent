@@ -39,6 +39,8 @@ var _last_state: Dictionary = {}
 var _rendering := false
 var _shown_attack_count := 0
 var _health_tween: Tween
+var _damage_float_tween: Tween
+var _damage_float_origin_y := 0.0
 var _settings_panel: PanelContainer
 var _level: HSlider
 var _level_label: Label
@@ -203,11 +205,18 @@ func _build_dummy(parent: HBoxContainer) -> void:
 	_dummy_block.custom_minimum_size = Vector2(220, 190)
 	_dummy_block.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	column.add_child(_dummy_block)
+	var damage_float_layer := Control.new()
+	damage_float_layer.name = "FloatingDamageLayer"
+	damage_float_layer.custom_minimum_size = Vector2(0, 40)
+	damage_float_layer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_child(damage_float_layer)
 	_damage_float = _make_label("", 28, Color("ffd166"))
 	_damage_float.name = "FloatingDamage"
 	_damage_float.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_damage_float.modulate.a = 0
-	column.add_child(_damage_float)
+	damage_float_layer.add_child(_damage_float)
+	_damage_float.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_damage_float_origin_y = _damage_float.position.y
 	_dummy_health = ProgressBar.new()
 	_dummy_health.name = "DummyHealth"
 	_dummy_health.max_value = 120
@@ -338,15 +347,21 @@ func _animate_hit(damage: int, target_health: int) -> void:
 	hit_tween.tween_property(_dummy_block, "position:x", _dummy_block.position.x, 0.08)
 	_damage_float.text = "-%d" % damage
 	_damage_float.modulate.a = 1
-	_damage_float.position.y += 8
-	var float_tween := create_tween()
-	float_tween.tween_property(_damage_float, "position:y", _damage_float.position.y - 20, 0.3)
-	float_tween.parallel().tween_property(_damage_float, "modulate:a", 0.0, 0.3)
+	if _damage_float_tween != null and _damage_float_tween.is_valid():
+		_damage_float_tween.kill()
+	_damage_float.position.y = _damage_float_origin_y + 8
+	_damage_float_tween = create_tween()
+	_damage_float_tween.tween_property(
+		_damage_float, "position:y", _damage_float_origin_y - 12, 0.3
+	)
+	_damage_float_tween.parallel().tween_property(_damage_float, "modulate:a", 0.0, 0.3)
 
 
 func _reset_attack_display(state: Dictionary) -> void:
 	if _health_tween != null and _health_tween.is_valid():
 		_health_tween.kill()
+	if _damage_float_tween != null and _damage_float_tween.is_valid():
+		_damage_float_tween.kill()
 	_dummy_health.value = float(state.get("target_health", 120))
 	_shown_attack_count = int(state.get("attack_count", 0))
 	for value in [_base_value, _progression_value, _build_value, _effect_value, _attack_value]:
@@ -355,6 +370,7 @@ func _reset_attack_display(state: Dictionary) -> void:
 	_result_label.text = ""
 	_damage_float.text = ""
 	_damage_float.modulate.a = 0
+	_damage_float.position.y = _damage_float_origin_y
 
 
 func _on_primary_action() -> void:
