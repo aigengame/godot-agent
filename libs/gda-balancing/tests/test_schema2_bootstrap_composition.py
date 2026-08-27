@@ -377,9 +377,11 @@ def test_literal_typing_is_an_independent_package_owned_authority():
     language = ldb["language"]
     policy = language["model_lowerings"][0]["assignment_policy"]
     profiles = language["literal_typing_profiles"]
-    owner = next(
-        package for package in language["packages"] if package["id"] == "core.quantity"
-    )
+    owners = {
+        package["version"]: package
+        for package in language["packages"]
+        if package["id"] == "core.quantity"
+    }
     structured_owner = next(
         package
         for package in language["packages"]
@@ -390,15 +392,24 @@ def test_literal_typing_is_an_independent_package_owned_authority():
     assert "literal_selection" not in policy
     assert [profile["id"] for profile in profiles] == [
         "quantity.dimensionless-int64",
+        "quantity.dimensionless-int64-v2-2",
+        "quantity.positive-dimensionless-int64-v2-2",
         "standard.schema.nominal-structured",
     ]
-    assert owner["exports"]["literal_typing_profiles"] == [
+    assert owners["2.1.0"]["exports"]["literal_typing_profiles"] == [
         "quantity.dimensionless-int64"
+    ]
+    assert owners["2.2.0"]["exports"]["literal_typing_profiles"] == [
+        "quantity.dimensionless-int64-v2-2",
+        "quantity.positive-dimensionless-int64-v2-2",
     ]
     assert structured_owner["exports"]["literal_typing_profiles"] == [
         "standard.schema.nominal-structured"
     ]
-    assert "language.literal_typing_profiles" in owner["runtime_semantic_paths"]
+    assert all(
+        "language.literal_typing_profiles" in owner["runtime_semantic_paths"]
+        for owner in owners.values()
+    )
     assert (
         "language.literal_typing_profiles" in structured_owner["runtime_semantic_paths"]
     )
@@ -516,55 +527,44 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
 
 
 @pytest.mark.parametrize(
-    ("mutation", "expected_subject"),
+    ("mutation", "subject_owner", "subject_suffix"),
     (
         (
             "effect",
-            (
-                "language.operations.game.combat@2.1.0."
-                "game.combat.cast-v1.body.hit-check.effects"
-            ),
+            "combat",
+            "game.combat.cast-v1.body.hit-check.effects",
         ),
         (
             "refusal",
-            (
-                "language.operations.game.combat@2.1.0."
-                "game.combat.cast-v1.body.hit-check.refusals"
-            ),
+            "combat",
+            "game.combat.cast-v1.body.hit-check.refusals",
         ),
         (
             "resource",
-            (
-                "language.operations.game.combat@2.1.0."
-                "game.combat.cast-v1.resource_bounds"
-            ),
+            "combat",
+            "game.combat.cast-v1.resource_bounds",
         ),
         (
             "cycle",
-            (
-                "language.operations.game.check@1.0.1."
-                "game.check.hit-v1.body.cycle.operation"
-            ),
+            "check",
+            "game.check.hit-v1.body.cycle.operation",
         ),
         (
             "argument-contract",
-            (
-                "language.operations.game.combat@2.1.0."
-                "game.combat.cast-v1.body.hit-check.arguments"
-            ),
+            "combat",
+            "game.combat.cast-v1.body.hit-check.arguments",
         ),
         (
             "literal-contract",
-            (
-                "language.operations.game.combat@2.1.0."
-                "game.combat.cast-v1.body.apply-damage.arguments"
-            ),
+            "combat",
+            "game.combat.cast-v1.body.apply-damage.arguments",
         ),
     ),
 )
 def test_two_consumers_refuse_every_reidentified_operation_composition_violation(
     mutation,
-    expected_subject,
+    subject_owner,
+    subject_suffix,
 ):
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
@@ -611,7 +611,7 @@ def test_two_consumers_refuse_every_reidentified_operation_composition_violation
                 "operation": {
                     "id": "game.check.hit-v1",
                     "package": "game.check",
-                    "version": "1.0.1",
+                    "version": hit["version"],
                 },
                 "outcomes": [
                     {
@@ -634,6 +634,12 @@ def test_two_consumers_refuse_every_reidentified_operation_composition_violation
 
     assert first == second
     assert first["admitted"] is False
+    subject_operation = hit if subject_owner == "check" else cast_operation
+    subject_package = "game.check" if subject_owner == "check" else "game.combat"
+    expected_subject = (
+        f"language.operations.{subject_package}@{subject_operation['version']}."
+        f"{subject_suffix}"
+    )
     assert (
         "static",
         "kernel.vector_mismatch",
@@ -1278,15 +1284,7 @@ def test_model_lowering_invocation_must_match_the_referenced_rule_contract():
     language["model_lowerings"][0]["rule_chain"][0]["judgment"] = (
         "host-invented-judgment"
     )
-    package = language["packages"][0]
-    lowering_entry = next(
-        entry
-        for entry in package["semantic_closure"]
-        if entry["authority_path"] == "language.model_lowerings"
-    )
-    lowering_entry["definitions"] = deepcopy(language["model_lowerings"])
-    _reidentify_package_release(package)
-    _reidentify_graph_root(ldb)
+    _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -1375,7 +1373,10 @@ def test_reidentified_operation_result_source_requires_its_exact_call_producer()
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.1.0.game.combat.cast-v1.result.source",
+        (
+            f"language.operations.game.combat@{operation['version']}."
+            "game.combat.cast-v1.result.source"
+        ),
     ) in first["diagnostics"]
 
 
@@ -1492,7 +1493,10 @@ def test_operation_result_source_refuses_a_non_successful_producer_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.1.0.game.combat.cast-v1.result.source",
+        (
+            f"language.operations.game.combat@{cast_operation['version']}."
+            "game.combat.cast-v1.result.source"
+        ),
     ) in first["diagnostics"]
 
 
