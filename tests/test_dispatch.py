@@ -15,7 +15,7 @@ field-level validator), and a multi-error ``ValidationError``.
 
 import typer
 import pytest
-from pydantic import BaseModel, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from gda.dispatch import params_or_bad_parameter
 

@@ -1174,17 +1174,24 @@ def _project_scoped_res_path(script: str) -> str | None:
       ``res://`` spellings) — the project is the whole addressable scope, so an
       upward escape names something the ``--project`` contract does not cover.
 
-    The last two are load-bearing for the same reason, and it is not tidiness. The
-    engine answers a root address with ``Can't load script: res://.`` (or
-    ``res://..``), whose address the error parser reads back with the sentence period
-    stripped — ``res://`` for the first, ``res://.`` for the second. Neither matches
-    the entry, so the never-ran verdict misses it and the run reports a PHANTOM
-    SUCCESS. And an escape that RESOLVES (``../outside.gd``) executes a script outside
-    the project entirely, which would widen the Project-code execution surface past
-    ADR-0009's Trusted project — the very consequence the amendment cites for keeping
-    absolute paths refused, so admitting it by the relative spelling would make that
-    reasoning false. Refusing both before the launch closes them without touching the
-    error parser's own res:// handling.
+    The last two are load-bearing, and it is not tidiness. The root-address clause
+    used to ALSO be the fix for a parser bug: the engine answers a root address
+    with ``Can't load script: res://.`` (or ``res://..``), and the pre-#698 error
+    parser read that address back with an assumed sentence period stripped —
+    ``res://`` for the first, ``res://.`` for the second. Neither matched the
+    entry, so the never-ran verdict missed it and the run reported a PHANTOM
+    SUCCESS; refusing the root address here, before any launch, closed that gap.
+    #698 fixed the parser itself to read the address back intact, so that failure
+    mode is now history — the root address stays refused for the plainer reason
+    already given above (it names a directory, not a script), not because the
+    parser still corrupts it. The escape clause is the one still load-bearing for
+    the reason it always was: an escape that RESOLVES (``../outside.gd``)
+    executes a script outside the project entirely, which would widen the
+    Project-code execution surface past ADR-0009's Trusted project — the very
+    consequence the amendment cites for keeping absolute paths refused, so
+    admitting it by the relative spelling would make that reasoning false.
+    Refusing both before the launch keeps this gate, not the error parser, as the
+    one place that decides.
 
     The escape test is on the canonical remainder's first SEGMENT, not a string
     prefix: ``res://..foo.gd`` is a legal file whose name merely starts with two dots,
