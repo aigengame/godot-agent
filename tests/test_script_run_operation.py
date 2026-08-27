@@ -246,9 +246,10 @@ def test_both_path_forms_reach_one_canonical_address(script):
         "sub/..",
         "res://",
         "res://.",
-        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded (the
-        # engine's `Can't load script: res://..` parses back as `res://.`), and
-        # `../outside.gd` actually EXECUTED a script outside the project.
+        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded before
+        # #698 fixed the parser (the engine's `Can't load script: res://..` used to
+        # parse back as `res://.`), and `../outside.gd` actually EXECUTED a script
+        # outside the project — refused regardless of the parser's own fix.
         "..",
         "sub/../..",
         "../outside.gd",
@@ -267,9 +268,10 @@ def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
     # The path ABI edge (ADR-0031, narrowed by #675): accepting the project-relative
     # form must not accept everything ELSE that is merely non-absolute. The root and
     # escape cases are load-bearing — the engine answers `Can't load script: res://.`
-    # / `res://..`, whose address the parser reads back with the sentence period
-    # stripped, so it never matches the entry and the run reported a PHANTOM SUCCESS
-    # (exit 0). A resolvable escape is worse: `../outside.gd` RAN a script outside the
+    # / `res://..`, and before #698 fixed the parser that address came back with the
+    # sentence period stripped, so it never matched the entry and the run reported a
+    # PHANTOM SUCCESS (exit 0). This refusal stays regardless of the parser's own fix
+    # — a resolvable escape is worse: `../outside.gd` RAN a script outside the
     # project, which is exactly the ADR-0009 widening the amendment cites as its
     # reason for refusing absolute paths.
     outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
