@@ -448,7 +448,7 @@ def test_a_non_script_binding_never_fails_an_entry_verdict():
 # dot and never triggered this — every fixture below ends in one.
 
 # `godot --headless --path <proj> --script "res://.."`, captured verbatim (Godot
-# 4.6.3, macOS). `main.cpp:4366` echoes the raw `--script` argv unconditionally —
+# 4.6.3, macOS). `main.cpp:4271` echoes the raw `--script` argv unconditionally —
 # "Can't load script: " + script, no format-string punctuation — so the sentence
 # is real evidence for `_CANT_LOAD`'s fix regardless of what else in the engine
 # rejects the address. (The "Resource file not found" sentence is not in this
@@ -507,7 +507,7 @@ def test_cant_load_still_matches_the_entry_when_dot_terminated(stderr, path):
     assert verdict.path == path
 
 
-# `_FAILED_LOADING_RESOURCE` mirrors `resource_loader.cpp:317`'s format string
+# `_FAILED_LOADING_RESOURCE` mirrors `resource_loader.cpp:343`'s format string
 # (`vformat("Failed loading resource: %s.", p_path)`, Godot 4.6.3), which ALWAYS
 # appends exactly one period. For `p_path == "res://weird.."` the sentence carries
 # three trailing dots — two are the path's own, the third is the format string's.
@@ -542,7 +542,7 @@ def test_cant_load_still_matches_the_entry_when_dot_terminated(stderr, path):
 # pin the documented contract, not a red-proofed regression.
 DOT_TERMINATED_RESOURCE_STDERR = (
     "ERROR: Failed loading resource: res://weird...\n"
-    "   at: _load (core/io/resource_loader.cpp:317)\n"
+    "   at: _load (core/io/resource_loader.cpp:343)\n"
 )
 
 
@@ -562,7 +562,7 @@ def test_failed_loading_resource_requires_the_guaranteed_period():
     # an un-punctuated remainder as if it were a resource address.
     errors = parse_script_errors(
         "ERROR: Failed loading resource: res://plain.tres\n"
-        "   at: _load (core/io/resource_loader.cpp:317)\n"
+        "   at: _load (core/io/resource_loader.cpp:343)\n"
     )
     assert errors == []
 
@@ -583,7 +583,7 @@ def test_the_ordinary_sentence_period_still_strips_for_both_sentences():
         "ERROR: Can't load script: res://plain.gd\n"
         "   at: start (main/main.cpp:4271)\n"
         "ERROR: Failed loading resource: res://plain.tres.\n"
-        "   at: _load (core/io/resource_loader.cpp:317)\n"
+        "   at: _load (core/io/resource_loader.cpp:343)\n"
     )
     errors = parse_script_errors(stderr)
 

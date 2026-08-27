@@ -87,7 +87,7 @@ _LOAD_FAILED = re.compile(
 )
 
 # `ERROR: Can't load script: <path>` — main.cpp's `start()` giving up on the
-# `--script` entry point (`main.cpp:4366`, `"Can't load script: " + script`, Godot
+# `--script` entry point (`main.cpp:4271`, `"Can't load script: " + script`, Godot
 # 4.6.3). The engine concatenates the raw path with NO trailing period — unlike
 # `_FAILED_LOADING_RESOURCE` below, this sentence carries no format-string
 # punctuation to strip. A `\.?$` strip here silently ate a genuine trailing dot
@@ -136,15 +136,19 @@ _NOT_A_SCRIPT_BINDING = re.compile(
 # verdict is unaffected (see ``_ENTRY_FAILURE_PRECEDENCE``).
 _CANNOT_OPEN_FILE = re.compile(r"^Cannot open file '(?P<path>[^']*)'")
 
-# `ERROR: Failed loading resource: <path>.` — `resource_loader.cpp:317`,
+# `ERROR: Failed loading resource: <path>.` — `resource_loader.cpp:343`,
 # `vformat("Failed loading resource: %s.", p_path)` (Godot 4.6.3). The format
 # string ALWAYS appends exactly one trailing period, so it is sentence
-# punctuation, never part of the path, and the strip is mandatory rather than
-# optional (an optional strip corrupted a genuinely dot-terminated path, e.g.
-# `res://weird..` parsed back as `res://weird.`, #698). The engine's other
-# "Failed loading resource" wording (`resource_loader.cpp:301`, no trailing
-# period) reaches only `print_verbose`, never an `ERROR:` line `parse_errors`
-# recognizes, so it cannot reach this regex.
+# punctuation, never part of the path. Unlike `_CANT_LOAD` above, an optional
+# strip here never actually mis-read a well-formed captured line, for any
+# number of trailing dots: the lazy quantifier always finds the guaranteed
+# period regardless of how many dots the path itself carries. The strip is
+# mandatory anyway (#698) — a fail-closed hardening that rejects a line
+# lacking the guaranteed period instead of silently accepting the whole
+# remainder as the path, not a fix for observed corruption. The engine's
+# other "Failed loading resource" wording (`resource_loader.cpp:327`, no
+# trailing period) reaches only `print_verbose`, never an `ERROR:` line
+# `parse_errors` recognizes, so it cannot reach this regex.
 _FAILED_LOADING_RESOURCE = re.compile(r"^Failed loading resource: (?P<path>\S+)\.$")
 
 

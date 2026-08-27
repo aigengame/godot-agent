@@ -117,11 +117,11 @@ status: accepted
 > addressed here; it belongs to the error parser and is tracked separately.
 >
 > **Outcome (2026-08-27, #698):** the error parser's `_CANT_LOAD` regex (`gda.script_errors`) no
-> longer strips a genuine trailing dot. It mirrors `main.cpp:4366`, which never appends sentence
+> longer strips a genuine trailing dot. It mirrors `main.cpp:4271`, which never appends sentence
 > punctuation, so any strip was always wrong; the strip is dropped entirely, so `Can't load script:
 > res://..` now round-trips to `res://..` instead of the `res://.` mis-read this paragraph describes.
 > The sibling `_FAILED_LOADING_RESOURCE` regex was tightened too (its strip is now mandatory rather
-> than optional, mirroring `resource_loader.cpp:317`'s guaranteed trailing period), but — verified —
+> than optional, mirroring `resource_loader.cpp:343`'s guaranteed trailing period), but — verified —
 > its old optional strip never actually mis-read a well-formed captured line, for any dot count; that
 > change is a fail-closed robustness improvement, not a fix for observed corruption. Neither change is
 > a general longest-candidate heuristic. The refusals this decision records stay in place regardless
