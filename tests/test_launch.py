@@ -244,6 +244,35 @@ def _fake_engine(tmp_path: Path, body: str) -> Path:
     return script
 
 
+def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Path:
+    """A ``/bin/sh`` stand-in, for the one test where startup latency IS the point (#728).
+
+    Diverges from ``_fake_engine`` on purpose: that one pays a fresh Python
+    interpreter's startup (measured at #728: ~25-30ms typical, spiking past
+    900ms under load — plenty of margin for every other streaming test here,
+    which race nothing) before it writes a byte. The timeout-preserves-output
+    test needs the real child to have ALREADY written before ``launch``'s
+    timeout elapses, so shrinking that head start is the fix: a shell has no
+    interpreter to load, so it typically writes within single-digit
+    milliseconds (measured at #728: ~6-10ms, worst observed under 12-way CPU
+    load ~0.5s) — two-plus orders of magnitude below the caller's timeout
+    instead of the same order of magnitude it used to be.
+
+    It always ``sleep``s afterward, past any timeout this suite uses, via
+    ``exec`` — not a trailing background job. Without ``exec`` SIGTERM only
+    ends the shell; the orphaned ``sleep`` keeps the captured pipe open and
+    the reader-thread join in ``launch``'s teardown runs to its own timeout
+    on every single launch (#728).
+    """
+    script = tmp_path / "fast-fake-engine"
+    script.write_text(
+        f"#!/bin/sh\necho '{stdout_line}'\necho '{stderr_line}' 1>&2\nexec sleep 30\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
 class _RecordingWatch:
     """A ``LaunchWatch`` that records what it was fed and can ask for an abort.
 
@@ -272,15 +301,22 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(tmp_path
     # script error Godot had ALREADY printed was lost (GDA-DF-012). With a watch the
     # capture survives, on BOTH streams, and no gda prose is mixed into either — the
     # watching channel composes its own diagnostics from this.
-    engine = _fake_engine(
-        tmp_path,
-        "print('SUITE START', flush=True)\n"
-        "print('boom', file=sys.stderr, flush=True)\n"
-        "time.sleep(30)\n",
-    )
+    #
+    # THE #728 FIX: proving that means the child must ALREADY have written before
+    # the timeout below elapses — a real race against a real process's startup.
+    # ``_fast_fake_engine`` (not the shared ``_fake_engine``) keeps that race from
+    # being a coin flip: no interpreter to load means the write typically lands in
+    # single-digit milliseconds, two-plus orders of magnitude inside the deadline
+    # instead of sharing its order of magnitude (see its docstring for the
+    # measurements this margin is based on, not asserted from). The timeout is
+    # also doubled from the pre-#728 1.5s to 3.0s: cheap (the child never exits
+    # on its own, so this is the test's own wall-clock cost either way) real extra
+    # headroom against a sustained-contention tail the measurements still show
+    # is non-zero, on top of — not instead of — the margin the faster engine buys.
+    engine = _fast_fake_engine(tmp_path, "SUITE START", "boom")
 
     result = launch(
-        engine, [], cwd=None, timeout=1.5, watch=_RecordingWatch(), timeout_label="X"
+        engine, [], cwd=None, timeout=3.0, watch=_RecordingWatch(), timeout_label="X"
     )
 
     assert result.launch_failure is LaunchFailure.TIMEOUT
