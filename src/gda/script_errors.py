@@ -87,9 +87,13 @@ _LOAD_FAILED = re.compile(
 )
 
 # `ERROR: Can't load script: <path>` — main.cpp's `start()` giving up on the
-# `--script` entry point. Emitted alongside the more specific sentences above;
-# on its own it is the generic "the entry never became the main loop".
-_CANT_LOAD = re.compile(r"^Can't load script: (?P<path>\S+?)\.?$")
+# `--script` entry point (`main.cpp:4366`, `"Can't load script: " + script`, Godot
+# 4.6.3). The engine concatenates the raw path with NO trailing period — unlike
+# `_FAILED_LOADING_RESOURCE` below, this sentence carries no format-string
+# punctuation to strip. A `\.?$` strip here silently ate a genuine trailing dot
+# off a dot-terminated path (`res://..` parsed back as `res://.`, #698), so the
+# capture runs to end of line unconditionally.
+_CANT_LOAD = re.compile(r"^Can't load script: (?P<path>\S+)$")
 
 # `ERROR: Can't load the script "<path>" as it doesn't inherit from SceneTree or
 # MainLoop.` — the script compiled fine but cannot BE the one-shot entry point.
@@ -132,9 +136,16 @@ _NOT_A_SCRIPT_BINDING = re.compile(
 # verdict is unaffected (see ``_ENTRY_FAILURE_PRECEDENCE``).
 _CANNOT_OPEN_FILE = re.compile(r"^Cannot open file '(?P<path>[^']*)'")
 
-# `ERROR: Failed loading resource: <path>.` — note the sentence-ending period,
-# which is NOT part of the path and is stripped when the address is read out.
-_FAILED_LOADING_RESOURCE = re.compile(r"^Failed loading resource: (?P<path>\S+?)\.?$")
+# `ERROR: Failed loading resource: <path>.` — `resource_loader.cpp:317`,
+# `vformat("Failed loading resource: %s.", p_path)` (Godot 4.6.3). The format
+# string ALWAYS appends exactly one trailing period, so it is sentence
+# punctuation, never part of the path, and the strip is mandatory rather than
+# optional (an optional strip corrupted a genuinely dot-terminated path, e.g.
+# `res://weird..` parsed back as `res://weird.`, #698). The engine's other
+# "Failed loading resource" wording (`resource_loader.cpp:301`, no trailing
+# period) reaches only `print_verbose`, never an `ERROR:` line `parse_errors`
+# recognizes, so it cannot reach this regex.
+_FAILED_LOADING_RESOURCE = re.compile(r"^Failed loading resource: (?P<path>\S+)\.$")
 
 
 def canonical_res_path(path: str) -> str:

@@ -116,6 +116,17 @@ status: accepted
 > here. The residual parser weakness (a trailing-period strip that mis-reads `res://..`) is **not**
 > addressed here; it belongs to the error parser and is tracked separately.
 >
+> **Outcome (2026-08-27, #698):** the error parser's `_CANT_LOAD` and `_FAILED_LOADING_RESOURCE`
+> regexes (`gda.script_errors`) no longer strip a genuine trailing dot. `_CANT_LOAD` mirrors
+> `main.cpp:4366`, which never appends sentence punctuation, so its strip is now unconditional
+> removal — dropped entirely. `_FAILED_LOADING_RESOURCE` mirrors `resource_loader.cpp:317`'s
+> `vformat("Failed loading resource: %s.", p_path)`, which always appends exactly one period, so its
+> strip is now mandatory rather than optional. Both are per-site fixes, not a general
+> longest-candidate heuristic. The refusals this decision records stay in place regardless — they are
+> load-bearing for reasons beyond the parser weakness (ADR-0009's Trusted project, above) — but the
+> parser itself no longer mis-reads a dot-terminated `res://` address if a future route ever reaches
+> it again.
+>
 > Absolute stays refused for two **verified** reasons, not merely as deferred scope. First, the engine
 > reports a failed run under the **`res://` spelling even when launched with an absolute in-project
 > path**, so accepting absolute without also mapping it back to `res://` would break the
