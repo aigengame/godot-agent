@@ -99,12 +99,17 @@ status: accepted
 >
 > **What stays refused**, all decided before any launch as `invalid_path`: an **absolute** path;
 > **another engine scheme** (`user://`, `uid://` — lifting one would splice a second scheme into a
-> res:// address and send the engine after a path nobody typed); a path naming the project **root**
-> (`""`, `"."`, `"sub/.."`, and the `res://` / `res://.` spellings — a directory, not a script); and a
-> path **escaping above the root** (`".."`, `"../outside.gd"`, and their `res://` spellings). The ABI
-> edge below names "a non-`res://` **or absolute** script path"; only its first half is lifted here.
+> res:// address and send the engine after a path nobody typed); a leading `~` (a filesystem HOME
+> reference, including an unresolvable one); a path naming the project **root** (`""`, `"."`,
+> `"sub/.."`, and the `res://` / `res://.` spellings — a directory, not a script); a path **escaping
+> above the root** (`".."`, `"../outside.gd"`, and their `res://` spellings); a canonical address
+> ending in a code point at or below **U+0020**, which Godot removes before reporting the path; and a
+> canonical address containing any line boundary recognized by `gda.engine_log`'s line protocol.
+> The ABI edge below names "a non-`res://` **or absolute** script path"; only its first half is lifted
+> here.
 >
-> The last two are refused for a reason beyond tidiness, and both were **verified**. The engine
+> The root and escape shapes are refused for a reason beyond tidiness, and both were **verified**. The
+> engine
 > answers a root or escape address with `Can't load script: res://.` / `res://..`, whose address the
 > error parser reads back with the sentence period stripped — so it never matches the entry, the
 > never-ran verdict misses it, and the run reports a phantom `exit_status: 0`. Worse, an escape that
@@ -115,6 +120,15 @@ status: accepted
 > the widening is what made them reachable from the ordinary project-relative form, so they are closed
 > here. The residual parser weakness (a trailing-period strip that mis-reads `res://..`) is **not**
 > addressed here; it belongs to the error parser and is tracked separately.
+>
+> **Path-identity boundary (2026-08-28, #698 review).** The two character rules above preserve the
+> same canonical identity on both sides of the entry-load verdict. Godot 4.6.3's
+> `String::strip_edges()` removes trailing code points at or below U+0020; Python `str.rstrip()` is
+> intentionally not the rule because it additionally removes Unicode spaces such as NBSP (U+00A0)
+> and EM SPACE (U+2003), which Godot preserves. Separately, `gda.engine_log` parses engine output with
+> `str.splitlines()`. Any address containing one of those line boundaries is therefore impossible to
+> recover from one diagnostic record and is refused before launch. Leading and internal ASCII spaces,
+> and Unicode spaces that Godot preserves, remain valid project-relative characters.
 >
 > **Outcome (2026-08-27, #698):** the error parser's `_CANT_LOAD` regex (`gda.script_errors`) no
 > longer strips a genuine trailing dot. It mirrors `main.cpp:4271`, which never appends sentence
@@ -138,7 +152,8 @@ status: accepted
 >
 > The refusals this decision records stay in place regardless of either parser fix — they are
 > load-bearing for reasons beyond the parser weakness (ADR-0009's Trusted project, above) — but the
-> parser itself no longer mis-reads a dot-terminated or whitespace-containing `res://` address if a
+> parser itself no longer mis-reads a dot-terminated or horizontal-space-containing `res://` address if
+> a
 > future route ever reaches it again.
 >
 > Absolute stays refused for two **verified** reasons, not merely as deferred scope. First, the engine

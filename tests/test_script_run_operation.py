@@ -232,18 +232,33 @@ def test_both_path_forms_reach_one_canonical_address(script):
 @pytest.mark.parametrize(
     ("script", "canonical"),
     [
-        # LEADING and INTERNAL whitespace are unaffected by the engine's own argv
-        # normalization (verified against real Godot 4.6.3) — unlike TRAILING
-        # whitespace (#698, see
-        # test_a_non_project_scoped_path_is_invalid_path_before_any_launch), they
-        # never desync gda's canonical spelling from what the engine echoes back, so
-        # they must stay accepted rather than widening the refusal beyond the
-        # evidence.
+        # LEADING and INTERNAL ASCII SPACES are unaffected by the engine's own argv
+        # normalization (verified against real Godot 4.6.3). Keep this claim narrow:
+        # line-breaking whitespace is unsafe for the line-oriented diagnostic
+        # protocol and is refused separately below.
         (" tests/logic.gd", "res:// tests/logic.gd"),
         ("tests/log ic.gd", "res://tests/log ic.gd"),
     ],
 )
-def test_leading_and_internal_whitespace_are_accepted(script, canonical):
+def test_leading_and_internal_ascii_spaces_are_accepted(script, canonical):
+    outcome, launch = _run(
+        RunResult(stdout="ok\n", stderr="", exit_code=0), script=script
+    )
+
+    assert isinstance(outcome, ScriptRunResult), getattr(outcome, "error", None)
+    (_binary, args, _cwd, _timeout, _label, _watch) = launch.calls[0]
+    assert args == ["--path", str(PROJECT), "--script", canonical]
+    assert outcome.path == canonical
+
+
+@pytest.mark.parametrize("suffix", ["\u00a0", "\u2003"])
+def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
+    # Godot 4.6.3's String::strip_edges() removes only code points <= U+0020.
+    # NBSP and EM SPACE therefore survive the --script path and its diagnostic;
+    # Python str.rstrip() is wider and must not define this engine-facing ABI.
+    script = f"tests/logic.gd{suffix}"
+    canonical = f"res://{script}"
+
     outcome, launch = _run(
         RunResult(stdout="ok\n", stderr="", exit_code=0), script=script
     )
@@ -287,18 +302,28 @@ def test_leading_and_internal_whitespace_are_accepted(script, canonical):
         # absolute path, refused above. Both tilde outcomes end on ONE refusal.
         "~nosuchuser/x.gd",
         "~/x.gd",
-        # TRAILING whitespace (#698, adversarial review of PR #756, reproduced on
-        # real Godot 4.6.3): the engine strips it from the `--script` argv before
-        # echoing the path in its own diagnostic, so gda's canonical spelling (which
-        # keeps it) can never match the entry-load verdict's canonical-identity
-        # comparison. That is a PHANTOM SUCCESS again — exit 0, empty diagnostics,
-        # for a script that never ran — on a path the root/escape refusals above do
-        # not catch. Both accepted forms, both with and without a resolved
-        # extension, and a non-space whitespace character too.
+        # A TRAILING code point <= U+0020 (#698 review, reproduced on real Godot
+        # 4.6.3): Godot strips it from the `--script` path before echoing the path in
+        # its diagnostic, so the canonical identity cannot match. Both accepted
+        # forms, with and without an extension, and two members of the engine's
+        # actual trim set.
         "missing file. ",
         "missing file.gd ",
         "res://missing file. ",
         "tests/logic.gd\t",
+        # engine_log splits these characters into separate records. If one appears
+        # anywhere in the path, the emitted address cannot round-trip through the
+        # line-oriented diagnostic protocol and a never-run entry can phantom-pass.
+        "tests/missing\nfile.gd",
+        "tests/missing\rfile.gd",
+        "tests/missing\vfile.gd",
+        "tests/missing\ffile.gd",
+        "tests/missing\x1cfile.gd",
+        "tests/missing\x1dfile.gd",
+        "tests/missing\x1efile.gd",
+        "tests/missing\x85file.gd",
+        "tests/missing\u2028file.gd",
+        "tests/missing\u2029file.gd",
     ],
 )
 def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
@@ -310,9 +335,9 @@ def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
     # PHANTOM SUCCESS (exit 0). This refusal stays regardless of the parser's own fix
     # — a resolvable escape is worse: `../outside.gd` RAN a script outside the
     # project, which is exactly the ADR-0009 widening the amendment cites as its
-    # reason for refusing absolute paths. The trailing-whitespace case is the same
-    # phantom-success failure mode again, via a different mechanism (the engine's
-    # own argv normalization, not the parser) — see #698 / PR #756.
+    # reason for refusing absolute paths. The trailing-engine-trim and embedded-line-
+    # boundary cases are the same phantom-success failure mode through two other
+    # identity-loss mechanisms — see #698 / PR #756.
     outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
 
     assert isinstance(outcome, Failure)
