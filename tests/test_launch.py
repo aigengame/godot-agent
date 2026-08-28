@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -319,12 +320,11 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(
     # the real child's startup, narrowed only by a cheap shell engine (see
     # ``_fast_fake_engine``) — a residual race, later removed outright by
     # controlling the CLOCK the runner's poll loop reads instead of the runner's
-    # behaviour: ``gda.runner`` does a plain ``import time`` and calls
-    # ``time.monotonic()``, so patching ``runner.time.monotonic`` redirects just
-    # that one lookup. ``subprocess`` and ``threading`` instead bind their own
-    # ``_time = monotonic`` reference at import time, so the child's real
-    # ``proc.wait()`` grace period and the reader-thread ``join()`` are untouched —
-    # only the poll loop's idea of "how much time has passed" is fake.
+    # behaviour: ``gda.runner`` does a plain ``import time``, so replacing that
+    # module binding with a runner-local proxy redirects its ``monotonic`` lookup
+    # without mutating the process-global stdlib module. The proxy delegates
+    # ``sleep`` to the real function, so only the poll loop's idea of "how much
+    # time has passed" is fake.
     #
     # The fake reports elapsed 0.0 until the watch's accumulated capture actually
     # contains both lines the assertions below check, then jumps past any timeout
@@ -343,8 +343,9 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(
     engine = _fast_fake_engine(tmp_path, "SUITE START", "boom")
     watch = _RecordingWatch()
 
-    # Captured BEFORE patching — calling this (not ``time.monotonic``) inside the
-    # fake avoids the fake recursing into itself.
+    # Captured BEFORE replacing the runner's module binding. The stdlib module
+    # itself stays untouched, and the fake uses the saved function for its
+    # independent real-time safety ceiling.
     real_monotonic = time.monotonic
     real_deadline = real_monotonic() + 15.0  # generous real-time safety ceiling
 
@@ -358,7 +359,13 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(
         both_lines_seen = "SUITE START" in watch.stdout and "boom" in watch.stderr
         return 100.0 if both_lines_seen else 0.0
 
-    monkeypatch.setattr(runner.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(
+        runner,
+        "time",
+        SimpleNamespace(monotonic=fake_monotonic, sleep=time.sleep),
+    )
+    assert runner.time is not time
+    assert time.monotonic is real_monotonic
 
     result = launch(engine, [], cwd=None, timeout=1.0, watch=watch, timeout_label="X")
 
