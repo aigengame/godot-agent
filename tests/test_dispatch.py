@@ -98,14 +98,24 @@ class _TwoIndependentFieldsModel(BaseModel):
     b: int
 
 
-class _RawValueErrorModel:
-    """Not a pydantic model: raises a bare ValueError straight out of __init__.
+class _RawValueErrorModel(BaseModel):
+    """A real BaseModel subclass that raises a bare ValueError from __init__.
 
-    Exercises params_or_bad_parameter's OTHER except clause directly — pydantic
-    itself always wraps a validator's ValueError into ValidationError (verified:
-    every mode='before'/'after'/field validator wraps), so this simulates the
-    one caller shape pydantic can never produce, standing in for it.
+    Exercises params_or_bad_parameter's OTHER except clause with a genuine
+    ``P`` (bound to BaseModel) — in contract, not a bypass of it (PR #754
+    review, round 5). A field or model validator can't reach this branch:
+    pydantic always wraps a validator's raised ValueError into
+    ValidationError, and ``model_post_init`` gets the same wrapping
+    (verified). Overriding ``__init__`` is the one route that escapes it —
+    the override runs before pydantic's own validation machinery does, so
+    the plain ValueError it raises here propagates untouched. This is why
+    ``params_or_bad_parameter`` must catch ``ValidationError`` before
+    ``ValueError``: ``ValidationError`` is itself a ``ValueError`` subclass,
+    and this class is the sibling shape a ValidationError-raising validator
+    can never produce.
     """
+
+    a: int = 1
 
     def __init__(self, **kwargs: object) -> None:
         raise ValueError("a plain refusal sentence.")
@@ -113,7 +123,7 @@ class _RawValueErrorModel:
 
 def test_plain_value_error_passes_through_as_the_bare_sentence():
     with pytest.raises(typer.BadParameter) as exc_info:
-        params_or_bad_parameter(_RawValueErrorModel)  # type: ignore[arg-type]
+        params_or_bad_parameter(_RawValueErrorModel)
 
     message = str(exc_info.value)
     assert message == "a plain refusal sentence."
