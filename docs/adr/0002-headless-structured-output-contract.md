@@ -219,8 +219,8 @@ The `Meaning` column is pinned too (#701): it must match the registry's
 `description` once markup and wrapping are normalized. A trailing parenthetical
 that cites at least one ADR or issue — a `Phase N` label may ride along inside
 it — is a citation rather than part of the code's meaning, so it is not compared.
-41 rows here carry one; so do 5 registry descriptions, which is allowed, not a
-mistake to tidy away. A bare `(Phase N)` is *not* a citation and IS compared,
+Many rows here carry one, and some registry descriptions do too: that is allowed,
+not a mistake to tidy away. A bare `(Phase N)` is *not* a citation and IS compared,
 which is why the live rows below state their phase through the `Category` column
 instead. `tests/test_error_registry.py` is the single home of that rule.
 

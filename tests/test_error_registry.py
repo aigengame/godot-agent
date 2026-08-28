@@ -92,7 +92,8 @@ HARNESS_LIVE_ERROR_CODES = (
 # ADR-0002's table and `gda.error_codes` carry the same per-code description, and
 # the equality pin below compares it. Two normalizations run first. Both are
 # decisions with a stated reason, because a rule buried in a regex is a rule the
-# next reader cannot tell from a bug.
+# next reader cannot tell from a bug. Counts below are a 2026-08-28 snapshot, not
+# a contract — only the pin itself is asserted.
 #
 # 1. **Markdown prose vs a Python string.** The ADR cell is Markdown (`code
 #    spans`, one long line); the registry is an implicitly-concatenated,
