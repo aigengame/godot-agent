@@ -52,6 +52,13 @@ def test_the_corpus_covers_the_classes_the_issue_named():
     # survives (so it is not a magnitude rule either).
     assert wire_flattens_to_zero(1.2345678901234567e-300)
     assert not wire_flattens_to_zero(1e-308)
+    # And the boundary is covered at its exact step, by two values of the SAME
+    # magnitude that differ only in significant digits — the pair that refutes
+    # any magnitude cutoff, since the LARGER one is the one that is lost.
+    assert {"exp -308 (16 digits)", "exp -309 (17 digits)"} <= labels
+    assert not wire_flattens_to_zero(2.209278197011611e-293)
+    assert wire_flattens_to_zero(3.2956212316547955e-293)
+    assert 3.2956212316547955e-293 > 2.209278197011611e-293
 
 
 def test_the_applied_exponent_follows_the_engines_own_arithmetic():
