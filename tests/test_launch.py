@@ -249,15 +249,21 @@ def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Pat
     """A ``/bin/sh`` stand-in, for the one test where startup latency IS the point (#728).
 
     Diverges from ``_fake_engine`` on purpose: that one pays a fresh Python
-    interpreter's startup (measured at #728: ~25-30ms typical, spiking past
-    900ms under load — plenty of margin for every other streaming test here,
-    which race nothing) before it writes a byte. The timeout-preserves-output
-    test needs the real child to have ALREADY written before ``launch``'s
-    timeout elapses, so shrinking that head start is the fix: a shell has no
-    interpreter to load, so it typically writes within single-digit
-    milliseconds (measured at #728: ~6-10ms, worst observed under 12-way CPU
-    load ~0.5s) — two-plus orders of magnitude below the caller's timeout
-    instead of the same order of magnitude it used to be.
+    interpreter's startup before it writes a byte — plenty of margin for
+    every other streaming test here, which race nothing. ``/bin/sh`` is an
+    interpreter too, but a far cheaper one to start than Python's, and that
+    gap is what the timeout-preserves-output test needs, since its child must
+    have ALREADY written before ``launch``'s timeout elapses. The measurements
+    and the margin they justify live in that ONE test's own comment, next to
+    the timeout value they argue for — not restated here, so there is a single
+    place to update rather than two copies that can silently drift apart (a
+    real defect an earlier #728 review round caught).
+
+    ``printf '%s\\n'``, not ``echo``: XSI ``echo`` interprets backslash
+    escapes in its operand on this platform's ``/bin/sh``, so a payload
+    containing ``\\n`` or similar would print something other than what was
+    passed in. ``printf`` with a literal ``'%s\\n'`` format leaves the
+    (``shlex.quote``-escaped, so shell-syntax-safe) argument untouched.
 
     It always ``sleep``s afterward, past any timeout this suite uses, via
     ``exec`` — not a trailing background job. Without ``exec`` SIGTERM only
@@ -269,7 +275,7 @@ def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Pat
     out = shlex.quote(stdout_line)
     err = shlex.quote(stderr_line)
     script.write_text(
-        f"#!/bin/sh\necho {out}\necho {err} 1>&2\nexec sleep 30\n",
+        f"#!/bin/sh\nprintf '%s\\n' {out}\nprintf '%s\\n' {err} 1>&2\nexec sleep 30\n",
         encoding="utf-8",
     )
     script.chmod(0o755)
@@ -307,19 +313,17 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(tmp_path
     #
     # THE #728 FIX: proving that means the child must ALREADY have written before
     # the timeout below elapses — a real race against a real process's startup.
-    # ``_fast_fake_engine`` (not the shared ``_fake_engine``) keeps that race from
-    # being a coin flip: no interpreter to load means the write typically lands in
-    # single-digit milliseconds, two-plus orders of magnitude inside the deadline
-    # instead of sharing its order of magnitude (see its docstring for the
-    # measurements this margin is based on, not asserted from). The timeout is
-    # also doubled from the pre-#728 1.5s to 3.0s: steady state is tight (180
-    # measured runs, ~4ms typical, max 5.1ms), but isolated FIRST-invocation
-    # outliers of 312ms and 1110ms were observed across independent
-    # measurement runs — and this test spawns the engine exactly once per
-    # suite, so that cold start IS its normal path, not a rare one the steady
-    # state can stand in for. Against the worst observed outlier, 1.5s leaves
-    # only ~1.35x headroom; 3.0s leaves ~2.7x, cheaply (the fake engine never
-    # exits on its own, so this is the test's own wall-clock cost either way).
+    # ``_fast_fake_engine`` (not the shared ``_fake_engine``) narrows that race:
+    # starting ``/bin/sh`` is far cheaper than starting a Python interpreter (see
+    # its docstring), so the write lands sooner. The timeout is ALSO doubled from
+    # the pre-#728 1.5s to 3.0s, because "sooner" still has a tail: steady state is
+    # tight (180 measured runs, ~4ms typical, max 5.1ms), but isolated
+    # FIRST-invocation outliers of 312ms and 1110ms were observed across
+    # independent measurement runs — and this test spawns the engine exactly once
+    # per suite, so that cold start IS its normal path, not a rare one the steady
+    # state can stand in for. Against the worst observed outlier, 1.5s leaves only
+    # ~1.35x headroom; 3.0s leaves ~2.7x. This is the ONE place these numbers are
+    # recorded; nothing else in this file restates them (#728 review).
     engine = _fast_fake_engine(tmp_path, "SUITE START", "boom")
 
     result = launch(
