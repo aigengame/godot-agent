@@ -44,6 +44,7 @@ from gda.errors import (
     script_run_timeout_failure,
     unresolvable_binary_failure,
 )
+from gda.engine_log import lines as engine_log_lines
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -1150,7 +1151,7 @@ def _project_scoped_res_path(script: str) -> str | None:
     :func:`canonical_res_path`, so the argv, the entry-load verdict and the reported
     path cannot diverge by input spelling.
 
-    Returns ``None`` for the five shapes that are not project-scoped script
+    Returns ``None`` for the seven shapes that are not project-scoped script
     addresses. Each must be caught HERE, because each is otherwise launched:
 
     - an **absolute** path — outside the ``--project`` context (the reasons it stays
@@ -1163,6 +1164,17 @@ def _project_scoped_res_path(script: str) -> str | None:
       expand it (an unknown user, #699); a resolvable ``~/x.gd`` was already expanded
       to the absolute path refused above. So both tilde outcomes land on one refusal
       instead of one being refused and the other spliced into ``res://~user/x.gd``;
+    - a path whose canonical address ends in a code point at or below **U+0020** —
+      Godot 4.6.3 removes that exact suffix set (``String::strip_edges``) before it
+      echoes the ``--script`` path in a load-failure diagnostic. The canonical
+      identity then loses a character and the never-ran verdict misses. Python's
+      Unicode ``rstrip`` set is deliberately NOT used: Godot preserves NBSP and EM
+      SPACE, so those remain accepted;
+    - a path containing an **engine-log line boundary** — the engine can emit that
+      character inside its diagnostic, but :mod:`gda.engine_log` necessarily splits
+      the address into separate records. No one record retains the canonical entry
+      identity, so a never-run entry can again report a phantom success. Ordinary
+      leading and internal ASCII spaces remain accepted;
     - a path that names the project **root** (``""``, ``"."``, ``"sub/.."``) — it names
       a directory, not a script. An unset shell variable makes ``gda script run
       "$SCRIPT"`` exactly this;
@@ -1203,6 +1215,17 @@ def _project_scoped_res_path(script: str) -> str | None:
     if remainder in _ROOT_REMAINDERS:
         return None
     if remainder == ".." or remainder.startswith("../"):
+        return None
+    # Godot 4.6.3's String::strip_edges() removes trailing code points <= U+0020.
+    # Refuse exactly that engine-normalized suffix set; Python str.rstrip() is wider
+    # and would reject NBSP / EM SPACE even though Godot preserves them. Do not trim:
+    # that would silently launch a different address from the one the caller named.
+    if ord(remainder[-1]) <= 0x20:
+        return None
+    # engine_log owns the line protocol through str.splitlines(). Sentinels make a
+    # boundary at either edge observable (splitlines otherwise suppresses a terminal
+    # empty record), while any ordinary one-line address still produces one record.
+    if len(engine_log_lines(f"x{remainder}x")) != 1:
         return None
     return canonical
 

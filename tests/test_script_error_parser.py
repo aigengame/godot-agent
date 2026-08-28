@@ -435,3 +435,210 @@ def test_a_non_script_binding_is_a_recognized_diagnostic():
 def test_a_non_script_binding_never_fails_an_entry_verdict():
     errors = parse_script_errors(NOT_A_SCRIPT_BINDING_STDERR)
     assert entry_load_failure(errors, "res://entry.gd") is None
+
+
+# --- Dot-terminated and whitespace paths (#698) --------------------------------
+#
+# `_CANT_LOAD` and `_FAILED_LOADING_RESOURCE` both used to strip an OPTIONAL
+# trailing period, on the assumption that any trailing "." in the sentence was
+# punctuation. For a res:// address that genuinely ends in a dot, that stripped a
+# real path character: `Can't load script: res://..` parsed back as `res://.`,
+# which then missed the canonical entry `res://..` and reported a phantom
+# success. `res://weird./x.gd` (the issue's ORIGINAL example) does not end in a
+# dot and never triggered this — every dot-terminated fixture below ends in one.
+#
+# A second, independently-found defect in the same two regexes: `\S+` cannot
+# match a SPACE, so a project-relative path containing one (`res://missing
+# file.`) failed the WHOLE line, not just the trailing character — no
+# diagnostic at all, rather than a corrupted one. Pre-existing on `main` before
+# this issue (base `04d3e089` phantom-succeeds identically; its own `\S+?\.?$`
+# could not match a space either), and MASKED whenever the path also carries a
+# recognized extension — `res://missing file.gd` still gets `SCRIPT_MISSING`
+# from `_OPEN_FAILED`'s quoted, space-safe capture, so testing only the `.gd`
+# shape hides the bug. Both regexes now use `.+` instead of `\S+`.
+
+# `godot --headless --path <proj> --script "res://.."`, captured verbatim (Godot
+# 4.6.3, macOS). `main.cpp:4271` echoes the raw `--script` argv unconditionally —
+# "Can't load script: " + script, no format-string punctuation — so the sentence
+# is real evidence for `_CANT_LOAD`'s fix regardless of what else in the engine
+# rejects the address. (The "Resource file not found" sentence is not in this
+# module's recognized closed set and is correctly skipped; `ResourceLoader::
+# recognize_path`'s suffix-extension match never reaches "Failed loading
+# resource" for an address with no registered extension, which is why that
+# sentence cannot come from THIS particular capture — see the synthetic fixture
+# below for that regex instead.)
+DOT_TERMINATED_ROOT_STDERR = """\
+ERROR: Resource file not found: res://.. (expected type: unknown)
+   at: _load (core/io/resource_loader.cpp:351)
+ERROR: Can't load script: res://..
+   at: start (main/main.cpp:4271)
+"""
+
+# Same capture shape with a stem before the trailing dots — `godot --headless
+# --path <proj> --script "res://weird.."`, also captured verbatim.
+DOT_TERMINATED_STEM_STDERR = """\
+ERROR: Resource file not found: res://weird.. (expected type: unknown)
+   at: _load (core/io/resource_loader.cpp:351)
+ERROR: Can't load script: res://weird..
+   at: start (main/main.cpp:4271)
+"""
+
+# The whitespace case — `godot --headless --path <proj> --script "res://missing
+# file."`, also captured verbatim. Same shape again (no extension, so `found`
+# stays false and only `_CANT_LOAD` carries the address), but this is the one
+# `\S+` could not match AT ALL: pre-fix, `parse_script_errors` returned `[]` for
+# this capture (no diagnostic, not a corrupted one), and `gda script run
+# "missing file."` reported a phantom exit-0 success with an empty
+# `diagnostics` list.
+WHITESPACE_ROOT_STDERR = """\
+ERROR: Resource file not found: res://missing file. (expected type: unknown)
+   at: _load (core/io/resource_loader.cpp:351)
+ERROR: Can't load script: res://missing file.
+   at: start (main/main.cpp:4271)
+"""
+
+# One shared matrix for both the parse-level shape and the verdict-level match
+# below — a case belongs here once, not once per test.
+_CANT_LOAD_BOUNDARY_CASES = [
+    (DOT_TERMINATED_ROOT_STDERR, "res://.."),
+    (DOT_TERMINATED_STEM_STDERR, "res://weird.."),
+    (WHITESPACE_ROOT_STDERR, "res://missing file."),
+]
+
+
+@pytest.mark.parametrize(("stderr", "path"), _CANT_LOAD_BOUNDARY_CASES)
+def test_cant_load_round_trips_a_genuinely_dot_terminated_path(stderr, path):
+    errors = parse_script_errors(stderr)
+
+    assert [(e.kind, e.path) for e in errors] == [(ScriptErrorKind.LOAD_FAILED, path)]
+
+
+@pytest.mark.parametrize(("stderr", "path"), _CANT_LOAD_BOUNDARY_CASES)
+def test_cant_load_still_matches_the_entry_when_dot_terminated(stderr, path):
+    # Acceptance: the verdict logic's canonical-identity match must not phantom-
+    # succeed if an entry route ever reaches this parser with a genuinely
+    # dot-terminated or whitespace-containing path again (#693 closed gda's
+    # pre-launch entry-path refusal for the root/escape shapes; this covers the
+    # parser itself, independent of that guard).
+    errors = parse_script_errors(stderr)
+    verdict = entry_load_failure(errors, path)
+
+    assert verdict is not None
+    assert verdict.kind is ScriptErrorKind.LOAD_FAILED
+    assert verdict.path == path
+
+
+# `_FAILED_LOADING_RESOURCE` mirrors `resource_loader.cpp:343`'s format string
+# (`vformat("Failed loading resource: %s.", p_path)`, Godot 4.6.3), which ALWAYS
+# appends exactly one period. For `p_path == "res://weird.."` the sentence carries
+# three trailing dots — two are the path's own, the third is the format string's.
+#
+# Hand-authored, not captured: this exact combination cannot come from a real
+# run. `ResourceFormatLoader::recognize_path` (resource_loader.cpp:62)
+# suffix-matches a REGISTERED extension before "Failed loading resource" is
+# reachable at all, and no registered extension is itself a bare "." — probed
+# directly (a running script's `load("res://weird..")`) and confirmed it instead
+# hits the `#ifdef TOOLS_ENABLED` file-not-found branch, the same unrecognized
+# sentence `DOT_TERMINATED_STEM_STDERR` carries above. The format string itself
+# is exercised for real by the ordinary sentence-period fixtures elsewhere in
+# this file (e.g. ``MISSING_STDERR``'s ``res://nope.gd.``); only the dot-count
+# at the tail is synthesized here.
+#
+# NOTE ON THE FIX: unlike `_CANT_LOAD`, this regex's old OPTIONAL strip
+# (`\S+?\.?$`) was never actually corrupted by ANY number of trailing dots on a
+# WELL-FORMED sentence. The lazy quantifier always finds the SMALLEST capture
+# whose remainder is 0 or 1 characters; because the format string guarantees
+# the message's last character is always the appended period, that smallest
+# split is always at `len(message) - 1`, which always strips exactly the
+# guaranteed period and nothing else — for `p_path` ending in 0, 1, 2, or any
+# other number of dots alike (verified exhaustively for every fixture below,
+# both the old and the fixed regex agree byte-for-byte). The mandatory strip
+# below is still correct and adopted per the issue: it makes the regex FAIL
+# CLOSED (no match) on a line that lacks the guaranteed trailing period,
+# instead of silently accepting the whole remainder the way the optional
+# strip did — see `test_failed_loading_resource_requires_the_guaranteed_period`
+# for that one real behavioral difference. But it is not a corruption fix on
+# any genuine engine capture, so — unlike the `_CANT_LOAD` tests above — the
+# round-trip tests below do NOT distinguish pre-fix from post-fix code; they
+# pin the documented contract, not a red-proofed regression.
+DOT_TERMINATED_RESOURCE_STDERR = (
+    "ERROR: Failed loading resource: res://weird...\n"
+    "   at: _load (core/io/resource_loader.cpp:343)\n"
+)
+
+
+def test_failed_loading_resource_round_trips_a_genuinely_dot_terminated_path():
+    errors = parse_script_errors(DOT_TERMINATED_RESOURCE_STDERR)
+
+    assert [(e.kind, e.path) for e in errors] == [
+        (ScriptErrorKind.RESOURCE_LOAD_FAILED, "res://weird.."),
+    ]
+
+
+def test_failed_loading_resource_requires_the_guaranteed_period():
+    # THE one genuine pre/post-fix divergence for this regex: a line that lacks
+    # the format string's guaranteed trailing period. Never produced by the real
+    # engine (the format string always appends it) — this pins the FAIL-CLOSED
+    # contract the mandatory strip now enforces, rather than silently treating
+    # an un-punctuated remainder as if it were a resource address.
+    errors = parse_script_errors(
+        "ERROR: Failed loading resource: res://plain.tres\n"
+        "   at: _load (core/io/resource_loader.cpp:343)\n"
+    )
+    assert errors == []
+
+
+def test_failed_loading_resource_still_matches_the_entry_when_dot_terminated():
+    errors = parse_script_errors(DOT_TERMINATED_RESOURCE_STDERR)
+    verdict = entry_load_failure(errors, "res://weird..")
+
+    assert verdict is not None
+    assert verdict.kind is ScriptErrorKind.RESOURCE_LOAD_FAILED
+    assert verdict.path == "res://weird.."
+
+
+# The same whitespace fix, for `_FAILED_LOADING_RESOURCE` — `godot --headless
+# --path <proj> --script "res://missing file.gd"`, captured verbatim. The `.gd`
+# extension is what makes `found=true` reachable at all: unlike `_CANT_LOAD`,
+# this sentence only fires when a loader recognizes the path's extension (see
+# the probe note above `DOT_TERMINATED_RESOURCE_STDERR`), so the no-extension
+# whitespace shape (`WHITESPACE_ROOT_STDERR` above) cannot exercise it. This is
+# the masking case in miniature: `SCRIPT_MISSING` from `_OPEN_FAILED` already
+# carries the correct verdict here regardless of this regex, but the
+# diagnostic itself must still round-trip rather than silently vanishing —
+# pre-fix, `\S+?\.?$` could not match this line at all.
+WHITESPACE_RESOURCE_STDERR = """\
+ERROR: Attempt to open script 'res://missing file.gd' resulted in error 'File not found'.
+   at: load_source_code (modules/gdscript/gdscript.cpp:1127)
+ERROR: Failed loading resource: res://missing file.gd.
+   at: _load (core/io/resource_loader.cpp:343)
+ERROR: Can't load script: res://missing file.gd
+   at: start (main/main.cpp:4271)
+"""
+
+
+def test_failed_loading_resource_round_trips_a_whitespace_path():
+    errors = parse_script_errors(WHITESPACE_RESOURCE_STDERR)
+
+    assert [(e.kind, e.path) for e in errors] == [
+        (ScriptErrorKind.SCRIPT_MISSING, "res://missing file.gd"),
+        (ScriptErrorKind.RESOURCE_LOAD_FAILED, "res://missing file.gd"),
+        (ScriptErrorKind.LOAD_FAILED, "res://missing file.gd"),
+    ]
+
+
+def test_the_ordinary_sentence_period_still_strips_for_both_sentences():
+    # Non-regression: an address that does NOT itself end in a dot must still
+    # have the engine's sentence-ending period stripped, for both fixed regexes.
+    stderr = (
+        "ERROR: Can't load script: res://plain.gd\n"
+        "   at: start (main/main.cpp:4271)\n"
+        "ERROR: Failed loading resource: res://plain.tres.\n"
+        "   at: _load (core/io/resource_loader.cpp:343)\n"
+    )
+    errors = parse_script_errors(stderr)
+
+    assert [(e.kind, e.path) for e in errors] == [
+        (ScriptErrorKind.LOAD_FAILED, "res://plain.gd"),
+        (ScriptErrorKind.RESOURCE_LOAD_FAILED, "res://plain.tres"),
+    ]

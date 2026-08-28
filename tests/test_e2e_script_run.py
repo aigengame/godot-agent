@@ -297,6 +297,10 @@ def test_script_run_absolute_path_is_invalid_path(godot_project):
         "../outside.gd",
         "res://..",
         "res://../outside.gd",
+        # Godot preserves the LF in its emitted path, but the line-oriented parser
+        # splits the diagnostic and loses the entry identity. This used to return a
+        # phantom exit-0 success for a script that never ran.
+        "res://missing\nfile.gd",
     ],
 )
 def test_script_run_non_project_scoped_paths_are_refused_before_launch(
@@ -304,14 +308,15 @@ def test_script_run_non_project_scoped_paths_are_refused_before_launch(
 ):
     # Accepting the project-relative form must not accept everything merely
     # non-absolute. Against the REAL engine, because these are exactly the cases where
-    # the engine's own report defeats the verdict: `gda script run ""` normalized to
-    # `res://.`, launched, and the engine's `Can't load script: res://.` parsed back
-    # as `res://` — no match, so a run that never happened reported exit 0 SUCCESS.
-    # `..` did the same one level up. The other-scheme cases spawned the engine
-    # against `res://user:/x.gd`, an address the caller never typed. And a RESOLVABLE
-    # escape (`../outside.gd`) actually executed a script outside the project — the
-    # ADR-0009 widening the amendment cites as its reason for refusing absolute paths,
-    # so it must not be reachable by the relative spelling either.
+    # the engine's own report used to defeat the verdict: `gda script run ""`
+    # normalized to `res://.`, launched, and the engine's `Can't load script:
+    # res://.` parsed back as `res://` — no match, so a run that never happened
+    # reported exit 0 SUCCESS (fixed at the parser level by #698; this refusal stays
+    # regardless). `..` did the same one level up. The other-scheme cases spawned the
+    # engine against `res://user:/x.gd`, an address the caller never typed. And a
+    # RESOLVABLE escape (`../outside.gd`) actually executed a script outside the
+    # project — the ADR-0009 widening the amendment cites as its reason for refusing
+    # absolute paths, so it must not be reachable by the relative spelling either.
     run = _run_gda(
         "script",
         "run",
@@ -329,6 +334,33 @@ def test_script_run_non_project_scoped_paths_are_refused_before_launch(
     err = data["error"]
     assert err["code"] == "invalid_path"
     assert err["category"] == "operation"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("suffix", ["\u00a0", "\u2003"])
+def test_script_run_does_not_overreject_unicode_spaces_godot_preserves(
+    godot_project, suffix
+):
+    # Godot's String::strip_edges() trims code points <= U+0020, not Python's
+    # complete Unicode whitespace set. NBSP and EM SPACE remain part of the path,
+    # so the request must launch and reach the ordinary entry-load verdict rather
+    # than fail pre-launch as invalid_path.
+    script = f"res://missing.gd{suffix}"
+    run = _run_gda(
+        "script",
+        "run",
+        script,
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_compile_failed"
+    assert script in err["message"]
 
 
 @pytest.mark.e2e
