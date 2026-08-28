@@ -136,10 +136,11 @@ class ShaderSetParams(BaseModel):
     autoloads at engine startup (ADR-0009). ``path`` addresses the shader by its
     ``res://`` or filesystem path. The remaining params carry the SAME three
     mutually-exclusive edit modes as ``script set`` (issue #118) — the shader
-    group reuses that edit interface rather than re-deriving it. The CLI resolves
-    which mode and stamps it on ``mode`` (issue #133), so the operation dispatches
-    on that explicit discriminator rather than re-inferring it from which params
-    are present:
+    group reuses that edit interface rather than re-deriving it. The model
+    derives which mode and stamps it on ``mode`` (issue #133, ADR-0015) — the
+    SAME derivation on both the argv and ``--params-json`` paths (#713) — so the
+    operation dispatches on that explicit discriminator rather than
+    re-inferring it from which params are present:
 
     - **search-replace** (``mode = search_replace``) — ``search``/``replace`` both
       present: every literal (not regex) occurrence of ``search`` is replaced with

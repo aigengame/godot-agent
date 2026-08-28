@@ -234,10 +234,14 @@ class ScriptDeleteResult(BaseModel):
 class ScriptSetMode(str, Enum):
     """The edit mode of ``gda script set``, the single source of truth (issue #133).
 
-    The CLI resolves exactly one mode from the supplied flags (its mutual-exclusion
-    check) and stamps it here, so the operation dispatches on this explicit
-    discriminator instead of re-inferring the mode from which params are present —
-    the inference precedence can no longer drift from the CLI's exclusivity rule.
+    The params model derives exactly one mode from the supplied fields — via
+    :func:`resolve_set_mode`, run once by the model's own ``_resolve_mode``
+    validator on BOTH the argv and ``--params-json`` paths (ADR-0015, #713) —
+    and stamps it here, so the operation dispatches on this explicit
+    discriminator instead of re-inferring the mode from which params are
+    present. The CLI is a thin argv-to-model adapter; it does not re-derive the
+    mode itself, so the derivation cannot drift from the model's exclusivity
+    rule.
 
     - ``SEARCH_REPLACE`` — ``search``/``replace``: every literal (not regex)
       occurrence of ``search`` is replaced with ``replace``.
@@ -306,9 +310,10 @@ class ScriptSetParams(BaseModel):
     loads the script, so editing one can never run project code (the read trust
     boundary of issue #30). ``path`` addresses the script by its ``res://`` or
     filesystem path. The remaining params carry one of three mutually-exclusive
-    edit modes; the CLI resolves which one and stamps it on ``mode`` (issue #133),
-    so the operation dispatches on that explicit discriminator rather than
-    re-inferring it from which params are present:
+    edit modes; the model derives which one and stamps it on ``mode`` (issue
+    #133, ADR-0015) — the SAME derivation on both the argv and ``--params-json``
+    paths (#713) — so the operation dispatches on that explicit discriminator
+    rather than re-inferring it from which params are present:
 
     - **search-replace** (``mode = search_replace``) — ``search``/``replace`` both
       present: every literal (not regex) occurrence of ``search`` is replaced with
@@ -1175,17 +1180,22 @@ def _project_scoped_res_path(script: str) -> str | None:
       upward escape names something the ``--project`` contract does not cover.
 
     The last two are load-bearing, and it is not tidiness. The root-address clause
-    used to ALSO be the fix for a parser bug: the engine answers a root address
-    with ``Can't load script: res://.`` (or ``res://..``), and the pre-#698 error
-    parser read that address back with an assumed sentence period stripped —
-    ``res://`` for the first, ``res://.`` for the second. Neither matched the
-    entry, so the never-ran verdict missed it and the run reported a PHANTOM
-    SUCCESS; refusing the root address here, before any launch, closed that gap.
-    #698 fixed the parser itself to read the address back intact, so that failure
-    mode is now history — the root address stays refused for the plainer reason
-    already given above (it names a directory, not a script), not because the
-    parser still corrupts it. The escape clause is the one still load-bearing for
-    the reason it always was: an escape that RESOLVES (``../outside.gd``)
+    is ALSO belt-and-suspenders against a parser risk: the engine answers a root
+    address with ``Can't load script: res://.`` (or ``res://..``), a sentence
+    whose trailing dot is part of the ADDRESS, not punctuation. A parser that
+    folds it as though it WERE punctuation — reading ``res://.`` back as
+    ``res://``, ``res://..`` back as ``res://.`` — would miss the launched
+    entry, and the never-ran verdict would report a PHANTOM SUCCESS instead of
+    the refusal it should be. Issue #698 (its fix, PR #756) targets exactly that
+    fold in :mod:`gda.script_errors`'s ``_CANT_LOAD`` regex; this paragraph's own
+    argument does not depend on whether that PR has landed at any point in this
+    branch's history, because THIS guard already closes the gap on its own,
+    independent of the parser's fold either way: a root address is refused
+    HERE, before any launch, so it never reaches the parser at all. The root
+    address therefore stays refused for the plainer reason already given above
+    (it names a directory, not a script). The escape clause is the one still
+    load-bearing for the reason it always was: an escape that RESOLVES
+    (``../outside.gd``)
     executes a script outside the project entirely, which would widen the
     Project-code execution surface past ADR-0009's Trusted project — the very
     consequence the amendment cites for keeping absolute paths refused, so

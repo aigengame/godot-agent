@@ -38,6 +38,7 @@ from tests.support import (
     sentinel,
     screen_capture_reply,
     screen_frames_reply,
+    usage_error_text,
 )
 
 # A 1x1 transparent PNG (valid, decodes to real bytes) so a written file starts
@@ -682,14 +683,9 @@ def _usage_error_message(result):
     # The argv path's contract (gda.dispatch.params_or_bad_parameter): a model
     # refusal is a Click usage error — exit 2, message on stderr — while the
     # --params-json path surfaces the SAME rule as structured invalid_params.
-    # Click line-wraps and colors the message, so strip ANSI and collapse
-    # whitespace before matching.
-    import re
-
-    assert result.exit_code == 2, result.stdout + result.stderr
-    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stderr)
-    plain = re.sub(r"[\u2500-\u257f]", " ", plain)  # rich panel borders
-    return re.sub(r"\s+", " ", plain)
+    # The Rich-panel normalization itself is shared (tests/support.py,
+    # `usage_error_text`, #713 review) rather than redefined here.
+    return usage_error_text(result)
 
 
 def _invalid_params_message(result):

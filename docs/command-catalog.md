@@ -463,7 +463,9 @@ The lifecycle round-trips: `create` → `list` shows it → `delete` → `list` 
 script as **raw text** — it never compiles or loads the script, so editing one never runs
 project code (the read trust boundary of #30). It edits only a script that exists; a missing
 target is `path_not_found`, never a silent create. Exactly one of three mutually-exclusive
-modes is selected at the CLI (a missing or mixed mode is a usage error, exit 2):
+modes must be selected — derived once by the params model, identically on argv and
+`--params-json` (ADR-0015, #713); a missing or mixed mode is a usage error, exit 2, on argv,
+and structured `invalid_params` on `--params-json`:
 
 - **search-replace** — `--search <old> --replace <new>`: replace **every** literal (not regex)
   occurrence of `<old>` with `<new>`. A search string the source does not contain is refused

@@ -31,6 +31,33 @@ def plain_text(text: str) -> str:
     return ANSI_ESCAPE.sub("", text)
 
 
+# The box-drawing characters Rich uses to frame a Click usage-error panel
+# (``╭─...─╮`` etc.) — a SEPARATE concern from `ANSI_ESCAPE` above, since a
+# usage error's border survives even where color does not.
+_RICH_PANEL_BORDER = re.compile(r"[─-╿]")
+
+
+def usage_error_text(result) -> str:
+    """Normalize a CliRunner ``Result``'s Click usage-error panel to plain text.
+
+    A model refusal on the argv path (``gda.dispatch.params_or_bad_parameter``,
+    ADR-0015) is a Click usage error: exit 2, the message inside a Rich panel on
+    stderr. Rich renders that panel with ANSI color and box-drawing borders even
+    under ``CliRunner`` (colorized state can differ between a local run and CI,
+    issue #671), so a raw ``result.stderr`` can't be matched directly. This
+    normalizes it ONCE — reusing :func:`plain_text` for the ANSI half, folding
+    the box-drawing border to whitespace, then collapsing whitespace runs — and
+    returns the whole collapsed panel (the ``Usage: ...`` preamble, the
+    ``Error`` heading, and the ``Invalid value: <message>`` body), so a caller
+    matches whichever substring it needs, or extracts the message itself.
+    Shared by every test asserting on an argv usage error's text, instead of
+    each redefining the same normalization (#713 review).
+    """
+    assert result.exit_code == 2, result.stdout + result.stderr
+    plain = _RICH_PANEL_BORDER.sub(" ", plain_text(result.stderr))
+    return re.sub(r"\s+", " ", plain).strip()
+
+
 # The gda CLI invocation prefix for e2e subprocess tests. Resolved as the gda
 # MODULE in *this* interpreter's environment — `[sys.executable, "-m", "gda"]` —
 # never a PATH-resolved global. This is the same same-environment resolution

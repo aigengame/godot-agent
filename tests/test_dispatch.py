@@ -23,7 +23,6 @@ report byte-identical sentences for the identical refusal.
 """
 
 import json
-import re
 
 import typer
 import pytest
@@ -32,6 +31,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.dispatch import params_or_bad_parameter
+from tests.support import usage_error_text
 
 # The exact dump fragments str(ValidationError) used to leak (PR #754 review).
 _FORBIDDEN_FRAGMENTS = ("pydantic.dev", "input_value=", "[type=")
@@ -43,13 +43,10 @@ def _assert_clean(message: str) -> None:
 
 
 def _argv_usage_error_message(result) -> str:
-    # Click/Rich renders the usage-error panel with ANSI color and box-drawing
-    # borders even under CliRunner; strip both before matching (mirrors
-    # tests/test_screen_commands.py's `_usage_error_message`).
-    assert result.exit_code == 2, result.stdout + result.stderr
-    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stderr)
-    plain = re.sub(r"[─-╿]", " ", plain)  # rich panel borders
-    plain = re.sub(r"\s+", " ", plain).strip()
+    # The Rich-panel normalization is shared (tests/support.py,
+    # `usage_error_text`) — the SAME one tests/test_screen_commands.py uses —
+    # so only the "Invalid value: " extraction is specific to this module.
+    plain = usage_error_text(result)
     # The panel is preceded by the "Usage: ..." / "Try '... --help'" preamble
     # and an "Error" heading, so find the marker rather than assume it leads.
     prefix = "Invalid value: "
@@ -151,7 +148,7 @@ def test_multi_error_validation_error_joins_each_fields_own_message():
     _assert_clean(message)
 
 
-def test_no_caller_value_leaks_into_the_refusal(monkeypatch):
+def test_no_caller_value_leaks_into_the_refusal():
     # The concrete leak PR #754's review reproduced: a large/sensitive field
     # value must never ride along in the refusal, even though the refused
     # field itself carries it.
