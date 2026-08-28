@@ -68,6 +68,7 @@ from gda_balancing.domain.model._lowering import (
     _formula_operation_identity,
     _formula_symbol_dependencies,
     _package_lock,
+    _project_concrete_operation_call_closure,
     _reachable_derived_formula_sites,
     _reachable_operation_formula_dependencies,
     _resolved_alias_rows,
@@ -787,15 +788,18 @@ def _formula_program_graph_is_admitted(
     if list(formulas_by_key) != sorted(formulas_by_key):
         return False
 
-    operations_by_coordinate = {
+    operations_by_coordinate: dict[tuple[str, str, str], dict[str, Any]] = {
         (
-            row.get("package"),
-            definition.get("version"),
-            definition.get("id"),
-        ): definition
+            cast(str, row["package"]),
+            cast(str, definition["version"]),
+            cast(str, definition["id"]),
+        ): cast(dict[str, Any], definition)
         for row in selected_semantics["operations"]
         if isinstance(row, dict)
         and isinstance((definition := row.get("definition")), dict)
+        and isinstance(row.get("package"), str)
+        and isinstance(definition.get("version"), str)
+        and isinstance(definition.get("id"), str)
     }
     dependency_keys: dict[tuple[str, str], list[tuple[str, str]]] = {}
     operation_dependencies_by_key: dict[
@@ -1109,11 +1113,6 @@ def _formula_program_graph_is_admitted(
     selected_slots: dict[
         tuple[str, str, str, str], tuple[dict[str, Any], dict[str, Any], str]
     ] = {}
-    operations_with_formula_slots = {
-        coordinate
-        for coordinate, operation in operations_by_coordinate.items()
-        if _operation_formula_slots(operation)
-    }
     for entrypoint in cast(list[dict[str, Any]], entrypoints):
         operation_ref = entrypoint.get("operation")
         if not isinstance(operation_ref, dict):
@@ -1123,8 +1122,6 @@ def _formula_program_graph_is_admitted(
             cast(str, operation_ref.get("version")),
             cast(str, operation_ref.get("id")),
         )
-        if coordinate not in operations_with_formula_slots:
-            continue
         operation = operations_by_coordinate.get(coordinate)
         arguments = entrypoint.get("arguments")
         if operation is None or not isinstance(arguments, list):
@@ -1190,6 +1187,17 @@ def _formula_program_graph_is_admitted(
                 "known_arguments": known_call_arguments,
             }
         )
+    try:
+        concrete_operation_calls = _project_concrete_operation_call_closure(
+            operations_by_coordinate,
+            concrete_operation_calls,
+            kernel,
+            language_bundle,
+            cast(dict[str, Any], policy["notation_conversion"]),
+            declarations_by_symbol,
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
     reachable_operations = _selected_resolved_operation_coordinates(
         cast(list[dict[str, Any]], entrypoints),
         cast(dict[str, Any], selected_semantics),

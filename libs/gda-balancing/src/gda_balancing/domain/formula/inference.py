@@ -17,6 +17,8 @@ def infer_formula_operation_local_contract(
     conversion_policy: dict[str, Any],
     source_type_aliases: dict[tuple[str, str, str], str],
     known_operand_values: dict[str, Any] | None = None,
+    known_local_contracts: dict[str, dict[str, Any]] | None = None,
+    ignore_unmatched_instructions: bool = False,
 ) -> dict[str, Any]:
     """Infer one Operation local by interpreting compiler-owned transfer rules."""
     rules = conversion_policy.get("local_result_inference")
@@ -35,6 +37,7 @@ def infer_formula_operation_local_contract(
         port: deepcopy(contract)
         for port, contract in zip(ports, operand_contracts, strict=True)
     }
+    values.update(deepcopy(known_local_contracts or {}))
     known_values = deepcopy(known_operand_values or {})
     if not set(known_values) <= set(ports):
         raise ValueError("Formula known operand is not an Operation port")
@@ -71,6 +74,8 @@ def infer_formula_operation_local_contract(
             raise ValueError("Formula operation body is malformed")
         rule = rules_by_node.get(instruction.get("node"))
         if not isinstance(rule, dict):
+            if ignore_unmatched_instructions:
+                continue
             raise ValueError("Formula operation body has no admitted type inference")
         target_member = rule.get("target_member")
         target = (

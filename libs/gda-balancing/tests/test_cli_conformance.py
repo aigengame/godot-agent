@@ -485,8 +485,11 @@ class TestSurfaceLaws:
             ),
             truncated=True,
         )
+        prepared_invocations = [
+            (descriptor, invocation(descriptor)) for descriptor in REGISTRY
+        ]
         for report in (minimal, at_bound):
-            for descriptor in REGISTRY:
+            for descriptor, argv in prepared_invocations:
 
                 def emit_legacy(_input, emit_ready, _stderr, *, value=report):
                     emit_ready(value)
@@ -502,7 +505,7 @@ class TestSurfaceLaws:
                     else item
                     for item in REGISTRY
                 )
-                exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
+                exit_code, stdout, stderr = run_cli(argv, registry)
                 assert (exit_code, stdout) == (4, "")
                 assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
 

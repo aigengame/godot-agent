@@ -509,6 +509,31 @@ def _rpg_model_source() -> dict[str, Any]:
     return source
 
 
+def _widen_mitigated_damage_formula(
+    source: dict[str, Any],
+    *,
+    damage_before_defense_maximum: int | None = None,
+    mitigation_minimum: int | None = None,
+) -> None:
+    formula = next(
+        row
+        for row in source["modules"][0]["formulas"]
+        if row["id"] == "mitigated-damage"
+    )
+    parameters = {row["id"]: row for row in formula["parameters"]}
+    if damage_before_defense_maximum is not None:
+        parameters["damage_before_defense"]["domain"]["maximum"] = (
+            damage_before_defense_maximum
+        )
+    if mitigation_minimum is not None:
+        parameters["mitigation"]["domain"]["minimum"] = mitigation_minimum
+
+    result_maximum = (1 << 63) - 1
+    formula["result"]["domain"]["maximum"] = result_maximum
+    for node in formula["body"]["nodes"]:
+        node["result"]["domain"]["maximum"] = result_maximum
+
+
 def _metric_contract(metric: dict[str, Any]) -> dict[str, Any]:
     return {
         **metric,
@@ -5005,6 +5030,8 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
         for row in source_value["modules"][0]["formulas"]
         if row["id"] == "mitigated-damage"
     )
+    mitigation = next(row for row in formula["parameters"] if row["id"] == "mitigation")
+    mitigation["domain"]["maximum"] = 2000
     boolean_contract = {
         "type": "Boolean",
         "representation": "Bool",
@@ -5510,7 +5537,9 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
     tmp_path, run_cli
 ):
     source_value = _rpg_model_source()
-    source_value["modules"][0]["symbols"].append(_rpg_value("formula_bonus", "input"))
+    formula_bonus = _rpg_value("formula_bonus", "input")
+    formula_bonus["domain"]["maximum"] = 2000
+    source_value["modules"][0]["symbols"].append(formula_bonus)
     formula = next(
         row
         for row in source_value["modules"][0]["formulas"]
@@ -8247,6 +8276,10 @@ def _assert_high_damage_event_behavior(
     )
     if extend_base_damage_domain:
         base_damage["domain"]["maximum"] = (1 << 63) - 1
+        _widen_mitigated_damage_formula(
+            source_value,
+            damage_before_defense_maximum=(1 << 63) - 1,
+        )
     source = tmp_path / "rpg-overflow-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -8386,6 +8419,10 @@ def test_formula_overflow_terminal_audit_names_the_exact_evaluation_site(
         if row["symbol"] == "target_defense"
     )
     target_defense["domain"]["minimum"] = -(1 << 63)
+    _widen_mitigated_damage_formula(
+        source_value,
+        mitigation_minimum=-(1 << 63),
+    )
     source = tmp_path / "formula-overflow-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -8981,6 +9018,10 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
         if symbol["symbol"] == "base_damage"
     )
     base_damage["domain"]["maximum"] = (1 << 63) - 1
+    _widen_mitigated_damage_formula(
+        source_value,
+        damage_before_defense_maximum=(1 << 63) - 1,
+    )
     source = tmp_path / "rpg-overflow-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(

@@ -6,7 +6,7 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPConnection
 from copy import deepcopy
@@ -32,6 +32,7 @@ from gda_balancing.interfaces.http.local_host import (
     run_local_host,
 )
 from http_service_support import (
+    ExecutionHttpTestService,
     console_script,
     request_error,
     request_json,
@@ -75,6 +76,13 @@ def _rpg_combat_documents() -> tuple[dict[str, Any], dict[str, Any]]:
     )
 
 
+@pytest.fixture(scope="module")
+def shared_execution_http_service() -> Iterator[ExecutionHttpTestService]:
+    """Keep one real process for tests that exercise only session semantics."""
+    with running_execution_http_service() as service:
+        yield service
+
+
 def test_serve_reports_status_and_shuts_down() -> None:
     with running_execution_http_service() as service:
         readiness = service.readiness
@@ -110,137 +118,143 @@ def test_serve_reports_status_and_shuts_down() -> None:
         assert service.process.stdout.read() == ""
 
 
-def test_session_creation_admits_complete_model_and_experiment_values() -> None:
+def test_session_creation_admits_complete_model_and_experiment_values(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
-
-        assert created["outcome"] == "success"
-        assert created["session_id"]
-        assert (
-            created["resolved_model_identity"]
-            == (experiment["model"]["resolved_model_identity"])
-        )
-        assert created["revision_id"].startswith("sha256:")
+    assert created["outcome"] == "success"
+    assert created["session_id"]
+    assert (
+        created["resolved_model_identity"]
+        == (experiment["model"]["resolved_model_identity"])
+    )
+    assert created["revision_id"].startswith("sha256:")
 
 
-def test_identical_experiment_revision_admission_is_idempotent() -> None:
+def test_identical_experiment_revision_admission_is_idempotent(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
+    admitted = service.admit_revision(
+        created["session_id"],
+        experiment,
+    )
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
-        admitted = service.admit_revision(
-            created["session_id"],
-            experiment,
-        )
-
-        assert admitted == {
-            "created": False,
-            "outcome": "success",
-            "revision_id": created["revision_id"],
-        }
+    assert admitted == {
+        "created": False,
+        "outcome": "success",
+        "revision_id": created["revision_id"],
+    }
 
 
-def test_run_returns_the_complete_existing_artifact_set_inline() -> None:
+def test_run_returns_the_complete_existing_artifact_set_inline(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
+    run = service.run(created["session_id"], created["revision_id"])
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
-        run = service.run(created["session_id"], created["revision_id"])
-
-        assert run["outcome"] == "success"
-        assert set(run["artifacts"]) == {
-            "evaluation-run",
-            "evaluator-capability-manifest",
-            "event-trace",
-            "metric-dataset",
-            "reproduction-receipt",
-            "resolved-runtime-profile",
-            "snapshot-series",
-        }
-        assert all(
-            artifact["content_identity"].startswith("sha256:")
-            for artifact in run["artifacts"].values()
-        )
+    assert run["outcome"] == "success"
+    assert set(run["artifacts"]) == {
+        "evaluation-run",
+        "evaluator-capability-manifest",
+        "event-trace",
+        "metric-dataset",
+        "reproduction-receipt",
+        "resolved-runtime-profile",
+        "snapshot-series",
+    }
+    assert all(
+        artifact["content_identity"].startswith("sha256:")
+        for artifact in run["artifacts"].values()
+    )
 
 
-def test_deleting_a_session_makes_it_an_unknown_service_resource() -> None:
+def test_deleting_a_session_makes_it_an_unknown_service_resource(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
+    deleted = service.delete_session(created["session_id"])
+    status, error = service.request_error(
+        f"/v1/execution-sessions/{created['session_id']}/runs",
+        method="POST",
+        body={"revision_id": created["revision_id"]},
+    )
 
-        deleted = service.delete_session(created["session_id"])
-        status, error = service.request_error(
-            f"/v1/execution-sessions/{created['session_id']}/runs",
-            method="POST",
-            body={"revision_id": created["revision_id"]},
-        )
-
-        assert deleted == {
-            "outcome": "success",
-            "session_id": created["session_id"],
+    assert deleted == {
+        "outcome": "success",
+        "session_id": created["session_id"],
+    }
+    assert status == 404
+    assert error == {
+        "error": {
+            "category": "service",
+            "code": "unknown_execution_session",
+            "message": "the Execution session does not exist",
         }
-        assert status == 404
-        assert error == {
-            "error": {
-                "category": "service",
-                "code": "unknown_execution_session",
-                "message": "the Execution session does not exist",
-            }
-        }
+    }
 
 
-def test_revision_refusal_leaves_existing_revisions_runnable() -> None:
+def test_revision_refusal_leaves_existing_revisions_runnable(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
     invalid_revision = deepcopy(experiment)
     invalid_revision["kernel_identity"] = "sha256:not-the-admitted-kernel"
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
+    refused = service.admit_revision(created["session_id"], invalid_revision)
+    rerun = service.run(
+        created["session_id"],
+        created["revision_id"],
+    )
 
-        refused = service.admit_revision(created["session_id"], invalid_revision)
-        rerun = service.run(
-            created["session_id"],
-            created["revision_id"],
-        )
-
-        assert refused["outcome"] == "refusal"
-        assert refused["refusal"]["diagnostics"][0]["code"] == (
-            "language.resolved_authority_mismatch"
-        )
-        assert rerun["outcome"] == "success"
+    assert refused["outcome"] == "refusal"
+    assert refused["refusal"]["diagnostics"][0]["code"] == (
+        "language.resolved_authority_mismatch"
+    )
+    assert rerun["outcome"] == "success"
 
 
-def test_each_run_explicitly_selects_one_immutable_revision() -> None:
+def test_each_run_explicitly_selects_one_immutable_revision(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
     later_experiment = deepcopy(experiment)
     later_experiment["seed"]["value"] += 1
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
+    later_revision = service.admit_revision(
+        created["session_id"],
+        later_experiment,
+    )
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
-        later_revision = service.admit_revision(
-            created["session_id"],
-            later_experiment,
-        )
+    first_run = service.run(created["session_id"], created["revision_id"])
+    later_run = service.run(
+        created["session_id"],
+        later_revision["revision_id"],
+    )
 
-        first_run = service.run(created["session_id"], created["revision_id"])
-        later_run = service.run(
-            created["session_id"],
-            later_revision["revision_id"],
-        )
-
-        assert later_revision["created"] is True
-        assert later_revision["revision_id"] != created["revision_id"]
-        assert (
-            first_run["artifacts"]["reproduction-receipt"]["experiment_identity"]
-            == created["revision_id"]
-        )
-        assert (
-            later_run["artifacts"]["reproduction-receipt"]["experiment_identity"]
-            == later_revision["revision_id"]
-        )
+    assert later_revision["created"] is True
+    assert later_revision["revision_id"] != created["revision_id"]
+    assert (
+        first_run["artifacts"]["reproduction-receipt"]["experiment_identity"]
+        == created["revision_id"]
+    )
+    assert (
+        later_run["artifacts"]["reproduction-receipt"]["experiment_identity"]
+        == later_revision["revision_id"]
+    )
 
 
 def test_reciprocal_combat_service_stops_on_defeat_and_links_ineligibility() -> None:
@@ -665,6 +679,7 @@ def test_execution_routes_require_json_media_type() -> None:
 
 def test_cli_publication_and_http_inline_execution_are_semantically_identical(
     tmp_path: Path,
+    shared_execution_http_service: ExecutionHttpTestService,
 ) -> None:
     model_source, experiment = _roguelike_documents()
     model_out = tmp_path / "resolved-model.json"
@@ -697,9 +712,9 @@ def test_cli_publication_and_http_inline_execution_are_semantically_identical(
         for row in cli_receipt["member_locators"]
     }
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
-        http_run = service.run(created["session_id"], created["revision_id"])
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
+    http_run = service.run(created["session_id"], created["revision_id"])
 
     assert http_run["outcome"] == "success"
     assert http_run["artifacts"] == cli_artifacts
@@ -708,45 +723,46 @@ def test_cli_publication_and_http_inline_execution_are_semantically_identical(
     }
 
 
-def test_aggregate_http_limit_preserves_the_model_source_ingress_refusal() -> None:
+def test_aggregate_http_limit_preserves_the_model_source_ingress_refusal(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
     max_source_bytes = packaged_authority_context().language_bundle["resources"][
         "max_source_bytes"
     ]
     model_source["oversized_padding"] = "x" * max_source_bytes
 
-    with running_execution_http_service() as service:
-        refused = service.create_session(model_source, experiment)
+    refused = shared_execution_http_service.create_session(model_source, experiment)
 
-        assert refused["outcome"] == "refusal"
-        assert refused["refusal"]["stage"] == "ingress"
-        assert refused["refusal"]["diagnostics"][0]["code"] == (
-            "language.source_too_large"
-        )
+    assert refused["outcome"] == "refusal"
+    assert refused["refusal"]["stage"] == "ingress"
+    assert refused["refusal"]["diagnostics"][0]["code"] == ("language.source_too_large")
 
 
-def test_sessions_do_not_share_revision_state() -> None:
+def test_sessions_do_not_share_revision_state(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
     later_experiment = deepcopy(experiment)
     later_experiment["seed"]["value"] += 1
 
-    with running_execution_http_service() as service:
-        first = service.create_session(model_source, experiment)
-        second = service.create_session(model_source, experiment)
-        first_revision = service.admit_revision(
-            first["session_id"],
-            later_experiment,
-        )
-        status, error = service.request_error(
-            f"/v1/execution-sessions/{second['session_id']}/runs",
-            method="POST",
-            body={"revision_id": first_revision["revision_id"]},
-        )
+    service = shared_execution_http_service
+    first = service.create_session(model_source, experiment)
+    second = service.create_session(model_source, experiment)
+    first_revision = service.admit_revision(
+        first["session_id"],
+        later_experiment,
+    )
+    status, error = service.request_error(
+        f"/v1/execution-sessions/{second['session_id']}/runs",
+        method="POST",
+        body={"revision_id": first_revision["revision_id"]},
+    )
 
-        assert first["session_id"] != second["session_id"]
-        assert first["resolved_model_identity"] == second["resolved_model_identity"]
-        assert status == 404
-        assert error["error"]["code"] == "unknown_experiment_revision"
+    assert first["session_id"] != second["session_id"]
+    assert first["resolved_model_identity"] == second["resolved_model_identity"]
+    assert status == 404
+    assert error["error"]["code"] == "unknown_experiment_revision"
 
 
 def test_restart_does_not_recover_process_local_sessions() -> None:
@@ -768,31 +784,32 @@ def test_restart_does_not_recover_process_local_sessions() -> None:
         assert error["error"]["code"] == "unknown_execution_session"
 
 
-def test_disconnected_run_has_no_durable_result_and_can_be_rerun() -> None:
+def test_disconnected_run_has_no_durable_result_and_can_be_rerun(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
+    connection = HTTPConnection(service.host, service.port, timeout=10)
+    connection.request(
+        "POST",
+        f"/v1/execution-sessions/{created['session_id']}/runs",
+        body=json.dumps({"revision_id": created["revision_id"]}),
+        headers={
+            "Authorization": f"Bearer {service.capability_token}",
+            "Content-Type": "application/json",
+        },
+    )
+    connection.close()
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
-        connection = HTTPConnection(service.host, service.port, timeout=10)
-        connection.request(
-            "POST",
-            f"/v1/execution-sessions/{created['session_id']}/runs",
-            body=json.dumps({"revision_id": created["revision_id"]}),
-            headers={
-                "Authorization": f"Bearer {service.capability_token}",
-                "Content-Type": "application/json",
-            },
-        )
-        connection.close()
+    rerun = service.run(created["session_id"], created["revision_id"])
 
-        rerun = service.run(created["session_id"], created["revision_id"])
-
-        assert service.process.poll() is None
-        assert rerun["outcome"] == "success"
-        assert (
-            rerun["artifacts"]["reproduction-receipt"]["experiment_identity"]
-            == created["revision_id"]
-        )
+    assert service.process.poll() is None
+    assert rerun["outcome"] == "success"
+    assert (
+        rerun["artifacts"]["reproduction-receipt"]["experiment_identity"]
+        == created["revision_id"]
+    )
 
 
 def test_disconnect_during_request_body_does_not_stop_the_service() -> None:
@@ -1061,75 +1078,81 @@ def test_built_wheel_starts_the_service_and_executes_packaged_authority(
         assert service.process.wait(timeout=10) == 0
 
 
-def test_admitted_run_finishes_before_later_session_work_and_deletion() -> None:
+def test_admitted_run_finishes_before_later_session_work_and_deletion(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
     later_experiment = deepcopy(experiment)
     later_experiment["seed"]["value"] += 1
 
-    with running_execution_http_service() as service:
-        first = service.create_session(model_source, experiment)
-        second = service.create_session(model_source, experiment)
+    service = shared_execution_http_service
+    first = service.create_session(model_source, experiment)
+    second = service.create_session(model_source, experiment)
 
-        def timed_request(
-            action: Callable[..., dict[str, Any]],
-            *arguments: Any,
-        ) -> tuple[dict[str, Any], float]:
-            result = action(*arguments)
-            return result, time.monotonic()
+    def timed_request(
+        action: Callable[..., dict[str, Any]],
+        *arguments: Any,
+    ) -> tuple[dict[str, Any], float]:
+        result = action(*arguments)
+        return result, time.monotonic()
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            run_future = executor.submit(
-                timed_request,
-                service.run,
-                first["session_id"],
-                first["revision_id"],
-            )
-            time.sleep(0.2)
-            revision_future = executor.submit(
-                timed_request,
-                service.admit_revision,
-                second["session_id"],
-                later_experiment,
-            )
-            delete_future = executor.submit(
-                timed_request,
-                service.delete_session,
-                first["session_id"],
-            )
-            run, run_finished = run_future.result(timeout=20)
-            revision, revision_finished = revision_future.result(timeout=20)
-            deleted, delete_finished = delete_future.result(timeout=20)
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        run_future = executor.submit(
+            timed_request,
+            service.run,
+            first["session_id"],
+            first["revision_id"],
+        )
+        time.sleep(0.2)
+        revision_future = executor.submit(
+            timed_request,
+            service.admit_revision,
+            second["session_id"],
+            later_experiment,
+        )
+        delete_future = executor.submit(
+            timed_request,
+            service.delete_session,
+            first["session_id"],
+        )
+        run, run_finished = run_future.result(timeout=20)
+        revision, revision_finished = revision_future.result(timeout=20)
+        deleted, delete_finished = delete_future.result(timeout=20)
 
-        assert run["outcome"] == "success"
-        assert revision["outcome"] == "success"
-        assert deleted["outcome"] == "success"
-        assert run_finished <= revision_finished
-        assert run_finished <= delete_finished
+    assert run["outcome"] == "success"
+    assert revision["outcome"] == "success"
+    assert deleted["outcome"] == "success"
+    assert run_finished <= revision_finished
+    assert run_finished <= delete_finished
 
 
-def test_metric_rejection_returns_a_complete_verdict_artifact_set() -> None:
+def test_metric_rejection_returns_a_complete_verdict_artifact_set(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
     for metric in experiment["metrics"]:
         metric["target"] = {"minimum": 1000, "maximum": 1000}
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
-        run = service.run(created["session_id"], created["revision_id"])
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
+    run = service.run(created["session_id"], created["revision_id"])
 
-        assert run["outcome"] == "verdict"
-        assert run["failed_metrics"] == ["reward_score", "build_score"]
-        assert set(run["artifacts"]) == {
-            "evaluator-capability-manifest",
-            "event-trace",
-            "experiment-verdict",
-            "metric-dataset",
-            "reproduction-receipt",
-            "resolved-runtime-profile",
-            "snapshot-series",
-        }
+    assert run["outcome"] == "verdict"
+    assert run["failed_metrics"] == ["reward_score", "build_score"]
+    assert set(run["artifacts"]) == {
+        "evaluator-capability-manifest",
+        "event-trace",
+        "experiment-verdict",
+        "metric-dataset",
+        "reproduction-receipt",
+        "resolved-runtime-profile",
+        "snapshot-series",
+    }
 
 
-def test_runtime_refusal_returns_existing_terminal_audit_artifacts() -> None:
+def test_runtime_refusal_returns_existing_terminal_audit_artifacts(
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
     model_source, experiment = _roguelike_documents()
     reward_pool = next(
         assignment
@@ -1139,19 +1162,19 @@ def test_runtime_refusal_returns_existing_terminal_audit_artifacts() -> None:
     reward_pool["options"] = []
     reward_pool["no_reward_on_empty"] = []
 
-    with running_execution_http_service() as service:
-        created = service.create_session(model_source, experiment)
-        run = service.run(created["session_id"], created["revision_id"])
+    service = shared_execution_http_service
+    created = service.create_session(model_source, experiment)
+    run = service.run(created["session_id"], created["revision_id"])
 
-        assert run["outcome"] == "refusal"
-        assert run["refusal"]["stage"] == "runtime"
-        assert run["refusal"]["variant"] == "post-dispatch"
-        assert run["refusal"]["diagnostics"][0]["code"] == (
-            "game.generation.selection_exhausted"
-        )
-        assert set(run["artifacts"]) == {
-            "evaluator-capability-manifest",
-            "reproduction-receipt",
-            "resolved-runtime-profile",
-            "runtime-terminal-audit",
-        }
+    assert run["outcome"] == "refusal"
+    assert run["refusal"]["stage"] == "runtime"
+    assert run["refusal"]["variant"] == "post-dispatch"
+    assert run["refusal"]["diagnostics"][0]["code"] == (
+        "game.generation.selection_exhausted"
+    )
+    assert set(run["artifacts"]) == {
+        "evaluator-capability-manifest",
+        "reproduction-receipt",
+        "resolved-runtime-profile",
+        "runtime-terminal-audit",
+    }

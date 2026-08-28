@@ -921,7 +921,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:26640983c0502e5a7fa7cd12cd130817739bebb7f1ea9c4d64ea8ef080f58025"
+                    "sha256:1b7e98881d02d94ba9248cf00c66a3135adc13299315376c99b292193db477d3"
                 ),
             }
         ]

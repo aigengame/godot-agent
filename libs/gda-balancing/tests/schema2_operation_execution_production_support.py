@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -331,7 +332,7 @@ def _formula_sources(
                                     )
                                     for row in expression_operation["body"]
                                 )
-                                else -numeric["maximum"]
+                                else numeric["minimum"]
                             ),
                             maximum=numeric["maximum"],
                         ),
@@ -348,6 +349,19 @@ def _formula_sources(
                     "result": {"kind": "local", "local": slot["target"]},
                 }
             )
+            if body.get("node") == "parameter":
+                formula_result = _formula_contract(
+                    parameters[cast(str, body["parameter"])],
+                    aliases,
+                    minimum=numeric["minimum"],
+                    maximum=numeric["maximum"],
+                )
+            else:
+                formula_result = deepcopy(
+                    next(
+                        node["result"] for node in nodes if node["id"] == slot["target"]
+                    )
+                )
             formula_id = f"{operation['id']}.{slot['id']}"
             formulas.append(
                 {
@@ -358,18 +372,13 @@ def _formula_sources(
                             **_formula_contract(
                                 parameter,
                                 aliases,
-                                minimum=0,
+                                minimum=numeric["minimum"],
                                 maximum=numeric["maximum"],
                             ),
                         }
                         for parameter in parameters.values()
                     ],
-                    "result": _formula_contract(
-                        slot["result"],
-                        aliases,
-                        minimum=0,
-                        maximum=numeric["maximum"],
-                    ),
+                    "result": formula_result,
                     "body": body,
                     "expression": render_formula_body(body, context),
                 }

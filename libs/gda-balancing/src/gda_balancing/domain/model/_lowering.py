@@ -17,6 +17,8 @@ from gda_balancing.domain.canonical import (
     content_identity,
 )
 from gda_balancing.domain.formula.inference import (
+    infer_formula_operation_local_contract as _infer_formula_operation_local_contract,
+    infer_formula_operation_result as _infer_formula_operation_result,
     infer_formula_slot_parameter_contract as _infer_formula_slot_parameter_contract,
 )
 from gda_balancing.domain.formula.types import (
@@ -626,10 +628,310 @@ def _resolved_entrypoint_call(
         else:
             return None
         arguments[port_id] = contract
+    if set(arguments) != set(ports):
+        return None
     return {
         "arguments": arguments,
         "known_arguments": known_arguments,
     }
+
+
+def _project_concrete_operation_call_closure(
+    operations: dict[tuple[str, str, str], dict[str, Any]],
+    roots: dict[tuple[str, str, str], list[dict[str, Any]]],
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
+    conversion_policy: dict[str, Any],
+    declarations_by_symbol: dict[tuple[str, str], dict[str, Any]] | None = None,
+) -> dict[tuple[str, str, str], list[dict[str, Any]]]:
+    """Propagate concrete contracts through reachable Operation-valued calls."""
+    projected = {coordinate: list(calls) for coordinate, calls in roots.items()}
+    operation_node_ids = _operation_reference_node_ids(kernel)
+    slot_coordinates = {
+        coordinate
+        for coordinate, operation in operations.items()
+        if _operation_formula_slots(operation)
+    }
+    if not slot_coordinates:
+        return projected
+    reaches_slot_cache: dict[tuple[str, str, str], bool] = {}
+
+    def reaches_formula_slot(
+        coordinate: tuple[str, str, str],
+        stack: tuple[tuple[str, str, str], ...] = (),
+    ) -> bool:
+        cached = reaches_slot_cache.get(coordinate)
+        if cached is not None:
+            return cached
+        if coordinate in stack:
+            return False
+        if coordinate in slot_coordinates:
+            reaches_slot_cache[coordinate] = True
+            return True
+        operation = operations.get(coordinate)
+        if operation is None:
+            reaches_slot_cache[coordinate] = False
+            return False
+
+        def body_reaches_slot(instructions: list[dict[str, Any]]) -> bool:
+            for instruction in instructions:
+                nested = instruction.get("body")
+                if (
+                    isinstance(nested, list)
+                    and all(isinstance(row, dict) for row in nested)
+                    and body_reaches_slot(cast(list[dict[str, Any]], nested))
+                ):
+                    return True
+                operation_ref = instruction.get("operation")
+                if instruction.get("node") not in operation_node_ids or not isinstance(
+                    operation_ref, dict
+                ):
+                    continue
+                if not all(
+                    isinstance(operation_ref.get(member), str)
+                    for member in ("package", "version", "id")
+                ):
+                    raise ValueError("nested Operation reference is malformed")
+                child_coordinate = (
+                    cast(str, operation_ref["package"]),
+                    cast(str, operation_ref["version"]),
+                    cast(str, operation_ref["id"]),
+                )
+                if reaches_formula_slot(child_coordinate, (*stack, coordinate)):
+                    return True
+            return False
+
+        reaches = body_reaches_slot(cast(list[dict[str, Any]], operation["body"]))
+        reaches_slot_cache[coordinate] = reaches
+        return reaches
+
+    literal_profiles = {
+        "literal_typing_profiles": [
+            {"definition": profile}
+            for profile in cast(
+                list[dict[str, Any]],
+                _language(language_bundle)["literal_typing_profiles"],
+            )
+        ]
+    }
+
+    def visit(
+        coordinate: tuple[str, str, str],
+        call: dict[str, Any],
+        stack: tuple[tuple[str, str, str], ...],
+        *,
+        resolve_result: bool,
+    ) -> dict[str, Any]:
+        if coordinate in stack:
+            raise ValueError("concrete Operation call graph contains a cycle")
+        operation = operations.get(coordinate)
+        arguments = call.get("arguments")
+        if operation is None or not isinstance(arguments, dict):
+            raise ValueError("concrete Operation call is unresolved")
+        ports = [
+            cast(str, port["id"])
+            for port in cast(list[dict[str, Any]], operation["inputs"])
+        ]
+        if set(arguments) != set(ports):
+            raise ValueError("concrete Operation call arguments are incomplete")
+        operand_contracts = [cast(dict[str, Any], arguments[port]) for port in ports]
+        known_arguments = cast(dict[str, Any], call.get("known_arguments", {}))
+        local_contracts: dict[str, dict[str, Any]] = {}
+        local_values: dict[str, Any] = {}
+        local_intervals: dict[str, tuple[int, int]] = {}
+        result_by_site: dict[str, dict[str, Any]] = {}
+        extensions = operation.get("extensions")
+        snapshot_operands = (
+            extensions.get("standard.snapshot-operands")
+            if isinstance(extensions, dict)
+            else None
+        )
+        if isinstance(snapshot_operands, dict):
+            for operand in cast(list[dict[str, Any]], snapshot_operands["operands"]):
+                resolved_symbol = cast(dict[str, str], operand["resolved_symbol"])
+                declaration = (declarations_by_symbol or {}).get(
+                    (resolved_symbol["module"], resolved_symbol["name"])
+                )
+                if declaration is None:
+                    raise ValueError(
+                        "specialized Formula snapshot contract is unresolved"
+                    )
+                local_contracts[cast(str, operand["name"])] = declaration
+
+        def literal_contract(value: Any, formal: dict[str, Any]) -> dict[str, Any]:
+            context = _literal_context_contract(value, formal, kernel, literal_profiles)
+            if context is None:
+                raise ValueError("nested Operation literal has no concrete contract")
+            contract = cast(dict[str, Any], _formula_contract_from_operation(context))
+            if isinstance(value, int) and not isinstance(value, bool):
+                contract = {
+                    **contract,
+                    "domain_kind": "closed-interval",
+                    "domain": {"minimum": value, "maximum": value},
+                }
+            return contract
+
+        def local_contract(name: str, formal: dict[str, Any]) -> dict[str, Any]:
+            contract = local_contracts.get(name)
+            if contract is not None:
+                return contract
+            if name in local_values:
+                contract = literal_contract(local_values[name], formal)
+            elif name in local_intervals:
+                minimum, maximum = local_intervals[name]
+                contract = {
+                    **cast(dict[str, Any], _formula_contract_from_operation(formal)),
+                    "domain_kind": "closed-interval",
+                    "domain": {"minimum": minimum, "maximum": maximum},
+                }
+            else:
+                try:
+                    contract = _infer_formula_operation_local_contract(
+                        operation,
+                        ports,
+                        operand_contracts,
+                        name,
+                        cast(dict[str, Any], _formula_contract_from_operation(formal)),
+                        conversion_policy,
+                        {},
+                        known_operand_values=known_arguments,
+                        known_local_contracts=local_contracts,
+                        ignore_unmatched_instructions=True,
+                    )
+                except ValueError as error:
+                    raise ValueError(
+                        f"concrete Operation local {coordinate!r}.{name} is unresolved"
+                    ) from error
+            local_contracts[name] = contract
+            return contract
+
+        def walk(instructions: list[dict[str, Any]]) -> None:
+            for instruction in instructions:
+                node = instruction.get("node")
+                target = instruction.get("target")
+                if node == "constant" and isinstance(target, str):
+                    local_values[target] = instruction.get("literal")
+                elif node == "draw" and isinstance(target, str):
+                    minimum = instruction.get("minimum")
+                    maximum = instruction.get("maximum")
+                    if (
+                        isinstance(minimum, int)
+                        and not isinstance(minimum, bool)
+                        and isinstance(maximum, int)
+                        and not isinstance(maximum, bool)
+                    ):
+                        local_intervals[target] = (minimum, maximum)
+                nested = instruction.get("body")
+                if isinstance(nested, list) and all(
+                    isinstance(row, dict) for row in nested
+                ):
+                    walk(cast(list[dict[str, Any]], nested))
+                operation_ref = instruction.get("operation")
+                if node not in operation_node_ids or not isinstance(
+                    operation_ref, dict
+                ):
+                    continue
+                child_coordinate = (
+                    cast(str, operation_ref["package"]),
+                    cast(str, operation_ref["version"]),
+                    cast(str, operation_ref["id"]),
+                )
+                child = operations.get(child_coordinate)
+                if child is None:
+                    raise ValueError("nested Operation call target is unresolved")
+                child_ports = {
+                    cast(str, port["id"]): port
+                    for port in cast(list[dict[str, Any]], child["inputs"])
+                }
+                child_arguments: dict[str, dict[str, Any]] = {}
+                child_known_arguments: dict[str, Any] = {}
+                for authored in cast(list[dict[str, Any]], instruction["arguments"]):
+                    port_id = cast(str, authored["port"])
+                    formal = child_ports[port_id]
+                    operand = cast(dict[str, Any], authored["operand"])
+                    if operand.get("kind") == "port":
+                        parent_port = cast(str, operand["port"])
+                        contract = cast(dict[str, Any], arguments[parent_port])
+                        if parent_port in known_arguments:
+                            child_known_arguments[port_id] = known_arguments[
+                                parent_port
+                            ]
+                    elif operand.get("kind") == "local":
+                        name = cast(str, operand["local"])
+                        contract = local_contract(name, formal)
+                        if name in local_values:
+                            child_known_arguments[port_id] = local_values[name]
+                    elif operand.get("kind") == "literal":
+                        value = operand.get("literal")
+                        contract = literal_contract(value, formal)
+                        child_known_arguments[port_id] = value
+                    else:
+                        raise ValueError(
+                            "nested Operation operand has no concrete contract"
+                        )
+                    child_arguments[port_id] = contract
+                child_call = {
+                    "arguments": child_arguments,
+                    "known_arguments": child_known_arguments,
+                }
+                projected.setdefault(child_coordinate, []).append(child_call)
+                result = instruction.get("result")
+                result_kind = result.get("kind") if isinstance(result, dict) else None
+                child_result = visit(
+                    child_coordinate,
+                    child_call,
+                    (*stack, coordinate),
+                    resolve_result=result_kind in {"local", "operation-result"},
+                )
+                site = instruction.get("site")
+                if isinstance(site, str):
+                    result_by_site[site] = child_result
+                if isinstance(result, dict) and result.get("kind") == "local":
+                    local_contracts[cast(str, result["name"])] = child_result
+
+        walk(cast(list[dict[str, Any]], operation["body"]))
+        result = cast(dict[str, Any], operation["result"])
+        if not resolve_result:
+            return cast(dict[str, Any], _formula_contract_from_operation(result))
+        declared_domain = result.get("domain")
+        if (
+            isinstance(declared_domain, dict)
+            and declared_domain.get("kind") != "actual"
+        ):
+            return cast(dict[str, Any], _formula_contract_from_operation(result))
+        source = result.get("source")
+        if not isinstance(source, dict):
+            raise ValueError("concrete Operation result source is unresolved")
+        if source.get("kind") == "local":
+            return local_contract(cast(str, source["name"]), result)
+        if source.get("kind") == "operation-result":
+            resolved = result_by_site.get(cast(str, source.get("site")))
+            if resolved is None:
+                raise ValueError("nested Operation result is unresolved")
+            return resolved
+        if source.get("kind") == "unit":
+            return cast(dict[str, Any], _formula_contract_from_operation(result))
+        try:
+            return _infer_formula_operation_result(
+                operation,
+                ports,
+                operand_contracts,
+                cast(dict[str, Any], _formula_contract_from_operation(result)),
+                conversion_policy,
+                {},
+            )
+        except ValueError as error:
+            raise ValueError("concrete Operation result is unresolved") from error
+
+    initial_roots = [
+        (coordinate, call)
+        for coordinate, calls in roots.items()
+        for call in list(calls)
+    ]
+    for coordinate, call in initial_roots:
+        if reaches_formula_slot(coordinate):
+            visit(coordinate, call, (), resolve_result=False)
+    return projected
 
 
 def _derived_formula_evaluation_site(
@@ -1383,11 +1685,6 @@ def _resolved_formula_programs_and_bindings_impl(
                 )
                 | {"result": node["result"]}
             )
-    operations_with_formula_slots = {
-        coordinate
-        for coordinate, operation in operations_by_coordinate.items()
-        if _operation_formula_slots(operation)
-    }
     for source_entrypoint in cast(list[dict[str, Any]], checked.source["entrypoints"]):
         operation_ref = cast(dict[str, str], source_entrypoint["operation"])
         coordinate = (
@@ -1395,17 +1692,25 @@ def _resolved_formula_programs_and_bindings_impl(
             operation_ref["version"],
             operation_ref["id"],
         )
-        if coordinate not in operations_with_formula_slots:
+        operation = operations_by_coordinate.get(coordinate)
+        if operation is None:
             continue
         concrete_call = _resolved_entrypoint_call(
             source_entrypoint,
-            operations_by_coordinate[coordinate],
+            operation,
             declarations_by_source,
             checked.kernel,
             checked.language_bundle,
         )
         if concrete_call is not None:
             concrete_operation_calls.setdefault(coordinate, []).append(concrete_call)
+    concrete_operation_calls = _project_concrete_operation_call_closure(
+        operations_by_coordinate,
+        concrete_operation_calls,
+        checked.kernel,
+        checked.language_bundle,
+        cast(dict[str, Any], policy["notation_conversion"]),
+    )
     selected_operation_coordinates = _selected_source_operation_coordinates(
         checked.source,
         lock,

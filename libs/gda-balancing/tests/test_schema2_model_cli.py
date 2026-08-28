@@ -1572,7 +1572,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
         "kind": "scalar",
         "unit": "1",
         "domain_kind": "closed-interval",
-        "domain": {"minimum": 0, "maximum": 200},
+        "domain": {"minimum": 0, "maximum": 2000},
         "numeric_policy": "exact-int64",
     }
     source_document["modules"][0]["formulas"] = [
@@ -1584,7 +1584,11 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
             "id": "mitigated-damage",
             "parameters": [
                 {"id": "damage_before_defense", **quantity_contract},
-                {"id": "mitigation", **quantity_contract},
+                {
+                    "id": "mitigation",
+                    **quantity_contract,
+                    "domain": {"minimum": 0, "maximum": 1000},
+                },
             ],
             "result": quantity_contract,
             "body": {
@@ -1615,7 +1619,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                         ],
                         "result": {
                             **quantity_contract,
-                            "domain": {"minimum": -200, "maximum": 200},
+                            "domain": {"minimum": -1000, "maximum": 2000},
                         },
                     },
                     {
@@ -2178,6 +2182,12 @@ def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
         for row in source_document["modules"][0]["formulas"]
         if row["id"] == "mitigated-damage"
     )
+    output = next(
+        row
+        for row in source_document["modules"][0]["symbols"]
+        if row["symbol"] == "player_damage_dealt"
+    )
+    output["domain"]["maximum"] = 2000
     formula["body"] = {
         "nodes": [],
         "result": {
@@ -2353,6 +2363,209 @@ def test_model_check_reaches_formula_slots_through_scheduled_operations(
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
     assert (exit_code, stderr) == (0, ""), stdout
+
+
+def test_model_check_closes_formula_domains_through_scheduled_operations(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-periodic-effect/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    source_document["package_requirements"] = [
+        requirement
+        for requirement in source_document["package_requirements"]
+        if requirement["id"] in {"core.quantity", "game.effect"}
+    ]
+    source_document["modules"][0]["formulas"] = [
+        formula
+        for formula in source_document["modules"][0]["formulas"]
+        if formula["id"] == "periodic-magnitude"
+    ]
+    source_document["formula_bindings"] = [
+        binding
+        for binding in source_document["formula_bindings"]
+        if binding["site"].get("operation", {}).get("id")
+        == "game.effect.tick-live-periodic-v1"
+    ]
+    source_document["entrypoints"] = [
+        entrypoint
+        for entrypoint in source_document["entrypoints"]
+        if entrypoint["id"] == "effect.apply-live-periodic"
+    ]
+    formula = source_document["modules"][0]["formulas"][0]
+    next(
+        parameter
+        for parameter in formula["parameters"]
+        if parameter["id"] == "current_value"
+    )["domain"]["maximum"] = 500
+    for node in formula["body"]["nodes"]:
+        node["result"]["domain"]["maximum"] = 500
+    formula["result"]["domain"]["maximum"] = 500
+    source = tmp_path / "narrow-scheduled-operation-slot-domain.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_type_mismatch"
+    assert diagnostic["primary"]["pointer"] == (
+        "/formula_bindings/0/arguments/0/operand"
+    )
+
+
+def test_model_check_closes_formula_domains_through_nested_invokes(tmp_path, run_cli):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    formula = next(
+        formula
+        for formula in source_document["modules"][0]["formulas"]
+        if formula["id"] == "mitigated-damage"
+    )
+    next(
+        parameter
+        for parameter in formula["parameters"]
+        if parameter["id"] == "damage_before_defense"
+    )["domain"]["maximum"] = 1000
+    for node in formula["body"]["nodes"]:
+        node["result"]["domain"]["maximum"] = 1000
+    formula["result"]["domain"]["maximum"] = 1000
+    source = tmp_path / "narrow-invoked-operation-slot-domain.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_type_mismatch"
+    assert diagnostic["primary"]["pointer"] == (
+        "/formula_bindings/2/arguments/0/operand"
+    )
+
+
+@pytest.mark.parametrize(
+    ("example", "formula_id", "parameter_id", "maximum"),
+    (
+        ("rpg-periodic-effect", "periodic-magnitude", "current_value", 500),
+        ("rpg-combat-cast", "mitigated-damage", "damage_before_defense", 1000),
+    ),
+)
+def test_resolved_model_admission_rejects_reidentified_nested_formula_domain_escape(
+    example, formula_id, parameter_id, maximum
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1] / f"examples/schema2/{example}/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    if example == "rpg-periodic-effect":
+        source_document["package_requirements"] = [
+            requirement
+            for requirement in source_document["package_requirements"]
+            if requirement["id"] in {"core.quantity", "game.effect"}
+        ]
+        source_document["modules"][0]["formulas"] = [
+            formula
+            for formula in source_document["modules"][0]["formulas"]
+            if formula["id"] == formula_id
+        ]
+        source_document["formula_bindings"] = [
+            binding
+            for binding in source_document["formula_bindings"]
+            if binding["site"].get("operation", {}).get("id")
+            == "game.effect.tick-live-periodic-v1"
+        ]
+        source_document["entrypoints"] = [
+            entrypoint
+            for entrypoint in source_document["entrypoints"]
+            if entrypoint["id"] == "effect.apply-live-periodic"
+        ]
+    checked = model_checking_module.check_model_source_value(source_document)
+    assert isinstance(checked, model_module.CheckedModel)
+    lowered = model_compilation_module.lower_checked_model(checked)
+    artifacts = {
+        name: deepcopy(lowered[name])
+        for name in ("package-lock", "rir-semantic-payload", "resolved-model")
+    }
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    kernel, language_bundle = mutable_authorities()
+    policy = model_lowering_module._formula_policy(language_bundle)
+    domains = cast(dict[str, str], policy["identity_domains"])
+    formula = next(row for row in rir["formulas"] if row["id"] == formula_id)
+    next(
+        parameter
+        for parameter in formula["parameters"]
+        if parameter["id"] == parameter_id
+    )["domain"]["maximum"] = maximum
+    for node in formula["body"]["nodes"]:
+        node["result"]["domain"]["maximum"] = maximum
+        node["identity"] = content_identity(
+            domains["expression_node"],
+            cast(
+                JsonValue,
+                {key: value for key, value in node.items() if key != "identity"},
+            ),
+        )
+    formula["result"]["domain"]["maximum"] = maximum
+    formula["identity"] = content_identity(
+        domains["declaration"],
+        cast(
+            JsonValue,
+            {
+                key: value
+                for key, value in formula.items()
+                if key not in {"identity", "expression"}
+            },
+        ),
+    )
+    for binding in rir["formula_bindings"]:
+        if binding["formula"]["id"] != formula_id:
+            continue
+        binding["formula"]["identity"] = formula["identity"]
+        binding["identity"] = content_identity(
+            domains["binding"],
+            cast(
+                JsonValue,
+                {key: value for key, value in binding.items() if key != "identity"},
+            ),
+        )
+    rir["initialization_programs"] = (
+        model_lowering_module._compile_initialization_programs(
+            rir["selected_semantics"],
+            rir["formulas"],
+            rir["formula_bindings"],
+            policy,
+        )
+    )
+
+    assert (
+        model_admission_module._formula_program_graph_is_admitted(
+            kernel,
+            language_bundle,
+            rir["declarations"],
+            rir["formulas"],
+            rir["formula_bindings"],
+            rir["entrypoints"],
+            rir["selected_semantics"],
+        )
+        is False
+    )
+    _reidentify(rir, "rir-semantic-payload-v2")
+    resolved_model = cast(dict[str, Any], artifacts["resolved-model"])
+    resolved_model["rir_identity"] = rir["content_identity"]
+    _reidentify(resolved_model, "resolved-model-v2")
+
+    admission = model_admission_module.admit_resolved_model(artifacts)
+
+    assert admission.admitted is False
+    assert admission.diagnostics == ("language.resolved_authority_mismatch",)
 
 
 def test_model_check_reaches_operations_called_by_bound_formulas(run_cli):

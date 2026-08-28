@@ -1389,6 +1389,19 @@ class TestKeyUserPath:
             if symbol["symbol"] == "magnitude_threshold"
         )
         threshold_symbol["domain"]["minimum"] = -(1 << 63)
+        magnitude_formula = next(
+            formula
+            for formula in source["modules"][0]["formulas"]
+            if formula["id"] == "periodic-magnitude"
+        )
+        next(
+            parameter
+            for parameter in magnitude_formula["parameters"]
+            if parameter["id"] == "threshold"
+        )["domain"]["minimum"] = -(1 << 63)
+        magnitude_formula["result"]["domain"]["maximum"] = (1 << 63) - 1
+        for node in magnitude_formula["body"]["nodes"]:
+            node["result"]["domain"]["maximum"] = (1 << 63) - 1
         source_path = tmp_path / "overflow-periodic-model.json"
         source_path.write_text(json.dumps(source), encoding="utf-8")
         built = _run(
