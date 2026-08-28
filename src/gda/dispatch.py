@@ -49,10 +49,12 @@ def params_or_bad_parameter(model_cls: type[P], /, **kwargs: Any) -> P:
     in the command class, surfaces the same rule as a structured
     ``invalid_params``. Stated here once so no argv body restates it.
 
-    A raw ``ValueError``'s ``str()`` is already the plain sentence a validator
-    wrote, so it passes through as-is. A pydantic ``ValidationError`` is
-    rendered through :func:`~gda.errors.validation_error_message` instead of its
-    own ``str()`` — which dumps the model's class name, a ``[type=...,
+    A custom ``BaseModel.__init__`` can raise a raw ``ValueError`` before
+    pydantic's validation machinery wraps it; its ``str()`` is already the plain
+    refusal sentence, so it passes through as-is. Field/model validators and
+    ``model_post_init`` instead arrive as a pydantic ``ValidationError``, rendered
+    through :func:`~gda.errors.validation_error_message` instead of its own
+    ``str()`` — which dumps the model's class name, a ``[type=...,
     input_value=..., input_type=...]`` tag PER ERROR, and a pydantic.dev URL, and
     can echo back an arbitrary caller value (including a large or sensitive one)
     inside ``input_value=`` (#713 review). That renderer is shared with
