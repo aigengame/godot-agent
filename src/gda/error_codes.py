@@ -3,6 +3,12 @@
 The registry is the machine-readable companion to ADR-0002's table. Every code
 emitted in a public ``GdaError`` must be declared here.
 
+**Editing a ``description``.** Its wording is pinned against that ADR's ``Meaning``
+column, so a change here needs the same change there (#701). What the pin
+normalizes away — markup, wrapping, and a trailing ADR/issue citation — is stated
+with its reasoning in ``tests/test_error_registry.py``, the single home of that
+rule.
+
 **What ``source`` means.** It names a code's *authoritative origin channel* — the
 layer that defines the failure and owns reporting it — and it governs **GDScript
 mirror membership**: ``operations.gd`` declares exactly the ``operation``-source
@@ -85,7 +91,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.ENVIRONMENT,
         EXIT_TIMEOUT,
         ErrorCodeSource.RUNNER,
-        "Godot launched but did not return before the runner timeout.",
+        # The scope caveat is not decoration (#701): `scene preflight` owns a
+        # wall-clock bound of its own and reports exceeding it as a `timeout`
+        # STATUS on a successful result, so an agent that branches on this code
+        # alone would never see that command's timeout.
+        "Godot launched but did not return before the runner timeout. One command "
+        "does not report it: `scene preflight` reports its own `timeout` status "
+        "instead.",
     ),
     ErrorCodeSpec(
         "user_data_unwritable",
@@ -437,7 +449,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_OPERATION,
         ErrorCodeSource.CLASSIFIER,
         "A `script run` entry script does not exist in the project, so the engine "
-        "never ran it (it still exits 0; gda reads the failure from stderr).",
+        "never ran it — it still exits 0, and gda reads the failure from stderr.",
     ),
     ErrorCodeSpec(
         "script_failed",
@@ -530,14 +542,24 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.CLASSIFIER,
-        "An export run targeted a preset that has no configured export_path.",
+        # Both producing conditions, not just the configured one (#701): the
+        # destination is `--output` if given, else the preset's `export_path`, so
+        # the failure needs BOTH to be absent — a reader told only about
+        # `export_path` would not know the override exists.
+        "An export run has no destination — neither a `--output` override nor a "
+        "configured `export_path`.",
     ),
     ErrorCodeSpec(
         "export_templates_missing",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.CLASSIFIER,
-        "An export run needs the export templates for the running engine version, which are not installed.",
+        # Scoped to the modes that actually need templates (#701): `pack` produces
+        # project data only, so the preflight skips the check for it. "An export
+        # run" claimed the code can fire for a mode it never fires for.
+        "A release/debug export needs the export templates for the running engine "
+        "version, which are not installed; `pack` needs no platform templates and "
+        "is exempt.",
     ),
     ErrorCodeSpec(
         "export_output_parent_failed",
@@ -616,7 +638,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_PARSE,
         ErrorCodeSource.CLASSIFIER,
         "The engine emitted a valid result tree that nests past gda's recursion"
-        " limit; the payload is contract-conformant, the limit is wrapper-side.",
+        " limit; the payload is contract-conformant, the limit is wrapper-side"
+        " (shares the `parse` exit code; the `code` distinguishes it from"
+        " `contract_violation`).",
     ),
     # Phase-2 live execution channel (ADR-0017, ADR-0021). Classifier-source —
     # surfaced by the daemon IPC client / the daemon, never by a headless
@@ -643,8 +667,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "The engine session disconnected before the live operation returned"
-        " (the game crashed or the harness connection dropped).",
+        "The engine session disconnected before the live operation returned —"
+        " the game crashed or the harness connection dropped.",
     ),
     ErrorCodeSpec(
         "live_timeout",
@@ -841,7 +865,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "A live capture predicate did not hold within its declared frame bound.",
+        "A live `screen capture` predicate (`--await-*`) did not hold within its "
+        "declared frame bound.",
     ),
     # The `screen` capture failure the gda harness reports for #222. Same shape as
     # the other per-op LIVE codes (LIVE-category, classifier-source, exit_code
@@ -856,8 +881,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
         "A live screen capture ran on a headless engine session (the dummy "
-        "DisplayServer cannot read pixels); start the daemon with `gda daemon start "
-        "--windowed`.",
+        "DisplayServer cannot read pixels); start the daemon windowed with "
+        "`gda daemon start --windowed`.",
     ),
     # A pre-launch platform precondition, not a live-runtime failure: live needs
     # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category
@@ -869,7 +894,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
         "Live operations require a UNIX platform (macOS/Linux); they use Unix"
-        " domain sockets, which are unavailable here.",
+        " domain sockets, which are unavailable here. Phase-1 headless is"
+        " unaffected.",
     ),
     # A pre-launch DISPLAY precondition, not a live-runtime failure: a windowed
     # engine session needs a usable host DisplayServer, and a host with none makes a

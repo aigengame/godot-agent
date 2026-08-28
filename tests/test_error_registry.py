@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -46,7 +47,9 @@ ADR_0002 = ROOT / "docs" / "adr" / "0002-headless-structured-output-contract.md"
 OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
 
-ADR_REGISTRY_ROW = re.compile(r"^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \| `(\d+)` \|")
+ADR_REGISTRY_ROW = re.compile(
+    r"^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \| `(\d+)` \| (.+?) \|$"
+)
 GDSCRIPT_OPERATION_CODE = re.compile(
     r'^const OP_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE
 )
@@ -84,19 +87,108 @@ HARNESS_LIVE_ERROR_CODES = (
 )
 
 
-def _adr_registry() -> dict[str, tuple[str, str, int]]:
-    rows: dict[str, tuple[str, str, int]] = {}
+# --- How a code's DESCRIPTION is compared across the two artifacts (#701) -----
+#
+# ADR-0002's table and `gda.error_codes` carry the same per-code description, and
+# the equality pin below compares it. Two normalizations run first. Both are
+# decisions with a stated reason, because a rule buried in a regex is a rule the
+# next reader cannot tell from a bug. Counts below are a 2026-08-28 snapshot, not
+# a contract — only the pin itself is asserted.
+#
+# 1. **Markdown prose vs a Python string.** The ADR cell is Markdown (`code
+#    spans`, one long line); the registry is an implicitly-concatenated,
+#    formatter-wrapped string. Backticks are dropped, whitespace runs collapse to
+#    one space, and a trailing period is ignored — so a reflow or a code-span
+#    added on one side is never a failure. Every other character must match.
+#
+# 2. **A citation is not part of a code's meaning.** 41 of the ADR's 91 rows end
+#    with a parenthetical citing the decision or issue that put the row in the
+#    contract: `(Phase 2, ADR-0017 / ADR-0021)`, `(ADR-0033, #363)`, `(#170)`.
+#    Saying which decision added a row is the ADR's job as a decision record; the
+#    registry's `description` is the code's MEANING — the sentence a caller reads
+#    next to the code, where an unresolvable issue number is noise. So a trailing
+#    parenthetical is stripped and not compared when it CITES at least one ADR or
+#    issue and contains nothing but citation tokens. It is stripped on BOTH sides,
+#    not just the ADR's: the two artifacts cite for different readers, and 5
+#    registry descriptions carry one too (`usage_error`, `invalid_params`,
+#    `ambiguous_class_name`, `script_failed`, `script_aborted` — each a pointer to
+#    the ADR that governs it, worth keeping where it is).
+#    Rejected alternative: have the registry adopt the ADR's refs. That copies 41
+#    references an agent cannot resolve into the public code descriptions and makes
+#    appending an issue number a standing obligation for every new code.
+#
+#    **Why a reference is REQUIRED, not merely allowed** (#755 review): a bare
+#    `(Phase N)` is domain content, not a citation — CONTEXT.md defines Phase 1 /
+#    Phase 2 as the order capabilities are delivered in. An earlier form of this
+#    rule stripped any parenthetical built from the token set, so `(Phase 2)` and
+#    `(Phase 1)` normalized alike and a mislabelled row would have passed the pin
+#    silently — the exact drift class #701 exists to catch. A `Phase N` may still
+#    ride INSIDE a citation cluster, because dropping it from the token set would
+#    unstrip `(Phase 2, ADR-0017 / ADR-0021)` and turn a third of the cited rows
+#    into false divergences.
+#
+#    Residual, stated exactly: a `Phase N` riding inside a citation cluster is
+#    stripped with it and so is not compared. For 20 of the 23 rows carrying a
+#    phase label the compared `Category` column pins the distinction indirectly —
+#    `live` exists only in Phase 2 (ADR-0021) — but the other three are
+#    ENVIRONMENT-category (`live_unsupported_platform`, `live_windowed_unavailable`,
+#    `live_windowed_permission_denied`), so for those a phase mislabel inside a
+#    citation cluster is caught by neither mechanism. Left that way deliberately:
+#    three docs-only rows in a field with no runtime consumer do not justify the
+#    27 rows of churn that closing the riding case would cost.
+#
+# The rule is deliberately narrow. A parenthetical that MIXES prose with a ref is
+# not a citation and is compared verbatim, so content can never hide behind the
+# rule. #701 found exactly that: `(pack needs no platform templates and is
+# exempt; #170)` — a real exemption the registry had lost. It was reconciled into
+# both artifacts, not normalized away.
+#
+# A new citation form (a date, a PR link) will fail this pin rather than being
+# silently accepted. That is intended: widening the token set is a conscious edit.
+CITATION_REF = r"(?:ADR-\d{4}(?: amendment)?|#\d+)"
+CITATION_TOKEN = rf"(?:Phase \d+|{CITATION_REF})"
+TRAILING_CITATION = re.compile(
+    # The lookahead is the "at least one ADR or issue reference" requirement.
+    rf"\s*\((?=[^()]*{CITATION_REF})"
+    rf"{CITATION_TOKEN}(?:\s*[,/]\s*{CITATION_TOKEN})*\)\.?\s*$"
+)
+
+
+def _normalized_description(text: str) -> str:
+    """The comparable part of a description — see the rule above."""
+    flattened = " ".join(text.replace("`", "").split()).rstrip(". ")
+    return TRAILING_CITATION.sub("", flattened).rstrip(". ")
+
+
+class ErrorRow(NamedTuple):
+    """One code's full public shape, as both artifacts must state it."""
+
+    category: str
+    source: str
+    exit_code: int
+    description: str
+
+
+def _adr_registry() -> dict[str, ErrorRow]:
+    rows: dict[str, ErrorRow] = {}
     for line in ADR_0002.read_text(encoding="utf-8").splitlines():
         match = ADR_REGISTRY_ROW.match(line)
         if match:
-            code, category, source, exit_code = match.groups()
-            rows[code] = (category, source, int(exit_code))
+            code, category, source, exit_code, description = match.groups()
+            rows[code] = ErrorRow(
+                category, source, int(exit_code), _normalized_description(description)
+            )
     return rows
 
 
-def _python_registry() -> dict[str, tuple[str, str, int]]:
+def _python_registry() -> dict[str, ErrorRow]:
     return {
-        spec.code: (spec.category.value, spec.source.value, spec.exit_code)
+        spec.code: ErrorRow(
+            spec.category.value,
+            spec.source.value,
+            spec.exit_code,
+            _normalized_description(spec.description),
+        )
         for spec in ERROR_CODES
     }
 
@@ -123,7 +215,54 @@ def test_failure_builder_rejects_unregistered_public_codes():
 
 
 def test_adr_registry_matches_python_authoritative_registry():
+    # Every column of a code's public shape, the `Meaning` prose included (#701).
+    # The description used to be parsed out of the ADR row and thrown away, so the
+    # two artifacts could describe the same code differently and nothing noticed —
+    # wave 2 shipped three PRs whose description edits had to be checked by eye,
+    # and 15 rows had already drifted apart in substance (a producing condition the
+    # registry omitted, an exemption it had lost, a remedy it stated incompletely).
+    # Comparison rule: see `_normalized_description` above.
     assert _adr_registry() == _python_registry()
+
+
+def test_description_normalization_ignores_only_citations():
+    # Pins the boundary of the rule stated above, so widening it stays a conscious
+    # edit rather than a side effect of a regex tweak.
+    #
+    # Ignored: markup, wrapping, a trailing period, and a trailing parenthetical
+    # that cites an ADR or issue and holds nothing else.
+    assert _normalized_description("A `code` span.") == "A code span"
+    assert _normalized_description("Wrapped\n  text") == "Wrapped text"
+    assert _normalized_description("Meaning (Phase 2, ADR-0017 / ADR-0021).") == (
+        _normalized_description("Meaning.")
+    )
+    assert _normalized_description("Meaning (ADR-0031 amendment, #655).") == "Meaning"
+    # NOT ignored: a parenthetical carrying prose, even when a ref rides along —
+    # that is content, and dropping it is how a real divergence would hide.
+    assert _normalized_description("Meaning (pack is exempt; #170).") == (
+        "Meaning (pack is exempt; #170)"
+    )
+    # NOT ignored: a citation-looking parenthetical mid-sentence.
+    assert _normalized_description("Meaning (#170) and more.") == (
+        "Meaning (#170) and more"
+    )
+
+
+def test_a_bare_phase_label_is_compared_not_stripped():
+    # #755 review: `Phase N` is domain content (CONTEXT.md — the order capabilities
+    # are delivered in), so a parenthetical holding ONLY a phase label is not a
+    # citation and must survive normalization. Before the fix both sides normalized
+    # to the same string and a row mislabelled Phase 1 passed the pin silently.
+    assert _normalized_description("Meaning (Phase 2).") == "Meaning (Phase 2)"
+    assert _normalized_description("Meaning (Phase 2).") != (
+        _normalized_description("Meaning (Phase 1).")
+    )
+    # The other direction, which is why `Phase \d+` stays in the token set: a phase
+    # label riding inside a real citation is stripped with it. Removing the token
+    # would unstrip these and turn a third of the cited rows into false
+    # divergences.
+    assert _normalized_description("Meaning (Phase 2, #220).") == "Meaning"
+    assert _normalized_description("Meaning (Phase 2, ADR-0021).") == "Meaning"
 
 
 def test_gdscript_operation_error_codes_mirror_python_operation_subset():

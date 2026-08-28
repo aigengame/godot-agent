@@ -1,8 +1,11 @@
 """S1 (e2e): the project static-analysis reads against the real Godot engine (issue #116).
 
 The four read-only, project-wide analysis commands — find-references,
-dependencies, find-unused-resources, statistics — backed by a single static scan
-that parses files as text (no instantiation, issue #30). These tests build a
+dependencies, find-unused-resources, statistics — backed by two static scans
+over different file universes (the first three share the extension-filtered
+walk; statistics counts with an unfiltered one that also sees ``.import``
+sidecars and ``project.godot``) under one shared directory-exclusion rule,
+both parsing files as text (no instantiation, issue #30). These tests build a
 small fixture project WITH cross-references (a main scene that ext_resources a
 sub-scene, a script and an image; a script that preloads a sibling; an autoload;
 an unreferenced resource) and assert each command reports it correctly off the
@@ -482,3 +485,135 @@ def test_dependencies_without_project_is_project_not_found(tmp_path):
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
     assert err["code"] == "project_not_found"
+
+
+# --- every project walk agrees on a nested `.godot` directory (#712) ----------
+
+# A project-local custom Node declared inside a NESTED `.godot` directory — the
+# class the class_name index must find once the resource walk stops excluding
+# that directory by name.
+NESTED_THING_GD = """\
+class_name NestedThing
+extends Node
+"""
+
+# The same declaration authored INTO the engine's own root cache. It must stay
+# invisible, so the correction does not swap one wrong enumeration for another.
+CACHED_THING_GD = """\
+class_name CachedThing
+extends Node
+"""
+
+BARE_TSCN = """\
+[gd_scene format=3]
+
+[node name="Root" type="Node2D"]
+"""
+
+
+@pytest.mark.e2e
+def test_project_walks_agree_on_a_nested_dot_godot_directory(tmp_path):
+    # The exclusion is the engine's ONE cache directory, `res://.godot` — not
+    # every directory that happens to be named `.godot`. A nested one is user
+    # content (an addon vendoring a sample project, a fixture tree). #710 fixed
+    # the SCRIPT walk that way and left three siblings comparing the entry name,
+    # so one project answered two ways: `script list` reported a script that
+    # `project statistics` counted as zero, and `node add --type` could not
+    # resolve a class_name `script list` had just shown (#712). This test is that
+    # cross-command agreement, not four per-walker checks — each command below
+    # rides a different walk over the same tree.
+    project = tmp_path / "nested-cache"
+    (project / "nested" / ".godot").mkdir(parents=True)
+    (project / ".godot").mkdir(parents=True, exist_ok=True)
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-nested-walks"), encoding="utf-8"
+    )
+    (project / "top.tscn").write_text(BARE_TSCN, encoding="utf-8")
+    (project / "nested" / ".godot" / "hidden.tscn").write_text(
+        BARE_TSCN, encoding="utf-8"
+    )
+    (project / "nested" / ".godot" / "hidden.gd").write_text(
+        NESTED_THING_GD, encoding="utf-8"
+    )
+    (project / ".godot" / "engine_cache.tscn").write_text(BARE_TSCN, encoding="utf-8")
+    (project / ".godot" / "engine_cache.gd").write_text(
+        CACHED_THING_GD, encoding="utf-8"
+    )
+
+    scene_proc = _gda(project, "scene", "list", "--json")
+    script_proc = _gda(project, "script", "list", "--json")
+    stats_proc = _gda(project, "project", "statistics", "--json")
+
+    assert scene_proc.returncode == 0, scene_proc.stdout + scene_proc.stderr
+    assert script_proc.returncode == 0, script_proc.stdout + script_proc.stderr
+    assert stats_proc.returncode == 0, stats_proc.stdout + stats_proc.stderr
+    scenes = {s["path"] for s in json.loads(scene_proc.stdout)["scenes"]}
+    scripts = {s["path"] for s in json.loads(script_proc.stdout)["scripts"]}
+    stats = json.loads(stats_proc.stdout)
+
+    # The nested content is authored content: every walk enumerates it.
+    assert scenes == {"res://top.tscn", "res://nested/.godot/hidden.tscn"}
+    assert scripts == {"res://nested/.godot/hidden.gd"}
+    # The counts and the listings are the same project, so they agree.
+    assert stats["scene_count"] == len(scenes)
+    assert stats["script_count"] == len(scripts)
+    # The root cache stays invisible — in the listings and in the counts alike
+    # (it holds one .gd and one .tscn of its own, which must not be counted).
+    assert not any(p.startswith("res://.godot/") for p in scenes | scripts)
+    by_ext = {e["extension"]: e for e in stats["by_extension"]}
+    assert by_ext["gd"]["files"] == 1
+    assert by_ext["tscn"]["files"] == 2
+
+    # The class_name index rides the resource walk, so node/resource creation
+    # resolves the nested declaration `script list` reports...
+    added = _gda(
+        project, "node", "add", "res://top.tscn", "--type", "NestedThing", "--json"
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert json.loads(added.stdout)["script_class"] == "NestedThing"
+    # ...and still does not resolve one authored into the engine's own cache.
+    cached = _gda(
+        project, "node", "add", "res://top.tscn", "--type", "CachedThing", "--json"
+    )
+    assert cached.returncode == 4, cached.stdout + cached.stderr
+    assert json.loads(cached.stdout)["error"]["code"] == "invalid_node_type"
+
+    # The three remaining consumers of that same walk. They run AFTER the node
+    # add, which wrote an [ext_resource] to the nested script into
+    # `res://top.tscn` — so the nested content is a real reference target here,
+    # not just an enumerated path.
+    deps_proc = _gda(project, "project", "dependencies", "--json")
+    refs_proc = _gda(
+        project, "project", "find-references", "res://nested/.godot/hidden.gd", "--json"
+    )
+    unused_proc = _gda(project, "project", "find-unused-resources", "--json")
+
+    assert deps_proc.returncode == 0, deps_proc.stdout + deps_proc.stderr
+    assert refs_proc.returncode == 0, refs_proc.stdout + refs_proc.stderr
+    assert unused_proc.returncode == 0, unused_proc.stdout + unused_proc.stderr
+    by_source = {
+        row["path"]: row["depends_on"]
+        for row in json.loads(deps_proc.stdout)["dependencies"]
+    }
+    references = json.loads(refs_proc.stdout)["references"]
+    unused = json.loads(unused_proc.stdout)["unused"]
+
+    # Both nested files are graph sources, and top.tscn's edge to the nested
+    # script is reported from both ends.
+    assert set(by_source) == {
+        "res://top.tscn",
+        "res://nested/.godot/hidden.tscn",
+        "res://nested/.godot/hidden.gd",
+    }
+    assert by_source["res://top.tscn"] == [
+        {"path": "res://nested/.godot/hidden.gd", "kind": "ext_resource"}
+    ]
+    assert [(r["path"], r["kind"]) for r in references] == [
+        ("res://top.tscn", "ext_resource")
+    ]
+    # The nested script is referenced now, so only the two scenes are orphans.
+    assert unused == ["res://nested/.godot/hidden.tscn", "res://top.tscn"]
+    # The root cache is invisible to all three. Its `.gd` and `.tscn` would
+    # otherwise BOTH be dependency source rows and unused candidates, so this
+    # arm fails if the exclusion ever widens past `res://.godot` itself.
+    assert not any(p.startswith("res://.godot/") for p in [*by_source, *unused])

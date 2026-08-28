@@ -230,6 +230,46 @@ def test_both_path_forms_reach_one_canonical_address(script):
 
 
 @pytest.mark.parametrize(
+    ("script", "canonical"),
+    [
+        # LEADING and INTERNAL ASCII SPACES are unaffected by the engine's own argv
+        # normalization (verified against real Godot 4.6.3). Keep this claim narrow:
+        # line-breaking whitespace is unsafe for the line-oriented diagnostic
+        # protocol and is refused separately below.
+        (" tests/logic.gd", "res:// tests/logic.gd"),
+        ("tests/log ic.gd", "res://tests/log ic.gd"),
+    ],
+)
+def test_leading_and_internal_ascii_spaces_are_accepted(script, canonical):
+    outcome, launch = _run(
+        RunResult(stdout="ok\n", stderr="", exit_code=0), script=script
+    )
+
+    assert isinstance(outcome, ScriptRunResult), getattr(outcome, "error", None)
+    (_binary, args, _cwd, _timeout, _label, _watch) = launch.calls[0]
+    assert args == ["--path", str(PROJECT), "--script", canonical]
+    assert outcome.path == canonical
+
+
+@pytest.mark.parametrize("suffix", ["\u00a0", "\u2003"])
+def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
+    # Godot 4.6.3's String::strip_edges() removes only code points <= U+0020.
+    # NBSP and EM SPACE therefore survive the --script path and its diagnostic;
+    # Python str.rstrip() is wider and must not define this engine-facing ABI.
+    script = f"tests/logic.gd{suffix}"
+    canonical = f"res://{script}"
+
+    outcome, launch = _run(
+        RunResult(stdout="ok\n", stderr="", exit_code=0), script=script
+    )
+
+    assert isinstance(outcome, ScriptRunResult), getattr(outcome, "error", None)
+    (_binary, args, _cwd, _timeout, _label, _watch) = launch.calls[0]
+    assert args == ["--path", str(PROJECT), "--script", canonical]
+    assert outcome.path == canonical
+
+
+@pytest.mark.parametrize(
     "script",
     [
         # Absolute: outside the --project context (#675 keeps this refusal).
@@ -246,9 +286,10 @@ def test_both_path_forms_reach_one_canonical_address(script):
         "sub/..",
         "res://",
         "res://.",
-        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded (the
-        # engine's `Can't load script: res://..` parses back as `res://.`), and
-        # `../outside.gd` actually EXECUTED a script outside the project.
+        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded before
+        # #698 fixed the parser (the engine's `Can't load script: res://..` used to
+        # parse back as `res://.`), and `../outside.gd` actually EXECUTED a script
+        # outside the project — refused regardless of the parser's own fix.
         "..",
         "sub/../..",
         "../outside.gd",
@@ -261,17 +302,42 @@ def test_both_path_forms_reach_one_canonical_address(script):
         # absolute path, refused above. Both tilde outcomes end on ONE refusal.
         "~nosuchuser/x.gd",
         "~/x.gd",
+        # A TRAILING code point <= U+0020 (#698 review, reproduced on real Godot
+        # 4.6.3): Godot strips it from the `--script` path before echoing the path in
+        # its diagnostic, so the canonical identity cannot match. Both accepted
+        # forms, with and without an extension, and two members of the engine's
+        # actual trim set.
+        "missing file. ",
+        "missing file.gd ",
+        "res://missing file. ",
+        "tests/logic.gd\t",
+        # engine_log splits these characters into separate records. If one appears
+        # anywhere in the path, the emitted address cannot round-trip through the
+        # line-oriented diagnostic protocol and a never-run entry can phantom-pass.
+        "tests/missing\nfile.gd",
+        "tests/missing\rfile.gd",
+        "tests/missing\vfile.gd",
+        "tests/missing\ffile.gd",
+        "tests/missing\x1cfile.gd",
+        "tests/missing\x1dfile.gd",
+        "tests/missing\x1efile.gd",
+        "tests/missing\x85file.gd",
+        "tests/missing\u2028file.gd",
+        "tests/missing\u2029file.gd",
     ],
 )
 def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
     # The path ABI edge (ADR-0031, narrowed by #675): accepting the project-relative
     # form must not accept everything ELSE that is merely non-absolute. The root and
     # escape cases are load-bearing — the engine answers `Can't load script: res://.`
-    # / `res://..`, whose address the parser reads back with the sentence period
-    # stripped, so it never matches the entry and the run reported a PHANTOM SUCCESS
-    # (exit 0). A resolvable escape is worse: `../outside.gd` RAN a script outside the
+    # / `res://..`, and before #698 fixed the parser that address came back with the
+    # sentence period stripped, so it never matched the entry and the run reported a
+    # PHANTOM SUCCESS (exit 0). This refusal stays regardless of the parser's own fix
+    # — a resolvable escape is worse: `../outside.gd` RAN a script outside the
     # project, which is exactly the ADR-0009 widening the amendment cites as its
-    # reason for refusing absolute paths.
+    # reason for refusing absolute paths. The trailing-engine-trim and embedded-line-
+    # boundary cases are the same phantom-success failure mode through two other
+    # identity-loss mechanisms — see #698 / PR #756.
     outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
 
     assert isinstance(outcome, Failure)
@@ -375,6 +441,45 @@ def test_missing_entry_script_is_a_failure_despite_the_zero_exit():
     assert "res://tests/logic.gd" in outcome.error.message
     # The raw stderr is preserved as secondary evidence on the envelope.
     assert outcome.error.diagnostics == MISSING_STDERR
+
+
+# Independent finding, same #698 fix: a project-relative path containing a SPACE
+# reached `_CANT_LOAD`'s old `\S+` capture and failed to match the WHOLE line —
+# no diagnostic at all, not a corrupted one — so `entry_load_failure` found
+# nothing and this operation fell through to the SUCCESS branch: a phantom
+# `ScriptRunResult` with `exit_status: 0` and an empty `diagnostics` list, for a
+# script that never ran. Captured verbatim from `godot --headless --path <proj>
+# --script "res://missing file."` (Godot 4.6.3, macOS) — same shape as
+# MISSING_STDERR above, minus the extension (so only `_CANT_LOAD` carries the
+# address; the `.gd` spelling MASKS this bug via `_OPEN_FAILED`'s quoted,
+# space-safe capture, so testing only that shape would wrongly conclude there
+# is no defect — see tests/test_script_error_parser.py for the parser-level
+# coverage of both this and the extension-masked shape).
+WHITESPACE_STDERR = """\
+ERROR: Resource file not found: res://missing file. (expected type: unknown)
+   at: _load (core/io/resource_loader.cpp:351)
+ERROR: Can't load script: res://missing file.
+   at: start (main/main.cpp:4271)
+"""
+
+
+def test_a_whitespace_entry_path_is_a_failure_despite_the_zero_exit():
+    # Public-verdict regression: assert the OPERATION's outcome flips from a
+    # phantom success to the registered failure end-to-end, through the SAME
+    # validate -> launch -> classify recipe every other verdict test here drives
+    # — not that the parser's regex captures the path correctly in isolation
+    # (that is asserted separately, at the parser level, in
+    # tests/test_script_error_parser.py).
+    outcome, _ = _run(
+        RunResult(stdout="", stderr=WHITESPACE_STDERR, exit_code=0),
+        script="missing file.",
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_compile_failed"
+    assert outcome.exit_code == EXIT_OPERATION
+    assert "res://missing file." in outcome.error.message
+    assert outcome.error.diagnostics == WHITESPACE_STDERR
 
 
 def test_entry_parse_error_is_a_failure_despite_the_zero_exit():

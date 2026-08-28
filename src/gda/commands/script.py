@@ -44,6 +44,7 @@ from gda.errors import (
     script_run_timeout_failure,
     unresolvable_binary_failure,
 )
+from gda.engine_log import lines as engine_log_lines
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -234,10 +235,14 @@ class ScriptDeleteResult(BaseModel):
 class ScriptSetMode(str, Enum):
     """The edit mode of ``gda script set``, the single source of truth (issue #133).
 
-    The CLI resolves exactly one mode from the supplied flags (its mutual-exclusion
-    check) and stamps it here, so the operation dispatches on this explicit
-    discriminator instead of re-inferring the mode from which params are present —
-    the inference precedence can no longer drift from the CLI's exclusivity rule.
+    The params model derives exactly one mode from the supplied fields — via
+    :func:`resolve_set_mode`, run once by the model's own ``_resolve_mode``
+    validator on BOTH the argv and ``--params-json`` paths (ADR-0015, #713) —
+    and stamps it here, so the operation dispatches on this explicit
+    discriminator instead of re-inferring the mode from which params are
+    present. The CLI is a thin argv-to-model adapter; it does not re-derive the
+    mode itself, so the derivation cannot drift from the model's exclusivity
+    rule.
 
     - ``SEARCH_REPLACE`` — ``search``/``replace``: every literal (not regex)
       occurrence of ``search`` is replaced with ``replace``.
@@ -263,9 +268,13 @@ def resolve_set_mode(
     The single home of the edit-mode rule, shared by ``script set`` and ``shader
     set`` and by BOTH input paths (ADR-0015): exactly one of the three
     mutually-exclusive modes must be supplied. Raises ``ValueError`` on a
-    violation — the CLI wrapper translates it to a usage error (exit 2) for argv,
-    while the params models surface it as the structured ``invalid_params`` for
-    ``--params-json``.
+    violation. Its only callers are the two params models' ``_resolve_mode``
+    ``model_validator``s (:class:`ScriptSetParams` here, :class:`ShaderSetParams`
+    in ``gda.commands.shader``) — so the rule runs exactly ONCE per invocation,
+    on both commands (issue #713). The argv body builds that model through
+    :func:`~gda.dispatch.params_or_bad_parameter`, which turns the raised error
+    into the Click usage error (exit 2); ``--params-json`` builds the same model
+    and surfaces it as the structured ``invalid_params`` instead.
     """
     has_search = search is not None or replace is not None
     has_line_range = start_line is not None or end_line is not None
@@ -302,9 +311,10 @@ class ScriptSetParams(BaseModel):
     loads the script, so editing one can never run project code (the read trust
     boundary of issue #30). ``path`` addresses the script by its ``res://`` or
     filesystem path. The remaining params carry one of three mutually-exclusive
-    edit modes; the CLI resolves which one and stamps it on ``mode`` (issue #133),
-    so the operation dispatches on that explicit discriminator rather than
-    re-inferring it from which params are present:
+    edit modes; the model derives which one and stamps it on ``mode`` (issue
+    #133, ADR-0015) — the SAME derivation on both the argv and ``--params-json``
+    paths (#713) — so the operation dispatches on that explicit discriminator
+    rather than re-inferring it from which params are present:
 
     - **search-replace** (``mode = search_replace``) — ``search``/``replace`` both
       present: every literal (not regex) occurrence of ``search`` is replaced with
@@ -1150,7 +1160,7 @@ def _project_scoped_res_path(script: str) -> str | None:
     :func:`canonical_res_path`, so the argv, the entry-load verdict and the reported
     path cannot diverge by input spelling.
 
-    Returns ``None`` for the five shapes that are not project-scoped script
+    Returns ``None`` for the seven shapes that are not project-scoped script
     addresses. Each must be caught HERE, because each is otherwise launched:
 
     - an **absolute** path — outside the ``--project`` context (the reasons it stays
@@ -1163,6 +1173,17 @@ def _project_scoped_res_path(script: str) -> str | None:
       expand it (an unknown user, #699); a resolvable ``~/x.gd`` was already expanded
       to the absolute path refused above. So both tilde outcomes land on one refusal
       instead of one being refused and the other spliced into ``res://~user/x.gd``;
+    - a path whose canonical address ends in a code point at or below **U+0020** —
+      Godot 4.6.3 removes that exact suffix set (``String::strip_edges``) before it
+      echoes the ``--script`` path in a load-failure diagnostic. The canonical
+      identity then loses a character and the never-ran verdict misses. Python's
+      Unicode ``rstrip`` set is deliberately NOT used: Godot preserves NBSP and EM
+      SPACE, so those remain accepted;
+    - a path containing an **engine-log line boundary** — the engine can emit that
+      character inside its diagnostic, but :mod:`gda.engine_log` necessarily splits
+      the address into separate records. No one record retains the canonical entry
+      identity, so a never-run entry can again report a phantom success. Ordinary
+      leading and internal ASCII spaces remain accepted;
     - a path that names the project **root** (``""``, ``"."``, ``"sub/.."``) — it names
       a directory, not a script. An unset shell variable makes ``gda script run
       "$SCRIPT"`` exactly this;
@@ -1170,17 +1191,29 @@ def _project_scoped_res_path(script: str) -> str | None:
       ``res://`` spellings) — the project is the whole addressable scope, so an
       upward escape names something the ``--project`` contract does not cover.
 
-    The last two are load-bearing for the same reason, and it is not tidiness. The
-    engine answers a root address with ``Can't load script: res://.`` (or
-    ``res://..``), whose address the error parser reads back with the sentence period
-    stripped — ``res://`` for the first, ``res://.`` for the second. Neither matches
-    the entry, so the never-ran verdict misses it and the run reports a PHANTOM
-    SUCCESS. And an escape that RESOLVES (``../outside.gd``) executes a script outside
-    the project entirely, which would widen the Project-code execution surface past
-    ADR-0009's Trusted project — the very consequence the amendment cites for keeping
-    absolute paths refused, so admitting it by the relative spelling would make that
-    reasoning false. Refusing both before the launch closes them without touching the
-    error parser's own res:// handling.
+    The last two are load-bearing, and it is not tidiness. The root-address clause
+    is ALSO belt-and-suspenders against a parser risk: the engine answers a root
+    address with ``Can't load script: res://.`` (or ``res://..``), a sentence
+    whose trailing dot is part of the ADDRESS, not punctuation. A parser that
+    folds it as though it WERE punctuation — reading ``res://.`` back as
+    ``res://``, ``res://..`` back as ``res://.`` — would miss the launched
+    entry, and the never-ran verdict would report a PHANTOM SUCCESS instead of
+    the refusal it should be. Issue #698 (its fix, PR #756) targets exactly that
+    fold in :mod:`gda.script_errors`'s ``_CANT_LOAD`` regex; this paragraph's own
+    argument does not depend on whether that PR has landed at any point in this
+    branch's history, because THIS guard already closes the gap on its own,
+    independent of the parser's fold either way: a root address is refused
+    HERE, before any launch, so it never reaches the parser at all. The root
+    address therefore stays refused for the plainer reason already given above
+    (it names a directory, not a script). The escape clause is the one still
+    load-bearing for the reason it always was: an escape that RESOLVES
+    (``../outside.gd``)
+    executes a script outside the project entirely, which would widen the
+    Project-code execution surface past ADR-0009's Trusted project — the very
+    consequence the amendment cites for keeping absolute paths refused, so
+    admitting it by the relative spelling would make that reasoning false.
+    Refusing both before the launch keeps this gate, not the error parser, as the
+    one place that decides.
 
     The escape test is on the canonical remainder's first SEGMENT, not a string
     prefix: ``res://..foo.gd`` is a legal file whose name merely starts with two dots,
@@ -1203,6 +1236,17 @@ def _project_scoped_res_path(script: str) -> str | None:
     if remainder in _ROOT_REMAINDERS:
         return None
     if remainder == ".." or remainder.startswith("../"):
+        return None
+    # Godot 4.6.3's String::strip_edges() removes trailing code points <= U+0020.
+    # Refuse exactly that engine-normalized suffix set; Python str.rstrip() is wider
+    # and would reject NBSP / EM SPACE even though Godot preserves them. Do not trim:
+    # that would silently launch a different address from the one the caller named.
+    if ord(remainder[-1]) <= 0x20:
+        return None
+    # engine_log owns the line protocol through str.splitlines(). Sentinels make a
+    # boundary at either edge observable (splitlines otherwise suppresses a terminal
+    # empty record), while any ordinary one-line address still produces one record.
+    if len(engine_log_lines(f"x{remainder}x")) != 1:
         return None
     return canonical
 
@@ -2344,12 +2388,16 @@ def set_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Edit a .gd script via search-replace, line-range, or full overwrite."""
-    mode = parse_set_mode_argv(search, replace, start_line, end_line, content)
+    # The model owns the mode-selection rule and the argv body does not restate
+    # it: the shared builder turns any model-construction failure (resolve_set_mode,
+    # via ScriptSetParams's validator) into the Click usage error (exit 2) — the
+    # same translation an argv-side pre-check used to do by hand — so the rule
+    # runs once per invocation on both input paths (ADR-0015, issue #713).
     dispatch_domain(
         SCRIPT_SET_COMMAND,
-        ScriptSetParams(
+        params_or_bad_parameter(
+            ScriptSetParams,
             path=path,
-            mode=mode,
             search=search,
             replace=replace,
             start_line=start_line,
@@ -2360,27 +2408,6 @@ def set_script(
         godot=godot,
         project=project,
     )
-
-
-def parse_set_mode_argv(
-    search: Optional[str],
-    replace: Optional[str],
-    start_line: Optional[int],
-    end_line: Optional[int],
-    content: Optional[str],
-) -> ScriptSetMode:
-    """Resolve a set command's edit mode for the argv path (issue #133).
-
-    The rule itself lives in :func:`resolve_set_mode` — the single source shared
-    with ``ScriptSetParams`` / ``ShaderSetParams`` (ADR-0015). This thin wrapper
-    translates its ``ValueError`` into a Click usage error (exit 2) so the argv
-    path keeps its usage-error ergonomics, while ``--params-json`` surfaces the
-    same rule as a structured ``invalid_params`` via the model.
-    """
-    try:
-        return resolve_set_mode(search, replace, start_line, end_line, content)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
 
 
 @_app.command(name="attach", cls=SCRIPT_ATTACH_COMMAND.command_class())

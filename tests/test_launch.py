@@ -10,9 +10,12 @@ channel-specific argv tail / export-only cwd stay tested in each runner's own
 suite.
 """
 
+import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -244,6 +247,43 @@ def _fake_engine(tmp_path: Path, body: str) -> Path:
     return script
 
 
+def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Path:
+    """A ``/bin/sh`` stand-in, kept for WALL-CLOCK SPEED, not correctness (#728).
+
+    Diverges from ``_fake_engine`` on purpose: that one pays a fresh Python
+    interpreter's startup before it writes a byte. The one test that uses this
+    (``test_streaming_timeout_preserves_the_output_the_child_already_wrote``)
+    used to race that startup against a real deadline; that race is gone —
+    the test now controls the runner's clock directly, so a slower child could
+    no longer flip the result. ``/bin/sh`` stays anyway: the test still waits,
+    in real wall-clock time, for this REAL child to actually write its output
+    before the (now fake) deadline is allowed to cross, and a cheap shell keeps
+    that wait — and the suite — fast rather than paying a Python interpreter's
+    startup for no reason.
+
+    ``printf '%s\\n'``, not ``echo``: XSI ``echo`` interprets backslash
+    escapes in its operand on this platform's ``/bin/sh``, so a payload
+    containing ``\\n`` or similar would print something other than what was
+    passed in. ``printf`` with a literal ``'%s\\n'`` format leaves the
+    (``shlex.quote``-escaped, so shell-syntax-safe) argument untouched.
+
+    It always ``sleep``s afterward, past any timeout this suite uses, via
+    ``exec`` — not a trailing background job. Without ``exec`` SIGTERM only
+    ends the shell; the orphaned ``sleep`` keeps the captured pipe open and
+    the reader-thread join in ``launch``'s teardown runs to its own timeout
+    on every single launch (#728).
+    """
+    script = tmp_path / "fast-fake-engine"
+    out = shlex.quote(stdout_line)
+    err = shlex.quote(stderr_line)
+    script.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' {out}\nprintf '%s\\n' {err} 1>&2\nexec sleep 30\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
 class _RecordingWatch:
     """A ``LaunchWatch`` that records what it was fed and can ask for an abort.
 
@@ -267,21 +307,67 @@ class _RecordingWatch:
         return bool(self.abort_when and self.abort_when(self.stderr))
 
 
-def test_streaming_timeout_preserves_the_output_the_child_already_wrote(tmp_path):
+def test_streaming_timeout_preserves_the_output_the_child_already_wrote(
+    monkeypatch, tmp_path
+):
     # THE #655 DEFECT: a buffered capture discards everything on a timeout, so a
     # script error Godot had ALREADY printed was lost (GDA-DF-012). With a watch the
     # capture survives, on BOTH streams, and no gda prose is mixed into either — the
     # watching channel composes its own diagnostics from this.
-    engine = _fake_engine(
-        tmp_path,
-        "print('SUITE START', flush=True)\n"
-        "print('boom', file=sys.stderr, flush=True)\n"
-        "time.sleep(30)\n",
-    )
+    #
+    # THE #728 FIX: proving that needs the child to have ALREADY written before the
+    # deadline. An earlier version of this test raced a real 3.0s deadline against
+    # the real child's startup, narrowed only by a cheap shell engine (see
+    # ``_fast_fake_engine``) — a residual race, later removed outright by
+    # controlling the CLOCK the runner's poll loop reads instead of the runner's
+    # behaviour: ``gda.runner`` does a plain ``import time``, so replacing that
+    # module binding with a runner-local proxy redirects its ``monotonic`` lookup
+    # without mutating the process-global stdlib module. The proxy delegates
+    # ``sleep`` to the real function, so only the poll loop's idea of "how much
+    # time has passed" is fake.
+    #
+    # The fake reports elapsed 0.0 until the watch's accumulated capture actually
+    # contains both lines the assertions below check, then jumps past any timeout
+    # in one step — so the loop keeps making REAL polls, on a REAL process, in REAL
+    # wall-clock time, until the REAL output arrives, and only then does the
+    # deadline "elapse". A real-clock safety ceiling (independent of the fake)
+    # fails the test loudly, with whatever was captured so far, if that output
+    # never arrives at all — a hang becomes an assertion, not a stuck suite.
+    #
+    # ``timeout`` below is consequently INERT: the loop only ever observes elapsed
+    # 0.0 or the fake's post-observation jump, so any positive value under that
+    # jump behaves identically. It is kept small (1.0) to say so — the 1.5s/3.0s
+    # cold-start margin math it used to carry (measured outliers of 312ms/1110ms
+    # against a real deadline) no longer applies now that nothing races it, and is
+    # deleted rather than kept as unused history.
+    engine = _fast_fake_engine(tmp_path, "SUITE START", "boom")
+    watch = _RecordingWatch()
 
-    result = launch(
-        engine, [], cwd=None, timeout=1.5, watch=_RecordingWatch(), timeout_label="X"
+    # Captured BEFORE replacing the runner's module binding. The stdlib module
+    # itself stays untouched, and the fake uses the saved function for its
+    # independent real-time safety ceiling.
+    real_monotonic = time.monotonic
+    real_deadline = real_monotonic() + 15.0  # generous real-time safety ceiling
+
+    def fake_monotonic() -> float:
+        now = real_monotonic()
+        if now > real_deadline:
+            raise AssertionError(
+                "safety ceiling: the child's output never arrived "
+                f"(stdout={watch.stdout!r} stderr={watch.stderr!r})"
+            )
+        both_lines_seen = "SUITE START" in watch.stdout and "boom" in watch.stderr
+        return 100.0 if both_lines_seen else 0.0
+
+    monkeypatch.setattr(
+        runner,
+        "time",
+        SimpleNamespace(monotonic=fake_monotonic, sleep=time.sleep),
     )
+    assert runner.time is not time
+    assert time.monotonic is real_monotonic
+
+    result = launch(engine, [], cwd=None, timeout=1.0, watch=watch, timeout_label="X")
 
     assert result.launch_failure is LaunchFailure.TIMEOUT
     assert result.exit_code == EXIT_TIMEOUT
