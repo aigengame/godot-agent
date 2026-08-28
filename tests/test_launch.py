@@ -13,6 +13,7 @@ suite.
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -246,18 +247,18 @@ def _fake_engine(tmp_path: Path, body: str) -> Path:
 
 
 def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Path:
-    """A ``/bin/sh`` stand-in, for the one test where startup latency IS the point (#728).
+    """A ``/bin/sh`` stand-in, kept for WALL-CLOCK SPEED, not correctness (#728).
 
     Diverges from ``_fake_engine`` on purpose: that one pays a fresh Python
-    interpreter's startup before it writes a byte — plenty of margin for
-    every other streaming test here, which race nothing. ``/bin/sh`` is an
-    interpreter too, but a far cheaper one to start than Python's, and that
-    gap is what the timeout-preserves-output test needs, since its child must
-    have ALREADY written before ``launch``'s timeout elapses. The measurements
-    and the margin they justify live in that ONE test's own comment, next to
-    the timeout value they argue for — not restated here, so there is a single
-    place to update rather than two copies that can silently drift apart (a
-    real defect an earlier #728 review round caught).
+    interpreter's startup before it writes a byte. The one test that uses this
+    (``test_streaming_timeout_preserves_the_output_the_child_already_wrote``)
+    used to race that startup against a real deadline; that race is gone —
+    the test now controls the runner's clock directly, so a slower child could
+    no longer flip the result. ``/bin/sh`` stays anyway: the test still waits,
+    in real wall-clock time, for this REAL child to actually write its output
+    before the (now fake) deadline is allowed to cross, and a cheap shell keeps
+    that wait — and the suite — fast rather than paying a Python interpreter's
+    startup for no reason.
 
     ``printf '%s\\n'``, not ``echo``: XSI ``echo`` interprets backslash
     escapes in its operand on this platform's ``/bin/sh``, so a payload
@@ -305,30 +306,61 @@ class _RecordingWatch:
         return bool(self.abort_when and self.abort_when(self.stderr))
 
 
-def test_streaming_timeout_preserves_the_output_the_child_already_wrote(tmp_path):
+def test_streaming_timeout_preserves_the_output_the_child_already_wrote(
+    monkeypatch, tmp_path
+):
     # THE #655 DEFECT: a buffered capture discards everything on a timeout, so a
     # script error Godot had ALREADY printed was lost (GDA-DF-012). With a watch the
     # capture survives, on BOTH streams, and no gda prose is mixed into either — the
     # watching channel composes its own diagnostics from this.
     #
-    # THE #728 FIX: proving that means the child must ALREADY have written before
-    # the timeout below elapses — a real race against a real process's startup.
-    # ``_fast_fake_engine`` (not the shared ``_fake_engine``) narrows that race:
-    # starting ``/bin/sh`` is far cheaper than starting a Python interpreter (see
-    # its docstring), so the write lands sooner. The timeout is ALSO doubled from
-    # the pre-#728 1.5s to 3.0s, because "sooner" still has a tail: steady state is
-    # tight (180 measured runs, ~4ms typical, max 5.1ms), but isolated
-    # FIRST-invocation outliers of 312ms and 1110ms were observed across
-    # independent measurement runs — and this test spawns the engine exactly once
-    # per suite, so that cold start IS its normal path, not a rare one the steady
-    # state can stand in for. Against the worst observed outlier, 1.5s leaves only
-    # ~1.35x headroom; 3.0s leaves ~2.7x. This is the ONE place these numbers are
-    # recorded; nothing else in this file restates them (#728 review).
+    # THE #728 FIX: proving that needs the child to have ALREADY written before the
+    # deadline. An earlier version of this test raced a real 3.0s deadline against
+    # the real child's startup, narrowed only by a cheap shell engine (see
+    # ``_fast_fake_engine``) — a residual race, later removed outright by
+    # controlling the CLOCK the runner's poll loop reads instead of the runner's
+    # behaviour: ``gda.runner`` does a plain ``import time`` and calls
+    # ``time.monotonic()``, so patching ``runner.time.monotonic`` redirects just
+    # that one lookup. ``subprocess`` and ``threading`` instead bind their own
+    # ``_time = monotonic`` reference at import time, so the child's real
+    # ``proc.wait()`` grace period and the reader-thread ``join()`` are untouched —
+    # only the poll loop's idea of "how much time has passed" is fake.
+    #
+    # The fake reports elapsed 0.0 until the watch's accumulated capture actually
+    # contains both lines the assertions below check, then jumps past any timeout
+    # in one step — so the loop keeps making REAL polls, on a REAL process, in REAL
+    # wall-clock time, until the REAL output arrives, and only then does the
+    # deadline "elapse". A real-clock safety ceiling (independent of the fake)
+    # fails the test loudly, with whatever was captured so far, if that output
+    # never arrives at all — a hang becomes an assertion, not a stuck suite.
+    #
+    # ``timeout`` below is consequently INERT: the loop only ever observes elapsed
+    # 0.0 or the fake's post-observation jump, so any positive value under that
+    # jump behaves identically. It is kept small (1.0) to say so — the 1.5s/3.0s
+    # cold-start margin math it used to carry (measured outliers of 312ms/1110ms
+    # against a real deadline) no longer applies now that nothing races it, and is
+    # deleted rather than kept as unused history.
     engine = _fast_fake_engine(tmp_path, "SUITE START", "boom")
+    watch = _RecordingWatch()
 
-    result = launch(
-        engine, [], cwd=None, timeout=3.0, watch=_RecordingWatch(), timeout_label="X"
-    )
+    # Captured BEFORE patching — calling this (not ``time.monotonic``) inside the
+    # fake avoids the fake recursing into itself.
+    real_monotonic = time.monotonic
+    real_deadline = real_monotonic() + 15.0  # generous real-time safety ceiling
+
+    def fake_monotonic() -> float:
+        now = real_monotonic()
+        if now > real_deadline:
+            raise AssertionError(
+                "safety ceiling: the child's output never arrived "
+                f"(stdout={watch.stdout!r} stderr={watch.stderr!r})"
+            )
+        both_lines_seen = "SUITE START" in watch.stdout and "boom" in watch.stderr
+        return 100.0 if both_lines_seen else 0.0
+
+    monkeypatch.setattr(runner.time, "monotonic", fake_monotonic)
+
+    result = launch(engine, [], cwd=None, timeout=1.0, watch=watch, timeout_label="X")
 
     assert result.launch_failure is LaunchFailure.TIMEOUT
     assert result.exit_code == EXIT_TIMEOUT
