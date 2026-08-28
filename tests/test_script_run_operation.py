@@ -379,6 +379,45 @@ def test_missing_entry_script_is_a_failure_despite_the_zero_exit():
     assert outcome.error.diagnostics == MISSING_STDERR
 
 
+# Independent finding, same #698 fix: a project-relative path containing a SPACE
+# reached `_CANT_LOAD`'s old `\S+` capture and failed to match the WHOLE line —
+# no diagnostic at all, not a corrupted one — so `entry_load_failure` found
+# nothing and this operation fell through to the SUCCESS branch: a phantom
+# `ScriptRunResult` with `exit_status: 0` and an empty `diagnostics` list, for a
+# script that never ran. Captured verbatim from `godot --headless --path <proj>
+# --script "res://missing file."` (Godot 4.6.3, macOS) — same shape as
+# MISSING_STDERR above, minus the extension (so only `_CANT_LOAD` carries the
+# address; the `.gd` spelling MASKS this bug via `_OPEN_FAILED`'s quoted,
+# space-safe capture, so testing only that shape would wrongly conclude there
+# is no defect — see tests/test_script_error_parser.py for the parser-level
+# coverage of both this and the extension-masked shape).
+WHITESPACE_STDERR = """\
+ERROR: Resource file not found: res://missing file. (expected type: unknown)
+   at: _load (core/io/resource_loader.cpp:351)
+ERROR: Can't load script: res://missing file.
+   at: start (main/main.cpp:4271)
+"""
+
+
+def test_a_whitespace_entry_path_is_a_failure_despite_the_zero_exit():
+    # Public-verdict regression: assert the OPERATION's outcome flips from a
+    # phantom success to the registered failure end-to-end, through the SAME
+    # validate -> launch -> classify recipe every other verdict test here drives
+    # — not that the parser's regex captures the path correctly in isolation
+    # (that is asserted separately, at the parser level, in
+    # tests/test_script_error_parser.py).
+    outcome, _ = _run(
+        RunResult(stdout="", stderr=WHITESPACE_STDERR, exit_code=0),
+        script="missing file.",
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_compile_failed"
+    assert outcome.exit_code == EXIT_OPERATION
+    assert "res://missing file." in outcome.error.message
+    assert outcome.error.diagnostics == WHITESPACE_STDERR
+
+
 def test_entry_parse_error_is_a_failure_despite_the_zero_exit():
     # GDA-DF-007: a non-compiling entry script also leaves exit 0 behind. The
     # engine's own sentence is carried in the message so the reason is readable

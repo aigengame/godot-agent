@@ -437,7 +437,7 @@ def test_a_non_script_binding_never_fails_an_entry_verdict():
     assert entry_load_failure(errors, "res://entry.gd") is None
 
 
-# --- Dot-terminated paths (#698) -----------------------------------------------
+# --- Dot-terminated and whitespace paths (#698) --------------------------------
 #
 # `_CANT_LOAD` and `_FAILED_LOADING_RESOURCE` both used to strip an OPTIONAL
 # trailing period, on the assumption that any trailing "." in the sentence was
@@ -445,7 +445,17 @@ def test_a_non_script_binding_never_fails_an_entry_verdict():
 # real path character: `Can't load script: res://..` parsed back as `res://.`,
 # which then missed the canonical entry `res://..` and reported a phantom
 # success. `res://weird./x.gd` (the issue's ORIGINAL example) does not end in a
-# dot and never triggered this — every fixture below ends in one.
+# dot and never triggered this — every dot-terminated fixture below ends in one.
+#
+# A second, independently-found defect in the same two regexes: `\S+` cannot
+# match a SPACE, so a project-relative path containing one (`res://missing
+# file.`) failed the WHOLE line, not just the trailing character — no
+# diagnostic at all, rather than a corrupted one. Pre-existing on `main` before
+# this issue (base `04d3e089` phantom-succeeds identically; its own `\S+?\.?$`
+# could not match a space either), and MASKED whenever the path also carries a
+# recognized extension — `res://missing file.gd` still gets `SCRIPT_MISSING`
+# from `_OPEN_FAILED`'s quoted, space-safe capture, so testing only the `.gd`
+# shape hides the bug. Both regexes now use `.+` instead of `\S+`.
 
 # `godot --headless --path <proj> --script "res://.."`, captured verbatim (Godot
 # 4.6.3, macOS). `main.cpp:4271` echoes the raw `--script` argv unconditionally —
@@ -473,31 +483,42 @@ ERROR: Can't load script: res://weird..
    at: start (main/main.cpp:4271)
 """
 
+# The whitespace case — `godot --headless --path <proj> --script "res://missing
+# file."`, also captured verbatim. Same shape again (no extension, so `found`
+# stays false and only `_CANT_LOAD` carries the address), but this is the one
+# `\S+` could not match AT ALL: pre-fix, `parse_script_errors` returned `[]` for
+# this capture (no diagnostic, not a corrupted one), and `gda script run
+# "missing file."` reported a phantom exit-0 success with an empty
+# `diagnostics` list.
+WHITESPACE_ROOT_STDERR = """\
+ERROR: Resource file not found: res://missing file. (expected type: unknown)
+   at: _load (core/io/resource_loader.cpp:351)
+ERROR: Can't load script: res://missing file.
+   at: start (main/main.cpp:4271)
+"""
 
-@pytest.mark.parametrize(
-    ("stderr", "path"),
-    [
-        (DOT_TERMINATED_ROOT_STDERR, "res://.."),
-        (DOT_TERMINATED_STEM_STDERR, "res://weird.."),
-    ],
-)
+# One shared matrix for both the parse-level shape and the verdict-level match
+# below — a case belongs here once, not once per test.
+_CANT_LOAD_BOUNDARY_CASES = [
+    (DOT_TERMINATED_ROOT_STDERR, "res://.."),
+    (DOT_TERMINATED_STEM_STDERR, "res://weird.."),
+    (WHITESPACE_ROOT_STDERR, "res://missing file."),
+]
+
+
+@pytest.mark.parametrize(("stderr", "path"), _CANT_LOAD_BOUNDARY_CASES)
 def test_cant_load_round_trips_a_genuinely_dot_terminated_path(stderr, path):
     errors = parse_script_errors(stderr)
 
     assert [(e.kind, e.path) for e in errors] == [(ScriptErrorKind.LOAD_FAILED, path)]
 
 
-@pytest.mark.parametrize(
-    ("stderr", "path"),
-    [
-        (DOT_TERMINATED_ROOT_STDERR, "res://.."),
-        (DOT_TERMINATED_STEM_STDERR, "res://weird.."),
-    ],
-)
+@pytest.mark.parametrize(("stderr", "path"), _CANT_LOAD_BOUNDARY_CASES)
 def test_cant_load_still_matches_the_entry_when_dot_terminated(stderr, path):
     # Acceptance: the verdict logic's canonical-identity match must not phantom-
     # succeed if an entry route ever reaches this parser with a genuinely
-    # dot-terminated path again (#693 closed the CLI entry route; this covers the
+    # dot-terminated or whitespace-containing path again (#693 closed gda's
+    # pre-launch entry-path refusal for the root/escape shapes; this covers the
     # parser itself, independent of that guard).
     errors = parse_script_errors(stderr)
     verdict = entry_load_failure(errors, path)
@@ -574,6 +595,36 @@ def test_failed_loading_resource_still_matches_the_entry_when_dot_terminated():
     assert verdict is not None
     assert verdict.kind is ScriptErrorKind.RESOURCE_LOAD_FAILED
     assert verdict.path == "res://weird.."
+
+
+# The same whitespace fix, for `_FAILED_LOADING_RESOURCE` — `godot --headless
+# --path <proj> --script "res://missing file.gd"`, captured verbatim. The `.gd`
+# extension is what makes `found=true` reachable at all: unlike `_CANT_LOAD`,
+# this sentence only fires when a loader recognizes the path's extension (see
+# the probe note above `DOT_TERMINATED_RESOURCE_STDERR`), so the no-extension
+# whitespace shape (`WHITESPACE_ROOT_STDERR` above) cannot exercise it. This is
+# the masking case in miniature: `SCRIPT_MISSING` from `_OPEN_FAILED` already
+# carries the correct verdict here regardless of this regex, but the
+# diagnostic itself must still round-trip rather than silently vanishing —
+# pre-fix, `\S+?\.?$` could not match this line at all.
+WHITESPACE_RESOURCE_STDERR = """\
+ERROR: Attempt to open script 'res://missing file.gd' resulted in error 'File not found'.
+   at: load_source_code (modules/gdscript/gdscript.cpp:1127)
+ERROR: Failed loading resource: res://missing file.gd.
+   at: _load (core/io/resource_loader.cpp:343)
+ERROR: Can't load script: res://missing file.gd
+   at: start (main/main.cpp:4271)
+"""
+
+
+def test_failed_loading_resource_round_trips_a_whitespace_path():
+    errors = parse_script_errors(WHITESPACE_RESOURCE_STDERR)
+
+    assert [(e.kind, e.path) for e in errors] == [
+        (ScriptErrorKind.SCRIPT_MISSING, "res://missing file.gd"),
+        (ScriptErrorKind.RESOURCE_LOAD_FAILED, "res://missing file.gd"),
+        (ScriptErrorKind.LOAD_FAILED, "res://missing file.gd"),
+    ]
 
 
 def test_the_ordinary_sentence_period_still_strips_for_both_sentences():
