@@ -312,14 +312,15 @@ class SceneListResult(BaseModel):
 class SceneProblemKind(str, Enum):
     """What ``gda scene validate`` found wrong with a scene, per problem file (#664).
 
-    Covers both problem classes the verdict reports: a DEPENDENCY that did not
-    resolve, and a BOUND SCRIPT (referenced or embedded) that could not serve its
-    node. A closed, public enum projected into ``--schema``, so an agent branches
-    on the kind instead of matching the message prose. The values are kept apart
-    because the REMEDY differs: a missing file has to be restored or the reference
-    fixed, an unloadable asset has to be imported, a broken script has to be
-    edited, and an incompatible script has to move to a matching node or change
-    its ``extends``.
+    Covers the problem classes the verdict reports: a DEPENDENCY that did not
+    resolve, a BOUND SCRIPT (referenced or embedded) that could not serve its
+    node, and — since the verdict became composed (#721) — a sub-scene COMPOSITION
+    the engine would refuse to load at all. A closed, public enum projected into
+    ``--schema``, so an agent branches on the kind instead of matching the message
+    prose. The values are kept apart because the REMEDY differs: a missing file
+    has to be restored or the reference fixed, an unloadable asset has to be
+    imported, a broken script has to be edited, an incompatible script has to move
+    to a matching node or change its ``extends``, and a cycle has to be broken.
     """
 
     #: The referenced ``res://`` file does not exist.
@@ -340,28 +341,48 @@ class SceneProblemKind(str, Enum):
     #: in the ``script`` slot that is not a Script at all (a plain resource
     #: declared ``type="Script"``, #709 review).
     INCOMPATIBLE_SCRIPT = "incompatible_script"
+    #: A scene instances one that already instances it (#721). Godot refuses a
+    #: cyclic scene inclusion, so the composition cannot load; the problem is
+    #: reported against the file that declares the closing edge, and its ``path``
+    #: names the ancestor being re-instanced. The walk stops at that edge, so the
+    #: scenes beyond it are unreported until the cycle is broken.
+    CYCLIC_INSTANCE = "cyclic_instance"
 
 
 class SceneProblem(BaseModel):
     """One thing statically wrong with a scene (#664).
 
-    Either a dependency that did not resolve, or a script the scene binds that
-    could not serve its node — an embedded or referenced script that does not
-    compile, or one whose native base the engine would refuse to bind
-    (``kind`` tells them apart). File-centric, one entry per problem file rather
-    than per reference: a path the scene declares twice is one broken file, and
-    both referencing nodes appear under ``nodes``.
+    Either a dependency that did not resolve, a script the scene binds that could
+    not serve its node — an embedded or referenced script that does not compile,
+    or one whose native base the engine would refuse to bind — or a cyclic
+    sub-scene composition (``kind`` tells them apart). File-centric, one entry per
+    problem file rather than per reference: a path the scene declares twice is one
+    broken file, and both referencing nodes appear under ``nodes``.
+
+    Since the verdict became composed (#721) a problem is not necessarily about
+    the scene that was validated: ``scene`` names the file it was found in, and
+    ``path``/``nodes`` are both read against THAT file.
     """
 
     kind: SceneProblemKind
+    scene: str = Field(
+        description=(
+            "The scene file this problem was found in. The validated scene itself "
+            "for its own problems, or an instanced sub-scene reached from it "
+            "(#721) — always present, so a composed verdict never has to be "
+            "inferred. Read 'path' and 'nodes' against this file, not against the "
+            "scene the command was given."
+        )
+    )
     path: str = Field(
         description=(
-            "The path of the problem resource. For a dependency: as the scene's "
-            "[ext_resource] declares it, a relative reference resolved against "
-            "the scene's own directory — res:// under a project, a filesystem "
-            "path for a projectless scene addressed by filesystem path. For an "
-            "embedded script: the ::id sub-resource form "
-            "(res://scene.tscn::GDScript_1)."
+            "The path of the problem resource. For a dependency: as the "
+            "[ext_resource] of the scene named by 'scene' declares it, a relative "
+            "reference resolved against that scene's own directory — res:// under "
+            "a project, a filesystem path for a projectless scene addressed by "
+            "filesystem path. For an embedded script: the ::id sub-resource form "
+            "(res://scene.tscn::GDScript_1). For 'cyclic_instance': the ancestor "
+            "scene that 'scene' re-instances."
         )
     )
     type: str | None = Field(
@@ -375,9 +396,10 @@ class SceneProblem(BaseModel):
     nodes: list[str] = Field(
         default_factory=list,
         description=(
-            "The node paths, relative to the scene root ('.' for the root), whose "
-            "properties reference this dependency — the same addressing 'node get' "
-            "takes. Empty when only a sub-resource (not a node) references it."
+            "The node paths, relative to the root of the scene named by 'scene' "
+            "('.' for that root), whose properties reference this dependency — the "
+            "same addressing 'node get' takes. Empty when only a sub-resource (not "
+            "a node) references it."
         ),
     )
     message: str = Field(
@@ -401,8 +423,14 @@ class SceneValidateResult(ProjectRootedResult):
     file, a file that does not load as a scene at all), which refuses the whole call
     rather than becoming a verdict.
 
-    The verdict is STATIC: the scene is loaded but never INSTANTIATED, so none of
-    the scene's own node scripts run — no ``_init``, no ``_ready``, no frames (the
+    The verdict is COMPOSED (#721): the scenes this one instances are validated
+    with it, because a parent whose child is broken is broken too — and the
+    parent's own dependency walk can never see that, since ``res://child.tscn``
+    resolves and loads whatever is missing inside it. Every problem names the file
+    it was found in (``SceneProblem.scene``).
+
+    The verdict is STATIC: each scene is loaded but never INSTANTIATED, so none of
+    the scenes' own node scripts run — no ``_init``, no ``_ready``, no frames (the
     read boundary of issue #30). It is not a claim that nothing at all executes:
     the project's autoloads start, as they do for every ``--project`` op, and
     compiling a script executes its static initializers. What it cannot speak for is
@@ -412,18 +440,22 @@ class SceneValidateResult(ProjectRootedResult):
     path: str
     valid: bool = Field(
         description=(
-            "True when every dependency the scene declares resolves, every bound "
-            "script (referenced or embedded) compiles, and each script's native "
-            "base can bind the node that carries it. False when any does not — "
-            "the command still exits 0, so read this field, not the exit code."
+            "True when every dependency resolves, every bound script (referenced "
+            "or embedded) compiles, and each script's native base can bind the "
+            "node that carries it — across this scene AND every sub-scene it "
+            "instances. False when any does not — the command still exits 0, so "
+            "read this field, not the exit code."
         )
     )
     problems: list[SceneProblem] = Field(
         description=(
-            "One entry per problem file: unresolved dependencies (in declaration "
-            "order), or — when every dependency resolves — script-binding "
-            "problems (in tree order): a bound script that does not compile, or "
-            "one the engine would refuse to bind. Empty when the scene is valid."
+            "One entry per problem file, depth-first from the validated scene "
+            "through the sub-scenes it instances (#721): each scene's unresolved "
+            "dependencies in declaration order, or — when every dependency "
+            "resolves — its script-binding problems in tree order, plus a "
+            "'cyclic_instance' entry at any edge that closes an instancing cycle. "
+            "Read each entry's 'scene' for the file it belongs to. Empty when the "
+            "composed scene is valid."
         )
     )
     project_root: str | None = Field(
@@ -674,6 +706,11 @@ def render_scene_validate(validated: "SceneValidateResult") -> str:
     against, before the problems rather than after them: when the root is the wrong
     one, every problem below it is an artefact of that single mistake and the reader
     needs the cause before the cascade (the shape ``script validate`` uses, #658).
+
+    A problem found in an instanced SUB-scene names that file on its own line
+    (#721) — otherwise a missing script inside ``child.tscn`` reads as one of
+    ``parent.tscn``'s, and its ``nodes`` resolve against the wrong tree. Only when
+    it differs: the ordinary single-file verdict stays as short as it was.
     """
     if validated.valid:
         return f"valid {validated.path}"
@@ -686,6 +723,8 @@ def render_scene_validate(validated: "SceneValidateResult") -> str:
     for problem in validated.problems:
         declared = f" ({problem.type})" if problem.type is not None else ""
         lines.append(f"  {problem.kind.value}: {problem.path}{declared}")
+        if problem.scene != validated.path:
+            lines.append(f"    in {problem.scene}")
         lines.append(f"    {problem.message}")
         if problem.nodes:
             lines.append(f"    nodes: {', '.join(problem.nodes)}")
@@ -1163,7 +1202,17 @@ def validate_scene(
     the node would run script-less). Each problem names the declared type and the
     node paths that reference it.
 
-    STATIC: the scene is loaded but never instantiated, so none of its own node
+    COMPOSED: the scenes this one instances are checked with it, because a parent
+    whose child is broken is broken too and its own walk cannot see that —
+    res://child.tscn resolves and loads whatever is missing inside it. Every
+    problem carries 'scene', the file it was found in, and its 'path' and 'nodes'
+    are read against THAT file. The walk descends into instanced '.tscn' files
+    only (a binary '.scn' carries no dependency text, as at the top level),
+    reports each file once however many times it is instanced, and reports an
+    instancing cycle as 'cyclic_instance' — a composition Godot refuses to load —
+    rather than following it.
+
+    STATIC: each scene is loaded but never instantiated, so none of its own node
     scripts run — no _init, no _ready, no frames (issue #30). The project's autoloads
     still start, as they do for every --project op. It therefore says nothing about
     what happens once the scene RUNS — a scene can pass this and still fail on its

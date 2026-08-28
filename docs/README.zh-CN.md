@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e36950ec63b4fd8122f2d674ee234169abbc4b15d4803a650cf2e44eabdf253f -->
+<!-- gda-readme-i18n: source=README.md sha256=85862aa2ce61c61061d30eaa44ce0abdefcd2f3a2efa3c0b08261cc147e8cf1c -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -386,7 +386,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `scene list` | 枚举已解析项目中的 `.tscn` 场景。 |
 | `scene get-exports` | 列出场景里各节点脚本声明的 `@export` 属性。 |
 | `scene delete` | 删除一个场景文件并报告删除了什么。 |
-| `scene validate` | 静态检查场景的依赖能否解析、其挂载脚本能否编译。 |
+| `scene validate` | 静态检查场景及其实例化的子场景，依赖能否解析、脚本能否编译。 |
 | `scene preflight` | 以 headless 方式启动场景，等待 `_ready`，并报告启动结论。 |
 
 读取场景能扛住大多数损坏：Godot 会把节点上无法解析的引用替换为 null 并仍返回一棵可用的树，
@@ -396,7 +396,11 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 （引用的与内嵌的都算），并检查每一个引擎会拒绝的绑定，为每个有问题的文件报告一条
 problem（`missing_resource`、`unloadable_resource`（从未被导入的资源）、`script_compile_failed`
 或 `incompatible_script`（引擎会拒绝的绑定：脚本挂在其基类之外的节点上，或绑定的值根本不是脚本）），
-同时给出引用它的节点。这个检查是**分阶段的**：只要有依赖无法解析，场景就不会被加载，
+同时给出引用它的节点。这个结论是**组合式的**：场景所实例化的子场景会与它一并检查，因为孩子坏了、
+父场景也就坏了，而父场景自己的遍历看不到这一点——`res://child.tscn` 能解析、也能加载，
+无论它内部丢了什么。因此每条 problem 都带有 `scene`，即发现它的那个文件，其 `path` 与节点
+都要按该文件来读；实例化成环时会报告为 `cyclic_instance`——一种 Godot 拒绝加载的组合——
+而不是继续沿环遍历。这个检查是**分阶段的**：只要有依赖无法解析，场景就不会被加载，
 因此只有加载后的场景才能暴露的编译与绑定问题，要等依赖修好、重新运行 validate 之后才会出现——
 problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶段。`scene preflight` 是**动态的**——
 它启动场景，运行其 `_ready` 与项目的 autoload，观察若干帧，然后报告 `status`

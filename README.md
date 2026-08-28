@@ -388,7 +388,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `scene list` | Enumerate the `.tscn` scenes in the resolved project. |
 | `scene get-exports` | List the `@export` properties a scene's nodes' scripts declare. |
 | `scene delete` | Delete a scene file and report what was removed. |
-| `scene validate` | Check statically that a scene's dependencies resolve and its attached scripts compile. |
+| `scene validate` | Check statically that a scene and the sub-scenes it instances resolve their dependencies and compile their scripts. |
 | `scene preflight` | Boot a scene headless, wait for `_ready`, and report its startup verdict. |
 
 Reading a scene survives most breakage: Godot substitutes null for a node's reference it
@@ -400,7 +400,12 @@ fail the whole load). The two checks answer different questions.
 instantiating anything — reporting one problem per problem file (`missing_resource`,
 `unloadable_resource` for an asset that was never imported, `script_compile_failed`, or
 `incompatible_script` for a binding the engine would refuse: a script on a node outside its
-base, or a bound value that is not a script) with the nodes that reference it. The check is
+base, or a bound value that is not a script) with the nodes that reference it. The verdict is
+**composed**: the scenes a scene instances are checked with it, because a parent whose child
+is broken is broken too and its own walk cannot see that — `res://child.tscn` resolves and
+loads whatever is missing inside it. Every problem therefore carries `scene`, the file it was
+found in, and its `path` and nodes are read against that file; an instancing cycle is reported
+as `cyclic_instance` — a composition Godot refuses to load — instead of being followed. The check is
 **staged**: when dependencies fail to resolve, the scene is not loaded, so the compile and
 binding problems of the loaded scene can only appear after the dependencies are repaired and
 validate is rerun — the problem list is complete for the stage it reached, not across both

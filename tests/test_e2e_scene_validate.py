@@ -126,6 +126,9 @@ def test_missing_dependencies_are_reported_where_scene_get_reports_nothing(
     assert data["problems"] == [
         {
             "kind": "missing_resource",
+            # Its own file: every problem names where it was found, the scene the
+            # command was given included (#721).
+            "scene": "res://main.tscn",
             "path": "res://gone.gd",
             "type": "Script",
             "nodes": ["."],
@@ -133,6 +136,7 @@ def test_missing_dependencies_are_reported_where_scene_get_reports_nothing(
         },
         {
             "kind": "missing_resource",
+            "scene": "res://main.tscn",
             "path": "res://art/gone.png",
             "type": "Texture2D",
             "nodes": ["Sprite"],
@@ -509,3 +513,214 @@ def test_an_unclosed_gd_scene_header_is_still_refused(godot_project):
 
     payload = json.loads(validated.stdout)
     assert payload["error"]["code"] == "not_a_scene"
+
+
+# --- The COMPOSED verdict (#721) --------------------------------------------
+#
+# A parent that instances a broken child. The parent's own walk cannot see the
+# break: `res://child.tscn` exists, `ResourceLoader` opens it, and Godot hands back
+# a usable PackedScene with the missing script substituted by null — so the parent
+# used to validate clean while the child validated broken. Only a real engine shows
+# that, which is why these live here.
+
+COMPOSED_CHILD_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://missing_script.gd" id="1_gone"]
+
+[node name="Child" type="Node2D"]
+script = ExtResource("1_gone")
+"""
+
+COMPOSED_PARENT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://child.tscn" id="1_child"]
+
+[node name="Parent" type="Node2D"]
+
+[node name="ChildInstance" parent="." instance=ExtResource("1_child")]
+"""
+
+
+@pytest.mark.e2e
+def test_an_instanced_broken_child_makes_the_parent_invalid(godot_project):
+    (godot_project / "child.tscn").write_text(COMPOSED_CHILD_TSCN, encoding="utf-8")
+    (godot_project / "parent.tscn").write_text(COMPOSED_PARENT_TSCN, encoding="utf-8")
+    gda = _gda_project(godot_project)
+
+    # The child's own verdict is the reference answer.
+    child = gda("scene", "validate", "res://child.tscn", "--json")
+    assert child.returncode == 0, child.stdout + child.stderr
+    assert json.loads(child.stdout)["valid"] is False
+
+    validated = gda("scene", "validate", "res://parent.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    # Attributed to the CHILD file: `nodes: ["."]` is the child's root, not the
+    # parent's, and a reader that missed that would look for a script slot on
+    # res://parent.tscn's root that has never had one.
+    assert data["problems"] == [
+        {
+            "kind": "missing_resource",
+            "scene": "res://child.tscn",
+            "path": "res://missing_script.gd",
+            "type": "Script",
+            "nodes": ["."],
+            "message": "the referenced file does not exist",
+        }
+    ]
+
+
+@pytest.mark.e2e
+def test_a_sound_composed_scene_is_still_valid_and_each_file_checked_once(
+    godot_project,
+):
+    # Two levels deep AND a diamond: `leaf.tscn` is instanced twice by `mid.tscn`
+    # and once directly by `top.tscn`. A sound composition must stay `valid: true`
+    # — the composed walk is worthless if it invents problems — and the same file
+    # reached three ways must be one file when it does break.
+    (godot_project / "hero.gd").write_text(GOOD_SCRIPT, encoding="utf-8")
+    (godot_project / "leaf.tscn").write_text(GOOD_TSCN, encoding="utf-8")
+    (godot_project / "mid.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://leaf.tscn" id="1_leaf"]\n\n'
+        '[node name="Mid" type="Node2D"]\n\n'
+        '[node name="LeafA" parent="." instance=ExtResource("1_leaf")]\n\n'
+        '[node name="LeafB" parent="." instance=ExtResource("1_leaf")]\n',
+        encoding="utf-8",
+    )
+    (godot_project / "top.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://mid.tscn" id="1_mid"]\n'
+        '[ext_resource type="PackedScene" path="res://leaf.tscn" id="2_leaf"]\n\n'
+        '[node name="Top" type="Node2D"]\n\n'
+        '[node name="MidInstance" parent="." instance=ExtResource("1_mid")]\n\n'
+        '[node name="LeafDirect" parent="." instance=ExtResource("2_leaf")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://top.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True, data
+    assert data["problems"] == []
+
+    # Now break the leaf's script. One broken FILE is one problem however many
+    # instancing sites reach it.
+    (godot_project / "hero.gd").unlink()
+
+    rechecked = gda("scene", "validate", "res://top.tscn", "--json")
+
+    assert rechecked.returncode == 0, rechecked.stdout + rechecked.stderr
+    broken = json.loads(rechecked.stdout)
+    assert broken["valid"] is False
+    assert broken["problems"] == [
+        {
+            "kind": "missing_resource",
+            "scene": "res://leaf.tscn",
+            "path": "res://hero.gd",
+            "type": "Script",
+            "nodes": ["."],
+            "message": "the referenced file does not exist",
+        }
+    ]
+
+
+@pytest.mark.e2e
+def test_an_instancing_cycle_terminates_with_a_diagnostic(godot_project):
+    # Hand-written text can close a cycle the editor would refuse to create, and
+    # gda's own commands write scenes as text. Termination is not enough: a walk
+    # that merely stopped would report `valid: true` for a composition Godot
+    # refuses to load.
+    (godot_project / "a.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://b.tscn" id="1_b"]\n\n'
+        '[node name="A" type="Node2D"]\n\n'
+        '[node name="BInstance" parent="." instance=ExtResource("1_b")]\n',
+        encoding="utf-8",
+    )
+    (godot_project / "b.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://a.tscn" id="1_a"]\n\n'
+        '[node name="B" type="Node2D"]\n\n'
+        '[node name="AInstance" parent="." instance=ExtResource("1_a")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://a.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    (problem,) = data["problems"]
+    assert problem["kind"] == "cyclic_instance"
+    # Reported against the file that DECLARES the closing edge, naming the
+    # ancestor it re-instances — the pair a reader needs to break the cycle.
+    assert problem["scene"] == "res://b.tscn"
+    assert problem["path"] == "res://a.tscn"
+    assert problem["nodes"] == ["AInstance"]
+
+
+@pytest.mark.e2e
+def test_a_scene_that_instances_itself_is_one_cycle_not_a_hang(godot_project):
+    # The degenerate cycle, and the one a text-writing agent hits first.
+    (godot_project / "self.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://self.tscn" id="1_self"]\n\n'
+        '[node name="Self" type="Node2D"]\n\n'
+        '[node name="Inner" parent="." instance=ExtResource("1_self")]\n\n'
+        '[node name="Inner2" parent="." instance=ExtResource("1_self")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://self.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    # ONE cycle, though two nodes close it: the same per-file rule the rest of the
+    # walk applies, with both instancing sites merged under `nodes`.
+    (problem,) = [p for p in data["problems"] if p["kind"] == "cyclic_instance"]
+    assert problem["scene"] == "res://self.tscn"
+    assert problem["path"] == "res://self.tscn"
+    assert problem["nodes"] == ["Inner", "Inner2"]
+
+
+@pytest.mark.e2e
+def test_a_missing_sub_scene_is_the_parents_problem_and_not_reported_twice(
+    godot_project,
+):
+    # The descent's boundary: a sub-scene gda cannot read gets no problem of its
+    # own, because the parent's dependency walk already named it. One problem, not
+    # two views of one.
+    (godot_project / "parent.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://gone.tscn" id="1_gone"]\n\n'
+        '[node name="Parent" type="Node2D"]\n\n'
+        '[node name="Missing" parent="." instance=ExtResource("1_gone")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://parent.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    assert data["problems"] == [
+        {
+            "kind": "missing_resource",
+            "scene": "res://parent.tscn",
+            "path": "res://gone.tscn",
+            "type": "PackedScene",
+            "nodes": ["Missing"],
+            "message": "the referenced file does not exist",
+        }
+    ]

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e36950ec63b4fd8122f2d674ee234169abbc4b15d4803a650cf2e44eabdf253f -->
+<!-- gda-readme-i18n: source=README.md sha256=85862aa2ce61c61061d30eaa44ce0abdefcd2f3a2efa3c0b08261cc147e8cf1c -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -399,7 +399,7 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `scene list` | Enumera las escenas `.tscn` del proyecto resuelto. |
 | `scene get-exports` | Lista las propiedades `@export` que declaran los scripts de los nodos de una escena. |
 | `scene delete` | Elimina un archivo de escena e informa qué se eliminó. |
-| `scene validate` | Comprueba estáticamente que las dependencias de una escena se resuelven y sus scripts adjuntos compilan. |
+| `scene validate` | Comprueba estáticamente que una escena y las subescenas que instancia resuelven sus dependencias y compilan sus scripts. |
 | `scene preflight` | Arranca una escena en headless, espera a `_ready` e informa su veredicto de arranque. |
 
 Leer una escena sobrevive a la mayoría de las roturas: Godot sustituye por null la referencia
@@ -412,7 +412,12 @@ todo sin instanciar nada, e informa un problema por archivo problemático
 (`missing_resource`, `unloadable_resource` para un recurso que nunca se importó,
 `script_compile_failed`, o `incompatible_script` para un vínculo que el motor rechazaría: un
 script sobre un nodo fuera de su base, o un valor vinculado que no es un script) junto con los
-nodos que lo referencian. La comprobación es **escalonada**: cuando hay dependencias sin
+nodos que lo referencian. El veredicto es **compuesto**: las escenas que una escena instancia se
+comprueban con ella, porque un padre cuyo hijo está roto también está roto y su propio recorrido
+no puede verlo — `res://child.tscn` se resuelve y se carga por mucho que falte dentro de él. Por
+eso cada problema lleva `scene`, el archivo donde se encontró, y su `path` y sus nodos se leen
+contra ese archivo; un ciclo de instanciación se informa como `cyclic_instance` — una composición
+que Godot se niega a cargar — en lugar de seguirse. La comprobación es **escalonada**: cuando hay dependencias sin
 resolver, la escena no se carga, así que los problemas de compilación y de vínculo que solo la
 escena cargada puede revelar aparecen después de reparar las dependencias y volver a ejecutar
 validate — la lista de problemas es completa para la etapa alcanzada, no para ambas etapas a la

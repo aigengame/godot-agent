@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e36950ec63b4fd8122f2d674ee234169abbc4b15d4803a650cf2e44eabdf253f -->
+<!-- gda-readme-i18n: source=README.md sha256=85862aa2ce61c61061d30eaa44ce0abdefcd2f3a2efa3c0b08261cc147e8cf1c -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -403,7 +403,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `scene list` | 解決済みプロジェクト内の `.tscn` シーンを列挙します。 |
 | `scene get-exports` | シーンのノードのスクリプトが宣言する `@export` プロパティを一覧します。 |
 | `scene delete` | シーンファイルを削除し、削除された内容を報告します。 |
-| `scene validate` | シーンの依存が解決でき、アタッチされたスクリプトがコンパイルできるかを静的に検査します。 |
+| `scene validate` | シーンとそれがインスタンス化するサブシーンについて、依存が解決でき、スクリプトがコンパイルできるかを静的に検査します。 |
 | `scene preflight` | シーンを headless で起動し、`_ready` を待って起動結果を報告します。 |
 
 シーンの読み取りはほとんどの破損に耐えます。Godot はノード上の解決できない参照を null に
@@ -414,7 +414,13 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 1 件の problem(`missing_resource`、未インポートのアセットを表す `unloadable_resource`、
 `script_compile_failed`、またはエンジンが拒否するバインディングを表す
 `incompatible_script`——基底クラスの合わないノードに載ったスクリプト、あるいはスクリプトで
-ない値のバインド)を、それを参照するノードとともに報告します。この検査は**段階的**です。
+ない値のバインド)を、それを参照するノードとともに報告します。この結論は**合成的**です。
+そのシーンがインスタンス化するサブシーンも一緒に検査されます。子が壊れていれば親も壊れていますが、
+親自身の走査ではそれが見えないからです——`res://child.tscn` は中身が何を失っていても解決し、
+読み込めてしまいます。そのため各 problem は、それが見つかったファイルを示す `scene` を持ち、
+その `path` とノードはそのファイルに対して読みます。インスタンス化が循環している場合は、
+その先をたどらずに `cyclic_instance`——Godot が読み込みを拒否する構成——として報告します。
+この検査は**段階的**です。
 解決できない依存があるとシーンは読み込まれないため、読み込んだシーンだけが明かすコンパイル/
 バインディングの問題は、依存を修復して validate を再実行した後に初めて現れます——problem の
 リストは到達した段階については完全ですが、両段階を一度に網羅するものではありません。

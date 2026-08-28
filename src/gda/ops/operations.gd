@@ -107,6 +107,10 @@ const SCENE_PROBLEM_SCRIPT_COMPILE_FAILED := "script_compile_failed"
 # Deliberately the same word OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE's remedy speaks:
 # the script compiles but its native base cannot bind the node that carries it.
 const SCENE_PROBLEM_INCOMPATIBLE_SCRIPT := "incompatible_script"
+# The one problem the SUB-SCENE walk can raise that a single file never does
+# (#721): a scene instances one that already instances it. Godot refuses a cyclic
+# scene inclusion, so this is a real defect and not just a walk that had to stop.
+const SCENE_PROBLEM_CYCLIC_INSTANCE := "cyclic_instance"
 
 # The startup verdicts scene-preflight reports (#664). The third one an agent can
 # read, `timeout`, is gda's own: only the CLI knows the launch outran its bound,
@@ -592,6 +596,12 @@ func _op_scene_delete(params: Dictionary) -> void:
 # addressing ladder refuses: a missing file is path_not_found and a file that does
 # not load as a scene at all is not_a_scene — the same failures every other scene
 # op reports for them, so the group's ladder does not fork here.
+#
+# The verdict is COMPOSED (#721): the scenes this one instances are validated with
+# it, because a parent whose child is broken is broken too — and its own walk can
+# never see that, since res://child.tscn resolves and loads whatever is missing
+# inside it. Each problem is stamped with the FILE it was found in, so a child's
+# missing script is never read as the parent's.
 func _op_scene_validate(params: Dictionary) -> void:
 	_diag("running operation: scene-validate")
 	var path := _string_param(params, "path")
@@ -632,27 +642,143 @@ func _op_scene_validate(params: Dictionary) -> void:
 	# script-backed custom Resource (verified against Godot 4.6.3). Gating on the load
 	# would answer `not_a_scene` for exactly the broken dependency this command exists
 	# to report, and about a file that IS a scene.
-	var problems := _scene_dependency_problems(path)
-	if problems.is_empty():
-		# The load is only ASKED when the scan found nothing: a scene already known
-		# broken needs no second opinion, and loading it would only add the engine's
-		# own cascade to stderr. Nothing found and nothing loadable is the group's
-		# ordinary not-a-scene, reported in its words.
-		var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
-		if not _is_loaded_scene(packed):
-			_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
-			return
-		# The BINDING scan (#720 review): the dependency walk proves each referenced
-		# file loads, but not that a script can bind the node that carries it, and
-		# it never sees an EMBEDDED [sub_resource type="GDScript"] at all. Both are
-		# read off the loaded scene's state, so this runs only when the load did.
-		problems = _scene_binding_problems(packed)
+	var own: Variant = _scene_own_problems(path)
+	if own == null:
+		# Nothing found and nothing loadable is the group's ordinary not-a-scene,
+		# reported in its words. The ROOT's contract only: a SUB-scene that does not
+		# load is a finding about the composition, never a refusal of the whole call
+		# (#721) — the caller asked about THIS file, and it is a scene.
+		_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
+		return
+	var problems := _attributed_problems(own as Array, path)
+	# The COMPOSED verdict (#721): a scene that instances a broken child is broken,
+	# and the parent's own walk cannot see it — Godot resolves res://child.tscn
+	# perfectly well while everything inside the child is gone. The walk therefore
+	# descends into each instanced .tscn and adds its findings, each stamped with
+	# the file it was found in.
+	var visited := {}
+	visited[path] = true
+	var chain := {}
+	chain[path] = true
+	_collect_sub_scene_problems(path, problems, visited, chain)
 
 	_succeed({
 		"path": path,
 		"valid": problems.is_empty(),
 		"problems": problems,
 	})
+
+
+# One scene file's OWN verdict — the two-stage check, without any sub-scene: the
+# dependency walk, and, only when it found nothing, the binding scan of the loaded
+# scene. Returns the problems, or null when the file did not load as a scene at
+# all. Shared by the root and by every sub-scene the walk descends into (#721), so
+# a composed verdict is the same question asked of each file rather than a second
+# implementation.
+#
+# The load is only ASKED when the scan found nothing: a scene already known broken
+# needs no second opinion, and loading it would only add the engine's own cascade
+# to stderr. The BINDING scan (#720 review) then answers what the dependency walk
+# cannot — the walk proves each referenced file loads, but not that a script can
+# bind the node that carries it, and it never sees an EMBEDDED [sub_resource
+# type="GDScript"] at all. Both are read off the loaded scene's state, so that
+# stage runs only when the load did.
+#
+# The null return is a fact, not a verdict: what the CALLER does with it differs
+# (the root refuses, the walk skips), which is why this reports the condition
+# instead of deciding it.
+func _scene_own_problems(path: String) -> Variant:
+	var problems := _scene_dependency_problems(path)
+	if not problems.is_empty():
+		return problems
+	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
+	if not _is_loaded_scene(packed):
+		return null
+	return _scene_binding_problems(packed)
+
+
+# Stamp every problem with the scene file it was found in, and hand the array back
+# (#721). ATTRIBUTION is what makes a composed verdict readable: without it a
+# missing script inside child.tscn reads as a problem of parent.tscn, and each
+# problem's `nodes` — which are relative to the scene that owns them — would be
+# resolved against the wrong tree. Present on EVERY problem, the root's included,
+# so a reader never has to infer it.
+func _attributed_problems(problems: Array, scene_path: String) -> Array:
+	for problem in problems:
+		(problem as Dictionary)["scene"] = scene_path
+	return problems
+
+
+# Descend into the scenes `scene_path` instances, appending each one's own problems
+# to `out` (#721). Depth-first in DECLARATION order, so the composed list reads
+# parent-then-child, and each entry already carries the file it belongs to.
+#
+# Three decisions, none of them free:
+#
+# - WHAT is descended into: an [ext_resource] whose resolved path is a .tscn. The
+#   declared type is not the test, because a hand-written line may name none, and
+#   a binary .scn is deliberately NOT descended into — its text carries no
+#   dependency set, the same reason the top-level op refuses one outright. That
+#   limit is documented rather than papered over: a composed verdict is complete
+#   for the .tscn scenes it could read.
+#
+# - TERMINATION: `visited` holds every file already validated, so the walk is
+#   bounded by the number of DISTINCT scene files reachable from the root — a
+#   finite set — and needs no depth ceiling to stop. A sub-scene is therefore
+#   reported ONCE PER FILE, not once per instancing site: a broken child instanced
+#   at five places is one broken file, which is the same rule the dependency walk
+#   already applies to a path declared twice.
+#
+# - A CYCLE is reported, not merely survived: `chain` holds the ancestors of the
+#   current descent, and a reference back into it becomes a cyclic_instance
+#   problem attributed to the file that declares it. `visited` alone would stop
+#   the walk silently, which would hide a composition Godot refuses to load.
+#   Checked BEFORE `visited` — every ancestor is also visited, so the cheaper test
+#   would swallow the diagnostic.
+func _collect_sub_scene_problems(scene_path: String, out: Array, visited: Dictionary, chain: Dictionary) -> void:
+	var text := FileAccess.get_file_as_string(scene_path)
+	if text.is_empty():
+		return
+	var nodes_by_id := _scene_ext_resource_nodes_by_id(text)
+	# One cyclic_instance per target per file: a scene that instances the same
+	# ancestor twice still closes one cycle.
+	var reported_cycles := {}
+	for entry in _ext_resource_entries_from_text(text, scene_path.get_base_dir()):
+		var ref_path := String(entry["normalized_path"])
+		if not _is_scene_path(ref_path):
+			continue
+		if chain.has(ref_path):
+			if not reported_cycles.has(ref_path):
+				reported_cycles[ref_path] = true
+				var cycle := _scene_problem(SCENE_PROBLEM_CYCLIC_INSTANCE, ref_path,
+						String(entry.get("type", "")),
+						"the scene at this path is an ancestor in the instancing chain, so "
+						+ "instancing it here closes a cycle — Godot refuses a cyclic scene "
+						+ "inclusion and the composition cannot load. gda stopped the walk at "
+						+ "this edge; break the cycle to get a verdict for what lies beyond it")
+				cycle["nodes"] = (nodes_by_id.get(String(entry["id"]), []) as Array).duplicate()
+				cycle["scene"] = scene_path
+				out.append(cycle)
+			continue
+		if visited.has(ref_path):
+			continue
+		# A sub-scene gda cannot read is not silently called sound, but neither does
+		# it get a second problem of its own: the parent's dependency walk has
+		# already reported the missing file (missing_resource) or the one no loader
+		# opens (unloadable_resource), naming the node that instances it.
+		if not FileAccess.file_exists(ref_path):
+			continue
+		if not _has_scene_header(FileAccess.get_file_as_string(ref_path)):
+			continue
+		visited[ref_path] = true
+		var own: Variant = _scene_own_problems(ref_path)
+		if own != null:
+			out.append_array(_attributed_problems(own as Array, ref_path))
+		# Descended into even when it did not load: its text is still readable, and
+		# the scenes IT instances can be broken for reasons of their own.
+		chain[ref_path] = true
+		_collect_sub_scene_problems(ref_path, out, visited, chain)
+		chain.erase(ref_path)
 
 
 # Whether the text OPENS with a complete, CLOSED `[gd_scene …]` section header
