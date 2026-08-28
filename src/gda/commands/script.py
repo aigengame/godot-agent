@@ -1150,7 +1150,7 @@ def _project_scoped_res_path(script: str) -> str | None:
     :func:`canonical_res_path`, so the argv, the entry-load verdict and the reported
     path cannot diverge by input spelling.
 
-    Returns ``None`` for the five shapes that are not project-scoped script
+    Returns ``None`` for the six shapes that are not project-scoped script
     addresses. Each must be caught HERE, because each is otherwise launched:
 
     - an **absolute** path — outside the ``--project`` context (the reasons it stays
@@ -1163,6 +1163,16 @@ def _project_scoped_res_path(script: str) -> str | None:
       expand it (an unknown user, #699); a resolvable ``~/x.gd`` was already expanded
       to the absolute path refused above. So both tilde outcomes land on one refusal
       instead of one being refused and the other spliced into ``res://~user/x.gd``;
+    - a path with **trailing whitespace** (``"missing file. "``, ``"missing
+      file.gd "``) — the engine strips trailing whitespace from the ``--script``
+      argv before it ever echoes the path back in a load-failure diagnostic
+      (verified against real Godot 4.6.3), so the address it reports loses
+      whitespace gda's own canonical spelling keeps. The canonical-identity match
+      the never-ran verdict depends on then misses on that one trailing character,
+      and the run reports the same PHANTOM SUCCESS the root/escape refusals below
+      exist to prevent — on a path neither of them admits (#698). Only the
+      TRAILING case is refused: leading and internal whitespace survive the
+      engine's own normalization unchanged and stay accepted;
     - a path that names the project **root** (``""``, ``"."``, ``"sub/.."``) — it names
       a directory, not a script. An unset shell variable makes ``gda script run
       "$SCRIPT"`` exactly this;
@@ -1203,6 +1213,15 @@ def _project_scoped_res_path(script: str) -> str | None:
     if remainder in _ROOT_REMAINDERS:
         return None
     if remainder == ".." or remainder.startswith("../"):
+        return None
+    # Trailing whitespace (#698, adversarial review of PR #756): `canonical_res_path`
+    # is purely lexical (posixpath.normpath) and does NOT strip it, but the engine
+    # DOES — before it ever echoes the path back in a diagnostic — so a canonical
+    # spelling that keeps it can never match what the engine reports. Do NOT
+    # `rstrip()` it off here: silently trimming would launch a DIFFERENT script from
+    # the one the caller named, which is worse than refusing. Refusing is the only
+    # safe answer.
+    if remainder != remainder.rstrip():
         return None
     return canonical
 
