@@ -3726,7 +3726,7 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 # The test is LEXICAL and stays that way here: it does not resolve filesystem
 # targets, so an alias that leads to the root cache is descended into, and a
 # symlink cycle is descended until the OS path limit stops it. Symlink policy for
-# the res:// walk is undecided and tracked separately — do not decide half of it
+# the res:// walk is undecided and tracked in #760 — do not decide half of it
 # in this predicate.
 func _should_descend(child: String) -> bool:
 	return child != ENGINE_CACHE_DIR

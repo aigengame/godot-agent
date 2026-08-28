@@ -48,7 +48,7 @@ instantiation (and the Node-vs-Resource base-class check) remains **split per si
 > sample tree), and nothing in the path distinguishes it from a vendored sub-project's own engine
 > cache, whose scripts then enter the index too. The comparison being lexical, it does not resolve
 > filesystem targets: an alias that leads to `res://.godot` is walked and the cache's own scripts
-> are indexed through it. Symlink policy for the `res://` walk is undecided and tracked separately;
+> are indexed through it. Symlink policy for the `res://` walk is undecided and tracked in #760;
 > it is not decided here.
 
 **Explicit contract edges:**

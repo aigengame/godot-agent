@@ -463,8 +463,7 @@ engine cache of its own, whose import artefacts then count in `project statistic
 apart from the directory alone, and a false-valid aggregate is the worse failure. And because the
 test is lexical it compares the path as written, so it does **not** resolve filesystem targets: a
 symlink or alias under another path that leads to `res://.godot` is walked, and the cache's contents
-are then enumerated through that path. Symlink policy for the `res://` walk is undecided — a
-tracked follow-up owns it, together with the symlink CYCLE the same walk descends until the OS path
+are then enumerated through that path. Symlink policy for the `res://` walk is undecided — #760 owns it, together with the symlink CYCLE the same walk descends until the OS path
 limit stops it. Hidden entries are otherwise enumerated as promised (#54). **This rule governs the
 four `res://` collectors in `operations.gd`** — the `script list` walk, the `scene list` walk, and
 both static-analysis walks (the extension-filtered one behind `find-references`, `dependencies`,
