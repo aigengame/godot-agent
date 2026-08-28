@@ -42,7 +42,18 @@ AT_LINE = re.compile(
 # a marker line ``GDScript backtrace (most recent call first):`` then one frame
 # line per stack frame, ``       [N] <function> (<file>:<line>)`` (verified
 # against Godot 4.6.3). Frames are ordered most-recent-first; frame ``[0]``
-# equals the ``at:`` location. push_error / warnings carry no backtrace.
+# equals the ``at:`` location.
+#
+# A backtrace is attached to ANY error raised while GDScript is on the call stack
+# (`ScriptServer::capture_script_backtraces`) — a `push_error`, a `push_warning`,
+# and an engine-side error a script triggered indirectly all carry one on the
+# build gda drives. (`godot --headless` is a `target=editor` build, so
+# `DEBUG_ENABLED` is compiled in and `gdscript.cpp` forces
+# `track_call_stack = true` regardless of the project's
+# `debug/settings/gdscript/always_track_call_stacks` setting. An earlier comment
+# here claimed the opposite; it was measured against the wrong build, #722.) So a
+# backtrace's PRESENCE classifies nothing — it is evidence about where, not about
+# what. An error genuinely raised outside any script still carries none.
 BACKTRACE_MARKER = re.compile(r"^\s*GDScript backtrace\b.*:\s*$")
 FRAME_LINE = re.compile(
     r"^\s*\[\d+\]\s*(?P<function>.*?)\s*\((?P<file>.*):(?P<line>\d+)\)\s*$"
@@ -81,8 +92,9 @@ def parse_errors(data: str | bytes, limit: int | None = None) -> list[dict]:
     ``None`` (a bare error without a location is not a failure). ``callstack`` is
     the ordered ``{function, file, line}`` frames from the optional ``GDScript
     backtrace`` block (most-recent-first; frame ``[0]`` equals the ``at:``
-    location); a push_error / warning carries no backtrace, so ``callstack`` is
-    ``[]``. Unrecognized/continuation lines (interleaved print output) are
+    location); an error raised outside any GDScript call stack carries no
+    backtrace, so ``callstack`` is ``[]``. Unrecognized/continuation lines
+    (interleaved print output) are
     skipped. ``limit`` tails the most recent ``N`` errors. Empty input -> ``[]``.
     """
     captured = lines(data)

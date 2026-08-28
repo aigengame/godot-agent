@@ -141,9 +141,11 @@ def test_parse_errors_top_frame_fields_match_the_at_line_unchanged():
     }
 
 
-def test_parse_errors_callstack_is_empty_for_a_bare_push_error():
-    # A plain push_error / warning carries NO GDScript backtrace; its callstack is
-    # an empty list (not an error, not a one-frame synthesis).
+def test_parse_errors_callstack_is_empty_for_a_bare_error():
+    # An error raised outside any GDScript call stack carries NO backtrace; its
+    # callstack is an empty list (not an error, not a one-frame synthesis).
+    # NOT a push_error, which does carry one on the build gda drives (#722) — the
+    # earlier name for this test claimed the opposite.
     errors = parse_errors("ERROR: bare error\n   at: f (res://a.gd:1)\n")
     assert errors[0]["callstack"] == []
 

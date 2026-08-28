@@ -1298,6 +1298,16 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
       exactly the dogfooded case: an error raised inside the entry's own
       ``_initialize`` aborts it before its ``quit()``.
 
+    ``PUSH_ERROR`` is deliberately NOT here (#722), though it too can name the
+    entry. The watch's whole premise is that something interrupted the run: a
+    GDScript runtime error abandons the function it was raised in, which is why a
+    silence window after one is evidence. A ``push_error`` interrupts nothing —
+    the engine prints it and execution continues at the next statement — so a
+    script that reports an invariant and then computes quietly is alive by
+    construction, and killing it would break the very projects that use
+    ``push_error`` as ordinary logging. Widening recognition (#722) therefore adds
+    diagnostics to what ``script run`` REPORTS without changing when it aborts.
+
     Attribution is what keeps a *survivable* failure from arming the abort at all. A
     running script that merely ``load()``s a missing ``.tres``, or whose helper
     script fails, produces the same engine sentences for a DIFFERENT path — and the

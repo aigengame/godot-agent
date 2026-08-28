@@ -167,14 +167,19 @@ def test_a_parse_error_alone_still_fails_the_entry():
 
 def test_every_never_ran_kind_is_an_entry_failure_candidate():
     # `entry_load_failure` acts on the enum's published promise, so the two must
-    # not drift. Exactly two kinds are excluded, for different reasons the enum
-    # states: `runtime_error` proves the script DID run, and
+    # not drift. Exactly three kinds are excluded, for reasons the enum states:
+    # `runtime_error` and `push_error` both prove the script DID run (the engine
+    # raised inside it; the project's own code called push_error from it), and
     # `incompatible_script` carries no path by construction, so it can never name
     # the entry script and has no place in an entry-verdict precedence.
+    #
+    # Updated deliberately by #722, which is what this assertion is FOR: adding a
+    # kind without deciding whether it can fail an entry fails here by design.
     from gda.script_errors import _ENTRY_FAILURE_PRECEDENCE
 
     assert set(ScriptErrorKind) - set(_ENTRY_FAILURE_PRECEDENCE) == {
         ScriptErrorKind.RUNTIME_ERROR,
+        ScriptErrorKind.PUSH_ERROR,
         ScriptErrorKind.INCOMPATIBLE_SCRIPT,
     }
 
@@ -642,3 +647,137 @@ def test_the_ordinary_sentence_period_still_strips_for_both_sentences():
         (ScriptErrorKind.LOAD_FAILED, "res://plain.gd"),
         (ScriptErrorKind.RESOURCE_LOAD_FAILED, "res://plain.tres"),
     ]
+
+
+# --- A project-raised push_error (#722) ---------------------------------------
+#
+# Captured VERBATIM from `gda scene preflight` on Godot 4.6.3 (macOS), from a
+# scene whose `_ready` calls a helper that push_errors and then push_warnings.
+# This is the GDA-DF-030 shape the recognition set was widened for: the scene
+# comes up, reports its own invariant violation, and the process still exits 0.
+#
+# Note what the record does and does not carry. The `at:` frame names the
+# ENGINE's C++ (`push_error` in `core/variant/variant_utility.cpp`), so the only
+# script attribution in the whole record is the GDScript backtrace under it.
+PUSH_ERROR_STDERR = """\
+ERROR: probe: invariant violated
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _inner (res://probe.gd:9)
+       [1] _ready (res://probe.gd:5)
+WARNING: probe: a warning
+     at: push_warning (core/variant/variant_utility.cpp:1034)
+     GDScript backtrace (most recent call first):
+         [0] _inner (res://probe.gd:10)
+         [1] _ready (res://probe.gd:5)
+"""
+
+# THE over-match capture, also verbatim from a real preflight: a script whose
+# `_ready` calls `get_node()` on a path that does not exist. The engine raises it
+# from its OWN C++ and attaches a full GDScript backtrace anyway
+# (`ScriptServer::capture_script_backtraces` does that for any error raised while
+# GDScript is on the stack). Keying recognition on "an ERROR: with a backtrace"
+# would swallow this — an engine failure reported as if the project had raised it.
+INDIRECT_ENGINE_ERROR_STDERR = """\
+ERROR: Node not found: "/root/NoSuchThing" (absolute path attempted from "/root/Hero").
+   at: get_node (scene/main/node.cpp:1961)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://indirect.gd:5)
+"""
+
+
+def test_a_push_error_is_recognized_and_attributed_to_its_call_site():
+    errors = parse_script_errors(PUSH_ERROR_STDERR)
+
+    # One diagnostic, not two: the push_warning beside it is a WARNING, and the
+    # project chose that severity — gda does not promote it.
+    assert [e.kind for e in errors] == [ScriptErrorKind.PUSH_ERROR]
+    error = errors[0]
+    assert error.message == "probe: invariant violated"
+    # Backtrace-only attribution: the most recent res:// frame, which is the line
+    # that CALLED push_error. The engine's own number, not a synthesized one —
+    # the `at:` line's 1024 belongs to variant_utility.cpp and never leaks out.
+    assert error.path == "res://probe.gd"
+    assert error.line == 9
+
+
+def test_a_push_error_does_not_fail_the_entry_script():
+    # It proves the script RAN — the opposite of an entry-load failure — so it must
+    # not flip `script run`'s verdict for the very script that raised it. This is
+    # what keeps the widening additive for the pass-through channel (ADR-0031).
+    errors = parse_script_errors(PUSH_ERROR_STDERR)
+
+    assert entry_load_failure(errors, "res://probe.gd") is None
+
+
+def test_an_engine_error_a_script_triggered_is_not_a_push_error():
+    # The over-match guard: same backtrace shape, different `at:` frame. The
+    # engine could not find the node — that is the engine's failure, not the
+    # project reporting one, and this build's recognized set covers neither, so
+    # the record stays out of `diagnostics` entirely.
+    assert parse_script_errors(INDIRECT_ENGINE_ERROR_STDERR) == []
+
+
+def test_a_push_error_message_that_looks_like_an_engine_sentence_is_still_one():
+    # The project's prose is the PAYLOAD, never the key. A message that happens to
+    # spell an engine load-failure sentence must not be re-reported as that
+    # failure — which would invent a missing script out of a log line and, worse,
+    # fail an entry that ran fine.
+    stderr = (
+        "ERROR: Can't load script: res://not-really-missing.gd\n"
+        "   at: push_error (core/variant/variant_utility.cpp:1024)\n"
+        "   GDScript backtrace (most recent call first):\n"
+        "       [0] _ready (res://liar.gd:3)\n"
+    )
+    errors = parse_script_errors(stderr)
+
+    assert [(e.kind, e.path) for e in errors] == [
+        (ScriptErrorKind.PUSH_ERROR, "res://liar.gd")
+    ]
+    assert entry_load_failure(errors, "res://not-really-missing.gd") is None
+
+
+def test_a_push_error_without_a_backtrace_carries_no_address():
+    # gda does not REQUIRE the backtrace: losing it costs the address, not the
+    # diagnostic. Nothing is synthesized — the engine's C++ `at:` location is not
+    # a script location and never becomes one.
+    stderr = (
+        "ERROR: bare report\n"
+        "   at: push_error (core/variant/variant_utility.cpp:1024)\n"
+    )
+    errors = parse_script_errors(stderr)
+
+    assert [e.kind for e in errors] == [ScriptErrorKind.PUSH_ERROR]
+    assert errors[0].path is None
+    assert errors[0].line is None
+
+
+def test_a_push_error_address_is_canonicalized_like_every_other():
+    # One resource identity everywhere (#651 review claim 1): a backtrace frame
+    # goes through the same canonicalization as a message-derived path, so a
+    # caller comparing addresses cannot be defeated by the spelling.
+    stderr = (
+        "ERROR: report\n"
+        "   at: push_error (core/variant/variant_utility.cpp:1024)\n"
+        "   GDScript backtrace (most recent call first):\n"
+        "       [0] _ready (res://sub/../probe.gd:3)\n"
+    )
+    errors = parse_script_errors(stderr)
+
+    assert errors[0].path == "res://probe.gd"
+
+
+def test_an_engine_side_backtrace_frame_is_skipped_for_the_address():
+    # The address is the first res:// frame, not the first frame: an engine frame
+    # in the backtrace is the same C++ noise the `at:` line is.
+    stderr = (
+        "ERROR: report\n"
+        "   at: push_error (core/variant/variant_utility.cpp:1024)\n"
+        "   GDScript backtrace (most recent call first):\n"
+        "       [0] _native_helper (core/object/object.cpp:1000)\n"
+        "       [1] _ready (res://probe.gd:7)\n"
+    )
+    errors = parse_script_errors(stderr)
+
+    assert errors[0].path == "res://probe.gd"
+    assert errors[0].line == 7

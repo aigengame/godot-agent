@@ -134,9 +134,16 @@ they answer *different* ones:
   engine's error stream. Read `started`: true only when the scene reached `_ready` AND nothing was
   recognized on stderr, which is the distinction the dogfooding note asks for (GDA-DF-030 —
   static validation passed while the first live launch rejected every assembly). Recognition is
-  #651's closed set of engine failure sentences (a runtime error, a failed assertion, a script
-  that could not load, a script binding the engine refused), so project prose written with
-  `push_error()` is not among them.
+  #651's closed set: the engine's own failure sentences (a runtime error, a failed assertion, a
+  script that could not load, a script binding the engine refused) **and a project-raised
+  `push_error()`** (#722), which is the most common way a Godot project reports exactly the
+  invariant violation GDA-DF-030 describes. That one is recognized by its `at:` frame — which
+  the engine fixes as `push_error` — never by its message, which is the project's own prose; its
+  `kind` is `push_error` and its `path`/`line` are the call site named in the engine's GDScript
+  backtrace, or null when it attached none. Everything else the engine prints stays
+  unrecognized: a backtrace alone does not qualify a record, since the engine attaches one to
+  any error raised while GDScript is on the stack, including engine-side failures a script only
+  triggered indirectly.
 
 `scene validate` takes a `.tscn` specifically, and refuses a binary `.scn` with `invalid_path`:
 its dependency set comes from the scene's own TEXT (which is also what attributes each dependency
@@ -626,7 +633,11 @@ alive and did not finish) — so a slow suite is distinguishable from a hang.
 `--completion-marker <line>` declares a liveness contract — the script prints that line when
 its work is done — and a run that hit a recognized error attributable to the entry script, has
 not printed the marker, and then goes silent on both streams is ended in seconds and reported
-as `script_aborted` with the captured error and phase `aborted_on_error`. The script executes in full, within
+as `script_aborted` with the captured error and phase `aborted_on_error`. A `push_error` never
+arms that abort even though it is recognized (#722): it interrupts nothing — execution
+continues at the next statement — so a script that reports an invariant and then computes
+quietly is alive by construction. It does appear in the run's `diagnostics`, which are advisory:
+a project that uses `push_error` as ordinary logging sees entries on runs that still succeed. The script executes in full, within
 the trusted-project assumption (ADR-0009).
 
 ### `project`

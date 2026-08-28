@@ -1285,8 +1285,10 @@ def test_diag_errors_result_round_trips_a_multi_frame_callstack():
 
 
 def test_diag_error_callstack_defaults_to_empty_for_a_bare_error():
-    # A bare push_error carries no backtrace: callstack defaults to [] and the
-    # existing single-frame fields stay None — no callstack key required on input.
+    # An error raised outside any GDScript call stack carries no backtrace:
+    # callstack defaults to [] and the existing single-frame fields stay None — no
+    # callstack key required on input. (A push_error is NOT such an error: it does
+    # carry a backtrace on the build gda drives, #722.)
     from gda.commands.diag import DiagError
 
     error = DiagError.model_validate(
