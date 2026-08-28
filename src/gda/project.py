@@ -22,6 +22,8 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from gda.script_errors import canonical_res_path
+
 GDA_PROJECT_ENV = "GDA_PROJECT"
 
 # The file Godot uses to mark a directory as a project root.
@@ -44,7 +46,10 @@ def is_engine_virtual_path(path: str) -> bool:
     anywhere in the string. Owned here, in the project-resolution module, and
     read by both callers of the rule: :func:`gda.models.normalize_path` (which
     passes such a path through unexpanded) and :func:`path_outside_project`
-    (which can make no filesystem statement about one).
+    (which still makes no FILESYSTEM statement about a well-formed one, but for
+    a ``res://`` spelling specifically checks it for a lexical escape of the
+    project namespace, #762 — a ``user://``/``uid://`` spelling stays inside by
+    construction, unchanged).
     """
     return path.startswith(ENGINE_VIRTUAL_PREFIXES)
 
@@ -102,6 +107,25 @@ def project_anchored(path: str, project: Path) -> Path:
     return _expand_user(project) / target
 
 
+def _res_escape_remainder(path: str) -> str | None:
+    """The canonical remainder of a ``res://`` address when it escapes upward, else ``None`` (#762).
+
+    Canonicalizes ``path`` the way Godot canonicalizes a ``res://`` address before
+    it resolves or reports one (:func:`gda.script_errors.canonical_res_path`
+    collapses ``.``/``..`` segments), then reads what is left: an exact ``..`` or a
+    leading ``../`` means the address is still climbing above the namespace root
+    AFTER that collapsing, which is genuinely outside. Anything else is not an
+    escape, including a ``res://foo/../bar.gd`` spelling — it collapses to
+    ``res://bar.gd``, net-inside — and a filename that merely STARTS with two dots
+    (``res://..foo.gd`` names a real file, not a traversal; the test is the first
+    PATH SEGMENT, not a string prefix).
+    """
+    remainder = canonical_res_path(path)[len("res://") :]
+    if remainder == ".." or remainder.startswith("../"):
+        return remainder
+    return None
+
+
 def path_outside_project(path: str, project: Path) -> Path | None:
     """The location of ``path`` when it falls OUTSIDE ``project``.
 
@@ -110,9 +134,19 @@ def path_outside_project(path: str, project: Path) -> Path | None:
     project, and otherwise the target's real location, so the caller can name
     *where* it actually is in its diagnostic.
 
-    An engine-virtual path is inside by construction: it addresses the project
-    the engine was launched with, and gda can make no filesystem statement
-    about one.
+    A ``res://`` address is checked LEXICALLY against the namespace it names,
+    rather than trusted by construction: :func:`_res_escape_remainder`
+    canonicalizes it the way the engine does and refuses one that still steps
+    above the namespace root after that collapsing (``res://../outside.gd``).
+    gda still makes no FILESYSTEM statement about a well-formed ``res://``
+    path — it is the engine's own launch ``--path`` that owns resolving one,
+    and this check never touches the filesystem to decide — but a spelling
+    that lexically escapes the namespace is not well-formed, and admitting it
+    here defeated the very refusal this function exists to make (#762). The
+    other two engine-virtual schemes are unaffected and stay inside by
+    construction: ``user://`` addresses the engine's own data directory, not a
+    child of the project tree, and ``uid://`` is an opaque identifier with no
+    path structure to escape through.
 
     A filesystem path is first anchored the way the engine will address it
     (:func:`project_anchored`), then read in up to two ways — it belongs to the
@@ -149,7 +183,12 @@ def path_outside_project(path: str, project: Path) -> Path | None:
     location it would occupy rather than raising.
     """
     if is_engine_virtual_path(path):
-        return None
+        if not path.startswith("res://"):
+            return None
+        escape = _res_escape_remainder(path)
+        if escape is None:
+            return None
+        return (_expand_user(project) / escape).resolve()
     root = _expand_user(project)
     candidate = project_anchored(path, project)
     location = candidate.resolve()

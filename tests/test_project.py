@@ -103,6 +103,56 @@ def test_engine_virtual_paths_are_never_outside(tmp_path):
     assert path_outside_project("uid://abc123", proj) is None
 
 
+# --- a res:// spelling that LEXICALLY escapes the namespace (#762) ------------
+
+
+def test_a_res_dotdot_escape_is_outside(tmp_path):
+    # #762: `path_outside_project` used to short-circuit EVERY res:// string as
+    # inside, so `res://../outside.gd` bypassed containment even though it names
+    # a file one directory above the project root — exactly what the absolute
+    # spelling of the same file is already refused for. The reported location
+    # lets a caller compare the two spellings' refusals directly.
+    proj = _make_project(tmp_path / "game")
+
+    assert (
+        path_outside_project("res://../outside.gd", proj)
+        == (tmp_path / "outside.gd").resolve()
+    )
+    # The bare escape, with no filename after it, is refused the same way.
+    assert path_outside_project("res://..", proj) == tmp_path.resolve()
+
+
+def test_a_res_path_that_collapses_back_inside_is_not_outside(tmp_path):
+    # A `..` a lexical collapse cancels out stays inside: `res://foo/../bar.gd`
+    # normalizes to `res://bar.gd`, net-inside the namespace, exactly as Godot
+    # itself would canonicalize the address. `resource import`'s own res://
+    # gate (`_asset_res_path`) is stricter — it refuses ANY literal `..`
+    # component regardless of net effect — and #763 tracks reconciling the two;
+    # this authority's rule is decided here.
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project("res://foo/../bar.gd", proj) is None
+
+
+def test_a_res_path_starting_with_two_dots_is_not_an_escape(tmp_path):
+    # `res://..foo.gd` names a real file whose name merely starts with two dots,
+    # not a traversal — the escape test is the first PATH SEGMENT, not a string
+    # prefix.
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project("res://..foo.gd", proj) is None
+
+
+def test_user_and_uid_paths_stay_inside_even_with_a_dotdot(tmp_path):
+    # Only res:// gets the lexical escape check (#762): user:// and uid:// stay
+    # inside by construction, unchanged — gda still cannot make a filesystem
+    # statement about where either one really resolves.
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project("user://../outside.gd", proj) is None
+    assert path_outside_project("uid://../abc123", proj) is None
+
+
 def test_a_colon_bearing_filesystem_path_is_not_treated_as_virtual(tmp_path):
     # A colon is a legal POSIX filename character, so "contains ://" is not a
     # scheme test: `/work/outside://deck.gd` is an ordinary filesystem path that
