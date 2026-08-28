@@ -259,6 +259,12 @@ a missing or stale cache runs the **engine import pass** — importer code (and
 any import plugins the project registers) over project content, WITHOUT the
 autoloads: the pass boots the editor importer path, not the game's scene
 stack.
+`gda scene validate` (#664) is a point too, and a narrow one: it compiles
+every script the scene binds — which runs their static initializers — while
+instantiating nothing, so none of the scene's own nodes reach `_init` or
+`_ready`; composing the verdict over instanced sub-scenes (#721) widened that
+set from the validated scene's own scripts to every script reachable through
+the scenes it instances, without adding a point.
 `gda game call` (#673) contributes ONE narrow point: the single method the
 addressed node's attached-script chain named in its `GDA_CALLABLE` declaration
 runs, once, per request. Reading that declaration adds no point at all — the
