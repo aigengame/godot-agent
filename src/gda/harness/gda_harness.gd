@@ -276,7 +276,7 @@ func _send_scene_verification() -> void:
 	_launched_scene_path = current_path
 	_launched_scene_uid = _scene_header_uid(current_path)
 	var frame := {"scene_ok": ok, "current": current_path}
-	_send_frame(JSON.stringify(frame).to_utf8_buffer())
+	_send_frame(_json(frame).to_utf8_buffer())
 
 
 # Whether the loaded scene path matches the requested selector (#278). A `res://…`
@@ -348,7 +348,7 @@ func _advance_window() -> void:
 	# A sampler may abort the window by returning a Dictionary with an "error" key
 	# (e.g. the monitored node was freed mid-window): send that envelope verbatim.
 	if typeof(sampled) == TYPE_DICTIONARY and (sampled as Dictionary).has("error"):
-		_finish_window(RESULT_BEGIN + JSON.stringify(sampled) + RESULT_END)
+		_finish_window(RESULT_BEGIN + _json(sampled) + RESULT_END)
 		return
 	# ...or complete it early with a success payload (#661 predicate capture).
 	if typeof(sampled) == TYPE_DICTIONARY and (sampled as Dictionary).has("complete"):
@@ -1684,7 +1684,7 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 					state["outcome"] = {"error": {
 						"code": LIVE_ERROR_PREDICATE_UNMET,
 						"message": "the predicate " + node_path + "." + prop
-								+ " == " + JSON.stringify(expected)
+								+ " == " + _json(expected)
 								+ " did not hold within " + str(frames)
 								+ " frames (last observed: "
 								+ str(state["observed"]) + ")",
@@ -1713,7 +1713,7 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 		_injected_mouse_button_mask = 0
 		return _error(LIVE_ERROR_PREDICATE_UNMET,
 				"the predicate " + node_path + "." + prop + " == "
-				+ JSON.stringify(expected) + " did not hold within "
+				+ _json(expected) + " did not hold within "
 				+ str(frames) + " frames (last observed: "
 				+ str(state["observed"]) + ")")
 	return _begin_window(maxi(frames, last_event + 1) + 1, sample, finalize)
@@ -1812,12 +1812,26 @@ func _serialize(node: Node) -> Dictionary:
 	}
 
 
+# The ONE JSON writer for everything this harness sends back (#752). Godot's
+# default JSON.stringify renders a float through String::num, which formats
+# FIXED-POINT with at most MAX_DECIMALS (32) decimals: it flattened every value
+# below ~1e-32.6 to 0.0 and rounded ordinary values to ~15 significant digits
+# (3.141592653589793 came back as 3.14159265358979) — 1822 of 5580 corpus values
+# survived. The full_precision argument switches it to String::num_scientific
+# (grisu2, shortest round-tripping form), which was EXACT on all 5580. The other
+# three arguments keep their defaults ("" indent, sort_keys true), so ONLY the
+# number spelling changes. One residual, disclosed in the CLI contract: the engine
+# emits "0.0" for a NEGATIVE ZERO before this argument is consulted.
+func _json(value: Variant) -> String:
+	return JSON.stringify(value, "", true, true)
+
+
 func _ok(payload: Dictionary) -> String:
-	return RESULT_BEGIN + JSON.stringify(payload) + RESULT_END
+	return RESULT_BEGIN + _json(payload) + RESULT_END
 
 
 func _error(code: String, message: String) -> String:
-	return RESULT_BEGIN + JSON.stringify({"error": {"code": code, "message": message}}) + RESULT_END
+	return RESULT_BEGIN + _json({"error": {"code": code, "message": message}}) + RESULT_END
 
 
 # The PUBLIC, stable predicate reporting whether gda-daemon launched this run (#362)
@@ -1843,8 +1857,9 @@ func is_daemon_launched() -> bool:
 # structured, field-carrying log record. It prints a single `<<<GDA:LOG>>>{json}`
 # line into the engine log — which the daemon captures via --log-file (ADR-0022) —
 # so the daemon's parser turns it into a rich LogRecord (`gda logger tail`).
-# JSON.stringify keeps the payload single-line (newlines in `message`/`fields` are
-# escaped), so one call is always one log line. It uses a marker DISTINCT from
+# `_json` keeps the payload single-line (newlines in `message`/`fields` are
+# escaped) and its floats exact (#752), so one call is always one log line whose
+# numbers the daemon's parser reads back unchanged. It uses a marker DISTINCT from
 # RESULT_BEGIN, so a log line can never be mistaken for an op result. Unlike the
 # live ops above, this is a plain stdout print, NOT an IPC reply — but it is GATED on a
 # daemon-launched session: outside one (a human editor run, a plain run, a shipped
@@ -1854,7 +1869,7 @@ func is_daemon_launched() -> bool:
 func gda_log(level: String, message: String, fields: Dictionary = {}) -> void:
 	if not _daemon_launched:
 		return
-	print(LOG_MARKER + JSON.stringify({
+	print(LOG_MARKER + _json({
 		"level": level,
 		"message": message,
 		"fields": fields,

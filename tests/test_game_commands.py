@@ -862,8 +862,12 @@ def test_game_call_schema_publishes_the_declaration_contract():
     assert "small-magnitude" in args_description
     assert "1.2345678901234567e-300" in args_description
     assert "0.0" in args_description
+    assert "REFUSED here" in args_description
     assert "in-memory JSON Schema validators" in number_description
-    assert "issue #752" in number_description
+    # The DECIDED contract, not a defect pointer (#752): the refusal on the
+    # request side and the exactness guarantee on the result side.
+    assert "reads as 0.0 is refused" in number_description
+    assert "every float it RETURNS is exact" in number_description
 
 
 def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words():
@@ -876,8 +880,9 @@ def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words
     assert str(MAX_EXACT_JSON_INT) in rendered
     assert "finite floats are not subject to the integer" in rendered
     assert "integer values must stay within" in rendered
-    assert "small-magnitude floats can arrive" in rendered
+    assert "parser reads as 0.0 is refused too" in rendered
     assert "1.2345678901234567e-300" in rendered
+    assert "ULP" in rendered  # the disclosed residual on values the wire DOES carry
     assert "an an argument" not in rendered
 
 

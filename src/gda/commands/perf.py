@@ -1010,6 +1010,11 @@ def perf_monitors(
     `--budget` — a per-monitor pass/fail verdict and an overall `passed`.
     `--monitor` and `--budget` require `--frames`. Live ops need a running
     daemon: with none, it reports `daemon_not_running`.
+
+    Monitor readings cross the live wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     params = params_or_bad_parameter(
         PerfMonitorsParams, frames=frames, monitors=monitors, budget=budget
@@ -1065,6 +1070,11 @@ def perf_monitor(
     `daemon_not_running`; an absent node is `live_perf_node_not_found`, an absent
     property `live_perf_property_not_found`, an absent signal
     `live_perf_signal_not_found`.
+
+    Recorded values cross the live wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     # Exactly one of --property/--signal is required (the same rule the model
     # enforces for --params-json). On the argv path it is a usage error (exit 2),

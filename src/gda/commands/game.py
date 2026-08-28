@@ -32,6 +32,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
+from gda.live_numbers import MAX_EXACT_JSON_INT, wire_flattens_to_zero
 from gda.models import (
     NodeProperty,
     RUNTIME_NODE_DESC,
@@ -242,14 +243,10 @@ class GameSetResult(BaseModel):
 GDA_CALLABLE_CONST = "GDA_CALLABLE"
 
 
-# The interoperable range for JSON INTEGER values decoded as Python ``int``
-# (PR #749 review). Godot's `JSON.parse_string` reads every number as binary64,
-# so an int outside this guaranteed-exact range may arrive changed:
-# 9007199254740993 became …992, and 123456789012345678901234567890 became -2.
-# A Python float is already binary64 and does not inherit this integer bound.
-# This is not a promise that Godot preserves every binary64 JSON literal: #752
-# tracks small-magnitude normal and subnormal values that its parser can flatten.
-MAX_EXACT_JSON_INT = 2**53 - 1
+# The live wire's number domain — the safe-integer bound and the small-float
+# underflow predicate — lives in ``gda.live_numbers``, the one authority this
+# group's guard, help and schema all read (#752). Re-exported by the import above
+# so ``gda.commands.game.MAX_EXACT_JSON_INT`` keeps naming it.
 
 
 def _game_call_params_schema(schema: dict[str, Any]) -> None:
@@ -264,9 +261,9 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
     retain the useful distinction — an exponent or fractional token becomes float,
     while a bare integer becomes int. Constraining the schema's ``integer`` type
     would therefore reject valid high-range binary64 float arguments. Keep the
-    machine number branch broad, disclose the distinction and Godot's known
-    small-magnitude precision gap in its description, and let the same params model
-    that accepts input enforce the int-only bound.
+    machine number branch broad, disclose the distinction and the live wire's
+    decided float contract (``gda.live_numbers``) in its description, and let the
+    same params model that accepts input enforce the int-only bound.
     """
     # `$dynamicRef` keeps the recursive definition standard Draft 2020-12 while
     # avoiding a Pydantic-internal `$ref` lookup: this definition is attached by
@@ -287,8 +284,11 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
                     f"stay within +/-{MAX_EXACT_JSON_INT}; standard JSON Schema "
                     "cannot distinguish those tokens from equal high-range float "
                     "values, so the params model enforces that integer-token limit "
-                    "at execution. Godot 4.6.3 can also change some small-magnitude "
-                    "finite literals to 0.0; issue #752 tracks that transport defect."
+                    "at execution. A float whose wire literal Godot's parser reads "
+                    "as 0.0 is refused for the same reason (no decimal literal can "
+                    "deliver it, so the call would succeed on a value you never "
+                    "sent); floats it can read arrive within 1-2 ULP of the value "
+                    "sent, and every float it RETURNS is exact (#752)."
                 ),
             },
             {"type": "string"},
@@ -306,9 +306,9 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
 
 
 def _reject_unrepresentable(value: Any, path: str = "args") -> None:
-    """Refuse two reproduced unsafe argument classes before the wire (PR #749).
+    """Refuse three reproduced unsafe argument classes before the wire (PR #749, #752).
 
-    Two classes, both reproduced end to end, both refused recursively (a nested
+    Three classes, each reproduced end to end, each refused recursively (a nested
     value is as harmful as a top-level one):
 
     - **Non-finite floats.** JSON has no ``NaN``/``Infinity`` literals, but
@@ -323,16 +323,26 @@ def _reject_unrepresentable(value: Any, path: str = "args") -> None:
       Python floats already are binary64 values and do not inherit the integer
       safe-range bound; the reproduced high-range values such as ``1e300`` cross
       unchanged.
+    - **Floats the engine's parser reads as** ``0.0`` (#752). Godot's
+      ``built_in_strtod`` applies a power of ten it computes as a double, so an
+      applied exponent of −309 or below divides by ``inf``: ``5e-324``,
+      ``2.2250738585072014e-308`` (``DBL_MIN``) and even the ordinary normal
+      ``1.2345678901234567e-300`` all arrive as ``0.0``, and the call SUCCEEDS on a
+      number the caller never sent. Refused rather than re-spelled because no
+      decimal literal at all can deliver such a value through that parser — the
+      corpus behind :mod:`gda.live_numbers` establishes both facts.
 
-    This function does not reject every float that Godot can change. Godot 4.6.3
-    parses some small-magnitude finite literals — including the normal binary64
-    value ``1.2345678901234567e-300`` — as ``0.0``. A decimal heuristic would
-    over-refuse and would not cover Godot's result stringifier, so #752 owns the
-    cross-direction transport policy instead of adding a partial guard here.
+    This function still does not reject every float that Godot can change: a value
+    the parser CAN construct can arrive 1–2 ULP away (8.8% of uniform ±10⁴ values
+    in the corpus). That residual is disclosed rather than refused — refusing it
+    would reject ordinary game values, and removing it would mean not sending a
+    JSON number at all, the bespoke daemon↔harness representation ADR-0021
+    rejected. The result direction has no such residual: the harness stringifies
+    with full precision, exact on every corpus value.
 
     The params model is the one authority both the argv and ``--params-json``
-    paths pass through (ADR-0015), so both refusals belong here — structurally,
-    before the wire.
+    paths pass through (ADR-0015), so all three refusals belong here —
+    structurally, before the wire.
     """
     if isinstance(value, bool):
         pass  # bool is not an int argument here, despite subclassing it
@@ -340,6 +350,14 @@ def _reject_unrepresentable(value: Any, path: str = "args") -> None:
         raise ValueError(
             f"{path} must be finite JSON values; NaN and Infinity are not "
             "representable on the live wire."
+        )
+    elif isinstance(value, float) and wire_flattens_to_zero(value):
+        raise ValueError(
+            f"{path} float value {value!r} cannot cross the live wire: Godot's "
+            "JSON parser scales it by a power of ten it cannot hold in a double, "
+            "so it would arrive as 0.0 and the call would SUCCEED on a value you "
+            "never sent. No decimal spelling avoids it — the value needs fewer "
+            "significant digits or a larger magnitude."
         )
     elif isinstance(value, int) and abs(value) > MAX_EXACT_JSON_INT:
         raise ValueError(
@@ -390,9 +408,13 @@ class GameCallParams(BaseModel):
             "wire; some in-memory validators still accept them as numbers). Finite "
             "float values are not subject to the integer safe-range bound; "
             "real-engine tests pin 1e17, 2.5e17, and 1e300 unchanged. This is not a "
-            "full-range preservation guarantee: Godot 4.6.3 parses some "
-            "small-magnitude finite literals, including 1.2345678901234567e-300, "
-            "as 0.0; issue #752 tracks the input and result transport defect. JSON "
+            "full-range preservation guarantee. A small-magnitude float whose "
+            "literal Godot's parser reads as 0.0 — 1.2345678901234567e-300, "
+            "DBL_MIN, every subnormal — is REFUSED here, because no decimal "
+            "spelling delivers it and the call would otherwise succeed on a value "
+            "you never sent; a float the parser does read can still arrive 1-2 ULP "
+            "away, while every float a live reply RETURNS is exact (issue #752). "
+            "JSON "
             f"integer tokens must stay within +/-{MAX_EXACT_JSON_INT} recursively; "
             "standard JSON Schema cannot distinguish those tokens from equal "
             "high-range float values, so the params model enforces this limit. "
@@ -598,6 +620,11 @@ def game_get(
     A path-less Texture2D value projects as a TextureProjection ({type, width,
     height, object_string, digest}, ADR-0035 amendment #666); `--texture-digest`
     opts into its content digest.
+
+    Float values cross the live wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     dispatch_domain(
         GAME_GET_COMMAND,
@@ -715,8 +742,10 @@ def game_call(
             "JSON array of arguments, passed as the live parser's Variant forms "
             "(every number becomes float; e.g. '[1, \"idle\"]'). Values are "
             "checked recursively: NaN and Infinity are refused; finite floats are "
-            "not subject to the integer bound, but small-magnitude floats can arrive "
-            "changed (Godot 4.6.3 parses 1.2345678901234567e-300 as 0.0; #752); "
+            "not subject to the integer bound, but a float whose literal Godot's "
+            "parser reads as 0.0 is refused too (1.2345678901234567e-300, DBL_MIN, "
+            "any subnormal — no decimal spelling delivers them; #752), and a float "
+            "it does read can arrive 1-2 ULP away; "
             "JSON integer values must stay within +/-"
             f"{MAX_EXACT_JSON_INT}. Omit to call with none."
         ),
