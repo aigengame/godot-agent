@@ -141,3 +141,55 @@ def test_the_game_group_still_names_the_shared_integer_bound():
     from gda.commands import game
 
     assert game.MAX_EXACT_JSON_INT is MAX_EXACT_JSON_INT
+
+
+# The one sentence the RESULT-direction guarantee is stated in. #752's AC 3 asks
+# for the policy to be consistent across the surfaces that carry a live float,
+# and it named `game get` and `perf` as the two that said nothing; this is what
+# keeps the three copies from drifting apart, and from drifting away from the
+# behaviour `tests/test_e2e_live_number_transport.py` measures.
+RESULT_PRECISION_SENTENCE = (
+    "cross the live wire at full binary64 precision — the reply is serialized "
+    "with Godot's full-precision JSON writer, so a small or many-digit value "
+    "reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back as "
+    "0.0, which the engine's writer decides before gda sees the value."
+)
+
+
+def _collapsed(text: str) -> str:
+    """One line, single-spaced — a docstring's wrapping is not part of its content."""
+    return " ".join(text.split())
+
+
+def test_the_result_precision_guarantee_is_stated_identically_on_every_live_read():
+    from gda.commands.game import game_get
+    from gda.commands.perf import perf_monitor, perf_monitors
+
+    for command in (game_get, perf_monitors, perf_monitor):
+        assert RESULT_PRECISION_SENTENCE in _collapsed(command.__doc__ or ""), (
+            command.__name__
+        )
+
+
+def test_the_result_precision_guarantee_reaches_the_rendered_help_and_the_skill():
+    from typer.testing import CliRunner
+
+    from gda.cli import app
+    from gda.commands.meta import read_skill_text
+
+    # Rendered help wraps inside a Rich panel, so assert on tokens a line break
+    # cannot split rather than on the sentence.
+    for argv in (
+        ["game", "get", "--help"],
+        ["perf", "monitors", "--help"],
+        ["perf", "monitor", "--help"],
+    ):
+        rendered = CliRunner().invoke(app, argv)
+        assert rendered.exit_code == 0, rendered.stdout
+        words = set(" ".join(rendered.stdout.split()).split())
+        assert "binary64" in words, argv
+        assert "NEGATIVE" in words, argv
+
+    skill = read_skill_text()
+    assert "full binary64 precision" in skill
+    assert "a negative zero reads back as `0.0`" in skill
