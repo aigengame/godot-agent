@@ -35,6 +35,22 @@ path` index once per process run. Resolution stays a **static text scan**; the s
 instantiation (and the Node-vs-Resource base-class check) remains **split per site** — only the
 `class_name → path` resolution is unified.
 
+> **Amendment (2026-08-28, #712) — the scan's boundary is the ROOT cache PATH, not the directory
+> name.** "Skipping `.godot/`" above was implemented as a directory-NAME test, which also excluded
+> every `.godot` deeper in the tree. #712 replaced that, in all four `res://` collectors at once,
+> with a lexical comparison of the child's path against `res://.godot`, owned by a single predicate
+> (`_should_descend` in `operations.gd`) so the four cannot drift apart again — three of them
+> disagreed with the fourth, and one project answered two ways: `script list` named a `.gd` whose
+> `class_name` this index could not resolve. For this ADR the boundary is now: the index covers a
+> `.gd` under a **nested** `.godot`, so its `class_name` resolves at all three call sites, and a
+> declaration there can make a name `ambiguous_class_name` that was unambiguous before. The trade
+> is accepted deliberately — a nested `.godot` is usually authored content (an addon vendoring a
+> sample tree), and nothing in the path distinguishes it from a vendored sub-project's own engine
+> cache, whose scripts then enter the index too. The comparison being lexical, it does not resolve
+> filesystem targets: an alias that leads to `res://.godot` is walked and the cache's own scripts
+> are indexed through it. Symlink policy for the `res://` walk is undecided and tracked separately;
+> it is not decided here.
+
 **Explicit contract edges:**
 
 - **Duplicate `class_name`** (declared in more than one `.gd`) is **ambiguous and rejected** with a
@@ -87,6 +103,9 @@ gda's existing boundary); its resolution would need a different mechanism and is
 - **Consistency restored** across the three sites: they now agree on `class_name` resolution in a
   never-opened project, rather than `find-references` reporting "no such class" while a repaired
   `resource create` resolves it.
+- **Scan boundary (amended 2026-08-28, #712).** What the scan skips is the root cache **path**, not
+  every directory named `.godot` — see the Decision amendment for the boundary, the accepted
+  nested-cache trade, and the open symlink question.
 - **Cost.** A never-opened-project miss walks the whole `res://` tree and parses every `.gd`; this is
   acceptable for one-shot ops and is **not** backed by a persistent gda-owned cache — a gda-owned
   cache would re-introduce the very ".godot ownership" complexity the editor-scan option was rejected

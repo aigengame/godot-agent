@@ -3722,6 +3722,12 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 # Three of the four walks once compared the NAME, so one project answered two
 # ways: `script list` reported a script `project statistics` counted as zero
 # (#712). One decision, one site — that is what keeps them in agreement.
+#
+# The test is LEXICAL and stays that way here: it does not resolve filesystem
+# targets, so an alias that leads to the root cache is descended into, and a
+# symlink cycle is descended until the OS path limit stops it. Symlink policy for
+# the res:// walk is undecided and tracked separately — do not decide half of it
+# in this predicate.
 func _should_descend(child: String) -> bool:
 	return child != ENGINE_CACHE_DIR
 

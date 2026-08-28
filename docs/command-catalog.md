@@ -453,19 +453,25 @@ issue #30) — null when the source declares neither, so the listing names every
 Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
 `--project`); an empty project is a valid, empty listing, not an error. The walk excludes exactly
 one directory — the engine's own cache at `res://.godot`, whose contents are import artefacts no
-agent authored. **Only that path**, not every directory named `.godot`: a nested one is usually
-authored content, and excluding it hid real scripts from the listing and let `script validate --all`
-report a valid aggregate for a project holding an invalid script (#663 review). Sometimes it is not
-authored content — a vendored sub-project checked out under `res://` and opened once in an editor
-keeps an engine cache of its own, whose import artefacts then count in `project statistics` and
-become `find-unused-resources` candidates. That cost is accepted deliberately: gda cannot tell the
-two apart from the directory alone, and a false-valid aggregate is the worse failure. Hidden entries
-are otherwise enumerated as promised (#54). **This is the rule for every `res://` walk** — `script
-list`, `scene list`, and both static-analysis walks (the extension-filtered one behind
-`find-references`, `dependencies`, `find-unused-resources` and the `class_name` index, and the
-unfiltered one `project statistics` counts with) — so one project cannot answer two ways. It once
-did: three of the four walks compared the directory NAME, so `script list` reported a script
-`project statistics` counted as zero (#712). `gda script delete`
+agent authored. The test is **lexical**: the child's `res://` PATH is compared against that one
+path. Not the directory NAME, so a nested `.godot` is walked — it is usually authored content, and
+excluding it hid real scripts from the listing and let `script validate --all` report a valid
+aggregate for a project holding an invalid script (#663 review). Sometimes it is not authored
+content — a vendored sub-project checked out under `res://` and opened once in an editor keeps an
+engine cache of its own, whose import artefacts then count in `project statistics` and become
+`find-unused-resources` candidates. That cost is accepted deliberately: gda cannot tell the two
+apart from the directory alone, and a false-valid aggregate is the worse failure. And because the
+test is lexical it compares the path as written, so it does **not** resolve filesystem targets: a
+symlink or alias under another path that leads to `res://.godot` is walked, and the cache's contents
+are then enumerated through that path. Symlink policy for the `res://` walk is undecided — a
+tracked follow-up owns it, together with the symlink CYCLE the same walk descends until the OS path
+limit stops it. Hidden entries are otherwise enumerated as promised (#54). **This rule governs the
+four `res://` collectors in `operations.gd`** — the `script list` walk, the `scene list` walk, and
+both static-analysis walks (the extension-filtered one behind `find-references`, `dependencies`,
+`find-unused-resources` and the `class_name` index, and the unfiltered one `project statistics`
+counts with) — so one project cannot answer two ways. It once did: three of the four compared the
+directory NAME, so `script list` reported a script `project statistics` counted as zero (#712).
+`gda script delete`
 removes a script file and reports the removed script's `class_name`/`extends` (parsed before
 deletion), so the result names the content, not just the path. Delete honors the same addressing
 boundary as the rest of the group — only a `.gd` path is removed (a non-`.gd` target is refused
