@@ -17,8 +17,8 @@ from typing import Optional, Protocol, runtime_checkable
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.commands.script import ScriptSetMode, parse_set_mode_argv, resolve_set_mode
-from gda.dispatch import dispatch_domain
+from gda.commands.script import ScriptSetMode, resolve_set_mode
+from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -136,10 +136,11 @@ class ShaderSetParams(BaseModel):
     autoloads at engine startup (ADR-0009). ``path`` addresses the shader by its
     ``res://`` or filesystem path. The remaining params carry the SAME three
     mutually-exclusive edit modes as ``script set`` (issue #118) — the shader
-    group reuses that edit interface rather than re-deriving it. The CLI resolves
-    which mode and stamps it on ``mode`` (issue #133), so the operation dispatches
-    on that explicit discriminator rather than re-inferring it from which params
-    are present:
+    group reuses that edit interface rather than re-deriving it. The model
+    derives which mode and stamps it on ``mode`` (issue #133, ADR-0015) — the
+    SAME derivation on both the argv and ``--params-json`` paths (#713) — so the
+    operation dispatches on that explicit discriminator rather than
+    re-inferring it from which params are present:
 
     - **search-replace** (``mode = search_replace``) — ``search``/``replace`` both
       present: every literal (not regex) occurrence of ``search`` is replaced with
@@ -416,12 +417,15 @@ def set_shader(
     """Edit a .gdshader via search-replace, line-range, or full overwrite."""
     # shader set reuses the script set edit-mode interface (issue #115): the same
     # mutual-exclusion resolver decides the single ScriptSetMode discriminator.
-    mode = parse_set_mode_argv(search, replace, start_line, end_line, content)
+    # The model owns that rule and the argv body does not restate it: the shared
+    # builder turns any model-construction failure into the Click usage error
+    # (exit 2), so the rule runs once per invocation on both input paths
+    # (ADR-0015, issue #713).
     dispatch_domain(
         SHADER_SET_COMMAND,
-        ShaderSetParams(
+        params_or_bad_parameter(
+            ShaderSetParams,
             path=path,
-            mode=mode,
             search=search,
             replace=replace,
             start_line=start_line,

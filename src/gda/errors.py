@@ -133,6 +133,55 @@ def _is_too_deep(exc: ValidationError) -> bool:
     return bool(errors) and all(error["type"] == "recursion_loop" for error in errors)
 
 
+def validation_error_message(exc: ValidationError) -> str:
+    """Render a ``ValidationError`` as the sentence(s) its checks actually wrote.
+
+    The shared home for BOTH input channels that build a params model directly
+    from caller-supplied values and must translate a construction failure into a
+    human message (ADR-0015): the argv path's :func:`~gda.dispatch.params_or_bad_parameter`
+    and the ``--params-json`` path's ``invoke()`` (:mod:`gda.headless`). Lives
+    here, below both, because ``gda.dispatch`` imports ``gda.headless`` — a
+    ``gda.headless``-side import of ``gda.dispatch`` would cycle — while both
+    already import :mod:`gda.errors` for their own failure taxonomy (#713
+    review: the two channels must report the SAME sentence for the SAME
+    refusal, not just the same error class).
+
+    Reads each error's own ``msg`` — already the clean, human-readable text for
+    a built-in pydantic check (a type mismatch, a missing field, an out-of-range
+    value) — rather than ``str(exc)``, which additionally dumps the model class
+    name and a ``[type=..., input_value=..., input_type=...]`` tag per error
+    (the defect: ``input_value`` echoes the caller's raw field value, which can
+    be large or sensitive, e.g. a ``script set --content`` payload).
+
+    For a model or field validator's raised ``ValueError`` (pydantic's
+    ``"value_error"`` type, e.g. :func:`~gda.commands.script.resolve_set_mode`),
+    ``msg`` is pydantic's OWN ``"Value error, "``-prefixed rendering of it; this
+    reads the original exception back out of ``ctx['error']`` instead, so the
+    message is exactly the sentence the validator wrote, unprefixed.
+
+    Each message is tagged with its field path (``loc``, dotted) when the error
+    is field-scoped; a model-level validator's error (``loc == ()``, e.g.
+    ``resolve_set_mode``'s mode-selection rule, which has no single field to
+    name) carries no tag. Multiple errors join on ``"; "`` — a command usually
+    raises exactly one, but pydantic can report several at once (e.g. two
+    independently-invalid fields), and nothing here assumes otherwise.
+    """
+    parts: list[str] = []
+    for err in exc.errors():
+        ctx = err.get("ctx")
+        if err["type"] == "value_error" and isinstance(ctx, dict) and "error" in ctx:
+            message = str(ctx["error"])
+        else:
+            message = err["msg"]
+        loc = err.get("loc") or ()
+        if loc:
+            field = ".".join(str(part) for part in loc)
+            parts.append(f"{field}: {message}")
+        else:
+            parts.append(message)
+    return "; ".join(parts)
+
+
 def _operation_error_from_payload(result: RunResult) -> tuple[str, str] | None:
     """Extract a minimal operation error envelope from stdout, if present."""
     try:

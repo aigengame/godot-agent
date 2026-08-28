@@ -26,6 +26,7 @@ from gda.errors import (
     conflicting_params_input_failure,
     invalid_params_json_failure,
     unresolvable_binary_failure,
+    validation_error_message,
 )
 from gda.execution import ExecutionKind, live_stack_constraints
 from gda.models import (
@@ -430,7 +431,17 @@ def schema_command_class(
                 try:
                     model = command.input_model.model_validate_json(text)
                 except ValidationError as exc:
-                    emit_failure(invalid_params_json_failure(str(exc)))
+                    # The same clean-sentence extractor the argv path's
+                    # params_or_bad_parameter uses (gda.errors.validation_error_message,
+                    # #713 review round 3), so both input channels report the identical
+                    # refusal for the identical violation — not str(exc)'s dump of the
+                    # model class name, a [type=..., input_value=..., input_type=...]
+                    # tag per error, and a pydantic.dev URL, which used to echo the
+                    # caller's OTHER field values (e.g. a large --content payload) back
+                    # into the structured envelope's message.
+                    emit_failure(
+                        invalid_params_json_failure(validation_error_message(exc))
+                    )
                 if _params_json_dispatch is None:  # pragma: no cover - misconfig
                     raise RuntimeError(
                         "no --params-json dispatcher registered; gda.dispatch must call "

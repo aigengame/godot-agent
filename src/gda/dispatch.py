@@ -19,6 +19,7 @@ from pydantic import BaseModel, ValidationError
 from gda.errors import (
     Failure,
     invalid_project_failure,
+    validation_error_message,
 )
 from gda.execution import ExecutionKind
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
@@ -47,10 +48,25 @@ def params_or_bad_parameter(model_cls: type[P], /, **kwargs: Any) -> P:
     usage-error ergonomics — while ``--params-json``, which builds the SAME model
     in the command class, surfaces the same rule as a structured
     ``invalid_params``. Stated here once so no argv body restates it.
+
+    A custom ``BaseModel.__init__`` can raise a raw ``ValueError`` before
+    pydantic's validation machinery wraps it; its ``str()`` is already the plain
+    refusal sentence, so it passes through as-is. Field/model validators and
+    ``model_post_init`` instead arrive as a pydantic ``ValidationError``, rendered
+    through :func:`~gda.errors.validation_error_message` instead of its own
+    ``str()`` — which dumps the model's class name, a ``[type=...,
+    input_value=..., input_type=...]`` tag PER ERROR, and a pydantic.dev URL, and
+    can echo back an arbitrary caller value (including a large or sensitive one)
+    inside ``input_value=`` (#713 review). That renderer is shared with
+    ``--params-json``'s OWN model-construction failure (:mod:`gda.headless`), so
+    the two input channels report the identical sentence for the identical
+    refusal (#713 review, round 3) — not just the same error class.
     """
     try:
         return model_cls(**kwargs)
-    except (ValueError, ValidationError) as exc:
+    except ValidationError as exc:
+        raise typer.BadParameter(validation_error_message(exc)) from exc
+    except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
 
