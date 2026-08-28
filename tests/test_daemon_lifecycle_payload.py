@@ -973,6 +973,33 @@ def read_only_project_godot():
             path.chmod(mode)
 
 
+@pytest.fixture
+def unwritable_project_root():
+    """Deny writes to the project ROOT, and always put the mode back.
+
+    Reproduces the ORIGINAL #700 mechanism, not the ``read_only_project_godot``
+    substitute: a real filesystem fault that blocks `install_harness`'s FIRST write
+    — ``_materialize``'s ``dest.parent.mkdir(parents=True, exist_ok=True)``, which
+    creates ``res://addons`` before anything else runs. With ``project.godot`` fully
+    writable, ``mkdir("addons")`` under a write-denied project root raises
+    ``PermissionError`` naming the ``addons`` path — the dogfooded shape
+    (``PermissionError: ... 'proj/addons'``) — before the config write is ever
+    reached. Restored in teardown for the same reason as ``read_only_project_godot``:
+    pytest's own ``tmp_path`` cleanup cannot walk a directory it cannot list/delete
+    into.
+    """
+    restore: list[tuple[_Path, int]] = []
+
+    def make(path: _Path) -> None:
+        restore.append((path, path.stat().st_mode))
+        path.chmod(0o555)
+
+    yield make
+    for path, mode in restore:
+        if path.exists():
+            path.chmod(mode)
+
+
 def test_failed_install_restores_a_project_whose_config_cannot_be_written(
     tmp_path, short_runtime, monkeypatch, read_only_project_godot
 ):
@@ -987,12 +1014,18 @@ def test_failed_install_restores_a_project_whose_config_cannot_be_written(
     read_only_project_godot(project_godot)
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
 
-    # The exception still surfaces to the caller exactly as before — the restore does
-    # not swallow or reclassify it.
-    with pytest.raises(PermissionError):
-        daemon_ops.run_daemon_start_operation(
-            project, "godot", version_check=_OK_VERSION
-        )
+    # #700: the exception no longer surfaces raw — it is a structured
+    # harness_install_unwritable envelope, naming the config path the OS refused,
+    # with the restore's outcome riding in diagnostics.
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_unwritable"
+    assert "project.godot" in failure.error.message
+    assert "rolled back" in failure.error.diagnostics
+    assert HARNESS_FILE in failure.error.diagnostics
 
     # ... but nothing of the half-finished install is left behind.
     assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
@@ -1026,16 +1059,65 @@ def test_failed_install_keeps_a_pre_existing_harness_untouched(
     read_only_project_godot(project_godot)
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
 
-    # The install re-materializes the stale body, then fails on the config write.
-    with pytest.raises(PermissionError):
-        daemon_ops.run_daemon_start_operation(
-            project, "godot", version_check=_OK_VERSION
-        )
+    # The install re-materializes the stale body, then fails on the config write —
+    # a structured harness_install_unwritable envelope since #700, not a raw raise.
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
 
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_unwritable"
     assert harness.read_bytes() == stale  # restored verbatim, still stale
     assert sidecar.read_bytes() == b"uid://bxxxxxxxxxxxxx\n"
     assert (project / HARNESS_RES_DIR).is_dir()  # pre-existing dirs survive
     assert (project / "addons").is_dir()
+    assert project_godot.read_bytes() == before
+
+
+def test_failed_start_reports_the_original_materialize_write_denial(
+    tmp_path, short_runtime, monkeypatch, unwritable_project_root
+):
+    # The ORIGINAL #700 mechanism (not the `read_only_project_godot` substitute
+    # above, which only reaches the LATER config-write step): a filesystem-
+    # restricted sandbox refuses the write under `res://addons` in `_materialize`
+    # itself — the FIRST thing `install_harness` does. Before this fix that
+    # `PermissionError` escaped as a raw traceback (`... 'proj/addons'`).
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    unwritable_project_root(project)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_unwritable"
+    assert "addons" in failure.error.message
+    assert "addons" in failure.error.diagnostics
+    # The mkdir itself was refused, so `_materialize` created nothing at all —
+    # never reached the config write, so project.godot is untouched too.
+    assert not (project / "addons").exists()
+    assert project_godot.read_bytes() == before
+
+
+def test_failed_install_reports_the_original_materialize_write_denial(
+    tmp_path, short_runtime, monkeypatch, unwritable_project_root
+):
+    # The `daemon install` twin of the test above, over the same ORIGINAL mechanism.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    unwritable_project_root(project)
+
+    failure = daemon_ops.run_daemon_install_operation(project)
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_unwritable"
+    assert "addons" in failure.error.message
+    assert "addons" in failure.error.diagnostics
+    assert not (project / "addons").exists()
     assert project_godot.read_bytes() == before
 
 
@@ -1062,10 +1144,13 @@ def test_failed_install_leaves_a_tracked_project_porcelain_clean(
     read_only_project_godot(project_godot)
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
 
-    with pytest.raises(PermissionError):
-        daemon_ops.run_daemon_start_operation(
-            project, "godot", version_check=_OK_VERSION
-        )
+    # #700: a structured envelope, not a raw raise — the git-porcelain guarantee
+    # matters regardless of how the failure is reported.
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_unwritable"
 
     status = git("status", "--porcelain")
     assert status.stdout == "", (
@@ -1466,9 +1551,13 @@ def test_a_failed_install_restores_the_project(
     before = project_godot.read_bytes()
     read_only_project_godot(project_godot)
 
-    with pytest.raises(PermissionError):
-        daemon_ops.run_daemon_install_operation(project)
+    # #700: the exception no longer surfaces raw — a structured
+    # harness_install_unwritable envelope, naming the config path.
+    failure = daemon_ops.run_daemon_install_operation(project)
 
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_unwritable"
+    assert "project.godot" in failure.error.message
     assert not (project / HARNESS_RES_DIR).exists()
     assert not (project / "addons").exists()
     assert project_godot.read_bytes() == before

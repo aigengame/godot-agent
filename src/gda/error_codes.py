@@ -935,6 +935,30 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " cannot tell whether the host has one; re-run outside the restriction to"
         " find out rather than recording the host as display-less.",
     ),
+    # The FILESYSTEM half of the GDA-DF-029 dogfooding find (#700), alongside the
+    # DISPLAY half above: `install_harness` (ADR-0018) writes under `res://addons`
+    # and rewrites `project.godot` BEFORE any engine exists, so a filesystem-
+    # restricted sandbox used to surface as a raw `PermissionError` traceback —
+    # the same "environment refusal read as a crash" failure mode #667 fixed for
+    # the display probe, now fixed for the write path. Classifier-source: `gda`
+    # itself classifies the OSError `install_harness` raises, no operation reports
+    # it. Covers EITHER write `install_harness` performs failing — the FIRST
+    # `mkdir`/write under `res://addons` in `_materialize` (the ORIGINAL #700
+    # mechanism) or the later `project.godot` rewrite — because both are the same
+    # fact (the project filesystem refused a write) and both trigger the same
+    # `HarnessSnapshot` rollback (#654). NOT GDScript-mirrored: nothing here runs
+    # inside the engine.
+    ErrorCodeSpec(
+        "harness_install_unwritable",
+        ErrorCategory.ENVIRONMENT,
+        EXIT_NOT_FOUND,
+        ErrorCodeSource.CLASSIFIER,
+        "The gda harness install (`gda daemon start` / `gda daemon install`) could"
+        " not write to the project's filesystem — a filesystem-restricted sandbox"
+        " refused the write, and the message names the failing path — so the"
+        " install was refused; the partial write is rolled back where the"
+        " filesystem still allows it.",
+    ),
 )
 
 ERROR_CODE_BY_CODE: dict[str, ErrorCodeSpec] = {spec.code: spec for spec in ERROR_CODES}

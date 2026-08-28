@@ -567,6 +567,41 @@ def _note_failed_restore(exc: BaseException, snapshot: HarnessSnapshot) -> None:
         exc.add_note(f"additionally, {outcome.residue}")
 
 
+def _harness_install_unwritable_failure(
+    exc: OSError, snapshot: HarnessSnapshot
+) -> Failure:
+    """The ``harness_install_unwritable`` failure for an install the filesystem refused (#700).
+
+    A filesystem-restricted sandbox — the literal GDA-DF-029 environment — can deny
+    EITHER write ``install_harness`` performs: the very first ``mkdir``/write under
+    ``res://addons`` in ``_materialize`` (the ORIGINAL #700 mechanism — a raw
+    ``PermissionError`` traceback where automation needs a typed answer), or the
+    later ``project.godot`` rewrite. Both are the same fact — the project filesystem
+    refused a write — so both share this one code and this one rollback: the exact
+    ``_restore_harness_install`` the exception arm below already runs, reused rather
+    than duplicated. ``exc.filename`` is the path the OS actually named as refused;
+    falling back to the exception's own text keeps this useful even when a
+    particular OSError subclass leaves ``filename`` unset. The failing path rides in
+    BOTH ``message`` (the human sentence) and ``diagnostics`` (what the issue asked
+    for verbatim) — the rollback outcome joins it in ``diagnostics`` alongside it,
+    same as every other harness-install failure already reports it.
+    """
+    outcome = _restore_harness_install(snapshot)
+    path = exc.filename or str(exc)
+    message = (
+        f"the harness install could not write to the project filesystem "
+        f"(path: {path}): {exc.strerror or exc}"
+    )
+    if outcome.residue is not None:
+        rollback = outcome.residue
+    elif outcome.undone:
+        rollback = f"rolled back this install's changes: {', '.join(outcome.undone)}"
+    else:
+        rollback = ""
+    diagnostics = f"failing path: {path}" + (f"; {rollback}" if rollback else "")
+    return make_failure("harness_install_unwritable", message, diagnostics)
+
+
 def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
     """The ``daemon_not_running`` failure for a start that never became ready.
 
@@ -711,12 +746,25 @@ def run_daemon_start_operation(
     # The restore is driven by the SNAPSHOT alone, never by the install's receipt: a
     # receipt cannot describe how to undo an install that re-materialized a stale
     # body or re-pointed an existing entry (both CREATE nothing), and a half-finished
-    # install has no receipt at all. The exception arm re-raises the ORIGINAL error as
-    # the primary failure and reports a restore that also failed alongside it — the
-    # arm `daemon install` shares (`_note_failed_restore`).
+    # install has no receipt at all. `install_harness` OSError (a filesystem-
+    # restricted sandbox, #700) gets its OWN typed envelope
+    # (`harness_install_unwritable`) — never a raw traceback — via
+    # `_harness_install_unwritable_failure`, which runs the same restore. Any other
+    # exception from the install, and anything the spawn/readiness step below raises,
+    # keeps the original behaviour: re-raise the ORIGINAL error as the primary
+    # failure and report a restore that also failed alongside it as a note — the arm
+    # `daemon install` shares (`_note_failed_restore`).
     snapshot = HarnessSnapshot.capture(project)
     try:
         installed = install_harness(project)
+    except OSError as exc:
+        # A filesystem-restricted sandbox (GDA-DF-029) denies the write BEFORE the
+        # daemon is even spawned — a structured envelope, not a raw traceback (#700).
+        return _harness_install_unwritable_failure(exc, snapshot)
+    except BaseException as exc:
+        _note_failed_restore(exc, snapshot)
+        raise
+    try:
         (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
         pid = _await_ready(paths)
     except BaseException as exc:
@@ -809,6 +857,10 @@ def run_daemon_install_operation(
     snapshot = HarnessSnapshot.capture(project)
     try:
         installed = install_harness(project)
+    except OSError as exc:
+        # A filesystem-restricted sandbox (GDA-DF-029) denies the write — a
+        # structured envelope, not a raw traceback (#700).
+        return _harness_install_unwritable_failure(exc, snapshot)
     except BaseException as exc:
         _note_failed_restore(exc, snapshot)
         raise
