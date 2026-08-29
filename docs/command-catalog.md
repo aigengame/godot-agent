@@ -115,19 +115,19 @@ they answer *different* ones:
   it binds — the referenced `.gd` files and the embedded `[sub_resource type="GDScript"]`s the
   dependency walk never sees — and checks each script's native base against the node carrying it,
   reporting one problem per file: `missing_resource` (the file is gone), `unloadable_resource`
-  (present on disk but no `ResourceLoader` opens it — typically an asset that was never imported,
-  which a non-editor engine cannot load at all), `script_compile_failed` (the same verdict
-  `script validate` gives that file; an embedded script is named by its `::id` sub-resource path),
-  `incompatible_script` (a binding the engine would refuse — a script on a node outside its
-  native base, the same rule `node script attach` enforces asked statically, or a value bound to
-  a `script` slot that is not a script at all), or `cyclic_instance` (defined below with the
-  composed walk that finds it). Each problem carries the declared `type` and
-  the node paths referencing it, read from the file's own text because the engine drops an
-  unresolvable reference from what it loads. A path declared twice is one problem with both nodes
-  listed. The verdict is **staged**: unresolved dependencies suppress the load, so the compile
-  and binding problems only the loaded scene can reveal appear after the dependencies are
-  repaired and validate is rerun — the problem list is complete for the stage it reached, not
-  across both stages at once.
+  (present on disk but no `ResourceLoader` opens it — typically an asset that was never
+  imported, which a non-editor engine cannot load at all), `script_compile_failed` (the same
+  verdict `script validate` gives that file; an embedded script is named by its `::id`
+  sub-resource path), `incompatible_script` (a binding the engine would refuse — a script on a
+  node outside its native base, the same rule `node script attach` enforces asked
+  statically, or a value bound to a `script` slot that is not a script at all),
+  `cyclic_instance`, or `instance_depth_exceeded` (the last two defined below with the composed
+  walk that finds them). Each problem carries the declared `type` and the node paths referencing
+  it, read from the file's own text because the engine drops an unresolvable reference from what
+  it loads. A path declared twice is one problem with both nodes listed. The verdict is
+  **staged**: unresolved dependencies suppress the load, so the compile and binding problems
+  only the loaded scene can reveal appear after the dependencies are repaired and validate is
+  rerun — the problem list is complete for the stage it reached, not across both stages at once.
 
   The verdict is **composed**: the scenes a scene instances are validated with it, because a
   parent whose instanced child is broken is broken too and the parent's own walk cannot see that
@@ -144,6 +144,16 @@ they answer *different* ones:
   closing edge (`scene`), with `path` naming the ancestor being re-instanced and `nodes` the
   instancing sites. The walk stops at that edge, so whatever lies beyond it is unreported until
   the cycle is broken.
+
+  `instance_depth_exceeded` — not a defect in the project but a limit of gda: the walk follows
+  at most 16 levels of instanced sub-scenes below the validated scene, and this edge is past
+  that bound, so the scene named by `path` and everything it instances were UNCHECKED, not
+  judged sound. `scene` names the file holding the declining edge. The verdict is still
+  `valid: false` — a gate must not answer "sound" about what it did not look at — and
+  validating the named scene directly gives it a verdict of its own. The bound covers gda's own
+  walk only: the engine loads the whole chain regardless, and an extremely deep chain overflows
+  the engine's own loader and ends the run with no verdict at all, which this bound does not
+  change.
 
 - `gda scene preflight PATH` is **dynamic**. It instantiates the scene, adds it under a one-shot
   engine's tree root — which runs its `_ready` and the project's autoloads — keeps it alive for
