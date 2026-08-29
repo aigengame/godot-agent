@@ -868,7 +868,13 @@ def test_game_call_schema_publishes_the_declaration_contract():
     # The DECIDED contract, not a defect pointer (#752): the refusal on the
     # request side and the exactness guarantee on the result side.
     assert "reads as 0.0 is refused" in number_description
-    assert "Every float a live reply RETURNS is exact" in number_description
+    # Exact APART FROM the disclosed residual: the same schema now publishes
+    # the negative-zero caveat on the result value, so an absolute claim here
+    # would contradict it (#770 review).
+    assert (
+        "Every float a live reply RETURNS is exact, apart from a NEGATIVE ZERO"
+        in number_description
+    )
 
 
 def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words():

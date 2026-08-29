@@ -305,7 +305,8 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
                     "low-order bits: 1 ULP at ordinary magnitudes, and far more "
                     "for a full-precision literal between 1e-4 and 1e-2, where "
                     "the parser truncates past 18 mantissa digits. Every float a "
-                    "live reply RETURNS is exact (#752)."
+                    "live reply RETURNS is exact, apart from a NEGATIVE ZERO, "
+                    "which reads back as 0.0 (#752)."
                 ),
             },
             {"type": "string"},
@@ -365,7 +366,8 @@ class GameCallParams(LiveParams):
             "in its low-order bits (1 ULP at ordinary magnitudes, far more for a "
             "full-precision literal between 1e-4 and 1e-2, where the parser "
             "truncates past 18 mantissa digits), while every float a live reply "
-            "RETURNS is exact (issue #752). "
+            "RETURNS is exact, apart from a NEGATIVE ZERO, which reads back as "
+            "0.0 (issue #752). "
             "JSON "
             f"integer tokens must stay within +/-{MAX_EXACT_JSON_INT} recursively; "
             "standard JSON Schema cannot distinguish those tokens from equal "
