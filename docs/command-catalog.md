@@ -66,7 +66,7 @@ they are provenance, not status markers.
 | `gda scene get` | Read a scene's structured tree from its file on disk |
 | `gda scene list` | Enumerate scenes in the project |
 | `gda scene get-exports` | List `@export` properties declared by a scene's nodes |
-| `gda scene validate` | Check statically that a scene and the sub-scenes it instances resolve their dependencies and compile their scripts |
+| `gda scene validate` | Check statically that a scene's dependencies resolve and its scripts compile |
 | `gda scene preflight` | Boot a scene headless and report its startup verdict |
 
 **Enumeration** (established by #54): `scene list` walks the project's `res://`
@@ -115,46 +115,18 @@ they answer *different* ones:
   it binds — the referenced `.gd` files and the embedded `[sub_resource type="GDScript"]`s the
   dependency walk never sees — and checks each script's native base against the node carrying it,
   reporting one problem per file: `missing_resource` (the file is gone), `unloadable_resource`
-  (present on disk but no `ResourceLoader` opens it — typically an asset that was never
-  imported, which a non-editor engine cannot load at all), `script_compile_failed` (the same
-  verdict `script validate` gives that file; an embedded script is named by its `::id`
-  sub-resource path), `incompatible_script` (a binding the engine would refuse — a script on a
-  node outside its native base, the same rule `node script attach` enforces asked
-  statically, or a value bound to a `script` slot that is not a script at all),
-  `cyclic_instance`, or `instance_depth_exceeded` (the last two defined below with the composed
-  walk that finds them). Each problem carries the declared `type` and the node paths referencing
-  it, read from the file's own text because the engine drops an unresolvable reference from what
-  it loads. A path declared twice is one problem with both nodes listed. The verdict is
-  **staged**: unresolved dependencies suppress the load, so the compile and binding problems
-  only the loaded scene can reveal appear after the dependencies are repaired and validate is
-  rerun — the problem list is complete for the stage it reached, not across both stages at once.
-
-  The verdict is **composed**: the scenes a scene instances are validated with it, because a
-  parent whose instanced child is broken is broken too and the parent's own walk cannot see that
-  — `res://child.tscn` resolves, opens, and hands back a usable `PackedScene` with whatever is
-  missing inside it substituted by null. Every problem therefore carries `scene`, the file it
-  was found in, and its `path` and `nodes` are read against THAT file, not against the scene the
-  command was given. The walk descends into instanced `.tscn` files only (a binary `.scn`
-  carries no dependency text — the same reason the command refuses one at the top level),
-  validates each file ONCE however many sites instance it, and reports an instancing cycle
-  rather than following it.
-
-  `cyclic_instance` — a scene instances one that already instances it. Godot refuses a cyclic
-  scene inclusion, so the composition cannot load. Reported against the file that declares the
-  closing edge (`scene`), with `path` naming the ancestor being re-instanced and `nodes` the
-  instancing sites. The walk stops at that edge, so whatever lies beyond it is unreported until
-  the cycle is broken.
-
-  `instance_depth_exceeded` — not a defect in the project but a limit of gda: the walk follows
-  at most 16 levels of instanced sub-scenes below the validated scene, and this edge is past
-  that bound, so the scene named by `path` and everything it instances were UNCHECKED, not
-  judged sound. `scene` names the file holding the declining edge. The verdict is still
-  `valid: false` — a gate must not answer "sound" about what it did not look at — and
-  validating the named scene directly gives it a verdict of its own. The bound covers gda's own
-  walk only: the engine loads the whole chain regardless, and an extremely deep chain overflows
-  the engine's own loader and ends the run with no verdict at all, which this bound does not
-  change.
-
+  (present on disk but no `ResourceLoader` opens it — typically an asset that was never imported,
+  which a non-editor engine cannot load at all), `script_compile_failed` (the same verdict
+  `script validate` gives that file; an embedded script is named by its `::id` sub-resource path)
+  or `incompatible_script` (a binding the engine would refuse — a script on a node outside its
+  native base, the same rule `node script attach` enforces asked statically, or a value bound to
+  a `script` slot that is not a script at all). Each problem carries the declared `type` and
+  the node paths referencing it, read from the file's own text because the engine drops an
+  unresolvable reference from what it loads. A path declared twice is one problem with both nodes
+  listed. The verdict is **staged**: unresolved dependencies suppress the load, so the compile
+  and binding problems only the loaded scene can reveal appear after the dependencies are
+  repaired and validate is rerun — the problem list is complete for the stage it reached, not
+  across both stages at once.
 - `gda scene preflight PATH` is **dynamic**. It instantiates the scene, adds it under a one-shot
   engine's tree root — which runs its `_ready` and the project's autoloads — keeps it alive for
   `--frames` idle frames so startup work landing after `_ready` still prints, and reports
@@ -665,8 +637,8 @@ as `script_aborted` with the captured error and phase `aborted_on_error`. A `pus
 arms that abort even though it is recognized (#722): it interrupts nothing — execution
 continues at the next statement — so a script that reports an invariant and then computes
 quietly is alive by construction. It does appear in the run's `diagnostics`, which are advisory:
-a project that uses `push_error` as ordinary logging sees entries on runs that still succeed. The script executes in full, within
-the trusted-project assumption (ADR-0009).
+a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
+The script executes in full, within the trusted-project assumption (ADR-0009).
 
 ### `project`
 
@@ -919,7 +891,7 @@ headless is unaffected (4.4+, cross-platform).
   a Dictionary into an `Object` parameter, null into `int`, and any JSON array into a
   typed `Array[int]` are refused with the reason. Without the check `callv` pushes an
   engine error, returns null and writes to the Session log — a failure that would read
-  as a successful null. Three reproduced unsafe argument classes are refused earlier
+  as a successful null. Two reproduced unsafe argument classes are refused earlier
   still, in the params model both invocation paths share (recursively, so a nested
   value counts):
   non-finite numbers (`NaN`/`Infinity`, which JSON has no literals for but Python's
@@ -929,17 +901,11 @@ headless is unaffected (4.4+, cross-platform).
   and a larger integer can arrive as a DIFFERENT value (a call that then succeeds on
   something the caller never sent). Finite floats already are binary64 and do not
   inherit that integer bound; real-engine tests pin the reproduced high-range values
-  `1e17`, `2.5e17`, and `1e300` unchanged.
-  The third class is the small-float one #752 decided: Godot's `built_in_strtod` applies a power
-  of ten it computes as a double, so a literal whose applied exponent is −309 or below is
-  divided by `inf` and arrives as `0.0` — `DBL_MIN`, every subnormal, and normal values such as
-  `1.2345678901234567e-300`. No decimal spelling avoids it (the significand is an integer and
-  the largest finite power the engine's table builds is `1e308`), so those values are REFUSED
-  rather than delivered as a zero the caller never sent; a real-engine corpus
-  (`tests/live_number_corpus.py`) pins the boundary with two same-magnitude values whose only
-  difference is significant-digit count. What crosses can still arrive 1–2 ULP away — disclosed,
-  not refused, since refusing it would reject ordinary game values.
-  Standard JSON Schema cannot distinguish
+  `1e17`, `2.5e17`, and `1e300` unchanged. This is not a full-range preservation
+  guarantee: Godot 4.6.3 parses some small-magnitude normal values, including
+  `1.2345678901234567e-300` and `DBL_MIN`, as `0.0`, and its `JSON.stringify` can
+  also lose small live-result values. [Issue #752](https://github.com/aigengame/godot-agent/issues/752)
+  owns that cross-operation transport defect. Standard JSON Schema cannot distinguish
   an exponent-form float from the equal mathematical integer, so its recursive number
   branch stays broad and discloses that the params model enforces the integer-token
   bound at execution. RFC JSON excludes `NaN` and `Infinity`; some in-memory schema
@@ -953,14 +919,6 @@ headless is unaffected (4.4+, cross-platform).
   chain has at most one declaration owner (a base owner covers its subclasses and need
   not define every method it names); a project that declares in both fails to parse with a message naming the
   member — loud, never a silently wrong allowlist.
-
-  Every live reply is framed with Godot's full-precision JSON writer (#752), so a float a live
-  read returns — `game get`, a `game call` return value, `perf` monitors, a `perf monitor`
-  timeline — reaches the caller as the exact binary64 the running game holds. The default writer
-  it replaced rendered floats fixed-point at 32 decimals, flattening every value below about
-  `1e-32.6` to `0.0` and rounding ordinary values to ~15 significant digits. One residual: a
-  negative zero reads back as `0.0`, decided by the engine before the writer's precision
-  argument applies.
 - **`input` (input simulation):** runtime input injection into the running game
   (shipped, #221). Single-frame ops `input key <KEY> [--modifiers …] [--released]`,
   `input mouse-move <x> <y>`, and `input action <NAME> [--release] [--strength F]`
