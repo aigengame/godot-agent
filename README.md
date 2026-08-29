@@ -404,8 +404,12 @@ base, or a bound value that is not a script) with the nodes that reference it. T
 **composed**: the scenes a scene instances are checked with it, because a parent whose child
 is broken is broken too and its own walk cannot see that — `res://child.tscn` resolves and
 loads whatever is missing inside it. Every problem therefore carries `scene`, the file it was
-found in, and its `path` and nodes are read against that file; an instancing cycle is reported
-as `cyclic_instance` — a composition Godot refuses to load — instead of being followed. The check is
+found in, and its `path` and nodes are read against that file. The walk declines two kinds of
+edge instead of following them: `cyclic_instance` for a composition Godot refuses to load, and
+`instance_depth_exceeded` past 16 levels of sub-scenes, which reports that subtree as
+**unchecked** rather than sound — validate it directly for a verdict of its own. That depth
+bound covers gda's own walk; the engine loads the whole chain either way, and an extremely deep
+one overflows its loader and ends the run with no verdict at all. The check is
 **staged**: when dependencies fail to resolve, the scene is not loaded, so the compile and
 binding problems of the loaded scene can only appear after the dependencies are repaired and
 validate is rerun — the problem list is complete for the stage it reached, not across both

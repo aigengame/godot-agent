@@ -724,3 +724,100 @@ def test_a_missing_sub_scene_is_the_parents_problem_and_not_reported_twice(
             "message": "the referenced file does not exist",
         }
     ]
+
+
+# --- The depth bound (#721 review) ------------------------------------------
+#
+# The walk's own cost, not the engine's. Measured on Godot 4.6.3 against a chain
+# of N scenes each instancing the next: the pre-#721 command is flat at ~2s for
+# N=100 and N=300 (it does ONE load and the engine walks the chain internally),
+# while the unbounded composed walk went 5-7s at N=100 and 38-47s at N=300 —
+# close enough to the 60s launch ceiling to cross it into launch_timeout under
+# machine load. Bounded, the same chains take 3-4s and 5-6s.
+#
+# What the bound does NOT do, and no test here may be read as claiming: make a
+# deep chain safe. At N=1200 the engine's own loader overflows its stack and the
+# run dies with signal 11 — on the PRE-#721 base too, where no gda recursion
+# exists at all. That failure arrives through the single top-level load, which
+# the bound does not touch.
+
+
+def _write_instance_chain(project, depth: int) -> None:
+    """A straight chain: s0 instances s1 instances s2 … down to a plain leaf."""
+    (project / f"s{depth}.tscn").write_text(
+        f'[gd_scene format=3]\n\n[node name="S{depth}" type="Node2D"]\n',
+        encoding="utf-8",
+    )
+    for level in range(depth - 1, -1, -1):
+        (project / f"s{level}.tscn").write_text(
+            "[gd_scene load_steps=2 format=3]\n\n"
+            f'[ext_resource type="PackedScene" path="res://s{level + 1}.tscn" id="1_c"]\n\n'
+            f'[node name="S{level}" type="Node2D"]\n\n'
+            '[node name="Child" parent="." instance=ExtResource("1_c")]\n',
+            encoding="utf-8",
+        )
+
+
+@pytest.mark.e2e
+def test_a_chain_at_the_depth_bound_is_still_fully_validated(godot_project):
+    # 16 levels of sub-scenes below the validated scene is INSIDE the bound, so
+    # the verdict is a real one. This is the half that keeps the bound honest: a
+    # cap that fires early would turn ordinary compositions into non-answers.
+    _write_instance_chain(godot_project, 16)
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://s0.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True, data
+    assert data["problems"] == []
+
+
+@pytest.mark.e2e
+def test_past_the_depth_bound_the_walk_stops_and_says_so(godot_project):
+    # One level further. The walk stops at the edge into s17 and reports it —
+    # rather than answering `valid: true` about a subtree it never looked at.
+    _write_instance_chain(godot_project, 17)
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://s0.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False, data
+    (problem,) = data["problems"]
+    assert problem["kind"] == "instance_depth_exceeded"
+    # Reported against the file holding the declining edge, naming the subtree
+    # that was not checked — the pair a reader needs to validate it directly.
+    assert problem["scene"] == "res://s16.tscn"
+    assert problem["path"] == "res://s17.tscn"
+    assert problem["nodes"] == ["Child"]
+    assert "UNCHECKED" in problem["message"]
+
+
+@pytest.mark.e2e
+def test_the_bound_does_not_hide_a_break_above_it(godot_project):
+    # The subtree past the bound is unchecked, but everything inside it still is:
+    # a break at level 3 of a 17-deep chain is reported alongside the bound entry,
+    # not swallowed by it.
+    _write_instance_chain(godot_project, 17)
+    (godot_project / "s3.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://s4.tscn" id="1_c"]\n'
+        '[ext_resource type="Script" path="res://gone.gd" id="2_gone"]\n\n'
+        '[node name="S3" type="Node2D"]\n'
+        'script = ExtResource("2_gone")\n\n'
+        '[node name="Child" parent="." instance=ExtResource("1_c")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://s0.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    kinds = {(p["kind"], p["scene"]) for p in data["problems"]}
+    assert ("missing_resource", "res://s3.tscn") in kinds
+    assert ("instance_depth_exceeded", "res://s16.tscn") in kinds

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=85862aa2ce61c61061d30eaa44ce0abdefcd2f3a2efa3c0b08261cc147e8cf1c -->
+<!-- gda-readme-i18n: source=README.md sha256=6b52465d4544c2f7e5c982d8ce2eac004261b342bb5a99920bce068ada9102ea -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -416,8 +416,12 @@ nodos que lo referencian. El veredicto es **compuesto**: las escenas que una esc
 comprueban con ella, porque un padre cuyo hijo está roto también está roto y su propio recorrido
 no puede verlo — `res://child.tscn` se resuelve y se carga por mucho que falte dentro de él. Por
 eso cada problema lleva `scene`, el archivo donde se encontró, y su `path` y sus nodos se leen
-contra ese archivo; un ciclo de instanciación se informa como `cyclic_instance` — una composición
-que Godot se niega a cargar — en lugar de seguirse. La comprobación es **escalonada**: cuando hay dependencias sin
+contra ese archivo. El recorrido rechaza dos tipos de arista en lugar de seguirlas:
+`cyclic_instance`, una composición que Godot se niega a cargar, e `instance_depth_exceeded` más
+allá de 16 niveles de subescenas, que informa ese subárbol como **no comprobado** en vez de sano
+— valídalo directamente para obtener su propio veredicto. Ese límite de profundidad acota el
+recorrido propio de gda; el motor carga la cadena entera de todos modos, y una cadena
+extremadamente profunda desborda su cargador y termina la ejecución sin veredicto alguno. La comprobación es **escalonada**: cuando hay dependencias sin
 resolver, la escena no se carga, así que los problemas de compilación y de vínculo que solo la
 escena cargada puede revelar aparecen después de reparar las dependencias y volver a ejecutar
 validate — la lista de problemas es completa para la etapa alcanzada, no para ambas etapas a la

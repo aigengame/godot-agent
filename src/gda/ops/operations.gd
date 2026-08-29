@@ -107,10 +107,37 @@ const SCENE_PROBLEM_SCRIPT_COMPILE_FAILED := "script_compile_failed"
 # Deliberately the same word OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE's remedy speaks:
 # the script compiles but its native base cannot bind the node that carries it.
 const SCENE_PROBLEM_INCOMPATIBLE_SCRIPT := "incompatible_script"
-# The one problem the SUB-SCENE walk can raise that a single file never does
-# (#721): a scene instances one that already instances it. Godot refuses a cyclic
-# scene inclusion, so this is a real defect and not just a walk that had to stop.
+# The two problems the SUB-SCENE walk can raise that a single file never does
+# (#721). The first is a real defect: a scene instances one that already instances
+# it, and Godot refuses a cyclic scene inclusion. The second is a LIMIT gda
+# declares about itself — the walk stopped, so what lies below is unchecked rather
+# than sound.
 const SCENE_PROBLEM_CYCLIC_INSTANCE := "cyclic_instance"
+const SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED := "instance_depth_exceeded"
+
+# How many levels of instanced sub-scenes below the validated scene the walk
+# descends before it stops and says so (#721 review).
+#
+# It bounds GDA'S OWN work, and nothing else. Measured on Godot 4.6.3 against a
+# straight chain of N scenes each instancing the next (two runs each, quiet
+# machine): the pre-#721 command is FLAT at ~2s for both N=100 and N=300, because
+# it does ONE load and the engine walks the chain internally. The unbounded
+# composed walk added a per-file pass on top of that load and went 5-7s at N=100
+# and 38-47s at N=300 — superlinear, and close enough to the 60s launch ceiling
+# that it CROSSES it into launch_timeout when the machine is under load, which is
+# how the regression was first seen. Bounded, the same chains take 3-4s and 5-6s.
+#
+# It does NOT make deep chains safe, and must not be described as if it did: at
+# N=1200 the engine's own loader overflows its stack and the run dies with signal
+# 11 — on the PRE-#721 code too, where no gda recursion exists. That failure is the
+# engine's, it is reached through the single top-level load this bound does not
+# touch, and no cap here can prevent it.
+#
+# 16 is the number _packed_scene_root_type already refuses past, on the very same
+# axis (it walks the instancing chain of a scene's root), and the number
+# JSONIFY_MAX_DEPTH uses for value recursion. Real compositions nest a handful of
+# levels deep; 16 leaves large headroom while keeping the walk's cost bounded.
+const SCENE_INSTANCE_MAX_DEPTH := 16
 
 # The startup verdicts scene-preflight reports (#664). The third one an agent can
 # read, `timeout`, is gda's own: only the CLI knows the launch outran its bound,
@@ -713,7 +740,7 @@ func _attributed_problems(problems: Array, scene_path: String) -> Array:
 # to `out` (#721). Depth-first in DECLARATION order, so the composed list reads
 # parent-then-child, and each entry already carries the file it belongs to.
 #
-# Three decisions, none of them free:
+# Four decisions, none of them free:
 #
 # - WHAT is descended into: an [ext_resource] whose resolved path is a .tscn. The
 #   declared type is not the test, because a hand-written line may name none, and
@@ -722,12 +749,25 @@ func _attributed_problems(problems: Array, scene_path: String) -> Array:
 #   limit is documented rather than papered over: a composed verdict is complete
 #   for the .tscn scenes it could read.
 #
-# - TERMINATION: `visited` holds every file already validated, so the walk is
-#   bounded by the number of DISTINCT scene files reachable from the root — a
-#   finite set — and needs no depth ceiling to stop. A sub-scene is therefore
-#   reported ONCE PER FILE, not once per instancing site: a broken child instanced
-#   at five places is one broken file, which is the same rule the dependency walk
-#   already applies to a path declared twice.
+# - TERMINATION: `visited` holds every file already validated, so the walk stops
+#   on its own — it is bounded by the number of DISTINCT scene files reachable
+#   from the root, a finite set. A sub-scene is therefore reported ONCE PER FILE,
+#   not once per instancing site: a broken child instanced at five places is one
+#   broken file, which is the same rule the dependency walk already applies to a
+#   path declared twice.
+#
+# - DEPTH is bounded SEPARATELY, because terminating is not the same as finishing
+#   in time (#721 review). Stopping was never the problem; COST was. Each level
+#   adds a per-file pass on top of the single load the engine already walks the
+#   chain for, and measured on a straight N-scene chain that term is superlinear:
+#   the pre-#721 command is flat at ~2s for N=100 and N=300 while the unbounded
+#   composed walk went 5-7s then 38-47s, near enough the 60s launch ceiling to
+#   cross it under load. SCENE_INSTANCE_MAX_DEPTH
+#   removes that term, and reaching it is REPORTED (instance_depth_exceeded) rather
+#   than silently accepted, so an unchecked subtree never reads as a sound one. Read
+#   that constant for what the bound does and does not do — in particular it does
+#   not, and cannot, prevent the engine-side stack overflow that kills a 1200-deep
+#   chain with or without any of this.
 #
 # - A CYCLE is reported, not merely survived: `chain` holds the ancestors of the
 #   current descent, and a reference back into it becomes a cyclic_instance
@@ -740,27 +780,41 @@ func _collect_sub_scene_problems(scene_path: String, out: Array, visited: Dictio
 	if text.is_empty():
 		return
 	var nodes_by_id := _scene_ext_resource_nodes_by_id(text)
-	# One cyclic_instance per target per file: a scene that instances the same
-	# ancestor twice still closes one cycle.
-	var reported_cycles := {}
+	# One edge problem per target per file: a scene that instances the same ancestor
+	# twice still closes one cycle, and one that reaches the depth bound twice has
+	# one unchecked subtree. The two kinds share the map because they are mutually
+	# exclusive for a given target — the cycle test settles first and stops the edge.
+	var reported_edges := {}
 	for entry in _ext_resource_entries_from_text(text, scene_path.get_base_dir()):
 		var ref_path := String(entry["normalized_path"])
 		if not _is_scene_path(ref_path):
 			continue
 		if chain.has(ref_path):
-			if not reported_cycles.has(ref_path):
-				reported_cycles[ref_path] = true
-				var cycle := _scene_problem(SCENE_PROBLEM_CYCLIC_INSTANCE, ref_path,
-						String(entry.get("type", "")),
+			if not reported_edges.has(ref_path):
+				reported_edges[ref_path] = true
+				out.append(_sub_scene_edge_problem(SCENE_PROBLEM_CYCLIC_INSTANCE, entry,
+						scene_path, nodes_by_id,
 						"the scene at this path is an ancestor in the instancing chain, so "
 						+ "instancing it here closes a cycle — Godot refuses a cyclic scene "
 						+ "inclusion and the composition cannot load. gda stopped the walk at "
-						+ "this edge; break the cycle to get a verdict for what lies beyond it")
-				cycle["nodes"] = (nodes_by_id.get(String(entry["id"]), []) as Array).duplicate()
-				cycle["scene"] = scene_path
-				out.append(cycle)
+						+ "this edge; break the cycle to get a verdict for what lies beyond it"))
 			continue
 		if visited.has(ref_path):
+			continue
+		# `chain` holds the ancestors of this edge's target, so its size IS the
+		# target's depth below the validated scene.
+		if chain.size() > SCENE_INSTANCE_MAX_DEPTH:
+			if not reported_edges.has(ref_path):
+				reported_edges[ref_path] = true
+				out.append(_sub_scene_edge_problem(SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED, entry,
+						scene_path, nodes_by_id,
+						"gda validates " + str(SCENE_INSTANCE_MAX_DEPTH) + " levels of instanced "
+						+ "sub-scenes below the scene it was given, and this edge is past that "
+						+ "bound — this scene and everything it instances are UNCHECKED, not "
+						+ "judged sound. The bound is on gda's own walk: the engine still loads "
+						+ "the whole chain itself, and at extreme depth its loader overflows and "
+						+ "the run dies with no verdict at all, which this bound does not change. "
+						+ "Validate this scene directly to get a verdict for it"))
 			continue
 		# A sub-scene gda cannot read is not silently called sound, but neither does
 		# it get a second problem of its own: the parent's dependency walk has
@@ -779,6 +833,20 @@ func _collect_sub_scene_problems(scene_path: String, out: Array, visited: Dictio
 		chain[ref_path] = true
 		_collect_sub_scene_problems(ref_path, out, visited, chain)
 		chain.erase(ref_path)
+
+
+# One problem about an EDGE of the instancing graph rather than about a file's
+# contents (#721 review): the walk reached this reference and declined to follow
+# it. Both such kinds carry the same three facts — the target the edge points at,
+# the file that declares it, and the nodes that instance it — so they are built in
+# one place instead of twice.
+func _sub_scene_edge_problem(kind: String, entry: Dictionary, scene_path: String,
+		nodes_by_id: Dictionary, message: String) -> Dictionary:
+	var problem := _scene_problem(kind, String(entry["normalized_path"]),
+			String(entry.get("type", "")), message)
+	problem["nodes"] = (nodes_by_id.get(String(entry["id"]), []) as Array).duplicate()
+	problem["scene"] = scene_path
+	return problem
 
 
 # Whether the text OPENS with a complete, CLOSED `[gd_scene …]` section header

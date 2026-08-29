@@ -271,8 +271,9 @@ runs, once, per request. Reading that declaration adds no point at all — the
 constant map is served by the compiled script, so learning what may be called
 executes nothing (ADR-0041).
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
-loaded-value assignment (ADR-0033), the startup preflight, the import pass, and
-the declared method call widen this surface without adding a new trust axis.
+loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
+declared method call, and the composed static validate widen this surface without
+adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:

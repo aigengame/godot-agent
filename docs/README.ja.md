@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=85862aa2ce61c61061d30eaa44ce0abdefcd2f3a2efa3c0b08261cc147e8cf1c -->
+<!-- gda-readme-i18n: source=README.md sha256=6b52465d4544c2f7e5c982d8ce2eac004261b342bb5a99920bce068ada9102ea -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -418,8 +418,12 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 そのシーンがインスタンス化するサブシーンも一緒に検査されます。子が壊れていれば親も壊れていますが、
 親自身の走査ではそれが見えないからです——`res://child.tscn` は中身が何を失っていても解決し、
 読み込めてしまいます。そのため各 problem は、それが見つかったファイルを示す `scene` を持ち、
-その `path` とノードはそのファイルに対して読みます。インスタンス化が循環している場合は、
-その先をたどらずに `cyclic_instance`——Godot が読み込みを拒否する構成——として報告します。
+その `path` とノードはそのファイルに対して読みます。走査は 2 種類の辺をたどらずに報告します。
+`cyclic_instance`——Godot が読み込みを拒否する構成——と、サブシーン 16 段を超えたことを示す
+`instance_depth_exceeded` です。後者はそのサブツリーが健全なのではなく**未検査**であることを
+示すので、結論が必要ならそのシーンを直接検証してください。この深さの上限が抑えるのは gda 自身の
+走査だけです。エンジンはいずれにせよチェーン全体を読み込み、極端に深いチェーンではエンジン自身の
+ローダーがスタックを溢れさせ、結論を得られないまま実行が終わります。
 この検査は**段階的**です。
 解決できない依存があるとシーンは読み込まれないため、読み込んだシーンだけが明かすコンパイル/
 バインディングの問題は、依存を修復して validate を再実行した後に初めて現れます——problem の

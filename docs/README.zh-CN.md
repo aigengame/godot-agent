@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=85862aa2ce61c61061d30eaa44ce0abdefcd2f3a2efa3c0b08261cc147e8cf1c -->
+<!-- gda-readme-i18n: source=README.md sha256=6b52465d4544c2f7e5c982d8ce2eac004261b342bb5a99920bce068ada9102ea -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -399,8 +399,10 @@ problem（`missing_resource`、`unloadable_resource`（从未被导入的资源�
 同时给出引用它的节点。这个结论是**组合式的**：场景所实例化的子场景会与它一并检查，因为孩子坏了、
 父场景也就坏了，而父场景自己的遍历看不到这一点——`res://child.tscn` 能解析、也能加载，
 无论它内部丢了什么。因此每条 problem 都带有 `scene`，即发现它的那个文件，其 `path` 与节点
-都要按该文件来读；实例化成环时会报告为 `cyclic_instance`——一种 Godot 拒绝加载的组合——
-而不是继续沿环遍历。这个检查是**分阶段的**：只要有依赖无法解析，场景就不会被加载，
+都要按该文件来读。有两类边遍历不会跟进，而是直接报告：`cyclic_instance`——一种 Godot 拒绝
+加载的组合；以及超过 16 层子场景的 `instance_depth_exceeded`——它表示那棵子树**未被检查**，
+而不是"没问题"，需要单独校验它以获得自己的结论。该深度上限只约束 gda 自己的遍历；引擎无论
+如何都会加载整条链，而极深的链会让引擎自身的加载器栈溢出，运行直接终止、得不到任何结论。这个检查是**分阶段的**：只要有依赖无法解析，场景就不会被加载，
 因此只有加载后的场景才能暴露的编译与绑定问题，要等依赖修好、重新运行 validate 之后才会出现——
 problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶段。`scene preflight` 是**动态的**——
 它启动场景，运行其 `_ready` 与项目的 autoload，观察若干帧，然后报告 `status`

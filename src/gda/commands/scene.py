@@ -314,13 +314,16 @@ class SceneProblemKind(str, Enum):
 
     Covers the problem classes the verdict reports: a DEPENDENCY that did not
     resolve, a BOUND SCRIPT (referenced or embedded) that could not serve its
-    node, and — since the verdict became composed (#721) — a sub-scene COMPOSITION
-    the engine would refuse to load at all. A closed, public enum projected into
+    node, and — since the verdict became composed (#721) — two findings about the
+    sub-scene graph itself: a COMPOSITION the engine would refuse to load, and the
+    one entry that reports a LIMIT OF GDA rather than a defect of the project
+    (``instance_depth_exceeded``). A closed, public enum projected into
     ``--schema``, so an agent branches on the kind instead of matching the message
     prose. The values are kept apart because the REMEDY differs: a missing file
     has to be restored or the reference fixed, an unloadable asset has to be
     imported, a broken script has to be edited, an incompatible script has to move
-    to a matching node or change its ``extends``, and a cycle has to be broken.
+    to a matching node or change its ``extends``, a cycle has to be broken, and a
+    subtree past the depth bound has to be validated on its own.
     """
 
     #: The referenced ``res://`` file does not exist.
@@ -347,6 +350,17 @@ class SceneProblemKind(str, Enum):
     #: names the ancestor being re-instanced. The walk stops at that edge, so the
     #: scenes beyond it are unreported until the cycle is broken.
     CYCLIC_INSTANCE = "cyclic_instance"
+    #: The one kind that is NOT a defect in the project: gda bounds how deep it
+    #: follows instanced sub-scenes (16 levels below the validated scene), and this
+    #: edge is past that bound, so the scene it names and everything below it were
+    #: UNCHECKED. Reported rather than skipped because a gate must not answer
+    #: "sound" about what it did not look at — the verdict is ``valid: false``
+    #: meaning "not established", and validating the named scene directly gives it
+    #: a verdict of its own. The bound is on gda's walk only and does not make an
+    #: extremely deep chain safe: the engine loads the whole chain itself and its
+    #: own loader overflows past roughly a thousand levels, killing the run before
+    #: any verdict, with or without this bound (#721 review).
+    INSTANCE_DEPTH_EXCEEDED = "instance_depth_exceeded"
 
 
 class SceneProblem(BaseModel):
@@ -354,8 +368,9 @@ class SceneProblem(BaseModel):
 
     Either a dependency that did not resolve, a script the scene binds that could
     not serve its node — an embedded or referenced script that does not compile,
-    or one whose native base the engine would refuse to bind — or a cyclic
-    sub-scene composition (``kind`` tells them apart). File-centric, one entry per
+    or one whose native base the engine would refuse to bind — a cyclic sub-scene
+    composition, or a subtree the walk stopped short of (``kind`` tells them
+    apart). File-centric, one entry per
     problem file rather than per reference: a path the scene declares twice is one
     broken file, and both referencing nodes appear under ``nodes``.
 
@@ -382,7 +397,8 @@ class SceneProblem(BaseModel):
             "a project, a filesystem path for a projectless scene addressed by "
             "filesystem path. For an embedded script: the ::id sub-resource form "
             "(res://scene.tscn::GDScript_1). For 'cyclic_instance': the ancestor "
-            "scene that 'scene' re-instances."
+            "scene that 'scene' re-instances. For 'instance_depth_exceeded': the "
+            "sub-scene below the depth bound that was not checked."
         )
     )
     type: str | None = Field(
@@ -427,7 +443,12 @@ class SceneValidateResult(ProjectRootedResult):
     with it, because a parent whose child is broken is broken too — and the
     parent's own dependency walk can never see that, since ``res://child.tscn``
     resolves and loads whatever is missing inside it. Every problem names the file
-    it was found in (``SceneProblem.scene``).
+    it was found in (``SceneProblem.scene``). The walk is BOUNDED: 16 levels of
+    sub-scenes below the validated scene, with an edge past the bound reported as
+    ``instance_depth_exceeded`` instead of followed. That bound is on gda's own
+    work and does not make an extremely deep chain safe — the engine loads the
+    chain itself and its loader overflows past roughly a thousand levels, which
+    ends the run with no verdict at all and did so before the verdict was composed.
 
     The verdict is STATIC: each scene is loaded but never INSTANTIATED, so none of
     the scenes' own node scripts run — no ``_init``, no ``_ready``, no frames (the
@@ -444,7 +465,11 @@ class SceneValidateResult(ProjectRootedResult):
             "or embedded) compiles, and each script's native base can bind the "
             "node that carries it — across this scene AND every sub-scene it "
             "instances. False when any does not — the command still exits 0, so "
-            "read this field, not the exit code."
+            "read this field, not the exit code. False also when the walk could "
+            "not establish the verdict at all ('cyclic_instance', "
+            "'instance_depth_exceeded'): a gate must not answer 'sound' about "
+            "what it did not check, so 'not established' is reported as invalid "
+            "rather than as valid."
         )
     )
     problems: list[SceneProblem] = Field(
@@ -452,10 +477,11 @@ class SceneValidateResult(ProjectRootedResult):
             "One entry per problem file, depth-first from the validated scene "
             "through the sub-scenes it instances (#721): each scene's unresolved "
             "dependencies in declaration order, or — when every dependency "
-            "resolves — its script-binding problems in tree order, plus a "
-            "'cyclic_instance' entry at any edge that closes an instancing cycle. "
-            "Read each entry's 'scene' for the file it belongs to. Empty when the "
-            "composed scene is valid."
+            "resolves — its script-binding problems in tree order, plus an entry "
+            "at any edge the walk declined to follow: 'cyclic_instance' where an "
+            "edge closes an instancing cycle, 'instance_depth_exceeded' where one "
+            "goes past the 16-level depth bound. Read each entry's 'scene' for "
+            "the file it belongs to. Empty when the composed scene is valid."
         )
     )
     project_root: str | None = Field(
@@ -1208,9 +1234,13 @@ def validate_scene(
     problem carries 'scene', the file it was found in, and its 'path' and 'nodes'
     are read against THAT file. The walk descends into instanced '.tscn' files
     only (a binary '.scn' carries no dependency text, as at the top level),
-    reports each file once however many times it is instanced, and reports an
-    instancing cycle as 'cyclic_instance' — a composition Godot refuses to load —
-    rather than following it.
+    reports each file once however many times it is instanced, and declines two
+    kinds of edge instead of following them: 'cyclic_instance', a composition
+    Godot refuses to load, and 'instance_depth_exceeded' past 16 levels of
+    sub-scenes, which says the named subtree is UNCHECKED rather than sound.
+    That depth bound covers gda's own walk only — the engine loads the whole
+    chain regardless, and an extremely deep one overflows its loader and ends the
+    run with no verdict, which no bound here changes.
 
     STATIC: each scene is loaded but never instantiated, so none of its own node
     scripts run — no _init, no _ready, no frames (issue #30). The project's autoloads
