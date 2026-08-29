@@ -170,6 +170,51 @@ so two instances can touch the project at once.
 > `daemon start` is unchanged and still installs implicitly, so nothing has to run
 > `install` first.
 
+> **Outcome (2026-08-29, #700) — the install transaction now REPORTS a filesystem
+> refusal instead of raising it, and it covers all three install paths.** The #654
+> note above ends "An exception still propagates to the caller unchanged; only the
+> residue is gone." That sentence held for every exception; it now holds for every
+> exception EXCEPT one class, and the transaction it describes has moved into a
+> single helper (`_install_harness_transactionally`) that every harness mutation
+> runs through.
+>
+> **A filesystem REFUSAL is a typed `Failure`, not a raise.** Dogfooding
+> (GDA-DF-029) put `gda daemon start --json` in a sandbox that denies writes under
+> the project, where the install's first `mkdir res://addons` produced a raw
+> `PermissionError` traceback — an unparseable crash exactly where automation needs
+> a typed answer. That case is now the `harness_install_permission_denied`
+> environment code (ADR-0002, exit 127), with the refused path in both the message
+> and `diagnostics`. "Refusal" is decided by `errno` — `EACCES`, `EPERM`, `EROFS` —
+> not by the `OSError` class: a read-only mount is the same fact and the same
+> remediation as a denied mode bit, while a full disk, a missing path, a
+> not-a-directory or an I/O error is not, and a public code must not claim a denial
+> it cannot prove.
+>
+> **Every other exception still propagates unchanged**, exactly as the #654 note
+> says — including every other `OSError`. The rollback runs first either way, and a
+> rollback that itself fails still rides along as a note on the propagating
+> exception (`_note_failed_restore`). So the #654 guarantees are unchanged in
+> substance; only the SHAPE of the one refusal case changed.
+>
+> **Rollback is unchanged and still snapshot-driven.** A refusal reported as a
+> `Failure` restores the project the same way a propagating exception does, and the
+> restore's outcome — what was put back, or which paths still differ — rides in the
+> failure's `diagnostics` instead of in an exception note.
+>
+> **The pre-snapshot case is distinct.** `HarnessSnapshot.capture` reads the project
+> BEFORE anything is written, so a refusal there means nothing was written and there
+> is nothing to roll back. It gets its own sentence ("nothing was written — the
+> project is untouched") under the same code, and a NON-refusal failure there
+> propagates with no rollback attempt, because no snapshot exists.
+>
+> **All three install paths are inside the transaction.** The #654 note scoped it to
+> `daemon start`, and #670 gave `daemon install` its own boundary — but a repeat
+> `daemon start` against an already-running daemon self-syncs the harness (#225) and
+> called `install_harness` bare. That path had no envelope and no rollback: a
+> restricted tree crashed it with a traceback and left a stale harness overwritten.
+> It now runs the same transaction as the other two, so a repeat start on a refusing
+> tree returns the same envelope and hands the project back byte-identical.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles

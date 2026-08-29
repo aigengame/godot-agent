@@ -9,6 +9,7 @@ readiness / liveness seams are stubbed so the focus is the additive
 (refused while a daemon is running; idempotent paired removal otherwise).
 """
 
+import errno
 import json
 import os
 import subprocess
@@ -1198,6 +1199,224 @@ def test_failed_install_reports_an_unreadable_project_before_any_write(
     assert "project.godot" in failure.error.message
     assert "nothing was written" in failure.error.diagnostics
     assert not (project / "addons").exists()
+
+
+# --- the transaction covers the REPEAT start too (#700 review round 2) ---------
+# `daemon start` against an ALREADY-RUNNING daemon still self-syncs the harness
+# (#225), so it is a `daemon start` that writes the project — and #700's acceptance
+# sentence ("`daemon start` in a project whose tree rejects writes returns a
+# structured envelope") covers it. It used to call `install_harness` bare, outside
+# the snapshot, the classifier and the rollback.
+
+
+def test_already_running_start_reports_a_write_denied_self_sync(
+    tmp_path, short_runtime, monkeypatch, unwritable_project_root
+):
+    # Repeat start, nothing installed yet, project root write-denied: `_materialize`'s
+    # `mkdir("addons")` is refused — the ORIGINAL #700 mechanism, on the arm the first
+    # fix never reached. Before this change it raised a raw `PermissionError`.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    unwritable_project_root(project)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, None, version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "addons" in failure.error.message
+    assert "addons" in failure.error.diagnostics
+    assert not (project / "addons").exists()
+    assert project_godot.read_bytes() == before
+
+
+def test_already_running_start_rolls_a_denied_self_sync_back(
+    tmp_path, short_runtime, monkeypatch, read_only_project_godot
+):
+    # The residue half of the same finding: a STALE harness plus a read-only
+    # `project.godot`. The self-sync re-materializes the stale body, then the config
+    # write is refused. Un-transacted, that left the project mutated (the stale body
+    # overwritten with the current one) and raised. Now it rolls back, so the whole
+    # project comes back BYTE-IDENTICAL.
+    project = _project(tmp_path)
+    install_harness(project)
+    harness = project / HARNESS_RES_DIR / HARNESS_FILE
+    lines = harness.read_text(encoding="utf-8").splitlines()
+    lines[0] = "# gda-harness-version: stale-old"
+    harness.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Drop the autoload entry so the install still has a config write left to fail on.
+    project_godot = project / "project.godot"
+    project_godot.write_text(
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
+    )
+    stale = harness.read_bytes()
+    before = project_godot.read_bytes()
+    read_only_project_godot(project_godot)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, None, version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "project.godot" in failure.error.message
+    assert "rolled back" in failure.error.diagnostics
+    # Byte-identical: the stale body is back, and nothing else moved.
+    assert harness.read_bytes() == stale
+    assert installed_harness_version(project) == "stale-old"
+    assert project_godot.read_bytes() == before
+
+
+def test_already_running_start_reports_an_unreadable_project_before_any_write(
+    tmp_path, short_runtime, monkeypatch, unreadable_project_godot
+):
+    # The capture-site half, on the repeat-start arm: the snapshot read is refused
+    # before `install_harness` runs at all.
+    project = _project(tmp_path)
+    unreadable_project_godot(project / "project.godot")
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, None, version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "nothing was written" in failure.error.diagnostics
+    assert not (project / "addons").exists()
+
+
+# --- only a REFUSAL is classified; other OSErrors keep the pre-#700 behaviour ---
+# `harness_install_permission_denied` is public ABI with a pinned meaning (ADR-0002):
+# "a filesystem-restricted sandbox denied a read or a write". `FileNotFoundError`,
+# `NotADirectoryError`, `ENOSPC` and `EIO` are all `OSError` but none of them is that
+# fact, and answering "a sandbox denied access" for a full disk sends an agent to
+# escape a restriction instead of freeing space. They propagate, exactly as they did
+# before #700 — with the rollback still running.
+
+
+def _enospc(path):
+    return OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), str(path))
+
+
+def test_a_full_disk_is_not_reported_as_a_permission_denial_on_start(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(
+        daemon_ops, "install_harness", lambda p: (_ for _ in ()).throw(_enospc(p))
+    )
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_start_operation(
+            project, "godot", version_check=_OK_VERSION
+        )
+
+    assert caught.value.errno == errno.ENOSPC
+
+
+def test_a_full_disk_is_not_reported_as_a_permission_denial_on_install(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(
+        daemon_ops, "install_harness", lambda p: (_ for _ in ()).throw(_enospc(p))
+    )
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_install_operation(project)
+
+    assert caught.value.errno == errno.ENOSPC
+
+
+def test_a_full_disk_still_rolls_the_half_finished_install_back(
+    tmp_path, short_runtime, monkeypatch
+):
+    # Falling through to the propagate arm must not cost the #654 transaction: the
+    # snapshot restore still runs, so a partially materialized harness is undone
+    # before the ENOSPC reaches the caller.
+    project = _project(tmp_path)
+    real_install = install_harness
+
+    def half_then_full_disk(p):
+        real_install(p)  # materializes the harness AND writes the autoload entry
+        raise _enospc(p / "addons")
+
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    monkeypatch.setattr(daemon_ops, "install_harness", half_then_full_disk)
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_install_operation(project)
+
+    assert caught.value.errno == errno.ENOSPC
+    assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+    assert project_godot.read_bytes() == before
+
+
+def test_a_non_directory_path_is_not_reported_as_a_permission_denial(
+    tmp_path, short_runtime, monkeypatch
+):
+    # A REAL filesystem fault, not an injected errno: `addons` is an ordinary FILE, so
+    # `_materialize`'s mkdir raises `NotADirectoryError` (ENOTDIR). That is a
+    # malformed project, not a denied access.
+    project = _project(tmp_path)
+    (project / "addons").write_text("not a directory\n", encoding="utf-8")
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_install_operation(project)
+
+    assert caught.value.errno in (errno.ENOTDIR, errno.EEXIST)
+
+
+def test_a_non_refusal_snapshot_failure_still_propagates(
+    tmp_path, short_runtime, monkeypatch
+):
+    # The capture site narrows the same way. Nothing has been written at that point,
+    # so there is nothing to roll back either way — only the SHAPE differs.
+    project = _project(tmp_path)
+    monkeypatch.setattr(
+        daemon_ops.HarnessSnapshot,
+        "capture",
+        classmethod(
+            lambda cls, p: (_ for _ in ()).throw(OSError(errno.EIO, "I/O", str(p)))
+        ),
+    )
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_install_operation(project)
+
+    assert caught.value.errno == errno.EIO
+
+
+def test_a_read_only_filesystem_is_reported_as_a_refusal(
+    tmp_path, short_runtime, monkeypatch
+):
+    # EROFS is deliberately IN the refusal set even though Python raises a plain
+    # `OSError` for it, not `PermissionError`: #700's acceptance sentence is "a
+    # project whose tree REJECTS WRITES", and a read-only mount is exactly that — the
+    # same fact and the same remediation as a denied mode bit, refused by the mount.
+    # A read-only mount cannot be created in a unit test, so the errno is injected.
+    project = _project(tmp_path)
+    monkeypatch.setattr(
+        daemon_ops,
+        "install_harness",
+        lambda p: (_ for _ in ()).throw(
+            OSError(errno.EROFS, os.strerror(errno.EROFS), str(p / "addons"))
+        ),
+    )
+
+    failure = daemon_ops.run_daemon_install_operation(project)
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "addons" in failure.error.diagnostics
 
 
 def test_failed_install_leaves_a_tracked_project_porcelain_clean(

@@ -950,25 +950,39 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
     # follow-up review found `_read_config` sits inside the SAME guarded call as the
     # two writes — so that wording silently mislabeled a genuine READ failure as a
     # write refusal. One code still covers every access `install_harness` /
-    # `HarnessSnapshot.capture` can have denied (a `mkdir`/write under `res://addons`
-    # in `_materialize`, the `project.godot` read that decides whether the autoload
-    # needs touching, the `project.godot` write, or the pre-install snapshot read) —
-    # they are all the same fact, an OS-refused access — but the CODE NAME no longer
-    # asserts which direction, and the message stays equally neutral wherever the
-    # call site cannot tell read from write apart on its own (`gda.commands.daemon`
-    # docstrings). Both `install_harness` writes trigger the same `HarnessSnapshot`
-    # rollback (#654); a capture-site read failure needs none — nothing has been
-    # written yet. NOT GDScript-mirrored: nothing here runs inside the engine.
+    # `HarnessSnapshot.capture` can have been REFUSED (a `mkdir`/write under
+    # `res://addons` in `_materialize`, the `project.godot` read that decides whether
+    # the autoload needs touching, the `project.godot` write, or the pre-install
+    # snapshot read) — they are all the same fact, an OS-refused access — but the
+    # CODE NAME no longer asserts which direction, and the message stays equally
+    # neutral wherever the call site cannot tell read from write apart on its own
+    # (`gda.commands.daemon` docstrings). Both `install_harness` writes trigger the
+    # same `HarnessSnapshot` rollback (#654); a capture-site read failure needs none
+    # — nothing has been written yet. NOT GDScript-mirrored: nothing here runs inside
+    # the engine.
+    #
+    # SCOPED TO A REFUSAL (#700 review round 2). The classifier keys on `errno`
+    # (`gda.commands.daemon._is_filesystem_refusal`: EACCES / EPERM / EROFS), not on
+    # the `OSError` class — which also covers a full disk, a missing path, a
+    # not-a-directory and an I/O error, none of which this sentence describes. A code
+    # is public ABI with a pinned meaning (this ADR-0002 registry), so handing it to
+    # those would teach an agent to escape a sandbox for a storage or path defect.
+    # They keep their pre-#700 behaviour instead — the same `HarnessSnapshot`
+    # rollback, then propagate — which is why #700 registers ONE code and not a
+    # second, generic filesystem one nothing has yet asked for.
     ErrorCodeSpec(
         "harness_install_permission_denied",
         ErrorCategory.ENVIRONMENT,
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
-        "The gda harness install (`gda daemon start` / `gda daemon install`) could"
-        " not access the project's filesystem — a filesystem-restricted sandbox"
-        " denied a read or a write the install needed, and the message names the"
-        " failing path — so the install was refused; any partial write is rolled"
-        " back where the filesystem still allows it.",
+        "The gda harness install (`gda daemon start` — including a repeat start's"
+        " self-sync — or `gda daemon install`) was REFUSED access to the project's"
+        " filesystem: the OS denied the permission, or the filesystem is read-only."
+        " The message names the path that was refused, and any partial write is"
+        " rolled back where the filesystem still allows it. A filesystem failure that"
+        " is NOT a refusal — a full disk, a missing or malformed path, an I/O"
+        " error — does not carry this code; it propagates as before, after the same"
+        " rollback.",
     ),
 )
 
