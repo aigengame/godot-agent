@@ -66,7 +66,7 @@ they are provenance, not status markers.
 | `gda scene get` | Read a scene's structured tree from its file on disk |
 | `gda scene list` | Enumerate scenes in the project |
 | `gda scene get-exports` | List `@export` properties declared by a scene's nodes |
-| `gda scene validate` | Check statically that a scene's dependencies resolve and its scripts compile |
+| `gda scene validate` | Check statically that a scene and the sub-scenes it references resolve their dependencies and compile their scripts |
 | `gda scene preflight` | Boot a scene headless and report its startup verdict |
 
 **Enumeration** (established by #54): `scene list` walks the project's `res://`
@@ -122,11 +122,13 @@ they answer *different* ones:
   native base, the same rule `node script attach` enforces asked statically, or a value bound to
   a `script` slot that is not a script at all). Each problem carries the declared `type` and
   the node paths referencing it, read from the file's own text because the engine drops an
-  unresolvable reference from what it loads. A path declared twice is one problem with both nodes
-  listed. The verdict is **staged**: unresolved dependencies suppress the load, so the compile
-  and binding problems only the loaded scene can reveal appear after the dependencies are
-  repaired and validate is rerun — the problem list is complete for the stage it reached, not
-  across both stages at once.
+  unresolvable reference from what it loads. A path declared twice — including twice under
+  different spellings of one file, since every path is canonicalized the way the engine reports
+  it — is one problem with every referencing node listed. The verdict is **staged**: unresolved
+  dependencies suppress the load, so the compile and binding problems only the loaded scene can
+  reveal appear after the dependencies are repaired and validate is rerun — the problem list is
+  complete for the stage it reached, not across both stages at once. It is also **composed**, in
+  the sense set out below.
 - `gda scene preflight PATH` is **dynamic**. It instantiates the scene, adds it under a one-shot
   engine's tree root — which runs its `_ready` and the project's autoloads — keeps it alive for
   `--frames` idle frames so startup work landing after `_ready` still prints, and reports
@@ -137,6 +139,52 @@ they answer *different* ones:
   #651's closed set of engine failure sentences (a runtime error, a failed assertion, a script
   that could not load, a script binding the engine refused), so project prose written with
   `push_error()` is not among them.
+
+**A composed verdict, not a single-file one** (established by #721): a scene that references a
+broken one is broken too, and its own dependency walk can never see that — `res://child.tscn`
+resolves and Godot hands back a usable `PackedScene` whatever is missing inside it. `scene
+validate` therefore walks from the scene it was given through the scenes that one references,
+validates each with the same two-stage check, and stamps every problem — the validated scene's
+own included — with `scene`, the file it was found in. Read a problem's `path` and `nodes`
+against that file, not against the scene the command was given: a missing script inside
+`child.tscn` reports `nodes: ["."]` for the *child's* root. Each file is answered for once
+however many sites reach it, so a broken scene instanced five times is one problem, not five.
+
+**What counts as an edge is the referenced scene FILE, not the declared type.** Godot's text
+loader starts a load for every `[ext_resource]` line before it parses a single node, and passes
+that line's `type` to `ResourceLoader` only as a hint — the format handler is picked by
+extension and accepts every type (measured on Godot 4.6.3: a `.tscn` referenced as ordinary
+`type="Resource"` metadata and never instanced emits the same errors for its missing script as
+an instanced one). Selecting edges on `type="PackedScene"` would miss those, and has no honest
+fallback for a line with no `type` at all, which the engine rejects as `ERR_FILE_CORRUPT`. So
+every `.tscn` reference is walked, a `.scn` reference is reported rather than walked, and a
+PackedScene stored under some other extension is outside the boundary.
+
+**Three edges are reported instead of followed**, each with the target under `path`, the file
+declaring it under `scene`, and the referencing nodes under `nodes`:
+
+- `cyclic_instance` — the target is an ancestor in this scene's reference chain. Godot refuses
+  the closing reference, drops it, and the nodes it would have contributed vanish from the
+  composition it loads, so the cycle is a defect and not merely a traversal hazard. The walk
+  stops at that edge; what lies beyond it is unreported until the cycle is broken.
+- `unreadable_sub_scene` — the target loads, but as a binary `.scn`, which carries none of the
+  `[gd_scene]` text the walk reads a dependency set out of. This is the same limit that makes
+  the command refuse a `.scn` as its own target, met one level down. A binary target that does
+  not load at all is *not* this kind: the referencing file's dependency walk already reports it
+  as `unloadable_resource`, and one finding is not reported twice.
+- `instance_depth_exceeded` — no route reaches the target within `16` levels of sub-scenes below
+  the validated scene. The bound is on gda's own walk, whose per-file pass is superlinear in
+  chain length; the engine loads the whole chain either way, and past roughly a thousand levels
+  its own loader overflows and the run ends with no verdict at all, which no bound here changes.
+  These entries are settled only once every route has been walked and so appear last: a target
+  some shorter route did validate produces no entry, whichever route the file happens to declare
+  first.
+
+The last two are the only kinds that report a limit of *gda* rather than a defect of the
+project, and both still yield `valid: false`. That is deliberate: a gate must not answer "sound"
+about a subtree it never opened, so "not established" is reported as invalid and the messages
+say `UNCHECKED` in as many words. Validate the named scene directly — or re-save it as `.tscn` —
+for a verdict of its own.
 
 `scene validate` takes a `.tscn` specifically, and refuses a binary `.scn` with `invalid_path`:
 its dependency set comes from the scene's own TEXT (which is also what attributes each dependency

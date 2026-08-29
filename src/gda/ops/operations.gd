@@ -107,13 +107,24 @@ const SCENE_PROBLEM_SCRIPT_COMPILE_FAILED := "script_compile_failed"
 # Deliberately the same word OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE's remedy speaks:
 # the script compiles but its native base cannot bind the node that carries it.
 const SCENE_PROBLEM_INCOMPATIBLE_SCRIPT := "incompatible_script"
-# The two problems the SUB-SCENE walk can raise that a single file never does
-# (#721). The first is a real defect: a scene instances one that already instances
-# it, and Godot refuses a cyclic scene inclusion. The second is a LIMIT gda
-# declares about itself — the walk stopped, so what lies below is unchecked rather
-# than sound.
+# The three problems the SUB-SCENE walk can raise that a single file never does
+# (#721). The first is a real defect: a scene references one that already
+# references it, and Godot refuses the closing reference. The other two are LIMITS
+# gda declares about ITSELF — the walk stopped or could not read the target, so
+# what lies below is unchecked rather than sound. Both are reported for the same
+# reason the depth one was: a gate must not answer "sound" about a subtree it never
+# opened (GDA-DF-030).
 const SCENE_PROBLEM_CYCLIC_INSTANCE := "cyclic_instance"
 const SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED := "instance_depth_exceeded"
+# A referenced scene in the BINARY .scn form (#721 review). It loads perfectly
+# well; what it does not carry is the [gd_scene] TEXT the walk reads its
+# dependency set out of — the same reason the top-level op refuses a .scn
+# outright. Measured on Godot 4.6.3: a .tscn parent instancing a .scn child whose
+# script has a syntax error, or whose script cannot bind its node, answered
+# `valid: true, problems: []` while the engine's own load of that parent reported
+# the child's break. Silence there reproduces exactly the defect this command
+# exists to prevent.
+const SCENE_PROBLEM_UNREADABLE_SUB_SCENE := "unreadable_sub_scene"
 
 # How many levels of instanced sub-scenes below the validated scene the walk
 # descends before it stops and says so (#721 review).
@@ -678,12 +689,12 @@ func _op_scene_validate(params: Dictionary) -> void:
 		_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
 		return
 	var problems := _attributed_problems(own as Array, path)
-	# The COMPOSED verdict (#721): a scene that instances a broken child is broken,
-	# and the parent's own walk cannot see it — Godot resolves res://child.tscn
-	# perfectly well while everything inside the child is gone. The walk therefore
-	# descends into each instanced .tscn and adds its findings, each stamped with
-	# the file it was found in. The depth-bound findings are settled only once every
-	# route has been walked, so they come last.
+	# The COMPOSED verdict (#721): a scene that references a broken one is broken,
+	# and its own walk cannot see it — Godot resolves res://child.tscn perfectly
+	# well while everything inside the child is gone. The walk therefore descends
+	# into each referenced .tscn and adds its findings, each stamped with the file
+	# it was found in. The depth-bound findings are settled only once every route
+	# has been walked, so they come last.
 	var walk := _new_scene_walk(path, problems)
 	_collect_sub_scene_problems(path, walk)
 	_flush_deferred_depth_problems(walk)
@@ -735,14 +746,15 @@ func _attributed_problems(problems: Array, scene_path: String) -> Array:
 	return problems
 
 
-# The traversal state of ONE composed verdict, in one bag (#721 review). Four
-# fields that only ever move together, so they are passed as one rather than as
-# four positionals that a later addition has to thread through every call site:
+# The traversal state of ONE composed verdict, in one bag (#721). Four fields that
+# only ever move together, so they are passed as one rather than as four
+# positionals that a later addition has to thread through every call site:
 #
 # - `problems` is the caller's own array, appended to in place;
-# - `visited` records every scene file the walk has ANSWERED FOR. It is what makes
-#   a file's verdict appear once however many sites reference it, and it bounds
-#   the walk by the finite number of distinct reachable scene files;
+# - `visited` records every scene file the walk has ANSWERED FOR — validated, or
+#   reported as one it cannot read. It is what makes a file's verdict appear once
+#   however many sites reference it, and it bounds the walk by the finite number
+#   of distinct reachable scene files;
 # - `chain` holds the ancestors of the current descent, which is how a cycle is
 #   recognized and, by its size, how deep the current edge is;
 # - `deferred_depth` holds depth-bound findings that are not yet known to be
@@ -756,23 +768,34 @@ func _new_scene_walk(root_path: String, problems: Array) -> Dictionary:
 	}
 
 
-# Descend into the scenes `scene_path` instances, appending each one's own problems
-# to `out` (#721). Depth-first in DECLARATION order, so the composed list reads
-# parent-then-child, and each entry already carries the file it belongs to.
+# Descend into the scenes `scene_path` references, appending each one's own
+# problems to the walk (#721). Depth-first in DECLARATION order, so the composed
+# list reads parent-then-child, and each entry already carries the file it belongs
+# to.
 #
 # Four decisions, none of them free:
 #
-# - WHAT is descended into: an [ext_resource] whose resolved path is a .tscn. The
-#   declared type is not the test, because a hand-written line may name none, and
-#   a binary .scn is deliberately NOT descended into — its text carries no
-#   dependency set, the same reason the top-level op refuses one outright. That
-#   limit is documented rather than papered over: a composed verdict is complete
-#   for the .tscn scenes it could read.
+# - WHAT is descended into: an [ext_resource] whose resolved path names a SCENE
+#   FILE — a .tscn, which the walk reads, or a .scn, which it cannot and reports
+#   (unreadable_sub_scene). The DECLARED TYPE is deliberately not the selector,
+#   and that is a measured decision rather than a shortcut: Godot's text loader
+#   starts a load for EVERY [ext_resource] line before it parses a single node,
+#   passing `type` only as a HINT to ResourceLoader, whose text format handler
+#   accepts every type and recognizes the file by EXTENSION
+#   (ResourceLoaderText::load + ResourceFormatLoaderText::handles_type). Measured
+#   on Godot 4.6.3: a parent declaring `[ext_resource type="Resource"
+#   path="res://child.tscn"]` and never instancing it emits the SAME three errors
+#   for the child's missing script as a parent that instances it. So a reference
+#   to a broken scene breaks the referencing scene whatever the line calls it, and
+#   selecting on `type="PackedScene"` would miss exactly those cases while adding
+#   a hole of its own — an [ext_resource] with no `type` at all is ERR_FILE_CORRUPT
+#   to the engine, so there is no honest fallback to fall back to. The extension is
+#   both the sounder rule AND the engine's own.
 #
-# - TERMINATION: `visited` holds every file already validated, so the walk stops
+# - TERMINATION: `visited` holds every file the walk has answered for, so it stops
 #   on its own — it is bounded by the number of DISTINCT scene files reachable
 #   from the root, a finite set. A sub-scene is therefore reported ONCE PER FILE,
-#   not once per instancing site: a broken child instanced at five places is one
+#   not once per referencing site: a broken child instanced at five places is one
 #   broken file, which is the same rule the dependency walk already applies to a
 #   path declared twice. Both key on the canonical path
 #   (_normalize_ext_resource_path), so an alias spelling is the same file.
@@ -793,7 +816,7 @@ func _new_scene_walk(root_path: String, problems: Array) -> Dictionary:
 # - A CYCLE is reported, not merely survived: `chain` holds the ancestors of the
 #   current descent, and a reference back into it becomes a cyclic_instance
 #   problem attributed to the file that declares it. `visited` alone would stop
-#   the walk silently, which would hide a composition Godot refuses to load.
+#   the walk silently, which would hide a composition the engine mutilates.
 #   Checked BEFORE `visited` — every ancestor is also visited, so the cheaper test
 #   would swallow the diagnostic.
 func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
@@ -804,24 +827,28 @@ func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 	var visited: Dictionary = walk["visited"]
 	var chain: Dictionary = walk["chain"]
 	var nodes_by_id := _scene_ext_resource_nodes_by_id(text)
-	# One edge problem per target per file: a scene that instances the same ancestor
-	# twice still closes one cycle, and one that reaches the depth bound twice has
-	# one unchecked subtree. The two kinds share the map because they are mutually
-	# exclusive for a given target — the cycle test settles first and stops the edge.
+	# One edge problem per target per file: a scene that references the same
+	# ancestor twice still closes one cycle, and one that reaches the depth bound
+	# twice has one unchecked subtree. The kinds share the map because they are
+	# mutually exclusive for a given target — the first test that settles stops the
+	# edge.
 	var reported_edges := {}
 	for entry in _ext_resource_entries_from_text(text, scene_path.get_base_dir()):
 		var ref_path := String(entry["normalized_path"])
-		if not _is_scene_path(ref_path):
+		if not _is_scene_reference_path(ref_path):
 			continue
 		if chain.has(ref_path):
 			if not reported_edges.has(ref_path):
 				reported_edges[ref_path] = true
 				out.append(_sub_scene_edge_problem(SCENE_PROBLEM_CYCLIC_INSTANCE, entry,
 						scene_path, nodes_by_id,
-						"the scene at this path is an ancestor in the instancing chain, so "
-						+ "instancing it here closes a cycle — Godot refuses a cyclic scene "
-						+ "inclusion and the composition cannot load. gda stopped the walk at "
-						+ "this edge; break the cycle to get a verdict for what lies beyond it"))
+						"the scene at this path is an ancestor in this scene's reference chain, "
+						+ "so referencing it here closes a cycle. Measured on Godot 4.6.3, the "
+						+ "engine refuses the closing reference ([ext_resource] referenced "
+						+ "non-existent resource), drops it, and the nodes it would have "
+						+ "contributed vanish from the composition it loads. gda stopped the "
+						+ "walk at this edge; break the cycle to get a verdict for what lies "
+						+ "beyond it"))
 			continue
 		if visited.has(ref_path):
 			continue
@@ -836,28 +863,46 @@ func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 				(walk["deferred_depth"] as Array).append(
 						_sub_scene_edge_problem(SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED, entry,
 						scene_path, nodes_by_id,
-						"gda validates " + str(SCENE_INSTANCE_MAX_DEPTH) + " levels of instanced "
+						"gda validates " + str(SCENE_INSTANCE_MAX_DEPTH) + " levels of "
 						+ "sub-scenes below the scene it was given, and no route to this one is "
-						+ "inside that bound — this scene and everything it instances are UNCHECKED, not "
-						+ "judged sound. The bound is on gda's own walk: the engine still loads "
-						+ "the whole chain itself, and at extreme depth its loader overflows and "
-						+ "the run dies with no verdict at all, which this bound does not change. "
-						+ "Validate this scene directly to get a verdict for it"))
+						+ "inside that bound — this scene and everything it references are "
+						+ "UNCHECKED, not judged sound. The bound is on gda's own walk: the "
+						+ "engine still loads the whole chain itself, and at extreme depth its "
+						+ "loader overflows and the run dies with no verdict at all, which this "
+						+ "bound does not change. Validate this scene directly to get a verdict "
+						+ "for it"))
 			continue
-		# A sub-scene gda cannot read is not silently called sound, but neither does
-		# it get a second problem of its own: the parent's dependency walk has
-		# already reported the missing file (missing_resource) or the one no loader
-		# opens (unloadable_resource), naming the node that instances it.
+		# A referenced scene the walk cannot READ. Two cases, told apart because the
+		# reader needs different things from them:
+		#
+		# - the file is not there, or is there but no loader opens it: the
+		#   referencing file's own dependency walk has ALREADY named it
+		#   (missing_resource / unloadable_resource) with the node that references
+		#   it, so a second problem here would be one finding reported twice;
+		# - the file LOADS as a scene, but its bytes are not the [gd_scene] text the
+		#   walk reads — a binary .scn. Nothing has been said about it, and staying
+		#   silent would let a composed verdict answer "sound" about a subtree it
+		#   never opened. It is recorded as visited so the report, like every other,
+		#   appears once per file.
 		if not FileAccess.file_exists(ref_path):
 			continue
 		if not _has_scene_header(FileAccess.get_file_as_string(ref_path)):
+			if ResourceLoader.load(ref_path) is PackedScene:
+				visited[ref_path] = true
+				out.append(_sub_scene_edge_problem(SCENE_PROBLEM_UNREADABLE_SUB_SCENE, entry,
+						scene_path, nodes_by_id,
+						"this scene loads, but not as the [gd_scene] text gda reads a "
+						+ "dependency set out of — a binary .scn carries none, which is why "
+						+ "the command refuses one as its target too. This scene and "
+						+ "everything it references are UNCHECKED, not judged sound. Re-save "
+						+ "it as .tscn for a composed verdict that covers it"))
 			continue
 		visited[ref_path] = true
 		var own: Variant = _scene_own_problems(ref_path)
 		if own != null:
 			out.append_array(_attributed_problems(own as Array, ref_path))
 		# Descended into even when it did not load: its text is still readable, and
-		# the scenes IT instances can be broken for reasons of their own.
+		# the scenes IT references can be broken for reasons of their own.
 		chain[ref_path] = true
 		_collect_sub_scene_problems(ref_path, walk)
 		chain.erase(ref_path)
@@ -886,11 +931,11 @@ func _flush_deferred_depth_problems(walk: Dictionary) -> void:
 			out.append(pending)
 
 
-# One problem about an EDGE of the instancing graph rather than about a file's
-# contents (#721 review): the walk reached this reference and declined to follow
-# it. Both such kinds carry the same three facts — the target the edge points at,
-# the file that declares it, and the nodes that instance it — so they are built in
-# one place instead of twice.
+# One problem about an EDGE of the scene graph rather than about a file's
+# contents (#721 review): the walk reached this reference and did not follow it.
+# All three such kinds carry the same three facts — the target the edge points at,
+# the file that declares it, and the nodes that reference it — so they are built in
+# one place instead of three times.
 func _sub_scene_edge_problem(kind: String, entry: Dictionary, scene_path: String,
 		nodes_by_id: Dictionary, message: String) -> Dictionary:
 	var problem := _scene_problem(kind, String(entry["normalized_path"]),
@@ -4402,6 +4447,20 @@ func _is_class_name_declaration_of(line: String, target_class: String) -> bool:
 # loads is served there as before.
 func _is_scene_path(path: String) -> bool:
 	return path.get_extension().to_lower() == "tscn"
+
+
+# Whether a path names a SCENE FILE in either of the two forms Godot saves one in:
+# the .tscn text gda reads, or the binary .scn it cannot. The composed walk asks
+# this rather than _is_scene_path because the two answers it needs are different:
+# what it can descend into, and what it must REPORT as unread rather than skip
+# (#721 review). Extension is the engine's own test too — ResourceLoader picks a
+# format handler by recognized extension (ResourceFormatLoader::recognize_path),
+# not by the type an [ext_resource] line declares. A PackedScene saved under some
+# other extension (.tres/.res) is outside this boundary and is stated as such on
+# the public surfaces.
+func _is_scene_reference_path(path: String) -> bool:
+	var ext := path.get_extension().to_lower()
+	return ext == "tscn" or ext == "scn"
 
 
 # Whether a path names a script file the script group operates on: a .gd

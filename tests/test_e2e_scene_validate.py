@@ -823,11 +823,145 @@ def test_the_bound_does_not_hide_a_break_above_it(godot_project):
     assert ("instance_depth_exceeded", "res://s16.tscn") in kinds
 
 
-# --- One identity, one order-free verdict (#721 review) ---------------------
+# --- The composition BOUNDARY (#721 review) ---------------------------------
 #
-# Two properties the composed walk must have and did not: a scene file is ONE
-# file however it is spelled, and the published verdict is a function of the
-# GRAPH rather than of the order two lines happen to appear in.
+# What the walk composes over is the referenced scene FILE, and these pin both
+# halves of that against the engine, because the engine is the only authority on
+# it. Measured on Godot 4.6.3 while answering the review: `ResourceLoaderText`
+# starts a load for EVERY `[ext_resource]` line before it parses a single node,
+# and passes the line's `type` to `ResourceLoader` only as a hint — the format
+# handler is chosen by extension and accepts every type. So the declared type is
+# not a selector, and a `.tscn` referenced as plain metadata breaks its owner
+# exactly as an instanced one does.
+
+# A .tscn referenced as ordinary `Resource` metadata and never instanced. The
+# review called following this an over-reach; the engine disagrees.
+DATA_REFERENCE_PARENT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Resource" path="res://child.tscn" id="1_child"]
+
+[node name="Parent" type="Node2D"]
+metadata/other_scene = ExtResource("1_child")
+"""
+
+
+@pytest.mark.e2e
+def test_a_sub_scene_referenced_as_data_still_breaks_its_owner(godot_project):
+    # The measurement this test exists for: loading the parent below emits the
+    # SAME three errors for the child's missing script as a parent that instances
+    # it (`Attempt to open script … File not found`, `Failed loading resource`,
+    # `res://child.tscn:… Parse Error: [ext_resource] referenced non-existent
+    # resource`). Selecting edges on `type="PackedScene"` would answer
+    # `valid: true` here, so the extension is the sounder rule — and there is no
+    # honest fallback for a line with no type at all, since the engine rejects
+    # such a file outright (ERR_FILE_CORRUPT).
+    (godot_project / "child.tscn").write_text(COMPOSED_CHILD_TSCN, encoding="utf-8")
+    (godot_project / "parent.tscn").write_text(
+        DATA_REFERENCE_PARENT_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://parent.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False, data
+    (problem,) = data["problems"]
+    assert problem["kind"] == "missing_resource"
+    assert problem["scene"] == "res://child.tscn"
+    # Attributed to the node whose PROPERTY holds the reference, exactly as an
+    # instancing site would be.
+    assert problem["nodes"] == ["."]
+
+
+BINARY_SUB_SCENE_PARENT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://hero.scn" id="1_bin"]
+
+[node name="Parent" type="Node2D"]
+
+[node name="Kid" parent="." instance=ExtResource("1_bin")]
+"""
+
+
+@pytest.mark.e2e
+def test_a_binary_sub_scene_is_reported_unchecked_not_silently_skipped(godot_project):
+    # The GDA-DF-030 failure mode, one level down: the parent instances a binary
+    # child whose script no longer compiles, and the walk cannot read that child's
+    # dependency text. Before this was reported, the answer was
+    # `valid: true, problems: []` while the engine's own load of the same parent
+    # reported the child's parse error — a gate answering "sound" about a subtree
+    # it never opened, which is exactly what `instance_depth_exceeded` exists to
+    # prevent one axis over.
+    (godot_project / "hero.gd").write_text(GOOD_SCRIPT, encoding="utf-8")
+    (godot_project / "hero.tscn").write_text(GOOD_TSCN, encoding="utf-8")
+    (godot_project / "save_binary.gd").write_text(SAVE_AS_BINARY_GD, encoding="utf-8")
+    (godot_project / "parent.tscn").write_text(
+        BINARY_SUB_SCENE_PARENT_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+    saved = gda("script", "run", "res://save_binary.gd", "--json")
+    assert saved.returncode == 0, saved.stdout + saved.stderr
+    assert (godot_project / "hero.scn").exists(), saved.stdout + saved.stderr
+    # Break the script AFTER the binary was written. The .scn itself still LOADS —
+    # a GDScript that does not compile is still handed back as a resource — so the
+    # parent's own dependency walk finds nothing wrong with it.
+    (godot_project / "hero.gd").write_text(BROKEN_SCRIPT, encoding="utf-8")
+
+    validated = gda("scene", "validate", "res://parent.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False, data
+    (problem,) = data["problems"]
+    assert problem["kind"] == "unreadable_sub_scene"
+    assert problem["scene"] == "res://parent.tscn"
+    assert problem["path"] == "res://hero.scn"
+    assert problem["nodes"] == ["Kid"]
+    assert "UNCHECKED" in problem["message"]
+    # The text form of the same child IS checked, so the report is about the form
+    # gda can read and not about the scene.
+    text_parent = gda("scene", "validate", "res://hero.tscn", "--json")
+    assert text_parent.returncode == 0, text_parent.stdout + text_parent.stderr
+    text_data = json.loads(text_parent.stdout)
+    assert [p["kind"] for p in text_data["problems"]] == ["script_compile_failed"]
+
+
+@pytest.mark.e2e
+def test_a_binary_sub_scene_that_does_not_load_is_still_reported_once(godot_project):
+    # The other half of the boundary, and the reason `unreadable_sub_scene` is not
+    # raised for every unreadable target: when the binary child does not load at
+    # all, the parent's own dependency walk has ALREADY named it. One finding, not
+    # two views of one.
+    (godot_project / "hero.gd").write_text(GOOD_SCRIPT, encoding="utf-8")
+    (godot_project / "hero.tscn").write_text(GOOD_TSCN, encoding="utf-8")
+    (godot_project / "save_binary.gd").write_text(SAVE_AS_BINARY_GD, encoding="utf-8")
+    (godot_project / "parent.tscn").write_text(
+        BINARY_SUB_SCENE_PARENT_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+    saved = gda("script", "run", "res://save_binary.gd", "--json")
+    assert saved.returncode == 0, saved.stdout + saved.stderr
+    # Removing the script entirely makes the binary resource itself unloadable.
+    (godot_project / "hero.gd").unlink()
+
+    validated = gda("scene", "validate", "res://parent.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False, data
+    assert data["problems"] == [
+        {
+            "kind": "unloadable_resource",
+            "scene": "res://parent.tscn",
+            "path": "res://hero.scn",
+            "type": "PackedScene",
+            "nodes": ["Kid"],
+            "message": "the resource could not be loaded",
+        }
+    ]
 
 
 @pytest.mark.e2e

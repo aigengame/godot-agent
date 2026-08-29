@@ -388,7 +388,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `scene list` | Enumerate the `.tscn` scenes in the resolved project. |
 | `scene get-exports` | List the `@export` properties a scene's nodes' scripts declare. |
 | `scene delete` | Delete a scene file and report what was removed. |
-| `scene validate` | Check statically that a scene and the sub-scenes it instances resolve their dependencies and compile their scripts. |
+| `scene validate` | Check statically that a scene and the sub-scenes it references resolve their dependencies and compile their scripts. |
 | `scene preflight` | Boot a scene headless, wait for `_ready`, and report its startup verdict. |
 
 Reading a scene survives most breakage: Godot substitutes null for a node's reference it
@@ -401,15 +401,21 @@ instantiating anything — reporting one problem per problem file (`missing_reso
 `unloadable_resource` for an asset that was never imported, `script_compile_failed`, or
 `incompatible_script` for a binding the engine would refuse: a script on a node outside its
 base, or a bound value that is not a script) with the nodes that reference it. The verdict is
-**composed**: the scenes a scene instances are checked with it, because a parent whose child
-is broken is broken too and its own walk cannot see that — `res://child.tscn` resolves and
-loads whatever is missing inside it. Every problem therefore carries `scene`, the file it was
-found in, and its `path` and nodes are read against that file. The walk declines two kinds of
-edge instead of following them: `cyclic_instance` for a composition Godot refuses to load, and
-`instance_depth_exceeded` past 16 levels of sub-scenes, which reports that subtree as
-**unchecked** rather than sound — validate it directly for a verdict of its own. That depth
-bound covers gda's own walk; the engine loads the whole chain either way, and an extremely deep
-one overflows its loader and ends the run with no verdict at all. The check is
+**composed**: the scenes a scene references — normally the ones it instances — are checked with
+it, because a parent whose child is broken is broken too and its own walk cannot see that:
+`res://child.tscn` resolves and loads whatever is missing inside it. Every problem therefore
+carries `scene`, the file it was found in, and its `path` and nodes are read against that file.
+The boundary is the referenced scene **file**, not the type the line declares: Godot loads every
+`[ext_resource]` when it loads the scene and picks the handler by extension, so a `.tscn`
+referenced as plain metadata breaks its owner exactly as an instanced one does. Three kinds of
+edge are reported instead of followed: `cyclic_instance`, where a reference closes a cycle whose
+closing edge the engine drops (taking the nodes it would have contributed with it);
+`unreadable_sub_scene`, a binary `.scn` that carries none of the scene text the walk reads; and
+`instance_depth_exceeded`, for a scene no route reaches within 16 levels of sub-scenes. The last
+two report that subtree as **unchecked** rather than sound — validate it directly, or re-save it
+as `.tscn`, for a verdict of its own. That depth bound covers gda's own walk; the engine loads
+the whole chain either way, and an extremely deep one overflows its loader and ends the run with
+no verdict at all. The check is
 **staged**: when dependencies fail to resolve, the scene is not loaded, so the compile and
 binding problems of the loaded scene can only appear after the dependencies are repaired and
 validate is rerun — the problem list is complete for the stage it reached, not across both

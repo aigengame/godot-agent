@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6b52465d4544c2f7e5c982d8ce2eac004261b342bb5a99920bce068ada9102ea -->
+<!-- gda-readme-i18n: source=README.md sha256=edb3d8d9d46f58bd443cbeab7c671d1ade531df45bef4d42de8991165bac2671 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -399,7 +399,7 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `scene list` | Enumera las escenas `.tscn` del proyecto resuelto. |
 | `scene get-exports` | Lista las propiedades `@export` que declaran los scripts de los nodos de una escena. |
 | `scene delete` | Elimina un archivo de escena e informa qué se eliminó. |
-| `scene validate` | Comprueba estáticamente que una escena y las subescenas que instancia resuelven sus dependencias y compilan sus scripts. |
+| `scene validate` | Comprueba estáticamente que una escena y las subescenas que referencia resuelven sus dependencias y compilan sus scripts. |
 | `scene preflight` | Arranca una escena en headless, espera a `_ready` e informa su veredicto de arranque. |
 
 Leer una escena sobrevive a la mayoría de las roturas: Godot sustituye por null la referencia
@@ -412,16 +412,22 @@ todo sin instanciar nada, e informa un problema por archivo problemático
 (`missing_resource`, `unloadable_resource` para un recurso que nunca se importó,
 `script_compile_failed`, o `incompatible_script` para un vínculo que el motor rechazaría: un
 script sobre un nodo fuera de su base, o un valor vinculado que no es un script) junto con los
-nodos que lo referencian. El veredicto es **compuesto**: las escenas que una escena instancia se
-comprueban con ella, porque un padre cuyo hijo está roto también está roto y su propio recorrido
-no puede verlo — `res://child.tscn` se resuelve y se carga por mucho que falte dentro de él. Por
-eso cada problema lleva `scene`, el archivo donde se encontró, y su `path` y sus nodos se leen
-contra ese archivo. El recorrido rechaza dos tipos de arista en lugar de seguirlas:
-`cyclic_instance`, una composición que Godot se niega a cargar, e `instance_depth_exceeded` más
-allá de 16 niveles de subescenas, que informa ese subárbol como **no comprobado** en vez de sano
-— valídalo directamente para obtener su propio veredicto. Ese límite de profundidad acota el
-recorrido propio de gda; el motor carga la cadena entera de todos modos, y una cadena
-extremadamente profunda desborda su cargador y termina la ejecución sin veredicto alguno. La comprobación es **escalonada**: cuando hay dependencias sin
+nodos que lo referencian. El veredicto es **compuesto**: las escenas que una escena referencia
+—normalmente las que instancia— se comprueban con ella, porque un padre cuyo hijo está roto
+también está roto y su propio recorrido no puede verlo: `res://child.tscn` se resuelve y se carga
+por mucho que falte dentro de él. Por eso cada problema lleva `scene`, el archivo donde se
+encontró, y su `path` y sus nodos se leen contra ese archivo. El límite es el **archivo** de
+escena referenciado, no el tipo que declara la línea: Godot carga cada `[ext_resource]` al cargar
+la escena y elige el gestor por extensión, así que un `.tscn` referenciado como simple metadato
+rompe a su dueño igual que uno instanciado. Se informan tres tipos de arista en vez de seguirlas:
+`cyclic_instance`, donde una referencia cierra un ciclo cuya arista de cierre el motor descarta
+(llevándose los nodos que habría aportado); `unreadable_sub_scene`, un `.scn` binario que no
+lleva el texto de escena que el recorrido lee; e `instance_depth_exceeded`, para una escena a la
+que ninguna ruta llega dentro de 16 niveles de subescenas. Las dos últimas informan ese subárbol
+como **no comprobado** en vez de sano — valídalo directamente, o vuelve a guardarlo como `.tscn`,
+para obtener su propio veredicto. Ese límite de profundidad acota el recorrido propio de gda; el
+motor carga la cadena entera de todos modos, y una cadena extremadamente profunda desborda su
+cargador y termina la ejecución sin veredicto alguno. La comprobación es **escalonada**: cuando hay dependencias sin
 resolver, la escena no se carga, así que los problemas de compilación y de vínculo que solo la
 escena cargada puede revelar aparecen después de reparar las dependencias y volver a ejecutar
 validate — la lista de problemas es completa para la etapa alcanzada, no para ambas etapas a la
