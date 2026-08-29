@@ -19,6 +19,7 @@ from pydantic import (
 )
 
 from gda.execution import ExecutionKind
+from gda.live_numbers import find_unrepresentable
 from gda.project import is_engine_virtual_path
 
 
@@ -529,6 +530,44 @@ def normalize_path(path: str) -> str:
 # ``ValidationError`` (→ structured ``invalid_params``) instead of ``normalize_path``
 # hitting a ``TypeError`` on a non-string.
 NormalizedPath = Annotated[str, AfterValidator(normalize_path)]
+
+
+class LiveParams(BaseModel):
+    """The base every LIVE command's params model inherits (#752).
+
+    The live legs carry JSON (ADR-0021), and Godot's JSON parser cannot construct
+    every binary64 value a caller can spell: a small-magnitude float arrives as
+    ``0.0``, and a large integer as a different integer. That is a property of the
+    WIRE, not of any one command, so refusing those values is a rule every live
+    request passes through rather than one a command remembers to re-declare —
+    the reason ``game call`` was not the only ingress that let one through (#770
+    review).
+
+    The params model is the boundary where the rule belongs: ADR-0015 makes it
+    the ONE authority both the argv and ``--params-json`` paths build, so a single
+    validator here refuses identically on both, and refuses a value BEFORE any
+    daemon or engine session is involved — an input error stays an input error
+    (a usage error on argv, ``invalid_params`` on ``--params-json``) instead of
+    becoming a live-channel failure. :func:`~gda.live_numbers.find_unrepresentable`
+    owns what "cannot cross" means; this class owns only where it is asked.
+
+    The scan reads ``model_dump()`` rather than the field values, so a nested
+    params model (an input-sequence event, a predicate's awaited value) is
+    covered as plain JSON — and a LIVE command whose recipe builds its wire dict
+    from these same fields is covered with it. A LIVE command that carries no
+    number inherits this too: the guarantee is that no live params model can
+    acquire a numeric field the wire silently changes, which a per-model opt-in
+    could not give. ``tests/test_live_contract_guards.py`` walks the live Typer
+    tree and fails a LIVE descriptor whose input model does not inherit this.
+    """
+
+    @model_validator(mode="after")
+    def _admit_live_wire_numbers(self) -> "LiveParams":
+        for name, value in self.model_dump().items():
+            refusal = find_unrepresentable(value, name)
+            if refusal is not None:
+                raise ValueError(refusal)
+        return self
 
 
 # The one read-side value projection every value gda emits goes through

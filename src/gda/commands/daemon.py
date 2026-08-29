@@ -61,6 +61,7 @@ from gda.daemon.session import CONNECT_TIMEOUT
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import Failure, make_failure, unresolvable_binary_failure
 from gda.execution import MIN_LIVE_VERSION, ExecutionKind
+from gda.models import LiveParams
 from gda.harness.install import (
     HarnessSnapshot,
     install_harness,
@@ -225,7 +226,7 @@ class DaemonStatusResult(BaseModel):
     )
 
 
-class DaemonWaitReadyParams(BaseModel):
+class DaemonWaitReadyParams(LiveParams):
     """The params of ``gda daemon wait-ready``: the readiness budget (#657).
 
     The daemon launches its engine session LAZILY on the first operation that

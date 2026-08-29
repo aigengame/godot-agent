@@ -44,7 +44,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import MAX_WINDOW_FRAMES
+from gda.models import MAX_WINDOW_FRAMES, LiveParams
 
 # The keyboard modifier names a key/sequence/tap may carry, mapped to the
 # InputEventKey modifier flag the harness sets. A Literal is the ONE authority for
@@ -66,7 +66,7 @@ class MouseButton(str, Enum):
     MIDDLE = "middle"
 
 
-class InputKeyParams(BaseModel):
+class InputKeyParams(LiveParams):
     """The params of ``gda input key``: inject one key event (#221).
 
     Pushes an ``InputEventKey`` for ``key`` (with any ``modifiers``) into the
@@ -112,7 +112,7 @@ class InputKeyResult(BaseModel):
     pressed: bool = Field(description="True for a press event, false for a release.")
 
 
-class InputMouseClickParams(BaseModel):
+class InputMouseClickParams(LiveParams):
     """The params of ``gda input mouse-click``: inject a complete click gesture (#221, #652).
 
     Injects the COMPLETE click gesture at viewport position ``(x, y)`` into the
@@ -153,7 +153,7 @@ class InputMouseClickParams(BaseModel):
     )
 
 
-class InputMouseMoveParams(BaseModel):
+class InputMouseMoveParams(LiveParams):
     """The params of ``gda input mouse-move``: inject a mouse motion event (#221).
 
     Pushes an ``InputEventMouseMotion`` to viewport position ``(x, y)`` into the
@@ -295,7 +295,7 @@ class InputMouseClickResult(BaseModel):
         return self
 
 
-class InputActionParams(BaseModel):
+class InputActionParams(LiveParams):
     """The params of ``gda input action``: press or release an input action (#221).
 
     Drives ``Input.action_press`` / ``Input.action_release`` for the named action,
@@ -342,7 +342,7 @@ class InputActionResult(BaseModel):
     )
 
 
-class InputTapParams(BaseModel):
+class InputTapParams(LiveParams):
     """The params of ``gda input tap``: a complete press-hold-release of one key or action (#652).
 
     Godot needs the press and the release to land on SEPARATE process frames for
@@ -934,7 +934,7 @@ _SEQUENCE_EVENT_MODELS: tuple[type[_SequenceEvent], ...] = get_args(
 )
 
 
-class InputSequenceParams(BaseModel):
+class InputSequenceParams(LiveParams):
     """The params of ``gda input sequence``: inject events across process or physics frames.
 
     A multi-frame op (the time-windowed harness base, #223): ``events`` is a list of
@@ -1222,7 +1222,9 @@ def input_mouse_click(
     """
     dispatch_domain(
         INPUT_MOUSE_CLICK_COMMAND,
-        InputMouseClickParams(x=x, y=y, button=button, double=double),
+        params_or_bad_parameter(
+            InputMouseClickParams, x=x, y=y, button=button, double=double
+        ),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1254,7 +1256,7 @@ def input_mouse_move(
     """
     dispatch_domain(
         INPUT_MOUSE_MOVE_COMMAND,
-        InputMouseMoveParams(x=x, y=y),
+        params_or_bad_parameter(InputMouseMoveParams, x=x, y=y),
         json_output=json_output,
         godot=godot,
         project=project,

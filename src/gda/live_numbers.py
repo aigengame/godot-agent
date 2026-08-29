@@ -22,8 +22,9 @@ build — colour, not a property the suite defends.
 renders a float through ``String::num``, which formats FIXED-POINT (``%.*lf``) with
 at most ``MAX_DECIMALS`` (32) decimals. So it flattens every value below
 about ``1e-32.6`` to ``0.0`` and rounds ordinary values to ~15 significant digits
-(``3.141592653589793`` came back as ``3.14159265358979``); it left 41 of the 96
-corpus rows unchanged, and a 5500-value sweep during #752 put it at 33%. Godot's
+(``3.141592653589793`` came back as ``3.14159265358979``). Over the 96 corpus
+rows it split **41 exact / 15 changed / 40 flattened to ``0.0``**, and a
+5500-value sweep during #752 put its exact share at 33%. Godot's
 ``full_precision`` mode instead renders through ``String::num_scientific``
 (grisu2, shortest round-tripping form), which was exact on **95 of the 96** corpus
 rows and on all 5500 of that sweep — the sweep drew no negative zero, and the
@@ -67,6 +68,14 @@ DOUBLE from a table of ``10^2^i``. Two consequences, both reproduced:
   preserving it would mean not sending a JSON number at all, which is the bespoke
   daemon↔harness representation ADR-0021 rejected.
 
+The **request-side admission scan** (:func:`find_unrepresentable`) is where that
+policy is applied. It is a property of the WIRE, not of any one command, so every
+LIVE params model inherits it through :class:`gda.models.LiveParams` — one
+recursive pass over the model's own fields, before the daemon writes the frame.
+Three classes are refused there: a non-finite float (JSON has no literal for one),
+an integer outside :data:`MAX_EXACT_JSON_INT`, and a float this module's predicate
+says the parser reads as ``0.0``.
+
 The predicate below is not a decimal heuristic: it recomputes the engine's own
 ``exp`` intermediate from the literal gda is about to write. ``tests/
 test_live_numbers.py`` pins it against the recorded engine verdicts, and
@@ -80,6 +89,7 @@ test can all name the domain without an import cycle.
 """
 
 import json
+import math
 
 # The interoperable range for JSON INTEGER values decoded as Python ``int``
 # (PR #749 review). Godot's ``JSON.parse_string`` reads every number as binary64,
@@ -130,3 +140,91 @@ def wire_flattens_to_zero(value: float) -> bool:
         return False
     exponent = godot_applied_decimal_exponent(json.dumps(value))
     return exponent <= -(GODOT_STRTOD_MAX_POWER + 1)
+
+
+def find_unrepresentable(value: object, path: str) -> "str | None":
+    """The first value under ``path`` the live wire cannot carry, or ``None``.
+
+    The request direction's whole admission rule, in one recursive pass. It
+    answers about the JSON frame gda is ABOUT to write, so it reads a params
+    model's own dumped fields — a nested value is as harmful as a top-level one,
+    and the ``path`` it returns names where the offender sits (``args[0]``,
+    ``events[2]['x']``) rather than only that one exists.
+
+    Three classes, each reproduced end to end, each refused because letting it
+    through makes a live call SUCCEED on a value the caller never sent:
+
+    - **Non-finite floats.** JSON has no ``NaN``/``Infinity`` literals, but
+      Python's ``json.loads`` accepts them by extension and pydantic keeps them
+      in an ``Any`` field — and the daemon then writes a frame the harness's
+      ``JSON.parse_string`` cannot read, so the call never arrives: the caller
+      waits out the 30 s relay bound, gets ``live_timeout``, and the daemon
+      retires the channel, LOSING the engine session's runtime state.
+    - **Python ints outside the exact-integer range** the live parser's binary64
+      number domain guarantees (PR #749 re-review): those may arrive as a
+      different number. A Python float already IS a binary64 value and does not
+      inherit the integer safe-range bound; the reproduced high-range values such
+      as ``1e300`` cross unchanged.
+    - **Floats the engine's parser reads as** ``0.0`` (#752), per
+      :func:`wire_flattens_to_zero` above: ``5e-324``,
+      ``2.2250738585072014e-308`` (``DBL_MIN``) and even the ordinary normal
+      ``1.2345678901234567e-300``. Refused rather than re-spelled because no
+      decimal literal at all can deliver such a value through that parser.
+
+    It does NOT reject every float Godot can change: a value the parser CAN
+    construct arrives changed in its low-order bits — 1 ULP at ordinary
+    magnitudes, and 31 to 105 doubles away for a full-precision literal between
+    ``1e-4`` and ``1e-2``, where the parser drops everything past its 18th
+    mantissa digit. That residual is DISCLOSED rather than refused: refusing it
+    would reject ordinary game values, and removing it would mean not sending a
+    JSON number at all, the bespoke daemon-harness representation ADR-0021
+    rejected. The result direction has no such residual (see
+    :data:`LIVE_RESULT_PRECISION`).
+    """
+    if isinstance(value, bool):
+        pass  # bool is not an int argument here, despite subclassing it
+    elif isinstance(value, float) and not math.isfinite(value):
+        return (
+            f"{path} must be finite JSON values; NaN and Infinity are not "
+            "representable on the live wire."
+        )
+    elif isinstance(value, float) and wire_flattens_to_zero(value):
+        return (
+            f"{path} float value {value!r} cannot cross the live wire: Godot's "
+            "JSON parser scales it by a power of ten it cannot hold in a double, "
+            "so it would arrive as 0.0 and the call would SUCCEED on a value you "
+            "never sent. No decimal spelling avoids it — the value needs fewer "
+            "significant digits or a larger magnitude."
+        )
+    elif isinstance(value, int) and abs(value) > MAX_EXACT_JSON_INT:
+        return (
+            f"{path} integer values must be within +/-{MAX_EXACT_JSON_INT} (the "
+            "live wire reads JSON numbers as binary64, so a larger integer may "
+            f"arrive as a DIFFERENT value); got {value}."
+        )
+    if isinstance(value, dict):
+        for key, item in value.items():
+            found = find_unrepresentable(item, f"{path}[{key!r}]")
+            if found is not None:
+                return found
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            found = find_unrepresentable(item, f"{path}[{index}]")
+            if found is not None:
+                return found
+    return None
+
+
+# The RESULT direction's public contract, in one production sentence (#752).
+# Quoted verbatim by the live commands' Typer docstrings (which Typer renders as
+# `--help` and cannot interpolate a constant into, so a test pins them against
+# THIS string) and concatenated into the live result models' field descriptions,
+# which `--schema` publishes. Deliberately says nothing about the REQUEST
+# direction: that one is a refusal, stated where the refusal is made.
+LIVE_RESULT_PRECISION = (
+    "Live floats cross the wire at full binary64 precision — the reply is "
+    "serialized with Godot's full-precision JSON writer, so a small or "
+    "many-digit value reads back exactly (#752). The one residual: a NEGATIVE "
+    "ZERO reads back as 0.0, which the engine's writer decides before gda sees "
+    "the value."
+)

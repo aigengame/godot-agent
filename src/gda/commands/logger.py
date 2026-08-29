@@ -25,8 +25,9 @@ import typer
 from pydantic import BaseModel, Field
 
 from gda.commands.diag import SourceFrame, diag_limit_option, DIAG_LIMIT_DESC
-from gda.dispatch import dispatch_domain
+from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
+from gda.models import LiveParams
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -106,7 +107,7 @@ class LogRecord(BaseModel):
     )
 
 
-class LoggerTailParams(BaseModel):
+class LoggerTailParams(LiveParams):
     """The params of ``gda logger tail``: read the running game's structured log (#281).
 
     Reads the current Engine session's captured log as structured records.
@@ -265,7 +266,7 @@ def logger_tail(
     """
     dispatch_domain(
         LOGGER_TAIL_COMMAND,
-        LoggerTailParams(level=level, limit=limit, raw=raw),
+        params_or_bad_parameter(LoggerTailParams, level=level, limit=limit, raw=raw),
         json_output=json_output,
         godot=godot,
         project=project,

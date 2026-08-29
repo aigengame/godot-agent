@@ -28,8 +28,9 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import dispatch_domain
+from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
+from gda.models import LiveParams
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -105,7 +106,7 @@ class DiagError(BaseModel):
     )
 
 
-class DiagErrorsParams(BaseModel):
+class DiagErrorsParams(LiveParams):
     """The params of ``gda diag errors``: read the running game's runtime errors (#224).
 
     Reads the current Engine session's captured errors. ``limit`` tails the most
@@ -214,7 +215,7 @@ def diag_errors(
     """
     dispatch_domain(
         DIAG_ERRORS_COMMAND,
-        DiagErrorsParams(limit=limit),
+        params_or_bad_parameter(DiagErrorsParams, limit=limit),
         json_output=json_output,
         godot=godot,
         project=project,

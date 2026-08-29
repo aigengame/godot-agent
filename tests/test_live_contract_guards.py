@@ -141,6 +141,40 @@ def _live_operations() -> set[str]:
     return {d.operation for d in _descriptors() if d.kind is ExecutionKind.LIVE}
 
 
+def test_every_live_params_model_inherits_the_wire_number_policy():
+    """A LIVE request's numbers are admitted by the wire's rule, not each command's.
+
+    Godot's JSON parser reads a small-magnitude float as ``0.0`` and a large
+    integer as a different integer (#752), so a live op can SUCCEED on a value
+    the caller never sent. That is a property of the WIRE, not of one command:
+    the #770 review reproduced it on ``input mouse-move``, ``input action
+    --strength`` and a nested sequence event, all of which the original
+    ``game call``-local guard left open.
+
+    :class:`gda.models.LiveParams` is where the rule is applied — once, over the
+    model both input paths build (ADR-0015). This walks the live Typer tree, so a
+    LIVE command registered without that base fails HERE rather than by silently
+    delivering a changed number months later.
+    """
+    from gda.models import LiveParams
+
+    root = typer.main.get_command(app)
+    live = [
+        (name, command.gda_command.input_model)
+        for name, command in _leaf_commands(root, [])
+        if getattr(command, "gda_command", None) is not None
+        and command.gda_command.kind is ExecutionKind.LIVE
+    ]
+    # Guard the walk against vacuity: an extraction that stopped matching would
+    # otherwise pass by checking nothing.
+    assert len(live) >= 15, live
+    missing = [name for name, model in live if not issubclass(model, LiveParams)]
+    assert missing == [], (
+        f"these LIVE commands' params models do not inherit gda.models.LiveParams, "
+        f"so their numbers reach the wire unchecked (#752): {missing}"
+    )
+
+
 # The harness op table: one ``const OP_<NAME> := "<wire op name>"`` per relayed live
 # op (gda_harness.gd, "The live operations this harness serves"). Anchored to line
 # start and scoped to the ``OP_`` prefix so the neighbouring const families

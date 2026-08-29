@@ -51,8 +51,14 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
+from gda.live_numbers import LIVE_RESULT_PRECISION
 from gda.live_runner import make_daemon_runner
-from gda.models import MAX_WINDOW_FRAMES, RUNTIME_NODE_DESC, NormalizedPath
+from gda.models import (
+    MAX_WINDOW_FRAMES,
+    RUNTIME_NODE_DESC,
+    LiveParams,
+    NormalizedPath,
+)
 from gda.render import format_value
 from gda.runner import GodotRunner
 
@@ -68,7 +74,9 @@ class PerfMonitor(BaseModel):
 
     name: str
     type: str = Field(description="The sampled value's Godot type (e.g. float).")
-    value: Any = Field(description="The monitor's value as JSON.")
+    value: Any = Field(
+        description="The monitor's value as JSON. " + LIVE_RESULT_PRECISION
+    )
 
 
 # `perf monitors`' params and result live BELOW the windowed-mode models they
@@ -76,7 +84,7 @@ class PerfMonitor(BaseModel):
 # bounded window, per the issue's triage decision (no third command).
 
 
-class PerfMonitorParams(BaseModel):
+class PerfMonitorParams(LiveParams):
     """The params of ``gda perf monitor``: watch one node over a frame window (#223).
 
     Time-windowed: the gda harness collects a per-frame timeline over ``frames``
@@ -135,7 +143,11 @@ class PerfPropertySample(BaseModel):
 
     frame: int = Field(description="The 0-based frame index within the window.")
     timestamp: int = Field(description="Engine time the sample was taken (ms).")
-    value: Any = Field(description="The property's value as JSON at that frame.")
+    value: Any = Field(
+        description=(
+            "The property's value as JSON at that frame. " + LIVE_RESULT_PRECISION
+        )
+    )
 
 
 class PerfSignalEmission(BaseModel):
@@ -144,7 +156,8 @@ class PerfSignalEmission(BaseModel):
     frame: int = Field(description="The frame index the emission landed in.")
     timestamp: int = Field(description="Engine time the emission was recorded (ms).")
     args: list[Any] = Field(
-        default_factory=list, description="The emission's arguments as JSON."
+        default_factory=list,
+        description="The emission's arguments as JSON. " + LIVE_RESULT_PRECISION,
     )
 
 
@@ -291,7 +304,7 @@ _PERF_MONITORS_MODE_SCHEMA: dict[str, Any] = {
 }
 
 
-class PerfMonitorsParams(BaseModel):
+class PerfMonitorsParams(LiveParams):
     """The params of ``gda perf monitors``: a snapshot, or a bounded window (#223, #662).
 
     One command, two modes, per #662's triage decision (no third command; the
@@ -409,7 +422,10 @@ class PerfSampleFrame(BaseModel):
     frame: int = Field(ge=0, description="The 0-based frame index within the window.")
     timestamp: int = Field(description="Engine time the row was sampled (ms).")
     values: dict[str, float] = Field(
-        description="The selected monitors' values at that frame, keyed by name."
+        description=(
+            "The selected monitors' values at that frame, keyed by name. "
+            + LIVE_RESULT_PRECISION
+        )
     )
 
 
@@ -1011,7 +1027,7 @@ def perf_monitors(
     `--monitor` and `--budget` require `--frames`. Live ops need a running
     daemon: with none, it reports `daemon_not_running`.
 
-    Monitor readings cross the live wire at full binary64 precision — the reply is
+    Live floats cross the wire at full binary64 precision — the reply is
     serialized with Godot's full-precision JSON writer, so a small or many-digit
     value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
     as 0.0, which the engine's writer decides before gda sees the value.
@@ -1071,7 +1087,7 @@ def perf_monitor(
     property `live_perf_property_not_found`, an absent signal
     `live_perf_signal_not_found`.
 
-    Recorded values cross the live wire at full binary64 precision — the reply is
+    Live floats cross the wire at full binary64 precision — the reply is
     serialized with Godot's full-precision JSON writer, so a small or many-digit
     value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
     as 0.0, which the engine's writer decides before gda sees the value.
