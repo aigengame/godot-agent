@@ -1816,13 +1816,13 @@ func _serialize(node: Node) -> Dictionary:
 # default JSON.stringify renders a float through String::num, which formats
 # FIXED-POINT with at most MAX_DECIMALS (32) decimals: it flattened every value
 # below ~1e-32.6 to 0.0 and rounded ordinary values to ~15 significant digits
-# (3.141592653589793 came back as 3.14159265358979) — 41 of the 96 corpus rows
-# survived. The full_precision argument switches it to String::num_scientific
-# (grisu2, shortest round-tripping form), exact on 95 of those 96 — the one miss
-# being the negative zero named below, which no argument here reaches. The other
-# three arguments keep their defaults ("" indent, sort_keys true), so ONLY the
-# number spelling changes. One residual, disclosed in the CLI contract: the engine
-# emits "0.0" for a NEGATIVE ZERO before this argument is consulted.
+# (3.141592653589793 came back as 3.14159265358979). The full_precision argument
+# switches it to String::num_scientific (grisu2, shortest round-tripping form),
+# which loses none of those. The measured corpus and its counts belong to the one
+# authority that owns them, `gda.live_numbers` (Python side) — not restated here.
+# The other three arguments keep their defaults ("" indent, sort_keys true), so
+# ONLY the number spelling changes. One residual, disclosed in the CLI contract:
+# the engine emits "0.0" for a NEGATIVE ZERO before this argument is consulted.
 func _json(value: Variant) -> String:
 	return JSON.stringify(value, "", true, true)
 

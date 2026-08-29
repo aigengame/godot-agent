@@ -827,6 +827,44 @@ lumped into one "live" group. Because the daemon↔harness transport is a Unix d
 socket (ADR-0021), **Phase-2 live requires Godot 4.6+ and is macOS/Linux only**; Phase-1
 headless is unaffected (4.4+, cross-platform).
 
+**Live number transport (#752).** The live legs carry JSON (ADR-0021), and Godot 4.6.3's
+JSON parser and its default writer both change some binary64 values — differently, so the
+two directions have separate answers. A real-engine differential corpus
+(`tests/live_number_corpus.py`, 96 rows carried to the engine as IEEE-754 bytes) measured
+both and is what the policy rests on; `gda.live_numbers` is the authority, and the e2e
+re-derives every verdict from a running engine.
+
+- **Results are exact.** The harness frames every reply with Godot's full-precision JSON
+  writer, which preserved 95 of the 96 corpus rows. The default writer preserved 41: it
+  rounded 15 rows to a different value and flattened 40 to `0.0`, because it formats
+  fixed-point with at most 32 decimals. One residual is disclosed rather than fixed — a
+  NEGATIVE ZERO reads back as `0.0`, which the engine decides before the precision
+  argument applies, and is the single row full precision misses. Stated on every live read
+  (`game get`, `game rect`, `game call`, `perf monitors`, `perf monitor`, `screen capture`)
+  in help and in `--schema`.
+- **Requests are bounded, and the bound is cross-operation.** Godot's `built_in_strtod`
+  applies a power of ten it computes as a double, so an applied exponent of −309 or below
+  divides by `inf`: 18 corpus rows arrive as `0.0`, including `DBL_MIN`, every subnormal,
+  and the ordinary normal `1.2345678901234567e-300`. No decimal spelling avoids it, so
+  those values are REFUSED before the send — as is a JSON integer beyond ±(2^53 − 1). The
+  rule belongs to the wire, so it is applied by the base every live params model inherits
+  (`gda.models.LiveParams`), covering nested values and both input paths: a usage error on
+  argv, `invalid_params` on `--params-json`, decided without a running daemon.
+- **The carried residual is disclosed, not refused.** A value the parser CAN construct
+  still arrives changed in its low-order bits: 56 corpus rows crossed exactly, 22 changed.
+  Ordinary game magnitudes land 1 ULP away; the scientific band reaches 2; and a
+  full-precision literal between `1e-4` and `1e-2` is far worse, because the parser keeps
+  at most 18 mantissa digits and Python writes fixed notation there — the corpus records
+  `0.0012345678901234567` arriving 31 doubles away and `0.00014285714285714284` 105.
+  Refusing that band would reject ordinary game values, and preserving it would mean not
+  sending a JSON number at all, the bespoke transport ADR-0021 rejected.
+- **Headless reads are NOT covered.** `ops/operations.gd` still frames results with the
+  default writer, so a headless `node get` / `scene get-exports` / `project list` /
+  `resource get` can still report a rounded or zeroed float
+  ([#771](https://github.com/aigengame/godot-agent/issues/771)). The live guarantee is
+  therefore stated on the live commands, never on the shared property shape they share
+  with the headless reads.
+
 - **`game` (the running game's scene graph):** `game tree` reads the runtime scene
   tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `game get` /
   `game set` (shipped, #220, extended by #422/#473) read and mutate a running node's live
@@ -891,10 +929,11 @@ headless is unaffected (4.4+, cross-platform).
   something the caller never sent). Finite floats already are binary64 and do not
   inherit that integer bound; real-engine tests pin the reproduced high-range values
   `1e17`, `2.5e17`, and `1e300` unchanged. This is not a full-range preservation
-  guarantee: Godot 4.6.3 parses some small-magnitude normal values, including
-  `1.2345678901234567e-300` and `DBL_MIN`, as `0.0`, and its `JSON.stringify` can
-  also lose small live-result values. [Issue #752](https://github.com/aigengame/godot-agent/issues/752)
-  owns that cross-operation transport defect. Standard JSON Schema cannot distinguish
+  guarantee: Godot 4.6.3 parses some small-magnitude normal values as `0.0`, which is
+  why they are refused — see **Live number transport** below for the decided
+  cross-operation policy, which is not `game call`'s own
+  ([#752](https://github.com/aigengame/godot-agent/issues/752)).
+  Standard JSON Schema cannot distinguish
   an exponent-form float from the equal mathematical integer, so its recursive number
   branch stays broad and discloses that the params model enforces the integer-token
   bound at execution. RFC JSON excludes `NaN` and `Infinity`; some in-memory schema

@@ -9,12 +9,12 @@ status: accepted
 > shared live-RESULT path — is decided and no longer open. A real-engine
 > differential corpus (`tests/live_number_corpus.py`) measured both directions:
 > the harness now writes every reply with Godot's full-precision JSON writer,
-> which was exact on 95 of the corpus's 96 rows — the sole miss being a negative
-> zero, which the engine renders `0.0` before the writer's precision argument
-> applies — so the RESULT path carries full binary64 apart from that one
-> disclosed residual; and a float whose
-> wire literal Godot's parser reads as `0.0` is REFUSED by the params model,
-> because the corpus shows no decimal spelling can deliver it. Values the parser
+> which was exact on every corpus row but one — a negative zero, which the engine
+> renders `0.0` before the writer's precision argument applies — so the RESULT
+> path carries full binary64 apart from that one disclosed residual; and a float
+> whose wire literal Godot's parser reads as `0.0` is REFUSED before the send, by
+> the base every live params model inherits, because the corpus shows no decimal
+> spelling can deliver it. Values the parser
 > does read still arrive changed in their low-order bits, and by more than a
 > couple of doubles: the scientific band is tight, while a fixed-notation literal
 > can lose its last decimal digits outright, the parser dropping everything past
