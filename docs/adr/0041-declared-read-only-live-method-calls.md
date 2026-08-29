@@ -15,8 +15,12 @@ status: accepted
 > disclosed residual; and a float whose
 > wire literal Godot's parser reads as `0.0` is REFUSED by the params model,
 > because the corpus shows no decimal spelling can deliver it. Values the parser
-> does read can still arrive 1–2 ULP away — disclosed, not refused. The wire
-> format is unchanged, so ADR-0021 needed no amendment. See `gda.live_numbers`.
+> does read still arrive changed in their low-order bits, and by more than a
+> couple of doubles: the scientific band is tight, while a fixed-notation literal
+> can lose its last decimal digits outright, the parser dropping everything past
+> its 18th mantissa digit. Disclosed, not refused. The wire format is unchanged,
+> so ADR-0021 needed no amendment. See `gda.live_numbers` for the decided
+> contract and the measured bands, which this note deliberately does not restate.
 
 `gda game get` reads a running node's stored properties. Dogfooding the kung-fu card
 game hit the gap that leaves (GDA-DF-033, #673): a project exposed its debug state as
