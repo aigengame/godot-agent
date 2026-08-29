@@ -10,6 +10,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -594,8 +595,22 @@ def test_script_validate_refusal_is_identical_on_the_params_json_path(
     assert fake.calls == []
 
 
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "res://../outside.gd",
+        # Godot folds `\\` to `/` across a res:// address before it collapses
+        # anything (`String::simplify_path`, ustring.cpp:4192), so these name the
+        # SAME file to the engine — a real 4.6.3 run loads it and reports back
+        # `res://../outside.gd`. They bypassed the check the slash spelling is
+        # refused by until the shared canonicalizer learned the fold (PR #766
+        # round-2 review).
+        "res://..\\outside.gd",
+        "res://a\\..\\..\\outside.gd",
+    ],
+)
 def test_script_validate_refuses_a_res_dotdot_escape_the_same_as_the_absolute_spelling(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, spelling
 ):
     # #762: `path_outside_project` used to short-circuit EVERY res:// spelling as
     # inside, so the SAME file, addressed as `res://../outside.gd`, bypassed the
@@ -622,7 +637,7 @@ def test_script_validate_refuses_a_res_dotdot_escape_the_same_as_the_absolute_sp
         [
             "script",
             "validate",
-            "res://../outside.gd",
+            spelling,
             "--project",
             str(proj),
             "--json",

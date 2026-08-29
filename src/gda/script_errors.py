@@ -173,18 +173,49 @@ def canonical_res_path(path: str) -> str:
     engine's spelling against the caller's raw one missed the match and let a
     failed run report success.
 
-    Collapses ``.``/``..`` segments and duplicate slashes on the path part only
-    (posixpath semantics), leaving the ``res://`` scheme intact. Purely lexical —
-    no filesystem access — so it is safe on a path that does not exist, which is
-    exactly the missing-entry-script case. A non-``res://`` string is returned
-    unchanged: this normalizes an address, it does not validate one.
+    Purely lexical — no filesystem access — so it is safe on a path that does not
+    exist, which is exactly the missing-entry-script case. A non-``res://`` string
+    is returned unchanged: this normalizes an address, it does not validate one.
+
+    **Against ``String::simplify_path``** (``core/string/ustring.cpp:4149-4233``,
+    Godot ``4.6-stable-3260-g070dc9897e``), the engine function every ``res://``
+    address passes through before the engine resolves or reports it
+    (``ProjectSettings::localize_path``, ``core/config/project_settings.cpp:158``).
+    Which of its steps this reproduces, in the engine's own order:
+
+    - **scheme extraction** (4153-4168: first ``://`` whose prefix is all ASCII
+      alphanumerics becomes the "drive") — reproduced NARROWLY, for an exact
+      ``res://`` prefix only. The engine's other two drive branches (network share,
+      Windows ``C:``) are deliberately NOT reproduced: they are unreachable once the
+      scheme branch matched, and a non-``res://`` string leaves here untouched anyway.
+    - **``\\`` → ``/`` across the whole remainder** (4192) — reproduced, and it must
+      run BEFORE the leading-slash strip below, exactly as the engine runs it before
+      its own empty-segment split: ``res://\\a.gd`` folds to ``res://a.gd``, which is
+      no longer possible once the strip has already passed over a backslash. Without
+      this step ``res://..\\outside.gd`` read as an ordinary in-project filename
+      while the engine loaded the file one directory ABOVE the project and reported
+      it back as ``res://../outside.gd`` (#762).
+    - **repeated-``//`` collapse and ``split("/", false)``** (4193-4201) — reproduced
+      by the leading-slash strip plus ``posixpath.normpath``, which collapses runs of
+      separators and drops a trailing one. The strip is what covers POSIX's one
+      divergence: it gives exactly two leading slashes a special meaning (``//a``
+      stays ``//a``), so ``res:////a.gd`` would otherwise stay uncanonicalized.
+    - **``.``/``..`` collapse with the leading-``..`` strip DISABLED for ``res://``**
+      (4204-4221) — reproduced: ``normpath`` on a RELATIVE remainder keeps a leading
+      ``..`` for the same reason the engine keeps it, and that is what lets a caller
+      of this function see an escape at all rather than have it silently swallowed.
+
+    One stated gap, in the join (4223-4232): when every segment collapses away the
+    engine yields the bare ``res://`` while ``normpath`` yields ``.``, so
+    ``res://a/..`` canonicalizes here to ``res://.``. Both spellings name the project
+    root and every consumer already treats the pair alike — ``script run``'s gate
+    tests the pair explicitly (``_ROOT_REMAINDERS``) and a ``.`` is not an upward
+    escape — so closing it would only churn a deliberate accommodation that #763
+    owns reconciling.
     """
     if not path.startswith(_RES_PREFIX):
         return path
-    # Strip leading slashes before normpath: POSIX gives exactly two leading
-    # slashes a special meaning ("//a" stays "//a"), which would leave a
-    # `res:////a.gd` spelling uncanonicalized.
-    remainder = path[len(_RES_PREFIX) :].lstrip("/")
+    remainder = path[len(_RES_PREFIX) :].replace("\\", "/").lstrip("/")
     if not remainder:
         return _RES_PREFIX
     # normpath("") is ".", so the empty case is handled above rather than here.

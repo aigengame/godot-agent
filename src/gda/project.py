@@ -111,12 +111,16 @@ def _res_escape_remainder(path: str) -> str | None:
     """The canonical remainder of a ``res://`` address when it escapes upward, else ``None`` (#762).
 
     Canonicalizes ``path`` the way Godot canonicalizes a ``res://`` address before
-    it resolves or reports one (:func:`gda.script_errors.canonical_res_path`
-    collapses ``.``/``..`` segments), then reads what is left: an exact ``..`` or a
-    leading ``../`` means the address is still climbing above the namespace root
-    AFTER that collapsing, which is genuinely outside. Anything else is not an
-    escape, including a ``res://foo/../bar.gd`` spelling — it collapses to
-    ``res://bar.gd``, net-inside — and a filename that merely STARTS with two dots
+    it resolves or reports one — :func:`gda.script_errors.canonical_res_path` folds
+    ``\\`` to ``/`` and collapses ``.``/``..`` segments, and its docstring is where
+    that correspondence to ``String::simplify_path`` is audited step by step — then
+    reads what is left: an exact ``..`` or a leading ``../`` means the address is
+    still climbing above the namespace root AFTER that collapsing, which is
+    genuinely outside. The fold is what makes ``res://..\\outside.gd`` reach this
+    test as the escape the engine treats it as, rather than as an in-project
+    filename (PR #766 review). Anything else is not an escape, including a
+    ``res://foo/../bar.gd`` spelling — it collapses to ``res://bar.gd``,
+    net-inside — and a filename that merely STARTS with two dots
     (``res://..foo.gd`` names a real file, not a traversal; the test is the first
     PATH SEGMENT, not a string prefix).
     """

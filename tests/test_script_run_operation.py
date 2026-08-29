@@ -296,6 +296,16 @@ def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
         "res://..",
         "res://../outside.gd",
         "../../etc/passwd",
+        # The SAME escape spelled with the engine's other separator. Godot folds
+        # `\\` to `/` across a res:// address before it collapses anything
+        # (`String::simplify_path`, ustring.cpp:4192), and this gate lifts a
+        # project-relative path onto a res:// address first, so both of these
+        # named the file one level above the project and were LAUNCHED — the
+        # widest form of the containment bypass PR #766's round-2 review found,
+        # closed here by the shared canonicalizer learning the fold.
+        "res://..\\outside.gd",
+        "..\\outside.gd",
+        "res://a\\..\\..\\outside.gd",
         # A leading `~` is a HOME reference — a filesystem address form. It reaches
         # the operation unexpanded only when the shared normalizer could not resolve
         # the user (#699); a resolvable `~/x.gd` arrives already expanded to an

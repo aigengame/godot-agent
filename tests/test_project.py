@@ -92,10 +92,12 @@ def test_path_in_a_sibling_tree_is_outside_and_reports_its_location(tmp_path):
     assert path_outside_project(str(script), proj) == script.resolve()
 
 
-def test_engine_virtual_paths_are_never_outside(tmp_path):
+def test_well_formed_engine_virtual_paths_are_not_outside(tmp_path):
     # res:// (and its user:// / uid:// siblings) address the project the engine
-    # was launched with, so they are inside by construction — gda makes no
-    # filesystem statement about them (ADR-0006).
+    # was launched with, so gda makes no filesystem statement about them
+    # (ADR-0006). WELL-FORMED is the qualifier the name carries: a res:// spelling
+    # that lexically escapes the namespace is not inside by construction and IS
+    # refused — see test_a_res_dotdot_escape_is_outside below (#762).
     proj = _make_project(tmp_path / "game")
 
     assert path_outside_project("res://hero.gd", proj) is None
@@ -120,6 +122,36 @@ def test_a_res_dotdot_escape_is_outside(tmp_path):
     )
     # The bare escape, with no filename after it, is refused the same way.
     assert path_outside_project("res://..", proj) == tmp_path.resolve()
+
+
+def test_a_backslash_spelled_res_escape_is_outside(tmp_path):
+    # The separator bypass (PR #766 round-2 review): Godot folds `\` to `/` across
+    # a res:// address before it collapses anything (ustring.cpp:4192), so
+    # `res://..\outside.gd` IS the escaping address to the engine — a real 4.6.3
+    # run loads the file one directory above the project and reports it back as
+    # `res://../outside.gd`. Reading the backslash as a filename character let this
+    # spelling through the very check the slash spelling above is refused by.
+    proj = _make_project(tmp_path / "game")
+
+    assert (
+        path_outside_project("res://..\\outside.gd", proj)
+        == (tmp_path / "outside.gd").resolve()
+    )
+    # Mixed separators collapse together, exactly as the engine collapses them
+    # after the fold: `a\..\..\outside.gd` is `a/../../outside.gd`, net one level up.
+    assert (
+        path_outside_project("res://a\\..\\..\\outside.gd", proj)
+        == (tmp_path / "outside.gd").resolve()
+    )
+
+
+def test_a_backslash_in_a_filesystem_path_is_not_a_separator(tmp_path):
+    # The fold is the ENGINE's res:// rule, not the filesystem's: `\` is a legal
+    # POSIX filename character, so an ordinary path keeps it and is anchored under
+    # the project as the single-segment name it is.
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project("..\\outside.gd", proj) is None
 
 
 def test_a_res_path_that_collapses_back_inside_is_not_outside(tmp_path):

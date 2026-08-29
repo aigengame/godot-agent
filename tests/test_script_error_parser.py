@@ -239,9 +239,24 @@ ERROR: Can't load script: res://sub//..//gone.gd
         # collapsed further without escaping the project root.
         ("res://", "res://"),
         ("res://../outside.gd", "res://../outside.gd"),
-        # Not a res:// address: normalizing an address is not validating one.
+        # A BACKSLASH is a separator inside a res:// address, not a filename
+        # character: Godot folds `\` to `/` across the whole address before it
+        # collapses anything (`String::simplify_path`, ustring.cpp:4192), so the
+        # engine loads — and reports back — the slash spelling. Reading these as
+        # ordinary filenames let `res://..\outside.gd` past the containment check
+        # that already refuses `res://../outside.gd` (#762).
+        ("res://a\\b.gd", "res://a/b.gd"),
+        ("res://..\\outside.gd", "res://../outside.gd"),
+        ("res://a\\..\\..\\outside.gd", "res://../outside.gd"),
+        # The fold must run BEFORE the leading-slash strip, as the engine runs it
+        # before its own empty-segment split — otherwise this one stays `res:///a.gd`.
+        ("res://\\a.gd", "res://a.gd"),
+        # Not a res:// address: normalizing an address is not validating one. A
+        # filesystem path keeps its backslashes — POSIX allows `\` in a filename,
+        # and the fold is the ENGINE's res:// rule, not the filesystem's.
         ("/abs/path.gd", "/abs/path.gd"),
         ("relative.gd", "relative.gd"),
+        ("/abs/we\\ird.gd", "/abs/we\\ird.gd"),
     ],
 )
 def test_canonical_res_path_collapses_lexically(spelling, canonical):
