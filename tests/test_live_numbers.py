@@ -13,6 +13,7 @@ so it stays in the default suite.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -133,6 +134,24 @@ def test_the_authority_prose_quotes_the_derived_counts():
         f"{default.zero} flattened to ``0.0``**"
     ) in doc
     assert f"exact on **{full.exact} of the {full.total}** corpus" in doc
+
+    # The command catalog is the one OTHER surface allowed to quote them, because a
+    # feature spec without the measurement is not the evidence it claims to be. Same
+    # rule: derived strings, not transcribed ones.
+    request = PARTITIONS["request"]
+    catalog = (
+        Path(__file__).resolve().parents[1] / "docs/command-catalog.md"
+    ).read_text(encoding="utf-8")
+    total = len(LIVE_NUMBER_CORPUS)
+    assert f"preserved {full.exact} of the {total} corpus rows" in catalog
+    assert (
+        f"default writer preserved {default.exact} of\n  the {total}: it changed "
+        f"{default.changed} and flattened {default.zero} to `0.0`"
+    ) in catalog
+    assert f"{request.zero} of the {total} arrive as `0.0`" in catalog
+    assert (
+        f"{request.exact} of the {total} crossed exactly and {request.changed} changed"
+    ) in catalog
 
 
 def test_the_applied_exponent_follows_the_engines_own_arithmetic():

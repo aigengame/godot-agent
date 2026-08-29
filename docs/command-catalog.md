@@ -835,8 +835,8 @@ both and is what the policy rests on; `gda.live_numbers` is the authority, and t
 re-derives every verdict from a running engine.
 
 - **Results are exact.** The harness frames every reply with Godot's full-precision JSON
-  writer, which preserved 95 of the 96 corpus rows. The default writer preserved 41: it
-  rounded 15 rows to a different value and flattened 40 to `0.0`, because it formats
+  writer, which preserved 95 of the 96 corpus rows. The default writer preserved 41 of
+  the 96: it changed 15 and flattened 40 to `0.0`, because it formats
   fixed-point with at most 32 decimals. One residual is disclosed rather than fixed — a
   NEGATIVE ZERO reads back as `0.0`, which the engine decides before the precision
   argument applies, and is the single row full precision misses. Stated on every live read
@@ -844,14 +844,14 @@ re-derives every verdict from a running engine.
   in help and in `--schema`.
 - **Requests are bounded, and the bound is cross-operation.** Godot's `built_in_strtod`
   applies a power of ten it computes as a double, so an applied exponent of −309 or below
-  divides by `inf`: 18 corpus rows arrive as `0.0`, including `DBL_MIN`, every subnormal,
+  divides by `inf`: 18 of the 96 arrive as `0.0`, including `DBL_MIN`, every subnormal,
   and the ordinary normal `1.2345678901234567e-300`. No decimal spelling avoids it, so
   those values are REFUSED before the send — as is a JSON integer beyond ±(2^53 − 1). The
   rule belongs to the wire, so it is applied by the base every live params model inherits
   (`gda.models.LiveParams`), covering nested values and both input paths: a usage error on
   argv, `invalid_params` on `--params-json`, decided without a running daemon.
 - **The carried residual is disclosed, not refused.** A value the parser CAN construct
-  still arrives changed in its low-order bits: 56 corpus rows crossed exactly, 22 changed.
+  still arrives changed in its low-order bits: 56 of the 96 crossed exactly and 22 changed.
   Ordinary game magnitudes land 1 ULP away; the scientific band reaches 2; and a
   full-precision literal between `1e-4` and `1e-2` is far worse, because the parser keeps
   at most 18 mantissa digits and Python writes fixed notation there — the corpus records
