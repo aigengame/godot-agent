@@ -356,7 +356,9 @@ class SceneProblemKind(str, Enum):
     #: UNCHECKED. Reported rather than skipped because a gate must not answer
     #: "sound" about what it did not look at — the verdict is ``valid: false``
     #: meaning "not established", and validating the named scene directly gives it
-    #: a verdict of its own. The bound is on gda's walk only and does not make an
+    #: a verdict of its own. Emitted only once the whole walk is done, so a target
+    #: a shorter route did reach produces no entry whichever route the file
+    #: declares first. The bound is on gda's walk only and does not make an
     #: extremely deep chain safe: the engine loads the whole chain itself and its
     #: own loader overflows past roughly a thousand levels, killing the run before
     #: any verdict, with or without this bound (#721 review).
@@ -370,9 +372,10 @@ class SceneProblem(BaseModel):
     not serve its node — an embedded or referenced script that does not compile,
     or one whose native base the engine would refuse to bind — a cyclic sub-scene
     composition, or a subtree the walk stopped short of (``kind`` tells them
-    apart). File-centric, one entry per
-    problem file rather than per reference: a path the scene declares twice is one
-    broken file, and both referencing nodes appear under ``nodes``.
+    apart). File-centric, one entry per problem file rather than per reference: a
+    path the scene declares twice — including twice under different spellings of
+    the same file — is one broken file, and every referencing node appears under
+    ``nodes``.
 
     Since the verdict became composed (#721) a problem is not necessarily about
     the scene that was validated: ``scene`` names the file it was found in, and
@@ -391,14 +394,16 @@ class SceneProblem(BaseModel):
     )
     path: str = Field(
         description=(
-            "The path of the problem resource. For a dependency: as the "
-            "[ext_resource] of the scene named by 'scene' declares it, a relative "
-            "reference resolved against that scene's own directory — res:// under "
-            "a project, a filesystem path for a projectless scene addressed by "
-            "filesystem path. For an embedded script: the ::id sub-resource form "
-            "(res://scene.tscn::GDScript_1). For 'cyclic_instance': the ancestor "
-            "scene that 'scene' re-instances. For 'instance_depth_exceeded': the "
-            "sub-scene below the depth bound that was not checked."
+            "The path of the problem resource, in its canonical spelling: as the "
+            "[ext_resource] of the scene named by 'scene' declares it, resolved "
+            "against that scene's own directory and simplified ('.', '..' and "
+            "doubled separators collapsed, as the engine itself reports them) — "
+            "res:// under a project, a filesystem path for a projectless scene "
+            "addressed by filesystem path. For an embedded script: the ::id "
+            "sub-resource form (res://scene.tscn::GDScript_1). For "
+            "'cyclic_instance': the ancestor scene that 'scene' re-instances. For "
+            "'instance_depth_exceeded': the sub-scene below the depth bound that "
+            "was not checked."
         )
     )
     type: str | None = Field(
@@ -479,9 +484,11 @@ class SceneValidateResult(ProjectRootedResult):
             "dependencies in declaration order, or — when every dependency "
             "resolves — its script-binding problems in tree order, plus an entry "
             "at any edge the walk declined to follow: 'cyclic_instance' where an "
-            "edge closes an instancing cycle, 'instance_depth_exceeded' where one "
-            "goes past the 16-level depth bound. Read each entry's 'scene' for "
-            "the file it belongs to. Empty when the composed scene is valid."
+            "edge closes an instancing cycle, and — last, because they are settled "
+            "only once every route has been walked — 'instance_depth_exceeded' for "
+            "each target left past the 16-level depth bound. Read each entry's "
+            "'scene' for the file it belongs to. Empty when the composed scene is "
+            "valid."
         )
     )
     project_root: str | None = Field(

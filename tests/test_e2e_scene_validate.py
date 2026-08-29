@@ -821,3 +821,132 @@ def test_the_bound_does_not_hide_a_break_above_it(godot_project):
     kinds = {(p["kind"], p["scene"]) for p in data["problems"]}
     assert ("missing_resource", "res://s3.tscn") in kinds
     assert ("instance_depth_exceeded", "res://s16.tscn") in kinds
+
+
+# --- One identity, one order-free verdict (#721 review) ---------------------
+#
+# Two properties the composed walk must have and did not: a scene file is ONE
+# file however it is spelled, and the published verdict is a function of the
+# GRAPH rather than of the order two lines happen to appear in.
+
+
+@pytest.mark.e2e
+def test_two_spellings_of_one_sub_scene_are_one_file(godot_project):
+    # `res://leaf.tscn` and `res://./leaf.tscn` name the same file, so the walk
+    # must answer for it once. Keying the traversal on the raw string reported the
+    # child's single missing script TWICE, under two `scene` spellings — and the
+    # same lexical alias could have evaded the depth bound and defeated the
+    # cycle test, which both key on the same identity.
+    (godot_project / "leaf.tscn").write_text(COMPOSED_CHILD_TSCN, encoding="utf-8")
+    (godot_project / "alias.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://leaf.tscn" id="1_a"]\n'
+        '[ext_resource type="PackedScene" path="res://./leaf.tscn" id="2_a"]\n\n'
+        '[node name="Alias" type="Node2D"]\n\n'
+        '[node name="A" parent="." instance=ExtResource("1_a")]\n\n'
+        '[node name="B" parent="." instance=ExtResource("2_a")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://alias.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    assert data["problems"] == [
+        {
+            "kind": "missing_resource",
+            "scene": "res://leaf.tscn",
+            "path": "res://missing_script.gd",
+            "type": "Script",
+            "nodes": ["."],
+            "message": "the referenced file does not exist",
+        }
+    ]
+
+
+def _write_cross_boundary_diamond(project, *, deep_first: bool) -> None:
+    """A leaf reachable BOTH past the depth bound and one edge below the root.
+
+    `d1 … d16` is a straight chain ending at `shared.tscn`, which puts `shared` 17
+    levels below the root — past the bound. The root also references `shared`
+    directly. Only the DECLARATION ORDER of the root's two lines differs between
+    the two files this writes.
+    """
+    (project / "shared.tscn").write_text(
+        '[gd_scene format=3]\n\n[node name="Shared" type="Node2D"]\n', encoding="utf-8"
+    )
+    for level in range(1, 17):
+        target = f"res://d{level + 1}.tscn" if level < 16 else "res://shared.tscn"
+        (project / f"d{level}.tscn").write_text(
+            "[gd_scene load_steps=2 format=3]\n\n"
+            f'[ext_resource type="PackedScene" path="{target}" id="1_c"]\n\n'
+            f'[node name="D{level}" type="Node2D"]\n\n'
+            '[node name="Child" parent="." instance=ExtResource("1_c")]\n',
+            encoding="utf-8",
+        )
+    deep = '[ext_resource type="PackedScene" path="res://d1.tscn" id="1_deep"]'
+    direct = '[ext_resource type="PackedScene" path="res://shared.tscn" id="2_direct"]'
+    deep_node = '[node name="Deep" parent="." instance=ExtResource("1_deep")]'
+    direct_node = '[node name="Direct" parent="." instance=ExtResource("2_direct")]'
+    lines = [deep, direct] if deep_first else [direct, deep]
+    nodes = [deep_node, direct_node] if deep_first else [direct_node, deep_node]
+    (project / "root.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        + "\n".join(lines)
+        + '\n\n[node name="Root" type="Node2D"]\n\n'
+        + "\n\n".join(nodes)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    "deep_first", [True, False], ids=["deep-first", "direct-first"]
+)
+@pytest.mark.e2e
+def test_the_depth_verdict_does_not_depend_on_declaration_order(
+    godot_project, deep_first
+):
+    # One graph, one verdict. Reporting the bound the moment an edge crossed it
+    # made the published answer a function of which of the root's two lines came
+    # first: deep-first reported `instance_depth_exceeded` and then validated the
+    # same leaf through the short route anyway (`valid: false`, with a finding
+    # nothing stood behind), while direct-first validated the leaf first and let
+    # `visited` swallow the deep edge in silence (`valid: true`).
+    _write_cross_boundary_diamond(godot_project, deep_first=deep_first)
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://root.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True, data
+    assert data["problems"] == []
+
+
+@pytest.mark.e2e
+def test_a_target_no_route_reaches_in_bound_is_still_reported(godot_project):
+    # The other direction of the same rule: deferring must not become dropping.
+    # Remove the root's short route and the identical leaf is genuinely unchecked,
+    # so the bound is reported.
+    _write_cross_boundary_diamond(godot_project, deep_first=True)
+    (godot_project / "root.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://d1.tscn" id="1_deep"]\n\n'
+        '[node name="Root" type="Node2D"]\n\n'
+        '[node name="Deep" parent="." instance=ExtResource("1_deep")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://root.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False, data
+    (problem,) = data["problems"]
+    assert problem["kind"] == "instance_depth_exceeded"
+    assert problem["scene"] == "res://d16.tscn"
+    assert problem["path"] == "res://shared.tscn"

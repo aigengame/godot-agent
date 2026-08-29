@@ -682,12 +682,11 @@ func _op_scene_validate(params: Dictionary) -> void:
 	# and the parent's own walk cannot see it — Godot resolves res://child.tscn
 	# perfectly well while everything inside the child is gone. The walk therefore
 	# descends into each instanced .tscn and adds its findings, each stamped with
-	# the file it was found in.
-	var visited := {}
-	visited[path] = true
-	var chain := {}
-	chain[path] = true
-	_collect_sub_scene_problems(path, problems, visited, chain)
+	# the file it was found in. The depth-bound findings are settled only once every
+	# route has been walked, so they come last.
+	var walk := _new_scene_walk(path, problems)
+	_collect_sub_scene_problems(path, walk)
+	_flush_deferred_depth_problems(walk)
 
 	_succeed({
 		"path": path,
@@ -736,6 +735,27 @@ func _attributed_problems(problems: Array, scene_path: String) -> Array:
 	return problems
 
 
+# The traversal state of ONE composed verdict, in one bag (#721 review). Four
+# fields that only ever move together, so they are passed as one rather than as
+# four positionals that a later addition has to thread through every call site:
+#
+# - `problems` is the caller's own array, appended to in place;
+# - `visited` records every scene file the walk has ANSWERED FOR. It is what makes
+#   a file's verdict appear once however many sites reference it, and it bounds
+#   the walk by the finite number of distinct reachable scene files;
+# - `chain` holds the ancestors of the current descent, which is how a cycle is
+#   recognized and, by its size, how deep the current edge is;
+# - `deferred_depth` holds depth-bound findings that are not yet known to be
+#   findings at all — see _flush_deferred_depth_problems.
+func _new_scene_walk(root_path: String, problems: Array) -> Dictionary:
+	return {
+		"problems": problems,
+		"visited": {root_path: true},
+		"chain": {root_path: true},
+		"deferred_depth": [],
+	}
+
+
 # Descend into the scenes `scene_path` instances, appending each one's own problems
 # to `out` (#721). Depth-first in DECLARATION order, so the composed list reads
 # parent-then-child, and each entry already carries the file it belongs to.
@@ -754,7 +774,8 @@ func _attributed_problems(problems: Array, scene_path: String) -> Array:
 #   from the root, a finite set. A sub-scene is therefore reported ONCE PER FILE,
 #   not once per instancing site: a broken child instanced at five places is one
 #   broken file, which is the same rule the dependency walk already applies to a
-#   path declared twice.
+#   path declared twice. Both key on the canonical path
+#   (_normalize_ext_resource_path), so an alias spelling is the same file.
 #
 # - DEPTH is bounded SEPARATELY, because terminating is not the same as finishing
 #   in time (#721 review). Stopping was never the problem; COST was. Each level
@@ -775,10 +796,13 @@ func _attributed_problems(problems: Array, scene_path: String) -> Array:
 #   the walk silently, which would hide a composition Godot refuses to load.
 #   Checked BEFORE `visited` — every ancestor is also visited, so the cheaper test
 #   would swallow the diagnostic.
-func _collect_sub_scene_problems(scene_path: String, out: Array, visited: Dictionary, chain: Dictionary) -> void:
+func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 	var text := FileAccess.get_file_as_string(scene_path)
 	if text.is_empty():
 		return
+	var out: Array = walk["problems"]
+	var visited: Dictionary = walk["visited"]
+	var chain: Dictionary = walk["chain"]
 	var nodes_by_id := _scene_ext_resource_nodes_by_id(text)
 	# One edge problem per target per file: a scene that instances the same ancestor
 	# twice still closes one cycle, and one that reaches the depth bound twice has
@@ -802,15 +826,19 @@ func _collect_sub_scene_problems(scene_path: String, out: Array, visited: Dictio
 		if visited.has(ref_path):
 			continue
 		# `chain` holds the ancestors of this edge's target, so its size IS the
-		# target's depth below the validated scene.
+		# target's depth below the validated scene. DEFERRED rather than reported:
+		# a shorter route to the same target may still validate it, and whether
+		# this deep route or that short one is walked FIRST is nothing but
+		# declaration order — see _flush_deferred_depth_problems.
 		if chain.size() > SCENE_INSTANCE_MAX_DEPTH:
 			if not reported_edges.has(ref_path):
 				reported_edges[ref_path] = true
-				out.append(_sub_scene_edge_problem(SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED, entry,
+				(walk["deferred_depth"] as Array).append(
+						_sub_scene_edge_problem(SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED, entry,
 						scene_path, nodes_by_id,
 						"gda validates " + str(SCENE_INSTANCE_MAX_DEPTH) + " levels of instanced "
-						+ "sub-scenes below the scene it was given, and this edge is past that "
-						+ "bound — this scene and everything it instances are UNCHECKED, not "
+						+ "sub-scenes below the scene it was given, and no route to this one is "
+						+ "inside that bound — this scene and everything it instances are UNCHECKED, not "
 						+ "judged sound. The bound is on gda's own walk: the engine still loads "
 						+ "the whole chain itself, and at extreme depth its loader overflows and "
 						+ "the run dies with no verdict at all, which this bound does not change. "
@@ -831,8 +859,31 @@ func _collect_sub_scene_problems(scene_path: String, out: Array, visited: Dictio
 		# Descended into even when it did not load: its text is still readable, and
 		# the scenes IT instances can be broken for reasons of their own.
 		chain[ref_path] = true
-		_collect_sub_scene_problems(ref_path, out, visited, chain)
+		_collect_sub_scene_problems(ref_path, walk)
 		chain.erase(ref_path)
+
+
+# Emit the depth-bound findings the finished walk still stands behind (#721
+# review).
+#
+# A depth finding is a statement about a TARGET — "no verdict was established for
+# this scene" — but the walk can only see one ROUTE at a time. In a diamond where a
+# leaf sits both past the bound and one edge below the root, whichever route is
+# declared first decided the verdict: deep-first reported the bound and then
+# validated the leaf anyway (valid: false, with a stale finding), while
+# direct-first validated the leaf and let `visited` swallow the deep edge in
+# silence (valid: true). One graph, two published verdicts, chosen by the order two
+# lines happen to appear in — which is not a contract.
+#
+# Deferring settles it in BOTH directions with the walk's own record: a deferred
+# finding survives only when nothing else answered for its target. Order cannot
+# change that, because it is read after every route has been walked.
+func _flush_deferred_depth_problems(walk: Dictionary) -> void:
+	var visited: Dictionary = walk["visited"]
+	var out: Array = walk["problems"]
+	for pending in walk["deferred_depth"]:
+		if not visited.has(String((pending as Dictionary)["path"])):
+			out.append(pending)
 
 
 # One problem about an EDGE of the instancing graph rather than about a file's
@@ -6127,9 +6178,27 @@ func _ext_resource_entries_from_text(text: String, base_dir: String) -> Array:
 	return entries
 
 
+# The one CANONICAL IDENTITY of an [ext_resource] reference: the path every
+# consumer keys a file by (#721 review).
+#
+# A relative reference is resolved against the scene's own directory, as before.
+# An already-absolute one is simplified as well, and that half is the fix: it used
+# to be returned verbatim, so `res://leaf.tscn` and `res://./leaf.tscn` were TWO
+# keys for ONE file. Everything downstream keys on this string — the dependency
+# walk's "a path declared twice is checked once and reported once" rule, the
+# sub-scene walk's `visited`/`chain` sets, and the id-restoring re-save — so a
+# lexical alias defeated all three at once: two identical problems for one broken
+# file, a cycle-closing edge that did not match its ancestor, and a per-file cost
+# bound a hand-written alias could evade.
+#
+# simplify_path() is the ENGINE'S own normalization, not gda's invention: Godot
+# reports `res://..\outside.gd` back as `res://../outside.gd` (measured on 4.6.3),
+# and it leaves a scheme it does not own alone — `uid://abc` and `user://x.tscn`
+# pass through unchanged. It collapses `.`, `..` and doubled separators without
+# touching the scheme, which is exactly the identity question and nothing more.
 func _normalize_ext_resource_path(ref_path: String, base_dir: String) -> String:
 	if ref_path.begins_with("res://") or ref_path.begins_with("uid://") or ref_path.begins_with("user://"):
-		return ref_path
+		return ref_path.simplify_path()
 	return base_dir.path_join(ref_path).simplify_path()
 
 
