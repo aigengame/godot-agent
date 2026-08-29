@@ -22,10 +22,12 @@ build — colour, not a property the suite defends.
 renders a float through ``String::num``, which formats FIXED-POINT (``%.*lf``) with
 at most ``MAX_DECIMALS`` (32) decimals. So it flattens every value below
 about ``1e-32.6`` to ``0.0`` and rounds ordinary values to ~15 significant digits
-(``3.141592653589793`` came back as ``3.14159265358979``); a sweep of 5500 random
-values during #752 found 33% unchanged. Godot's ``full_precision`` mode instead
-renders through ``String::num_scientific`` (grisu2, shortest round-tripping form),
-which was EXACT on every corpus row and on all 5500 of that sweep. The harness therefore stringifies every reply with
+(``3.141592653589793`` came back as ``3.14159265358979``); it left 41 of the 96
+corpus rows unchanged, and a 5500-value sweep during #752 put it at 33%. Godot's
+``full_precision`` mode instead renders through ``String::num_scientific``
+(grisu2, shortest round-tripping form), which was exact on **95 of the 96** corpus
+rows and on all 5500 of that sweep — the sweep drew no negative zero, and the
+single corpus miss IS that value. The harness therefore stringifies every reply with
 ``full_precision`` (``gda_harness.gd``'s ``_json``), and the result direction
 carries full binary64 precision. One residual, kept in the public contract because
 it is an engine early return (``JSON::_stringify`` emits ``"0.0"`` for anything

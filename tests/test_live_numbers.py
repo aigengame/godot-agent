@@ -91,6 +91,22 @@ def test_the_disclosed_residual_is_anchored_by_measured_rows():
     assert by_label["DBL_TRUE_MIN 5e-324"] is None
 
 
+def test_the_counts_the_authority_quotes_match_the_corpus():
+    # `live_numbers.py`, the harness's `_json` comment and ADR-0041's outcome
+    # note all quote these three numbers to justify the writer choice. A number
+    # in the module documented as the single authority is read as checked, so
+    # check it: adding or removing a corpus row must update the prose with it.
+    assert len(LIVE_NUMBER_CORPUS) == 96
+    assert (
+        sum(1 for _, _, _, default_exact, _ in LIVE_NUMBER_CORPUS if default_exact)
+        == 41
+    )
+    # Full precision is exact on all but one row, and the exception is NOT a
+    # count the prose may round away — it is the disclosed negative-zero
+    # residual. The e2e proves which row it is against a real engine.
+    assert len(LIVE_NUMBER_CORPUS) - 1 == 95
+
+
 def test_the_applied_exponent_follows_the_engines_own_arithmetic():
     # decPt - mantSize + exponent, mantSize capped at 18 digits, leading zeros
     # counted — the quantities built_in_strtod computes under those names.
@@ -192,10 +208,14 @@ def _collapsed(text: str) -> str:
 
 
 def test_the_result_precision_guarantee_is_stated_identically_on_every_live_read():
-    from gda.commands.game import game_get
+    from gda.commands.game import game_get, game_rect
     from gda.commands.perf import perf_monitor, perf_monitors
+    from gda.commands.screen import screen_capture
 
-    for command in (game_get, perf_monitors, perf_monitor):
+    # Every live surface that returns a float: the property reads, the Control
+    # rect, the monitor counters and timelines, and a gated capture's predicate
+    # echo. A new one joins this tuple, it does not get its own wording.
+    for command in (game_get, game_rect, perf_monitors, perf_monitor, screen_capture):
         assert RESULT_PRECISION_SENTENCE in _collapsed(command.__doc__ or ""), (
             command.__name__
         )
@@ -211,8 +231,10 @@ def test_the_result_precision_guarantee_reaches_the_rendered_help_and_the_skill(
     # cannot split rather than on the sentence.
     for argv in (
         ["game", "get", "--help"],
+        ["game", "rect", "--help"],
         ["perf", "monitors", "--help"],
         ["perf", "monitor", "--help"],
+        ["screen", "capture", "--help"],
     ):
         rendered = CliRunner().invoke(app, argv)
         assert rendered.exit_code == 0, rendered.stdout

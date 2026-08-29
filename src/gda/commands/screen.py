@@ -1126,6 +1126,12 @@ def screen_capture(
     presentation). Needs a WINDOWED
     session (`gda daemon start --windowed`); a headless one is
     `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
+
+    A predicate's echoed `expected` and `observed` values cross the live wire at
+    full binary64 precision — the reply is serialized with Godot's full-precision
+    JSON writer, so a small or many-digit value reads back exactly (#752). The one
+    residual: a NEGATIVE ZERO reads back as 0.0, which the engine's writer decides
+    before gda sees the value.
     """
     # Build the params model from the argv options so `output` is validated and
     # ~-normalized through the SAME single source of truth the --params-json path

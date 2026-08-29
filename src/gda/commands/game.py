@@ -664,6 +664,12 @@ def game_rect(
     top-left position and laid-out size. With no daemon it reports
     `daemon_not_running`; a path that resolves to no running node is
     `live_node_not_found`; a non-Control node is `live_not_control`.
+
+    The rect's four floats cross the live wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual: a NEGATIVE ZERO
+    reads back as 0.0, which the engine's writer decides before gda sees the
+    value.
     """
     dispatch_domain(
         GAME_RECT_COMMAND,
