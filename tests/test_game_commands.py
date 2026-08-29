@@ -7,7 +7,6 @@ the e2e.
 """
 
 import json
-import re
 
 import jsonschema
 import pytest
@@ -24,6 +23,7 @@ from tests.support import (
     GAME_TREE_RESULT,
     error_sentinel,
     inject_live_runner,
+    panel_text,
     sentinel,
 )
 
@@ -878,14 +878,9 @@ def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words
 
     assert result.exit_code == 0, result.stdout + result.stderr
     # Help is rendered inside a Rich panel: colour codes and box rules land in
-    # the middle of sentences, so strip them before asserting on prose. Without
-    # this the assertions below break whenever an unrelated wording change moves
-    # a line wrap, which says nothing about the text being present.
-    rendered = " ".join(
-        re.sub(
-            r"[\u2500-\u257f]", " ", re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
-        ).split()
-    )
+    # the middle of sentences, so normalize before asserting on prose (the shared
+    # tests/support normalizer, not a private copy of it).
+    rendered = panel_text(result.stdout)
     assert str(MAX_EXACT_JSON_INT) in rendered
     assert "finite floats are not subject to the integer" in rendered
     assert "integer values must stay within" in rendered
