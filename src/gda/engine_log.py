@@ -14,11 +14,13 @@ Godot writes an error as a two-line pair (verified against the engine's
        at: <function> (<file>:<line>)
 
 where ``<TYPE>`` is one of ``ERROR`` / ``WARNING`` / ``SCRIPT ERROR`` /
-``SHADER ERROR``. Print output is plain lines. A runtime GDScript error carries
-a multi-line call stack after the ``at:`` line — a ``GDScript backtrace (most
-recent call first):`` marker then one ``[N] <function> (<file>:<line>)`` frame
-line per stack frame (#283); :func:`parse_errors` folds those frames into the
-error's ordered ``callstack`` (frame ``[0]`` equals the ``at:`` location).
+``SHADER ERROR``. Print output is plain lines. An error raised while GDScript is
+on the call stack carries a multi-line backtrace after the ``at:`` line — a
+``GDScript backtrace (most recent call first):`` marker then one
+``[N] <function> (<file>:<line>)`` frame line per stack frame (#283);
+:func:`parse_errors` folds those frames into the error's ordered ``callstack``.
+Frame ``[0]`` is the innermost GDScript frame, which is NOT always the ``at:``
+location — the ``FRAME_LINE`` comment below carries that contract.
 
 The parsing is **best-effort**: a line that is neither a recognized ``<TYPE>:``
 header nor the ``   at:`` follow-on (a backtrace, an interleaved print line) is
@@ -38,11 +40,31 @@ AT_LINE = re.compile(
     r"^\s*at:\s*(?P<function>.*?)\s*\((?P<file>.*):(?P<line>\d+)\)\s*$"
 )
 
-# After the ``at:`` line, a runtime GDScript error MAY carry a full call stack:
-# a marker line ``GDScript backtrace (most recent call first):`` then one frame
-# line per stack frame, ``       [N] <function> (<file>:<line>)`` (verified
-# against Godot 4.6.3). Frames are ordered most-recent-first; frame ``[0]``
-# equals the ``at:`` location.
+# After the ``at:`` line, an error MAY carry a full call stack: a marker line
+# ``GDScript backtrace (most recent call first):`` then one frame line per stack
+# frame, ``       [N] <function> (<file>:<line>)`` (verified against Godot
+# 4.6.3). Frames are most-recent-first, so frame ``[0]`` is the INNERMOST
+# GDScript frame.
+#
+# Frame ``[0]`` does NOT always equal the ``at:`` location, and the two answer
+# different questions: ``at:`` is where the error was RAISED (the raising C++
+# site's ``__FUNCTION__``/``__FILE__``/``__LINE__``), while the backtrace is
+# where the SCRIPT was. They coincide only when GDScript itself raised the error
+# — its VM reports a runtime error at the failing statement, which is that same
+# innermost frame. When a script CALLS engine code that raises, they differ:
+# ``push_error`` is an ``ERR_PRINT`` inside
+# ``VariantUtilityFunctions::push_error``, so ``at:`` names that C++ function and
+# file while frame ``[0]`` names the ``.gd`` line that called it (reproduced on
+# Godot 4.6.3, #722)::
+#
+#     ERROR: probe: invariant violated
+#        at: push_error (core/variant/variant_utility.cpp:1024)
+#        GDScript backtrace (most recent call first):
+#            [0] _inner (res://main.gd:10)
+#
+# An earlier comment here stated the equality unconditionally; it holds only for
+# the runtime-error class #283 measured it on. This is why ``script_errors``
+# attributes a ``push_error`` from the backtrace and never from ``at:``.
 #
 # A backtrace is attached to ANY error raised while GDScript is on the call stack
 # (`ScriptServer::capture_script_backtraces`) — a `push_error`, a `push_warning`,
@@ -91,11 +113,13 @@ def parse_errors(data: str | bytes, limit: int | None = None) -> list[dict]:
     ``at:`` follow-on fills ``function``/``file``/``line``; absent, they are
     ``None`` (a bare error without a location is not a failure). ``callstack`` is
     the ordered ``{function, file, line}`` frames from the optional ``GDScript
-    backtrace`` block (most-recent-first; frame ``[0]`` equals the ``at:``
-    location); an error raised outside any GDScript call stack carries no
-    backtrace, so ``callstack`` is ``[]``. Unrecognized/continuation lines
-    (interleaved print output) are
-    skipped. ``limit`` tails the most recent ``N`` errors. Empty input -> ``[]``.
+    backtrace`` block (most-recent-first, so frame ``[0]`` is the innermost
+    GDScript frame — equal to the ``at:`` location only when GDScript itself
+    raised the error, not when a script called engine code that raised; see the
+    ``FRAME_LINE`` comment); an error raised outside any GDScript call stack
+    carries no backtrace, so ``callstack`` is ``[]``. Unrecognized/continuation
+    lines (interleaved print output) are skipped. ``limit`` tails the most recent
+    ``N`` errors. Empty input -> ``[]``.
     """
     captured = lines(data)
     errors: list[dict] = []

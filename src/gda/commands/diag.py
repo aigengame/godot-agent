@@ -101,8 +101,12 @@ class DiagError(BaseModel):
         default_factory=list,
         description=(
             "The ordered call stack (most-recent-first) when the engine emitted a "
-            "GDScript backtrace; frame [0] equals the top {function,file,line}. "
-            "Empty for an error raised outside any GDScript call stack."
+            "GDScript backtrace, so frame [0] is the innermost GDScript frame. It "
+            "equals the top {function,file,line} only when GDScript itself raised "
+            "the error; when a script called engine code that raised (a push_error, "
+            "say) the top fields name that engine function and file while frame [0] "
+            "names the calling script line. Empty for an error raised outside any "
+            "GDScript call stack."
         ),
     )
 
