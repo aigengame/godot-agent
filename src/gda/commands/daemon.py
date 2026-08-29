@@ -567,29 +567,41 @@ def _note_failed_restore(exc: BaseException, snapshot: HarnessSnapshot) -> None:
         exc.add_note(f"additionally, {outcome.residue}")
 
 
-def _harness_install_unwritable_failure(
+def _harness_install_permission_denied_failure(
     exc: OSError, snapshot: HarnessSnapshot
 ) -> Failure:
-    """The ``harness_install_unwritable`` failure for an install the filesystem refused (#700).
+    """The ``harness_install_permission_denied`` failure for an install the OS refused (#700).
 
     A filesystem-restricted sandbox — the literal GDA-DF-029 environment — can deny
-    EITHER write ``install_harness`` performs: the very first ``mkdir``/write under
-    ``res://addons`` in ``_materialize`` (the ORIGINAL #700 mechanism — a raw
-    ``PermissionError`` traceback where automation needs a typed answer), or the
-    later ``project.godot`` rewrite. Both are the same fact — the project filesystem
-    refused a write — so both share this one code and this one rollback: the exact
+    ANY of the accesses ``install_harness`` performs: the very first ``mkdir``/write
+    under ``res://addons`` in ``_materialize`` (the ORIGINAL #700 mechanism — a raw
+    ``PermissionError`` traceback where automation needs a typed answer), the READ of
+    ``project.godot`` that decides whether the autoload entry needs touching, or the
+    WRITE that rewrites it. All three are the same fact — the OS refused an access
+    the install needed — so they share one code and one rollback: the exact
     ``_restore_harness_install`` the exception arm below already runs, reused rather
-    than duplicated. ``exc.filename`` is the path the OS actually named as refused;
-    falling back to the exception's own text keeps this useful even when a
-    particular OSError subclass leaves ``filename`` unset. The failing path rides in
-    BOTH ``message`` (the human sentence) and ``diagnostics`` (what the issue asked
-    for verbatim) — the rollback outcome joins it in ``diagnostics`` alongside it,
-    same as every other harness-install failure already reports it.
+    than duplicated.
+
+    The message is deliberately OPERATION-NEUTRAL ("could not access", never "could
+    not write") — #700's recheck found the write-specific wording silently mislabeling
+    a genuine READ failure (``_read_config`` sits inside this same guarded call,
+    between the two writes) as a write refusal, which sends whoever reads it to fix
+    the wrong permission bit. This call site cannot tell read from write apart — it
+    only sees ``install_harness`` as one call — so it does not claim to; contrast
+    :func:`_harness_snapshot_unreadable_failure` below, which DOES know (its call site
+    is READ-only) and says so.
+
+    ``exc.filename`` is the path the OS actually named as refused; falling back to
+    the exception's own text keeps this useful even when a particular OSError
+    subclass leaves ``filename`` unset. The failing path rides in BOTH ``message``
+    (the human sentence) and ``diagnostics`` (what the issue asked for verbatim) —
+    the rollback outcome joins it in ``diagnostics`` alongside it, same as every
+    other harness-install failure already reports it.
     """
     outcome = _restore_harness_install(snapshot)
     path = exc.filename or str(exc)
     message = (
-        f"the harness install could not write to the project filesystem "
+        f"the harness install could not access the project filesystem "
         f"(path: {path}): {exc.strerror or exc}"
     )
     if outcome.residue is not None:
@@ -599,7 +611,35 @@ def _harness_install_unwritable_failure(
     else:
         rollback = ""
     diagnostics = f"failing path: {path}" + (f"; {rollback}" if rollback else "")
-    return make_failure("harness_install_unwritable", message, diagnostics)
+    return make_failure("harness_install_permission_denied", message, diagnostics)
+
+
+def _harness_snapshot_unreadable_failure(exc: OSError) -> Failure:
+    """The ``harness_install_permission_denied`` failure for an unreadable pre-install snapshot (#700 recheck).
+
+    ``HarnessSnapshot.capture`` reads ``project.godot`` and the harness artifacts
+    BEFORE ``install_harness`` runs at all (both ``daemon start`` and ``daemon
+    install`` capture it as their very first step) — a ``chmod 0000 project.godot``
+    sandbox denies that read and raised an unguarded ``PermissionError`` traceback,
+    the same shape #700 exists to eliminate, from a line the original fix never
+    reached (it only guarded ``install_harness`` itself).
+
+    UNLIKE :func:`_harness_install_permission_denied_failure`, this call site knows
+    FOR CERTAIN it was a read: capture only ever reads. So the message says so
+    precisely, instead of falling back to neutral wording. It also needs no
+    ``HarnessSnapshot`` rollback — capture failing means it never produced one, which
+    also means nothing has been written to the project yet: there is nothing to
+    restore.
+    """
+    path = exc.filename or str(exc)
+    message = (
+        f"the harness install could not read the project to prepare its rollback "
+        f"snapshot (path: {path}): {exc.strerror or exc}"
+    )
+    diagnostics = (
+        f"failing path: {path}; nothing was written — the project is untouched"
+    )
+    return make_failure("harness_install_permission_denied", message, diagnostics)
 
 
 def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
@@ -748,19 +788,28 @@ def run_daemon_start_operation(
     # body or re-pointed an existing entry (both CREATE nothing), and a half-finished
     # install has no receipt at all. `install_harness` OSError (a filesystem-
     # restricted sandbox, #700) gets its OWN typed envelope
-    # (`harness_install_unwritable`) — never a raw traceback — via
-    # `_harness_install_unwritable_failure`, which runs the same restore. Any other
-    # exception from the install, and anything the spawn/readiness step below raises,
-    # keeps the original behaviour: re-raise the ORIGINAL error as the primary
-    # failure and report a restore that also failed alongside it as a note — the arm
-    # `daemon install` shares (`_note_failed_restore`).
-    snapshot = HarnessSnapshot.capture(project)
+    # (`harness_install_permission_denied`) — never a raw traceback — via
+    # `_harness_install_permission_denied_failure`, which runs the same restore. Any
+    # other exception from the install, and anything the spawn/readiness step below
+    # raises, keeps the original behaviour: re-raise the ORIGINAL error as the
+    # primary failure and report a restore that also failed alongside it as a note —
+    # the arm `daemon install` shares (`_note_failed_restore`).
+    #
+    # `capture()` itself reads the project BEFORE any of that (#700 recheck): an
+    # unreadable `project.godot` (`chmod 0000`, not merely read-only) used to crash
+    # here with a raw traceback from a line the first fix never reached. Guarded
+    # separately because nothing has been written yet at this point — there is no
+    # snapshot to roll back, so this arm skips the restore machinery entirely.
+    try:
+        snapshot = HarnessSnapshot.capture(project)
+    except OSError as exc:
+        return _harness_snapshot_unreadable_failure(exc)
     try:
         installed = install_harness(project)
     except OSError as exc:
-        # A filesystem-restricted sandbox (GDA-DF-029) denies the write BEFORE the
+        # A filesystem-restricted sandbox (GDA-DF-029) denies an access BEFORE the
         # daemon is even spawned — a structured envelope, not a raw traceback (#700).
-        return _harness_install_unwritable_failure(exc, snapshot)
+        return _harness_install_permission_denied_failure(exc, snapshot)
     except BaseException as exc:
         _note_failed_restore(exc, snapshot)
         raise
@@ -854,13 +903,20 @@ def run_daemon_install_operation(
     if isinstance(checked, Failure):
         return checked
     project = checked
-    snapshot = HarnessSnapshot.capture(project)
+    # `capture()` reads the project before `install_harness` writes anything to it
+    # (#700 recheck): an unreadable `project.godot` used to crash here with a raw
+    # traceback, on a line the original #700 fix never guarded. Nothing has been
+    # written yet at this point, so this arm needs no rollback.
+    try:
+        snapshot = HarnessSnapshot.capture(project)
+    except OSError as exc:
+        return _harness_snapshot_unreadable_failure(exc)
     try:
         installed = install_harness(project)
     except OSError as exc:
-        # A filesystem-restricted sandbox (GDA-DF-029) denies the write — a
+        # A filesystem-restricted sandbox (GDA-DF-029) denies an access — a
         # structured envelope, not a raw traceback (#700).
-        return _harness_install_unwritable_failure(exc, snapshot)
+        return _harness_install_permission_denied_failure(exc, snapshot)
     except BaseException as exc:
         _note_failed_restore(exc, snapshot)
         raise
