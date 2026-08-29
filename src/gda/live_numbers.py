@@ -9,19 +9,23 @@ value; Godot's two are not, and they fail DIFFERENTLY in each direction. This
 module is the one authority on what that costs, so the guard, the help prose, the
 schema description and the Skill all read one decision instead of four.
 
-The numbers below come from a real-engine differential corpus (Godot
-4.6.3.stable.official.7d41c59c4) over 5580 values — a shaped set (normal,
-``DBL_MIN``, subnormal, both signs, short-form and full-precision literals) plus a
-random sweep — measured in BOTH directions.
+The behaviour below is recorded in ``tests/live_number_corpus.py``, a real-engine
+differential corpus (Godot 4.6.3.stable.official.7d41c59c4) measured in BOTH
+directions: normal, ``DBL_MIN``, subnormal, both signs, short-form and
+full-precision literals, the flattening boundary at its exact step, and named rows
+for each drift band. The e2e re-derives every verdict from a live engine, so what
+this module claims is checkable rather than asserted. Where a percentage appears
+below it is a point-in-time measurement taken during #752 against that engine
+build — colour, not a property the suite defends.
 
 **Result direction — fixed, not disclosed.** Godot's default ``JSON.stringify``
 renders a float through ``String::num``, which formats FIXED-POINT (``%.*lf``) with
-at most ``MAX_DECIMALS`` (32) decimals. So it flattened every value below
-about ``1e-32.6`` to ``0.0`` and rounded ordinary values to ~15 significant digits
-(``3.141592653589793`` came back as ``3.14159265358979``): 1822/5580 corpus values
-survived unchanged. Godot's ``full_precision`` mode instead renders through
-``String::num_scientific`` (grisu2, shortest round-tripping form), which was
-EXACT on 5580/5580. The harness therefore stringifies every reply with
+at most ``MAX_DECIMALS`` (32) decimals. So it flattens every value below
+about ``1e-32.6`` to ``0.0`` and rounds ordinary values to ~15 significant digits
+(``3.141592653589793`` came back as ``3.14159265358979``); a sweep of 5500 random
+values during #752 found 33% unchanged. Godot's ``full_precision`` mode instead
+renders through ``String::num_scientific`` (grisu2, shortest round-tripping form),
+which was EXACT on every corpus row and on all 5500 of that sweep. The harness therefore stringifies every reply with
 ``full_precision`` (``gda_harness.gd``'s ``_json``), and the result direction
 carries full binary64 precision. One residual, kept in the public contract because
 it is an engine early return (``JSON::_stringify`` emits ``"0.0"`` for anything
@@ -39,19 +43,34 @@ DOUBLE from a table of ``10^2^i``. Two consequences, both reproduced:
   ``10^308``, so no decimal literal at all can deliver such a value. gda therefore
   REFUSES those values (:func:`wire_flattens_to_zero`) instead of letting a live
   call succeed on a number the caller never sent.
-- **One-to-two ULP drift.** Where the power IS finite, ``fraction / dblExp`` is
-  still two roundings (the table product is not the correctly-rounded power), so
-  the arriving double can differ from the sent one in its last bits: 8.8% of
-  uniform ±10⁴ values and 46.7% of uniformly random binary64 values drifted, all
-  by 1–3 ULP. This is DISCLOSED, not refused — refusing it would reject ordinary
-  game values, and preserving it would mean not sending a JSON number at all,
-  which is the bespoke daemon↔harness representation ADR-0021 rejected.
+- **Low-order drift.** Where the power IS finite the value still arrives changed
+  in its last bits, for two separate reasons, both recorded per corpus row as
+  ``request_ulp_gap``:
+
+  - ``fraction / dblExp`` is two roundings (the table product is not the
+    correctly-rounded power), and ``fraction`` itself passes 2^53 once a literal
+    carries 16–17 significant digits. Ordinary game magnitudes land **1 ULP**
+    away (``13.591409142295225``, ``1250.3538761287377``); the scientific band
+    reaches **2**.
+  - The engine keeps at most **18 mantissa digits** and drops the rest. Python
+    writes fixed notation for ``|v| >= 1e-4``, so the leading zeros after the
+    point spend that budget: a full-precision literal between ``1e-4`` and
+    ``1e-2`` loses its last decimal digits outright — the corpus records
+    ``0.0012345678901234567`` arriving **31** doubles away and
+    ``0.00014285714285714284`` **105**. This band is far worse than one ULP, and
+    is why the contract does not describe the residual as "1–2 ULP".
+
+  All of it is DISCLOSED, not refused — refusing it would reject ordinary game
+  values (a sweep during #752 put the drift at 8.8% of uniform ±10⁴ values), and
+  preserving it would mean not sending a JSON number at all, which is the bespoke
+  daemon↔harness representation ADR-0021 rejected.
 
 The predicate below is not a decimal heuristic: it recomputes the engine's own
 ``exp`` intermediate from the literal gda is about to write. ``tests/
 test_live_numbers.py`` pins it against the recorded engine verdicts, and
 ``tests/test_e2e_live_number_transport.py`` re-derives those verdicts from a real
-engine, in both directions.
+engine, in both directions. Note it answers only the FLATTENING question; the
+drift bands above are recorded, not predicted, because nothing branches on them.
 
 A leaf module with no ``gda`` imports (the same discipline as
 ``gda.exit_codes`` / ``gda.execution``), so a command module, a params model and a

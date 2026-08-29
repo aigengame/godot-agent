@@ -76,13 +76,27 @@ def _probe_source() -> str:
         '\t["{bits}", "{literal}"]'.format(
             bits=struct.pack("<d", value).hex(), literal=json.dumps(value)
         )
-        for _, value, _, _ in LIVE_NUMBER_CORPUS
+        for _, value, _, _, _ in LIVE_NUMBER_CORPUS
     )
     return f"extends SceneTree\n\nconst CORPUS := [\n{rows},\n]\n\n\n{_PROBE_BODY}"
 
 
 def _bits(value: float) -> str:
     return struct.pack("<d", value).hex()
+
+
+def _ulp_gap(sent: float, arrived: float) -> int:
+    """How many representable doubles separate two values (0 = identical).
+
+    Sign-magnitude bit patterns are mapped to a monotone integer order first, so
+    the distance is meaningful across zero and does not depend on the exponent.
+    """
+
+    def ordered(value: float) -> int:
+        raw = struct.unpack("<Q", struct.pack("<d", value))[0]
+        return (raw ^ 0x7FFFFFFFFFFFFFFF) - (1 << 64) if raw >> 63 else raw
+
+    return abs(ordered(sent) - ordered(arrived))
 
 
 def _plain(text: str) -> str:
@@ -142,6 +156,7 @@ def test_the_live_number_corpus_still_describes_this_engine(godot_project):
         value,
         recorded_parse_zeroes,
         recorded_default_exact,
+        recorded_ulp_gap,
     ) in LIVE_NUMBER_CORPUS:
         request, default_text, full_text = rows[_bits(value)]
 
@@ -156,6 +171,13 @@ def test_the_live_number_corpus_still_describes_this_engine(godot_project):
         assert wire_flattens_to_zero(value) is engine_zeroes, label
         if engine_zeroes:
             parse_flattened.append(label)
+            assert recorded_ulp_gap is None, label
+        else:
+            # How far a value that DID arrive landed from the one sent. This is
+            # what turns the disclosed residual into a measurement: the contract
+            # says a carried float can arrive changed in its low-order bits, and
+            # these are the bits, re-derived from the engine each run.
+            assert _ulp_gap(value, arrived) == recorded_ulp_gap, label
 
         # --- RESULT direction: the writer the harness uses is exact...
         assert _bits(float(json.loads(full_text))) == _bits(value) or (
@@ -187,7 +209,7 @@ def test_negative_zero_is_the_one_disclosed_result_residual(godot_project):
     # And it really is the ONLY row the writer changes.
     changed = [
         label
-        for label, value, _, _ in LIVE_NUMBER_CORPUS
+        for label, value, _, _, _ in LIVE_NUMBER_CORPUS
         if _bits(float(json.loads(rows[_bits(value)][2]))) != _bits(value)
     ]
     assert changed == ["-zero"], changed

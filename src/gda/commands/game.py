@@ -287,8 +287,11 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
                     "at execution. A float whose wire literal Godot's parser reads "
                     "as 0.0 is refused for the same reason (no decimal literal can "
                     "deliver it, so the call would succeed on a value you never "
-                    "sent); floats it can read arrive within 1-2 ULP of the value "
-                    "sent, and every float it RETURNS is exact (#752)."
+                    "sent). A float it CAN read still arrives changed in its "
+                    "low-order bits: 1 ULP at ordinary magnitudes, and far more "
+                    "for a full-precision literal between 1e-4 and 1e-2, where "
+                    "the parser truncates past 18 mantissa digits. Every float a "
+                    "live reply RETURNS is exact (#752)."
                 ),
             },
             {"type": "string"},
@@ -333,12 +336,15 @@ def _reject_unrepresentable(value: Any, path: str = "args") -> None:
       corpus behind :mod:`gda.live_numbers` establishes both facts.
 
     This function still does not reject every float that Godot can change: a value
-    the parser CAN construct can arrive 1–2 ULP away (8.8% of uniform ±10⁴ values
-    in the corpus). That residual is disclosed rather than refused — refusing it
-    would reject ordinary game values, and removing it would mean not sending a
-    JSON number at all, the bespoke daemon↔harness representation ADR-0021
-    rejected. The result direction has no such residual: the harness stringifies
-    with full precision, exact on every corpus value.
+    the parser CAN construct arrives changed in its low-order bits — 1 ULP at
+    ordinary magnitudes, and 31 to 105 doubles away for a full-precision literal
+    between 1e-4 and 1e-2, where the parser drops everything past its 18th
+    mantissa digit. ``tests/live_number_corpus.py`` records a named row per band.
+    That residual is disclosed rather than refused — refusing it would reject
+    ordinary game values, and removing it would mean not sending a JSON number at
+    all, the bespoke daemon↔harness representation ADR-0021 rejected. The result
+    direction has no such residual: the harness stringifies with full precision,
+    exact on every corpus value.
 
     The params model is the one authority both the argv and ``--params-json``
     paths pass through (ADR-0015), so all three refusals belong here —
@@ -412,8 +418,11 @@ class GameCallParams(BaseModel):
             "literal Godot's parser reads as 0.0 — 1.2345678901234567e-300, "
             "DBL_MIN, every subnormal — is REFUSED here, because no decimal "
             "spelling delivers it and the call would otherwise succeed on a value "
-            "you never sent; a float the parser does read can still arrive 1-2 ULP "
-            "away, while every float a live reply RETURNS is exact (issue #752). "
+            "you never sent; a float the parser does read still arrives changed "
+            "in its low-order bits (1 ULP at ordinary magnitudes, far more for a "
+            "full-precision literal between 1e-4 and 1e-2, where the parser "
+            "truncates past 18 mantissa digits), while every float a live reply "
+            "RETURNS is exact (issue #752). "
             "JSON "
             f"integer tokens must stay within +/-{MAX_EXACT_JSON_INT} recursively; "
             "standard JSON Schema cannot distinguish those tokens from equal "
@@ -745,7 +754,8 @@ def game_call(
             "not subject to the integer bound, but a float whose literal Godot's "
             "parser reads as 0.0 is refused too (1.2345678901234567e-300, DBL_MIN, "
             "any subnormal — no decimal spelling delivers them; #752), and a float "
-            "it does read can arrive 1-2 ULP away; "
+            "it does read arrives changed in its low-order bits, by more than "
+            "one ULP between 1e-4 and 1e-2; "
             "JSON integer values must stay within +/-"
             f"{MAX_EXACT_JSON_INT}. Omit to call with none."
         ),

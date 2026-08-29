@@ -7,6 +7,7 @@ the e2e.
 """
 
 import json
+import re
 
 import jsonschema
 import pytest
@@ -867,7 +868,7 @@ def test_game_call_schema_publishes_the_declaration_contract():
     # The DECIDED contract, not a defect pointer (#752): the refusal on the
     # request side and the exactness guarantee on the result side.
     assert "reads as 0.0 is refused" in number_description
-    assert "every float it RETURNS is exact" in number_description
+    assert "Every float a live reply RETURNS is exact" in number_description
 
 
 def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words():
@@ -876,7 +877,15 @@ def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words
     result = CliRunner().invoke(app, ["game", "call", "--help"])
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    rendered = " ".join(result.stdout.split())
+    # Help is rendered inside a Rich panel: colour codes and box rules land in
+    # the middle of sentences, so strip them before asserting on prose. Without
+    # this the assertions below break whenever an unrelated wording change moves
+    # a line wrap, which says nothing about the text being present.
+    rendered = " ".join(
+        re.sub(
+            r"[\u2500-\u257f]", " ", re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+        ).split()
+    )
     assert str(MAX_EXACT_JSON_INT) in rendered
     assert "finite floats are not subject to the integer" in rendered
     assert "integer values must stay within" in rendered

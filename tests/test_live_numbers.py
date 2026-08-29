@@ -28,7 +28,7 @@ from tests.live_number_corpus import LIVE_NUMBER_CORPUS
 
 @pytest.mark.parametrize(
     ("label", "value", "engine_parse_zeroes"),
-    [(label, value, zeroes) for label, value, zeroes, _ in LIVE_NUMBER_CORPUS],
+    [(label, value, zeroes) for label, value, zeroes, _, _ in LIVE_NUMBER_CORPUS],
 )
 def test_the_underflow_predicate_agrees_with_the_recorded_engine(
     label, value, engine_parse_zeroes
@@ -42,10 +42,10 @@ def test_the_underflow_predicate_agrees_with_the_recorded_engine(
 def test_the_corpus_covers_the_classes_the_issue_named():
     # A corpus that drifted into only-subnormals would still pass every row above
     # while proving nothing, so pin the classes #752 requires it to carry.
-    labels = {label for label, _, _, _ in LIVE_NUMBER_CORPUS}
+    labels = {label for label, _, _, _, _ in LIVE_NUMBER_CORPUS}
     assert {"DBL_MIN", "-DBL_MIN", "1e-300", "-1e-300", "1.23..e-300"} <= labels
     assert {"DBL_TRUE_MIN 5e-324", "max subnormal", "DBL_MAX", "1e300"} <= labels
-    zeroed = [value for _, value, zeroes, _ in LIVE_NUMBER_CORPUS if zeroes]
+    zeroed = [value for _, value, zeroes, _, _ in LIVE_NUMBER_CORPUS if zeroes]
     assert any(value > 0 for value in zeroed) and any(value < 0 for value in zeroed)
     # Both sides of the boundary the predicate draws: a NORMAL value is flattened
     # (so this is not a subnormal rule), and a smaller-magnitude short-form value
@@ -59,6 +59,36 @@ def test_the_corpus_covers_the_classes_the_issue_named():
     assert not wire_flattens_to_zero(2.209278197011611e-293)
     assert wire_flattens_to_zero(3.2956212316547955e-293)
     assert 3.2956212316547955e-293 > 2.209278197011611e-293
+
+
+def test_the_disclosed_residual_is_anchored_by_measured_rows():
+    # The contract tells callers that a float the wire DOES carry can arrive
+    # changed in its low-order bits. That sentence is only honest if the suite
+    # can point at the values it describes, so the corpus carries them and the
+    # e2e re-derives each gap from the engine. Named rows, not a sampled
+    # percentage — a percentage would need a seed, which would turn the oracle
+    # into a snapshot.
+    by_label = {label: gap for label, _, _, _, gap in LIVE_NUMBER_CORPUS}
+
+    # Ordinary game magnitudes drift by one ULP once 16-17 significant digits
+    # push the parser's integer significand past 2^53.
+    assert by_label["1 ULP drift ~13.6"] == 1
+    assert by_label["1 ULP drift ~1250"] == 1
+    assert by_label["1 ULP drift ~9e4 (16 digits)"] == 1
+    assert by_label["2 ULP drift ~3.1e-291"] == 2
+
+    # And the MANTISSA-CAP band is worse than one ULP by orders of magnitude:
+    # the engine keeps at most 18 mantissa digits, and a fixed-notation literal
+    # between 1e-4 and 1e-2 spends 2-3 of those on leading zeros, so full-
+    # precision values there lose their last decimal digits outright.
+    assert by_label["mantissa cap ~1.2e-3"] == 31
+    assert by_label["mantissa cap ~1.4e-4"] == 105
+    assert by_label["1e-4"] == 0  # the same band, but only one digit to carry
+
+    # An exact row must record 0, never None: None is reserved for the values
+    # the engine flattened, where a distance would be meaningless.
+    assert by_label["one"] == 0
+    assert by_label["DBL_TRUE_MIN 5e-324"] is None
 
 
 def test_the_applied_exponent_follows_the_engines_own_arithmetic():
@@ -90,7 +120,7 @@ def test_the_flattening_boundary_is_the_engines_largest_finite_power():
 
 @pytest.mark.parametrize(
     ("label", "value"),
-    [(label, value) for label, value, zeroes, _ in LIVE_NUMBER_CORPUS if zeroes],
+    [(label, value) for label, value, zeroes, _, _ in LIVE_NUMBER_CORPUS if zeroes],
 )
 def test_game_call_refuses_every_corpus_value_the_wire_would_flatten(label, value):
     with pytest.raises(ValidationError, match="cannot cross the live wire"):
@@ -99,7 +129,7 @@ def test_game_call_refuses_every_corpus_value_the_wire_would_flatten(label, valu
 
 @pytest.mark.parametrize(
     ("label", "value"),
-    [(label, value) for label, value, zeroes, _ in LIVE_NUMBER_CORPUS if not zeroes],
+    [(label, value) for label, value, zeroes, _, _ in LIVE_NUMBER_CORPUS if not zeroes],
 )
 def test_game_call_accepts_every_corpus_value_the_wire_carries(label, value):
     # The other half of the guard's honesty: it must not over-refuse. Every value
