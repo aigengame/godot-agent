@@ -261,8 +261,10 @@ class ScriptErrorKind(str, Enum):
     #: A compile failure in the named script (its own syntax error, or a
     #: dependency it preloads that does not resolve). That script never ran.
     PARSE_ERROR = "parse_error"
-    #: A GDScript error raised while the script was already executing. The ONLY
-    #: kind that says the named script ran.
+    #: A GDScript error raised while the script was already executing. One of the
+    #: two kinds that say the named script ran; ``PUSH_ERROR`` below is the other,
+    #: and the two differ in WHOSE claim it is — the engine's here, the project's
+    #: there.
     RUNTIME_ERROR = "runtime_error"
     #: The PROJECT reported its own invariant violation with ``push_error()``
     #: (#722). Like ``RUNTIME_ERROR`` it says the script ran — but it is a

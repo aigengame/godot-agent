@@ -1294,7 +1294,7 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
       the resource-layer cascade behind those — already matched on the canonical
       ``res://`` identity, on both sides;
     - plus a ``RUNTIME_ERROR`` naming the entry, which that function excludes **by
-      construction** (it is the one kind proving the script DID run) and which is
+      construction** (one of the two kinds proving the script DID run) and which is
       exactly the dogfooded case: an error raised inside the entry's own
       ``_initialize`` aborts it before its ``quit()``.
 
