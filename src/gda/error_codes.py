@@ -981,8 +981,10 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " The message names the path that was refused, and any partial write is"
         " rolled back where the filesystem still allows it. A filesystem failure that"
         " is NOT a refusal — a full disk, a missing or malformed path, an I/O"
-        " error — does not carry this code; it propagates as before, after the same"
-        " rollback.",
+        " error — does not carry this code; it propagates as before: after the same"
+        " rollback when a snapshot exists, and directly when the failure came from"
+        " the pre-install snapshot read itself, which has written nothing to roll"
+        " back.",
     ),
 )
 
