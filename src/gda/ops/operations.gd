@@ -126,8 +126,10 @@ const SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED := "instance_depth_exceeded"
 # exists to prevent.
 const SCENE_PROBLEM_UNREADABLE_SUB_SCENE := "unreadable_sub_scene"
 
-# How many levels of instanced sub-scenes below the validated scene the walk
-# descends before it stops and says so (#721 review).
+# How many levels of referenced sub-scenes below the validated scene the walk
+# descends before it stops and says so (#721 review). The bound is on the
+# SHORTEST route to each file, not on the first route walked — see `expanded` in
+# _new_scene_walk for why that distinction is the contract and not an internal.
 #
 # It bounds GDA'S OWN work, and nothing else. Measured on Godot 4.6.3 against a
 # straight chain of N scenes each instancing the next (two runs each, quiet
@@ -6378,7 +6380,8 @@ func _ext_resource_entries_from_text(text: String, base_dir: String) -> Array:
 # to be returned verbatim, so `res://leaf.tscn` and `res://./leaf.tscn` were TWO
 # keys for ONE file. Everything downstream keys on this string — the dependency
 # walk's "a path declared twice is checked once and reported once" rule, the
-# sub-scene walk's `visited`/`chain` sets, and the id-restoring re-save — so a
+# sub-scene walk's own `answered`/`expanded`/`chain` sets, and the id-restoring
+# re-save — so a
 # lexical alias defeated all three at once: two identical problems for one broken
 # file, a cycle-closing edge that did not match its ancestor, and a per-file cost
 # bound a hand-written alias could evade.
