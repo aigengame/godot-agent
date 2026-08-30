@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pytest
 
-from gda.script_errors import canonical_res_path
 from gda.project import (
     GDA_PROJECT_ENV,
     PROJECT_MARKER,
@@ -145,15 +144,6 @@ def test_a_backslash_spelled_res_escape_is_outside(tmp_path):
         path_outside_project("res://a\\..\\..\\outside.gd", proj)
         == (tmp_path / "outside.gd").resolve()
     )
-
-
-def test_the_fold_does_not_reach_a_non_res_string():
-    # The fold is the ENGINE's res:// rule, so the canonicalizer must not apply it
-    # to anything else. This is the PLATFORM-INDEPENDENT half of that boundary: the
-    # string is returned untouched wherever gda runs. What the resulting filesystem
-    # path then MEANS is the platform's business, asserted separately below.
-    assert canonical_res_path("..\\outside.gd") == "..\\outside.gd"
-    assert canonical_res_path("a\\b.gd") == "a\\b.gd"
 
 
 @pytest.mark.skipif(

@@ -257,6 +257,11 @@ ERROR: Can't load script: res://sub//..//gone.gd
         ("/abs/path.gd", "/abs/path.gd"),
         ("relative.gd", "relative.gd"),
         ("/abs/we\\ird.gd", "/abs/we\\ird.gd"),
+        # The same two strings as the res:// rows above, MINUS the scheme, so the
+        # contrast is one row apart: with `res://` the backslash is a separator the
+        # engine folds, without it the string is a filename gda must not rewrite.
+        ("a\\b.gd", "a\\b.gd"),
+        ("..\\outside.gd", "..\\outside.gd"),
     ],
 )
 def test_canonical_res_path_collapses_lexically(spelling, canonical):
