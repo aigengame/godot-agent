@@ -1027,6 +1027,30 @@ def test_a_runtime_error_in_a_helper_script_never_arms_the_abort():
     assert verdicts == [False] * 4
 
 
+def test_a_push_error_from_the_entry_never_arms_the_abort():
+    # #722's contract line, pinned where it can regress: `push_error` IS recognized
+    # now, and it names the ENTRY here — so attribution alone would arm the abort.
+    # It must not. The watch's premise is that something interrupted the run; a
+    # push_error interrupts nothing (execution continues at the next statement), so
+    # a script that reports an invariant and then computes quietly is alive by
+    # construction. Widening recognition changed what `script run` REPORTS, not
+    # when it kills.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+    reported = (
+        "ERROR: logic: 3 of 40 encounters have no spawn point\n"
+        "   at: push_error (core/variant/variant_utility.cpp:1024)\n"
+        "   GDScript backtrace (most recent call first):\n"
+        "       [0] _initialize (res://tests/logic.gd:6)\n"
+    )
+
+    verdicts = _drive(
+        watch,
+        [("", reported, 0.5), ("", "", 3.6), ("", "", 6.7), ("", "", 60.0)],
+    )
+
+    assert verdicts == [False] * 4
+
+
 def test_an_entry_load_failure_arms_the_abort_too():
     # Attribution reuses the EXISTING classification, so every kind that proves the
     # entry never ran arms the abort as well — not just the runtime kind. This is the

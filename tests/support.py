@@ -611,7 +611,11 @@ DIAG_ERRORS_RESULT = {
             "function": "_process",
             "file": "res://main.gd",
             "line": 20,
-            "callstack": [],  # a warning has no backtrace
+            # THIS fixture's warning is a bare one, raised with no GDScript on
+            # the stack. Not a rule about warnings: `push_warning` called from a
+            # script carries a backtrace like any other record, because the engine
+            # attaches one to whatever is raised while GDScript is running (#722).
+            "callstack": [],
         },
         {
             "level": "error",

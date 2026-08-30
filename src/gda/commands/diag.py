@@ -79,8 +79,10 @@ class DiagError(BaseModel):
     included, told apart by ``level``. The location (``function``/``file``/
     ``line``) is filled from the ``   at:`` follow-on when present; a bare error
     leaves them ``null`` (best-effort, never a parse failure). A runtime GDScript
-    error additionally carries its ordered ``callstack`` of frames (#283); a bare
-    push_error / warning has no backtrace, so ``callstack`` is empty.
+    error additionally carries its ordered ``callstack`` of frames (#283), as does
+    any error — a ``push_error`` included — raised while GDScript was on the call
+    stack; an error raised outside one has no backtrace, so ``callstack`` is
+    empty (#722).
     """
 
     level: str = Field(
@@ -99,8 +101,12 @@ class DiagError(BaseModel):
         default_factory=list,
         description=(
             "The ordered call stack (most-recent-first) when the engine emitted a "
-            "GDScript backtrace; frame [0] equals the top {function,file,line}. "
-            "Empty for a bare push_error / warning."
+            "GDScript backtrace, so frame [0] is the innermost GDScript frame. It "
+            "equals the top {function,file,line} only when GDScript itself raised "
+            "the error; when a script called engine code that raised (a push_error, "
+            "say) the top fields name that engine function and file while frame [0] "
+            "names the calling script line. Empty for an error raised outside any "
+            "GDScript call stack."
         ),
     )
 

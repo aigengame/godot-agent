@@ -305,6 +305,101 @@ def test_a_scene_that_quits_from_ready_still_gets_its_ready_verdict(godot_projec
     assert "handing control back" in preflighted.stderr
 
 
+# GDA-DF-030 in the spelling a Godot project actually writes it in: the scene
+# comes up and reports its own invariant violation with `push_error`. The engine
+# prints an ERROR whose message is entirely the project's prose, so its only
+# script attribution is the GDScript backtrace under it — which is why #722 keys
+# recognition on the `at:` frame the engine fixes as `push_error`.
+#
+# A helper frame between `_ready` and the call keeps the test honest about WHICH
+# line is reported: the innermost project frame, not the outermost.
+PUSH_ERROR_READY_SCRIPT = """\
+extends Node2D
+
+
+func _ready() -> void:
+	_check_encounter()
+
+
+func _check_encounter() -> void:
+	push_error("no spawn point in the encounter")
+	push_warning("and the arena is undersized")
+"""
+
+
+@pytest.mark.e2e
+def test_a_push_error_raised_in_ready_is_reported_as_a_startup_diagnostic(
+    godot_project,
+):
+    # #722, end to end on a real engine: before it, this scene reported
+    # `started: true` with EMPTY diagnostics — the phantom-clean start the
+    # dogfooding note is about, in the most common shape a project writes it.
+    _scene(godot_project, "encounter.tscn", "encounter.gd", PUSH_ERROR_READY_SCRIPT)
+    gda = _gda_project(godot_project)
+
+    # Static validation passes: the scene's dependencies resolve and it compiles.
+    # Only booting it reveals what the project itself thinks of what it found.
+    validated = gda("scene", "validate", "res://encounter.tscn", "--json")
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    assert json.loads(validated.stdout)["valid"] is True
+
+    preflighted = gda("scene", "preflight", "res://encounter.tscn", "--json")
+
+    assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
+    data = json.loads(preflighted.stdout)
+    # The scene DID reach _ready — status and started answer different questions,
+    # and this is exactly the case where they diverge.
+    assert data["status"] == "ready"
+    assert data["started"] is False
+    # Exactly one diagnostic: the push_warning beside it keeps the severity the
+    # project chose for it, and gda does not promote a warning to an error.
+    assert len(data["diagnostics"]) == 1, preflighted.stderr
+    diagnostic = data["diagnostics"][0]
+    assert diagnostic["kind"] == "push_error"
+    assert diagnostic["message"] == "no spawn point in the encounter"
+    # Backtrace-only attribution, resolved to the innermost project frame: the
+    # line that CALLED push_error, which the engine reported and gda did not
+    # invent. Line 9 is the push_error statement in the script above.
+    assert diagnostic["path"] == "res://encounter.gd"
+    assert diagnostic["line"] == 9
+    # The engine's stream is still forwarded verbatim, warning included.
+    assert "and the arena is undersized" in preflighted.stderr
+
+
+# An engine-side error a script only TRIGGERED: raised from the engine's own C++
+# (`get_node`), yet carrying a full GDScript backtrace.
+INDIRECT_ERROR_SCRIPT = """\
+extends Node2D
+
+
+func _ready() -> void:
+	print(get_node("/root/NoSuchThing"))
+"""
+
+
+@pytest.mark.e2e
+def test_an_engine_error_a_script_triggered_is_not_reported_as_the_projects_own(
+    godot_project,
+):
+    # The over-match this recognition could easily have had: the engine attaches a
+    # GDScript backtrace to ANY error raised while a script is on the stack, so a
+    # bad get_node() looks structurally identical to a push_error apart from its
+    # `at:` frame. Keying on that frame is what keeps the engine's own failure out
+    # of the project's diagnostics — the record stays unrecognized, and the
+    # verbatim stream is where a reader still finds it.
+    _scene(godot_project, "indirect.tscn", "indirect.gd", INDIRECT_ERROR_SCRIPT)
+    gda = _gda_project(godot_project)
+
+    preflighted = gda("scene", "preflight", "res://indirect.tscn", "--json")
+
+    assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
+    data = json.loads(preflighted.stdout)
+    assert data["status"] == "ready"
+    assert data["diagnostics"] == []
+    assert data["started"] is True
+    assert "NoSuchThing" in preflighted.stderr
+
+
 # The PR #720 review's preflight false positive: a compiled `extends Resource`
 # script on a Node2D. The engine refuses the binding with a deterministic ERROR,
 # the node boots silently script-less, and its `_ready` never runs — so a verdict

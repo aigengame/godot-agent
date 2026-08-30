@@ -566,11 +566,12 @@ class ScenePreflightResult(BaseModel):
         description=(
             "The script errors gda recognized in the engine's error stream during "
             "startup, in emission order; empty when it printed none it recognizes. "
-            "Advisory and best-effort: recognition is a closed set of the engine's "
+            "Advisory and best-effort: recognition is a closed set — the engine's "
             "own failure sentences (a runtime error, a failed assertion, a script "
-            "that could not be loaded), so project prose written with push_error() "
-            "is NOT among them. The verbatim stream is still forwarded to gda's "
-            "stderr."
+            "that could not be loaded), plus a project-raised push_error(), whose "
+            "kind is 'push_error' and whose path/line come from the engine's "
+            "GDScript backtrace. Unrecognized engine prose is not a diagnostic; "
+            "the verbatim stream is still forwarded to gda's stderr."
         ),
     )
     project_root: str | None = Field(
