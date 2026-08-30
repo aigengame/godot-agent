@@ -7,10 +7,12 @@ when it holds one, otherwise gda runs projectless (filesystem paths only) — th
 behaviour before project context existed.
 """
 
+import os
 from pathlib import Path
 
 import pytest
 
+from gda.script_errors import canonical_res_path
 from gda.project import (
     GDA_PROJECT_ENV,
     PROJECT_MARKER,
@@ -145,10 +147,25 @@ def test_a_backslash_spelled_res_escape_is_outside(tmp_path):
     )
 
 
-def test_a_backslash_in_a_filesystem_path_is_not_a_separator(tmp_path):
-    # The fold is the ENGINE's res:// rule, not the filesystem's: `\` is a legal
-    # POSIX filename character, so an ordinary path keeps it and is anchored under
-    # the project as the single-segment name it is.
+def test_the_fold_does_not_reach_a_non_res_string():
+    # The fold is the ENGINE's res:// rule, so the canonicalizer must not apply it
+    # to anything else. This is the PLATFORM-INDEPENDENT half of that boundary: the
+    # string is returned untouched wherever gda runs. What the resulting filesystem
+    # path then MEANS is the platform's business, asserted separately below.
+    assert canonical_res_path("..\\outside.gd") == "..\\outside.gd"
+    assert canonical_res_path("a\\b.gd") == "a\\b.gd"
+
+
+@pytest.mark.skipif(
+    os.name != "posix", reason="`\\` is a filename character on POSIX only"
+)
+def test_a_backslash_in_a_filesystem_path_is_not_a_separator_on_posix(tmp_path):
+    # The consequence of the boundary above, on THIS platform: `\` is a legal POSIX
+    # filename character, so an ordinary path keeps it and is anchored under the
+    # project as the single-segment name it is. Native Windows `pathlib` reads the
+    # same string as a parent-directory escape and `path_outside_project` reports it
+    # outside — correctly, by that platform's own rule. The claim under test is that
+    # gda defers to the platform here, not that the string is inert everywhere.
     proj = _make_project(tmp_path / "game")
 
     assert path_outside_project("..\\outside.gd", proj) is None
