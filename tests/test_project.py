@@ -7,6 +7,7 @@ when it holds one, otherwise gda runs projectless (filesystem paths only) — th
 behaviour before project context existed.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -92,15 +93,103 @@ def test_path_in_a_sibling_tree_is_outside_and_reports_its_location(tmp_path):
     assert path_outside_project(str(script), proj) == script.resolve()
 
 
-def test_engine_virtual_paths_are_never_outside(tmp_path):
+def test_well_formed_engine_virtual_paths_are_not_outside(tmp_path):
     # res:// (and its user:// / uid:// siblings) address the project the engine
-    # was launched with, so they are inside by construction — gda makes no
-    # filesystem statement about them (ADR-0006).
+    # was launched with, so gda makes no filesystem statement about them
+    # (ADR-0006). WELL-FORMED is the qualifier the name carries: a res:// spelling
+    # that lexically escapes the namespace is not inside by construction and IS
+    # refused — see test_a_res_dotdot_escape_is_outside below (#762).
     proj = _make_project(tmp_path / "game")
 
     assert path_outside_project("res://hero.gd", proj) is None
     assert path_outside_project("user://save.gd", proj) is None
     assert path_outside_project("uid://abc123", proj) is None
+
+
+# --- a res:// spelling that LEXICALLY escapes the namespace (#762) ------------
+
+
+def test_a_res_dotdot_escape_is_outside(tmp_path):
+    # #762: `path_outside_project` used to short-circuit EVERY res:// string as
+    # inside, so `res://../outside.gd` bypassed containment even though it names
+    # a file one directory above the project root — exactly what the absolute
+    # spelling of the same file is already refused for. The reported location
+    # lets a caller compare the two spellings' refusals directly.
+    proj = _make_project(tmp_path / "game")
+
+    assert (
+        path_outside_project("res://../outside.gd", proj)
+        == (tmp_path / "outside.gd").resolve()
+    )
+    # The bare escape, with no filename after it, is refused the same way.
+    assert path_outside_project("res://..", proj) == tmp_path.resolve()
+
+
+def test_a_backslash_spelled_res_escape_is_outside(tmp_path):
+    # The separator bypass (PR #766 round-2 review): Godot folds `\` to `/` across
+    # a res:// address before it collapses anything (ustring.cpp:4192), so
+    # `res://..\outside.gd` IS the escaping address to the engine — a real 4.6.3
+    # run loads the file one directory above the project and reports it back as
+    # `res://../outside.gd`. Reading the backslash as a filename character let this
+    # spelling through the very check the slash spelling above is refused by.
+    proj = _make_project(tmp_path / "game")
+
+    assert (
+        path_outside_project("res://..\\outside.gd", proj)
+        == (tmp_path / "outside.gd").resolve()
+    )
+    # Mixed separators collapse together, exactly as the engine collapses them
+    # after the fold: `a\..\..\outside.gd` is `a/../../outside.gd`, net one level up.
+    assert (
+        path_outside_project("res://a\\..\\..\\outside.gd", proj)
+        == (tmp_path / "outside.gd").resolve()
+    )
+
+
+@pytest.mark.skipif(
+    os.name != "posix", reason="`\\` is a filename character on POSIX only"
+)
+def test_a_backslash_in_a_filesystem_path_is_not_a_separator_on_posix(tmp_path):
+    # The consequence of the boundary above, on THIS platform: `\` is a legal POSIX
+    # filename character, so an ordinary path keeps it and is anchored under the
+    # project as the single-segment name it is. Native Windows `pathlib` reads the
+    # same string as a parent-directory escape and `path_outside_project` reports it
+    # outside — correctly, by that platform's own rule. The claim under test is that
+    # gda defers to the platform here, not that the string is inert everywhere.
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project("..\\outside.gd", proj) is None
+
+
+def test_a_res_path_that_collapses_back_inside_is_not_outside(tmp_path):
+    # A `..` a lexical collapse cancels out stays inside: `res://foo/../bar.gd`
+    # normalizes to `res://bar.gd`, net-inside the namespace, exactly as Godot
+    # itself would canonicalize the address. `resource import`'s own res://
+    # gate (`_asset_res_path`) is stricter — it refuses ANY literal `..`
+    # component regardless of net effect — and #763 tracks reconciling the two;
+    # this authority's rule is decided here.
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project("res://foo/../bar.gd", proj) is None
+
+
+def test_a_res_path_starting_with_two_dots_is_not_an_escape(tmp_path):
+    # `res://..foo.gd` names a real file whose name merely starts with two dots,
+    # not a traversal — the escape test is the first PATH SEGMENT, not a string
+    # prefix.
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project("res://..foo.gd", proj) is None
+
+
+def test_user_and_uid_paths_stay_inside_even_with_a_dotdot(tmp_path):
+    # Only res:// gets the lexical escape check (#762): user:// and uid:// stay
+    # inside by construction, unchanged — gda still cannot make a filesystem
+    # statement about where either one really resolves.
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project("user://../outside.gd", proj) is None
+    assert path_outside_project("uid://../abc123", proj) is None
 
 
 def test_a_colon_bearing_filesystem_path_is_not_treated_as_virtual(tmp_path):
