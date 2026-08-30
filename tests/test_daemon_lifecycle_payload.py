@@ -9,6 +9,7 @@ readiness / liveness seams are stubbed so the focus is the additive
 (refused while a daemon is running; idempotent paired removal otherwise).
 """
 
+import errno
 import json
 import os
 import subprocess
@@ -973,6 +974,56 @@ def read_only_project_godot():
             path.chmod(mode)
 
 
+@pytest.fixture
+def unwritable_project_root():
+    """Deny writes to the project ROOT, and always put the mode back.
+
+    Reproduces the ORIGINAL #700 mechanism, not the ``read_only_project_godot``
+    substitute: a real filesystem fault that blocks `install_harness`'s FIRST write
+    — ``_materialize``'s ``dest.parent.mkdir(parents=True, exist_ok=True)``, which
+    creates ``res://addons`` before anything else runs. With ``project.godot`` fully
+    writable, ``mkdir("addons")`` under a write-denied project root raises
+    ``PermissionError`` naming the ``addons`` path — the dogfooded shape
+    (``PermissionError: ... 'proj/addons'``) — before the config write is ever
+    reached. Restored in teardown for the same reason as ``read_only_project_godot``:
+    pytest's own ``tmp_path`` cleanup cannot walk a directory it cannot list/delete
+    into.
+    """
+    restore: list[tuple[_Path, int]] = []
+
+    def make(path: _Path) -> None:
+        restore.append((path, path.stat().st_mode))
+        path.chmod(0o555)
+
+    yield make
+    for path, mode in restore:
+        if path.exists():
+            path.chmod(mode)
+
+
+@pytest.fixture
+def unreadable_project_godot():
+    """Deny ALL access to project.godot (chmod 0000), and always put the mode back.
+
+    Reproduces the #700 RECHECK finding, distinct from both fixtures above: this
+    denies READ, not just write (`read_only_project_godot`'s `0o444` stays
+    readable), and it fires at `HarnessSnapshot.capture` — the step BEFORE
+    `install_harness` ever runs, not inside the install itself. `chmod 0000` is the
+    ordinary shape a filesystem-restricted sandbox produces when it denies a path
+    outright rather than selectively.
+    """
+    restore: list[tuple[_Path, int]] = []
+
+    def make(path: _Path) -> None:
+        restore.append((path, path.stat().st_mode))
+        path.chmod(0o000)
+
+    yield make
+    for path, mode in restore:
+        if path.exists():
+            path.chmod(mode)
+
+
 def test_failed_install_restores_a_project_whose_config_cannot_be_written(
     tmp_path, short_runtime, monkeypatch, read_only_project_godot
 ):
@@ -987,12 +1038,22 @@ def test_failed_install_restores_a_project_whose_config_cannot_be_written(
     read_only_project_godot(project_godot)
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
 
-    # The exception still surfaces to the caller exactly as before — the restore does
-    # not swallow or reclassify it.
-    with pytest.raises(PermissionError):
-        daemon_ops.run_daemon_start_operation(
-            project, "godot", version_check=_OK_VERSION
-        )
+    # #700: the exception no longer surfaces raw — it is a structured
+    # harness_install_permission_denied envelope, naming the config path the OS refused,
+    # with the restore's outcome riding in diagnostics.
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "project.godot" in failure.error.message
+    # This IS a write failure (`_write_config`), but the call site cannot tell that
+    # apart from a read denial inside the same guarded `install_harness` call (#700
+    # recheck) — so the message deliberately never claims "write" here either.
+    assert "write" not in failure.error.message
+    assert "rolled back" in failure.error.diagnostics
+    assert HARNESS_FILE in failure.error.diagnostics
 
     # ... but nothing of the half-finished install is left behind.
     assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
@@ -1026,17 +1087,336 @@ def test_failed_install_keeps_a_pre_existing_harness_untouched(
     read_only_project_godot(project_godot)
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
 
-    # The install re-materializes the stale body, then fails on the config write.
-    with pytest.raises(PermissionError):
-        daemon_ops.run_daemon_start_operation(
-            project, "godot", version_check=_OK_VERSION
-        )
+    # The install re-materializes the stale body, then fails on the config write —
+    # a structured harness_install_permission_denied envelope (#700), not a raw raise.
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
 
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
     assert harness.read_bytes() == stale  # restored verbatim, still stale
     assert sidecar.read_bytes() == b"uid://bxxxxxxxxxxxxx\n"
     assert (project / HARNESS_RES_DIR).is_dir()  # pre-existing dirs survive
     assert (project / "addons").is_dir()
     assert project_godot.read_bytes() == before
+
+
+def test_failed_start_reports_the_original_materialize_write_denial(
+    tmp_path, short_runtime, monkeypatch, unwritable_project_root
+):
+    # The ORIGINAL #700 mechanism (not the `read_only_project_godot` substitute
+    # above, which only reaches the LATER config-write step): a filesystem-
+    # restricted sandbox refuses the write under `res://addons` in `_materialize`
+    # itself — the FIRST thing `install_harness` does. Before this fix that
+    # `PermissionError` escaped as a raw traceback (`... 'proj/addons'`).
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    unwritable_project_root(project)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "addons" in failure.error.message
+    assert "addons" in failure.error.diagnostics
+    # The mkdir itself was refused, so `_materialize` created nothing at all —
+    # never reached the config write, so project.godot is untouched too.
+    assert not (project / "addons").exists()
+    assert project_godot.read_bytes() == before
+
+
+def test_failed_install_reports_the_original_materialize_write_denial(
+    tmp_path, short_runtime, monkeypatch, unwritable_project_root
+):
+    # The `daemon install` twin of the test above, over the same ORIGINAL mechanism.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    unwritable_project_root(project)
+
+    failure = daemon_ops.run_daemon_install_operation(project)
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "addons" in failure.error.message
+    assert "addons" in failure.error.diagnostics
+    assert not (project / "addons").exists()
+    assert project_godot.read_bytes() == before
+
+
+def test_failed_start_reports_an_unreadable_project_before_any_write(
+    tmp_path, short_runtime, monkeypatch, unreadable_project_godot
+):
+    # #700 recheck: `HarnessSnapshot.capture` reads `project.godot` (and the harness
+    # artifacts) BEFORE `install_harness` runs at all — the FIRST thing either
+    # `daemon start` or `daemon install` does once past the platform/project gate.
+    # A `chmod 0000` project.godot (denying READ, not merely write) used to crash
+    # here with a raw `PermissionError` traceback, on a line the original #700 fix
+    # never reached (it only guarded `install_harness` itself). `gda daemon install
+    # --project <p> --json` against a `chmod 0000 project.godot` was the reviewer's
+    # own live repro.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    unreadable_project_godot(project_godot)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    # This call site knows FOR CERTAIN it is a read (capture only ever reads) — the
+    # message says so, and must never say "write" the way the pre-recheck code did.
+    assert "read" in failure.error.message
+    assert "write" not in failure.error.message
+    assert "project.godot" in failure.error.message
+    # Capture failed before install_harness ever ran: nothing was written, and
+    # there is no snapshot to roll back — the diagnostics say so plainly.
+    assert "nothing was written" in failure.error.diagnostics
+    assert not (project / "addons").exists()
+
+
+def test_failed_install_reports_an_unreadable_project_before_any_write(
+    tmp_path, short_runtime, monkeypatch, unreadable_project_godot
+):
+    # The `daemon install` twin of the test above — the reviewer's literal repro.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    unreadable_project_godot(project_godot)
+
+    failure = daemon_ops.run_daemon_install_operation(project)
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "read" in failure.error.message
+    assert "write" not in failure.error.message
+    assert "project.godot" in failure.error.message
+    assert "nothing was written" in failure.error.diagnostics
+    assert not (project / "addons").exists()
+
+
+# --- the transaction covers the REPEAT start too (#700 review round 2) ---------
+# `daemon start` against an ALREADY-RUNNING daemon still self-syncs the harness
+# (#225), so it is a `daemon start` that writes the project — and #700's acceptance
+# sentence ("`daemon start` in a project whose tree rejects writes returns a
+# structured envelope") covers it. It used to call `install_harness` bare, outside
+# the snapshot, the classifier and the rollback.
+
+
+def test_already_running_start_reports_a_write_denied_self_sync(
+    tmp_path, short_runtime, monkeypatch, unwritable_project_root
+):
+    # Repeat start, nothing installed yet, project root write-denied: `_materialize`'s
+    # `mkdir("addons")` is refused — the ORIGINAL #700 mechanism, on the arm the first
+    # fix never reached. Before this change it raised a raw `PermissionError`.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    unwritable_project_root(project)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, None, version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "addons" in failure.error.message
+    assert "addons" in failure.error.diagnostics
+    assert not (project / "addons").exists()
+    assert project_godot.read_bytes() == before
+
+
+def test_already_running_start_rolls_a_denied_self_sync_back(
+    tmp_path, short_runtime, monkeypatch, read_only_project_godot
+):
+    # The residue half of the same finding: a STALE harness plus a read-only
+    # `project.godot`. The self-sync re-materializes the stale body, then the config
+    # write is refused. Un-transacted, that left the project mutated (the stale body
+    # overwritten with the current one) and raised. Now it rolls back, so the whole
+    # project comes back BYTE-IDENTICAL.
+    project = _project(tmp_path)
+    install_harness(project)
+    harness = project / HARNESS_RES_DIR / HARNESS_FILE
+    lines = harness.read_text(encoding="utf-8").splitlines()
+    lines[0] = "# gda-harness-version: stale-old"
+    harness.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Drop the autoload entry so the install still has a config write left to fail on.
+    project_godot = project / "project.godot"
+    project_godot.write_text(
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
+    )
+    stale = harness.read_bytes()
+    before = project_godot.read_bytes()
+    read_only_project_godot(project_godot)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, None, version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "project.godot" in failure.error.message
+    assert "rolled back" in failure.error.diagnostics
+    # Byte-identical: the stale body is back, and nothing else moved.
+    assert harness.read_bytes() == stale
+    assert installed_harness_version(project) == "stale-old"
+    assert project_godot.read_bytes() == before
+
+
+def test_already_running_start_reports_an_unreadable_project_before_any_write(
+    tmp_path, short_runtime, monkeypatch, unreadable_project_godot
+):
+    # The capture-site half, on the repeat-start arm: the snapshot read is refused
+    # before `install_harness` runs at all.
+    project = _project(tmp_path)
+    unreadable_project_godot(project / "project.godot")
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, None, version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "nothing was written" in failure.error.diagnostics
+    assert not (project / "addons").exists()
+
+
+# --- only a REFUSAL is classified; other OSErrors keep the pre-#700 behaviour ---
+# `harness_install_permission_denied` is public ABI with a pinned meaning (ADR-0002):
+# "a filesystem-restricted sandbox denied a read or a write". `FileNotFoundError`,
+# `NotADirectoryError`, `ENOSPC` and `EIO` are all `OSError` but none of them is that
+# fact, and answering "a sandbox denied access" for a full disk sends an agent to
+# escape a restriction instead of freeing space. They propagate, exactly as they did
+# before #700 — with the rollback still running.
+
+
+def _enospc(path):
+    return OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), str(path))
+
+
+def test_a_full_disk_is_not_reported_as_a_permission_denial_on_start(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(
+        daemon_ops, "install_harness", lambda p: (_ for _ in ()).throw(_enospc(p))
+    )
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_start_operation(
+            project, "godot", version_check=_OK_VERSION
+        )
+
+    assert caught.value.errno == errno.ENOSPC
+
+
+def test_a_full_disk_is_not_reported_as_a_permission_denial_on_install(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(
+        daemon_ops, "install_harness", lambda p: (_ for _ in ()).throw(_enospc(p))
+    )
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_install_operation(project)
+
+    assert caught.value.errno == errno.ENOSPC
+
+
+def test_a_full_disk_still_rolls_the_half_finished_install_back(
+    tmp_path, short_runtime, monkeypatch
+):
+    # Falling through to the propagate arm must not cost the #654 transaction: the
+    # snapshot restore still runs, so a partially materialized harness is undone
+    # before the ENOSPC reaches the caller.
+    project = _project(tmp_path)
+    real_install = install_harness
+
+    def half_then_full_disk(p):
+        real_install(p)  # materializes the harness AND writes the autoload entry
+        raise _enospc(p / "addons")
+
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    monkeypatch.setattr(daemon_ops, "install_harness", half_then_full_disk)
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_install_operation(project)
+
+    assert caught.value.errno == errno.ENOSPC
+    assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+    assert project_godot.read_bytes() == before
+
+
+def test_a_non_directory_path_is_not_reported_as_a_permission_denial(
+    tmp_path, short_runtime, monkeypatch
+):
+    # A REAL filesystem fault, not an injected errno: `addons` is an ordinary FILE, so
+    # `_materialize`'s mkdir raises `NotADirectoryError` (ENOTDIR). That is a
+    # malformed project, not a denied access.
+    project = _project(tmp_path)
+    (project / "addons").write_text("not a directory\n", encoding="utf-8")
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_install_operation(project)
+
+    assert caught.value.errno in (errno.ENOTDIR, errno.EEXIST)
+
+
+def test_a_non_refusal_snapshot_failure_still_propagates(
+    tmp_path, short_runtime, monkeypatch
+):
+    # The capture site narrows the same way. Nothing has been written at that point,
+    # so there is nothing to roll back either way — only the SHAPE differs.
+    project = _project(tmp_path)
+    monkeypatch.setattr(
+        daemon_ops.HarnessSnapshot,
+        "capture",
+        classmethod(
+            lambda cls, p: (_ for _ in ()).throw(OSError(errno.EIO, "I/O", str(p)))
+        ),
+    )
+
+    with pytest.raises(OSError) as caught:
+        daemon_ops.run_daemon_install_operation(project)
+
+    assert caught.value.errno == errno.EIO
+
+
+def test_a_read_only_filesystem_is_reported_as_a_refusal(
+    tmp_path, short_runtime, monkeypatch
+):
+    # EROFS is deliberately IN the refusal set even though Python raises a plain
+    # `OSError` for it, not `PermissionError`: #700's acceptance sentence is "a
+    # project whose tree REJECTS WRITES", and a read-only mount is exactly that — the
+    # same fact and the same remediation as a denied mode bit, refused by the mount.
+    # A read-only mount cannot be created in a unit test, so the errno is injected.
+    project = _project(tmp_path)
+    monkeypatch.setattr(
+        daemon_ops,
+        "install_harness",
+        lambda p: (_ for _ in ()).throw(
+            OSError(errno.EROFS, os.strerror(errno.EROFS), str(p / "addons"))
+        ),
+    )
+
+    failure = daemon_ops.run_daemon_install_operation(project)
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "addons" in failure.error.diagnostics
 
 
 def test_failed_install_leaves_a_tracked_project_porcelain_clean(
@@ -1062,10 +1442,13 @@ def test_failed_install_leaves_a_tracked_project_porcelain_clean(
     read_only_project_godot(project_godot)
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
 
-    with pytest.raises(PermissionError):
-        daemon_ops.run_daemon_start_operation(
-            project, "godot", version_check=_OK_VERSION
-        )
+    # #700: a structured envelope, not a raw raise — the git-porcelain guarantee
+    # matters regardless of how the failure is reported.
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
 
     status = git("status", "--porcelain")
     assert status.stdout == "", (
@@ -1466,9 +1849,14 @@ def test_a_failed_install_restores_the_project(
     before = project_godot.read_bytes()
     read_only_project_godot(project_godot)
 
-    with pytest.raises(PermissionError):
-        daemon_ops.run_daemon_install_operation(project)
+    # #700: the exception no longer surfaces raw — a structured
+    # harness_install_permission_denied envelope, naming the config path.
+    failure = daemon_ops.run_daemon_install_operation(project)
 
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "harness_install_permission_denied"
+    assert "project.godot" in failure.error.message
+    assert "write" not in failure.error.message
     assert not (project / HARNESS_RES_DIR).exists()
     assert not (project / "addons").exists()
     assert project_godot.read_bytes() == before

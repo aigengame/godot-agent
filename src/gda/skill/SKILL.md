@@ -65,7 +65,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | ---- | ------- |
 | `0`   | success |
 | `2`   | gda could not resolve what you asked for: `unknown_command`, `unknown_option` |
-| `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied` |
+| `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied`, `harness_install_permission_denied` |
 | `124` | engine timed out |
 | `3`   | engine version too old |
 | `4`   | operation-reported failure |

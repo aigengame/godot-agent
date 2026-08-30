@@ -29,6 +29,7 @@ is ``wait-ready``: ``kind = LIVE``, routed through the daemon socket and
 the running daemon holds — not the daemon process lifecycle.
 """
 
+import errno
 import os
 import re
 import socket
@@ -62,6 +63,7 @@ from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_paramet
 from gda.errors import Failure, make_failure, unresolvable_binary_failure
 from gda.execution import MIN_LIVE_VERSION, ExecutionKind
 from gda.harness.install import (
+    HarnessInstall,
     HarnessSnapshot,
     install_harness,
     uninstall_harness,
@@ -557,14 +559,186 @@ def _restore_harness_install(snapshot: HarnessSnapshot) -> _RestoreOutcome:
 def _note_failed_restore(exc: BaseException, snapshot: HarnessSnapshot) -> None:
     """Roll the harness install back, and annotate ``exc`` if the rollback also failed.
 
-    The exception arm shared by the two operations that install the harness
-    (``daemon start`` and ``daemon install``): the ORIGINAL error stays the primary
-    failure, and only when the restore itself fails does the residue ride along as a
-    note. Silently dropping it would hide residue ADR-0018 requires reporting.
+    The exception arm shared by every step inside the install transaction —
+    :func:`_install_harness_transactionally` for a failure that is not a filesystem
+    refusal, and ``daemon start``'s spawn/readiness wait for anything IT raises: the
+    ORIGINAL error stays the primary failure, and only when the restore itself fails
+    does the residue ride along as a note. Silently dropping it would hide residue
+    ADR-0018 requires reporting.
     """
     outcome = _restore_harness_install(snapshot)
     if outcome.residue is not None:
         exc.add_note(f"additionally, {outcome.residue}")
+
+
+# The errnos that mean "the filesystem REFUSED this access", the only OSErrors the
+# harness install classifies into `harness_install_permission_denied` (#700 review
+# round 2). `ErrorCodeSpec.code` is public ABI with a pinned meaning (ADR-0002), so
+# the code must not be handed to failures it does not describe: `FileNotFoundError`,
+# `NotADirectoryError`, `ENOSPC` and `EIO` are all `OSError` too, and telling an
+# agent "a sandbox denied access" for a full disk sends it to escape a restriction
+# instead of freeing space. Everything outside this set keeps the PRE-#700 behaviour
+# — rollback then propagate once a snapshot exists, and propagate directly when the
+# capture itself is what failed, which has written nothing to roll back — which is
+# not a regression for those cases, and is why #700 needs no second code for them.
+#
+# `EACCES` and `EPERM` are the two Python raises `PermissionError` for, and `EPERM`
+# is the literal GDA-DF-029 traceback #700 exists to eliminate (`[Errno 1] Operation
+# not permitted: 'proj/addons'`). `EROFS` is included deliberately even though it
+# raises a plain `OSError`: #700's acceptance sentence is "a project whose tree
+# REJECTS WRITES", and a read-only mount is exactly that — the same fact, the same
+# remediation ("this environment will not let gda write the project; run it where the
+# tree is writable"), just refused by the mount instead of the mode bits.
+_FILESYSTEM_REFUSAL_ERRNOS = frozenset({errno.EACCES, errno.EPERM, errno.EROFS})
+
+
+def _is_filesystem_refusal(exc: OSError) -> bool:
+    """Did the filesystem REFUSE this access (as opposed to failing at it)?
+
+    Keyed on ``errno``, never on the exception class: ``PermissionError`` covers
+    ``EACCES``/``EPERM`` but not ``EROFS`` (a read-only mount raises a plain
+    ``OSError``), and ``OSError`` covers far more than a refusal. An ``OSError``
+    carrying no ``errno`` at all answers ``False`` — the safe direction, since it
+    then keeps the pre-#700 propagating behaviour (with the rollback, once there is a
+    snapshot to roll back) rather than claiming a denial gda cannot prove.
+    """
+    return exc.errno in _FILESYSTEM_REFUSAL_ERRNOS
+
+
+def _harness_install_permission_denied_failure(
+    exc: OSError, snapshot: HarnessSnapshot
+) -> Failure:
+    """The ``harness_install_permission_denied`` failure for an install the OS refused (#700).
+
+    A filesystem-restricted sandbox — the literal GDA-DF-029 environment — can deny
+    ANY of the accesses ``install_harness`` performs: the very first ``mkdir``/write
+    under ``res://addons`` in ``_materialize`` (the ORIGINAL #700 mechanism — a raw
+    ``PermissionError`` traceback where automation needs a typed answer), the READ of
+    ``project.godot`` that decides whether the autoload entry needs touching, or the
+    WRITE that rewrites it. All three are the same fact — the OS refused an access
+    the install needed — so they share one code and one rollback: the exact
+    ``_restore_harness_install`` the exception arm below already runs, reused rather
+    than duplicated.
+
+    The message is deliberately OPERATION-NEUTRAL ("could not access", never "could
+    not write") — #700's recheck found the write-specific wording silently mislabeling
+    a genuine READ failure (``_read_config`` sits inside this same guarded call,
+    between the two writes) as a write refusal, which sends whoever reads it to fix
+    the wrong permission bit. This call site cannot tell read from write apart — it
+    only sees ``install_harness`` as one call — so it does not claim to; contrast
+    :func:`_harness_snapshot_unreadable_failure` below, which DOES know (its call site
+    is READ-only) and says so.
+
+    ``exc.filename`` is the path the OS actually named as refused; falling back to
+    the exception's own text keeps this useful even when a particular OSError
+    subclass leaves ``filename`` unset. The failing path rides in BOTH ``message``
+    (the human sentence) and ``diagnostics`` (what the issue asked for verbatim) —
+    the rollback outcome joins it in ``diagnostics`` alongside it, same as every
+    other harness-install failure already reports it.
+    """
+    outcome = _restore_harness_install(snapshot)
+    path = exc.filename or str(exc)
+    message = (
+        f"the harness install could not access the project filesystem "
+        f"(path: {path}): {exc.strerror or exc}"
+    )
+    if outcome.residue is not None:
+        rollback = outcome.residue
+    elif outcome.undone:
+        rollback = f"rolled back this install's changes: {', '.join(outcome.undone)}"
+    else:
+        rollback = ""
+    diagnostics = f"failing path: {path}" + (f"; {rollback}" if rollback else "")
+    return make_failure("harness_install_permission_denied", message, diagnostics)
+
+
+def _harness_snapshot_unreadable_failure(exc: OSError) -> Failure:
+    """The ``harness_install_permission_denied`` failure for an unreadable pre-install snapshot (#700 recheck).
+
+    ``HarnessSnapshot.capture`` reads ``project.godot`` and the harness artifacts
+    BEFORE ``install_harness`` runs at all (every install path captures it as its
+    very first step) — a ``chmod 0000 project.godot`` sandbox denies that read and
+    raised an unguarded ``PermissionError`` traceback, the same shape #700 exists to
+    eliminate, from a line the original fix never reached (it only guarded
+    ``install_harness`` itself).
+
+    UNLIKE :func:`_harness_install_permission_denied_failure`, this call site knows
+    FOR CERTAIN it was a read: capture only ever reads. So the message says so
+    precisely, instead of falling back to neutral wording. It also needs no
+    ``HarnessSnapshot`` rollback — capture failing means it never produced one, which
+    also means nothing has been written to the project yet: there is nothing to
+    restore.
+    """
+    path = exc.filename or str(exc)
+    message = (
+        f"the harness install could not read the project to prepare its rollback "
+        f"snapshot (path: {path}): {exc.strerror or exc}"
+    )
+    diagnostics = (
+        f"failing path: {path}; nothing was written — the project is untouched"
+    )
+    return make_failure("harness_install_permission_denied", message, diagnostics)
+
+
+@dataclass(frozen=True)
+class _TransactionalInstall:
+    """A harness install that COMPLETED, plus the snapshot that can still undo it.
+
+    The snapshot outlives the install because ``daemon start``'s transaction does
+    not end there: the spawn and the readiness wait that follow can still fail, and
+    a start that never comes ready must hand the project back untouched (#654). The
+    other two call sites finish with the install and simply drop it.
+    """
+
+    receipt: HarnessInstall
+    snapshot: HarnessSnapshot
+
+
+def _install_harness_transactionally(
+    project: Path,
+) -> "_TransactionalInstall | Failure":
+    """Capture, install, and on an OS REFUSAL classify + roll back (#700 review round 2).
+
+    The ONE transactional boundary around every harness mutation gda makes: the
+    no-daemon ``daemon start``, the already-running ``daemon start`` self-sync
+    (#225), and ``daemon install`` (#670). All three write the same project through
+    the same ``install_harness`` seam, so all three owe the same three guarantees —
+    a typed envelope instead of a raw traceback when the filesystem refuses, a
+    project restored to its pre-install bytes, and unrelated failures left alone.
+    The self-sync arm had none of them: it called ``install_harness`` bare, so a
+    restricted tree crashed a repeat ``daemon start`` with a traceback AND left a
+    stale harness overwritten behind it.
+
+    The order matters. ``capture()`` runs FIRST and reads the project, so its own
+    refusal is reported by :func:`_harness_snapshot_unreadable_failure` — a distinct
+    sentence because at that point nothing has been written and there is no snapshot
+    to roll back. Only once a snapshot exists does the install run inside the guarded
+    region (PR #680 recheck 2): ``install_harness`` materializes the harness file
+    before it writes the autoload config, so a config write that fails would
+    otherwise escape with the harness already on disk.
+
+    ONLY a filesystem refusal (:func:`_is_filesystem_refusal`) becomes a ``Failure``.
+    Every other exception — including every other ``OSError`` — keeps the pre-#700
+    behaviour exactly, which differs by WHERE it was raised. After the snapshot: roll
+    back, annotate the exception if the rollback ALSO failed, and re-raise the
+    ORIGINAL error (``_note_failed_restore``). At the capture itself: re-raise
+    directly, because nothing has been written and no snapshot exists to restore
+    from — the arm below takes it before any rollback machinery is reached.
+    """
+    try:
+        snapshot = HarnessSnapshot.capture(project)
+    except OSError as exc:
+        if not _is_filesystem_refusal(exc):
+            raise
+        return _harness_snapshot_unreadable_failure(exc)
+    try:
+        installed = install_harness(project)
+    except BaseException as exc:
+        if isinstance(exc, OSError) and _is_filesystem_refusal(exc):
+            return _harness_install_permission_denied_failure(exc, snapshot)
+        _note_failed_restore(exc, snapshot)
+        raise
+    return _TransactionalInstall(installed, snapshot)
 
 
 def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
@@ -641,7 +815,17 @@ def run_daemon_start_operation(
         # — the common flow — is fully resynced. `harness_synced` is true only on a
         # real stale→current rewrite, so a steady-state repeat start still reports
         # false and writes nothing (no mtime bump, no concurrent-editor prompt).
-        installed = install_harness(project)
+        #
+        # This self-sync is a `daemon start` writing the project like any other, so
+        # it runs inside the SAME transaction as the two below (#700 review round 2)
+        # — it used to call `install_harness` bare, which on a restricted tree
+        # crashed a repeat start with a raw traceback AND left the stale harness
+        # half-rewritten. There is no spawn after it, so the snapshot is dropped
+        # once the install completes.
+        opened = _install_harness_transactionally(project)
+        if isinstance(opened, Failure):
+            return opened
+        installed = opened.receipt
         return DaemonStartResult(
             pid=existing,
             socket_path=str(paths.cli_socket),
@@ -711,12 +895,20 @@ def run_daemon_start_operation(
     # The restore is driven by the SNAPSHOT alone, never by the install's receipt: a
     # receipt cannot describe how to undo an install that re-materialized a stale
     # body or re-pointed an existing entry (both CREATE nothing), and a half-finished
-    # install has no receipt at all. The exception arm re-raises the ORIGINAL error as
-    # the primary failure and reports a restore that also failed alongside it — the
-    # arm `daemon install` shares (`_note_failed_restore`).
-    snapshot = HarnessSnapshot.capture(project)
+    # install has no receipt at all. Capture + install + the filesystem-refusal
+    # classification + the rollback are all `_install_harness_transactionally`'s job
+    # (#700), shared verbatim with the self-sync arm above and with `daemon install`.
+    #
+    # The transaction does not END there for a start: it stays open across the spawn
+    # and the readiness wait, which is why this arm keeps the snapshot the helper
+    # returns. Anything those two raise keeps the original behaviour — re-raise the
+    # ORIGINAL error as the primary failure and report a restore that also failed
+    # alongside it as a note (`_note_failed_restore`).
+    opened = _install_harness_transactionally(project)
+    if isinstance(opened, Failure):
+        return opened
+    installed, snapshot = opened.receipt, opened.snapshot
     try:
-        installed = install_harness(project)
         (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
         pid = _await_ready(paths)
     except BaseException as exc:
@@ -806,12 +998,14 @@ def run_daemon_install_operation(
     if isinstance(checked, Failure):
         return checked
     project = checked
-    snapshot = HarnessSnapshot.capture(project)
-    try:
-        installed = install_harness(project)
-    except BaseException as exc:
-        _note_failed_restore(exc, snapshot)
-        raise
+    # The same transaction the two `daemon start` arms run (#700): capture, install,
+    # classify a filesystem REFUSAL into a typed envelope, roll back, and re-raise
+    # anything else. There is no spawn to keep it open for, so the snapshot is
+    # dropped once the install completes.
+    opened = _install_harness_transactionally(project)
+    if isinstance(opened, Failure):
+        return opened
+    installed = opened.receipt
     return DaemonInstallResult(
         installed_harness=installed.changed,
         harness_synced=installed.synced,
