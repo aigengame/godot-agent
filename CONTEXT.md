@@ -188,18 +188,18 @@ fallback** for anything else. One projection shared across **every value gda
 emits** — the `get` reads (`project`/`node`/`resource get`), the value echoed by
 `node set`/`resource set`, the per-entry value of `project list` and `scene
 get-exports`, and the live `game get` read — so a value reads the same
-everywhere. That sameness is of SHAPE; numeric FIDELITY is not yet uniform. A
-live reply is framed with Godot's full-precision JSON writer, so a projected
-float crosses exactly — the one residual being that a negative zero reads back
-as `0.0` — while the headless writer still flattens small floats to `0.0` and
-rounds ordinary ones (#771). The write-side mirror on the live wire is a
-refusal: a float Godot's parser would read as `0.0` is rejected before a
-request is relayed to the harness, no decimal literal being able to deliver it
-(#752). Two controls keep the
-shared projection safe on the live side: the
-whitelist bounds the Object classes whose storage properties the inline kind
-emits, and the texture kind is safe by construction — a fixed getter shape
-with its one expensive readback behind the explicit digest opt-in (ADR-0035).
+everywhere. That sameness is of SHAPE; numeric FIDELITY is not yet uniform.
+The harness frames every reply with Godot's full-precision JSON writer, so a
+LIVE projected float crosses exactly — the one residual being that a negative
+zero reads back as `0.0` — while the headless writer still flattens small
+floats to `0.0` and rounds ordinary ones (#771). The write-side mirror on the
+live wire is a refusal: a float Godot's parser would read as `0.0` is rejected
+before a request is relayed to the harness, no decimal literal being able to
+deliver it (#752). Two controls keep the shared projection safe on the live
+side: the whitelist bounds the Object classes whose storage properties the
+inline kind emits, and the texture kind is safe by construction — a fixed
+getter shape with its one expensive readback behind the explicit digest opt-in
+(ADR-0035).
 _Avoid_: value rendering, str dump, serialization, descriptor
 
 ### Failure reporting
