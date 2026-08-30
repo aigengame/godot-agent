@@ -259,14 +259,21 @@ a missing or stale cache runs the **engine import pass** — importer code (and
 any import plugins the project registers) over project content, WITHOUT the
 autoloads: the pass boots the editor importer path, not the game's scene
 stack.
+`gda scene validate` (#664) is a point too, and a narrow one: it compiles
+every script the scene binds — which runs their static initializers — while
+instantiating nothing, so none of the scene's own nodes reach `_init` or
+`_ready`; composing the verdict over referenced sub-scenes (#721) widened that
+set from the validated scene's own scripts to every script reachable through
+the scenes it references, without adding a point.
 `gda game call` (#673) contributes ONE narrow point: the single method the
 addressed node's attached-script chain named in its `GDA_CALLABLE` declaration
 runs, once, per request. Reading that declaration adds no point at all — the
 constant map is served by the compiled script, so learning what may be called
 executes nothing (ADR-0041).
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
-loaded-value assignment (ADR-0033), the startup preflight, the import pass, and
-the declared method call widen this surface without adding a new trust axis.
+loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
+declared method call, and the composed static validate widen this surface without
+adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:

@@ -26,6 +26,7 @@ INVALID_PAYLOAD = {
     "problems": [
         {
             "kind": "missing_resource",
+            "scene": "res://main.tscn",
             "path": "res://gone.gd",
             "type": "Script",
             "nodes": ["."],
@@ -33,10 +34,37 @@ INVALID_PAYLOAD = {
         },
         {
             "kind": "unloadable_resource",
+            "scene": "res://main.tscn",
             "path": "res://art/hero.png",
             "type": "Texture2D",
             "nodes": ["Body/Sprite"],
             "message": "the file exists but no ResourceLoader can open it",
+        },
+    ],
+}
+
+# A COMPOSED verdict (#721): the parent is sound on its own, and both problems
+# were found in the scenes it instances — one a broken dependency, one the cycle
+# that stopped the walk.
+COMPOSED_PAYLOAD = {
+    "path": "res://parent.tscn",
+    "valid": False,
+    "problems": [
+        {
+            "kind": "missing_resource",
+            "scene": "res://child.tscn",
+            "path": "res://gone.gd",
+            "type": "Script",
+            "nodes": ["."],
+            "message": "the referenced file does not exist",
+        },
+        {
+            "kind": "cyclic_instance",
+            "scene": "res://child.tscn",
+            "path": "res://parent.tscn",
+            "type": "PackedScene",
+            "nodes": ["Loop"],
+            "message": "the scene at this path is an ancestor in the instancing chain",
         },
     ],
 }
@@ -159,6 +187,75 @@ def test_human_output_leads_with_the_verdict_then_the_evidence(monkeypatch, tmp_
     assert lines[2] == "  missing_resource: res://gone.gd (Script)"
     assert lines[3] == "    the referenced file does not exist"
     assert lines[4] == "    nodes: ."
+
+
+def test_a_composed_verdict_attributes_each_problem_to_the_scene_it_was_found_in(
+    monkeypatch, tmp_path
+):
+    # The #721 crux on the CLI side: a verdict about `parent.tscn` whose problems
+    # both live in `child.tscn`. Without `scene` an agent reads them as the
+    # parent's, and each problem's `nodes` — relative to the scene that owns
+    # them — resolve against the wrong tree.
+    project = _project(tmp_path)
+    inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(COMPOSED_PAYLOAD), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "validate", "res://parent.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["valid"] is False
+    assert [problem["scene"] for problem in data["problems"]] == [
+        "res://child.tscn",
+        "res://child.tscn",
+    ]
+    # The cycle is a verdict kind of its own, not a message an agent has to parse.
+    assert data["problems"][1]["kind"] == SceneProblemKind.CYCLIC_INSTANCE.value
+    assert data["problems"][1]["path"] == "res://parent.tscn"
+
+
+def test_human_output_names_the_sub_scene_a_problem_was_found_in(monkeypatch, tmp_path):
+    project = _project(tmp_path)
+    inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(COMPOSED_PAYLOAD), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["scene", "validate", "res://parent.tscn", "--project", str(project)]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    assert lines[0] == "invalid res://parent.tscn (2 problems)"
+    assert lines[2] == "  missing_resource: res://gone.gd (Script)"
+    # The owning file, before the message: `nodes: .` below means the root of
+    # child.tscn, not of the scene that was validated.
+    assert lines[3] == "    in res://child.tscn"
+    assert lines[5] == "    nodes: ."
+
+
+def test_human_output_stays_silent_about_the_scene_the_command_was_given(
+    monkeypatch, tmp_path
+):
+    # The `in` line is attribution, not decoration: an ordinary single-file verdict
+    # would only be made longer by repeating the path already in its headline.
+    project = _project(tmp_path)
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(INVALID_PAYLOAD), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["scene", "validate", "res://main.tscn", "--project", str(project)]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "    in " not in result.stdout
 
 
 def test_an_operation_failure_is_still_an_error_envelope(monkeypatch, tmp_path):

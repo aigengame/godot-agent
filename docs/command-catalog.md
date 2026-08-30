@@ -66,7 +66,7 @@ they are provenance, not status markers.
 | `gda scene get` | Read a scene's structured tree from its file on disk |
 | `gda scene list` | Enumerate scenes in the project |
 | `gda scene get-exports` | List `@export` properties declared by a scene's nodes |
-| `gda scene validate` | Check statically that a scene's dependencies resolve and its scripts compile |
+| `gda scene validate` | Check statically that a scene and the sub-scenes it references resolve their dependencies and compile their scripts |
 | `gda scene preflight` | Boot a scene headless and report its startup verdict |
 
 **Enumeration** (established by #54): `scene list` walks the project's `res://`
@@ -122,11 +122,13 @@ they answer *different* ones:
   native base, the same rule `node script attach` enforces asked statically, or a value bound to
   a `script` slot that is not a script at all). Each problem carries the declared `type` and
   the node paths referencing it, read from the file's own text because the engine drops an
-  unresolvable reference from what it loads. A path declared twice is one problem with both nodes
-  listed. The verdict is **staged**: unresolved dependencies suppress the load, so the compile
-  and binding problems only the loaded scene can reveal appear after the dependencies are
-  repaired and validate is rerun — the problem list is complete for the stage it reached, not
-  across both stages at once.
+  unresolvable reference from what it loads. A path declared twice — including twice under
+  different spellings of one file, since every path is canonicalized the way the engine reports
+  it — is one problem with every referencing node listed. The verdict is **staged**: unresolved
+  dependencies suppress the load, so the compile and binding problems only the loaded scene can
+  reveal appear after the dependencies are repaired and validate is rerun — the problem list is
+  complete for the stage it reached, not across both stages at once. It is also **composed**, in
+  the sense set out below.
 - `gda scene preflight PATH` is **dynamic**. It instantiates the scene, adds it under a one-shot
   engine's tree root — which runs its `_ready` and the project's autoloads — keeps it alive for
   `--frames` idle frames so startup work landing after `_ready` still prints, and reports
@@ -144,6 +146,67 @@ they answer *different* ones:
   unrecognized: a backtrace alone does not qualify a record, since the engine attaches one to
   any error raised while GDScript is on the stack, including engine-side failures a script only
   triggered indirectly.
+
+**A composed verdict, not a single-file one** (established by #721): a scene that references a
+broken one is broken too, and its own dependency walk can never see that — `res://child.tscn`
+resolves and Godot hands back a usable `PackedScene` whatever is missing inside it. `scene
+validate` therefore walks from the scene it was given through the scenes that one references,
+validates each with the same two-stage check, and stamps every problem — the validated scene's
+own included — with `scene`, the file it was found in. Read a problem's `path` and `nodes`
+against that file, not against the scene the command was given: a missing script inside
+`child.tscn` reports `nodes: ["."]` for the *child's* root. Each file is answered for once
+however many sites reach it, so a broken scene instanced five times is one problem, not five.
+Every path in the result — the validated scene's own `path` included — is the canonical
+spelling, so `res://./main.tscn` and `res://main.tscn` are one file and one verdict.
+
+**What counts as an edge is a UNION of two triggers**: the path a reference resolves to ends
+in `.tscn`/`.scn`, or its `[ext_resource]` line declares `type="PackedScene"`. Neither trigger
+alone is enough. Godot's text loader starts a load for every `[ext_resource]` line before it
+parses a single node, and passes that line's `type` to `ResourceLoader` only as a hint — the
+format handler is picked by extension and accepts every type (measured on Godot 4.6.3: a `.tscn`
+referenced as ordinary `type="Resource"` metadata and never instanced emits the same errors for
+its missing script as an instanced one), so the declared type can never be a *filter*. But
+`ResourceSaver` will write a `PackedScene` into a plain `.res` — the binary saver accepts `res`
+for any resource, while the text saver refuses, so `.tres` is not a form a PackedScene can be
+saved in — and no extension test catches that, so the declared type earns its place as an extra
+*trigger*.
+
+A `.tscn` is read and composed into the verdict; anything else that loads as a `PackedScene` is
+reported `unreadable_sub_scene`. What stays outside: a `PackedScene` stored under a non-scene
+extension **and** declared as some other type. gda writes no such file, and it does not load
+every reference to find out — that would load every texture and audio file a scene names.
+
+**Three edges are reported instead of followed**, each with the target under `path`, the file
+declaring it under `scene`, and the referencing nodes under `nodes`:
+
+- `cyclic_instance` — the target is an ancestor in this scene's reference chain. Godot refuses
+  the closing reference, drops it, and the nodes it would have contributed vanish from the
+  composition it loads, so the cycle is a defect and not merely a traversal hazard. The walk
+  stops at that edge; what lies beyond it is unreported until the cycle is broken. A cycle
+  outranks the depth bound on the same edge: an edge first declined because its target lay past
+  the bound is reported as this kind the moment any route proves the cycle, so the bound can
+  never hide one.
+- `unreadable_sub_scene` — the target loads as a `PackedScene`, but carries none of the
+  `[gd_scene]` text the walk reads a dependency set out of: a binary `.scn`, or a `PackedScene`
+  saved into a `.res`. This is the same limit that makes the command refuse such a file as its
+  own target, met one level down. A target that does not load at all is *not* this kind: the
+  referencing file's dependency walk already reports it as `unloadable_resource`, and one
+  finding is not reported twice.
+- `instance_depth_exceeded` — no route reaches the target within `16` levels of sub-scenes below
+  the validated scene. The bound is on gda's own walk, whose per-file pass is superlinear in
+  chain length; the engine loads the whole chain either way, and past roughly a thousand levels
+  its own loader overflows and the run ends with no verdict at all, which no bound here changes.
+  The bound applies to the SHORTEST route to each scene, not to the first route walked: a file
+  reached again nearer the root is walked again from there, and these entries are settled only
+  once every route has been walked, so they appear last. Together those two rules make the
+  verdict independent of the order the `[ext_resource]` lines happen to appear in — for the
+  target of a deep edge and for everything below it.
+
+The last two are the only kinds that report a limit of *gda* rather than a defect of the
+project, and both still yield `valid: false`. That is deliberate: a gate must not answer "sound"
+about a subtree it never opened, so "not established" is reported as invalid and the messages
+say `UNCHECKED` in as many words. Validate the named scene directly — or re-save it as `.tscn` —
+for a verdict of its own.
 
 `scene validate` takes a `.tscn` specifically, and refuses a binary `.scn` with `invalid_path`:
 its dependency set comes from the scene's own TEXT (which is also what attributes each dependency
