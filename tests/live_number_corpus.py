@@ -5,9 +5,12 @@ engine against this table) and an e2e test
 (``tests/test_e2e_live_number_transport.py``, which re-derives the table from a
 real engine) read these rows, so the fast tier and the engine tier can never
 disagree about what the corpus says. It is also the ONE place the published
-counts come from: :data:`PARTITIONS` derives every number the PR body, the
-authority module's prose and the ADR quote, so a hand-edited count cannot
-survive.
+counts come from: :data:`PARTITIONS` derives them from the rows below, and
+``tests/test_live_numbers.py`` reads back the two surfaces allowed to state
+them — ``gda.live_numbers``'s module docstring and ``docs/command-catalog.md``
+— requiring the derived strings verbatim, so a hand-edited count cannot
+survive. ADR-0041 and the harness comment quote no count at all; they point at
+``gda.live_numbers`` instead.
 
 Measured on Godot 4.6.3.stable.official.7d41c59c4. Not a specification of the
 engine — a recording of it; the e2e test is what keeps the recording true.
@@ -178,9 +181,9 @@ class Partition(NamedTuple):
 
 
 # The three published rows, DERIVED from the table above rather than transcribed
-# beside it (#770 review found the result row's split misreported). Anything that
-# quotes a corpus count — the PR body's table, ``gda.live_numbers``'s prose,
-# ADR-0041's outcome note — is checked against these by
+# beside it (#770 review found the result row's split misreported). The two
+# surfaces allowed to quote a corpus count — ``gda.live_numbers``'s module
+# docstring and ``docs/command-catalog.md`` — are read back against these by
 # ``tests/test_live_numbers.py``, and the engine tier re-derives the same three
 # rows from a running Godot.
 PARTITIONS: dict[str, Partition] = {

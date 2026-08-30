@@ -3,9 +3,12 @@
 The fast tier of the #752 evidence. It checks that
 :func:`gda.live_numbers.wire_flattens_to_zero` reproduces the verdict a real Godot
 4.6.3 gave every corpus row, that the counts every artifact publishes are DERIVED
-from that corpus rather than transcribed beside it, and that every live command —
-not just ``game call`` — refuses the values the engine would flatten, on both
-input paths, at any nesting depth.
+from that corpus rather than transcribed beside it, and that every RELAYED live
+command — not just ``game call`` — refuses the values the engine would flatten, on
+both input paths, at any nesting depth. Relayed is the boundary, not live: the
+three ops the daemon answers ITSELF (``diag errors``, ``logger tail``, ``daemon
+wait-ready``) send no number to Godot's parser, so they ACCEPT those values, and
+the last block here pins that half.
 
 The engine tier that re-derives those verdicts (and covers the result direction) is
 ``tests/test_e2e_live_number_transport.py``; this module never launches an engine,
@@ -225,7 +228,7 @@ def test_the_scan_keeps_the_three_refusal_classes_distinguishable():
 # covered by the opposite assertion below. `tests/test_live_contract_guards.py`
 # fails a command on the wrong side of that partition.
 
-ARGV_INGRESSES = [
+RELAYED_ARGV_INGRESSES = [
     pytest.param(["input", "mouse-move", repr(FLATTENED), "1"], id="mouse-move-x"),
     pytest.param(["input", "mouse-move", "1", repr(FLATTENED)], id="mouse-move-y"),
     pytest.param(["input", "mouse-click", repr(FLATTENED), "1"], id="mouse-click-x"),
@@ -255,8 +258,8 @@ ARGV_INGRESSES = [
 ]
 
 
-@pytest.mark.parametrize("argv", ARGV_INGRESSES)
-def test_every_live_argv_ingress_refuses_a_value_the_wire_would_flatten(argv):
+@pytest.mark.parametrize("argv", RELAYED_ARGV_INGRESSES)
+def test_every_relayed_live_argv_ingress_refuses_a_value_the_wire_would_flatten(argv):
     result = CliRunner().invoke(app, argv)
 
     # A usage error decided from the params model, before any daemon is asked:
@@ -267,7 +270,7 @@ def test_every_live_argv_ingress_refuses_a_value_the_wire_would_flatten(argv):
     assert "daemon" not in message.lower(), message
 
 
-PARAMS_JSON_INGRESSES = [
+RELAYED_PARAMS_JSON_INGRESSES = [
     pytest.param(["input", "mouse-move"], {"x": FLATTENED, "y": 1.0}, id="mouse-move"),
     pytest.param(
         ["input", "action"],
@@ -302,8 +305,10 @@ PARAMS_JSON_INGRESSES = [
 ]
 
 
-@pytest.mark.parametrize(("argv", "params"), PARAMS_JSON_INGRESSES)
-def test_every_live_params_json_ingress_reports_the_structured_refusal(argv, params):
+@pytest.mark.parametrize(("argv", "params"), RELAYED_PARAMS_JSON_INGRESSES)
+def test_every_relayed_live_params_json_ingress_reports_the_structured_refusal(
+    argv, params
+):
     result = CliRunner().invoke(
         app, [*argv, "--params-json", json.dumps(params), "--json"]
     )
@@ -447,21 +452,25 @@ def test_the_game_group_still_names_the_shared_integer_bound():
     assert game.MAX_EXACT_JSON_INT is MAX_EXACT_JSON_INT
 
 
-# --- The RESULT direction's one published sentence ----------------------------
+# --- The RESULT direction's published sentences -------------------------------
 #
-# WHERE that sentence must appear is derived from the live result models, in
-# `tests/test_live_contract_guards.py`: it walks every LIVE result model and
-# fails on a float-bearing field no description publishes it for, then checks the
-# machine schema and the rendered help of exactly that derived set. What remains
-# here is the surface no model walk can reach.
+# WHICH sentence a field must publish is decided by the value's WRITER, and both
+# the decision and its coverage live in `tests/test_live_contract_guards.py`: it
+# walks every LIVE result model, establishes each float-bearing field's writer
+# (measured, where a recipe assembles the result), and checks the machine schema
+# and the rendered help of exactly that derived set. What remains here is the
+# surface no model walk can reach.
 
 
 def test_the_result_precision_guarantee_reaches_the_bundled_skill():
     # The Skill is the third agent-facing channel (ADR-0024) and states the
     # contract once for the whole live surface rather than per command, so it is
-    # pinned by its load-bearing tokens rather than by the constant.
+    # pinned by its load-bearing tokens rather than by the constant. Both writers
+    # are pinned: the Skill claiming full precision without naming whose negative
+    # zero is lost is exactly the #770 round-4 defect, one surface further out.
     from gda.commands.meta import read_skill_text
 
     skill = read_skill_text()
     assert "full binary64 precision" in skill
-    assert "a negative zero reads back as `0.0`" in skill
+    assert "a negative zero it wrote reads back as `0.0`" in skill
+    assert "A number gda produces CLI-side meets no Godot writer" in skill
