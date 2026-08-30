@@ -191,10 +191,12 @@ so two instances can touch the project at once.
 > it cannot prove.
 >
 > **Every other exception still propagates unchanged**, exactly as the #654 note
-> says — including every other `OSError`. The rollback runs first either way, and a
-> rollback that itself fails still rides along as a note on the propagating
-> exception (`_note_failed_restore`). So the #654 guarantees are unchanged in
-> substance; only the SHAPE of the one refusal case changed.
+> says — including every other `OSError`. Where a snapshot EXISTS the rollback runs
+> first, and a rollback that itself fails still rides along as a note on the
+> propagating exception (`_note_failed_restore`); where the failure was
+> `HarnessSnapshot.capture` itself there is no snapshot and nothing was written, so
+> the exception propagates directly (spelled out below). So the #654 guarantees are
+> unchanged in substance; only the SHAPE of the one refusal case changed.
 >
 > **Rollback is unchanged and still snapshot-driven.** A refusal reported as a
 > `Failure` restores the project the same way a propagating exception does, and the

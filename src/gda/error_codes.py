@@ -968,8 +968,10 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
     # is public ABI with a pinned meaning (this ADR-0002 registry), so handing it to
     # those would teach an agent to escape a sandbox for a storage or path defect.
     # They keep their pre-#700 behaviour instead — the same `HarnessSnapshot`
-    # rollback, then propagate — which is why #700 registers ONE code and not a
-    # second, generic filesystem one nothing has yet asked for.
+    # rollback then propagate where a snapshot exists, and direct propagation when the
+    # capture read itself failed, which wrote nothing to roll back — which is why #700
+    # registers ONE code and not a second, generic filesystem one nothing has yet
+    # asked for.
     ErrorCodeSpec(
         "harness_install_permission_denied",
         ErrorCategory.ENVIRONMENT,

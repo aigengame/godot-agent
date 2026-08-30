@@ -578,8 +578,9 @@ def _note_failed_restore(exc: BaseException, snapshot: HarnessSnapshot) -> None:
 # `NotADirectoryError`, `ENOSPC` and `EIO` are all `OSError` too, and telling an
 # agent "a sandbox denied access" for a full disk sends it to escape a restriction
 # instead of freeing space. Everything outside this set keeps the PRE-#700 behaviour
-# — rollback, then propagate — which is not a regression for those cases, and is why
-# #700 needs no second code for them.
+# — rollback then propagate once a snapshot exists, and propagate directly when the
+# capture itself is what failed, which has written nothing to roll back — which is
+# not a regression for those cases, and is why #700 needs no second code for them.
 #
 # `EACCES` and `EPERM` are the two Python raises `PermissionError` for, and `EPERM`
 # is the literal GDA-DF-029 traceback #700 exists to eliminate (`[Errno 1] Operation
@@ -598,8 +599,8 @@ def _is_filesystem_refusal(exc: OSError) -> bool:
     ``EACCES``/``EPERM`` but not ``EROFS`` (a read-only mount raises a plain
     ``OSError``), and ``OSError`` covers far more than a refusal. An ``OSError``
     carrying no ``errno`` at all answers ``False`` — the safe direction, since it
-    then keeps the pre-#700 propagate-with-rollback behaviour rather than claiming a
-    denial gda cannot prove.
+    then keeps the pre-#700 propagating behaviour (with the rollback, once there is a
+    snapshot to roll back) rather than claiming a denial gda cannot prove.
     """
     return exc.errno in _FILESYSTEM_REFUSAL_ERRNOS
 
@@ -718,8 +719,11 @@ def _install_harness_transactionally(
 
     ONLY a filesystem refusal (:func:`_is_filesystem_refusal`) becomes a ``Failure``.
     Every other exception — including every other ``OSError`` — keeps the pre-#700
-    behaviour exactly: roll back, annotate the exception if the rollback ALSO failed,
-    and re-raise the ORIGINAL error (``_note_failed_restore``).
+    behaviour exactly, which differs by WHERE it was raised. After the snapshot: roll
+    back, annotate the exception if the rollback ALSO failed, and re-raise the
+    ORIGINAL error (``_note_failed_restore``). At the capture itself: re-raise
+    directly, because nothing has been written and no snapshot exists to restore
+    from — the arm below takes it before any rollback machinery is reached.
     """
     try:
         snapshot = HarnessSnapshot.capture(project)
