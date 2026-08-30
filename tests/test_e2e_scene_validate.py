@@ -1084,3 +1084,322 @@ def test_a_target_no_route_reaches_in_bound_is_still_reported(godot_project):
     assert problem["kind"] == "instance_depth_exceeded"
     assert problem["scene"] == "res://d16.tscn"
     assert problem["path"] == "res://shared.tscn"
+
+
+# --- The residues of round 3 (#721 review) ----------------------------------
+#
+# Three of the four had one shape: a rule bound to a proxy instead of to the
+# boundary it is a property of. The file EXTENSION stood in for "is a
+# PackedScene", one visited set stood in for "answered AND expanded at minimum
+# depth", and the ROOT bypassed the identity its children went through.
+
+SAVE_AS_RES_GD = """\
+extends SceneTree
+
+
+func _initialize() -> void:
+	var packed := ResourceLoader.load("res://hero.tscn", "PackedScene") as PackedScene
+	var err := ResourceSaver.save(packed, "res://hero_pack.res")
+	if err != OK:
+		printerr("save failed: ", err)
+	quit(0 if err == OK else 1)
+"""
+
+RES_SUB_SCENE_PARENT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://hero_pack.res" id="1_pack"]
+
+[node name="Parent" type="Node2D"]
+
+[node name="Kid" parent="." instance=ExtResource("1_pack")]
+"""
+
+
+@pytest.mark.e2e
+def test_a_packed_scene_saved_as_a_res_is_reported_not_skipped(godot_project):
+    # A PackedScene under NO scene extension. `ResourceFormatSaverBinary` accepts
+    # `.res` for any resource (the text saver does not, so `.tres` is not a form a
+    # PackedScene can be saved in), and the extension test alone skipped such a
+    # child before any check ran: this parent answered `valid: true, problems: []`
+    # while the engine's own load of it reported the child's parse error. The
+    # declared type is the second trigger that catches it.
+    (godot_project / "hero.gd").write_text(GOOD_SCRIPT, encoding="utf-8")
+    (godot_project / "hero.tscn").write_text(GOOD_TSCN, encoding="utf-8")
+    (godot_project / "save_res.gd").write_text(SAVE_AS_RES_GD, encoding="utf-8")
+    (godot_project / "parent.tscn").write_text(
+        RES_SUB_SCENE_PARENT_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+    saved = gda("script", "run", "res://save_res.gd", "--json")
+    assert saved.returncode == 0, saved.stdout + saved.stderr
+    assert (godot_project / "hero_pack.res").exists(), saved.stdout + saved.stderr
+    # Break the script AFTER the .res was written. The .res still LOADS, so the
+    # parent's own dependency walk finds nothing wrong with it.
+    (godot_project / "hero.gd").write_text(BROKEN_SCRIPT, encoding="utf-8")
+
+    validated = gda("scene", "validate", "res://parent.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False, data
+    (problem,) = data["problems"]
+    assert problem["kind"] == "unreadable_sub_scene"
+    assert problem["scene"] == "res://parent.tscn"
+    assert problem["path"] == "res://hero_pack.res"
+    assert problem["nodes"] == ["Kid"]
+    assert "UNCHECKED" in problem["message"]
+
+
+@pytest.mark.e2e
+def test_a_res_declared_as_something_else_is_still_not_a_scene_edge(godot_project):
+    # The other side of the union, and the reason it is a TRIGGER and not a load:
+    # a `.res` that is not a PackedScene stays outside the walk however it is
+    # declared. Here the same file is declared `type="PackedScene"` over a plain
+    # resource — the engine ignores the declaration and loads what is there, so
+    # there is no sub-scene and nothing to report.
+    (godot_project / "plain.tres").write_text(
+        '[gd_resource type="Resource" format=3]\n\n[resource]\n', encoding="utf-8"
+    )
+    (godot_project / "parent.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://plain.tres" id="1_p"]\n\n'
+        '[node name="Parent" type="Node2D"]\n'
+        'metadata/thing = ExtResource("1_p")\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://parent.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True, data
+    assert data["problems"] == []
+
+
+def _write_ancestor_convergence(project, *, deep_first: bool, break_leaf: bool) -> None:
+    """A CONVERGENCE above the deep target rather than at it.
+
+    `m.tscn` sits 16 levels below the root through `d1 … d15` — inside the bound,
+    so it is expanded there — and its own child `t.tscn` sits one level further,
+    outside it. The root also references `m.tscn` directly, one level down, which
+    puts `t.tscn` two levels down on that route. Only the DECLARATION ORDER of the
+    root's two lines differs between the two files this writes.
+    """
+    leaf = (
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://gone.gd" id="1_gone"]\n\n'
+        '[node name="T" type="Node2D"]\n'
+        'script = ExtResource("1_gone")\n'
+        if break_leaf
+        else '[gd_scene format=3]\n\n[node name="T" type="Node2D"]\n'
+    )
+    (project / "t.tscn").write_text(leaf, encoding="utf-8")
+    (project / "m.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://t.tscn" id="1_t"]\n\n'
+        '[node name="M" type="Node2D"]\n\n'
+        '[node name="TInst" parent="." instance=ExtResource("1_t")]\n',
+        encoding="utf-8",
+    )
+    for level in range(1, 16):
+        target = f"res://d{level + 1}.tscn" if level < 15 else "res://m.tscn"
+        (project / f"d{level}.tscn").write_text(
+            "[gd_scene load_steps=2 format=3]\n\n"
+            f'[ext_resource type="PackedScene" path="{target}" id="1_c"]\n\n'
+            f'[node name="D{level}" type="Node2D"]\n\n'
+            '[node name="Child" parent="." instance=ExtResource("1_c")]\n',
+            encoding="utf-8",
+        )
+    deep = '[ext_resource type="PackedScene" path="res://d1.tscn" id="1_deep"]'
+    direct = '[ext_resource type="PackedScene" path="res://m.tscn" id="2_direct"]'
+    deep_node = '[node name="Deep" parent="." instance=ExtResource("1_deep")]'
+    direct_node = '[node name="Direct" parent="." instance=ExtResource("2_direct")]'
+    lines = [deep, direct] if deep_first else [direct, deep]
+    nodes = [deep_node, direct_node] if deep_first else [direct_node, deep_node]
+    (project / "root.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        + "\n".join(lines)
+        + '\n\n[node name="Root" type="Node2D"]\n\n'
+        + "\n\n".join(nodes)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    "deep_first", [True, False], ids=["deep-first", "direct-first"]
+)
+@pytest.mark.e2e
+def test_a_sound_graph_converging_above_the_bound_is_valid_in_both_orders(
+    godot_project, deep_first
+):
+    # The shape the round-2 fix did not cover. Deferring the depth finding settles
+    # a target reached both ways; it says nothing about a target whose ANCESTOR is
+    # reached both ways. `m.tscn` was expanded on whichever route came first, and a
+    # visited record that meant only "answered" made the shorter route skip it — so
+    # `t.tscn`, one edge below it, was reached on the direct-first file and left
+    # past the bound on the deep-first one. Same graph, two verdicts.
+    _write_ancestor_convergence(godot_project, deep_first=deep_first, break_leaf=False)
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://root.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True, data
+    assert data["problems"] == []
+
+
+@pytest.mark.parametrize(
+    "deep_first", [True, False], ids=["deep-first", "direct-first"]
+)
+@pytest.mark.e2e
+def test_a_break_below_the_convergence_is_found_in_both_orders(
+    godot_project, deep_first
+):
+    # The same graph with the leaf broken: re-expanding on the shorter route must
+    # find the break, not merely stop reporting the bound. One problem, the same
+    # one, whichever line the root declares first.
+    _write_ancestor_convergence(godot_project, deep_first=deep_first, break_leaf=True)
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://root.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False, data
+    assert data["problems"] == [
+        {
+            "kind": "missing_resource",
+            "scene": "res://t.tscn",
+            "path": "res://gone.gd",
+            "type": "Script",
+            "nodes": ["."],
+            "message": "the referenced file does not exist",
+        }
+    ]
+
+
+@pytest.mark.e2e
+def test_a_subtree_only_the_deep_route_reaches_is_still_reported(godot_project):
+    # Re-expanding must not become "never report the bound". Remove the root's
+    # short route and `t.tscn` is genuinely outside the walk, so it is reported —
+    # attributed to `m.tscn`, the file whose edge declined.
+    _write_ancestor_convergence(godot_project, deep_first=True, break_leaf=False)
+    (godot_project / "root.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://d1.tscn" id="1_deep"]\n\n'
+        '[node name="Root" type="Node2D"]\n\n'
+        '[node name="Deep" parent="." instance=ExtResource("1_deep")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://root.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False, data
+    (problem,) = data["problems"]
+    assert problem["kind"] == "instance_depth_exceeded"
+    assert problem["scene"] == "res://m.tscn"
+    assert problem["path"] == "res://t.tscn"
+
+
+@pytest.mark.e2e
+def test_an_aliased_root_is_the_same_file_as_the_reference_back_to_it(godot_project):
+    # The root goes through the SAME identity as its children. Seeded raw, the
+    # alias `res://./root.tscn` was a key no child reference back to
+    # `res://root.tscn` could match, so the root was answered for twice — its one
+    # missing script reported under two `scene` spellings — and the cycle was only
+    # recognized one level lower than it closes.
+    (godot_project / "root.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        '[ext_resource type="Script" path="res://gone.gd" id="1_gone"]\n'
+        '[ext_resource type="PackedScene" path="res://root.tscn" id="2_self"]\n\n'
+        '[node name="Root" type="Node2D"]\n'
+        'script = ExtResource("1_gone")\n\n'
+        '[node name="Inner" parent="." instance=ExtResource("2_self")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    canonical = gda("scene", "validate", "res://root.tscn", "--json")
+    aliased = gda("scene", "validate", "res://./root.tscn", "--json")
+
+    assert aliased.returncode == 0, aliased.stdout + aliased.stderr
+    data = json.loads(aliased.stdout)
+    # The result echoes the CANONICAL spelling, not the caller's — one spelling
+    # across `path`, every problem's `scene`, and every problem's `path`.
+    assert data["path"] == "res://root.tscn"
+    assert data == json.loads(canonical.stdout)
+    assert [p["kind"] for p in data["problems"]] == [
+        "missing_resource",
+        "cyclic_instance",
+    ]
+
+
+@pytest.mark.e2e
+def test_an_edge_problem_lists_every_id_that_names_the_target(godot_project):
+    # One target, two [ext_resource] ids, two instancing nodes. The problem is
+    # deduplicated by the target file, so its `nodes` must merge every site that
+    # names that file — reading only the id that happened to settle the edge lost
+    # `InnerB`.
+    (godot_project / "self.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://self.tscn" id="1_a"]\n'
+        '[ext_resource type="PackedScene" path="res://./self.tscn" id="2_b"]\n\n'
+        '[node name="Self" type="Node2D"]\n\n'
+        '[node name="InnerA" parent="." instance=ExtResource("1_a")]\n\n'
+        '[node name="InnerB" parent="." instance=ExtResource("2_b")]\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://self.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    (problem,) = data["problems"]
+    assert problem["kind"] == "cyclic_instance"
+    assert problem["path"] == "res://self.tscn"
+    assert problem["nodes"] == ["InnerA", "InnerB"]
+
+
+@pytest.mark.e2e
+def test_a_cycle_below_a_re_expanded_scene_is_reported_once(godot_project):
+    # Where the two new mechanisms meet. `y.tscn` is reached at depth 2 through
+    # `x.tscn` and at depth 1 directly, so the shorter route expands it again — and
+    # the cycle `z.tscn` closes back onto `y.tscn` is met once per expansion. The
+    # edge record therefore belongs to the WALK, not to one descent, or the same
+    # cycle is published twice.
+    (godot_project / "root.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://x.tscn" id="1_x"]\n'
+        '[ext_resource type="PackedScene" path="res://y.tscn" id="2_y"]\n\n'
+        '[node name="Root" type="Node2D"]\n\n'
+        '[node name="XInst" parent="." instance=ExtResource("1_x")]\n\n'
+        '[node name="YInst" parent="." instance=ExtResource("2_y")]\n',
+        encoding="utf-8",
+    )
+    for name, target in (("x", "y"), ("y", "z"), ("z", "y")):
+        (godot_project / f"{name}.tscn").write_text(
+            "[gd_scene load_steps=2 format=3]\n\n"
+            f'[ext_resource type="PackedScene" path="res://{target}.tscn" id="1_c"]\n\n'
+            f'[node name="{name.upper()}" type="Node2D"]\n\n'
+            '[node name="Child" parent="." instance=ExtResource("1_c")]\n',
+            encoding="utf-8",
+        )
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://root.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    assert [(p["kind"], p["scene"], p["path"]) for p in data["problems"]] == [
+        ("cyclic_instance", "res://z.tscn", "res://y.tscn")
+    ]

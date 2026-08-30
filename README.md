@@ -404,18 +404,24 @@ base, or a bound value that is not a script) with the nodes that reference it. T
 **composed**: the scenes a scene references — normally the ones it instances — are checked with
 it, because a parent whose child is broken is broken too and its own walk cannot see that:
 `res://child.tscn` resolves and loads whatever is missing inside it. Every problem therefore
-carries `scene`, the file it was found in, and its `path` and nodes are read against that file.
-The boundary is the referenced scene **file**, not the type the line declares: Godot loads every
-`[ext_resource]` when it loads the scene and picks the handler by extension, so a `.tscn`
-referenced as plain metadata breaks its owner exactly as an instanced one does. Three kinds of
-edge are reported instead of followed: `cyclic_instance`, where a reference closes a cycle whose
-closing edge the engine drops (taking the nodes it would have contributed with it);
-`unreadable_sub_scene`, a binary `.scn` that carries none of the scene text the walk reads; and
-`instance_depth_exceeded`, for a scene no route reaches within 16 levels of sub-scenes. The last
-two report that subtree as **unchecked** rather than sound — validate it directly, or re-save it
-as `.tscn`, for a verdict of its own. That depth bound covers gda's own walk; the engine loads
-the whole chain either way, and an extremely deep one overflows its loader and ends the run with
-no verdict at all. The check is
+carries `scene`, the file it was found in, and its `path` and nodes are read against that file —
+every path in the result being the canonical spelling, so `res://./main.tscn` and
+`res://main.tscn` are one file and one verdict. A reference is followed when the path it resolves
+to ends in `.tscn`/`.scn` **or** its `[ext_resource]` line declares `type="PackedScene"`. Both
+triggers earn their place: Godot loads every `[ext_resource]` when it loads the scene and picks
+the handler by extension, so a `.tscn` referenced as plain metadata breaks its owner exactly as
+an instanced one does — while `ResourceSaver` will write a PackedScene into a plain `.res` that
+no extension test catches. A PackedScene stored under a non-scene extension *and* declared as
+some other type stays outside the walk. Three kinds of edge are reported instead of followed:
+`cyclic_instance`, where a reference closes a cycle whose closing edge the engine drops (taking
+the nodes it would have contributed with it); `unreadable_sub_scene`, a scene that loads but
+carries none of the `[gd_scene]` text the walk reads — a binary `.scn`, or a PackedScene inside a
+`.res`; and `instance_depth_exceeded`, for a scene no route reaches within 16 levels of
+sub-scenes. The last two report that subtree as **unchecked** rather than sound — validate it
+directly, or re-save it as `.tscn`, for a verdict of its own. The depth bound is on the shortest
+route to each scene, so the verdict does not depend on the order the references are declared; it
+covers gda's own walk only, the engine loads the whole chain either way, and an extremely deep
+one overflows its loader and ends the run with no verdict at all. The check is
 **staged**: when dependencies fail to resolve, the scene is not loaded, so the compile and
 binding problems of the loaded scene can only appear after the dependencies are repaired and
 validate is rerun — the problem list is complete for the stage it reached, not across both

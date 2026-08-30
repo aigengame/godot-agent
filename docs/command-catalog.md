@@ -149,16 +149,25 @@ own included — with `scene`, the file it was found in. Read a problem's `path`
 against that file, not against the scene the command was given: a missing script inside
 `child.tscn` reports `nodes: ["."]` for the *child's* root. Each file is answered for once
 however many sites reach it, so a broken scene instanced five times is one problem, not five.
+Every path in the result — the validated scene's own `path` included — is the canonical
+spelling, so `res://./main.tscn` and `res://main.tscn` are one file and one verdict.
 
-**What counts as an edge is the referenced scene FILE, not the declared type.** Godot's text
-loader starts a load for every `[ext_resource]` line before it parses a single node, and passes
-that line's `type` to `ResourceLoader` only as a hint — the format handler is picked by
-extension and accepts every type (measured on Godot 4.6.3: a `.tscn` referenced as ordinary
-`type="Resource"` metadata and never instanced emits the same errors for its missing script as
-an instanced one). Selecting edges on `type="PackedScene"` would miss those, and has no honest
-fallback for a line with no `type` at all, which the engine rejects as `ERR_FILE_CORRUPT`. So
-every `.tscn` reference is walked, a `.scn` reference is reported rather than walked, and a
-PackedScene stored under some other extension is outside the boundary.
+**What counts as an edge is a UNION of two triggers**: the path a reference resolves to ends
+in `.tscn`/`.scn`, or its `[ext_resource]` line declares `type="PackedScene"`. Neither trigger
+alone is enough. Godot's text loader starts a load for every `[ext_resource]` line before it
+parses a single node, and passes that line's `type` to `ResourceLoader` only as a hint — the
+format handler is picked by extension and accepts every type (measured on Godot 4.6.3: a `.tscn`
+referenced as ordinary `type="Resource"` metadata and never instanced emits the same errors for
+its missing script as an instanced one), so the declared type can never be a *filter*. But
+`ResourceSaver` will write a `PackedScene` into a plain `.res` — the binary saver accepts `res`
+for any resource, while the text saver refuses, so `.tres` is not a form a PackedScene can be
+saved in — and no extension test catches that, so the declared type earns its place as an extra
+*trigger*.
+
+A `.tscn` is read and composed into the verdict; anything else that loads as a `PackedScene` is
+reported `unreadable_sub_scene`. What stays outside: a `PackedScene` stored under a non-scene
+extension **and** declared as some other type. gda writes no such file, and it does not load
+every reference to find out — that would load every texture and audio file a scene names.
 
 **Three edges are reported instead of followed**, each with the target under `path`, the file
 declaring it under `scene`, and the referencing nodes under `nodes`:
@@ -167,18 +176,21 @@ declaring it under `scene`, and the referencing nodes under `nodes`:
   the closing reference, drops it, and the nodes it would have contributed vanish from the
   composition it loads, so the cycle is a defect and not merely a traversal hazard. The walk
   stops at that edge; what lies beyond it is unreported until the cycle is broken.
-- `unreadable_sub_scene` — the target loads, but as a binary `.scn`, which carries none of the
-  `[gd_scene]` text the walk reads a dependency set out of. This is the same limit that makes
-  the command refuse a `.scn` as its own target, met one level down. A binary target that does
-  not load at all is *not* this kind: the referencing file's dependency walk already reports it
-  as `unloadable_resource`, and one finding is not reported twice.
+- `unreadable_sub_scene` — the target loads as a `PackedScene`, but carries none of the
+  `[gd_scene]` text the walk reads a dependency set out of: a binary `.scn`, or a `PackedScene`
+  saved into a `.res`. This is the same limit that makes the command refuse such a file as its
+  own target, met one level down. A target that does not load at all is *not* this kind: the
+  referencing file's dependency walk already reports it as `unloadable_resource`, and one
+  finding is not reported twice.
 - `instance_depth_exceeded` — no route reaches the target within `16` levels of sub-scenes below
   the validated scene. The bound is on gda's own walk, whose per-file pass is superlinear in
   chain length; the engine loads the whole chain either way, and past roughly a thousand levels
   its own loader overflows and the run ends with no verdict at all, which no bound here changes.
-  These entries are settled only once every route has been walked and so appear last: a target
-  some shorter route did validate produces no entry, whichever route the file happens to declare
-  first.
+  The bound applies to the SHORTEST route to each scene, not to the first route walked: a file
+  reached again nearer the root is walked again from there, and these entries are settled only
+  once every route has been walked, so they appear last. Together those two rules make the
+  verdict independent of the order the `[ext_resource]` lines happen to appear in — for the
+  target of a deep edge and for everything below it.
 
 The last two are the only kinds that report a limit of *gda* rather than a defect of the
 project, and both still yield `valid: false`. That is deliberate: a gate must not answer "sound"

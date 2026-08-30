@@ -642,10 +642,19 @@ func _op_scene_delete(params: Dictionary) -> void:
 # missing script is never read as the parent's.
 func _op_scene_validate(params: Dictionary) -> void:
 	_diag("running operation: scene-validate")
-	var path := _string_param(params, "path")
-	if path.is_empty():
+	var raw_path := _string_param(params, "path")
+	if raw_path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
+	# The scene is addressed by its CANONICAL spelling from here on — everything
+	# the result echoes (`path`, and every problem's `scene`) is that spelling, not
+	# the caller's. It is one identity for the whole walk: a root given as
+	# `res://./main.tscn` used to seed a key no child's reference back to
+	# `res://main.tscn` could match, so the file was answered for twice under two
+	# spellings (#721 review round 3). Answering under a spelling the caller did
+	# not type is the smaller surprise, and the one the problem `path` field
+	# already chose.
+	var path := _canonical_resource_path(raw_path)
 	# The addressing boundary this op does NOT share with the rest of the group, and
 	# the reason is not tidiness: the dependency set is read from the scene's TEXT,
 	# and a binary .scn carries none — so the walk would find nothing and report a
@@ -746,25 +755,48 @@ func _attributed_problems(problems: Array, scene_path: String) -> Array:
 	return problems
 
 
-# The traversal state of ONE composed verdict, in one bag (#721). Four fields that
-# only ever move together, so they are passed as one rather than as four
+# The traversal state of ONE composed verdict, in one bag (#721). Six fields that
+# only ever move together, so they are passed as one rather than as six
 # positionals that a later addition has to thread through every call site:
 #
 # - `problems` is the caller's own array, appended to in place;
-# - `visited` records every scene file the walk has ANSWERED FOR — validated, or
-#   reported as one it cannot read. It is what makes a file's verdict appear once
-#   however many sites reference it, and it bounds the walk by the finite number
-#   of distinct reachable scene files;
+# - `answered` records every scene file the walk has produced a verdict about —
+#   validated, or reported as one it cannot read. It is what makes a file's own
+#   problems appear once however many sites reference it, and it is what keeps the
+#   one expensive step (the load and the script compiles behind
+#   _scene_own_problems) to once per file;
+# - `expanded` records, per file, the DEPTH at which its own references were
+#   walked. Answering for a file and expanding its subtree are separate facts, and
+#   conflating them was a defect (#721 review): a file first reached on a deep
+#   route had its own subtree cut off by the depth bound, and a later, shorter
+#   route to that same file found it "already answered" and walked no further —
+#   so the verdict for everything BELOW it depended on which route the parent
+#   declared first. A file reached again at a strictly SMALLER depth is therefore
+#   expanded again (its own problems are not repeated: `answered` holds those),
+#   which makes the reachable set order-free. A file with nothing below it to
+#   reach — missing, unreadable, or not a scene document — is recorded at depth 0,
+#   the minimum, so no shorter route can ever improve on it;
 # - `chain` holds the ancestors of the current descent, which is how a cycle is
 #   recognized and, by its size, how deep the current edge is;
 # - `deferred_depth` holds depth-bound findings that are not yet known to be
-#   findings at all — see _flush_deferred_depth_problems.
+#   findings at all — see _flush_deferred_depth_problems;
+# - `reported_edges` is the per-declaring-file set of targets an edge problem has
+#   already been raised for. Walk-scoped rather than per-descent because a file
+#   can now be expanded more than once, and the same edge must not be reported
+#   once per expansion.
+#
+# Every key is a CANONICAL path (_canonical_resource_path) — the root's included,
+# which the caller must canonicalize before it seeds this. A root spelled
+# `res://./main.tscn` seeded a key its own children's references could never match,
+# so the file was answered for twice (#721 review round 3).
 func _new_scene_walk(root_path: String, problems: Array) -> Dictionary:
 	return {
 		"problems": problems,
-		"visited": {root_path: true},
+		"answered": {root_path: true},
+		"expanded": {root_path: 0},
 		"chain": {root_path: true},
 		"deferred_depth": [],
+		"reported_edges": {},
 	}
 
 
@@ -773,31 +805,17 @@ func _new_scene_walk(root_path: String, problems: Array) -> Dictionary:
 # list reads parent-then-child, and each entry already carries the file it belongs
 # to.
 #
-# Four decisions, none of them free:
+# Five decisions, none of them free:
 #
-# - WHAT is descended into: an [ext_resource] whose resolved path names a SCENE
-#   FILE — a .tscn, which the walk reads, or a .scn, which it cannot and reports
-#   (unreadable_sub_scene). The DECLARED TYPE is deliberately not the selector,
-#   and that is a measured decision rather than a shortcut: Godot's text loader
-#   starts a load for EVERY [ext_resource] line before it parses a single node,
-#   passing `type` only as a HINT to ResourceLoader, whose text format handler
-#   accepts every type and recognizes the file by EXTENSION
-#   (ResourceLoaderText::load + ResourceFormatLoaderText::handles_type). Measured
-#   on Godot 4.6.3: a parent declaring `[ext_resource type="Resource"
-#   path="res://child.tscn"]` and never instancing it emits the SAME three errors
-#   for the child's missing script as a parent that instances it. So a reference
-#   to a broken scene breaks the referencing scene whatever the line calls it, and
-#   selecting on `type="PackedScene"` would miss exactly those cases while adding
-#   a hole of its own — an [ext_resource] with no `type` at all is ERR_FILE_CORRUPT
-#   to the engine, so there is no honest fallback to fall back to. The extension is
-#   both the sounder rule AND the engine's own.
+# - WHAT is descended into is decided by _is_sub_scene_edge, the one projection
+#   that owns "this reference is a sub-scene". Read it for the rule.
 #
-# - TERMINATION: `visited` holds every file the walk has answered for, so it stops
-#   on its own — it is bounded by the number of DISTINCT scene files reachable
-#   from the root, a finite set. A sub-scene is therefore reported ONCE PER FILE,
-#   not once per referencing site: a broken child instanced at five places is one
-#   broken file, which is the same rule the dependency walk already applies to a
-#   path declared twice. Both key on the canonical path
+# - TERMINATION: `answered` holds every file the walk has produced a verdict
+#   about, so it stops on its own — it is bounded by the number of DISTINCT scene
+#   files reachable from the root, a finite set. A sub-scene is therefore reported
+#   ONCE PER FILE, not once per referencing site: a broken child instanced at five
+#   places is one broken file, which is the same rule the dependency walk already
+#   applies to a path declared twice. Every key is the canonical path
 #   (_normalize_ext_resource_path), so an alias spelling is the same file.
 #
 # - DEPTH is bounded SEPARATELY, because terminating is not the same as finishing
@@ -813,35 +831,38 @@ func _new_scene_walk(root_path: String, problems: Array) -> Dictionary:
 #   not, and cannot, prevent the engine-side stack overflow that kills a 1200-deep
 #   chain with or without any of this.
 #
+# - The bound is on the SHORTEST route, not on the first one walked. `expanded`
+#   holds the depth each file's own references were walked at, and a file reached
+#   again at a smaller depth is walked again from there — which is what makes the
+#   published verdict independent of the order two [ext_resource] lines happen to
+#   appear in. The cheap half of the walk (read the text, parse the lines) is what
+#   repeats; the expensive half (`_scene_own_problems`: the load and the script
+#   compiles) sits behind `answered` and runs once per file whatever the shape of
+#   the graph. A file's recorded depth strictly decreases each time, and depth is
+#   bounded by SCENE_INSTANCE_MAX_DEPTH, so the repetition is bounded too.
+#
 # - A CYCLE is reported, not merely survived: `chain` holds the ancestors of the
 #   current descent, and a reference back into it becomes a cyclic_instance
-#   problem attributed to the file that declares it. `visited` alone would stop
+#   problem attributed to the file that declares it. `answered` alone would stop
 #   the walk silently, which would hide a composition the engine mutilates.
-#   Checked BEFORE `visited` — every ancestor is also visited, so the cheaper test
-#   would swallow the diagnostic.
+#   Checked BEFORE `answered` — every ancestor is also answered for, so the
+#   cheaper test would swallow the diagnostic.
 func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 	var text := FileAccess.get_file_as_string(scene_path)
 	if text.is_empty():
 		return
 	var out: Array = walk["problems"]
-	var visited: Dictionary = walk["visited"]
+	var answered: Dictionary = walk["answered"]
+	var expanded: Dictionary = walk["expanded"]
 	var chain: Dictionary = walk["chain"]
-	var nodes_by_id := _scene_ext_resource_nodes_by_id(text)
-	# One edge problem per target per file: a scene that references the same
-	# ancestor twice still closes one cycle, and one that reaches the depth bound
-	# twice has one unchecked subtree. The kinds share the map because they are
-	# mutually exclusive for a given target — the first test that settles stops the
-	# edge.
-	var reported_edges := {}
 	for entry in _ext_resource_entries_from_text(text, scene_path.get_base_dir()):
-		var ref_path := String(entry["normalized_path"])
-		if not _is_scene_reference_path(ref_path):
+		if not _is_sub_scene_edge(entry):
 			continue
+		var ref_path := String(entry["normalized_path"])
 		if chain.has(ref_path):
-			if not reported_edges.has(ref_path):
-				reported_edges[ref_path] = true
+			if not _edge_already_reported(walk, scene_path, ref_path):
 				out.append(_sub_scene_edge_problem(SCENE_PROBLEM_CYCLIC_INSTANCE, entry,
-						scene_path, nodes_by_id,
+						scene_path, text,
 						"the scene at this path is an ancestor in this scene's reference chain, "
 						+ "so referencing it here closes a cycle. Measured on Godot 4.6.3, the "
 						+ "engine refuses the closing reference ([ext_resource] referenced "
@@ -850,19 +871,17 @@ func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 						+ "walk at this edge; break the cycle to get a verdict for what lies "
 						+ "beyond it"))
 			continue
-		if visited.has(ref_path):
-			continue
 		# `chain` holds the ancestors of this edge's target, so its size IS the
 		# target's depth below the validated scene. DEFERRED rather than reported:
-		# a shorter route to the same target may still validate it, and whether
-		# this deep route or that short one is walked FIRST is nothing but
-		# declaration order — see _flush_deferred_depth_problems.
-		if chain.size() > SCENE_INSTANCE_MAX_DEPTH:
-			if not reported_edges.has(ref_path):
-				reported_edges[ref_path] = true
+		# a shorter route to the same target may still reach it, and whether this
+		# deep route or that short one is walked FIRST is nothing but declaration
+		# order — see _flush_deferred_depth_problems.
+		var depth := chain.size()
+		if depth > SCENE_INSTANCE_MAX_DEPTH:
+			if not _edge_already_reported(walk, scene_path, ref_path):
 				(walk["deferred_depth"] as Array).append(
 						_sub_scene_edge_problem(SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED, entry,
-						scene_path, nodes_by_id,
+						scene_path, text,
 						"gda validates " + str(SCENE_INSTANCE_MAX_DEPTH) + " levels of "
 						+ "sub-scenes below the scene it was given, and no route to this one is "
 						+ "inside that bound — this scene and everything it references are "
@@ -872,40 +891,115 @@ func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 						+ "bound does not change. Validate this scene directly to get a verdict "
 						+ "for it"))
 			continue
-		# A referenced scene the walk cannot READ. Two cases, told apart because the
-		# reader needs different things from them:
-		#
-		# - the file is not there, or is there but no loader opens it: the
-		#   referencing file's own dependency walk has ALREADY named it
-		#   (missing_resource / unloadable_resource) with the node that references
-		#   it, so a second problem here would be one finding reported twice;
-		# - the file LOADS as a scene, but its bytes are not the [gd_scene] text the
-		#   walk reads — a binary .scn. Nothing has been said about it, and staying
-		#   silent would let a composed verdict answer "sound" about a subtree it
-		#   never opened. It is recorded as visited so the report, like every other,
-		#   appears once per file.
-		if not FileAccess.file_exists(ref_path):
+		# Already walked from here or from nearer the root: nothing this route can
+		# add. Only a STRICTLY shorter route falls through, and then only to expand
+		# the subtree again — never to repeat the file's own problems.
+		if expanded.has(ref_path) and int(expanded[ref_path]) <= depth:
 			continue
-		if not _has_scene_header(FileAccess.get_file_as_string(ref_path)):
-			if ResourceLoader.load(ref_path) is PackedScene:
-				visited[ref_path] = true
-				out.append(_sub_scene_edge_problem(SCENE_PROBLEM_UNREADABLE_SUB_SCENE, entry,
-						scene_path, nodes_by_id,
-						"this scene loads, but not as the [gd_scene] text gda reads a "
-						+ "dependency set out of — a binary .scn carries none, which is why "
-						+ "the command refuses one as its target too. This scene and "
-						+ "everything it references are UNCHECKED, not judged sound. Re-save "
-						+ "it as .tscn for a composed verdict that covers it"))
-			continue
-		visited[ref_path] = true
-		var own: Variant = _scene_own_problems(ref_path)
-		if own != null:
-			out.append_array(_attributed_problems(own as Array, ref_path))
+		if not answered.has(ref_path):
+			answered[ref_path] = true
+			# A referenced scene the walk cannot READ. Three cases, told apart
+			# because the reader needs different things from them:
+			#
+			# - the file is not there, or is there but no loader opens it: the
+			#   referencing file's own dependency walk has ALREADY named it
+			#   (missing_resource / unloadable_resource) with the node that
+			#   references it, so a second problem here would be one finding
+			#   reported twice;
+			# - the file LOADS as a PackedScene, but its bytes are not the
+			#   [gd_scene] text the walk reads — a binary .scn, or a PackedScene
+			#   saved into a .res resource file. Nothing has been said about it,
+			#   and staying silent would let a composed verdict answer "sound"
+			#   about a subtree it never opened;
+			# - the file loads as something else entirely (a line that declares
+			#   type="PackedScene" over a resource that is not one). The engine
+			#   ignores that declaration and loads what is actually there, so there
+			#   is no sub-scene here and nothing to report.
+			#
+			# All three are recorded at depth 0: there is nothing below them for a
+			# shorter route to reach.
+			if not FileAccess.file_exists(ref_path):
+				expanded[ref_path] = 0
+				continue
+			if not _has_scene_header(FileAccess.get_file_as_string(ref_path)):
+				if ResourceLoader.load(ref_path) is PackedScene:
+					out.append(_sub_scene_edge_problem(SCENE_PROBLEM_UNREADABLE_SUB_SCENE, entry,
+							scene_path, text,
+							"this scene loads, but not as the [gd_scene] text gda reads a "
+							+ "dependency set out of — a binary .scn, or a PackedScene saved "
+							+ "into a resource file, carries none, which is why the command "
+							+ "refuses such a file as its target too. This scene and "
+							+ "everything it references are UNCHECKED, not judged sound. "
+							+ "Re-save it as .tscn for a composed verdict that covers it"))
+				expanded[ref_path] = 0
+				continue
+			var own: Variant = _scene_own_problems(ref_path)
+			if own != null:
+				out.append_array(_attributed_problems(own as Array, ref_path))
 		# Descended into even when it did not load: its text is still readable, and
 		# the scenes IT references can be broken for reasons of their own.
+		expanded[ref_path] = depth
 		chain[ref_path] = true
 		_collect_sub_scene_problems(ref_path, walk)
 		chain.erase(ref_path)
+
+
+# Whether an [ext_resource] entry is an edge into a SUB-SCENE — the one projection
+# that owns that question for the composed walk (#721 review round 3).
+#
+# A UNION of two triggers, because neither alone covers the scenes Godot writes:
+#
+# - the resolved PATH names a scene file: a .tscn, which the walk reads, or a
+#   .scn, which it cannot and reports (unreadable_sub_scene). Extension is the
+#   engine's own test for picking a format handler
+#   (ResourceFormatLoader::recognize_path), and it is the only trigger that works
+#   for a line whose declared type is wrong or absent;
+# - the line DECLARES type="PackedScene". ResourceSaver will write a PackedScene
+#   into a plain .res (ResourceFormatSaverBinary accepts "res" for any resource;
+#   the text saver refuses, so .tres is not a form a PackedScene can be saved in),
+#   and such a child was silently skipped by the extension test alone — a parent
+#   instancing a .res scene with a broken script answered `valid: true` while the
+#   engine's own load of that parent reported the break (measured on Godot 4.6.3).
+#
+# The declared type is an extra TRIGGER, never a FILTER. Selecting on it would
+# MISS real edges, which is a separate measurement: Godot's text loader starts a
+# load for EVERY [ext_resource] line before it parses a single node and passes
+# `type` only as a HINT (ResourceLoaderText::load, ResourceFormatLoaderText::
+# handles_type accepts every type), so a `.tscn` declared type="Resource" and
+# never instanced breaks its referencing scene exactly as an instanced one does.
+# Both facts point the same way: widen the trigger, never narrow it.
+#
+# What is still outside: a PackedScene stored under a non-scene extension AND
+# declared as some other type. Nothing gda writes takes that form, and it is
+# stated on the public surfaces rather than left implicit. Extending the union to
+# "load every reference and ask what it is" is deliberately NOT done — it would
+# load every texture and audio file a scene names to answer a question that has
+# no known instance.
+func _is_sub_scene_edge(entry: Dictionary) -> bool:
+	if _is_scene_reference_path(String(entry["normalized_path"])):
+		return true
+	return String(entry.get("type", "")) == "PackedScene"
+
+
+# Whether an edge problem has already been raised for this target by this
+# declaring file, recording it when it has not (#721).
+#
+# One edge problem per target per file: a scene that references the same ancestor
+# twice still closes one cycle, and one that reaches the depth bound twice has one
+# unchecked subtree. The kinds share the record because they are mutually
+# exclusive for a given target — the first test that settles stops the edge. Kept
+# on the WALK rather than on one descent because a file can be expanded more than
+# once (see `expanded`), and the same edge must not be reported once per
+# expansion.
+func _edge_already_reported(walk: Dictionary, scene_path: String, ref_path: String) -> bool:
+	var reported: Dictionary = walk["reported_edges"]
+	if not reported.has(scene_path):
+		reported[scene_path] = {}
+	var targets: Dictionary = reported[scene_path]
+	if targets.has(ref_path):
+		return true
+	targets[ref_path] = true
+	return false
 
 
 # Emit the depth-bound findings the finished walk still stands behind (#721
@@ -916,18 +1010,20 @@ func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 # leaf sits both past the bound and one edge below the root, whichever route is
 # declared first decided the verdict: deep-first reported the bound and then
 # validated the leaf anyway (valid: false, with a stale finding), while
-# direct-first validated the leaf and let `visited` swallow the deep edge in
-# silence (valid: true). One graph, two published verdicts, chosen by the order two
-# lines happen to appear in — which is not a contract.
+# direct-first validated the leaf and let the visited record swallow the deep edge
+# in silence (valid: true). One graph, two published verdicts, chosen by the order
+# two lines happen to appear in — which is not a contract.
 #
 # Deferring settles it in BOTH directions with the walk's own record: a deferred
-# finding survives only when nothing else answered for its target. Order cannot
-# change that, because it is read after every route has been walked.
+# finding survives only when nothing else reached its target. Order cannot change
+# that, because it is read after every route has been walked. The other half of
+# the same guarantee is `expanded` in _collect_sub_scene_problems, which is what
+# makes a shorter route to an ANCESTOR of the deep target reach the target at all.
 func _flush_deferred_depth_problems(walk: Dictionary) -> void:
-	var visited: Dictionary = walk["visited"]
+	var expanded: Dictionary = walk["expanded"]
 	var out: Array = walk["problems"]
 	for pending in walk["deferred_depth"]:
-		if not visited.has(String((pending as Dictionary)["path"])):
+		if not expanded.has(String((pending as Dictionary)["path"])):
 			out.append(pending)
 
 
@@ -936,13 +1032,47 @@ func _flush_deferred_depth_problems(walk: Dictionary) -> void:
 # All three such kinds carry the same three facts — the target the edge points at,
 # the file that declares it, and the nodes that reference it — so they are built in
 # one place instead of three times.
+#
+# The nodes come from a per-TARGET map, not from this entry's id: one file can
+# declare the same target under several [ext_resource] ids, and reading only the
+# id that happened to settle the edge dropped the sites the others reference
+# (#721 review round 3). It is the per-file merge _scene_dependency_problems
+# already does for an ordinary dependency, applied to the edge kinds too.
+#
+# The map is built HERE, from the declaring file's text, rather than once per
+# descent: an edge problem is the rare case, and the walk now expands a file again
+# whenever a shorter route reaches it, so a map built eagerly would be rebuilt for
+# every expansion of every file to serve the few that report one.
 func _sub_scene_edge_problem(kind: String, entry: Dictionary, scene_path: String,
-		nodes_by_id: Dictionary, message: String) -> Dictionary:
-	var problem := _scene_problem(kind, String(entry["normalized_path"]),
-			String(entry.get("type", "")), message)
-	problem["nodes"] = (nodes_by_id.get(String(entry["id"]), []) as Array).duplicate()
+		scene_text: String, message: String) -> Dictionary:
+	var ref_path := String(entry["normalized_path"])
+	var problem := _scene_problem(kind, ref_path, String(entry.get("type", "")), message)
+	var nodes_by_path := _scene_ext_resource_nodes_by_path(scene_text, scene_path.get_base_dir())
+	problem["nodes"] = (nodes_by_path.get(ref_path, []) as Array).duplicate()
 	problem["scene"] = scene_path
 	return problem
+
+
+# Every node that references each [ext_resource] TARGET of one scene's text,
+# merged across the ids that name it (#721 review round 3).
+#
+# _scene_ext_resource_nodes_by_id answers per id, which is the wrong grain for a
+# report keyed by the file the reference points AT: two ids for one path — an
+# alias spelling, or simply a hand-written duplicate — are one target with two
+# sets of referencing nodes. In declaration order, deduplicated, which is the
+# order and the rule _scene_dependency_problems merges by.
+func _scene_ext_resource_nodes_by_path(text: String, base_dir: String) -> Dictionary:
+	var nodes_by_id := _scene_ext_resource_nodes_by_id(text)
+	var by_path := {}
+	for entry in _ext_resource_entries_from_text(text, base_dir):
+		var ref_path := String(entry["normalized_path"])
+		if not by_path.has(ref_path):
+			by_path[ref_path] = []
+		var nodes: Array = by_path[ref_path]
+		for node_path in nodes_by_id.get(String(entry["id"]), []):
+			if not nodes.has(node_path):
+				nodes.append(node_path)
+	return by_path
 
 
 # Whether the text OPENS with a complete, CLOSED `[gd_scene …]` section header
@@ -4449,15 +4579,18 @@ func _is_scene_path(path: String) -> bool:
 	return path.get_extension().to_lower() == "tscn"
 
 
-# Whether a path names a SCENE FILE in either of the two forms Godot saves one in:
-# the .tscn text gda reads, or the binary .scn it cannot. The composed walk asks
-# this rather than _is_scene_path because the two answers it needs are different:
-# what it can descend into, and what it must REPORT as unread rather than skip
-# (#721 review). Extension is the engine's own test too — ResourceLoader picks a
-# format handler by recognized extension (ResourceFormatLoader::recognize_path),
-# not by the type an [ext_resource] line declares. A PackedScene saved under some
-# other extension (.tres/.res) is outside this boundary and is stated as such on
-# the public surfaces.
+# Whether a path names a SCENE FILE in either of the two forms Godot saves one
+# under a scene extension: the .tscn text gda reads, or the binary .scn it cannot.
+# The composed walk asks this rather than _is_scene_path because the two answers
+# it needs are different: what it can descend into, and what it must REPORT as
+# unread rather than skip (#721 review). Extension is the engine's own test too —
+# ResourceLoader picks a format handler by recognized extension
+# (ResourceFormatLoader::recognize_path), not by the type an [ext_resource] line
+# declares.
+#
+# The PATH half of the sub-scene edge rule only: a PackedScene saved into a plain
+# .res carries no scene extension, so _is_sub_scene_edge unions this with the
+# line's declared type. Read that function for the whole rule.
 func _is_scene_reference_path(path: String) -> bool:
 	var ext := path.get_extension().to_lower()
 	return ext == "tscn" or ext == "scn"
@@ -6257,8 +6390,21 @@ func _ext_resource_entries_from_text(text: String, base_dir: String) -> Array:
 # touching the scheme, which is exactly the identity question and nothing more.
 func _normalize_ext_resource_path(ref_path: String, base_dir: String) -> String:
 	if ref_path.begins_with("res://") or ref_path.begins_with("uid://") or ref_path.begins_with("user://"):
-		return ref_path.simplify_path()
-	return base_dir.path_join(ref_path).simplify_path()
+		return _canonical_resource_path(ref_path)
+	return _canonical_resource_path(base_dir.path_join(ref_path))
+
+
+# The canonical spelling of one already-absolute path — the identity half of
+# _normalize_ext_resource_path, split out so a caller that has no base directory
+# to resolve against can key by the SAME identity (#721 review round 3).
+#
+# The composed scene walk is that caller: its root arrives from the command line
+# rather than from an [ext_resource] line, and seeding the walk with the caller's
+# raw spelling put the root behind a different identity from every one of its
+# children — `res://./main.tscn` and the `res://main.tscn` a child references back
+# were two files, so the root was answered for twice.
+func _canonical_resource_path(path: String) -> String:
+	return path.simplify_path()
 
 
 func _ext_resource_ids_by_path(text: String, base_dir: String) -> Dictionary:
