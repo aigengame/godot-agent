@@ -38,8 +38,9 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
+from gda.live_numbers import LIVE_ENGINE_PRECISION
 from gda.live_runner import make_daemon_runner
-from gda.models import MAX_WINDOW_FRAMES, NormalizedPath
+from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams, NormalizedPath
 from gda.runner import GodotRunner
 
 # --- screen (runtime viewport capture, #222) ----------------------------------
@@ -108,7 +109,7 @@ def _await_schema_extra(schema: dict) -> None:
             }
 
 
-class ScreenCaptureParams(BaseModel):
+class ScreenCaptureParams(RelayedLiveParams):
     """The params of ``gda screen capture``: where to write one viewport frame (#222).
 
     Captures the running game's current viewport in one frame (frame-coherent,
@@ -312,7 +313,8 @@ class CaptureReceipt(BaseModel):
         description=(
             "The predicate echo for a gated capture: the observed value the "
             "predicate matched, evaluated at engine_frame (identical to "
-            "predicate.observed). Null on a plain capture. Always present."
+            "predicate.observed). Null on a plain capture. Always present. "
+            + LIVE_ENGINE_PRECISION
         ),
     )
     sha256: str = Field(
@@ -337,13 +339,13 @@ class CapturePredicateReport(BaseModel):
     node: str = Field(description="The awaited node's absolute runtime path.")
     property: str = Field(description="The awaited property's name.")
     expected: "bool | int | float | str" = Field(
-        description="The declared predicate value."
+        description="The declared predicate value. " + LIVE_ENGINE_PRECISION
     )
     observed: "bool | int | float | str" = Field(
         description=(
             "The property's value on the frame the predicate held (scalars "
             "verbatim; anything else its diagnostic String form). Read at the "
-            "same frame boundary as the captured pixels."
+            "same frame boundary as the captured pixels. " + LIVE_ENGINE_PRECISION
         ),
     )
     engine_frame: int = Field(
@@ -354,7 +356,7 @@ class CapturePredicateReport(BaseModel):
     )
 
 
-class ScreenFramesParams(BaseModel):
+class ScreenFramesParams(RelayedLiveParams):
     """The params of ``gda screen frames``: capture a window of viewport frames (#222).
 
     Time-windowed (the gda harness's multi-frame base, #223): one viewport frame is
@@ -1126,6 +1128,12 @@ def screen_capture(
     presentation). Needs a WINDOWED
     session (`gda daemon start --windowed`); a headless one is
     `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
+
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     # Build the params model from the argv options so `output` is validated and
     # ~-normalized through the SAME single source of truth the --params-json path

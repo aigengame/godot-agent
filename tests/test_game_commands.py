@@ -23,6 +23,7 @@ from tests.support import (
     GAME_TREE_RESULT,
     error_sentinel,
     inject_live_runner,
+    panel_text,
     sentinel,
 )
 
@@ -862,8 +863,18 @@ def test_game_call_schema_publishes_the_declaration_contract():
     assert "small-magnitude" in args_description
     assert "1.2345678901234567e-300" in args_description
     assert "0.0" in args_description
+    assert "REFUSED here" in args_description
     assert "in-memory JSON Schema validators" in number_description
-    assert "issue #752" in number_description
+    # The DECIDED contract, not a defect pointer (#752): the refusal on the
+    # request side and the exactness guarantee on the result side.
+    assert "reads as 0.0 is refused" in number_description
+    # Exact APART FROM the disclosed residual: the same schema now publishes
+    # the negative-zero caveat on the result value, so an absolute claim here
+    # would contradict it (#770 review).
+    assert (
+        "Every float a live reply RETURNS is exact, apart from a NEGATIVE ZERO"
+        in number_description
+    )
 
 
 def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words():
@@ -872,12 +883,16 @@ def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words
     result = CliRunner().invoke(app, ["game", "call", "--help"])
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    rendered = " ".join(result.stdout.split())
+    # Help is rendered inside a Rich panel: colour codes and box rules land in
+    # the middle of sentences, so normalize before asserting on prose (the shared
+    # tests/support normalizer, not a private copy of it).
+    rendered = panel_text(result.stdout)
     assert str(MAX_EXACT_JSON_INT) in rendered
     assert "finite floats are not subject to the integer" in rendered
     assert "integer values must stay within" in rendered
-    assert "small-magnitude floats can arrive" in rendered
+    assert "parser reads as 0.0 is refused too" in rendered
     assert "1.2345678901234567e-300" in rendered
+    assert "ULP" in rendered  # the disclosed residual on values the wire DOES carry
     assert "an an argument" not in rendered
 
 

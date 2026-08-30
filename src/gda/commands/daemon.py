@@ -227,6 +227,11 @@ class DaemonStatusResult(BaseModel):
     )
 
 
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon consumes
+# this budget itself, relaying nothing, so the value never reaches Godot's JSON
+# parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
+# whose scan states what that parser can construct: applying it here would report a
+# loss on a leg the value never crosses (#770 review).
 class DaemonWaitReadyParams(BaseModel):
     """The params of ``gda daemon wait-ready``: the readiness budget (#657).
 

@@ -19,6 +19,7 @@ from pydantic import (
 )
 
 from gda.execution import ExecutionKind
+from gda.live_numbers import find_unrepresentable
 from gda.project import is_engine_virtual_path
 
 
@@ -529,6 +530,52 @@ def normalize_path(path: str) -> str:
 # ``ValidationError`` (→ structured ``invalid_params``) instead of ``normalize_path``
 # hitting a ``TypeError`` on a non-string.
 NormalizedPath = Annotated[str, AfterValidator(normalize_path)]
+
+
+class RelayedLiveParams(BaseModel):
+    """The base every RELAYED live command's params model inherits (#752).
+
+    A live request that the daemon RELAYS is read by Godot's JSON parser, which
+    cannot construct every binary64 value a caller can spell: a small-magnitude
+    float arrives as ``0.0``, and a large integer as a different integer. That is
+    a property of the daemon-to-harness leg — not of any one command, and not of
+    ``ExecutionKind.LIVE`` either. Both proxies were tried and both were wrong:
+    the rule started on ``GameCallParams``, which left every other relayed
+    ingress open (#770 review), and then on every LIVE params model, which
+    over-refused the ops the daemon answers ITSELF
+    (``gda.daemon.server.DAEMON_SERVED_OPS`` — ``diag errors``, ``logger tail``,
+    ``daemon wait-ready``). Those never reach Godot's parser: their params are
+    consumed in Python, over a leg whose two ends are ``json.dumps`` and
+    ``json.loads``, so refusing ``daemon wait-ready --timeout 5e-324`` told the
+    caller a fact about a parser its number never meets.
+
+    The params model is the boundary where the rule belongs: ADR-0015 makes it
+    the ONE authority both the argv and ``--params-json`` paths build, so a single
+    validator here refuses identically on both, and refuses a value BEFORE any
+    daemon or engine session is involved — an input error stays an input error
+    (a usage error on argv, ``invalid_params`` on ``--params-json``) instead of
+    becoming a live-channel failure. :func:`~gda.live_numbers.find_unrepresentable`
+    owns what "cannot cross" means; this class owns only where it is asked.
+
+    The scan reads ``model_dump()`` rather than the field values, so a nested
+    params model (an input-sequence event, a predicate's awaited value) is
+    covered as plain JSON — and a relayed command whose recipe builds its wire
+    dict from these same fields is covered with it. A relayed command that
+    carries no number inherits this too: the guarantee is that no relayed params
+    model can acquire a numeric field the wire silently changes, which a
+    per-model opt-in could not give. ``tests/test_live_contract_guards.py``
+    partitions the live Typer tree by ``DAEMON_SERVED_OPS`` and fails BOTH ways —
+    a relayed descriptor that does not inherit this, and a daemon-served one that
+    does.
+    """
+
+    @model_validator(mode="after")
+    def _admit_live_wire_numbers(self) -> "RelayedLiveParams":
+        for name, value in self.model_dump().items():
+            refusal = find_unrepresentable(value, name)
+            if refusal is not None:
+                raise ValueError(refusal)
+        return self
 
 
 # The one read-side value projection every value gda emits goes through

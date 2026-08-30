@@ -51,8 +51,14 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
+from gda.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
 from gda.live_runner import make_daemon_runner
-from gda.models import MAX_WINDOW_FRAMES, RUNTIME_NODE_DESC, NormalizedPath
+from gda.models import (
+    MAX_WINDOW_FRAMES,
+    RUNTIME_NODE_DESC,
+    RelayedLiveParams,
+    NormalizedPath,
+)
 from gda.render import format_value
 from gda.runner import GodotRunner
 
@@ -68,7 +74,9 @@ class PerfMonitor(BaseModel):
 
     name: str
     type: str = Field(description="The sampled value's Godot type (e.g. float).")
-    value: Any = Field(description="The monitor's value as JSON.")
+    value: Any = Field(
+        description="The monitor's value as JSON. " + LIVE_ENGINE_PRECISION
+    )
 
 
 # `perf monitors`' params and result live BELOW the windowed-mode models they
@@ -76,7 +84,7 @@ class PerfMonitor(BaseModel):
 # bounded window, per the issue's triage decision (no third command).
 
 
-class PerfMonitorParams(BaseModel):
+class PerfMonitorParams(RelayedLiveParams):
     """The params of ``gda perf monitor``: watch one node over a frame window (#223).
 
     Time-windowed: the gda harness collects a per-frame timeline over ``frames``
@@ -135,7 +143,11 @@ class PerfPropertySample(BaseModel):
 
     frame: int = Field(description="The 0-based frame index within the window.")
     timestamp: int = Field(description="Engine time the sample was taken (ms).")
-    value: Any = Field(description="The property's value as JSON at that frame.")
+    value: Any = Field(
+        description=(
+            "The property's value as JSON at that frame. " + LIVE_ENGINE_PRECISION
+        )
+    )
 
 
 class PerfSignalEmission(BaseModel):
@@ -144,7 +156,8 @@ class PerfSignalEmission(BaseModel):
     frame: int = Field(description="The frame index the emission landed in.")
     timestamp: int = Field(description="Engine time the emission was recorded (ms).")
     args: list[Any] = Field(
-        default_factory=list, description="The emission's arguments as JSON."
+        default_factory=list,
+        description="The emission's arguments as JSON. " + LIVE_ENGINE_PRECISION,
     )
 
 
@@ -291,7 +304,7 @@ _PERF_MONITORS_MODE_SCHEMA: dict[str, Any] = {
 }
 
 
-class PerfMonitorsParams(BaseModel):
+class PerfMonitorsParams(RelayedLiveParams):
     """The params of ``gda perf monitors``: a snapshot, or a bounded window (#223, #662).
 
     One command, two modes, per #662's triage decision (no third command; the
@@ -393,14 +406,33 @@ class PerfSampleStats(BaseModel):
 
     Percentiles use the nearest-rank method on the sorted samples: pNN is the
     value at index ``ceil(NN/100 * count) - 1``.
+
+    Two WRITERS live in this one model, so its fields disclose separately
+    (#770 review). ``min``/``max``/``p50``/``p95`` are SELECTED from the window's
+    rows — each is a number the engine wrote — while ``mean`` is arithmetic gda
+    performs on them and no Godot writer ever saw. The blanket engine sentence
+    this model used to inherit was false for that one field.
     """
 
     count: int = Field(description="The number of samples (one per frame).")
-    min: float = Field(description="The smallest sampled value.")
-    max: float = Field(description="The largest sampled value.")
-    mean: float = Field(description="The arithmetic mean of the samples.")
-    p50: float = Field(description="The 50th percentile (nearest-rank).")
-    p95: float = Field(description="The 95th percentile (nearest-rank).")
+    min: float = Field(
+        description="The smallest sampled value. " + LIVE_ENGINE_PRECISION
+    )
+    max: float = Field(
+        description="The largest sampled value. " + LIVE_ENGINE_PRECISION
+    )
+    mean: float = Field(
+        description=(
+            "The arithmetic mean of the samples, computed by gda. "
+            + LIVE_DERIVED_PRECISION
+        )
+    )
+    p50: float = Field(
+        description="The 50th percentile (nearest-rank). " + LIVE_ENGINE_PRECISION
+    )
+    p95: float = Field(
+        description="The 95th percentile (nearest-rank). " + LIVE_ENGINE_PRECISION
+    )
 
 
 class PerfSampleFrame(BaseModel):
@@ -409,20 +441,43 @@ class PerfSampleFrame(BaseModel):
     frame: int = Field(ge=0, description="The 0-based frame index within the window.")
     timestamp: int = Field(description="Engine time the row was sampled (ms).")
     values: dict[str, float] = Field(
-        description="The selected monitors' values at that frame, keyed by name."
+        description=(
+            "The selected monitors' values at that frame, keyed by name. "
+            + LIVE_ENGINE_PRECISION
+        )
     )
 
 
 class PerfBudgetVerdict(BaseModel):
-    """One monitor's budget verdict: the gated statistic against its bounds (#662)."""
+    """One monitor's budget verdict: the gated statistic against its bounds (#662).
+
+    Every number here is GDA's, not the engine's (#770 review): ``value`` is the
+    statistic gda derived, and the bounds are copied out of the caller's own
+    budget file, so they cross no Godot writer at all. A real daemon returning
+    ``{"value": 1.0, "min": -0.0, "max": -0.0}`` is what falsified the engine
+    sentence these fields used to inherit — the negative zero survives here
+    precisely because the engine never wrote it.
+    """
 
     stat: BudgetStat = Field(description="The statistic the budget gated.")
-    value: float = Field(description="That statistic's value over the window.")
+    value: float = Field(
+        description=(
+            "That statistic's value over the window. " + LIVE_DERIVED_PRECISION
+        )
+    )
     min: float | None = Field(
-        default=None, description="The lower bound, when the rule set one."
+        default=None,
+        description=(
+            "The lower bound, when the rule set one — as the budget file "
+            "declared it. " + LIVE_DERIVED_PRECISION
+        ),
     )
     max: float | None = Field(
-        default=None, description="The upper bound, when the rule set one."
+        default=None,
+        description=(
+            "The upper bound, when the rule set one — as the budget file "
+            "declared it. " + LIVE_DERIVED_PRECISION
+        ),
     )
     passed: bool = Field(description="Whether the value satisfied both bounds.")
 
@@ -535,7 +590,9 @@ class PerfMonitorsResult(BaseModel):
         default=None,
         description=(
             "Aggregate statistics per sampled monitor, keyed by name; null in "
-            "snapshot mode."
+            "snapshot mode. Computed by gda over the window's sampled values, so "
+            "each statistic states its own precision contract — the selected "
+            "ones the engine's, the mean gda's."
         ),
     )
     samples: list[PerfSampleFrame] | None = Field(
@@ -546,7 +603,9 @@ class PerfMonitorsResult(BaseModel):
         default=None,
         description=(
             "Per-monitor budget verdicts; null when no budget was supplied "
-            "(and always null in snapshot mode)."
+            "(and always null in snapshot mode). Each verdict gates a statistic "
+            "over the window's sampled values against the bounds the budget file "
+            "declared; every number in it is gda's, and says so."
         ),
     )
     passed: bool | None = Field(
@@ -1010,6 +1069,18 @@ def perf_monitors(
     `--budget` — a per-monitor pass/fail verdict and an overall `passed`.
     `--monitor` and `--budget` require `--frames`. Live ops need a running
     daemon: with none, it reports `daemon_not_running`.
+
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
+
+    The window's `mean` and every budget verdict number are gda's own, not the
+    engine's, and disclose separately: A value gda derives CLI-side in Python —
+    from what the engine reported, or from input you supplied — never meets
+    Godot's JSON writer: it carries full binary64 precision, and that writer's
+    negative-zero residual does not apply, so a -0.0 stays -0.0 (#752).
     """
     params = params_or_bad_parameter(
         PerfMonitorsParams, frames=frames, monitors=monitors, budget=budget
@@ -1065,6 +1136,12 @@ def perf_monitor(
     `daemon_not_running`; an absent node is `live_perf_node_not_found`, an absent
     property `live_perf_property_not_found`, an absent signal
     `live_perf_signal_not_found`.
+
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     # Exactly one of --property/--signal is required (the same rule the model
     # enforces for --params-json). On the argv path it is a usage error (exit 2),

@@ -28,7 +28,7 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import dispatch_domain
+from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -111,6 +111,11 @@ class DiagError(BaseModel):
     )
 
 
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers
+# it from the Session log, relaying nothing, so these params never reach Godot's
+# JSON parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
+# whose scan states what that parser can construct: applying it here would report a
+# loss on a leg the value never crosses (#770 review).
 class DiagErrorsParams(BaseModel):
     """The params of ``gda diag errors``: read the running game's runtime errors (#224).
 
@@ -220,7 +225,7 @@ def diag_errors(
     """
     dispatch_domain(
         DIAG_ERRORS_COMMAND,
-        DiagErrorsParams(limit=limit),
+        params_or_bad_parameter(DiagErrorsParams, limit=limit),
         json_output=json_output,
         godot=godot,
         project=project,

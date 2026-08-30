@@ -16,17 +16,33 @@ descriptors off the LIVE Typer tree — the same authority ``gda.surface`` walks
 so they stay correct wherever the descriptors and result models physically live.
 """
 
+import json
+import math
 import re
 from pathlib import Path
+from typing import Any, ForwardRef, NamedTuple, get_args
 
+import pytest
 import typer
+from pydantic import BaseModel
+from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.daemon.diag import LOG_BEGIN, parse_errors, parse_log_records
 from gda.daemon.server import DAEMON_SERVED_OPS, LOG_OPS
 from gda.daemon.session import CONNECT_TIMEOUT, LAUNCH_MARKER, OP_TIMEOUT
 from gda.execution import ExecutionKind
+from gda.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
 from gda.live_runner import LIVE_REQUEST_TIMEOUT
+from gda.runner import RunResult
+
+from tests.support import (
+    PNG_1X1_B64,
+    inject_live_runner,
+    panel_text,
+    screen_capture_reply,
+    sentinel,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
@@ -139,6 +155,629 @@ def _descriptor_for(operation: str):
 
 def _live_operations() -> set[str]:
     return {d.operation for d in _descriptors() if d.kind is ExecutionKind.LIVE}
+
+
+def _live_leaves():
+    """Every LIVE leaf as ``(name, descriptor)``, read off the live Typer tree."""
+    root = typer.main.get_command(app)
+    for name, command in _leaf_commands(root, []):
+        descriptor = getattr(command, "gda_command", None)
+        if descriptor is not None and descriptor.kind is ExecutionKind.LIVE:
+            yield name, descriptor
+
+
+def test_relayed_live_params_models_carry_the_wire_number_policy():
+    """A relayed request's numbers are admitted by the wire leg's rule (#752, #770).
+
+    Godot's JSON parser reads a small-magnitude float as ``0.0`` and a large
+    integer as a different integer, so a live op can SUCCEED on a value the
+    caller never sent. The rule belongs to the daemon-to-harness LEG, and this
+    walk is what keeps it bound there rather than to a proxy — the two proxies
+    already tried both produced a defect:
+
+    - ``game call``'s own validator left ``input mouse-move``, ``input action
+      --strength`` and a nested sequence event open (#770 round 2);
+    - ``ExecutionKind.LIVE`` over-refused the ops the daemon answers ITSELF, so
+      ``daemon wait-ready --timeout 5e-324`` was rejected with a Godot-parser
+      explanation for a number Python consumes (#770 round 3).
+
+    So it fails BOTH ways: a relayed descriptor whose params model does not
+    inherit the base, and a daemon-served one that does.
+    """
+    from gda.models import RelayedLiveParams
+
+    relayed, served = [], []
+    for name, descriptor in _live_leaves():
+        target = served if descriptor.operation in DAEMON_SERVED_OPS else relayed
+        target.append((name, descriptor.input_model))
+
+    # Guard the walk against vacuity: an extraction that stopped matching would
+    # otherwise pass by checking nothing. Both partitions must be populated, or
+    # the test has stopped distinguishing the two legs it exists to distinguish.
+    assert len(relayed) >= 12, relayed
+    assert len(served) == len(DAEMON_SERVED_OPS), served
+
+    missing = [
+        name for name, model in relayed if not issubclass(model, RelayedLiveParams)
+    ]
+    assert missing == [], (
+        f"these RELAYED live commands' params models do not inherit "
+        f"gda.models.RelayedLiveParams, so their numbers reach Godot's JSON "
+        f"parser unchecked (#752): {missing}"
+    )
+    over = [name for name, model in served if issubclass(model, RelayedLiveParams)]
+    assert over == [], (
+        f"these DAEMON-SERVED commands' params models inherit "
+        f"gda.models.RelayedLiveParams, so they refuse values on a leg those "
+        f"values never cross (#770): {over}"
+    )
+
+
+# --- The RESULT direction's published contract, bound to each value's WRITER ---
+#
+# The live result path has TWO writers, and a float's fidelity is a property of
+# WHICH one produced it (gda.live_numbers): the engine's full-precision JSON
+# writer, or gda's own Python serializer over a number gda computed or echoed
+# CLI-side. Round 3's walk asked only whether a field said SOMETHING, and #770's
+# round-4 review found the consequence — `perf monitors`' statistics and budget
+# bounds inheriting the ENGINE's sentence, so a real daemon returned
+# `{"value": 1.0, "min": -0.0, "max": -0.0}` under a published claim that a
+# negative zero reads back as 0.0.
+#
+# So the required sentence is chosen by provenance, and provenance is
+# ESTABLISHED, not declared:
+#
+#   * A live command with no `recipe` is fulfilled by
+#     `classify_live(raw, request, cmd.output_model)` (gda.dispatch's own
+#     branch): the CLI constructs no result, so every float in it was parsed out
+#     of the JSON the harness wrote. That branch is exercised on a real command
+#     by `test_the_classify_path_hands_back_the_engines_own_floats`.
+#   * A live command WITH a recipe assembles its result CLI-side, where the two
+#     writers mix. Its provenance is MEASURED: a probe drives the descriptor's
+#     own recipe with a reply whose floats are sentinels, and reads which fields
+#     the sentinels reach. A recipe-bearing float-bearing live command with no
+#     probe FAILS below rather than being assumed engine-written.
+
+ENGINE_WRITTEN = "engine"
+GDA_DERIVED = "gda"
+
+# The one sentence each writer publishes (gda.live_numbers is the authority).
+SENTENCE_FOR = {
+    ENGINE_WRITTEN: LIVE_ENGINE_PRECISION,
+    GDA_DERIVED: LIVE_DERIVED_PRECISION,
+}
+
+
+class LiveFloatField(NamedTuple):
+    """One live-result field that can carry a float, and the sentences covering it."""
+
+    path: str
+    covering: "frozenset[str]"
+
+
+def _is_model(annotation: object) -> bool:
+    return isinstance(annotation, type) and issubclass(annotation, BaseModel)
+
+
+def _carries_float(annotation: object) -> bool:
+    """Whether a resolved annotation admits a JSON float.
+
+    ``Any`` counts: the projected-value fields are typed ``Any`` and a projection
+    routinely carries floats. ``int`` does not — Godot stringifies an integer
+    through ``itos``, which is exact, and the request-side integer bound is the
+    admission scan's business, not this contract's.
+    """
+    if annotation is float or annotation is Any:
+        return True
+    if _is_model(annotation):
+        return False
+    return any(_carries_float(argument) for argument in get_args(annotation))
+
+
+def _nested_models(annotation: object) -> "list[type[BaseModel]]":
+    if _is_model(annotation):
+        return [annotation]  # type: ignore[list-item]
+    found: "list[type[BaseModel]]" = []
+    for argument in get_args(annotation):
+        found.extend(_nested_models(argument))
+    return found
+
+
+def live_float_fields(
+    model: "type[BaseModel]",
+    prefix: str = "",
+    *,
+    covering: "frozenset[str]" = frozenset(),
+    seen: "tuple[type[BaseModel], ...]" = (),
+) -> "list[LiveFloatField]":
+    """Every field under ``model`` that can carry a float, and what covers it.
+
+    A description covers its own field AND its whole subtree, which is what keeps
+    the promise off the shared headless models: ``GameGetResult`` states it on
+    ``properties``, so the ``NodeProperty.value`` beneath it is covered without
+    ``NodeProperty`` — which ``node get`` / ``resource get`` also use, and where
+    #771 leaves headless fidelity different — making a live-only claim. Coverage
+    is collected as a SET rather than a boolean because the caller checks it
+    against the field's measured writer: a parent that blankets a mixed subtree
+    with one writer's sentence is then a failure, not a pass.
+
+    ``model_rebuild()`` first, and a hard failure on anything still unresolved: a
+    model whose annotations are still ``ForwardRef`` (several are, until first
+    use) would otherwise make this walk quietly skip exactly the nested reports
+    it exists to check.
+    """
+    if model in seen:
+        return []
+    model.model_rebuild()
+    found: "list[LiveFloatField]" = []
+    for name, field in model.model_fields.items():
+        path = f"{prefix}.{name}" if prefix else f"{model.__name__}.{name}"
+        annotation = field.annotation
+        assert not isinstance(annotation, (str, ForwardRef)), (
+            f"{path} is still an unresolved annotation ({annotation!r}); this walk "
+            "would skip its fields instead of checking them"
+        )
+        description = field.description or ""
+        here = covering | {
+            sentence for sentence in SENTENCE_FOR.values() if sentence in description
+        }
+        if _carries_float(annotation):
+            found.append(LiveFloatField(path, frozenset(here)))
+        for nested in _nested_models(annotation):
+            found.extend(
+                live_float_fields(nested, path, covering=here, seen=(*seen, model))
+            )
+    return found
+
+
+def _float_bearing_live_commands() -> "list[tuple[str, Any]]":
+    """Every LIVE leaf whose result model can return a float, as ``(name, descriptor)``."""
+    return [
+        (name, descriptor)
+        for name, descriptor in _live_leaves()
+        if live_float_fields(descriptor.output_model)
+    ]
+
+
+# --- Measuring provenance on a result-assembling recipe -----------------------
+
+
+def _scalar_floats(value: object) -> "list[float]":
+    """Every float scalar inside ``value``, through dicts and sequences."""
+    if isinstance(value, bool):
+        return []
+    if isinstance(value, float):
+        return [value]
+    if isinstance(value, dict):
+        return [f for item in value.values() for f in _scalar_floats(item)]
+    if isinstance(value, (list, tuple)):
+        return [f for item in value for f in _scalar_floats(item)]
+    return []
+
+
+def _model_instances(value: object) -> "list[BaseModel]":
+    """Every nested model instance inside ``value``, through dicts and sequences."""
+    if isinstance(value, BaseModel):
+        return [value]
+    if isinstance(value, dict):
+        return [m for item in value.values() for m in _model_instances(item)]
+    if isinstance(value, (list, tuple)):
+        return [m for item in value for m in _model_instances(item)]
+    return []
+
+
+def _floats_by_field(instance: BaseModel, prefix: str = "") -> "dict[str, list[float]]":
+    """The floats a produced result actually carries, keyed by the walk's paths.
+
+    The instance-side twin of :func:`live_float_fields`: same path scheme, so a
+    measured value can be matched to the field whose description must describe it.
+    """
+    model = type(instance)
+    found: "dict[str, list[float]]" = {}
+    for name, field in model.model_fields.items():
+        path = f"{prefix}.{name}" if prefix else f"{model.__name__}.{name}"
+        value = getattr(instance, name)
+        if _carries_float(field.annotation):
+            found.setdefault(path, []).extend(_scalar_floats(value))
+        for nested in _model_instances(value):
+            for nested_path, floats in _floats_by_field(nested, path).items():
+                found.setdefault(nested_path, []).extend(floats)
+    return found
+
+
+def _measured_provenance(runs) -> "dict[str, str]":
+    """Classify each field a probe exercised by whether its floats came from the reply.
+
+    A field holding only sentinels is one the recipe passed through from the
+    engine's JSON; anything else is a number gda made. ``GDA_DERIVED`` wins across
+    runs — a field that can carry gda's own number is gda's, and must say so even
+    in the modes where it happens to echo an engine value.
+    """
+    provenance: "dict[str, str]" = {}
+    for result, sentinels in runs:
+        for path, floats in _floats_by_field(result).items():
+            if not floats:
+                continue  # not exercised by this run
+            writer = (
+                ENGINE_WRITTEN
+                if all(value in sentinels for value in floats)
+                else GDA_DERIVED
+            )
+            if provenance.get(path) != GDA_DERIVED:
+                provenance[path] = writer
+    return provenance
+
+
+def _perf_monitors_probe(monkeypatch, tmp_path):
+    """Drive `perf monitors`' recipe in BOTH modes with sentinel-bearing replies."""
+    from gda.commands.perf import (
+        PERF_MONITORS_COMMAND,
+        PerfMonitorsParams,
+        PerfMonitorsResult,
+    )
+
+    assert PERF_MONITORS_COMMAND.recipe is not None
+    runs = []
+
+    snapshot_value = 101.25
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {
+                    "timestamp": 12345,
+                    "monitors": {
+                        "fps": {"name": "fps", "type": "float", "value": snapshot_value}
+                    },
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    snapshot = PERF_MONITORS_COMMAND.recipe(
+        PerfMonitorsParams(), project=tmp_path, godot=None
+    )
+    assert isinstance(snapshot, PerfMonitorsResult), snapshot
+    runs.append((snapshot, {snapshot_value}))
+
+    # Window mode. The sampled values are DISTINCT and their mean is not one of
+    # them, so an aggregate gda computed cannot be mistaken for a value it
+    # selected; the budget gates `mean` and declares bounds no sample carries, so
+    # every number in the verdict is gda's.
+    sampled = [61.5, 63.5, 67.5, 71.5]
+    budget = tmp_path / "probe-budget.json"
+    budget.write_text(
+        json.dumps({"fps": {"stat": "mean", "min": 7.25, "max": 9.75}}),
+        encoding="utf-8",
+    )
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {
+                    "kind": "sample",
+                    "frames": len(sampled),
+                    "monitors": ["fps"],
+                    "samples": [
+                        {"frame": index, "timestamp": 100 + index, "values": {"fps": v}}
+                        for index, v in enumerate(sampled)
+                    ],
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    window = PERF_MONITORS_COMMAND.recipe(
+        PerfMonitorsParams.model_validate(
+            {"frames": len(sampled), "monitors": ["fps"], "budget": str(budget)}
+        ),
+        project=tmp_path,
+        godot=None,
+    )
+    assert isinstance(window, PerfMonitorsResult), window
+    runs.append((window, set(sampled)))
+    return runs
+
+
+def _screen_capture_probe(monkeypatch, tmp_path):
+    """Drive `screen capture`'s recipe with a gated reply whose floats are sentinels."""
+    from gda.commands.screen import (
+        SCREEN_CAPTURE_COMMAND,
+        ScreenCaptureParams,
+        ScreenCaptureResult,
+    )
+
+    assert SCREEN_CAPTURE_COMMAND.recipe is not None
+    observed = 12.5
+    reply = screen_capture_reply(PNG_1X1_B64, width=8, height=8)
+    reply["predicate"] = {
+        "node": "/root/Main/VFX",
+        "property": "frame",
+        "expected": observed,
+        "observed": observed,
+        "engine_frame": 240,
+        "frames_waited": 5,
+    }
+    reply["receipt"].update(observed=observed, engine_frame=240)
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    result = SCREEN_CAPTURE_COMMAND.recipe(
+        ScreenCaptureParams(
+            output=str(tmp_path / "probe-shot.png"),
+            await_node="/root/Main/VFX",
+            await_property="frame",
+            await_value=observed,
+        ),
+        project=tmp_path,
+        godot=None,
+    )
+    assert isinstance(result, ScreenCaptureResult), result
+    return [(result, {observed})]
+
+
+# The recipes whose results mix the two writers, and the probe that measures each.
+# Not a list of what to disclose — a list of what to MEASURE, and a recipe-bearing
+# command missing from it fails rather than defaulting to the engine's sentence.
+PROVENANCE_PROBES = {
+    "perf monitors": _perf_monitors_probe,
+    "screen capture": _screen_capture_probe,
+}
+
+
+def float_provenance(name, descriptor, monkeypatch, tmp_path) -> "dict[str, str]":
+    """Which writer produces each float-bearing field of ``name``'s result."""
+    paths = [field.path for field in live_float_fields(descriptor.output_model)]
+    if descriptor.recipe is None:
+        # gda.dispatch hands a recipe-less command's raw reply straight to
+        # `classify_live(..., cmd.output_model)`; the CLI builds no result, so
+        # every float in it is one the harness wrote.
+        return {path: ENGINE_WRITTEN for path in paths}
+    probe = PROVENANCE_PROBES.get(name)
+    assert probe is not None, (
+        f"{name} assembles its result CLI-side (its descriptor carries a recipe), "
+        "so its floats' writer cannot be read off the dispatch branch: add a probe "
+        "to PROVENANCE_PROBES so the sentence it must publish is MEASURED"
+    )
+    measured = _measured_provenance(probe(monkeypatch, tmp_path))
+    unexercised = [path for path in paths if path not in measured]
+    assert not unexercised, (
+        f"{name}'s provenance probe never put a float in {unexercised}, so nothing "
+        "measured which writer produces them"
+    )
+    return measured
+
+
+def test_every_float_a_live_reply_returns_publishes_its_writers_contract(
+    monkeypatch, tmp_path
+):
+    """The result contract is derived from the models AND bound to the value's writer.
+
+    #752 requires the selected policy to be consistent across the machine schema
+    among other surfaces. This walks every LIVE result model, establishes each
+    float-bearing field's writer, and fails on a field that publishes nothing —
+    or publishes the OTHER writer's sentence, which is what #770's round-4 review
+    caught: a subtree blanketed with the engine's claim over numbers gda made.
+    """
+    offenders: "dict[str, list[tuple[str, str]]]" = {}
+    derived: "list[str]" = []
+    for name, descriptor in _live_leaves():
+        fields = live_float_fields(descriptor.output_model)
+        if not fields:
+            continue
+        provenance = float_provenance(name, descriptor, monkeypatch, tmp_path)
+        for field in fields:
+            writer = provenance[field.path]
+            if writer == GDA_DERIVED:
+                derived.append(field.path)
+            wrong = SENTENCE_FOR[
+                ENGINE_WRITTEN if writer == GDA_DERIVED else GDA_DERIVED
+            ]
+            if SENTENCE_FOR[writer] not in field.covering or wrong in field.covering:
+                offenders.setdefault(name, []).append((field.path, writer))
+    assert offenders == {}, (
+        "these live result fields do not publish the precision contract of the "
+        "writer that produces them (gda.live_numbers, #752/#770): {path: writer} "
+        f"{offenders}"
+    )
+
+    # Vacuity floor: a walk that stopped resolving nested models would report an
+    # empty offender set while checking almost nothing.
+    covered = _float_bearing_live_commands()
+    assert len(covered) >= 12, [name for name, _ in covered]
+    # And the two shapes the walk exists to reach: a value nested two models deep,
+    # and one behind a `ForwardRef` that is unresolved until the model is rebuilt.
+    paths = {
+        f.path
+        for _, descriptor in covered
+        for f in live_float_fields(descriptor.output_model)
+    }
+    assert "LoggerTailResult.records.fields" in paths, sorted(paths)
+    assert "ScreenCaptureResult.predicate.observed" in paths, sorted(paths)
+
+    # Discrimination floor: a probe that classified everything one way would pass
+    # the loop above by making the whole surface agree with itself. These four are
+    # the shapes the measurement exists to tell apart — a bound copied from the
+    # caller's budget file and an aggregate gda computed are gda's; a selected
+    # sample and the raw rows it was selected from are the engine's.
+    assert "PerfMonitorsResult.budget.min" in derived, sorted(derived)
+    assert "PerfMonitorsResult.stats.mean" in derived, sorted(derived)
+    assert "PerfMonitorsResult.stats.min" not in derived, sorted(derived)
+    assert "PerfMonitorsResult.samples.values" not in derived, sorted(derived)
+
+
+def test_the_classify_path_hands_back_the_engines_own_floats(monkeypatch, tmp_path):
+    # Why a recipe-less live command's floats are engine-written: gda.dispatch
+    # gives the raw reply to `classify_live(..., cmd.output_model)` and the CLI
+    # constructs nothing, so the number the caller reads is the one the harness's
+    # full-precision writer emitted. Exercised end to end on `game get` with two
+    # values Godot's DEFAULT writer would have lost (1e-300 flattens, and
+    # 3.141592653589793 loses its last digits), so the assertion would also fail
+    # if anything CLI-side re-rendered the value.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    reply = {
+        "path": "/root/Main/Player",
+        "name": "Player",
+        "type": "CharacterBody2D",
+        "properties": [
+            {"name": "tiny", "type": "float", "value": 1e-300},
+            {"name": "precise", "type": "float", "value": 3.141592653589793},
+        ],
+    }
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
+    )
+
+    rendered = CliRunner().invoke(
+        app,
+        ["game", "get", "/root/Main/Player", "--project", str(tmp_path), "--json"],
+    )
+
+    assert rendered.exit_code == 0, rendered.stdout
+    values = [p["value"] for p in json.loads(rendered.stdout)["properties"]]
+    assert values == [1e-300, 3.141592653589793], values
+
+
+def test_a_gda_derived_float_keeps_a_negative_zero_and_discloses_it(
+    monkeypatch, tmp_path
+):
+    # #770's round-4 finding, reproduced through the recipe: a real daemon
+    # returned `{"value": 1.0, "min": -0.0, "max": -0.0}` for a budget verdict
+    # while the field published the ENGINE's sentence, which says a negative zero
+    # reads back as 0.0. The bounds are copied out of the caller's own file and
+    # meet no Godot writer, so the -0.0 survives — and the field now says whose
+    # number it is.
+    from gda.commands.perf import (
+        PERF_MONITORS_COMMAND,
+        PerfBudgetVerdict,
+        PerfMonitorsParams,
+        PerfMonitorsResult,
+    )
+
+    budget = tmp_path / "negative-zero-budget.json"
+    budget.write_text(
+        json.dumps({"fps": {"stat": "mean", "min": -0.0, "max": -0.0}}),
+        encoding="utf-8",
+    )
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {
+                    "kind": "sample",
+                    "frames": 2,
+                    "monitors": ["fps"],
+                    "samples": [
+                        {"frame": 0, "timestamp": 100, "values": {"fps": 0.5}},
+                        {"frame": 1, "timestamp": 101, "values": {"fps": 1.5}},
+                    ],
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    assert PERF_MONITORS_COMMAND.recipe is not None
+
+    result = PERF_MONITORS_COMMAND.recipe(
+        PerfMonitorsParams.model_validate(
+            {"frames": 2, "monitors": ["fps"], "budget": str(budget)}
+        ),
+        project=tmp_path,
+        godot=None,
+    )
+
+    assert isinstance(result, PerfMonitorsResult), result
+    assert result.budget is not None
+    verdict = result.budget["fps"]
+    assert verdict.value == 1.0
+    assert verdict.min is not None and verdict.max is not None
+    # The review's observation, as a bit pattern rather than a comparison
+    # (-0.0 == 0.0 is True): the sign survives gda's serializer.
+    assert [math.copysign(1.0, bound) for bound in (verdict.min, verdict.max)] == [
+        -1.0,
+        -1.0,
+    ]
+    assert json.dumps(result.model_dump()).count("-0.0") == 2
+
+    for name in ("value", "min", "max"):
+        description = PerfBudgetVerdict.model_fields[name].description or ""
+        assert LIVE_DERIVED_PRECISION in description, name
+        assert LIVE_ENGINE_PRECISION not in description, name
+
+
+@pytest.mark.parametrize("name", [name for name, _ in _float_bearing_live_commands()])
+def test_the_precision_contract_reaches_the_machine_schema(name):
+    # #752's AC names the machine schema among the surfaces the policy must be
+    # consistent across, and #770's review found `--schema` describing only the
+    # projection SHAPE. The sentence rides the live result models' own field
+    # descriptions, CONCATENATED from the production authority rather than copied,
+    # so a schema client — and gda-mcp, whose wire schemas derive from the same
+    # models (ADR-0004) — can discover full precision and the negative-zero
+    # residual. It is deliberately NOT on the request side: that direction is a
+    # refusal, stated where the refusal is made.
+    rendered = CliRunner().invoke(app, [*name.split(), "--schema"])
+    assert rendered.exit_code == 0, rendered.stdout
+    document = json.loads(rendered.stdout)
+    assert LIVE_ENGINE_PRECISION in json.dumps(document["output"], ensure_ascii=False)
+    assert LIVE_ENGINE_PRECISION not in json.dumps(
+        document["input"], ensure_ascii=False
+    )
+
+
+@pytest.mark.parametrize("name", [name for name, _ in _float_bearing_live_commands()])
+def test_the_precision_contract_reaches_the_rendered_help(name):
+    # Typer renders a command's DOCSTRING as its help and cannot interpolate a
+    # constant into it, so each copy is pinned against the production authority —
+    # and the SET of commands that must carry one is derived from the result
+    # models above, which is what an earlier round got wrong by listing it.
+    rendered = CliRunner().invoke(app, [*name.split(), "--help"])
+    assert rendered.exit_code == 0, rendered.stdout
+    assert LIVE_ENGINE_PRECISION in " ".join(panel_text(rendered.stdout).split()), name
+
+
+def test_only_the_replies_that_carry_a_gda_number_publish_the_derived_contract(
+    monkeypatch, tmp_path
+):
+    # The derived sentence follows the same two surfaces as the engine's, and it
+    # is published where — and ONLY where — the measurement says a reply carries
+    # a number gda made. Both directions matter: a command that returns one and
+    # stays silent leaves the round-4 defect in the help and the schema, while
+    # pasting both sentences everywhere would restore the blanket claim the whole
+    # guard exists to prevent.
+    for name, descriptor in _float_bearing_live_commands():
+        carries_gda_number = (
+            GDA_DERIVED
+            in float_provenance(name, descriptor, monkeypatch, tmp_path).values()
+        )
+
+        schema = CliRunner().invoke(app, [*name.split(), "--schema"])
+        assert schema.exit_code == 0, schema.stdout
+        published = json.dumps(json.loads(schema.stdout)["output"], ensure_ascii=False)
+        assert (LIVE_DERIVED_PRECISION in published) is carries_gda_number, name
+
+        rendered = CliRunner().invoke(app, [*name.split(), "--help"])
+        assert rendered.exit_code == 0, rendered.stdout
+        helped = " ".join(panel_text(rendered.stdout).split())
+        assert (LIVE_DERIVED_PRECISION in helped) is carries_gda_number, name
+
+
+def test_the_headless_property_shape_makes_no_live_precision_promise():
+    # The shared NodeProperty description serves `node get` / `resource get` too,
+    # where #771 leaves the default writer in place. A live-only guarantee stated
+    # there would be false for those reads — so the live commands publish it on
+    # their OWN fields, and the subtree rule above is what lets them.
+    from gda.models import NodeProperty
+
+    schema = json.dumps(NodeProperty.model_json_schema(), ensure_ascii=False)
+    rendered = CliRunner().invoke(app, ["node", "get", "--schema"])
+    published = json.dumps(json.loads(rendered.stdout)["output"], ensure_ascii=False)
+    for sentence in SENTENCE_FOR.values():
+        assert sentence not in schema
+        assert sentence not in published
 
 
 # The harness op table: one ``const OP_<NAME> := "<wire op name>"`` per relayed live
