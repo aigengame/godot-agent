@@ -844,6 +844,14 @@ re-derives every verdict from a running engine.
   `--schema` on every float-bearing live reply, and on which replies those are is
   DERIVED: a walk over the live result models fails a float-bearing field that publishes
   no contract, so a new live float cannot ship silent.
+- **A live reply can also carry a number the engine never wrote, and it discloses
+  separately.** `perf monitors --frames` computes its `mean` CLI-side and copies each
+  budget bound out of the caller's own budget file, so those meet no Godot writer: they
+  are exact, and the engine writer's negative-zero residual does not apply to them — a
+  `-0.0` bound reads back as `-0.0`. Two published sentences therefore exist, one per
+  writer, and which one a field carries is MEASURED rather than declared: a probe drives
+  each result-assembling recipe with a reply whose floats are sentinels and sees which
+  fields they reach, so a field disclosing the wrong writer fails the guard.
 - **Requests are bounded, and the bound is cross-operation.** Godot's `built_in_strtod`
   applies a power of ten it computes as a double, so an applied exponent of −309 or below
   divides by `inf`: 18 of the 96 arrive as `0.0`, including `DBL_MIN`, every subnormal,

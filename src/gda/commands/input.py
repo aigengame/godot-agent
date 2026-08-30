@@ -44,7 +44,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.live_numbers import LIVE_RESULT_PRECISION
+from gda.live_numbers import LIVE_ENGINE_PRECISION
 from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams
 
 # The keyboard modifier names a key/sequence/tap may carry, mapped to the
@@ -201,7 +201,7 @@ class InputMouseMoveResult(BaseModel):
         description=(
             "The viewport position the event was injected at, as [x, y]. This "
             "mirrors event.position; engine-tracked mouse positions may remain "
-            "stale. " + LIVE_RESULT_PRECISION
+            "stale. " + LIVE_ENGINE_PRECISION
         ),
     )
     button: str | None = Field(
@@ -255,7 +255,7 @@ class InputMouseClickResult(BaseModel):
         description=(
             "The viewport position the gesture was injected at, as [x, y]. This "
             "mirrors event.position; engine-tracked mouse positions may remain "
-            "stale. " + LIVE_RESULT_PRECISION
+            "stale. " + LIVE_ENGINE_PRECISION
         ),
     )
     button: Literal["left", "right", "middle"] = Field(
@@ -342,7 +342,7 @@ class InputActionResult(BaseModel):
     pressed: bool = Field(description="True for a press, false for a release.")
     strength: float = Field(
         description=(
-            "The press strength applied (0.0 on a release). " + LIVE_RESULT_PRECISION
+            "The press strength applied (0.0 on a release). " + LIVE_ENGINE_PRECISION
         )
     )
 
@@ -492,7 +492,7 @@ class InputTapResult(BaseModel):
         le=1.0,
         description=(
             "The action press strength applied, 0..1; null for a key tap. "
-            + LIVE_RESULT_PRECISION
+            + LIVE_ENGINE_PRECISION
         ),
     )
     hold_frames: int = Field(
@@ -1228,10 +1228,11 @@ def input_mouse_click(
     Viewport.get_mouse_position() / Node2D.get_global_mouse_position() stale in
     daemon sessions. With no daemon it reports `daemon_not_running`.
 
-    Live floats cross the wire at full binary64 precision — the reply is
-    serialized with Godot's full-precision JSON writer, so a small or many-digit
-    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
-    as 0.0, which the engine's writer decides before gda sees the value.
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     dispatch_domain(
         INPUT_MOUSE_CLICK_COMMAND,
@@ -1267,10 +1268,11 @@ def input_mouse_move(
     Node2D.get_global_mouse_position() stale in daemon sessions. With no daemon it
     reports `daemon_not_running`.
 
-    Live floats cross the wire at full binary64 precision — the reply is
-    serialized with Godot's full-precision JSON writer, so a small or many-digit
-    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
-    as 0.0, which the engine's writer decides before gda sees the value.
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     dispatch_domain(
         INPUT_MOUSE_MOVE_COMMAND,
@@ -1310,10 +1312,11 @@ def input_action(
     from the InputMap is `live_unknown_action`. With no daemon it reports
     `daemon_not_running`.
 
-    Live floats cross the wire at full binary64 precision — the reply is
-    serialized with Godot's full-precision JSON writer, so a small or many-digit
-    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
-    as 0.0, which the engine's writer decides before gda sees the value.
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     params = params_or_bad_parameter(
         InputActionParams, action=action, release=release, strength=strength
@@ -1397,10 +1400,11 @@ def input_tap(
     InputMap is `live_unknown_action`. With no daemon it reports
     `daemon_not_running`.
 
-    Live floats cross the wire at full binary64 precision — the reply is
-    serialized with Godot's full-precision JSON writer, so a small or many-digit
-    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
-    as 0.0, which the engine's writer decides before gda sees the value.
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     params = params_or_bad_parameter(
         InputTapParams,

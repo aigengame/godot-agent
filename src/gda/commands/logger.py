@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from gda.commands.diag import SourceFrame, diag_limit_option, DIAG_LIMIT_DESC
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
-from gda.live_numbers import LIVE_RESULT_PRECISION
+from gda.live_numbers import LIVE_ENGINE_PRECISION
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -103,7 +103,7 @@ class LogRecord(BaseModel):
         description=(
             "App-supplied structured fields; empty for a passively-parsed record, "
             "populated only by the opt-in gda_log() protocol (#282). "
-            + LIVE_RESULT_PRECISION
+            + LIVE_ENGINE_PRECISION
         ),
     )
 
@@ -270,10 +270,11 @@ def logger_tail(
     ever launched, `engine_session_not_running`; with a session whose log file is
     gone, `live_log_unavailable`. An empty log is an empty result, not an error.
 
-    Live floats cross the wire at full binary64 precision — the reply is
-    serialized with Godot's full-precision JSON writer, so a small or many-digit
-    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
-    as 0.0, which the engine's writer decides before gda sees the value.
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     dispatch_domain(
         LOGGER_TAIL_COMMAND,

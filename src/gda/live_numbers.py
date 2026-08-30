@@ -34,6 +34,21 @@ carries full binary64 precision. One residual, kept in the public contract becau
 it is an engine early return (``JSON::_stringify`` emits ``"0.0"`` for anything
 equal to zero): a NEGATIVE ZERO reads back as ``0.0``.
 
+**The result path has TWO writers, and each float has exactly one of them.** The
+paragraph above is about the engine's: a value the game reports is stringified by
+``gda_harness.gd``'s ``_json`` and read back by Python. But a live result can
+also carry a number the engine never wrote — one gda computes or echoes CLI-side
+(``perf monitors``' window statistics, and the budget bounds it copies out of the
+caller's own file). Those never meet Godot's writer, so the engine's residual is
+not theirs: gda's serializer keeps a negative zero, and a real daemon returning
+``{"value": 1.0, "min": -0.0, "max": -0.0}`` is what the #770 review used to
+falsify the blanket claim. Hence TWO published sentences, each naming its writer
+— :data:`LIVE_ENGINE_PRECISION` and :data:`LIVE_DERIVED_PRECISION`. Which one a
+field carries is not a matter of taste: ``tests/test_live_contract_guards.py``
+MEASURES the provenance (a probe drives each result-assembling recipe with a
+sentinel-bearing reply and sees which fields the sentinels reach) and fails a
+field disclosing the wrong writer.
+
 **Request direction — bounded, not fixable here.** Godot's parser is
 ``built_in_strtod`` (``core/string/ustring.cpp``), a Tcl-derived strtod that reads
 the digits into an integer ``fraction`` and applies a power of ten computed AS A
@@ -183,7 +198,7 @@ def find_unrepresentable(value: object, path: str) -> "str | None":
     would reject ordinary game values, and removing it would mean not sending a
     JSON number at all, the bespoke daemon-harness representation ADR-0021
     rejected. The result direction has no such residual (see
-    :data:`LIVE_RESULT_PRECISION`).
+    :data:`LIVE_ENGINE_PRECISION`).
     """
     if isinstance(value, bool):
         pass  # bool is not an int argument here, despite subclassing it
@@ -219,16 +234,31 @@ def find_unrepresentable(value: object, path: str) -> "str | None":
     return None
 
 
-# The RESULT direction's public contract, in one production sentence (#752).
-# Quoted verbatim by the live commands' Typer docstrings (which Typer renders as
-# `--help` and cannot interpolate a constant into, so a test pins them against
-# THIS string) and concatenated into the live result models' field descriptions,
-# which `--schema` publishes. Deliberately says nothing about the REQUEST
-# direction: that one is a refusal, stated where the refusal is made.
-LIVE_RESULT_PRECISION = (
-    "Live floats cross the wire at full binary64 precision — the reply is "
-    "serialized with Godot's full-precision JSON writer, so a small or "
-    "many-digit value reads back exactly (#752). The one residual: a NEGATIVE "
-    "ZERO reads back as 0.0, which the engine's writer decides before gda sees "
+# The RESULT direction's public contract — one sentence PER WRITER (#752, #770
+# review). Both are quoted verbatim by the live commands' Typer docstrings (which
+# Typer renders as `--help` and cannot interpolate a constant into, so a test pins
+# them against THESE strings) and concatenated into the live result models' field
+# descriptions, which `--schema` publishes. Both deliberately say nothing about the
+# REQUEST direction: that one is a refusal, stated where the refusal is made.
+#
+# Each names its writer in its first words, because that is the fact it is a
+# property of: the #770 review found the engine sentence inherited by fields the
+# engine never wrote, and a claim that does not say whose value it describes
+# invites exactly that.
+
+# For a value the ENGINE produced and its full-precision writer serialized.
+LIVE_ENGINE_PRECISION = (
+    "A value the engine reports crosses the wire at full binary64 precision — "
+    "the reply is serialized with Godot's full-precision JSON writer, so a "
+    "small or many-digit value reads back exactly (#752). The one residual is "
+    "that writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees "
     "the value."
+)
+
+# For a value GDA produced CLI-side, which no Godot writer ever touched.
+LIVE_DERIVED_PRECISION = (
+    "A value gda derives CLI-side in Python — from what the engine reported, or "
+    "from input you supplied — never meets Godot's JSON writer: it carries full "
+    "binary64 precision, and that writer's negative-zero residual does not "
+    "apply, so a -0.0 stays -0.0 (#752)."
 )
