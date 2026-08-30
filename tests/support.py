@@ -200,6 +200,15 @@ def capture_receipt_reply(**overrides) -> dict:
     return receipt
 
 
+# A 1x1 transparent PNG, base64 as the harness sends it: valid bytes, so a
+# recipe that decodes and WRITES the file drives its real path. Lives here
+# because two suites now capture through the same helpers.
+PNG_1X1_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
 def screen_capture_reply(png_base64: str, *, width: int, height: int) -> dict:
     """A canned ``screen capture`` HARNESS reply payload (#222).
 

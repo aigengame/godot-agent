@@ -33,6 +33,7 @@ from gda.commands.screen import (
 from gda.models import MAX_WINDOW_FRAMES
 from gda.runner import RunResult
 from tests.support import (
+    PNG_1X1_B64,
     error_sentinel,
     inject_live_runner,
     sentinel,
@@ -42,12 +43,10 @@ from tests.support import (
 )
 
 # A 1x1 transparent PNG (valid, decodes to real bytes) so a written file starts
-# with the PNG magic and has a real byte length.
-_PNG_1X1 = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
-    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-)
-_PNG_B64 = base64.b64encode(_PNG_1X1).decode("ascii")
+# with the PNG magic and has a real byte length. The base64 lives in
+# tests.support, which the live-contract guard's capture probe reads too.
+_PNG_B64 = PNG_1X1_B64
+_PNG_1X1 = base64.b64decode(_PNG_B64)
 
 
 def _project(tmp_path):
