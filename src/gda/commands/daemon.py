@@ -61,7 +61,6 @@ from gda.daemon.session import CONNECT_TIMEOUT
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import Failure, make_failure, unresolvable_binary_failure
 from gda.execution import MIN_LIVE_VERSION, ExecutionKind
-from gda.models import LiveParams
 from gda.harness.install import (
     HarnessSnapshot,
     install_harness,
@@ -226,7 +225,12 @@ class DaemonStatusResult(BaseModel):
     )
 
 
-class DaemonWaitReadyParams(LiveParams):
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon consumes
+# this budget itself, relaying nothing, so the value never reaches Godot's JSON
+# parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
+# whose scan states what that parser can construct: applying it here would report a
+# loss on a leg the value never crosses (#770 review).
+class DaemonWaitReadyParams(BaseModel):
     """The params of ``gda daemon wait-ready``: the readiness budget (#657).
 
     The daemon launches its engine session LAZILY on the first operation that

@@ -33,7 +33,7 @@ from gda.headless import (
 )
 from gda.live_numbers import LIVE_RESULT_PRECISION, MAX_EXACT_JSON_INT
 from gda.models import (
-    LiveParams,
+    RelayedLiveParams,
     NodeProperty,
     RUNTIME_NODE_DESC,
     projected_value_schema_extra,
@@ -68,7 +68,7 @@ class GameNode(BaseModel):
     children: list["GameNode"] = []
 
 
-class GameTreeParams(LiveParams):
+class GameTreeParams(RelayedLiveParams):
     """The params of ``gda game tree``: read the running game's runtime scene tree.
 
     Empty — it reads the whole runtime tree of the engine session held by
@@ -82,7 +82,7 @@ class GameTreeResult(BaseModel):
     root: GameNode
 
 
-class GameGetParams(LiveParams):
+class GameGetParams(RelayedLiveParams):
     """The params of ``gda game get``: read a running node's runtime properties (#220, #422).
 
     The live counterpart of :class:`NodeGetParams`, addressed by the runtime
@@ -145,7 +145,7 @@ class GameGetResult(BaseModel):
     )
 
 
-class GameRectParams(LiveParams):
+class GameRectParams(RelayedLiveParams):
     """The params of ``gda game rect``: read a running Control's rendered rect (#419).
 
     Addressed by the same runtime (absolute) node path as ``game get``. The
@@ -182,7 +182,7 @@ class GameRectResult(BaseModel):
     )
 
 
-class GameSetParams(LiveParams):
+class GameSetParams(RelayedLiveParams):
     """The params of ``gda game set``: mutate a running node's runtime property (#220, #422).
 
     The live counterpart of :class:`NodeSetParams`, addressed by the runtime
@@ -234,6 +234,8 @@ class GameSetResult(BaseModel):
         description=(
             "The observed read-back value as JSON, as the running node now holds it. "
             + LIVE_SET_READ_BACK_VALUE_DESC
+            + " "
+            + LIVE_RESULT_PRECISION
         ),
         json_schema_extra=projected_value_schema_extra,
     )
@@ -257,9 +259,9 @@ GDA_CALLABLE_CONST = "GDA_CALLABLE"
 # The live wire's number domain — the safe-integer bound, the small-float
 # underflow predicate, the recursive admission scan and the result-precision
 # contract — lives in ``gda.live_numbers``, the one authority this group's help
-# and schema read (#752). The scan itself is APPLIED by ``gda.models.LiveParams``,
-# which every LIVE params model below inherits, so the refusal is the live wire's
-# rule rather than this group's. ``MAX_EXACT_JSON_INT`` is re-exported by the
+# and schema read (#752). The scan itself is APPLIED by ``gda.models.RelayedLiveParams``,
+# which every params model below inherits — this whole group is relayed to the
+# harness — so the refusal is the wire leg's rule rather than this group's. ``MAX_EXACT_JSON_INT`` is re-exported by the
 # import above so ``gda.commands.game.MAX_EXACT_JSON_INT`` keeps naming it.
 
 
@@ -323,7 +325,7 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
     array_schema["items"] = value_ref
 
 
-class GameCallParams(LiveParams):
+class GameCallParams(RelayedLiveParams):
     """The params of ``gda game call``: invoke one DECLARED read-only method (#673).
 
     The live read that ``game get`` cannot serve: a debug/state contract exposed
@@ -662,6 +664,11 @@ def game_set(
     getter-only/no-op variable or an edge-triggered variable). With no daemon it
     reports `daemon_not_running`; an absent node is `live_node_not_found`, an absent
     property `live_unknown_property`, an uncoercible input value `live_uncoercible_value`.
+
+    Live floats cross the wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     dispatch_domain(
         GAME_SET_COMMAND,
@@ -735,6 +742,11 @@ def game_call(
     call (a `callv` the engine cannot convert for returns null, which would
     otherwise read as a successful null). An unresolvable path is
     `live_node_not_found`, and with no daemon it reports `daemon_not_running`.
+
+    Live floats cross the wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     # The argv value is JSON, parsed here so argv and --params-json build the
     # SAME model (ADR-0015); a non-JSON string reaches the model, which refuses

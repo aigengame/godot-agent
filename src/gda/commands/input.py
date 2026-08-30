@@ -44,7 +44,8 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import MAX_WINDOW_FRAMES, LiveParams
+from gda.live_numbers import LIVE_RESULT_PRECISION
+from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams
 
 # The keyboard modifier names a key/sequence/tap may carry, mapped to the
 # InputEventKey modifier flag the harness sets. A Literal is the ONE authority for
@@ -66,7 +67,7 @@ class MouseButton(str, Enum):
     MIDDLE = "middle"
 
 
-class InputKeyParams(LiveParams):
+class InputKeyParams(RelayedLiveParams):
     """The params of ``gda input key``: inject one key event (#221).
 
     Pushes an ``InputEventKey`` for ``key`` (with any ``modifiers``) into the
@@ -112,7 +113,7 @@ class InputKeyResult(BaseModel):
     pressed: bool = Field(description="True for a press event, false for a release.")
 
 
-class InputMouseClickParams(LiveParams):
+class InputMouseClickParams(RelayedLiveParams):
     """The params of ``gda input mouse-click``: inject a complete click gesture (#221, #652).
 
     Injects the COMPLETE click gesture at viewport position ``(x, y)`` into the
@@ -153,7 +154,7 @@ class InputMouseClickParams(LiveParams):
     )
 
 
-class InputMouseMoveParams(LiveParams):
+class InputMouseMoveParams(RelayedLiveParams):
     """The params of ``gda input mouse-move``: inject a mouse motion event (#221).
 
     Pushes an ``InputEventMouseMotion`` to viewport position ``(x, y)`` into the
@@ -199,7 +200,8 @@ class InputMouseMoveResult(BaseModel):
         max_length=2,
         description=(
             "The viewport position the event was injected at, as [x, y]. This "
-            "mirrors event.position; engine-tracked mouse positions may remain stale."
+            "mirrors event.position; engine-tracked mouse positions may remain "
+            "stale. " + LIVE_RESULT_PRECISION
         ),
     )
     button: str | None = Field(
@@ -252,7 +254,8 @@ class InputMouseClickResult(BaseModel):
         max_length=2,
         description=(
             "The viewport position the gesture was injected at, as [x, y]. This "
-            "mirrors event.position; engine-tracked mouse positions may remain stale."
+            "mirrors event.position; engine-tracked mouse positions may remain "
+            "stale. " + LIVE_RESULT_PRECISION
         ),
     )
     button: Literal["left", "right", "middle"] = Field(
@@ -295,7 +298,7 @@ class InputMouseClickResult(BaseModel):
         return self
 
 
-class InputActionParams(LiveParams):
+class InputActionParams(RelayedLiveParams):
     """The params of ``gda input action``: press or release an input action (#221).
 
     Drives ``Input.action_press`` / ``Input.action_release`` for the named action,
@@ -338,11 +341,13 @@ class InputActionResult(BaseModel):
     action: str = Field(description="The action name that was driven.")
     pressed: bool = Field(description="True for a press, false for a release.")
     strength: float = Field(
-        description="The press strength applied (0.0 on a release)."
+        description=(
+            "The press strength applied (0.0 on a release). " + LIVE_RESULT_PRECISION
+        )
     )
 
 
-class InputTapParams(LiveParams):
+class InputTapParams(RelayedLiveParams):
     """The params of ``gda input tap``: a complete press-hold-release of one key or action (#652).
 
     Godot needs the press and the release to land on SEPARATE process frames for
@@ -485,7 +490,10 @@ class InputTapResult(BaseModel):
         default=None,
         ge=0.0,
         le=1.0,
-        description="The action press strength applied, 0..1; null for a key tap.",
+        description=(
+            "The action press strength applied, 0..1; null for a key tap. "
+            + LIVE_RESULT_PRECISION
+        ),
     )
     hold_frames: int = Field(
         ge=1, description="Process frames held between the press and the release."
@@ -934,7 +942,7 @@ _SEQUENCE_EVENT_MODELS: tuple[type[_SequenceEvent], ...] = get_args(
 )
 
 
-class InputSequenceParams(LiveParams):
+class InputSequenceParams(RelayedLiveParams):
     """The params of ``gda input sequence``: inject events across process or physics frames.
 
     A multi-frame op (the time-windowed harness base, #223): ``events`` is a list of
@@ -1219,6 +1227,11 @@ def input_mouse_click(
     from the mouse events' position; Godot may leave
     Viewport.get_mouse_position() / Node2D.get_global_mouse_position() stale in
     daemon sessions. With no daemon it reports `daemon_not_running`.
+
+    Live floats cross the wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     dispatch_domain(
         INPUT_MOUSE_CLICK_COMMAND,
@@ -1253,6 +1266,11 @@ def input_mouse_move(
     position; Godot may leave Viewport.get_mouse_position() /
     Node2D.get_global_mouse_position() stale in daemon sessions. With no daemon it
     reports `daemon_not_running`.
+
+    Live floats cross the wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     dispatch_domain(
         INPUT_MOUSE_MOVE_COMMAND,
@@ -1291,6 +1309,11 @@ def input_action(
     game observes the action exactly as a real binding would fire. An action absent
     from the InputMap is `live_unknown_action`. With no daemon it reports
     `daemon_not_running`.
+
+    Live floats cross the wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     params = params_or_bad_parameter(
         InputActionParams, action=action, release=release, strength=strength
@@ -1373,6 +1396,11 @@ def input_tap(
     unresolvable key is `live_invalid_key`, an action absent from the running
     InputMap is `live_unknown_action`. With no daemon it reports
     `daemon_not_running`.
+
+    Live floats cross the wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     params = params_or_bad_parameter(
         InputTapParams,

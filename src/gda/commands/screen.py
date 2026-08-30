@@ -40,7 +40,7 @@ from gda.headless import (
 )
 from gda.live_numbers import LIVE_RESULT_PRECISION
 from gda.live_runner import make_daemon_runner
-from gda.models import MAX_WINDOW_FRAMES, LiveParams, NormalizedPath
+from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams, NormalizedPath
 from gda.runner import GodotRunner
 
 # --- screen (runtime viewport capture, #222) ----------------------------------
@@ -109,7 +109,7 @@ def _await_schema_extra(schema: dict) -> None:
             }
 
 
-class ScreenCaptureParams(LiveParams):
+class ScreenCaptureParams(RelayedLiveParams):
     """The params of ``gda screen capture``: where to write one viewport frame (#222).
 
     Captures the running game's current viewport in one frame (frame-coherent,
@@ -313,7 +313,8 @@ class CaptureReceipt(BaseModel):
         description=(
             "The predicate echo for a gated capture: the observed value the "
             "predicate matched, evaluated at engine_frame (identical to "
-            "predicate.observed). Null on a plain capture. Always present."
+            "predicate.observed). Null on a plain capture. Always present. "
+            + LIVE_RESULT_PRECISION
         ),
     )
     sha256: str = Field(
@@ -355,7 +356,7 @@ class CapturePredicateReport(BaseModel):
     )
 
 
-class ScreenFramesParams(LiveParams):
+class ScreenFramesParams(RelayedLiveParams):
     """The params of ``gda screen frames``: capture a window of viewport frames (#222).
 
     Time-windowed (the gda harness's multi-frame base, #223): one viewport frame is

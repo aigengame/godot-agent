@@ -69,12 +69,16 @@ DOUBLE from a table of ``10^2^i``. Two consequences, both reproduced:
   daemon↔harness representation ADR-0021 rejected.
 
 The **request-side admission scan** (:func:`find_unrepresentable`) is where that
-policy is applied. It is a property of the WIRE, not of any one command, so every
-LIVE params model inherits it through :class:`gda.models.LiveParams` — one
-recursive pass over the model's own fields, before the daemon writes the frame.
-Three classes are refused there: a non-finite float (JSON has no literal for one),
-an integer outside :data:`MAX_EXACT_JSON_INT`, and a float this module's predicate
-says the parser reads as ``0.0``.
+policy is applied. It is a property of the daemon-to-harness LEG — the one Godot's
+parser reads — not of any one command and not of every live command either: the
+ops the daemon answers itself (``gda.daemon.server.DAEMON_SERVED_OPS``) carry
+their numbers over a Python-to-Python leg that loses nothing. So every RELAYED
+live params model inherits the scan through
+:class:`gda.models.RelayedLiveParams` — one recursive pass over the model's own
+fields, before the daemon writes the frame. Three classes are refused there: a
+non-finite float (JSON has no literal for one), an integer outside
+:data:`MAX_EXACT_JSON_INT`, and a float this module's predicate says the parser
+reads as ``0.0``.
 
 The predicate below is not a decimal heuristic: it recomputes the engine's own
 ``exp`` intermediate from the literal gda is about to write. ``tests/

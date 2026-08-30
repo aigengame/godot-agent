@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 import pytest
+import typer
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
@@ -24,7 +25,6 @@ from gda.cli import app
 from gda.commands.game import GameCallParams
 from gda.live_numbers import (
     GODOT_STRTOD_MAX_POWER,
-    LIVE_RESULT_PRECISION,
     MAX_EXACT_JSON_INT,
     find_unrepresentable,
     godot_applied_decimal_exponent,
@@ -32,7 +32,7 @@ from gda.live_numbers import (
 )
 
 from tests.live_number_corpus import LIVE_NUMBER_CORPUS, PARTITIONS
-from tests.support import panel_text, usage_error_text
+from tests.support import usage_error_text
 
 # The value the engine's parser cannot construct at all, used wherever a test
 # needs one representative of the refused class rather than the whole corpus.
@@ -215,13 +215,15 @@ def test_the_scan_keeps_the_three_refusal_classes_distinguishable():
     assert find_unrepresentable({"flag": True, "n": 3}, "p") is None
 
 
-# --- The policy, applied at EVERY live ingress ---------------------------------
+# --- The policy, applied at every RELAYED ingress -------------------------------
 #
 # The #770 review reproduced silent success on the live inputs `game call` did
 # not cover: `input mouse-move 5e-324 1` returned success with `[0.0, 1.0]`, and
 # `input action --strength 5e-324` with `strength: 0.0`. The refusal is now the
-# live wire's rule (gda.models.LiveParams), so every ingress is covered here and
-# `tests/test_live_contract_guards.py` fails a LIVE command that opts out.
+# rule of the leg Godot's parser reads (gda.models.RelayedLiveParams), so every
+# relayed ingress is covered here — and the ops the daemon answers itself are
+# covered by the opposite assertion below. `tests/test_live_contract_guards.py`
+# fails a command on the wrong side of that partition.
 
 ARGV_INGRESSES = [
     pytest.param(["input", "mouse-move", repr(FLATTENED), "1"], id="mouse-move-x"),
@@ -293,7 +295,9 @@ PARAMS_JSON_INGRESSES = [
         id="game-call-nested-arg",
     ),
     pytest.param(
-        ["diag", "errors"], {"limit": MAX_EXACT_JSON_INT + 2}, id="diag-limit-integer"
+        ["game", "call"],
+        {"node": "/root/Main", "method": "m", "args": [MAX_EXACT_JSON_INT + 2]},
+        id="game-call-unsafe-integer",
     ),
 ]
 
@@ -311,6 +315,52 @@ def test_every_live_params_json_ingress_reports_the_structured_refusal(argv, par
         "cannot cross the live wire" in error["message"]
         or "integer values must be within" in error["message"]
     ), error
+
+
+DAEMON_SERVED_INGRESSES = [
+    pytest.param(["daemon", "wait-ready"], {"timeout": FLATTENED}, id="wait-ready"),
+    pytest.param(
+        ["diag", "errors"], {"limit": MAX_EXACT_JSON_INT + 2}, id="diag-errors"
+    ),
+    pytest.param(
+        ["logger", "tail"], {"limit": MAX_EXACT_JSON_INT + 2}, id="logger-tail"
+    ),
+]
+
+
+@pytest.mark.parametrize(("argv", "params"), DAEMON_SERVED_INGRESSES)
+def test_a_daemon_served_op_does_not_refuse_what_its_numbers_never_meet(argv, params):
+    # The other half of the boundary (#770 round 3). `diag errors`, `logger tail`
+    # and `daemon wait-ready` are answered BY the daemon: their numbers travel one
+    # Python-to-Python leg (`json.dumps` -> `json.loads`) and never reach Godot's
+    # parser. Refusing `--timeout 5e-324` there told the caller a fact about a
+    # parser its value never meets — a false public contract, on the exact command
+    # a caller reaches for first. The params model must BUILD, carrying the value
+    # through unchanged; whatever happens next is the live channel's business.
+    built = _descriptor_for_argv(argv).input_model(**params)
+    for field, value in params.items():
+        assert getattr(built, field) == value
+
+    # And the public contract agrees: the CLI does not turn it into a usage error.
+    # (With no daemon and no project it fails for one of those reasons instead —
+    # what matters is that the wire refusal is gone.)
+    rendered = CliRunner().invoke(
+        app, [*argv, "--params-json", json.dumps(params), "--json"]
+    )
+    assert "cannot cross the live wire" not in rendered.stdout, rendered.stdout
+    assert "integer values must be within" not in rendered.stdout, rendered.stdout
+
+
+def _descriptor_for_argv(argv):
+    """The backing descriptor of the leaf ``argv`` names (cf. gda.surface).
+
+    Reached through the same ``commands`` duck-type the surface walker uses, so
+    Click stays an untyped transitive dependency here.
+    """
+    command: object = typer.main.get_command(app)
+    for name in argv:
+        command = getattr(command, "commands")[name]
+    return getattr(command, "gda_command")
 
 
 def test_the_sequence_refusal_names_the_offending_event():
@@ -398,88 +448,19 @@ def test_the_game_group_still_names_the_shared_integer_bound():
 
 
 # --- The RESULT direction's one published sentence ----------------------------
+#
+# WHERE that sentence must appear is derived from the live result models, in
+# `tests/test_live_contract_guards.py`: it walks every LIVE result model and
+# fails on a float-bearing field no description publishes it for, then checks the
+# machine schema and the rendered help of exactly that derived set. What remains
+# here is the surface no model walk can reach.
 
 
-def _collapsed(text: str) -> str:
-    """One line, single-spaced — a docstring's wrapping is not part of its content."""
-    return " ".join(text.split())
-
-
-def test_the_result_precision_guarantee_is_stated_identically_on_every_live_read():
-    from gda.commands.game import game_get, game_rect
-    from gda.commands.perf import perf_monitor, perf_monitors
-    from gda.commands.screen import screen_capture
-
-    # Every live surface that returns a float: the property reads, the Control
-    # rect, the monitor counters and timelines, and a gated capture's predicate
-    # echo. Typer renders a command's DOCSTRING as its help and cannot
-    # interpolate a constant into it, so each copy is pinned against the
-    # production authority (#770 review moved that authority out of this test).
-    for command in (game_get, game_rect, perf_monitors, perf_monitor, screen_capture):
-        assert LIVE_RESULT_PRECISION in _collapsed(command.__doc__ or ""), (
-            command.__name__
-        )
-
-
-LIVE_RESULT_SCHEMA_COMMANDS = [
-    ["game", "get"],
-    ["game", "rect"],
-    ["game", "call"],
-    ["perf", "monitors"],
-    ["perf", "monitor"],
-    ["screen", "capture"],
-]
-
-
-@pytest.mark.parametrize("argv", LIVE_RESULT_SCHEMA_COMMANDS, ids=" ".join)
-def test_the_result_precision_guarantee_reaches_the_machine_schema(argv):
-    # #752's AC names the machine schema among the surfaces the policy must be
-    # consistent across, and #770's review found `--schema` describing only the
-    # projection SHAPE. The sentence rides the live result models' own field
-    # descriptions, CONCATENATED from the authority rather than copied, so a
-    # schema client can discover full precision and the negative-zero residual.
-    # It is deliberately NOT on the shared headless NodeProperty description:
-    # #771 leaves headless fidelity different, and that model serves both.
-    rendered = CliRunner().invoke(app, [*argv, "--schema"])
-    assert rendered.exit_code == 0, rendered.stdout
-    document = json.loads(rendered.stdout)
-    assert LIVE_RESULT_PRECISION in json.dumps(document["output"], ensure_ascii=False)
-    assert LIVE_RESULT_PRECISION not in json.dumps(
-        document["input"], ensure_ascii=False
-    )
-
-
-def test_the_headless_property_shape_makes_no_live_precision_promise():
-    # The shared NodeProperty description serves `node get` / `resource get` too,
-    # where #771 leaves the default writer in place. A live-only guarantee stated
-    # there would be false for those reads.
-    from gda.models import NodeProperty
-
-    schema = json.dumps(NodeProperty.model_json_schema(), ensure_ascii=False)
-    assert LIVE_RESULT_PRECISION not in schema
-    rendered = CliRunner().invoke(app, ["node", "get", "--schema"])
-    assert LIVE_RESULT_PRECISION not in json.dumps(
-        json.loads(rendered.stdout)["output"], ensure_ascii=False
-    )
-
-
-def test_the_result_precision_guarantee_reaches_the_rendered_help_and_the_skill():
+def test_the_result_precision_guarantee_reaches_the_bundled_skill():
+    # The Skill is the third agent-facing channel (ADR-0024) and states the
+    # contract once for the whole live surface rather than per command, so it is
+    # pinned by its load-bearing tokens rather than by the constant.
     from gda.commands.meta import read_skill_text
-
-    # Rendered help wraps inside a Rich panel, so normalize it with the shared
-    # tests/support normalizer and assert on tokens a line break cannot split.
-    for argv in (
-        ["game", "get", "--help"],
-        ["game", "rect", "--help"],
-        ["perf", "monitors", "--help"],
-        ["perf", "monitor", "--help"],
-        ["screen", "capture", "--help"],
-    ):
-        rendered = CliRunner().invoke(app, argv)
-        assert rendered.exit_code == 0, rendered.stdout
-        words = set(panel_text(rendered.stdout).split())
-        assert "binary64" in words, argv
-        assert "NEGATIVE" in words, argv
 
     skill = read_skill_text()
     assert "full binary64 precision" in skill

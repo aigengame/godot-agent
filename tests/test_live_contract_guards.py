@@ -16,17 +16,25 @@ descriptors off the LIVE Typer tree — the same authority ``gda.surface`` walks
 so they stay correct wherever the descriptors and result models physically live.
 """
 
+import json
 import re
 from pathlib import Path
+from typing import Any, ForwardRef, NamedTuple, get_args
 
+import pytest
 import typer
+from pydantic import BaseModel
+from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.daemon.diag import LOG_BEGIN, parse_errors, parse_log_records
 from gda.daemon.server import DAEMON_SERVED_OPS, LOG_OPS
 from gda.daemon.session import CONNECT_TIMEOUT, LAUNCH_MARKER, OP_TIMEOUT
 from gda.execution import ExecutionKind
+from gda.live_numbers import LIVE_RESULT_PRECISION
 from gda.live_runner import LIVE_REQUEST_TIMEOUT
+
+from tests.support import panel_text
 
 ROOT = Path(__file__).resolve().parents[1]
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
@@ -141,37 +149,241 @@ def _live_operations() -> set[str]:
     return {d.operation for d in _descriptors() if d.kind is ExecutionKind.LIVE}
 
 
-def test_every_live_params_model_inherits_the_wire_number_policy():
-    """A LIVE request's numbers are admitted by the wire's rule, not each command's.
+def _live_leaves():
+    """Every LIVE leaf as ``(name, descriptor)``, read off the live Typer tree."""
+    root = typer.main.get_command(app)
+    for name, command in _leaf_commands(root, []):
+        descriptor = getattr(command, "gda_command", None)
+        if descriptor is not None and descriptor.kind is ExecutionKind.LIVE:
+            yield name, descriptor
+
+
+def test_relayed_live_params_models_carry_the_wire_number_policy():
+    """A relayed request's numbers are admitted by the wire leg's rule (#752, #770).
 
     Godot's JSON parser reads a small-magnitude float as ``0.0`` and a large
-    integer as a different integer (#752), so a live op can SUCCEED on a value
-    the caller never sent. That is a property of the WIRE, not of one command:
-    the #770 review reproduced it on ``input mouse-move``, ``input action
-    --strength`` and a nested sequence event, all of which the original
-    ``game call``-local guard left open.
+    integer as a different integer, so a live op can SUCCEED on a value the
+    caller never sent. The rule belongs to the daemon-to-harness LEG, and this
+    walk is what keeps it bound there rather than to a proxy — the two proxies
+    already tried both produced a defect:
 
-    :class:`gda.models.LiveParams` is where the rule is applied — once, over the
-    model both input paths build (ADR-0015). This walks the live Typer tree, so a
-    LIVE command registered without that base fails HERE rather than by silently
-    delivering a changed number months later.
+    - ``game call``'s own validator left ``input mouse-move``, ``input action
+      --strength`` and a nested sequence event open (#770 round 2);
+    - ``ExecutionKind.LIVE`` over-refused the ops the daemon answers ITSELF, so
+      ``daemon wait-ready --timeout 5e-324`` was rejected with a Godot-parser
+      explanation for a number Python consumes (#770 round 3).
+
+    So it fails BOTH ways: a relayed descriptor whose params model does not
+    inherit the base, and a daemon-served one that does.
     """
-    from gda.models import LiveParams
+    from gda.models import RelayedLiveParams
 
-    root = typer.main.get_command(app)
-    live = [
-        (name, command.gda_command.input_model)
-        for name, command in _leaf_commands(root, [])
-        if getattr(command, "gda_command", None) is not None
-        and command.gda_command.kind is ExecutionKind.LIVE
-    ]
+    relayed, served = [], []
+    for name, descriptor in _live_leaves():
+        target = served if descriptor.operation in DAEMON_SERVED_OPS else relayed
+        target.append((name, descriptor.input_model))
+
     # Guard the walk against vacuity: an extraction that stopped matching would
-    # otherwise pass by checking nothing.
-    assert len(live) >= 15, live
-    missing = [name for name, model in live if not issubclass(model, LiveParams)]
+    # otherwise pass by checking nothing. Both partitions must be populated, or
+    # the test has stopped distinguishing the two legs it exists to distinguish.
+    assert len(relayed) >= 12, relayed
+    assert len(served) == len(DAEMON_SERVED_OPS), served
+
+    missing = [
+        name for name, model in relayed if not issubclass(model, RelayedLiveParams)
+    ]
     assert missing == [], (
-        f"these LIVE commands' params models do not inherit gda.models.LiveParams, "
-        f"so their numbers reach the wire unchecked (#752): {missing}"
+        f"these RELAYED live commands' params models do not inherit "
+        f"gda.models.RelayedLiveParams, so their numbers reach Godot's JSON "
+        f"parser unchecked (#752): {missing}"
+    )
+    over = [name for name, model in served if issubclass(model, RelayedLiveParams)]
+    assert over == [], (
+        f"these DAEMON-SERVED commands' params models inherit "
+        f"gda.models.RelayedLiveParams, so they refuse values on a leg those "
+        f"values never cross (#770): {over}"
+    )
+
+
+# --- The RESULT direction's published contract, derived from the result models --
+#
+# `LIVE_RESULT_PRECISION` is one production sentence (gda.live_numbers). What the
+# #770 review found twice is that its COVERAGE was hand-picked: it reached six
+# commands while `game set`'s readback, the input commands' positions and
+# strengths, and `logger tail`'s structured fields returned floats with no
+# published contract at all. So the required set is DERIVED from the result models
+# here, not listed: any field a live reply can return a float in must publish it.
+
+
+class LiveFloatField(NamedTuple):
+    """One live-result field that can carry a float, and whether it is disclosed."""
+
+    path: str
+    disclosed: bool
+
+
+def _is_model(annotation: object) -> bool:
+    return isinstance(annotation, type) and issubclass(annotation, BaseModel)
+
+
+def _carries_float(annotation: object) -> bool:
+    """Whether a resolved annotation admits a JSON float.
+
+    ``Any`` counts: the projected-value fields are typed ``Any`` and a projection
+    routinely carries floats. ``int`` does not — Godot stringifies an integer
+    through ``itos``, which is exact, and the request-side integer bound is the
+    admission scan's business, not this contract's.
+    """
+    if annotation is float or annotation is Any:
+        return True
+    if _is_model(annotation):
+        return False
+    return any(_carries_float(argument) for argument in get_args(annotation))
+
+
+def _nested_models(annotation: object) -> "list[type[BaseModel]]":
+    if _is_model(annotation):
+        return [annotation]  # type: ignore[list-item]
+    found: "list[type[BaseModel]]" = []
+    for argument in get_args(annotation):
+        found.extend(_nested_models(argument))
+    return found
+
+
+def live_float_fields(
+    model: "type[BaseModel]",
+    prefix: str = "",
+    *,
+    disclosed: bool = False,
+    seen: "tuple[type[BaseModel], ...]" = (),
+) -> "list[LiveFloatField]":
+    """Every field under ``model`` that can carry a float, with its disclosure state.
+
+    A field's own description publishes the contract for its WHOLE subtree, which
+    is what keeps the promise off the shared headless models: ``GameGetResult``
+    states it on ``properties``, so the ``NodeProperty.value`` beneath it is
+    covered without ``NodeProperty`` — which ``node get`` / ``resource get`` also
+    use, and where #771 leaves headless fidelity different — making a live-only
+    claim.
+
+    ``model_rebuild()`` first, and a hard failure on anything still unresolved: a
+    model whose annotations are still ``ForwardRef`` (several are, until first
+    use) would otherwise make this walk quietly skip exactly the nested reports
+    it exists to check.
+    """
+    if model in seen:
+        return []
+    model.model_rebuild()
+    found: "list[LiveFloatField]" = []
+    for name, field in model.model_fields.items():
+        path = f"{prefix}.{name}" if prefix else f"{model.__name__}.{name}"
+        annotation = field.annotation
+        assert not isinstance(annotation, (str, ForwardRef)), (
+            f"{path} is still an unresolved annotation ({annotation!r}); this walk "
+            "would skip its fields instead of checking them"
+        )
+        published = disclosed or LIVE_RESULT_PRECISION in (field.description or "")
+        if _carries_float(annotation):
+            found.append(LiveFloatField(path, published))
+        for nested in _nested_models(annotation):
+            found.extend(
+                live_float_fields(
+                    nested, path, disclosed=published, seen=(*seen, model)
+                )
+            )
+    return found
+
+
+def _float_bearing_live_commands() -> "list[tuple[str, Any]]":
+    """Every LIVE leaf whose result model can return a float, as ``(name, descriptor)``."""
+    return [
+        (name, descriptor)
+        for name, descriptor in _live_leaves()
+        if live_float_fields(descriptor.output_model)
+    ]
+
+
+def test_every_float_a_live_reply_returns_publishes_its_precision_contract():
+    """The result contract's coverage is derived from the models, not hand-picked.
+
+    #752 requires the selected policy to be consistent across the machine schema
+    among other surfaces. This walks every LIVE result model and fails on a
+    float-bearing field no description publishes the contract for — so a new live
+    reply cannot ship a float that says nothing about its fidelity, and a nested
+    report (a capture predicate's echo, a log record's fields) is checked as
+    thoroughly as a top-level one.
+    """
+    undisclosed = {
+        name: [
+            f.path
+            for f in live_float_fields(descriptor.output_model)
+            if not f.disclosed
+        ]
+        for name, descriptor in _live_leaves()
+    }
+    offenders = {name: paths for name, paths in undisclosed.items() if paths}
+    assert offenders == {}, (
+        "these live result fields can return a float but publish no precision "
+        f"contract (gda.live_numbers.LIVE_RESULT_PRECISION, #752): {offenders}"
+    )
+
+    # Vacuity floor: a walk that stopped resolving nested models would report an
+    # empty offender set while checking almost nothing.
+    covered = _float_bearing_live_commands()
+    assert len(covered) >= 12, [name for name, _ in covered]
+    # And the two shapes the walk exists to reach: a value nested two models deep,
+    # and one behind a `ForwardRef` that is unresolved until the model is rebuilt.
+    paths = {
+        f.path
+        for _, descriptor in covered
+        for f in live_float_fields(descriptor.output_model)
+    }
+    assert "LoggerTailResult.records.fields" in paths, sorted(paths)
+    assert "ScreenCaptureResult.predicate.observed" in paths, sorted(paths)
+
+
+@pytest.mark.parametrize("name", [name for name, _ in _float_bearing_live_commands()])
+def test_the_precision_contract_reaches_the_machine_schema(name):
+    # #752's AC names the machine schema among the surfaces the policy must be
+    # consistent across, and #770's review found `--schema` describing only the
+    # projection SHAPE. The sentence rides the live result models' own field
+    # descriptions, CONCATENATED from the production authority rather than copied,
+    # so a schema client — and gda-mcp, whose wire schemas derive from the same
+    # models (ADR-0004) — can discover full precision and the negative-zero
+    # residual. It is deliberately NOT on the request side: that direction is a
+    # refusal, stated where the refusal is made.
+    rendered = CliRunner().invoke(app, [*name.split(), "--schema"])
+    assert rendered.exit_code == 0, rendered.stdout
+    document = json.loads(rendered.stdout)
+    assert LIVE_RESULT_PRECISION in json.dumps(document["output"], ensure_ascii=False)
+    assert LIVE_RESULT_PRECISION not in json.dumps(
+        document["input"], ensure_ascii=False
+    )
+
+
+@pytest.mark.parametrize("name", [name for name, _ in _float_bearing_live_commands()])
+def test_the_precision_contract_reaches_the_rendered_help(name):
+    # Typer renders a command's DOCSTRING as its help and cannot interpolate a
+    # constant into it, so each copy is pinned against the production authority —
+    # and the SET of commands that must carry one is derived from the result
+    # models above, which is what the previous round got wrong by listing it.
+    rendered = CliRunner().invoke(app, [*name.split(), "--help"])
+    assert rendered.exit_code == 0, rendered.stdout
+    assert LIVE_RESULT_PRECISION in " ".join(panel_text(rendered.stdout).split()), name
+
+
+def test_the_headless_property_shape_makes_no_live_precision_promise():
+    # The shared NodeProperty description serves `node get` / `resource get` too,
+    # where #771 leaves the default writer in place. A live-only guarantee stated
+    # there would be false for those reads — so the live commands publish it on
+    # their OWN fields, and the subtree rule above is what lets them.
+    from gda.models import NodeProperty
+
+    schema = json.dumps(NodeProperty.model_json_schema(), ensure_ascii=False)
+    assert LIVE_RESULT_PRECISION not in schema
+    rendered = CliRunner().invoke(app, ["node", "get", "--schema"])
+    assert LIVE_RESULT_PRECISION not in json.dumps(
+        json.loads(rendered.stdout)["output"], ensure_ascii=False
     )
 
 

@@ -56,7 +56,7 @@ from gda.live_runner import make_daemon_runner
 from gda.models import (
     MAX_WINDOW_FRAMES,
     RUNTIME_NODE_DESC,
-    LiveParams,
+    RelayedLiveParams,
     NormalizedPath,
 )
 from gda.render import format_value
@@ -84,7 +84,7 @@ class PerfMonitor(BaseModel):
 # bounded window, per the issue's triage decision (no third command).
 
 
-class PerfMonitorParams(LiveParams):
+class PerfMonitorParams(RelayedLiveParams):
     """The params of ``gda perf monitor``: watch one node over a frame window (#223).
 
     Time-windowed: the gda harness collects a per-frame timeline over ``frames``
@@ -304,7 +304,7 @@ _PERF_MONITORS_MODE_SCHEMA: dict[str, Any] = {
 }
 
 
-class PerfMonitorsParams(LiveParams):
+class PerfMonitorsParams(RelayedLiveParams):
     """The params of ``gda perf monitors``: a snapshot, or a bounded window (#223, #662).
 
     One command, two modes, per #662's triage decision (no third command; the
@@ -551,7 +551,8 @@ class PerfMonitorsResult(BaseModel):
         default=None,
         description=(
             "Aggregate statistics per sampled monitor, keyed by name; null in "
-            "snapshot mode."
+            "snapshot mode. Computed by gda over the window's sampled values, "
+            "which the engine reported in full: " + LIVE_RESULT_PRECISION
         ),
     )
     samples: list[PerfSampleFrame] | None = Field(
@@ -562,7 +563,9 @@ class PerfMonitorsResult(BaseModel):
         default=None,
         description=(
             "Per-monitor budget verdicts; null when no budget was supplied "
-            "(and always null in snapshot mode)."
+            "(and always null in snapshot mode). Each verdict gates a statistic "
+            "over the window's sampled values against the bounds the budget file "
+            "declared: " + LIVE_RESULT_PRECISION
         ),
     )
     passed: bool | None = Field(

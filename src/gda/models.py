@@ -532,16 +532,22 @@ def normalize_path(path: str) -> str:
 NormalizedPath = Annotated[str, AfterValidator(normalize_path)]
 
 
-class LiveParams(BaseModel):
-    """The base every LIVE command's params model inherits (#752).
+class RelayedLiveParams(BaseModel):
+    """The base every RELAYED live command's params model inherits (#752).
 
-    The live legs carry JSON (ADR-0021), and Godot's JSON parser cannot construct
-    every binary64 value a caller can spell: a small-magnitude float arrives as
-    ``0.0``, and a large integer as a different integer. That is a property of the
-    WIRE, not of any one command, so refusing those values is a rule every live
-    request passes through rather than one a command remembers to re-declare —
-    the reason ``game call`` was not the only ingress that let one through (#770
-    review).
+    A live request that the daemon RELAYS is read by Godot's JSON parser, which
+    cannot construct every binary64 value a caller can spell: a small-magnitude
+    float arrives as ``0.0``, and a large integer as a different integer. That is
+    a property of the daemon-to-harness leg — not of any one command, and not of
+    ``ExecutionKind.LIVE`` either. Both proxies were tried and both were wrong:
+    the rule started on ``GameCallParams``, which left every other relayed
+    ingress open (#770 review), and then on every LIVE params model, which
+    over-refused the ops the daemon answers ITSELF
+    (``gda.daemon.server.DAEMON_SERVED_OPS`` — ``diag errors``, ``logger tail``,
+    ``daemon wait-ready``). Those never reach Godot's parser: their params are
+    consumed in Python, over a leg whose two ends are ``json.dumps`` and
+    ``json.loads``, so refusing ``daemon wait-ready --timeout 5e-324`` told the
+    caller a fact about a parser its number never meets.
 
     The params model is the boundary where the rule belongs: ADR-0015 makes it
     the ONE authority both the argv and ``--params-json`` paths build, so a single
@@ -553,16 +559,18 @@ class LiveParams(BaseModel):
 
     The scan reads ``model_dump()`` rather than the field values, so a nested
     params model (an input-sequence event, a predicate's awaited value) is
-    covered as plain JSON — and a LIVE command whose recipe builds its wire dict
-    from these same fields is covered with it. A LIVE command that carries no
-    number inherits this too: the guarantee is that no live params model can
-    acquire a numeric field the wire silently changes, which a per-model opt-in
-    could not give. ``tests/test_live_contract_guards.py`` walks the live Typer
-    tree and fails a LIVE descriptor whose input model does not inherit this.
+    covered as plain JSON — and a relayed command whose recipe builds its wire
+    dict from these same fields is covered with it. A relayed command that
+    carries no number inherits this too: the guarantee is that no relayed params
+    model can acquire a numeric field the wire silently changes, which a
+    per-model opt-in could not give. ``tests/test_live_contract_guards.py``
+    partitions the live Typer tree by ``DAEMON_SERVED_OPS`` and fails BOTH ways —
+    a relayed descriptor that does not inherit this, and a daemon-served one that
+    does.
     """
 
     @model_validator(mode="after")
-    def _admit_live_wire_numbers(self) -> "LiveParams":
+    def _admit_live_wire_numbers(self) -> "RelayedLiveParams":
         for name, value in self.model_dump().items():
             refusal = find_unrepresentable(value, name)
             if refusal is not None:

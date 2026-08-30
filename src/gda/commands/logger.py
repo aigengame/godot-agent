@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from gda.commands.diag import SourceFrame, diag_limit_option, DIAG_LIMIT_DESC
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
-from gda.models import LiveParams
+from gda.live_numbers import LIVE_RESULT_PRECISION
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -102,12 +102,18 @@ class LogRecord(BaseModel):
         default_factory=dict,
         description=(
             "App-supplied structured fields; empty for a passively-parsed record, "
-            "populated only by the opt-in gda_log() protocol (#282)."
+            "populated only by the opt-in gda_log() protocol (#282). "
+            + LIVE_RESULT_PRECISION
         ),
     )
 
 
-class LoggerTailParams(LiveParams):
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers
+# it from the Session log, relaying nothing, so these params never reach Godot's
+# JSON parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
+# whose scan states what that parser can construct: applying it here would report a
+# loss on a leg the value never crosses (#770 review).
+class LoggerTailParams(BaseModel):
     """The params of ``gda logger tail``: read the running game's structured log (#281).
 
     Reads the current Engine session's captured log as structured records.
@@ -263,6 +269,11 @@ def logger_tail(
     With no daemon it reports `daemon_not_running`; with a daemon but no session
     ever launched, `engine_session_not_running`; with a session whose log file is
     gone, `live_log_unavailable`. An empty log is an empty result, not an error.
+
+    Live floats cross the wire at full binary64 precision — the reply is
+    serialized with Godot's full-precision JSON writer, so a small or many-digit
+    value reads back exactly (#752). The one residual: a NEGATIVE ZERO reads back
+    as 0.0, which the engine's writer decides before gda sees the value.
     """
     dispatch_domain(
         LOGGER_TAIL_COMMAND,
