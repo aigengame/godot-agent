@@ -352,7 +352,13 @@ class SceneProblemKind(str, Enum):
     #: vanish from the composition it loads. Reported against the file that
     #: declares the closing edge, with ``path`` naming the ancestor it references
     #: back. The walk stops at that edge, so the scenes beyond it are unreported
-    #: until the cycle is broken.
+    #: until the cycle is broken. A cycle OUTRANKS the depth bound on the same
+    #: edge: an edge first declined because its target lay past the bound is
+    #: reported as this kind the moment any route proves the cycle, so the bound
+    #: can never hide one (#721 review round 4). When a cycle can be entered at
+    #: more than one of its own members, more than one of its edges closes it and
+    #: the walk names the one it closed the cycle on — breaking any of them breaks
+    #: the cycle.
     CYCLIC_INSTANCE = "cyclic_instance"
     #: Not a defect in the project but a LIMIT OF GDA: it walks 16 levels of
     #: sub-scenes below the validated scene, and no route to this one is inside

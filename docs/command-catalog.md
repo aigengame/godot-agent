@@ -175,7 +175,10 @@ declaring it under `scene`, and the referencing nodes under `nodes`:
 - `cyclic_instance` — the target is an ancestor in this scene's reference chain. Godot refuses
   the closing reference, drops it, and the nodes it would have contributed vanish from the
   composition it loads, so the cycle is a defect and not merely a traversal hazard. The walk
-  stops at that edge; what lies beyond it is unreported until the cycle is broken.
+  stops at that edge; what lies beyond it is unreported until the cycle is broken. A cycle
+  outranks the depth bound on the same edge: an edge first declined because its target lay past
+  the bound is reported as this kind the moment any route proves the cycle, so the bound can
+  never hide one.
 - `unreadable_sub_scene` — the target loads as a `PackedScene`, but carries none of the
   `[gd_scene]` text the walk reads a dependency set out of: a binary `.scn`, or a `PackedScene`
   saved into a `.res`. This is the same limit that makes the command refuse such a file as its

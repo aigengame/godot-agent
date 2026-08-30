@@ -1403,3 +1403,81 @@ def test_a_cycle_below_a_re_expanded_scene_is_reported_once(godot_project):
     assert [(p["kind"], p["scene"], p["path"]) for p in data["problems"]] == [
         ("cyclic_instance", "res://z.tscn", "res://y.tscn")
     ]
+
+
+# --- The residue of round 4 (#721 review) -----------------------------------
+#
+# The same shape a fourth time: ONE record standing for two states. A depth
+# deferral is PROVISIONAL — it stands only while nothing reaches its target — and a
+# cycle is TERMINAL, but a single "already reported" flag covered both, so a deep
+# route's deferral suppressed the cycle a shorter route proved on the same edge,
+# and the deferral was then dropped because its target had been reached. An edge
+# now carries an OUTCOME that a cycle can be PROMOTED into.
+
+
+def _write_deferred_cycle(project, *, deep_first: bool) -> None:
+    """A cycle whose closing edge is ALSO met past the depth bound.
+
+    `d1 … d15` puts `s.tscn` 16 levels below the root — the last level INSIDE the
+    bound — so `s`'s own edge to `t.tscn` is one level past it and is deferred. The
+    root also references `t.tscn` directly, and `t` references `s` back, so the
+    short route re-expands `s` at depth 2 and finds that same edge closing a real
+    cycle. Every file here is sound on its own; the only defect is `s ↔ t`. Only
+    the DECLARATION ORDER of the root's two lines differs between the two files
+    this writes.
+    """
+    for level in range(1, 16):
+        target = f"res://d{level + 1}.tscn" if level < 15 else "res://s.tscn"
+        (project / f"d{level}.tscn").write_text(
+            "[gd_scene load_steps=2 format=3]\n\n"
+            f'[ext_resource type="PackedScene" path="{target}" id="1_c"]\n\n'
+            f'[node name="D{level}" type="Node2D"]\n\n'
+            '[node name="Child" parent="." instance=ExtResource("1_c")]\n',
+            encoding="utf-8",
+        )
+    for name, target in (("s", "t"), ("t", "s")):
+        (project / f"{name}.tscn").write_text(
+            "[gd_scene load_steps=2 format=3]\n\n"
+            f'[ext_resource type="PackedScene" path="res://{target}.tscn" id="1_c"]\n\n'
+            f'[node name="{name.upper()}" type="Node2D"]\n\n'
+            '[node name="Child" parent="." instance=ExtResource("1_c")]\n',
+            encoding="utf-8",
+        )
+    deep = '[ext_resource type="PackedScene" path="res://d1.tscn" id="1_deep"]'
+    direct = '[ext_resource type="PackedScene" path="res://t.tscn" id="2_direct"]'
+    deep_node = '[node name="Deep" parent="." instance=ExtResource("1_deep")]'
+    direct_node = '[node name="Direct" parent="." instance=ExtResource("2_direct")]'
+    lines = [deep, direct] if deep_first else [direct, deep]
+    nodes = [deep_node, direct_node] if deep_first else [direct_node, deep_node]
+    (project / "root.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        + "\n".join(lines)
+        + '\n\n[node name="Root" type="Node2D"]\n\n'
+        + "\n\n".join(nodes)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    "deep_first", [True, False], ids=["deep-first", "direct-first"]
+)
+@pytest.mark.e2e
+def test_a_deferred_depth_edge_does_not_suppress_a_later_cycle(
+    godot_project, deep_first
+):
+    # A genuinely broken composition read as SOUND, and only in one declaration
+    # order: deep-first answered `valid: true, problems: []` while direct-first
+    # reported the cycle (measured on Godot 4.6.3 before the fix). One graph, one
+    # verdict — the cycle, attributed to the file that declares the closing edge.
+    _write_deferred_cycle(godot_project, deep_first=deep_first)
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://root.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False, data
+    assert [
+        (p["kind"], p["scene"], p["path"], p["nodes"]) for p in data["problems"]
+    ] == [("cyclic_instance", "res://s.tscn", "res://t.tscn", ["Child"])]

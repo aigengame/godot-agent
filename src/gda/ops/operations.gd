@@ -128,7 +128,7 @@ const SCENE_PROBLEM_UNREADABLE_SUB_SCENE := "unreadable_sub_scene"
 
 # How many levels of referenced sub-scenes below the validated scene the walk
 # descends before it stops and says so (#721 review). The bound is on the
-# SHORTEST route to each file, not on the first route walked — see `expanded` in
+# SHORTEST route to each file, not on the first route walked — see `reached_depth` in
 # _new_scene_walk for why that distinction is the contract and not an internal.
 #
 # It bounds GDA'S OWN work, and nothing else. Measured on Godot 4.6.3 against a
@@ -708,7 +708,7 @@ func _op_scene_validate(params: Dictionary) -> void:
 	# has been walked, so they come last.
 	var walk := _new_scene_walk(path, problems)
 	_collect_sub_scene_problems(path, walk)
-	_flush_deferred_depth_problems(walk)
+	_flush_pending_depth_problems(walk)
 
 	_succeed({
 		"path": path,
@@ -757,35 +757,78 @@ func _attributed_problems(problems: Array, scene_path: String) -> Array:
 	return problems
 
 
-# The traversal state of ONE composed verdict, in one bag (#721). Six fields that
-# only ever move together, so they are passed as one rather than as six
-# positionals that a later addition has to thread through every call site:
+# The OUTCOME an edge of the scene graph has been settled with, and the rule that
+# promotes one into the other (#721 review round 4). An edge — one declaring file,
+# one target — carries at most ONE problem, and these say which and whether it
+# still stands:
+#
+# - SCENE_EDGE_DEPTH_PENDING is PROVISIONAL. The edge was declined because its
+#   target lay past the depth bound ON THIS ROUTE, and the finding it holds is
+#   published only at the end, and only if no route ever reached that target
+#   inside the bound (_flush_pending_depth_problems);
+# - SCENE_EDGE_REPORTED is TERMINAL. A problem about this edge is already in the
+#   result, and nothing later can add a second one or take it back.
+#
+# PROMOTION: provisional -> terminal is allowed, and WITHDRAWS the pending
+# finding; every other transition is refused. That rule is the whole reason an
+# edge has an outcome instead of an "already reported" flag. With one flag for
+# both states, a deep route's depth deferral SUPPRESSED the cyclic_instance a
+# later, shorter route proved on the same edge, and the deferral was then dropped
+# because its target had been reached — so a cyclic composition answered
+# `valid: true`. Measured on Godot 4.6.3 over `root -> d1 ... d15 -> s -> t` plus
+# `root -> t -> s`: valid deep-first, one cyclic_instance direct-first (#721
+# review round 4).
+#
+# Promotion never loses a finding: a cycle target is by definition an ancestor of
+# the current descent, and the walk records a file's depth before it descends into
+# it, so that target was reached inside the bound — which is exactly the condition
+# under which the flush drops a pending finding anyway.
+const SCENE_EDGE_DEPTH_PENDING := "depth_pending"
+const SCENE_EDGE_REPORTED := "reported"
+
+
+# The traversal state of ONE composed verdict, in one bag (#721). Five fields that
+# only ever move together, so they are passed as one rather than as five
+# positionals that a later addition has to thread through every call site.
+#
+# Each answers exactly ONE question, and the comment says which — and, where it
+# has been misread, which question it does NOT answer. Three rounds of review
+# found the same defect three times, each time a single record standing for two
+# states (seen/answered, answered/expanded, provisional/terminal), so the fields
+# are documented as the questions they answer (#721 review round 4):
 #
 # - `problems` is the caller's own array, appended to in place;
-# - `answered` records every scene file the walk has produced a verdict about —
-#   validated, or reported as one it cannot read. It is what makes a file's own
-#   problems appear once however many sites reference it, and it is what keeps the
-#   one expensive step (the load and the script compiles behind
-#   _scene_own_problems) to once per file;
-# - `expanded` records, per file, the DEPTH at which its own references were
-#   walked. Answering for a file and expanding its subtree are separate facts, and
-#   conflating them was a defect (#721 review): a file first reached on a deep
-#   route had its own subtree cut off by the depth bound, and a later, shorter
-#   route to that same file found it "already answered" and walked no further —
-#   so the verdict for everything BELOW it depended on which route the parent
-#   declared first. A file reached again at a strictly SMALLER depth is therefore
-#   expanded again (its own problems are not repeated: `answered` holds those),
-#   which makes the reachable set order-free. A file with nothing below it to
-#   reach — missing, unreadable, or not a scene document — is recorded at depth 0,
-#   the minimum, so no shorter route can ever improve on it;
-# - `chain` holds the ancestors of the current descent, which is how a cycle is
-#   recognized and, by its size, how deep the current edge is;
-# - `deferred_depth` holds depth-bound findings that are not yet known to be
-#   findings at all — see _flush_deferred_depth_problems;
-# - `reported_edges` is the per-declaring-file set of targets an edge problem has
-#   already been raised for. Walk-scoped rather than per-descent because a file
-#   can now be expanded more than once, and the same edge must not be reported
-#   once per expansion.
+#
+# - `answered`: "has this file's OWN verdict been produced?" — validated, or
+#   reported as one the walk cannot read. It is what makes a file's own problems
+#   appear once however many sites reference it, and what keeps the one expensive
+#   step (the load and the script compiles behind _scene_own_problems) to once per
+#   file. It says NOTHING about the file's references: a file is answered for
+#   before its subtree is walked, and stays answered when a later route walks that
+#   subtree again;
+#
+# - `reached_depth`: "what is the SMALLEST depth at which the walk reached this
+#   file INSIDE the bound?" — and, by carrying a key at all, "was this file
+#   reached inside the bound?", which is the question every pending depth finding
+#   is settled against. A file reached again at a strictly smaller depth is
+#   expanded again from there, which is what makes the reachable SET a property of
+#   the graph rather than of the order two [ext_resource] lines appear in. A file
+#   with nothing below it to reach — missing, unreadable, or not a scene document
+#   — is recorded at 0, the minimum, so no shorter route can improve on it. It
+#   does NOT answer whether the file's own problems were produced (`answered`
+#   does), and it is not a record of the routes taken, only of the best one;
+#
+# - `chain`: "which files are ancestors of the descent currently under way?" —
+#   which is how a cycle is recognized, and whose SIZE is the depth of the edge
+#   being examined (the same fact counted, not a second one). It is not a record
+#   of what the walk has seen: it shrinks again on the way back up;
+#
+# - `edges`: "what OUTCOME has this edge — declaring file, then target — been
+#   settled with, and what finding is still pending for it?" One record per edge;
+#   see SCENE_EDGE_DEPTH_PENDING for the outcomes and the promotion rule between
+#   them. Kept on the WALK rather than on one descent because a file can be
+#   expanded more than once, and the same edge must not be reported once per
+#   expansion.
 #
 # Every key is a CANONICAL path (_canonical_resource_path) — the root's included,
 # which the caller must canonicalize before it seeds this. A root spelled
@@ -795,10 +838,9 @@ func _new_scene_walk(root_path: String, problems: Array) -> Dictionary:
 	return {
 		"problems": problems,
 		"answered": {root_path: true},
-		"expanded": {root_path: 0},
+		"reached_depth": {root_path: 0},
 		"chain": {root_path: true},
-		"deferred_depth": [],
-		"reported_edges": {},
+		"edges": {},
 	}
 
 
@@ -833,70 +875,55 @@ func _new_scene_walk(root_path: String, problems: Array) -> Dictionary:
 #   not, and cannot, prevent the engine-side stack overflow that kills a 1200-deep
 #   chain with or without any of this.
 #
-# - The bound is on the SHORTEST route, not on the first one walked. `expanded`
-#   holds the depth each file's own references were walked at, and a file reached
-#   again at a smaller depth is walked again from there — which is what makes the
-#   published verdict independent of the order two [ext_resource] lines happen to
-#   appear in. The cheap half of the walk (read the text, parse the lines) is what
-#   repeats; the expensive half (`_scene_own_problems`: the load and the script
-#   compiles) sits behind `answered` and runs once per file whatever the shape of
-#   the graph. A file's recorded depth strictly decreases each time, and depth is
-#   bounded by SCENE_INSTANCE_MAX_DEPTH, so the repetition is bounded too.
+# - The bound is on the SHORTEST route, not on the first one walked.
+#   `reached_depth` holds the smallest depth each file was reached at, and a file
+#   reached again nearer the root is walked again from there — which is what makes
+#   the published verdict independent of the order two [ext_resource] lines happen
+#   to appear in. The cheap half of the walk (read the text, parse the lines) is
+#   what repeats; the expensive half (`_scene_own_problems`: the load and the
+#   script compiles) sits behind `answered` and runs once per file whatever the
+#   shape of the graph. A file's recorded depth strictly decreases each time, and
+#   depth is bounded by SCENE_INSTANCE_MAX_DEPTH, so the repetition is bounded too.
 #
 # - A CYCLE is reported, not merely survived: `chain` holds the ancestors of the
 #   current descent, and a reference back into it becomes a cyclic_instance
 #   problem attributed to the file that declares it. `answered` alone would stop
 #   the walk silently, which would hide a composition the engine mutilates.
 #   Checked BEFORE `answered` — every ancestor is also answered for, so the
-#   cheaper test would swallow the diagnostic.
+#   cheaper test would swallow the diagnostic — and its outcome is TERMINAL, so it
+#   also outranks whatever a deeper route left on the same edge
+#   (see _report_cycle_edge).
 func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 	var text := FileAccess.get_file_as_string(scene_path)
 	if text.is_empty():
 		return
 	var out: Array = walk["problems"]
 	var answered: Dictionary = walk["answered"]
-	var expanded: Dictionary = walk["expanded"]
+	var reached_depth: Dictionary = walk["reached_depth"]
 	var chain: Dictionary = walk["chain"]
 	for entry in _ext_resource_entries_from_text(text, scene_path.get_base_dir()):
 		if not _is_sub_scene_edge(entry):
 			continue
 		var ref_path := String(entry["normalized_path"])
+		# Nothing is relaxed on this branch, and nothing needs to be: an ancestor
+		# was reached at a smaller depth than the edge that points back at it, so
+		# this route could not improve on its recorded depth.
 		if chain.has(ref_path):
-			if not _edge_already_reported(walk, scene_path, ref_path):
-				out.append(_sub_scene_edge_problem(SCENE_PROBLEM_CYCLIC_INSTANCE, entry,
-						scene_path, text,
-						"the scene at this path is an ancestor in this scene's reference chain, "
-						+ "so referencing it here closes a cycle. Measured on Godot 4.6.3, the "
-						+ "engine refuses the closing reference ([ext_resource] referenced "
-						+ "non-existent resource), drops it, and the nodes it would have "
-						+ "contributed vanish from the composition it loads. gda stopped the "
-						+ "walk at this edge; break the cycle to get a verdict for what lies "
-						+ "beyond it"))
+			_report_cycle_edge(walk, scene_path, text, entry)
 			continue
 		# `chain` holds the ancestors of this edge's target, so its size IS the
 		# target's depth below the validated scene. DEFERRED rather than reported:
 		# a shorter route to the same target may still reach it, and whether this
 		# deep route or that short one is walked FIRST is nothing but declaration
-		# order — see _flush_deferred_depth_problems.
+		# order — see _flush_pending_depth_problems.
 		var depth := chain.size()
 		if depth > SCENE_INSTANCE_MAX_DEPTH:
-			if not _edge_already_reported(walk, scene_path, ref_path):
-				(walk["deferred_depth"] as Array).append(
-						_sub_scene_edge_problem(SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED, entry,
-						scene_path, text,
-						"gda validates " + str(SCENE_INSTANCE_MAX_DEPTH) + " levels of "
-						+ "sub-scenes below the scene it was given, and no route to this one is "
-						+ "inside that bound — this scene and everything it references are "
-						+ "UNCHECKED, not judged sound. The bound is on gda's own walk: the "
-						+ "engine still loads the whole chain itself, and at extreme depth its "
-						+ "loader overflows and the run dies with no verdict at all, which this "
-						+ "bound does not change. Validate this scene directly to get a verdict "
-						+ "for it"))
+			_defer_depth_edge(walk, scene_path, text, entry)
 			continue
-		# Already walked from here or from nearer the root: nothing this route can
+		# Already reached from here or from nearer the root: nothing this route can
 		# add. Only a STRICTLY shorter route falls through, and then only to expand
 		# the subtree again — never to repeat the file's own problems.
-		if expanded.has(ref_path) and int(expanded[ref_path]) <= depth:
+		if reached_depth.has(ref_path) and int(reached_depth[ref_path]) <= depth:
 			continue
 		if not answered.has(ref_path):
 			answered[ref_path] = true
@@ -921,7 +948,7 @@ func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 			# All three are recorded at depth 0: there is nothing below them for a
 			# shorter route to reach.
 			if not FileAccess.file_exists(ref_path):
-				expanded[ref_path] = 0
+				reached_depth[ref_path] = 0
 				continue
 			if not _has_scene_header(FileAccess.get_file_as_string(ref_path)):
 				if ResourceLoader.load(ref_path) is PackedScene:
@@ -933,14 +960,14 @@ func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 							+ "refuses such a file as its target too. This scene and "
 							+ "everything it references are UNCHECKED, not judged sound. "
 							+ "Re-save it as .tscn for a composed verdict that covers it"))
-				expanded[ref_path] = 0
+				reached_depth[ref_path] = 0
 				continue
 			var own: Variant = _scene_own_problems(ref_path)
 			if own != null:
 				out.append_array(_attributed_problems(own as Array, ref_path))
 		# Descended into even when it did not load: its text is still readable, and
 		# the scenes IT references can be broken for reasons of their own.
-		expanded[ref_path] = depth
+		reached_depth[ref_path] = depth
 		chain[ref_path] = true
 		_collect_sub_scene_problems(ref_path, walk)
 		chain.erase(ref_path)
@@ -982,30 +1009,77 @@ func _is_sub_scene_edge(entry: Dictionary) -> bool:
 		return true
 	return String(entry.get("type", "")) == "PackedScene"
 
+# The per-declaring-file map of edge outcomes, created on the first edge that file
+# settles (#721 review round 4). A Dictionary is a reference, so the caller writes
+# through what it gets back.
+func _scene_edge_outcomes(walk: Dictionary, scene_path: String) -> Dictionary:
+	var edges: Dictionary = walk["edges"]
+	if not edges.has(scene_path):
+		edges[scene_path] = {}
+	return edges[scene_path]
 
-# Whether an edge problem has already been raised for this target by this
-# declaring file, recording it when it has not (#721).
+
+# Publish the cyclic_instance this edge closes, and settle the edge TERMINALLY
+# (#721).
 #
-# One edge problem per target per file: a scene that references the same ancestor
-# twice still closes one cycle, and one that reaches the depth bound twice has one
-# unchecked subtree. The kinds share the record because they are mutually
-# exclusive for a given target — the first test that settles stops the edge. Kept
-# on the WALK rather than on one descent because a file can be expanded more than
-# once (see `expanded`), and the same edge must not be reported once per
-# expansion.
-func _edge_already_reported(walk: Dictionary, scene_path: String, ref_path: String) -> bool:
-	var reported: Dictionary = walk["reported_edges"]
-	if not reported.has(scene_path):
-		reported[scene_path] = {}
-	var targets: Dictionary = reported[scene_path]
-	if targets.has(ref_path):
-		return true
-	targets[ref_path] = true
-	return false
+# One edge problem per target per declaring file: a scene that references the same
+# ancestor under two ids still closes ONE cycle, so a second call about the same
+# edge publishes nothing. What it does do is PROMOTE — a provisional depth record
+# left on this edge by a deeper route is replaced and its pending finding
+# withdrawn. A cycle is a fact about the graph; a depth deferral is a statement
+# about one route, so the cycle stands whichever order the two are met in, and the
+# edge still carries exactly one problem. Read SCENE_EDGE_DEPTH_PENDING for the
+# order-dependent false-clean verdict that came of not making that distinction.
+func _report_cycle_edge(walk: Dictionary, scene_path: String, scene_text: String,
+		entry: Dictionary) -> void:
+	var outcomes := _scene_edge_outcomes(walk, scene_path)
+	var ref_path := String(entry["normalized_path"])
+	var record: Dictionary = outcomes.get(ref_path, {})
+	if String(record.get("outcome", "")) == SCENE_EDGE_REPORTED:
+		return
+	outcomes[ref_path] = {"outcome": SCENE_EDGE_REPORTED}
+	(walk["problems"] as Array).append(
+			_sub_scene_edge_problem(SCENE_PROBLEM_CYCLIC_INSTANCE, entry, scene_path, scene_text,
+			"the scene at this path is an ancestor in this scene's reference chain, "
+			+ "so referencing it here closes a cycle. Measured on Godot 4.6.3, the "
+			+ "engine refuses the closing reference ([ext_resource] referenced "
+			+ "non-existent resource), drops it, and the nodes it would have "
+			+ "contributed vanish from the composition it loads. gda stopped the "
+			+ "walk at this edge; break the cycle to get a verdict for what lies "
+			+ "beyond it"))
 
 
-# Emit the depth-bound findings the finished walk still stands behind (#721
+# Hold this edge's depth finding PROVISIONALLY: the target lies past the bound on
+# the route currently being walked, and a shorter route may still reach it (#721
 # review).
+#
+# Recorded only on an edge nothing has settled yet — neither a pending finding of
+# its own (one unchecked subtree, not one per route that declines it) nor a
+# published problem, which already says what became of this edge. The finding
+# itself is published, or dropped, by _flush_pending_depth_problems once every
+# route has been walked.
+func _defer_depth_edge(walk: Dictionary, scene_path: String, scene_text: String,
+		entry: Dictionary) -> void:
+	var outcomes := _scene_edge_outcomes(walk, scene_path)
+	var ref_path := String(entry["normalized_path"])
+	if outcomes.has(ref_path):
+		return
+	outcomes[ref_path] = {
+		"outcome": SCENE_EDGE_DEPTH_PENDING,
+		"problem": _sub_scene_edge_problem(SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED, entry,
+				scene_path, scene_text,
+				"gda validates " + str(SCENE_INSTANCE_MAX_DEPTH) + " levels of "
+				+ "sub-scenes below the scene it was given, and no route to this one is "
+				+ "inside that bound — this scene and everything it references are "
+				+ "UNCHECKED, not judged sound. The bound is on gda's own walk: the "
+				+ "engine still loads the whole chain itself, and at extreme depth its "
+				+ "loader overflows and the run dies with no verdict at all, which this "
+				+ "bound does not change. Validate this scene directly to get a verdict "
+				+ "for it"),
+	}
+
+
+# Publish the depth findings the finished walk still stands behind (#721 review).
 #
 # A depth finding is a statement about a TARGET — "no verdict was established for
 # this scene" — but the walk can only see one ROUTE at a time. In a diamond where a
@@ -1016,17 +1090,26 @@ func _edge_already_reported(walk: Dictionary, scene_path: String, ref_path: Stri
 # in silence (valid: true). One graph, two published verdicts, chosen by the order
 # two lines happen to appear in — which is not a contract.
 #
-# Deferring settles it in BOTH directions with the walk's own record: a deferred
-# finding survives only when nothing else reached its target. Order cannot change
-# that, because it is read after every route has been walked. The other half of
-# the same guarantee is `expanded` in _collect_sub_scene_problems, which is what
-# makes a shorter route to an ANCESTOR of the deep target reach the target at all.
-func _flush_deferred_depth_problems(walk: Dictionary) -> void:
-	var expanded: Dictionary = walk["expanded"]
+# Deferring settles it in BOTH directions with the walk's own record: a pending
+# finding survives only when nothing ever reached its target inside the bound.
+# Order cannot change that, because it is read after every route has been walked.
+# The other two halves of the same guarantee are `reached_depth` in
+# _collect_sub_scene_problems, which is what makes a shorter route to an ANCESTOR
+# of the deep target reach the target at all, and the promotion rule in
+# _report_cycle_edge, which turns a pending record into the cycle a later route
+# proves rather than letting it suppress one.
+func _flush_pending_depth_problems(walk: Dictionary) -> void:
+	var reached_depth: Dictionary = walk["reached_depth"]
 	var out: Array = walk["problems"]
-	for pending in walk["deferred_depth"]:
-		if not expanded.has(String((pending as Dictionary)["path"])):
-			out.append(pending)
+	for scene_path in walk["edges"]:
+		var outcomes: Dictionary = walk["edges"][scene_path]
+		for ref_path in outcomes:
+			var record: Dictionary = outcomes[ref_path]
+			if String(record["outcome"]) != SCENE_EDGE_DEPTH_PENDING:
+				continue
+			if reached_depth.has(ref_path):
+				continue
+			out.append(record["problem"])
 
 
 # One problem about an EDGE of the scene graph rather than about a file's
@@ -6380,11 +6463,10 @@ func _ext_resource_entries_from_text(text: String, base_dir: String) -> Array:
 # to be returned verbatim, so `res://leaf.tscn` and `res://./leaf.tscn` were TWO
 # keys for ONE file. Everything downstream keys on this string — the dependency
 # walk's "a path declared twice is checked once and reported once" rule, the
-# sub-scene walk's own `answered`/`expanded`/`chain` sets, and the id-restoring
-# re-save — so a
-# lexical alias defeated all three at once: two identical problems for one broken
-# file, a cycle-closing edge that did not match its ancestor, and a per-file cost
-# bound a hand-written alias could evade.
+# sub-scene walk's own `answered`/`reached_depth`/`chain` sets, and the
+# id-restoring re-save — so a lexical alias defeated all three at once: two
+# identical problems for one broken file, a cycle-closing edge that did not match
+# its ancestor, and a per-file cost bound a hand-written alias could evade.
 #
 # simplify_path() is the ENGINE'S own normalization, not gda's invention: Godot
 # reports `res://..\outside.gd` back as `res://../outside.gd` (measured on 4.6.3),
