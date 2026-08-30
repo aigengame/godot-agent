@@ -34,8 +34,11 @@ class LiveNumberCase(NamedTuple):
     :func:`gda.live_numbers.wire_flattens_to_zero` must reproduce.
 
     ``default_stringify`` is the RESULT direction under Godot's DEFAULT
-    ``JSON.stringify`` — ``"exact"``, ``"changed"`` (a different non-zero value,
-    including the ``-0.0`` that comes back as ``0.0``), or ``"zero"`` (flattened).
+    ``JSON.stringify`` — ``"exact"``, ``"changed"`` (a different value that the
+    writer did not FLATTEN: rounded, or the ``-0.0`` that comes back as ``0.0``),
+    or ``"zero"`` (a non-zero value flattened to ``0.0``). "Changed" is therefore
+    not "changed to a non-zero value": the negative zero sits in it, which is what
+    made the published column heading wrong (#770 round 3).
     The full-precision writer the harness now uses is exact on every row but the
     negative zero, which is what makes this column the red-proof of the fix.
 

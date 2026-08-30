@@ -13,8 +13,9 @@ status: accepted
 > renders `0.0` before the writer's precision argument applies — so the RESULT
 > path carries full binary64 apart from that one disclosed residual; and a float
 > whose wire literal Godot's parser reads as `0.0` is REFUSED before the send, by
-> the base every live params model inherits, because the corpus shows no decimal
-> spelling can deliver it. Values the parser
+> the base every RELAYED live params model inherits — the ops the daemon answers
+> itself never reach that parser — because the corpus shows no decimal spelling
+> can deliver it. Values the parser
 > does read still arrive changed in their low-order bits, and by more than a
 > couple of doubles: the scientific band is tight, while a fixed-notation literal
 > can lose its last decimal digits outright, the parser dropping everything past

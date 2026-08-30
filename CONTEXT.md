@@ -193,8 +193,9 @@ live reply is framed with Godot's full-precision JSON writer, so a projected
 float crosses exactly — the one residual being that a negative zero reads back
 as `0.0` — while the headless writer still flattens small floats to `0.0` and
 rounds ordinary ones (#771). The write-side mirror on the live wire is a
-refusal: a float Godot's parser would read as `0.0` is rejected before the
-send, no decimal literal being able to deliver it (#752). Two controls keep the
+refusal: a float Godot's parser would read as `0.0` is rejected before a
+request is relayed to the harness, no decimal literal being able to deliver it
+(#752). Two controls keep the
 shared projection safe on the live side: the
 whitelist bounds the Object classes whose storage properties the inline kind
 emits, and the texture kind is safe by construction — a fixed getter shape

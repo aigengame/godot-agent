@@ -834,22 +834,29 @@ two directions have separate answers. A real-engine differential corpus
 both and is what the policy rests on; `gda.live_numbers` is the authority, and the e2e
 re-derives every verdict from a running engine.
 
-- **Results are exact.** The harness frames every reply with Godot's full-precision JSON
-  writer, which preserved 95 of the 96 corpus rows. The default writer preserved 41 of
+- **Results carry full precision, with one residual.** The harness frames every reply
+  with Godot's full-precision JSON writer, which preserved 95 of the 96 corpus rows. The
+  default writer preserved 41 of
   the 96: it changed 15 and flattened 40 to `0.0`, because it formats
-  fixed-point with at most 32 decimals. One residual is disclosed rather than fixed — a
-  NEGATIVE ZERO reads back as `0.0`, which the engine decides before the precision
-  argument applies, and is the single row full precision misses. Stated on every live read
-  (`game get`, `game rect`, `game call`, `perf monitors`, `perf monitor`, `screen capture`)
-  in help and in `--schema`.
+  fixed-point with at most 32 decimals. The one row full precision misses is the
+  residual, disclosed rather than fixed — a NEGATIVE ZERO reads back as `0.0`, which the
+  engine decides before the precision argument applies. Published in help and in
+  `--schema` on every float-bearing live reply, and on which replies those are is
+  DERIVED: a walk over the live result models fails a float-bearing field that publishes
+  no contract, so a new live float cannot ship silent.
 - **Requests are bounded, and the bound is cross-operation.** Godot's `built_in_strtod`
   applies a power of ten it computes as a double, so an applied exponent of −309 or below
   divides by `inf`: 18 of the 96 arrive as `0.0`, including `DBL_MIN`, every subnormal,
   and the ordinary normal `1.2345678901234567e-300`. No decimal spelling avoids it, so
   those values are REFUSED before the send — as is a JSON integer beyond ±(2^53 − 1). The
-  rule belongs to the wire, so it is applied by the base every live params model inherits
-  (`gda.models.LiveParams`), covering nested values and both input paths: a usage error on
-  argv, `invalid_params` on `--params-json`, decided without a running daemon.
+  rule belongs to the daemon-to-harness LEG, the one Godot's parser reads, so it is
+  applied by the base every RELAYED live params model inherits
+  (`gda.models.RelayedLiveParams`), covering nested values and both input paths: a usage
+  error on argv, `invalid_params` on `--params-json`, decided without a running daemon.
+  The ops the daemon answers ITSELF — `diag errors`, `logger tail`, `daemon wait-ready` —
+  are deliberately outside it: their numbers cross one Python-to-Python leg and never
+  meet that parser, so refusing them would report a loss on a leg the value never
+  crosses.
 - **The carried residual is disclosed, not refused.** A value the parser CAN construct
   still arrives changed in its low-order bits: 56 of the 96 crossed exactly and 22 changed.
   Ordinary game magnitudes land 1 ULP away; the scientific band reaches 2; and a
@@ -930,7 +937,7 @@ re-derives every verdict from a running engine.
   inherit that integer bound; real-engine tests pin the reproduced high-range values
   `1e17`, `2.5e17`, and `1e300` unchanged. This is not a full-range preservation
   guarantee: Godot 4.6.3 parses some small-magnitude normal values as `0.0`, which is
-  why they are refused — see **Live number transport** below for the decided
+  why they are refused — see **Live number transport** above for the decided
   cross-operation policy, which is not `game call`'s own
   ([#752](https://github.com/aigengame/godot-agent/issues/752)).
   Standard JSON Schema cannot distinguish
