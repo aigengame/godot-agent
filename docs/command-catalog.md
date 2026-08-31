@@ -223,7 +223,12 @@ Both report an invalid/failed scene as a **successful operation** (exit `0`, ver
 result), including preflight's `timeout` — "the complete preflight did not finish within its
 wall-clock bound" is the answer that command was asked for. A `_ready` that never returns is one
 cause; a healthy, already-ready scene whose `--frames` window outruns the ceiling is another —
-the params contract states the two bounds are not cross-checked. Only addressing and environment problems fail: `path_not_found`,
+the params contract states the two bounds are not cross-checked. That verdict carries the
+evidence the launch measured, the same two numbers the `launch_timeout` envelope reports on
+every other channel: `elapsed_seconds`, how long the run actually took, beside `timeout_seconds`,
+the `--timeout` it reached — so an agent can tell the two causes apart instead of re-running to
+find out. Both keys appear on the `timeout` verdict only, and are omitted (never null) from
+every other one, which nothing bounded (#787). Only addressing and environment problems fail: `path_not_found`,
 `invalid_path`, `not_a_scene`, preflight's `missing_dependency` for a scene the engine cannot
 instantiate at all, and the shared binary/crash envelopes. One case that looks like a refusal but
 is a verdict: an unresolvable `[ext_resource]` referenced from a `[sub_resource]` (an
