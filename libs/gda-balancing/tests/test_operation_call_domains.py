@@ -72,6 +72,13 @@ def test_projects_the_reproduced_nested_formula_domain_mismatch() -> None:
             "operation_call_cycle",
             ROOT,
         ),
+        (
+            lambda inp: inp.operations[MIDDLE]["body"][0].update(
+                {"operation": "malformed"}
+            ),
+            "malformed_operation_reference",
+            MIDDLE,
+        ),
     ],
 )
 def test_returns_typed_failures_for_incomplete_calls_and_cycles(

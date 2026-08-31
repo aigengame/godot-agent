@@ -100,14 +100,10 @@ def project_concrete_operation_call_domains(
                     and body_reaches_slot(cast(list[dict[str, Any]], nested))
                 ):
                     return True
-                operation_ref = instruction.get("operation")
-                if instruction.get(
-                    "node"
-                ) not in projection_input.operation_node_ids or not isinstance(
-                    operation_ref, dict
-                ):
+                if instruction.get("node") not in projection_input.operation_node_ids:
                     continue
-                if not all(
+                operation_ref = instruction.get("operation")
+                if not isinstance(operation_ref, dict) or not all(
                     isinstance(operation_ref.get(member), str)
                     for member in ("package", "version", "id")
                 ):
@@ -263,12 +259,10 @@ def project_concrete_operation_call_domains(
                     isinstance(row, dict) for row in nested
                 ):
                     walk(cast(list[dict[str, Any]], nested))
-                operation_ref = instruction.get("operation")
-                if node not in projection_input.operation_node_ids or not isinstance(
-                    operation_ref, dict
-                ):
+                if node not in projection_input.operation_node_ids:
                     continue
-                if not all(
+                operation_ref = instruction.get("operation")
+                if not isinstance(operation_ref, dict) or not all(
                     isinstance(operation_ref.get(member), str)
                     for member in ("package", "version", "id")
                 ):

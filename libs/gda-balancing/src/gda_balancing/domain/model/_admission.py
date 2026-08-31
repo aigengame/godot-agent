@@ -82,9 +82,9 @@ from gda_balancing.domain.model._lowering import (
     _value_policy_is_valid,
 )
 from gda_balancing.domain.model._operation_call_domain_adapters import (
+    build_operation_call_domain_input,
     resolved_rir_entrypoint_call,
     resolved_rir_formula_call,
-    rir_call_domain_input,
 )
 
 
@@ -1128,7 +1128,7 @@ def _formula_program_graph_is_admitted(
         concrete_operation_calls.setdefault(coordinate, []).append(concrete_call)
     try:
         call_domain_projection = project_concrete_operation_call_domains(
-            rir_call_domain_input(
+            build_operation_call_domain_input(
                 operations_by_coordinate,
                 concrete_operation_calls,
                 cast(list[dict[str, Any]], bindings),

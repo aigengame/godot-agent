@@ -216,7 +216,7 @@ def resolved_rir_entrypoint_call(
     }
 
 
-def source_call_domain_input(
+def build_operation_call_domain_input(
     operations: dict[OperationCoordinate, dict[str, Any]],
     roots: dict[OperationCoordinate, list[dict[str, Any]]],
     bindings: list[dict[str, Any]],
@@ -225,48 +225,7 @@ def source_call_domain_input(
     language_bundle: dict[str, Any],
     conversion_policy: dict[str, Any],
 ) -> ConcreteOperationCallDomainInput:
-    """Build the neutral projection input from checked Model Source shapes."""
-    return _call_domain_input(
-        operations,
-        roots,
-        bindings,
-        declarations_by_symbol,
-        kernel,
-        language_bundle,
-        conversion_policy,
-    )
-
-
-def rir_call_domain_input(
-    operations: dict[OperationCoordinate, dict[str, Any]],
-    roots: dict[OperationCoordinate, list[dict[str, Any]]],
-    bindings: list[dict[str, Any]],
-    declarations_by_symbol: dict[tuple[str, str], dict[str, Any]],
-    kernel: dict[str, Any],
-    language_bundle: dict[str, Any],
-    conversion_policy: dict[str, Any],
-) -> ConcreteOperationCallDomainInput:
-    """Build the neutral projection input from admitted RIR shapes."""
-    return _call_domain_input(
-        operations,
-        roots,
-        bindings,
-        declarations_by_symbol,
-        kernel,
-        language_bundle,
-        conversion_policy,
-    )
-
-
-def _call_domain_input(
-    operations: dict[OperationCoordinate, dict[str, Any]],
-    roots: dict[OperationCoordinate, list[dict[str, Any]]],
-    bindings: list[dict[str, Any]],
-    declarations_by_symbol: dict[tuple[str, str], dict[str, Any]],
-    kernel: dict[str, Any],
-    language_bundle: dict[str, Any],
-    conversion_policy: dict[str, Any],
-) -> ConcreteOperationCallDomainInput:
+    """Build one neutral projection input from normalized production shapes."""
     return ConcreteOperationCallDomainInput(
         operations=operations,
         roots=roots,

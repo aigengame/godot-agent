@@ -57,9 +57,9 @@ from gda_balancing.domain.model._resolution import (
     _selected_values,
 )
 from gda_balancing.domain.model._operation_call_domain_adapters import (
+    build_operation_call_domain_input,
     resolved_source_entrypoint_call,
     resolved_source_formula_call,
-    source_call_domain_input,
 )
 
 _LOWERER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-lowerer-v1"
@@ -1255,7 +1255,7 @@ def _resolved_formula_programs_and_bindings_impl(
         if concrete_call is not None:
             concrete_operation_calls.setdefault(coordinate, []).append(concrete_call)
     call_domain_projection = project_concrete_operation_call_domains(
-        source_call_domain_input(
+        build_operation_call_domain_input(
             operations_by_coordinate,
             concrete_operation_calls,
             source_bindings,
