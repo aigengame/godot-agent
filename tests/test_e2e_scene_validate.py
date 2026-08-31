@@ -1481,3 +1481,45 @@ def test_a_deferred_depth_edge_does_not_suppress_a_later_cycle(
     assert [
         (p["kind"], p["scene"], p["path"], p["nodes"]) for p in data["problems"]
     ] == [("cyclic_instance", "res://s.tscn", "res://t.tscn", ["Child"])]
+
+
+# A hand-written scene whose [node] header carries a decoy attribute ending in
+# `name` ahead of the real one, and whose [ext_resource] line carries a decoy
+# ending in `type` (#775). Both are read WHOLE-NAME by the one owner of each
+# recognition, so the verdict names the node that really references the missing
+# file, and the class the line really declares. Read by substring, the header
+# attributes answer "Decoy" and the type answers "Resource".
+DECOY_ATTR_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" subtype="Resource" path="res://gone.gd" id="1_gone"]
+
+[node name="Root" type="Node2D"]
+
+[node instance_name="Decoy" name="Sprite" type="Sprite2D" parent="."]
+script = ExtResource("1_gone")
+"""
+
+
+@pytest.mark.e2e
+def test_a_problem_names_the_node_a_whole_name_header_read_finds(godot_project):
+    (godot_project / "main.tscn").write_text(DECOY_ATTR_TSCN, encoding="utf-8")
+    gda = _gda_project(godot_project)
+
+    validated = gda("scene", "validate", "res://main.tscn", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    assert data["problems"] == [
+        {
+            "kind": "missing_resource",
+            "scene": "res://main.tscn",
+            "path": "res://gone.gd",
+            "type": "Script",
+            # "Decoy" before the [node] header was read by whole attribute name:
+            # an agent sent to fix the reference would open the wrong node.
+            "nodes": ["Sprite"],
+            "message": "the referenced file does not exist",
+        }
+    ]
