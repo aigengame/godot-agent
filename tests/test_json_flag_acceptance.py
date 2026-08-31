@@ -276,6 +276,38 @@ def test_the_walker_refuses_to_replace_a_groups_own_callback():
         adopt_group_json(root)
 
 
+def test_the_json_adoption_reaches_a_nested_sub_group():
+    # The negative sentinel for the walk itself: a group mounted on a GROUP — not on
+    # the root — is the shape a flat adoption would miss. The live tree is two levels
+    # deep, so every group-`--json` test above exercises a FIRST-level group and the
+    # walk's recursion rode along unproven: deleting it passed the whole suite (#788).
+    # So the recursion is proven on a tree built here, rather than left until someone
+    # mounts a sub-group and finds the flag dead under it. The twin on the refusal side
+    # is tests/test_unknown_invocation.py::test_the_adoption_reaches_a_nested_sub_group.
+    inner = typer.Typer()
+
+    @inner.command("leaf")
+    def _leaf() -> None:
+        """A leaf."""
+
+    middle = typer.Typer()
+    middle.add_typer(inner, name="inner")
+    root = typer.Typer()
+    root.add_typer(middle, name="middle")
+
+    adopt_group_json(root)
+
+    # The acceptance the first level already has, one level down: the flag parses
+    # between the nested group and the command it runs.
+    accepted = CliRunner().invoke(root, ["middle", "inner", "--json", "leaf"])
+
+    assert accepted.exit_code == 0, accepted.stdout + accepted.stderr
+    rendered = CliRunner().invoke(root, ["middle", "inner", "--help"])
+
+    assert rendered.exit_code == 0, rendered.stdout
+    assert "--json" in plain_text(rendered.stdout)
+
+
 # --- the shipped guidance states the same contract ----------------------------
 
 
