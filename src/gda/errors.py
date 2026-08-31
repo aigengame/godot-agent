@@ -40,6 +40,7 @@ the shell-convention codes 124/127; version/operation/parse get distinct small
 codes so a shell consumer can tell categories apart without parsing the JSON error.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -53,12 +54,16 @@ from gda.error_codes import (
 )
 from gda.models import (
     EnvironmentProbe,
+    FailureEvidence,
     GdaError,
     LiveErrorEnvelope,
     OperationErrorEnvelope,
+    TerminationPhase,
 )
 from gda.parser import parse_result
+from gda.render import render_script_error_location
 from gda.runner import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
+from gda.script_errors import ScriptError
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
 # features gda relies on exist. Resolved from the version gda info reports; the
@@ -80,6 +85,7 @@ def make_failure(
     stderr: str,
     probe: EnvironmentProbe | None = None,
     hint: str | None = None,
+    evidence: FailureEvidence | None = None,
 ) -> Failure:
     """Build a ``Failure`` from the parts that actually vary per failure.
 
@@ -100,6 +106,11 @@ def make_failure(
     where gda RECOGNIZES the mistake — today the curated near-miss table behind an
     unknown command or option (``gda.hints``). Like ``probe`` it is omitted from
     the emitted JSON when unset.
+
+    ``evidence`` is the optional :class:`FailureEvidence` behind the verdict
+    (ADR-0004 amendment, #687) — clocks, the child's own exit status, the parsed
+    script errors. Third key on the same axis, third time omitted when unset, so a
+    failure that computes none is byte-identical to its pre-#687 envelope.
     """
     spec = ERROR_CODE_BY_CODE.get(code)
     if spec is None:
@@ -112,6 +123,7 @@ def make_failure(
             diagnostics=stderr,
             probe=probe,
             hint=hint,
+            evidence=evidence,
         ),
         exit_code=spec.exit_code,
     )
@@ -335,6 +347,49 @@ def _tail(stream: str) -> str:
     return encoded[-CAPTURED_OUTPUT_TAIL_CAP_BYTES:].decode("utf-8", errors="ignore")
 
 
+def termination_phase(raw: RunResult) -> TerminationPhase:
+    """Which timeout phase a gda-ended run reached — see :class:`TerminationPhase`.
+
+    Keyed on whether the engine wrote ANYTHING, which is the only honest signal the
+    capture carries. It is not "did the script start": Godot prints its own version
+    banner to stdout within ~0.1s of a normal spawn (measured against 4.6.3), so
+    output arriving does not prove the entry ran — only that the engine reached its
+    startup. That is still the distinction worth reporting, because its absence
+    means the engine never got that far.
+
+    Shared by every channel that ends a run rather than owned by ``script run``
+    (#687): the same two-way distinction is what the ``launch_timeout`` message asks
+    a caller to make from prose ("suspect the binary or the machine only when the
+    capture shows the engine never started"), so it is the same fact and must be
+    computed once. ``ABORTED_ON_ERROR`` is not reachable from here — it is a verdict
+    of the completion-marker watch, not a reading of the streams.
+    """
+    return (
+        TerminationPhase.OUTPUT_SEEN
+        if raw.stdout or raw.stderr
+        else TerminationPhase.LAUNCHED
+    )
+
+
+def _recognized_errors_prose(errors: Sequence[ScriptError]) -> str:
+    """Recognized script errors as ``diagnostics`` lines, or ``""`` when there are none.
+
+    The SAME ``<kind>: <path>:<line>: <message>`` layout the human renderer uses for
+    a successful run's structured diagnostics, so the curated high-signal lines read
+    identically whether they arrive typed or as prose.
+
+    Since #687 both forms ship together — the typed list in
+    :class:`~gda.models.FailureEvidence` and this prose in ``diagnostics`` — from ONE
+    parse of the stderr, which is why this renders a parsed list rather than parsing
+    a stream itself. The prose stays because ``diagnostics`` is what a human reads
+    and what every pre-#687 consumer already reads.
+    """
+    return "".join(
+        f"gda:   {error.kind.value}: {render_script_error_location(error)}\n"
+        for error in errors
+    )
+
+
 def launch_timeout_failure(raw: RunResult) -> Failure:
     """The ``launch_timeout`` envelope for a run gda stopped waiting for (#714).
 
@@ -385,6 +440,14 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     mid-flight), so a recognized line can be stale or half-written, and a silent
     misattribution is the worst shape for an agent branching on ``code``. Decided for
     all four launch-backed channels and recorded in ADR-0002 beside the registry row.
+
+    **The same three facts also ship as DATA** since #687: the ceiling, the elapsed
+    clock and the termination phase ride the envelope's ``evidence`` key, so the
+    comparison this message asks the caller to make in prose — slow versus stuck,
+    started versus never started — is one an agent makes on numbers. The prose is
+    unchanged; the typed form is additive, and the streams stay in ``diagnostics``
+    only, since duplicating two 16 KiB captures into the evidence object would
+    double the payload to say the same thing twice.
     """
     bound = raw.timeout_bound
     label = bound.label if bound is not None else DEFAULT_TIMEOUT_LABEL
@@ -410,6 +473,15 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
             _tail(raw.stderr),
             stdout_header=CAPTURED_STDOUT_HEADER,
             stderr_header=CAPTURED_STDERR_HEADER,
+        ),
+        evidence=FailureEvidence(
+            # Both clocks degrade to omitted rather than to a made-up number, on the
+            # same reasoning the prose above degrades: a hand-built RunResult at a
+            # test seam carries neither, and an absent key is honest where a zero
+            # would read as "instant".
+            elapsed_seconds=raw.elapsed_seconds,
+            timeout_seconds=None if bound is None else bound.seconds,
+            termination_phase=termination_phase(raw),
         ),
     )
 
@@ -731,7 +803,11 @@ def script_outside_project_failure(location: Path, project: Path) -> Failure:
 
 
 def script_did_not_run_failure(
-    code: str, script: str, detail: str, stderr: str
+    code: str,
+    script: str,
+    detail: str,
+    stderr: str,
+    script_errors: Sequence[ScriptError],
 ) -> Failure:
     """The ``script run`` verdict for an entry script that never ran (#651).
 
@@ -745,18 +821,31 @@ def script_did_not_run_failure(
     (:func:`gda.script_errors.entry_load_failure`) rather than on the exit code.
 
     ``code`` is the registered verdict (``script_not_found`` /
-    ``script_compile_failed``), ``detail`` the engine's own sentence, kept in the
-    message so the agent sees WHY without parsing ``diagnostics``.
+    ``script_compile_failed`` / ``incompatible_script_type``), ``detail`` the
+    engine's own sentence, kept in the message so the agent sees WHY without parsing
+    ``diagnostics``.
+
+    ``script_errors`` is the WHOLE parsed list, not just the entry-load error that
+    decided the verdict (#687). This is the discard #651 recorded: the run's errors
+    were parsed to reach this verdict and then thrown away, leaving the caller to
+    re-parse ``diagnostics`` — which here is the raw stderr — to see the cascade. The
+    deciding error is the list entry the code names; the rest is what else the engine
+    said, which is frequently the real cause (a dependency that would not preload).
     """
     return make_failure(
         code,
         f"script run: {script} did not run — {detail}",
         stderr,
+        evidence=FailureEvidence(script_errors=list(script_errors)),
     )
 
 
 def script_exit_status_failure(
-    script: str, exit_status: int, stdout: str, stderr: str
+    script: str,
+    exit_status: int,
+    stdout: str,
+    stderr: str,
+    script_errors: Sequence[ScriptError],
 ) -> Failure:
     """The ``script run --strict`` verdict for a non-zero script exit (#651).
 
@@ -771,41 +860,52 @@ def script_exit_status_failure(
     The evidence the caller needs is preserved: the status stays readable in the
     message, and ``diagnostics`` carries BOTH of the script's streams under fixed
     labels. Carrying stderr alone would defeat the flag's own use case — a GDScript
-    test runner reports through ``print()``. The status survives only as message
-    prose; a structured status field on the failure channel would need an ADR-0004
-    envelope change, deferred to that decision (#655).
+    test runner reports through ``print()``.
+
+    Since #687 the status is also DATA (``evidence.exit_status``), which is the
+    change #651 deferred to the ADR-0004 decision, and the parsed script errors come
+    with it. The asymmetry that argued for both: the very same run without
+    ``--strict`` returns those errors typed on the success result, so opting into the
+    flag used to cost the caller the parsed cause and force a re-read of the status
+    out of an English sentence. ``exit_status`` is the CHILD's status — the gda
+    process still exits ``4``, since a script's ``quit(3)`` must not alias a registry
+    exit code.
     """
     return make_failure(
         "script_failed",
         f"script run --strict: {script} exited with status {exit_status}",
         _labelled_script_output(stdout, stderr),
+        evidence=FailureEvidence(
+            exit_status=exit_status,
+            script_errors=list(script_errors),
+        ),
     )
 
 
 def _ended_run_diagnostics(
-    what: str, script_errors: str, stdout: str, stderr: str
+    what: str, script_errors: Sequence[ScriptError], stdout: str, stderr: str
 ) -> str:
     """The ``diagnostics`` prose shared by the two gda-ended ``script run`` verdicts.
 
-    ADR-0004's ``GdaError.diagnostics`` is a free-form ``str``, so everything a
-    failure reports about a run gda ended is PROSE: the recognized script errors,
-    then both streams under the same fixed labels ``--- script stdout ---`` /
-    ``--- script stderr ---`` that ``--strict`` already uses, so one consumer split
-    reads every ``script run`` failure. Promoting the elapsed time, the termination
-    phase and these error lines to structured envelope FIELDS would change the
-    uniform failure ABI; **#687 owns that decision** and ADR-0031's amendment
-    already records that this issue's envelope adopts its outcome. String
-    diagnostics are the deliberate first step, not an oversight — do not add
-    envelope fields here.
+    ADR-0004's ``GdaError.diagnostics`` is a free-form ``str``, so what this renders
+    is prose: the recognized script errors, then both streams under the same fixed
+    labels ``--- script stdout ---`` / ``--- script stderr ---`` that ``--strict``
+    already uses, so one consumer split reads every ``script run`` failure.
+
+    It is no longer the ONLY form (#687): the same parsed errors now also ride the
+    envelope's ``evidence.script_errors`` as data, from this one parse. The prose is
+    kept byte-for-byte because it is what a human reads and what every pre-#687
+    consumer reads — the typed key is additive, not a replacement.
 
     ``what`` names the moment ("the timeout", "the abort") so the error block reads
     as a statement about this run. A run with no recognized errors says so
     explicitly: the ABSENCE is itself the diagnosis — a hang with a clean error
     stream is an unfinished run, not a broken script.
     """
+    rendered = _recognized_errors_prose(script_errors)
     header = (
-        f"gda: recognized script errors seen before {what}:\n{script_errors}"
-        if script_errors
+        f"gda: recognized script errors seen before {what}:\n{rendered}"
+        if rendered
         else f"gda: no recognized script errors appeared before {what}\n"
     )
     return header + _labelled_script_output(_tail(stdout), _tail(stderr))
@@ -816,8 +916,8 @@ def script_run_timeout_failure(
     *,
     timeout: float,
     elapsed: float,
-    phase: str,
-    script_errors: str,
+    phase: TerminationPhase,
+    script_errors: Sequence[ScriptError],
     stdout: str,
     stderr: str,
 ) -> Failure:
@@ -843,12 +943,15 @@ def script_run_timeout_failure(
     script errors seen before the timeout", so it is the one envelope that hands an
     agent a parsed #651-shaped cause under a timeout verdict. gda does not re-verdict
     on it and neither should the caller — see ADR-0002's `Outcome (2026-08-31, #716 /
-    #717)` note beside the ``launch_timeout`` registry row for why.
+    #717)` note beside the ``launch_timeout`` registry row for why. #687 is what makes
+    that rule workable rather than merely stated: the parsed errors ride ``evidence``
+    as DATA under the honest timeout verdict, so an agent gets the precise cause
+    without gda having to infer one from a partial capture.
     """
     return make_failure(
         "launch_timeout",
         f"script run: {script} did not return before the --timeout of {timeout}s "
-        f"(elapsed {elapsed:.2f}s, termination phase '{phase}'). The captured "
+        f"(elapsed {elapsed:.2f}s, termination phase '{phase.value}'). The captured "
         f"output is in diagnostics, truncated to the last "
         f"{CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; raise "
         f"--timeout for a run that is merely slow, or declare "
@@ -856,6 +959,12 @@ def script_run_timeout_failure(
         f"errors in the diagnostics are advisory: the verdict here is the timeout, "
         f"not an entry-load failure.",
         _ended_run_diagnostics("the timeout", script_errors, stdout, stderr),
+        evidence=FailureEvidence(
+            elapsed_seconds=elapsed,
+            timeout_seconds=timeout,
+            termination_phase=phase,
+            script_errors=list(script_errors),
+        ),
     )
 
 
@@ -866,8 +975,8 @@ def script_run_aborted_failure(
     timeout: float,
     elapsed: float,
     silence: float,
-    phase: str,
-    script_errors: str,
+    phase: TerminationPhase,
+    script_errors: Sequence[ScriptError],
     stdout: str,
     stderr: str,
 ) -> Failure:
@@ -912,8 +1021,18 @@ def script_run_aborted_failure(
         f"The --timeout of {timeout}s was not reached. The captured "
         f"output is in diagnostics, truncated to the last "
         f"{CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; "
-        f"termination phase '{phase}'.",
+        f"termination phase '{phase.value}'.",
         _ended_run_diagnostics("the abort", script_errors, stdout, stderr),
+        evidence=FailureEvidence(
+            elapsed_seconds=elapsed,
+            # The ceiling this run did NOT reach, which is the point: read beside
+            # elapsed_seconds it shows the abort saved the difference. The silence
+            # window and the declared marker stay prose — both are the caller's own
+            # inputs, so neither tells it anything it did not already know.
+            timeout_seconds=timeout,
+            termination_phase=phase,
+            script_errors=list(script_errors),
+        ),
     )
 
 

@@ -86,6 +86,18 @@ the mistake the envelope carries a `hint` naming the invocation to run instead
 `hint`; when there is none, `gda schema` lists every command and
 `gda help <command>` describes one.
 
+A failure that computed evidence also carries it as DATA, under the envelope's
+optional `evidence` key — omitted, never null, on the failures that computed none.
+Read it instead of parsing the message: `elapsed_seconds` / `timeout_seconds` /
+`termination_phase` (`launched` = the engine wrote nothing at all, so suspect the
+binary or the host; `output_seen` = it was alive and did not finish, so raise the
+ceiling; `aborted_on_error`) on a run gda ended, `exit_status` (the CHILD's, not
+gda's exit code) on `script run --strict`'s `script_failed`, and `script_errors`
+(the parsed `{kind, message, path, line}` list) on every `script run` failure gda
+decided from the engine's stderr. Under a `launch_timeout` those errors stay
+ADVISORY — the verdict is the timeout, so branch on `code` and read `evidence` for
+the cause.
+
 Some commands carry a verdict inside a successful result. For
 `gda script validate --json`, read the result's `valid` field: it is the AGGREGATE
 verdict over every script the call validated, `false` as soon as one of them fails.

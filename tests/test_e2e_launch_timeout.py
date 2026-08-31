@@ -249,3 +249,23 @@ def test_a_wedged_import_pass_reports_what_the_engine_printed(tmp_path):
     assert "elapsed 4." in error["message"]
     _assert_caller_first_remediation(error["message"])
     assert "PLUGIN WEDGED" in error["diagnostics"]
+    # #687 (the ADR-0004 amendment) end to end, on a REAL wedged engine: the three
+    # facts the message states in prose also ride the envelope as DATA, so the
+    # comparison it asks for — slow versus stuck, started versus never started — is
+    # one an agent makes on numbers. Asserted here rather than only at the builder
+    # because the clock and the phase are readings of a real process: a fake
+    # RunResult would assert only the can.
+    evidence = error["evidence"]
+    assert evidence["timeout_seconds"] == CEILING_SECONDS
+    assert evidence["elapsed_seconds"] >= CEILING_SECONDS
+    # The engine printed before it wedged, so it reached its own startup: this is the
+    # phase that says raise the ceiling, not the one that says suspect the binary.
+    assert evidence["termination_phase"] == "output_seen"
+    # The captured streams stay in `diagnostics` alone — copying two 16 KiB captures
+    # into the evidence object would double the payload to say the same thing twice —
+    # and this builder does not parse them, so no key it could not fill is present.
+    assert set(evidence) == {
+        "elapsed_seconds",
+        "timeout_seconds",
+        "termination_phase",
+    }

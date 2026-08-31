@@ -20,6 +20,7 @@ fall-through is asserted here, the operation classification in each channel suit
 (issue #15).
 """
 
+import json
 from pathlib import Path
 
 from gda.errors import (
@@ -28,7 +29,7 @@ from gda.errors import (
     classify_launch_or_crash,
 )
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
-from gda.models import ErrorCategory
+from gda.models import ErrorCategory, TerminationPhase
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
 
 BINARY = Path("/x/Godot")
@@ -213,6 +214,102 @@ def test_the_timeout_message_says_a_captured_error_is_advisory():
     assert "the verdict here is the timeout" in failure.error.message
     # The error itself still reaches the caller as evidence, unchanged.
     assert "Parse Error" in failure.error.diagnostics
+
+
+def test_the_shared_timeout_envelope_carries_its_numbers_as_data():
+    # #687 (the ADR-0004 amendment) on the SHARED builder, so this holds for all
+    # three channels that reach it. The three facts #714 put in the message — the
+    # ceiling, the elapsed clock, and how far the run got — are now also DATA, so the
+    # slow-versus-stuck comparison the message asks for in prose is one an agent
+    # makes on numbers instead of by matching a sentence.
+    failure = classify_launch_or_crash(
+        RunResult(
+            stdout="Godot Engine v4.6.3\n",
+            stderr="",
+            exit_code=EXIT_TIMEOUT,
+            launch_failure=LaunchFailure.TIMEOUT,
+            elapsed_seconds=30.2,
+            timeout_bound=TimeoutBound("Godot import", 30.0),
+        ),
+        BINARY,
+    )
+
+    assert isinstance(failure, Failure)
+    evidence = failure.error.evidence
+    assert evidence is not None
+    assert evidence.elapsed_seconds == 30.2
+    assert evidence.timeout_seconds == 30.0
+    assert evidence.termination_phase is TerminationPhase.OUTPUT_SEEN
+    # The captured streams stay in `diagnostics` ALONE: copying two 16 KiB captures
+    # into the evidence object would double the payload to say the same thing twice.
+    assert "Godot Engine v4.6.3" in failure.error.diagnostics
+    # This builder does not parse the capture — #716 keeps the stream advisory, and
+    # only `script run` has the parser and the entry to attribute against — so the
+    # unset fields are absent rather than empty.
+    assert evidence.script_errors is None
+    assert evidence.exit_status is None
+
+
+def test_a_run_that_wrote_nothing_reports_the_narrower_phase_as_data():
+    # The distinction the phase exists for, and the one case where suspecting the
+    # binary or the host IS the right next step: the engine never reached its own
+    # startup output. Godot prints its banner within ~0.1s of a normal spawn, so
+    # silence here means it never got that far.
+    failure = classify_launch_or_crash(
+        RunResult(
+            stdout="",
+            stderr="",
+            exit_code=EXIT_TIMEOUT,
+            launch_failure=LaunchFailure.TIMEOUT,
+            elapsed_seconds=60.0,
+            timeout_bound=TimeoutBound("Godot", 60.0),
+        ),
+        BINARY,
+    )
+
+    assert isinstance(failure, Failure)
+    assert failure.error.evidence is not None
+    assert failure.error.evidence.termination_phase is TerminationPhase.LAUNCHED
+
+
+def test_an_unmeasured_timeout_omits_the_clocks_rather_than_inventing_them():
+    # The typed half degrades exactly as the prose half does: a hand-built RunResult
+    # at a test seam carries neither bound nor clock, and an absent key is honest
+    # where a zero would read as "instant". This is also the nested-omission proof on
+    # a REAL builder — the evidence object ships with only the field it could fill.
+    failure = classify_launch_or_crash(
+        RunResult(
+            stdout="",
+            stderr="",
+            exit_code=EXIT_TIMEOUT,
+            launch_failure=LaunchFailure.TIMEOUT,
+        ),
+        BINARY,
+    )
+
+    assert isinstance(failure, Failure)
+    emitted = json.loads(failure.error.model_dump_json(exclude_none=True))
+    assert emitted["evidence"] == {"termination_phase": "launched"}
+
+
+def test_a_failure_with_nothing_to_evidence_keeps_its_pre_687_envelope():
+    # The scope-defining property of the amendment: `binary_not_found` computes no
+    # evidence, so its envelope has the same four keys it had before #687 — not a
+    # fifth key holding `null`, and not an empty object.
+    failure = classify_launch_or_crash(
+        RunResult(
+            stdout="",
+            stderr="gda: Godot binary could not be launched: /x/Godot\n",
+            exit_code=EXIT_NOT_FOUND,
+            launch_failure=LaunchFailure.NOT_FOUND,
+        ),
+        BINARY,
+    )
+
+    assert isinstance(failure, Failure)
+    assert failure.error.evidence is None
+    emitted = json.loads(failure.error.model_dump_json(exclude_none=True))
+    assert set(emitted) == {"category", "code", "message", "diagnostics"}
 
 
 def test_signal_death_maps_to_engine_crashed_naming_the_signal():

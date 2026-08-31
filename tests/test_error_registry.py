@@ -1,5 +1,6 @@
 """ADR-0002 error-code registry drift checks."""
 
+import json
 import re
 from pathlib import Path
 from typing import NamedTuple
@@ -14,7 +15,7 @@ from gda.error_codes import (
 )
 from gda.errors import make_failure
 from gda.exit_codes import EXIT_LIVE
-from gda.models import ErrorCategory
+from gda.models import ErrorCategory, GdaErrorEnvelope
 
 # The live execution channel's failure codes (ADR-0017 / ADR-0021). Registered
 # here as the first Phase-2 slice's error contract; emitted by the daemon IPC
@@ -203,6 +204,28 @@ def test_failure_derives_exit_code_from_registry():
         assert failure.exit_code == spec.exit_code
         assert failure.error.category is spec.category
         assert failure.error.code == spec.code
+
+
+def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
+    # The scope-defining regression for the ADR-0004 amendments (#667 `probe`, #670
+    # `hint`, #687 `evidence`): each added an OPTIONAL key to the ONE shared failure
+    # envelope, and the whole additive argument rests on a failure that sets none
+    # emitting the same four keys it emitted before. Measured across the ENTIRE
+    # registry rather than sampled, because that is the population the claim is about
+    # — a fifth key defaulted to `{}` or `""` instead of `None` would pass any
+    # single-code check and silently change every envelope gda emits.
+    for spec in ERROR_CODES:
+        emitted = json.loads(
+            GdaErrorEnvelope(
+                error=make_failure(spec.code, "message", "").error
+            ).model_dump_json(exclude_none=True)
+        )
+        assert set(emitted["error"]) == {
+            "category",
+            "code",
+            "message",
+            "diagnostics",
+        }, spec.code
 
 
 def test_failure_builder_rejects_unregistered_public_codes():

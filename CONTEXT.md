@@ -236,6 +236,23 @@ The structured failure result that distinguishes a failed command from a
 successful result.
 _Avoid_: error blob, failure JSON
 
+**Failure evidence**:
+The typed facts BEHIND a verdict, carried on the `Error envelope`'s optional
+`evidence` key (ADR-0004 amendment, #687) — never a substitute for branching on the
+`Gda error code`, which stays the verdict. One fixed shape shared by every command,
+because ADR-0004 fixes the `error` half as one schema identical for all; the
+per-operation variability lives INSIDE it, every field individually optional and
+omitted rather than null, so a timeout populates the clocks (`elapsed_seconds`,
+`timeout_seconds`, `termination_phase`) while a `script run --strict` failure
+populates the child's `exit_status`, and both carry the parsed `script_errors` where
+the channel has them. A fact qualifies only if it is ALREADY computed on the failure
+path, unrecoverable from the envelope without parsing prose, and changes what the
+caller does next — which is what keeps the caller's own inputs (a declared
+`Completion marker`, a silence window) and the captured streams (already in
+`diagnostics`) out. Third key on the axis `probe` and `hint` established, and
+CLI-side like `hint`: neither GDScript surface emits or reads it.
+_Avoid_: diagnostics, error context, error details
+
 **Near-miss hint**:
 The corrected invocation gda returns when it RECOGNIZES a wrong one — an unknown
 command or option it holds a curated entry for (`gda scene inspect` → `gda scene

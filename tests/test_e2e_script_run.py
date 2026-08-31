@@ -432,6 +432,30 @@ def test_script_run_parse_error_dependency_is_script_compile_failed(godot_projec
     # The engine's stderr is preserved as secondary evidence, naming the dependency
     # the entry script could not preload.
     assert "broken_dep.gd" in err["diagnostics"]
+    # THE #651 DISCARD, closed end to end (#687): the errors gda parsed to REACH this
+    # verdict now ship as DATA rather than leaving the caller to re-parse the raw
+    # stderr. The WHOLE list, not only the entry the code names — pinned against what
+    # the REAL engine emits for a failed preload, which is two records about the ENTRY
+    # script (the engine attributes both to it; the dependency is named in the parse
+    # error's message, never as a path of its own).
+    errors = err["evidence"]["script_errors"]
+    kinds = [e["kind"] for e in errors]
+    # The CASCADE is what proves the whole list ships: this one failed preload makes
+    # the real engine emit several `parse_error` records and then the `compile_failed`
+    # that decided the code. Only the last of them is the verdict's own error; an
+    # envelope carrying that one alone would drop every record naming the cause.
+    assert kinds[-1] == "compile_failed"
+    assert kinds.count("parse_error") >= 1
+    assert len(errors) > 1, errors
+    # The engine attributes all of them to the ENTRY script — the dependency is named
+    # in the message, never as a path of its own — so a caller must read the message,
+    # not assume the path points at the culprit.
+    assert {e["path"] for e in errors} == {"res://suite.gd"}
+    # And the typed form carries what the raw stderr made the caller re-parse: the
+    # LINE of the failed preload, which is the caller's next stop.
+    preload_error = next(e for e in errors if "broken_dep.gd" in e["message"])
+    assert preload_error["kind"] == "parse_error"
+    assert preload_error["line"] == 3
 
 
 @pytest.mark.e2e
@@ -605,6 +629,13 @@ def test_script_run_strict_fails_on_an_explicit_non_zero_quit(godot_project):
     assert err["code"] == "script_failed"
     assert err["category"] == "operation"
     assert "status 1" in err["message"]
+    # #687 (the ADR-0004 amendment) end to end: the CHILD's status is data on the
+    # envelope, not only a number inside an English sentence — while the gda PROCESS
+    # still exits 4, because a script's quit(1) must not alias a registry exit code.
+    assert err["evidence"]["exit_status"] == 1
+    # And no key the run did not compute: a script that RAN has no launch clock and
+    # no termination phase, so those are absent rather than zeroed.
+    assert set(err["evidence"]) <= {"exit_status", "script_errors"}
 
 
 @pytest.mark.e2e
