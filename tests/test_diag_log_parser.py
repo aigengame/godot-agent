@@ -104,8 +104,10 @@ def test_parse_errors_empty_input_is_empty_list():
 
 # A real Godot 4.6 runtime GDScript error: the `at:` follow-on is succeeded by a
 # `GDScript backtrace (most recent call first):` marker, then one `[N] func
-# (file:line)` frame line per stack frame (verified against Godot 4.6.3). The
-# `at:` frame equals frame `[0]`; frames are ordered most-recent-first.
+# (file:line)` frame line per stack frame (verified against Godot 4.6.3). Frames
+# are ordered most-recent-first. The `at:` frame equals frame `[0]` FOR THIS
+# CLASS — GDScript itself raised the error, at the failing statement — which is
+# not the general rule; see MIXED_RAISER_LOG below (#722).
 BACKTRACE_LOG = """\
 SCRIPT ERROR: Invalid call. Nonexistent function 'do_thing' in base 'Nil'.
    at: b (res://main.gd:9)
@@ -128,8 +130,10 @@ def test_parse_errors_extracts_the_ordered_callstack_frames():
 
 
 def test_parse_errors_top_frame_fields_match_the_at_line_unchanged():
-    # The existing single-frame {function,file,line} fields stay the top frame —
-    # equal to frame [0] — and are unchanged by the callstack enrichment.
+    # The existing single-frame {function,file,line} fields stay the `at:` location
+    # and are unchanged by the callstack enrichment. They also equal frame [0] here
+    # because GDScript raised this error itself — a property of THIS record, not of
+    # every record (#722).
     error = parse_errors(BACKTRACE_LOG)[0]
     assert error["function"] == "b"
     assert error["file"] == "res://main.gd"
@@ -141,9 +145,67 @@ def test_parse_errors_top_frame_fields_match_the_at_line_unchanged():
     }
 
 
-def test_parse_errors_callstack_is_empty_for_a_bare_push_error():
-    # A plain push_error / warning carries NO GDScript backtrace; its callstack is
-    # an empty list (not an error, not a one-frame synthesis).
+# One real Godot 4.6.3 headless capture holding BOTH raiser shapes, so the
+# relation between `at:` and frame `[0]` is pinned by evidence rather than by the
+# assumption the docs used to carry. Reproduced (#722) from a scene whose
+# `_ready` calls `_inner()` (which calls `push_error`) and then `_boom()` (which
+# calls a method on null). The differing indentation is the engine's own
+# ErrorType indent, kept verbatim.
+MIXED_RAISER_LOG = """\
+ERROR: probe: invariant violated
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _inner (res://main.gd:10)
+       [1] _ready (res://main.gd:5)
+SCRIPT ERROR: Invalid call. Nonexistent function 'do_thing' in base 'Nil'.
+          at: _boom (res://main.gd:15)
+          GDScript backtrace (most recent call first):
+              [0] _boom (res://main.gd:15)
+              [1] _ready (res://main.gd:6)
+"""
+
+
+def test_parse_errors_frame_zero_is_not_the_at_line_for_a_push_error():
+    # The corrected contract (#722): `at:` is where the error was RAISED, the
+    # backtrace is where the SCRIPT was, and for a `push_error` those are two
+    # different places — the engine's own C++ `VariantUtilityFunctions::push_error`
+    # versus the .gd line that called it. An implementation that folded one into
+    # the other (synthesizing frame [0] from `at:`, or overwriting the top fields
+    # from frame [0]) would lose the project's only script attribution.
+    raised_by_engine, raised_by_gdscript = parse_errors(MIXED_RAISER_LOG)
+
+    at_location = {
+        "function": raised_by_engine["function"],
+        "file": raised_by_engine["file"],
+        "line": raised_by_engine["line"],
+    }
+    assert at_location == {
+        "function": "push_error",
+        "file": "core/variant/variant_utility.cpp",
+        "line": 1024,
+    }
+    assert raised_by_engine["callstack"][0] == {
+        "function": "_inner",
+        "file": "res://main.gd",
+        "line": 10,
+    }
+    # The point of the regression: the two locations differ in every field.
+    assert raised_by_engine["callstack"][0] != at_location
+
+    # And the counterpart class in the same capture, where they DO coincide —
+    # which is why the unconditional claim looked true for so long.
+    assert raised_by_gdscript["callstack"][0] == {
+        "function": raised_by_gdscript["function"],
+        "file": raised_by_gdscript["file"],
+        "line": raised_by_gdscript["line"],
+    }
+
+
+def test_parse_errors_callstack_is_empty_for_a_bare_error():
+    # An error raised outside any GDScript call stack carries NO backtrace; its
+    # callstack is an empty list (not an error, not a one-frame synthesis).
+    # NOT a push_error, which does carry one on the build gda drives (#722) — the
+    # earlier name for this test claimed the opposite.
     errors = parse_errors("ERROR: bare error\n   at: f (res://a.gd:1)\n")
     assert errors[0]["callstack"] == []
 

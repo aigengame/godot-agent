@@ -4,6 +4,25 @@ status: accepted
 
 # Live method calls are declared once per opted-in script chain, in a statically-read constant
 
+> **Outcome (2026-08-28, #752):** the live-number limitation this ADR discloses
+> twice below — small floats lost on the request side, and the same loss on the
+> shared live-RESULT path — is decided and no longer open. A real-engine
+> differential corpus (`tests/live_number_corpus.py`) measured both directions:
+> the harness now writes every reply with Godot's full-precision JSON writer,
+> which was exact on every corpus row but one — a negative zero, which the engine
+> renders `0.0` before the writer's precision argument applies — so the RESULT
+> path carries full binary64 apart from that one disclosed residual; and a float
+> whose wire literal Godot's parser reads as `0.0` is REFUSED before the send, by
+> the base every RELAYED live params model inherits — the ops the daemon answers
+> itself never reach that parser — because the corpus shows no decimal spelling
+> can deliver it. Values the parser
+> does read still arrive changed in their low-order bits, and by more than a
+> couple of doubles: the scientific band is tight, while a fixed-notation literal
+> can lose its last decimal digits outright, the parser dropping everything past
+> its 18th mantissa digit. Disclosed, not refused. The wire format is unchanged,
+> so ADR-0021 needed no amendment. See `gda.live_numbers` for the decided
+> contract and the measured bands, which this note deliberately does not restate.
+
 `gda game get` reads a running node's stored properties. Dogfooding the kung-fu card
 game hit the gap that leaves (GDA-DF-033, #673): a project exposed its debug state as
 a METHOD — `qa_current_state_contract()` — and `game get` answered

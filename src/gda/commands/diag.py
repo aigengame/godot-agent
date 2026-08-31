@@ -28,7 +28,7 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import dispatch_domain
+from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -79,8 +79,10 @@ class DiagError(BaseModel):
     included, told apart by ``level``. The location (``function``/``file``/
     ``line``) is filled from the ``   at:`` follow-on when present; a bare error
     leaves them ``null`` (best-effort, never a parse failure). A runtime GDScript
-    error additionally carries its ordered ``callstack`` of frames (#283); a bare
-    push_error / warning has no backtrace, so ``callstack`` is empty.
+    error additionally carries its ordered ``callstack`` of frames (#283), as does
+    any error — a ``push_error`` included — raised while GDScript was on the call
+    stack; an error raised outside one has no backtrace, so ``callstack`` is
+    empty (#722).
     """
 
     level: str = Field(
@@ -99,12 +101,21 @@ class DiagError(BaseModel):
         default_factory=list,
         description=(
             "The ordered call stack (most-recent-first) when the engine emitted a "
-            "GDScript backtrace; frame [0] equals the top {function,file,line}. "
-            "Empty for a bare push_error / warning."
+            "GDScript backtrace, so frame [0] is the innermost GDScript frame. It "
+            "equals the top {function,file,line} only when GDScript itself raised "
+            "the error; when a script called engine code that raised (a push_error, "
+            "say) the top fields name that engine function and file while frame [0] "
+            "names the calling script line. Empty for an error raised outside any "
+            "GDScript call stack."
         ),
     )
 
 
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers
+# it from the Session log, relaying nothing, so these params never reach Godot's
+# JSON parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
+# whose scan states what that parser can construct: applying it here would report a
+# loss on a leg the value never crosses (#770 review).
 class DiagErrorsParams(BaseModel):
     """The params of ``gda diag errors``: read the running game's runtime errors (#224).
 
@@ -214,7 +225,7 @@ def diag_errors(
     """
     dispatch_domain(
         DIAG_ERRORS_COMMAND,
-        DiagErrorsParams(limit=limit),
+        params_or_bad_parameter(DiagErrorsParams, limit=limit),
         json_output=json_output,
         godot=godot,
         project=project,

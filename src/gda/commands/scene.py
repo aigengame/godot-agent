@@ -312,14 +312,20 @@ class SceneListResult(BaseModel):
 class SceneProblemKind(str, Enum):
     """What ``gda scene validate`` found wrong with a scene, per problem file (#664).
 
-    Covers both problem classes the verdict reports: a DEPENDENCY that did not
-    resolve, and a BOUND SCRIPT (referenced or embedded) that could not serve its
-    node. A closed, public enum projected into ``--schema``, so an agent branches
-    on the kind instead of matching the message prose. The values are kept apart
-    because the REMEDY differs: a missing file has to be restored or the reference
-    fixed, an unloadable asset has to be imported, a broken script has to be
-    edited, and an incompatible script has to move to a matching node or change
-    its ``extends``.
+    Covers the problem classes the verdict reports: a DEPENDENCY that did not
+    resolve, a BOUND SCRIPT (referenced or embedded) that could not serve its
+    node, and — since the verdict became composed (#721) — three findings about
+    the sub-scene graph itself: a CYCLE the engine mutilates, and the two that
+    report a LIMIT OF GDA rather than a defect of the project
+    (``instance_depth_exceeded``, ``unreadable_sub_scene``). A closed, public enum
+    projected into ``--schema``, so an agent branches on the kind instead of
+    matching the message prose. The values are kept apart because the REMEDY
+    differs: a missing file has to be restored or the reference fixed, an
+    unloadable asset has to be imported, a broken script has to be edited, an
+    incompatible script has to move to a matching node or change its ``extends``,
+    a cycle has to be broken, a subtree past the depth bound has to be validated
+    on its own, and a sub-scene gda cannot read has to be re-saved as ``.tscn`` to
+    come inside the verdict at all.
     """
 
     #: The referenced ``res://`` file does not exist.
@@ -340,28 +346,96 @@ class SceneProblemKind(str, Enum):
     #: in the ``script`` slot that is not a Script at all (a plain resource
     #: declared ``type="Script"``, #709 review).
     INCOMPATIBLE_SCRIPT = "incompatible_script"
+    #: A scene references one that already references it (#721) — normally two
+    #: scenes instancing each other. Measured on Godot 4.6.3, the engine refuses
+    #: the closing reference, drops it, and the nodes it would have contributed
+    #: vanish from the composition it loads. Reported against the file that
+    #: declares the closing edge, with ``path`` naming the ancestor it references
+    #: back. The walk stops at that edge, so the scenes beyond it are unreported
+    #: until the cycle is broken. A cycle OUTRANKS the depth bound on the same
+    #: edge: an edge first declined because its target lay past the bound is
+    #: reported as this kind the moment any route proves the cycle, so the bound
+    #: can never hide one (#721 review round 4). When a cycle can be entered at
+    #: more than one of its own members, more than one of its edges closes it and
+    #: the walk names the one it closed the cycle on — breaking any of them breaks
+    #: the cycle.
+    CYCLIC_INSTANCE = "cyclic_instance"
+    #: Not a defect in the project but a LIMIT OF GDA: it walks 16 levels of
+    #: sub-scenes below the validated scene, and no route to this one is inside
+    #: that bound, so the scene it names and everything below it were UNCHECKED.
+    #: Reported rather than skipped because a gate must not answer "sound" about
+    #: what it did not look at — the verdict is ``valid: false`` meaning "not
+    #: established", and validating the named scene directly gives it a verdict of
+    #: its own. The bound applies to the SHORTEST route to a scene, not to the
+    #: first route walked — a file reached again nearer the root is walked again
+    #: from there — and the entries are settled only once every route has been
+    #: walked. So the verdict does not depend on the order two ``[ext_resource]``
+    #: lines happen to appear in, neither for this target nor for anything below
+    #: it (#721 review).
+    #: The bound is on gda's walk only and does not make an extremely deep chain
+    #: safe: the engine loads the whole chain itself and its own loader overflows
+    #: past roughly a thousand levels, killing the run before any verdict, with or
+    #: without this bound (#721 review).
+    INSTANCE_DEPTH_EXCEEDED = "instance_depth_exceeded"
+    #: The other LIMIT OF GDA: a referenced scene that loads as a
+    #: ``PackedScene``, but not as the ``[gd_scene]`` text the walk reads a
+    #: dependency set out of — a binary ``.scn``, or a ``PackedScene`` saved into
+    #: a ``.res`` resource file, neither of which carries any; the same reason the
+    #: command refuses such a file as its own target. That subtree is UNCHECKED, so the verdict is ``valid:
+    #: false`` for the same "not established" reason as the depth bound; re-save
+    #: the named scene as ``.tscn`` to bring it inside the verdict. Measured on
+    #: Godot 4.6.3, staying silent here was not harmless: a parent instancing a
+    #: binary child whose script had a syntax error, or whose script could not
+    #: bind its node, answered ``valid: true`` while the engine's own load of that
+    #: parent reported the break (#721 review). A binary child that does not load
+    #: at all is NOT this kind — the referencing file's dependency walk already
+    #: reports it as ``unloadable_resource``.
+    UNREADABLE_SUB_SCENE = "unreadable_sub_scene"
 
 
 class SceneProblem(BaseModel):
     """One thing statically wrong with a scene (#664).
 
-    Either a dependency that did not resolve, or a script the scene binds that
-    could not serve its node — an embedded or referenced script that does not
-    compile, or one whose native base the engine would refuse to bind
-    (``kind`` tells them apart). File-centric, one entry per problem file rather
-    than per reference: a path the scene declares twice is one broken file, and
-    both referencing nodes appear under ``nodes``.
+    Either a dependency that did not resolve, a script the scene binds that could
+    not serve its node — an embedded or referenced script that does not compile,
+    or one whose native base the engine would refuse to bind — a cyclic sub-scene
+    composition, or a subtree the walk could not reach or could not read (``kind``
+    tells them apart). File-centric, one entry per problem file rather than per
+    reference: a path the scene declares twice — under two ``[ext_resource]``
+    ids, or under two spellings of the same file — is one broken file, and every
+    node referencing it through any of those ids appears under ``nodes``.
+
+    Since the verdict became composed (#721) a problem is not necessarily about
+    the scene that was validated: ``scene`` names the file it was found in, and
+    ``path``/``nodes`` are both read against THAT file.
     """
 
     kind: SceneProblemKind
+    scene: str = Field(
+        description=(
+            "The scene file this problem was found in, in the same canonical "
+            "spelling as the result's own 'path'. The validated scene itself for "
+            "its own problems, or a sub-scene reached from it (#721) — normally "
+            "one it instances, but the walk follows every reference to a scene "
+            "file, so an ordinary eagerly-loaded reference is composed in too. "
+            "Always present, so a composed verdict never has to be inferred. Read "
+            "'path' and 'nodes' against this file, not against the scene the "
+            "command was given."
+        )
+    )
     path: str = Field(
         description=(
-            "The path of the problem resource. For a dependency: as the scene's "
-            "[ext_resource] declares it, a relative reference resolved against "
-            "the scene's own directory — res:// under a project, a filesystem "
-            "path for a projectless scene addressed by filesystem path. For an "
-            "embedded script: the ::id sub-resource form "
-            "(res://scene.tscn::GDScript_1)."
+            "The path of the problem resource, in its canonical spelling: as the "
+            "[ext_resource] of the scene named by 'scene' declares it, resolved "
+            "against that scene's own directory and simplified ('.', '..' and "
+            "doubled separators collapsed, as the engine itself reports them) — "
+            "res:// under a project, a filesystem path for a projectless scene "
+            "addressed by filesystem path. For an embedded script: the ::id "
+            "sub-resource form (res://scene.tscn::GDScript_1). For "
+            "'cyclic_instance': the ancestor scene that 'scene' references back. "
+            "For 'instance_depth_exceeded': the sub-scene below the depth bound "
+            "that was not checked. For 'unreadable_sub_scene': the binary scene "
+            "the walk could not read."
         )
     )
     type: str | None = Field(
@@ -375,9 +449,10 @@ class SceneProblem(BaseModel):
     nodes: list[str] = Field(
         default_factory=list,
         description=(
-            "The node paths, relative to the scene root ('.' for the root), whose "
-            "properties reference this dependency — the same addressing 'node get' "
-            "takes. Empty when only a sub-resource (not a node) references it."
+            "The node paths, relative to the root of the scene named by 'scene' "
+            "('.' for that root), whose properties reference this dependency — the "
+            "same addressing 'node get' takes. Empty when only a sub-resource (not "
+            "a node) references it."
         ),
     )
     message: str = Field(
@@ -401,29 +476,82 @@ class SceneValidateResult(ProjectRootedResult):
     file, a file that does not load as a scene at all), which refuses the whole call
     rather than becoming a verdict.
 
-    The verdict is STATIC: the scene is loaded but never INSTANTIATED, so none of
-    the scene's own node scripts run — no ``_init``, no ``_ready``, no frames (the
+    The verdict is COMPOSED (#721): the scenes this one references — normally the
+    ones it instances — are validated with it, because a parent whose child is
+    broken is broken too and the parent's own dependency walk can never see that,
+    since ``res://child.tscn`` resolves and loads whatever is missing inside it.
+    Every problem names the file it was found in (``SceneProblem.scene``).
+
+    The BOUNDARY is a reference gda can tell names a scene, and the declared type
+    WIDENS it rather than selecting on it. A reference is followed when the path it
+    resolves to ends in ``.tscn``/``.scn`` OR its ``[ext_resource]`` line declares
+    ``type="PackedScene"``. Both triggers are needed: Godot's text loader starts a
+    load for every ``[ext_resource]`` line before it parses a single node and picks
+    the format handler by extension, passing the line's ``type`` only as a hint —
+    measured on Godot 4.6.3, a ``.tscn`` referenced as plain ``Resource`` metadata
+    breaks its referencing scene exactly as an instanced one does — while
+    ``ResourceSaver`` will write a ``PackedScene`` into a plain ``.res``, which no
+    extension test catches. A ``.tscn`` is read and composed into the verdict;
+    anything else that loads as a ``PackedScene`` is reported
+    ``unreadable_sub_scene``, because only the ``[gd_scene]`` text carries a
+    dependency set gda can read. Still outside: a ``PackedScene`` stored under a
+    non-scene extension AND declared as some other type. Nothing gda writes takes
+    that form, and gda does not load every reference to find out.
+
+    The walk is also BOUNDED: 16 levels of sub-scenes below the validated scene,
+    with a target no route reaches inside the bound reported as
+    ``instance_depth_exceeded`` instead of followed. The bound applies to the
+    SHORTEST route to each file, so the verdict does not depend on the order the
+    references are declared. That bound is on gda's own work and does not make an
+    extremely deep chain safe — the engine loads the chain itself and its loader
+    overflows past roughly a thousand levels, which ends the run with no verdict at
+    all and did so before the verdict was composed.
+
+    The verdict is STATIC: each scene is loaded but never INSTANTIATED, so none of
+    the scenes' own node scripts run — no ``_init``, no ``_ready``, no frames (the
     read boundary of issue #30). It is not a claim that nothing at all executes:
     the project's autoloads start, as they do for every ``--project`` op, and
     compiling a script executes its static initializers. What it cannot speak for is
     what happens once the SCENE runs — that is ``gda scene preflight``.
     """
 
-    path: str
+    path: str = Field(
+        description=(
+            "The validated scene, in its canonical spelling: the path as given, "
+            "simplified ('.', '..' and doubled separators collapsed, as the engine "
+            "itself reports them). It is the same identity the composed walk keys "
+            "every file by, so 'res://./main.tscn' and 'res://main.tscn' are one "
+            "file and one verdict, and this field matches the 'scene' of every "
+            "problem found in the validated scene itself."
+        )
+    )
     valid: bool = Field(
         description=(
-            "True when every dependency the scene declares resolves, every bound "
-            "script (referenced or embedded) compiles, and each script's native "
-            "base can bind the node that carries it. False when any does not — "
-            "the command still exits 0, so read this field, not the exit code."
+            "True when every dependency resolves, every bound script (referenced "
+            "or embedded) compiles, and each script's native base can bind the "
+            "node that carries it — across this scene AND every sub-scene it "
+            "references. False when any does not — the command still exits 0, so "
+            "read this field, not the exit code. False also when the walk could "
+            "not establish the verdict at all ('cyclic_instance', "
+            "'instance_depth_exceeded', 'unreadable_sub_scene'): a gate must not "
+            "answer 'sound' about what it did not check, so 'not established' is "
+            "reported as invalid rather than as valid."
         )
     )
     problems: list[SceneProblem] = Field(
         description=(
-            "One entry per problem file: unresolved dependencies (in declaration "
-            "order), or — when every dependency resolves — script-binding "
-            "problems (in tree order): a bound script that does not compile, or "
-            "one the engine would refuse to bind. Empty when the scene is valid."
+            "One entry per problem file, in the order the walk first answers "
+            "for each file — depth-first from the validated scene through the "
+            "sub-scenes it references, in declaration order (#721): each scene's "
+            "unresolved dependencies in declaration order, or — when every "
+            "dependency resolves — its script-binding problems in tree order, "
+            "plus an entry at any edge the walk did not follow: 'cyclic_instance' "
+            "where an edge closes a reference cycle, 'unreadable_sub_scene' where "
+            "it points at a scene gda cannot read the dependency text of, and — "
+            "last, because they are settled only once every route has been walked "
+            "— 'instance_depth_exceeded' for each target left past the 16-level "
+            "depth bound. Read each entry's 'scene' for the file it belongs to. "
+            "Empty when the composed scene is valid."
         )
     )
     project_root: str | None = Field(
@@ -566,11 +694,12 @@ class ScenePreflightResult(BaseModel):
         description=(
             "The script errors gda recognized in the engine's error stream during "
             "startup, in emission order; empty when it printed none it recognizes. "
-            "Advisory and best-effort: recognition is a closed set of the engine's "
+            "Advisory and best-effort: recognition is a closed set — the engine's "
             "own failure sentences (a runtime error, a failed assertion, a script "
-            "that could not be loaded), so project prose written with push_error() "
-            "is NOT among them. The verbatim stream is still forwarded to gda's "
-            "stderr."
+            "that could not be loaded), plus a project-raised push_error(), whose "
+            "kind is 'push_error' and whose path/line come from the engine's "
+            "GDScript backtrace. Unrecognized engine prose is not a diagnostic; "
+            "the verbatim stream is still forwarded to gda's stderr."
         ),
     )
     project_root: str | None = Field(
@@ -674,6 +803,11 @@ def render_scene_validate(validated: "SceneValidateResult") -> str:
     against, before the problems rather than after them: when the root is the wrong
     one, every problem below it is an artefact of that single mistake and the reader
     needs the cause before the cascade (the shape ``script validate`` uses, #658).
+
+    A problem found in an instanced SUB-scene names that file on its own line
+    (#721) — otherwise a missing script inside ``child.tscn`` reads as one of
+    ``parent.tscn``'s, and its ``nodes`` resolve against the wrong tree. Only when
+    it differs: the ordinary single-file verdict stays as short as it was.
     """
     if validated.valid:
         return f"valid {validated.path}"
@@ -686,6 +820,8 @@ def render_scene_validate(validated: "SceneValidateResult") -> str:
     for problem in validated.problems:
         declared = f" ({problem.type})" if problem.type is not None else ""
         lines.append(f"  {problem.kind.value}: {problem.path}{declared}")
+        if problem.scene != validated.path:
+            lines.append(f"    in {problem.scene}")
         lines.append(f"    {problem.message}")
         if problem.nodes:
             lines.append(f"    nodes: {', '.join(problem.nodes)}")
@@ -1163,7 +1299,32 @@ def validate_scene(
     the node would run script-less). Each problem names the declared type and the
     node paths that reference it.
 
-    STATIC: the scene is loaded but never instantiated, so none of its own node
+    COMPOSED: the scenes this one references — normally the ones it instances —
+    are checked with it, because a parent whose child is broken is broken too and
+    its own walk cannot see that: res://child.tscn resolves and loads whatever is
+    missing inside it. Every problem carries 'scene', the file it was found in,
+    and its 'path' and 'nodes' are read against THAT file, in the same canonical
+    spelling this result's own 'path' echoes. Each file is reported once however
+    many sites reach it. A reference is followed when its resolved path ends in
+    '.tscn'/'.scn' OR its [ext_resource] line declares type="PackedScene" — a
+    union, because Godot loads every [ext_resource] whatever the line calls it
+    (so a '.tscn' referenced as plain metadata breaks its owner exactly as an
+    instanced one does) while ResourceSaver will write a PackedScene into a plain
+    '.res' that no extension test catches. A PackedScene stored under a non-scene
+    extension AND declared as some other type stays outside the walk. Three kinds
+    of edge are reported instead of followed: 'cyclic_instance', where a reference
+    closes a cycle the engine mutilates; 'unreadable_sub_scene', a scene that
+    loads but carries no [gd_scene] dependency text — a binary '.scn' or a
+    PackedScene inside a '.res' (the same reason this command refuses such a file
+    as its target); and 'instance_depth_exceeded' for a scene no route reaches
+    within 16 levels of sub-scenes. The last two say the named subtree is
+    UNCHECKED rather than sound. The depth bound is on the SHORTEST route to each
+    scene, so the verdict does not depend on the order the references are
+    declared; it covers gda's own walk only — the engine loads the whole chain
+    regardless, and an extremely deep one overflows its loader and ends the run
+    with no verdict, which no bound here changes.
+
+    STATIC: each scene is loaded but never instantiated, so none of its own node
     scripts run — no _init, no _ready, no frames (issue #30). The project's autoloads
     still start, as they do for every --project op. It therefore says nothing about
     what happens once the scene RUNS — a scene can pass this and still fail on its

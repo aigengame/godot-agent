@@ -37,25 +37,33 @@ def plain_text(text: str) -> str:
 _RICH_PANEL_BORDER = re.compile(r"[─-╿]")
 
 
+def panel_text(text: str) -> str:
+    """Normalize Rich-rendered TEXT to one line of prose.
+
+    The text-level half of :func:`usage_error_text`, taking a plain string rather
+    than a ``CliRunner`` result, because Rich frames HELP the same way it frames a
+    usage error: ANSI color, box-drawing borders, and hard wraps that land in the
+    middle of a sentence. Any assertion on rendered gda text — help from a
+    ``CliRunner`` result, or a subprocess ``CompletedProcess`` stream in an e2e —
+    goes through this, so no test re-derives the same normalization (#770 review).
+    """
+    return re.sub(r"\s+", " ", _RICH_PANEL_BORDER.sub(" ", plain_text(text))).strip()
+
+
 def usage_error_text(result) -> str:
     """Normalize a CliRunner ``Result``'s Click usage-error panel to plain text.
 
     A model refusal on the argv path (``gda.dispatch.params_or_bad_parameter``,
     ADR-0015) is a Click usage error: exit 2, the message inside a Rich panel on
-    stderr. Rich renders that panel with ANSI color and box-drawing borders even
-    under ``CliRunner`` (colorized state can differ between a local run and CI,
-    issue #671), so a raw ``result.stderr`` can't be matched directly. This
-    normalizes it ONCE — reusing :func:`plain_text` for the ANSI half, folding
-    the box-drawing border to whitespace, then collapsing whitespace runs — and
-    returns the whole collapsed panel (the ``Usage: ...`` preamble, the
-    ``Error`` heading, and the ``Invalid value: <message>`` body), so a caller
-    matches whichever substring it needs, or extracts the message itself.
-    Shared by every test asserting on an argv usage error's text, instead of
-    each redefining the same normalization (#713 review).
+    stderr. This asserts that exit status and returns the whole collapsed panel
+    (the ``Usage: ...`` preamble, the ``Error`` heading, and the ``Invalid value:
+    <message>`` body) through :func:`panel_text`, so a caller matches whichever
+    substring it needs, or extracts the message itself. Shared by every test
+    asserting on an argv usage error's text, instead of each redefining the same
+    normalization (#713 review).
     """
     assert result.exit_code == 2, result.stdout + result.stderr
-    plain = _RICH_PANEL_BORDER.sub(" ", plain_text(result.stderr))
-    return re.sub(r"\s+", " ", plain).strip()
+    return panel_text(result.stderr)
 
 
 # The gda CLI invocation prefix for e2e subprocess tests. Resolved as the gda
@@ -190,6 +198,15 @@ def capture_receipt_reply(**overrides) -> dict:
     }
     receipt.update(overrides)
     return receipt
+
+
+# A 1x1 transparent PNG, base64 as the harness sends it: valid bytes, so a
+# recipe that decodes and WRITES the file drives its real path. Lives here
+# because two suites now capture through the same helpers.
+PNG_1X1_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 
 
 def screen_capture_reply(png_base64: str, *, width: int, height: int) -> dict:
@@ -611,7 +628,11 @@ DIAG_ERRORS_RESULT = {
             "function": "_process",
             "file": "res://main.gd",
             "line": 20,
-            "callstack": [],  # a warning has no backtrace
+            # THIS fixture's warning is a bare one, raised with no GDScript on
+            # the stack. Not a rule about warnings: `push_warning` called from a
+            # script carries a backtrace like any other record, because the engine
+            # attaches one to whatever is raised while GDScript is running (#722).
+            "callstack": [],
         },
         {
             "level": "error",

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e36950ec63b4fd8122f2d674ee234169abbc4b15d4803a650cf2e44eabdf253f -->
+<!-- gda-readme-i18n: source=README.md sha256=76e086abf7307138e3a741e6d89aadab413f83570ffdb2a2ad8da2e34e2b992a -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -399,7 +399,7 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `scene list` | Enumera las escenas `.tscn` del proyecto resuelto. |
 | `scene get-exports` | Lista las propiedades `@export` que declaran los scripts de los nodos de una escena. |
 | `scene delete` | Elimina un archivo de escena e informa qué se eliminó. |
-| `scene validate` | Comprueba estáticamente que las dependencias de una escena se resuelven y sus scripts adjuntos compilan. |
+| `scene validate` | Comprueba estáticamente que una escena y las subescenas que referencia resuelven sus dependencias y compilan sus scripts. |
 | `scene preflight` | Arranca una escena en headless, espera a `_ready` e informa su veredicto de arranque. |
 
 Leer una escena sobrevive a la mayoría de las roturas: Godot sustituye por null la referencia
@@ -412,7 +412,29 @@ todo sin instanciar nada, e informa un problema por archivo problemático
 (`missing_resource`, `unloadable_resource` para un recurso que nunca se importó,
 `script_compile_failed`, o `incompatible_script` para un vínculo que el motor rechazaría: un
 script sobre un nodo fuera de su base, o un valor vinculado que no es un script) junto con los
-nodos que lo referencian. La comprobación es **escalonada**: cuando hay dependencias sin
+nodos que lo referencian. El veredicto es **compuesto**: las escenas que una escena referencia
+—normalmente las que instancia— se comprueban con ella, porque un padre cuyo hijo está roto
+también está roto y su propio recorrido no puede verlo: `res://child.tscn` se resuelve y se carga
+por mucho que falte dentro de él. Por eso cada problema lleva `scene`, el archivo donde se
+encontró, y su `path` y sus nodos se leen contra ese archivo — y toda ruta del resultado es la
+grafía canónica, así que `res://./main.tscn` y `res://main.tscn` son un archivo y un veredicto.
+Una referencia se sigue cuando la ruta que resuelve termina en `.tscn`/`.scn` **o** su línea
+`[ext_resource]` declara `type="PackedScene"`. Ambos disparadores hacen falta: Godot carga cada
+`[ext_resource]` al cargar la escena y elige el gestor por extensión, así que un `.tscn`
+referenciado como simple metadato rompe a su dueño igual que uno instanciado — mientras que
+`ResourceSaver` escribe un PackedScene dentro de un `.res` corriente que ninguna prueba de
+extensión detecta. Un PackedScene guardado bajo una extensión que no es de escena *y* declarado
+como otro tipo queda fuera del recorrido. Se informan tres tipos de arista en vez de seguirlas:
+`cyclic_instance`, donde una referencia cierra un ciclo cuya arista de cierre el motor descarta
+(llevándose los nodos que habría aportado); `unreadable_sub_scene`, una escena que carga pero no
+lleva el texto `[gd_scene]` que el recorrido lee — un `.scn` binario, o un PackedScene dentro de
+un `.res`; e `instance_depth_exceeded`, para una escena a la que ninguna ruta llega dentro de 16
+niveles de subescenas. Las dos últimas informan ese subárbol como **no comprobado** en vez de
+sano — valídalo directamente, o vuelve a guardarlo como `.tscn`, para obtener su propio
+veredicto. El límite de profundidad se aplica a la ruta más corta hacia cada escena, así que el
+veredicto no depende del orden en que se declaran las referencias; acota el recorrido propio de
+gda, el motor carga la cadena entera de todos modos, y una cadena extremadamente profunda
+desborda su cargador y termina la ejecución sin veredicto alguno. La comprobación es **escalonada**: cuando hay dependencias sin
 resolver, la escena no se carga, así que los problemas de compilación y de vínculo que solo la
 escena cargada puede revelar aparecen después de reparar las dependencias y volver a ejecutar
 validate — la lista de problemas es completa para la etapa alcanzada, no para ambas etapas a la

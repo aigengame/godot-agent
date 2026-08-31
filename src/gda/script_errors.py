@@ -24,10 +24,29 @@ Consumers (the reason this is a module and not a helper inside one command):
 - the scene-startup preflight (#664) — the same script errors from a scene launch.
 
 Everything here is a **pure function of the stderr text**: no engine, no I/O.
-Recognition is deliberately closed — only the sentences below are classified, so
+Recognition is deliberately closed — only the records below are classified, so
 ``diagnostics`` stays a curated high-signal list rather than a re-encoding of the
 whole error stream (the verbatim stream is preserved separately by each caller).
 An unrecognized error or warning is skipped and never raises.
+
+**What may enter the closed set** (#722, the rule the set is widened by — stated
+once here because widening it changes what EVERY launch-backed channel reports,
+so the criterion has to outlive the record that motivated it):
+
+1. gda keys recognition on a part of the record the ENGINE fixes — a C++ format
+   string's literal prefix, or the ``at:`` frame a builtin always reports — never
+   on text a project authored. Project prose is the payload, not the key;
+2. the record says something specific about a SCRIPT's fate that an agent would
+   branch on, beyond "the engine printed something";
+3. the new kind states, in the enum, whether it proves the script never ran —
+   which is what puts it in (or keeps it out of) ``_ENTRY_FAILURE_PRECEDENCE``.
+
+The rule is what rules out the tempting shortcut for ``push_error``: "any
+``ERROR:`` that carries a GDScript backtrace" fails (1), because
+``ScriptServer::capture_script_backtraces`` attaches a backtrace to ANY error
+raised while GDScript is on the stack — a script's bad ``get_node()`` prints
+``ERROR: Node not found: … / at: get_node (scene/main/node.cpp:1961)`` with a
+full backtrace, and that is the engine's failure, not the project's report.
 
 **Resource identity is canonical, on both sides of every comparison.** Godot
 canonicalizes a ``res://`` path before reporting it, so an entry script invoked as
@@ -50,6 +69,15 @@ The recognized sentences, verbatim from Godot 4.6.3::
     ERROR: Failed loading resource: res://missing.tres.
     ERROR: Script inherits from native type 'Resource', so it can't be assigned to an object of type 'Node2D'.
     ERROR: Cannot set object script. Parameter should be null or a reference to a valid script.
+
+and one record recognized by its FRAME rather than its sentence, because its
+sentence is whatever the project wrote (#722)::
+
+    ERROR: <the project's own message>
+       at: push_error (core/variant/variant_utility.cpp:1024)
+       GDScript backtrace (most recent call first):
+           [0] _inner (res://probe.gd:9)
+           [1] _ready (res://probe.gd:5)
 """
 
 import posixpath
@@ -136,6 +164,25 @@ _NOT_A_SCRIPT_BINDING = re.compile(
     r"valid script"
 )
 
+# The ``at:`` frame function of GDScript's ``push_error()`` builtin (#722). The
+# engine's `at:` line names the C++ function that raised the error, and for this
+# builtin that name IS the API the project called
+# (`VariantUtilityFunctions::push_error` -> `ERR_PRINT`,
+# `core/variant/variant_utility.cpp:1017`, Godot 4.6.3). The MESSAGE is unusable
+# as a key — it is whatever prose the project passed — so the frame is the only
+# engine-fixed part of the record, which is what the closed set's admission rule
+# requires.
+#
+# A project method that happens to be named `push_error` cannot reach this: an
+# error raised from GDScript goes through `ERR_HANDLER_SCRIPT`
+# (`gdscript_vm.cpp:529`/`3988`) and prints as `SCRIPT ERROR`, which `_classify`
+# has already routed elsewhere by the time this is consulted. Only C++ raises the
+# plain `ERROR` level, and only `__FUNCTION__` fills this field. (The builtin is
+# not even shadowable from GDScript in the first place — a `func push_error()` in
+# the same script does not win the unqualified call, verified on 4.6.3 — but the
+# level split is the load-bearing reason, not that.)
+_PUSH_ERROR_FUNCTION = "push_error"
+
 # The two resource-load sentences (#651 review claim 4). Godot emits BOTH for one
 # failed `load()`/`preload()` of a non-script resource, from different layers:
 # `Cannot open file` from the format loader, `Failed loading resource` from
@@ -173,18 +220,49 @@ def canonical_res_path(path: str) -> str:
     engine's spelling against the caller's raw one missed the match and let a
     failed run report success.
 
-    Collapses ``.``/``..`` segments and duplicate slashes on the path part only
-    (posixpath semantics), leaving the ``res://`` scheme intact. Purely lexical —
-    no filesystem access — so it is safe on a path that does not exist, which is
-    exactly the missing-entry-script case. A non-``res://`` string is returned
-    unchanged: this normalizes an address, it does not validate one.
+    Purely lexical — no filesystem access — so it is safe on a path that does not
+    exist, which is exactly the missing-entry-script case. A non-``res://`` string
+    is returned unchanged: this normalizes an address, it does not validate one.
+
+    **Against ``String::simplify_path``** (``core/string/ustring.cpp:4149-4233``,
+    Godot ``4.6-stable-3260-g070dc9897e``), the engine function every ``res://``
+    address passes through before the engine resolves or reports it
+    (``ProjectSettings::localize_path``, ``core/config/project_settings.cpp:158``).
+    Which of its steps this reproduces, in the engine's own order:
+
+    - **scheme extraction** (4153-4168: first ``://`` whose prefix is all ASCII
+      alphanumerics becomes the "drive") — reproduced NARROWLY, for an exact
+      ``res://`` prefix only. The engine's other two drive branches (network share,
+      Windows ``C:``) are deliberately NOT reproduced: they are unreachable once the
+      scheme branch matched, and a non-``res://`` string leaves here untouched anyway.
+    - **``\\`` → ``/`` across the whole remainder** (4192) — reproduced, and it must
+      run BEFORE the leading-slash strip below, exactly as the engine runs it before
+      its own empty-segment split: ``res://\\a.gd`` folds to ``res://a.gd``, which is
+      no longer possible once the strip has already passed over a backslash. Without
+      this step ``res://..\\outside.gd`` read as an ordinary in-project filename
+      while the engine loaded the file one directory ABOVE the project and reported
+      it back as ``res://../outside.gd`` (#762).
+    - **repeated-``//`` collapse and ``split("/", false)``** (4193-4201) — reproduced
+      by the leading-slash strip plus ``posixpath.normpath``, which collapses runs of
+      separators and drops a trailing one. The strip is what covers POSIX's one
+      divergence: it gives exactly two leading slashes a special meaning (``//a``
+      stays ``//a``), so ``res:////a.gd`` would otherwise stay uncanonicalized.
+    - **``.``/``..`` collapse with the leading-``..`` strip DISABLED for ``res://``**
+      (4204-4221) — reproduced: ``normpath`` on a RELATIVE remainder keeps a leading
+      ``..`` for the same reason the engine keeps it, and that is what lets a caller
+      of this function see an escape at all rather than have it silently swallowed.
+
+    One stated gap, in the join (4223-4232): when every segment collapses away the
+    engine yields the bare ``res://`` while ``normpath`` yields ``.``, so
+    ``res://a/..`` canonicalizes here to ``res://.``. Both spellings name the project
+    root and every consumer already treats the pair alike — ``script run``'s gate
+    tests the pair explicitly (``_ROOT_REMAINDERS``) and a ``.`` is not an upward
+    escape — so closing it would only churn a deliberate accommodation that #763
+    owns reconciling.
     """
     if not path.startswith(_RES_PREFIX):
         return path
-    # Strip leading slashes before normpath: POSIX gives exactly two leading
-    # slashes a special meaning ("//a" stays "//a"), which would leave a
-    # `res:////a.gd` spelling uncanonicalized.
-    remainder = path[len(_RES_PREFIX) :].lstrip("/")
+    remainder = path[len(_RES_PREFIX) :].replace("\\", "/").lstrip("/")
     if not remainder:
         return _RES_PREFIX
     # normpath("") is ".", so the empty case is handled above rather than here.
@@ -195,12 +273,14 @@ class ScriptErrorKind(str, Enum):
     """What a recognized engine error line says about the resource it names (#651).
 
     A closed, public enum: it is projected into ``--schema`` through the results
-    that carry :class:`ScriptError`. Every kind except ``RUNTIME_ERROR`` and
-    ``INCOMPATIBLE_SCRIPT`` reports that the named resource could **not be loaded
-    or run**; ``RUNTIME_ERROR`` reports an error raised by a script that was
-    already executing, and ``INCOMPATIBLE_SCRIPT`` reports a binding the engine
-    refused — a compiled script whose base cannot bind its object, or a bound
-    value that is not a Script at all (it names no resource either way).
+    that carry :class:`ScriptError`. Every kind except ``RUNTIME_ERROR``,
+    ``PUSH_ERROR`` and ``INCOMPATIBLE_SCRIPT`` reports that the named resource
+    could **not be loaded or run**; ``RUNTIME_ERROR`` reports an error raised by a
+    script that was already executing, ``PUSH_ERROR`` reports an invariant the
+    project itself rejected while running, and ``INCOMPATIBLE_SCRIPT`` reports a
+    binding the engine refused — a compiled script whose base cannot bind its
+    object, or a bound value that is not a Script at all (it names no resource
+    either way).
 
     Whether such a failure ended the *run* depends on **which** resource it names:
     a load failure naming the entry script means the run never happened, while the
@@ -212,9 +292,18 @@ class ScriptErrorKind(str, Enum):
     #: A compile failure in the named script (its own syntax error, or a
     #: dependency it preloads that does not resolve). That script never ran.
     PARSE_ERROR = "parse_error"
-    #: A GDScript error raised while the script was already executing. The ONLY
-    #: kind that says the named script ran.
+    #: A GDScript error raised while the script was already executing. One of the
+    #: two kinds that say the named script ran; ``PUSH_ERROR`` below is the other,
+    #: and the two differ in WHOSE claim it is — the engine's here, the project's
+    #: there.
     RUNTIME_ERROR = "runtime_error"
+    #: The PROJECT reported its own invariant violation with ``push_error()``
+    #: (#722). Like ``RUNTIME_ERROR`` it says the script ran — but it is a
+    #: different claim about the program, which is why it is its own kind: a
+    #: runtime error is the ENGINE saying it could not perform an operation,
+    #: while this is the project saying it does not like what it found. Nothing
+    #: was interrupted: execution continues past a ``push_error`` normally.
+    PUSH_ERROR = "push_error"
     #: The named script does not exist.
     SCRIPT_MISSING = "script_missing"
     #: The named script exists but could not be loaded (an open failure other
@@ -260,8 +349,9 @@ class ScriptErrorKind(str, Enum):
 #: 6. ``NOT_A_MAIN_LOOP`` — last because it is only reachable by a script that
 #:    already existed AND compiled; it is a refusal, not a load failure.
 #:
-#: ``RUNTIME_ERROR`` is absent by construction: it is the one kind that proves the
-#: script DID run.
+#: ``RUNTIME_ERROR`` and ``PUSH_ERROR`` are absent by construction: both prove the
+#: script DID run — the first because the engine raised the error inside it, the
+#: second because the project's own code called ``push_error`` from it.
 _ENTRY_FAILURE_PRECEDENCE = (
     ScriptErrorKind.SCRIPT_MISSING,
     ScriptErrorKind.COMPILE_FAILED,
@@ -283,9 +373,11 @@ class ScriptError(BaseModel):
     kind: ScriptErrorKind = Field(
         description=(
             "Which known engine failure this line reports. Every kind except "
-            "'runtime_error' and 'incompatible_script' means the named resource "
-            "could not be loaded or run; 'runtime_error' means a script was "
-            "already executing when it raised, and 'incompatible_script' means "
+            "'runtime_error', 'push_error' and 'incompatible_script' means the "
+            "named resource could not be loaded or run; 'runtime_error' means a "
+            "script was already executing when it raised; 'push_error' means the "
+            "PROJECT reported its own invariant violation with push_error() and "
+            "kept running; and 'incompatible_script' means "
             "the engine refused a script binding — a compiled script whose base "
             "cannot bind its object, or a bound value that is not a Script at "
             "all (path is null: neither sentence names a file). Whether the RUN "
@@ -313,7 +405,9 @@ class ScriptError(BaseModel):
         default=None,
         description=(
             "The 1-based line in 'path' the engine reported, or null when it "
-            "reported none (engine-side load errors carry no script line)."
+            "reported none (engine-side load errors carry no script line). For a "
+            "'push_error' this is the call site the engine named in its GDScript "
+            "backtrace, never a synthesized number."
         ),
     )
 
@@ -380,7 +474,18 @@ def _classify(record: dict) -> ScriptError | None:
         return _script_error(record, message)
     if level != "error":
         # Warnings and the other engine levels say nothing about a script's fate.
+        # `push_warning` lands here: the project chose the advisory severity, and
+        # gda does not promote it (#722).
         return None
+    # Checked BEFORE the sentence patterns, and kept out of :func:`_engine_error`
+    # on purpose: this record is recognized by its FRAME, while every sentence
+    # below is recognized by its message — mixing the two readings into one
+    # function would break that function's stated invariant, and a project's
+    # `push_error` prose could otherwise coincidentally match a sentence pattern
+    # and be reported as an engine failure it is not.
+    push_error = _push_error(record, message)
+    if push_error is not None:
+        return push_error
     return _engine_error(message)
 
 
@@ -411,6 +516,61 @@ def _script_error(record: dict, message: str) -> ScriptError:
         # C++ source, which is meaningless to an agent — so both travel together.
         line=record.get("line") if path is not None else None,
     )
+
+
+def _push_error(record: dict, message: str) -> ScriptError | None:
+    """A project-raised ``push_error()`` record, or ``None`` if this is not one (#722).
+
+    Recognized by the ``at:`` frame's function (see ``_PUSH_ERROR_FUNCTION``),
+    never by the message — the message is the project's own prose and carries no
+    fixed shape at all.
+
+    **Attribution is backtrace-only, and reported as such.** The ``at:`` frame
+    names the engine's C++ source, which is gda-irrelevant, so the script address
+    comes from the most recent ``res://`` frame of the GDScript backtrace the
+    engine attached — the call site of ``push_error`` itself. That is the engine's
+    own number, not a synthesized one. A record with no backtrace, or one whose
+    frames are all engine-side, honestly carries neither ``path`` nor ``line``
+    rather than a guess.
+
+    The backtrace is present on every build gda drives: ``godot --headless`` is a
+    ``target=editor`` build, so ``DEBUG_ENABLED`` is compiled in and
+    ``gdscript.cpp`` forces ``track_call_stack = true`` regardless of the
+    project's ``always_track_call_stacks`` setting. gda still does not REQUIRE it
+    — losing the backtrace costs the address, not the diagnostic.
+    """
+    if record.get("function") != _PUSH_ERROR_FUNCTION:
+        return None
+    frame = _first_script_frame(record.get("callstack"))
+    if frame is None:
+        return ScriptError(kind=ScriptErrorKind.PUSH_ERROR, message=message)
+    file, line = frame
+    return ScriptError(
+        kind=ScriptErrorKind.PUSH_ERROR,
+        message=message,
+        path=canonical_res_path(file),
+        line=line,
+    )
+
+
+def _first_script_frame(callstack: object) -> tuple[str, int | None] | None:
+    """The most recent ``res://`` frame of a backtrace, as ``(file, line)``.
+
+    Most-recent-first is the engine's own frame order, so the first match is the
+    innermost project frame — the line that made the call. Engine-side frames are
+    skipped for the same reason a diagnostic's ``path`` is only ever a ``res://``
+    address: a C++ source location is noise to an agent.
+    """
+    if not isinstance(callstack, list):
+        return None
+    for frame in callstack:
+        if not isinstance(frame, dict):
+            continue
+        file = frame.get("file")
+        if isinstance(file, str) and file.startswith(_RES_PREFIX):
+            line = frame.get("line")
+            return file, line if isinstance(line, int) else None
+    return None
 
 
 def _engine_error(message: str) -> ScriptError | None:

@@ -17,11 +17,10 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 """
 
 import json
-import math
 from typing import Any, Optional
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
@@ -32,7 +31,9 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
+from gda.live_numbers import LIVE_ENGINE_PRECISION, MAX_EXACT_JSON_INT
 from gda.models import (
+    RelayedLiveParams,
     NodeProperty,
     RUNTIME_NODE_DESC,
     projected_value_schema_extra,
@@ -67,7 +68,7 @@ class GameNode(BaseModel):
     children: list["GameNode"] = []
 
 
-class GameTreeParams(BaseModel):
+class GameTreeParams(RelayedLiveParams):
     """The params of ``gda game tree``: read the running game's runtime scene tree.
 
     Empty — it reads the whole runtime tree of the engine session held by
@@ -81,7 +82,7 @@ class GameTreeResult(BaseModel):
     root: GameNode
 
 
-class GameGetParams(BaseModel):
+class GameGetParams(RelayedLiveParams):
     """The params of ``gda game get``: read a running node's runtime properties (#220, #422).
 
     The live counterpart of :class:`NodeGetParams`, addressed by the runtime
@@ -136,10 +137,15 @@ class GameGetResult(BaseModel):
     path: str = Field(description="The addressed node's runtime (absolute) path.")
     name: str
     type: str = Field(description="The node's engine class (e.g. CharacterBody2D).")
-    properties: list[NodeProperty]
+    properties: list[NodeProperty] = Field(
+        description=(
+            "The node's runtime properties, each in the shared value projection. "
+            + LIVE_ENGINE_PRECISION
+        )
+    )
 
 
-class GameRectParams(BaseModel):
+class GameRectParams(RelayedLiveParams):
     """The params of ``gda game rect``: read a running Control's rendered rect (#419).
 
     Addressed by the same runtime (absolute) node path as ``game get``. The
@@ -163,14 +169,20 @@ class GameRectResult(BaseModel):
     name: str
     type: str = Field(description="The node's engine class (e.g. VBoxContainer).")
     position: list[float] = Field(
-        description="The rendered viewport-space top-left point, as [x, y]."
+        description=(
+            "The rendered viewport-space top-left point, as [x, y]. "
+            + LIVE_ENGINE_PRECISION
+        )
     )
     size: list[float] = Field(
-        description="The rendered viewport-space size, as [width, height]."
+        description=(
+            "The rendered viewport-space size, as [width, height]. "
+            + LIVE_ENGINE_PRECISION
+        )
     )
 
 
-class GameSetParams(BaseModel):
+class GameSetParams(RelayedLiveParams):
     """The params of ``gda game set``: mutate a running node's runtime property (#220, #422).
 
     The live counterpart of :class:`NodeSetParams`, addressed by the runtime
@@ -222,6 +234,8 @@ class GameSetResult(BaseModel):
         description=(
             "The observed read-back value as JSON, as the running node now holds it. "
             + LIVE_SET_READ_BACK_VALUE_DESC
+            + " "
+            + LIVE_ENGINE_PRECISION
         ),
         json_schema_extra=projected_value_schema_extra,
     )
@@ -242,14 +256,13 @@ class GameSetResult(BaseModel):
 GDA_CALLABLE_CONST = "GDA_CALLABLE"
 
 
-# The interoperable range for JSON INTEGER values decoded as Python ``int``
-# (PR #749 review). Godot's `JSON.parse_string` reads every number as binary64,
-# so an int outside this guaranteed-exact range may arrive changed:
-# 9007199254740993 became …992, and 123456789012345678901234567890 became -2.
-# A Python float is already binary64 and does not inherit this integer bound.
-# This is not a promise that Godot preserves every binary64 JSON literal: #752
-# tracks small-magnitude normal and subnormal values that its parser can flatten.
-MAX_EXACT_JSON_INT = 2**53 - 1
+# The live wire's number domain — the safe-integer bound, the small-float
+# underflow predicate, the recursive admission scan and the result-precision
+# contract — lives in ``gda.live_numbers``, the one authority this group's help
+# and schema read (#752). The scan itself is APPLIED by ``gda.models.RelayedLiveParams``,
+# which every params model below inherits — this whole group is relayed to the
+# harness — so the refusal is the wire leg's rule rather than this group's. ``MAX_EXACT_JSON_INT`` is re-exported by the
+# import above so ``gda.commands.game.MAX_EXACT_JSON_INT`` keeps naming it.
 
 
 def _game_call_params_schema(schema: dict[str, Any]) -> None:
@@ -264,9 +277,9 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
     retain the useful distinction — an exponent or fractional token becomes float,
     while a bare integer becomes int. Constraining the schema's ``integer`` type
     would therefore reject valid high-range binary64 float arguments. Keep the
-    machine number branch broad, disclose the distinction and Godot's known
-    small-magnitude precision gap in its description, and let the same params model
-    that accepts input enforce the int-only bound.
+    machine number branch broad, disclose the distinction and the live wire's
+    decided float contract (``gda.live_numbers``) in its description, and let the
+    same params model that accepts input enforce the int-only bound.
     """
     # `$dynamicRef` keeps the recursive definition standard Draft 2020-12 while
     # avoiding a Pydantic-internal `$ref` lookup: this definition is attached by
@@ -287,8 +300,15 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
                     f"stay within +/-{MAX_EXACT_JSON_INT}; standard JSON Schema "
                     "cannot distinguish those tokens from equal high-range float "
                     "values, so the params model enforces that integer-token limit "
-                    "at execution. Godot 4.6.3 can also change some small-magnitude "
-                    "finite literals to 0.0; issue #752 tracks that transport defect."
+                    "at execution. A float whose wire literal Godot's parser reads "
+                    "as 0.0 is refused for the same reason (no decimal literal can "
+                    "deliver it, so the call would succeed on a value you never "
+                    "sent). A float it CAN read still arrives changed in its "
+                    "low-order bits: 1 ULP at ordinary magnitudes, and far more "
+                    "for a full-precision literal between 1e-4 and 1e-2, where "
+                    "the parser truncates past 18 mantissa digits. Every float a "
+                    "live reply RETURNS is exact, apart from a NEGATIVE ZERO, "
+                    "which reads back as 0.0 (#752)."
                 ),
             },
             {"type": "string"},
@@ -305,57 +325,7 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
     array_schema["items"] = value_ref
 
 
-def _reject_unrepresentable(value: Any, path: str = "args") -> None:
-    """Refuse two reproduced unsafe argument classes before the wire (PR #749).
-
-    Two classes, both reproduced end to end, both refused recursively (a nested
-    value is as harmful as a top-level one):
-
-    - **Non-finite floats.** JSON has no ``NaN``/``Infinity`` literals, but
-      Python's ``json.loads`` accepts them by extension and pydantic keeps them
-      in an ``Any`` field — and the daemon then writes a frame the harness's
-      ``JSON.parse_string`` cannot read, so the call never arrives: the caller
-      waits out the 30 s relay bound, gets ``live_timeout``, and the daemon
-      retires the channel, LOSING the engine session's runtime state.
-    - **Python ints outside the exact-integer range** guaranteed by the live
-      parser's binary64 number domain: those may arrive as a different number and
-      make the call SUCCEED on a value the caller never sent (PR #749 re-review).
-      Python floats already are binary64 values and do not inherit the integer
-      safe-range bound; the reproduced high-range values such as ``1e300`` cross
-      unchanged.
-
-    This function does not reject every float that Godot can change. Godot 4.6.3
-    parses some small-magnitude finite literals — including the normal binary64
-    value ``1.2345678901234567e-300`` — as ``0.0``. A decimal heuristic would
-    over-refuse and would not cover Godot's result stringifier, so #752 owns the
-    cross-direction transport policy instead of adding a partial guard here.
-
-    The params model is the one authority both the argv and ``--params-json``
-    paths pass through (ADR-0015), so both refusals belong here — structurally,
-    before the wire.
-    """
-    if isinstance(value, bool):
-        pass  # bool is not an int argument here, despite subclassing it
-    elif isinstance(value, float) and not math.isfinite(value):
-        raise ValueError(
-            f"{path} must be finite JSON values; NaN and Infinity are not "
-            "representable on the live wire."
-        )
-    elif isinstance(value, int) and abs(value) > MAX_EXACT_JSON_INT:
-        raise ValueError(
-            f"{path} integer values must be within +/-{MAX_EXACT_JSON_INT} (the "
-            "live wire reads JSON numbers as binary64, so a larger integer may "
-            f"arrive as a DIFFERENT value); got {value}."
-        )
-    if isinstance(value, dict):
-        for key, item in value.items():
-            _reject_unrepresentable(item, f"{path}[{key!r}]")
-    elif isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            _reject_unrepresentable(item, f"{path}[{index}]")
-
-
-class GameCallParams(BaseModel):
+class GameCallParams(RelayedLiveParams):
     """The params of ``gda game call``: invoke one DECLARED read-only method (#673).
 
     The live read that ``game get`` cannot serve: a debug/state contract exposed
@@ -390,9 +360,17 @@ class GameCallParams(BaseModel):
             "wire; some in-memory validators still accept them as numbers). Finite "
             "float values are not subject to the integer safe-range bound; "
             "real-engine tests pin 1e17, 2.5e17, and 1e300 unchanged. This is not a "
-            "full-range preservation guarantee: Godot 4.6.3 parses some "
-            "small-magnitude finite literals, including 1.2345678901234567e-300, "
-            "as 0.0; issue #752 tracks the input and result transport defect. JSON "
+            "full-range preservation guarantee. A small-magnitude float whose "
+            "literal Godot's parser reads as 0.0 — 1.2345678901234567e-300, "
+            "DBL_MIN, every subnormal — is REFUSED here, because no decimal "
+            "spelling delivers it and the call would otherwise succeed on a value "
+            "you never sent; a float the parser does read still arrives changed "
+            "in its low-order bits (1 ULP at ordinary magnitudes, far more for a "
+            "full-precision literal between 1e-4 and 1e-2, where the parser "
+            "truncates past 18 mantissa digits), while every float a live reply "
+            "RETURNS is exact, apart from a NEGATIVE ZERO, which reads back as "
+            "0.0 (issue #752). "
+            "JSON "
             f"integer tokens must stay within +/-{MAX_EXACT_JSON_INT} recursively; "
             "standard JSON Schema cannot distinguish those tokens from equal "
             "high-range float values, so the params model enforces this limit. "
@@ -402,12 +380,6 @@ class GameCallParams(BaseModel):
             "`live_invalid_call_args`, refused before the call."
         ),
     )
-
-    @model_validator(mode="after")
-    def _check_args(self) -> "GameCallParams":
-        if self.args is not None:
-            _reject_unrepresentable(self.args)
-        return self
 
 
 class GameCallResult(BaseModel):
@@ -428,7 +400,7 @@ class GameCallResult(BaseModel):
         description=(
             "The method's return value as JSON, in the same recursive value "
             "projection game get reports (ADR-0035); null when it returns "
-            "nothing."
+            "nothing. " + LIVE_ENGINE_PRECISION
         ),
         json_schema_extra=projected_value_schema_extra,
     )
@@ -598,6 +570,12 @@ def game_get(
     A path-less Texture2D value projects as a TextureProjection ({type, width,
     height, object_string, digest}, ADR-0035 amendment #666); `--texture-digest`
     opts into its content digest.
+
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     dispatch_domain(
         GAME_GET_COMMAND,
@@ -628,6 +606,12 @@ def game_rect(
     top-left position and laid-out size. With no daemon it reports
     `daemon_not_running`; a path that resolves to no running node is
     `live_node_not_found`; a non-Control node is `live_not_control`.
+
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     dispatch_domain(
         GAME_RECT_COMMAND,
@@ -682,6 +666,12 @@ def game_set(
     getter-only/no-op variable or an edge-triggered variable). With no daemon it
     reports `daemon_not_running`; an absent node is `live_node_not_found`, an absent
     property `live_unknown_property`, an uncoercible input value `live_uncoercible_value`.
+
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     dispatch_domain(
         GAME_SET_COMMAND,
@@ -715,8 +705,11 @@ def game_call(
             "JSON array of arguments, passed as the live parser's Variant forms "
             "(every number becomes float; e.g. '[1, \"idle\"]'). Values are "
             "checked recursively: NaN and Infinity are refused; finite floats are "
-            "not subject to the integer bound, but small-magnitude floats can arrive "
-            "changed (Godot 4.6.3 parses 1.2345678901234567e-300 as 0.0; #752); "
+            "not subject to the integer bound, but a float whose literal Godot's "
+            "parser reads as 0.0 is refused too (1.2345678901234567e-300, DBL_MIN, "
+            "any subnormal — no decimal spelling delivers them; #752), and a float "
+            "it does read arrives changed in its low-order bits, by more than "
+            "one ULP between 1e-4 and 1e-2; "
             "JSON integer values must stay within +/-"
             f"{MAX_EXACT_JSON_INT}. Omit to call with none."
         ),
@@ -752,6 +745,12 @@ def game_call(
     call (a `callv` the engine cannot convert for returns null, which would
     otherwise read as a successful null). An unresolvable path is
     `live_node_not_found`, and with no daemon it reports `daemon_not_running`.
+
+    A value the engine reports crosses the wire at full binary64 precision — the
+    reply is serialized with Godot's full-precision JSON writer, so a small or
+    many-digit value reads back exactly (#752). The one residual is that
+    writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
+    value.
     """
     # The argv value is JSON, parsed here so argv and --params-json build the
     # SAME model (ADR-0015); a non-JSON string reaches the model, which refuses

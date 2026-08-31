@@ -296,6 +296,16 @@ def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
         "res://..",
         "res://../outside.gd",
         "../../etc/passwd",
+        # The SAME escape spelled with the engine's other separator. Godot folds
+        # `\\` to `/` across a res:// address before it collapses anything
+        # (`String::simplify_path`, ustring.cpp:4192), and this gate lifts a
+        # project-relative path onto a res:// address first, so both of these
+        # named the file one level above the project and were LAUNCHED — the
+        # widest form of the containment bypass PR #766's round-2 review found,
+        # closed here by the shared canonicalizer learning the fold.
+        "res://..\\outside.gd",
+        "..\\outside.gd",
+        "res://a\\..\\..\\outside.gd",
         # A leading `~` is a HOME reference — a filesystem address form. It reaches
         # the operation unexpanded only when the shared normalizer could not resolve
         # the user (#699); a resolvable `~/x.gd` arrives already expanded to an
@@ -1022,6 +1032,30 @@ def test_a_runtime_error_in_a_helper_script_never_arms_the_abort():
     verdicts = _drive(
         watch,
         [("", helper, 0.5), ("", "", 3.6), ("", "", 6.7), ("", "", 60.0)],
+    )
+
+    assert verdicts == [False] * 4
+
+
+def test_a_push_error_from_the_entry_never_arms_the_abort():
+    # #722's contract line, pinned where it can regress: `push_error` IS recognized
+    # now, and it names the ENTRY here — so attribution alone would arm the abort.
+    # It must not. The watch's premise is that something interrupted the run; a
+    # push_error interrupts nothing (execution continues at the next statement), so
+    # a script that reports an invariant and then computes quietly is alive by
+    # construction. Widening recognition changed what `script run` REPORTS, not
+    # when it kills.
+    watch = _CompletionMarkerWatch("SUITE DONE", entry=ENTRY, silence=3.0)
+    reported = (
+        "ERROR: logic: 3 of 40 encounters have no spawn point\n"
+        "   at: push_error (core/variant/variant_utility.cpp:1024)\n"
+        "   GDScript backtrace (most recent call first):\n"
+        "       [0] _initialize (res://tests/logic.gd:6)\n"
+    )
+
+    verdicts = _drive(
+        watch,
+        [("", reported, 0.5), ("", "", 3.6), ("", "", 6.7), ("", "", 60.0)],
     )
 
     assert verdicts == [False] * 4

@@ -1254,8 +1254,10 @@ def test_theme_create_result_round_trips_path_type_and_dirs():
 
 def test_diag_errors_result_round_trips_a_multi_frame_callstack():
     # A runtime GDScript error carries its ordered call stack (#283): each frame
-    # is {function, file, line}, most-recent-first, with frame [0] equal to the
-    # top {function,file,line}. The whole result round-trips byte-identical.
+    # is {function, file, line}, most-recent-first. Frame [0] equals the top
+    # {function,file,line} for THIS class, because GDScript raised the error
+    # itself — see the push_error test below for the class where it does not
+    # (#722). The whole result round-trips byte-identical.
     from gda.commands.diag import DiagErrorsResult
 
     payload = {
@@ -1284,9 +1286,50 @@ def test_diag_errors_result_round_trips_a_multi_frame_callstack():
     assert json.loads(result.model_dump_json()) == payload
 
 
+def test_diag_error_keeps_a_push_error_frame_zero_apart_from_the_top_fields():
+    # The model contract `--schema` publishes (#722): frame [0] is the innermost
+    # GDScript frame, NOT necessarily the top {function,file,line}. A push_error is
+    # raised by the engine's own C++ helper, so the top fields name that helper
+    # while frame [0] names the .gd line that called it. Values reproduced from a
+    # real Godot 4.6.3 headless capture (see MIXED_RAISER_LOG in
+    # tests/test_diag_log_parser.py). The model must carry both without collapsing
+    # or cross-filling them.
+    from gda.commands.diag import DiagError
+
+    payload = {
+        "level": "error",
+        "message": "probe: invariant violated",
+        "function": "push_error",
+        "file": "core/variant/variant_utility.cpp",
+        "line": 1024,
+        "callstack": [
+            {"function": "_inner", "file": "res://main.gd", "line": 10},
+            {"function": "_ready", "file": "res://main.gd", "line": 5},
+        ],
+    }
+
+    error = DiagError.model_validate(payload)
+
+    assert error.file == "core/variant/variant_utility.cpp"
+    assert error.callstack[0].file == "res://main.gd"
+    assert error.callstack[0].line == 10
+    assert (
+        error.callstack[0].function,
+        error.callstack[0].file,
+        error.callstack[0].line,
+    ) != (
+        error.function,
+        error.file,
+        error.line,
+    )
+    assert json.loads(error.model_dump_json()) == payload
+
+
 def test_diag_error_callstack_defaults_to_empty_for_a_bare_error():
-    # A bare push_error carries no backtrace: callstack defaults to [] and the
-    # existing single-frame fields stay None — no callstack key required on input.
+    # An error raised outside any GDScript call stack carries no backtrace:
+    # callstack defaults to [] and the existing single-frame fields stay None — no
+    # callstack key required on input. (A push_error is NOT such an error: it does
+    # carry a backtrace on the build gda drives, #722.)
     from gda.commands.diag import DiagError
 
     error = DiagError.model_validate(
