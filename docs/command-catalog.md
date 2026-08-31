@@ -552,19 +552,16 @@ issue #30) — null when the source declares neither, so the listing names every
 Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
 `--project`); an empty project is a valid, empty listing, not an error. The walk excludes exactly
 one directory — the engine's own cache at `res://.godot`, whose contents are import artefacts no
-agent authored. The test is **lexical**: the child's `res://` PATH is compared against that one
-path. Not the directory NAME, so a nested `.godot` is walked — it is usually authored content, and
+agent authored. The first test is **lexical**: the child's `res://` PATH is compared against that
+one path. Not the directory NAME, so a nested `.godot` is walked — it is usually authored content, and
 excluding it hid real scripts from the listing and let `script validate --all` report a valid
 aggregate for a project holding an invalid script (#663 review). Sometimes it is not authored
 content — a vendored sub-project checked out under `res://` and opened once in an editor keeps an
 engine cache of its own, whose import artefacts then count in `project statistics` and become
 `find-unused-resources` candidates. That cost is accepted deliberately: gda cannot tell the two
-apart from the directory alone, and a false-valid aggregate is the worse failure. And because the
-test is lexical it compares the path as written, so it does **not** resolve filesystem targets: a
-symlink or alias under another path that leads to `res://.godot` is walked, and the cache's contents
-are then enumerated through that path. Symlink policy for the `res://` walk is undecided — #760 owns it, together with the symlink CYCLE the same walk descends until the OS path
-limit stops it. Hidden entries are otherwise enumerated as promised (#54). **This rule governs the
-four `res://` collectors in `operations.gd`** — the `script list` walk, the `scene list` walk, and
+apart from the directory alone, and a false-valid aggregate is the worse failure. Hidden entries are
+otherwise enumerated as promised (#54). **This rule governs the four `res://` collectors in
+`operations.gd`** — the `script list` walk, the `scene list` walk, and
 both static-analysis walks (the extension-filtered one behind `find-references`, `dependencies`,
 `find-unused-resources` and the `class_name` index, and the unfiltered one `project statistics`
 counts with) — so one project cannot answer two ways. It once did: three of the four compared the
@@ -575,6 +572,35 @@ copied per collector, and the copies drifted a second time — on the extension 
 shared traversal plus the acceptance test it passes. What they share is the traversal and the
 exclusion rule, **not** a file universe; the two static-analysis walks below still range over
 different files.
+
+The lexical test is the walk's first question, not its only one, because a link renames what it
+points at (#760). Comparing the path as written let an alias re-admit exactly what the rule
+excludes — `res://nested/.godot` pointing at the root cache made the cache's own scripts and scenes
+visible under a second name — and let a cycle (`sub/loop` -> `sub`) be descended until the OS
+refused another symlink hop, spelling one `.gd` 33 ways with a deepest path 174 characters long.
+The walk therefore **follows a link, as the engine does** — `DirAccess` stats a link entry so a
+linked directory lists as a directory, `ResourceLoader` loads through an alias, and gda's own
+addressing gate already counts a symlinked-in file as part of the project's `res://` namespace
+(ADR-0006) — but it **identifies what it reaches by filesystem identity**, through the engine's own
+`DirAccess.is_equivalent` (`st_dev`/`st_ino` on Unix, the volume+file id on Windows), rather than by
+the spelling that reached it. Two rules follow:
+
+- the **engine cache is excluded by identity**, so no alias re-admits it: not a directory link AT
+  `res://.godot`, not one INTO a subdirectory of it, and not a FILE link at a file inside it. That
+  last shape is a second touch point — it reaches the acceptance test without passing the descent
+  decision — so both branches of the walk ask the same owner;
+- a linked directory **already on the current descent chain is not re-entered**, so a cycle ends by
+  rule once every real directory has been walked, and the listing is a decided, bounded answer
+  rather than the leftovers of an OS limit.
+
+Both rules are about **where** a link leads, not about links: a vendored checkout that physically
+lives outside `res://` and is reached through a directory link inside it is walked and enumerated
+exactly as an ordinary directory, and its scripts' `class_name`s resolve. One consequence is kept
+deliberately — a FILE link at authored content is enumerated under **both** paths, since both are
+real `res://` addresses the engine loads; when the linked script declares a `class_name`, those two
+paths make it `ambiguous_class_name` (ADR-0032), the same report gda gives any project that declares
+one name twice.
+
 `gda script delete`
 removes a script file and reports the removed script's `class_name`/`extends` (parsed before
 deletion), so the result names the content, not just the path. Delete honors the same addressing

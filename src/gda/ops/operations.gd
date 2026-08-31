@@ -161,8 +161,16 @@ const SCENE_STARTUP_NOT_READY := "not_ready"
 
 # The ONE directory a res:// walk excludes: the engine's own import/cache tree at
 # the project root. The VALUE only — the decision that uses it lives in exactly one
-# place, _should_descend, which every walk calls.
+# place, _is_in_engine_cache, which _should_descend and _should_collect both ask.
 const ENGINE_CACHE_DIR := "res://.godot"
+
+# How far a res:// walk follows symlinks when it asks whether an entry is the
+# engine cache (#760): the links resolved in one chain, and the ancestors probed
+# above a resolved target. One bound serves both, and 32 is the ceiling the OS
+# itself puts on symlink resolution (MAXSYMLINKS on macOS and Linux) — a chain gda
+# gives up on is one the kernel would refuse to open anyway, so the bound cannot
+# hide a path the walk could otherwise have reached.
+const SYMLINK_PROBE_MAX_STEPS := 32
 
 # The project-info settings (issue #111), read with a default so a project that
 # never wrote them still reports a sensible value rather than failing: a new
@@ -4251,11 +4259,11 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 
 
 # Whether a res:// walk descends into this child DIRECTORY. The ONE owner of the
-# exclusion decision: every walk over the project tree (scripts, scenes, graph
+# descent decision: every walk over the project tree (scripts, scenes, graph
 # resources, all files) asks this and nothing else, so the rule cannot drift
 # between them and a new walk inherits it by calling this.
 #
-# The comparison is the full path, never the directory NAME, because a `.godot`
+# The first test is the full path, never the directory NAME, because a `.godot`
 # deeper in the tree is not this project's engine cache. It is usually authored
 # content (an addon vendoring a sample project, a fixture tree), and excluding it
 # hid real scripts from `script list` and let `script validate --all` report a
@@ -4268,13 +4276,114 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 # ways: `script list` reported a script `project statistics` counted as zero
 # (#712). One decision, one site — that is what keeps them in agreement.
 #
-# The test is LEXICAL and stays that way here: it does not resolve filesystem
-# targets, so an alias that leads to the root cache is descended into, and a
-# symlink cycle is descended until the OS path limit stops it. Symlink policy for
-# the res:// walk is undecided and tracked in #760 — do not decide half of it
-# in this predicate.
-func _should_descend(child: String) -> bool:
-	return child != ENGINE_CACHE_DIR
+# SYMLINK POLICY (#760). The walk FOLLOWS a link, as the engine does —
+# DirAccessUnix::get_next stat()s a DT_LNK entry on purpose, so a linked directory
+# reports current_is_dir() (drivers/unix/dir_access_unix.cpp:148-183), and
+# ResourceLoader loads through an alias (both measured on 4.6.3) — but it
+# identifies what it reached by FILESYSTEM IDENTITY, not by the spelling that
+# reached it. Two rules follow, and only a link pays for them:
+#
+#   - the engine cache is excluded by identity, so no alias re-admits it
+#     (_is_in_engine_cache);
+#   - a linked directory already on this descent CHAIN is not re-entered, so a
+#     cycle ends by rule after each real directory has been walked once, instead
+#     of running to the OS symlink limit — `sub/loop -> sub` once emitted 33
+#     spellings of one file, the deepest 174 characters long.
+#
+# A link to ordinary authored content — a vendored checkout reached through one —
+# is neither the cache nor an ancestor, so it is followed and enumerated exactly
+# as before. That is the point of deciding by identity rather than by refusing
+# links: the two defects are about WHERE a link leads, not about links.
+func _should_descend(dir: DirAccess, child: String, chain: Array[String]) -> bool:
+	if child == ENGINE_CACHE_DIR:
+		return false
+	if not dir.is_link(child):
+		# Not a link: its real parent is the directory being listed, which the
+		# walk already cleared, and it cannot be an ancestor of itself. So the
+		# lexical test above is the whole decision — an ordinary project pays one
+		# lstat per entry and nothing else.
+		return true
+	if _is_in_engine_cache(dir, child):
+		return false
+	for ancestor in chain:
+		if dir.is_equivalent(child, ancestor):
+			return false
+	return true
+
+
+# Whether a res:// walk COLLECTS this child FILE, once the collector's own
+# acceptance test has said yes. The file-side half of the symlink policy above
+# (#760): _should_descend gates DIRECTORY descent only, so a file link INTO the
+# cache — `res://alias.gd -> res://.godot/root_cache.gd` — reaches the accept
+# branch without ever passing it, and re-admits by itself the content the descent
+# rule keeps out. The two halves ask the same question of the same owner.
+#
+# A link to ordinary content is collected, deliberately: it is a real res:// path
+# the engine loads (measured on 4.6.3), so hiding it would hide authored content
+# the game can address. That also means the same file can be listed under two
+# paths when one is an alias of the other — both are true answers to "what can
+# this project load", and neither is the fabricated path a cycle produced.
+func _should_collect(dir: DirAccess, child: String) -> bool:
+	return not dir.is_link(child) or not _is_in_engine_cache(dir, child)
+
+
+# Whether `path` IS the engine cache or lives inside it, however it is spelled —
+# the ONE owner of the exclusion decision both walk-side predicates ask (#760).
+#
+# The identity test is the ENGINE's own: DirAccess.is_equivalent compares
+# (st_dev, st_ino) on Unix and (VolumeSerialNumber, FileId) on Windows, both
+# stat-resolved, and falls back to string equality when a path cannot be stat'd
+# (DirAccess::is_equivalent, core/io/dir_access.cpp:636-638, overridden in
+# DirAccessUnix::is_equivalent, drivers/unix/dir_access_unix.cpp:713-729, and
+# DirAccessWindows::is_equivalent, drivers/windows/dir_access_windows.cpp:442-462;
+# line numbers from a 4.6-stable+ checkout). gda does not answer "are these
+# the same directory" itself, and the fallback degrades to exactly the lexical
+# rule this predicate replaced — a project with no `res://.godot` at all keeps
+# answering as it did.
+#
+# The link target is resolved by hand because DirAccess cannot do it for us:
+# DirAccessUnix::fix_path simplifies a path LEXICALLY before every syscall
+# (drivers/unix/dir_access_unix.cpp:55-57), so a `..` appended to a link never
+# reaches the kernel and cannot be used to walk up out of an alias (measured on
+# 4.6.3: is_equivalent("res://nested/.godot/..", "res://") answers false through an
+# alias of the root cache). DirAccessUnix::read_link gives the raw target, relative
+# to the link's own directory (drivers/unix/dir_access_unix.cpp:481-499).
+#
+# Ancestors are probed so a link INTO the cache — `res://nested/imported ->
+# res://.godot/imported` — is excluded too, not only a link AT it. Each probe is
+# stat-resolved, so an ancestor that is itself an alias of the cache still
+# answers true. A deliberately nested chain of links could still spell a path
+# whose ancestors resolve elsewhere; that is a Trusted project (ADR-0009)
+# question, not one this predicate defends against — the rule exists so an honest
+# project's aliases report honestly.
+func _is_in_engine_cache(dir: DirAccess, path: String) -> bool:
+	var probe := _resolved_link_path(dir, path)
+	for _step in range(SYMLINK_PROBE_MAX_STEPS):
+		if dir.is_equivalent(probe, ENGINE_CACHE_DIR):
+			return true
+		var parent := probe.get_base_dir()
+		if parent.is_empty() or parent == probe:
+			return false
+		probe = parent
+	return false
+
+
+# The path a link finally names, following a chain of links up to the OS's own
+# ceiling (#760). A relative target is joined onto the directory holding the
+# link, which is how the kernel reads it; an absolute one is taken as it is.
+# Returns `path` unchanged when it is not a link, when the target cannot be read,
+# and when the chain outruns the bound — a path gda could not resolve is one it
+# reports rather than hides.
+func _resolved_link_path(dir: DirAccess, path: String) -> String:
+	var current := path
+	for _step in range(SYMLINK_PROBE_MAX_STEPS):
+		if not dir.is_link(current):
+			return current
+		var target := dir.read_link(current)
+		if target.is_empty():
+			return current
+		current = target if target.is_absolute_path() else current.get_base_dir().path_join(target)
+	return current
 
 
 # The ONE res:// traversal (#764). Open the directory, enumerate hidden entries,
@@ -4302,19 +4411,27 @@ func _should_descend(child: String) -> bool:
 # the extension anyway — String.get_extension() stops at the last '/', so a file
 # with no extension under a dotted directory (res://a.b/README) answers "" either
 # way — but only the full path can carry a test that looks at the directory too.
-func _collect_paths(dir_path: String, accept: Callable, out: Array[String]) -> void:
+#
+# `chain` is the descent chain: the directories above `dir_path`, which the walk
+# carries so the symlink policy can tell a link that leads back UP the chain from
+# one that leads to new content (#760). A caller never passes it — a walk starts
+# at the root with an empty chain — and the recursion extends it by one, in a NEW
+# array, so a branch cannot see a sibling branch's ancestors.
+func _collect_paths(dir_path: String, accept: Callable, out: Array[String], chain: Array[String] = []) -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
 		return
+	var descended: Array[String] = chain.duplicate()
+	descended.append(dir_path)
 	dir.include_hidden = true
 	dir.list_dir_begin()
 	var entry := dir.get_next()
 	while not entry.is_empty():
 		var child := dir_path.path_join(entry)
 		if dir.current_is_dir():
-			if _should_descend(child):
-				_collect_paths(child, accept, out)
-		elif accept.call(child):
+			if _should_descend(dir, child, descended):
+				_collect_paths(child, accept, out, descended)
+		elif accept.call(child) and _should_collect(dir, child):
 			out.append(child)
 		entry = dir.get_next()
 	dir.list_dir_end()
