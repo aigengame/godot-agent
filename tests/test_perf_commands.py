@@ -21,6 +21,7 @@ from tests.support import (
     PERF_MONITOR_SIGNAL_RESULT,
     PERF_MONITORS_RESULT,
     PERF_SAMPLE_REPLY,
+    assert_no_pydantic_dump,
     error_sentinel,
     inject_live_runner,
     perf_sample_reply_all_monitors,
@@ -722,6 +723,67 @@ def test_perf_monitors_window_budget_file_problems_are_invalid_params(
         # Each case must fail for ITS OWN reason — this is what the aliased
         # single-file table could not prove (#735 recheck 2).
         assert fragment in error["message"], (name, error["message"])
+    assert fake.calls == []
+
+
+def test_perf_monitors_window_budget_entry_refusal_leaks_no_pydantic_dump(
+    monkeypatch, tmp_path
+):
+    # A broken budget ENTRY is refused by the `PerfBudget` model, and the
+    # loader used to interpolate the raw `ValidationError` (#759): the message
+    # an agent reads carried the model class name, a `[type=...,
+    # input_value=..., input_type=...]` tag echoing the caller's own budget-file
+    # content, embedded newlines, and a `pydantic.dev` URL. It now goes through
+    # the SAME shared renderer the argv and --params-json channels use
+    # (`gda.errors.validation_error_message`, #713/#754), so one
+    # `invalid_params` code speaks one language on every surface.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
+    )
+    # A distinctive bound value: only pydantic's own dump echoes a rejected
+    # input back, so finding it in the message proves the leak directly.
+    secret = "NOT-A-NUMBER-4d9f21"
+    cases = [
+        # A built-in check (strict float) — the message is pydantic's own `msg`.
+        (
+            "leak-builtin.json",
+            '{"fps": {"stat": "p50", "min": "%s"}}' % secret,
+            "min: Input should be a valid number",
+        ),
+        # A field-scoped enum check — the field path survives the rendering.
+        (
+            "leak-enum.json",
+            '{"fps": {"stat": "%s", "min": 60}}' % secret,
+            "stat: Input should be",
+        ),
+        # A model-level validator's own ValueError — unprefixed, untagged.
+        (
+            "leak-validator.json",
+            '{"fps": {"stat": "p50"}}',
+            "a budget entry needs 'min' and/or 'max'.",
+        ),
+    ]
+    for name, content, sentence in cases:
+        budget = _budget_file(tmp_path, name, content)
+        result = _window(tmp_path, "--frames", "5", "--budget", str(budget))
+
+        error = json.loads(result.stdout)["error"]
+        assert error["code"] == "invalid_params", (name, result.stdout)
+        assert_no_pydantic_dump(error["message"])
+        # The dump's other two tells: the model class name, and the newlines it
+        # embeds to lay one error out over three lines.
+        assert "PerfBudget" not in error["message"], (name, error["message"])
+        assert "\n" not in error["message"], (name, error["message"])
+        # The caller's own budget-file content is not echoed back...
+        assert secret not in error["message"], (name, error["message"])
+        # ...while the entry NAME — bounded by PERF_MONITOR_NAMES, and what the
+        # caller must fix — and the check's own sentence both survive.
+        assert error["message"].startswith("budget entry 'fps' is invalid: "), (
+            name,
+            error["message"],
+        )
+        assert sentence in error["message"], (name, error["message"])
     assert fake.calls == []
 
 

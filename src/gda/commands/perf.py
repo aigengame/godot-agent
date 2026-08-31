@@ -42,7 +42,12 @@ from pydantic import (
 
 from gda import dispatch
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure, classify_live, make_failure
+from gda.errors import (
+    Failure,
+    classify_live,
+    make_failure,
+    validation_error_message,
+)
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -808,8 +813,19 @@ def _load_budgets(path: Path) -> "dict[str, PerfBudget] | Failure":
         try:
             budgets[name] = PerfBudget.model_validate(entry)
         except ValidationError as exc:
+            # The SHARED renderer (#713/#754), not ``str(exc)``: the raw dump
+            # names the model class, tags each error with
+            # ``[type=..., input_value=..., input_type=...]`` — echoing the
+            # caller's own budget-file content back — and appends a
+            # ``pydantic.dev`` URL, so one ``invalid_params`` code would speak
+            # two languages depending on which surface produced it (#759).
+            # ``name`` stays in the message because it is what the caller must
+            # fix, and it is already bounded by ``PERF_MONITOR_NAMES`` above —
+            # a known monitor name, never arbitrary caller content.
             return make_failure(
-                "invalid_params", f"budget entry {name!r} is invalid: {exc}", ""
+                "invalid_params",
+                f"budget entry {name!r} is invalid: {validation_error_message(exc)}",
+                "",
             )
     return budgets
 

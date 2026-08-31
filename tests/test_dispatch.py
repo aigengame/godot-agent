@@ -31,15 +31,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.dispatch import params_or_bad_parameter
-from tests.support import usage_error_text
-
-# The exact dump fragments str(ValidationError) used to leak (PR #754 review).
-_FORBIDDEN_FRAGMENTS = ("pydantic.dev", "input_value=", "[type=")
-
-
-def _assert_clean(message: str) -> None:
-    for fragment in _FORBIDDEN_FRAGMENTS:
-        assert fragment not in message, f"{fragment!r} leaked into {message!r}"
+from tests.support import assert_no_pydantic_dump, usage_error_text
 
 
 def _argv_usage_error_message(result) -> str:
@@ -127,7 +119,7 @@ def test_plain_value_error_passes_through_as_the_bare_sentence():
 
     message = str(exc_info.value)
     assert message == "a plain refusal sentence."
-    _assert_clean(message)
+    assert_no_pydantic_dump(message)
 
 
 def test_model_level_validation_error_renders_the_validators_own_sentence():
@@ -136,7 +128,7 @@ def test_model_level_validation_error_renders_the_validators_own_sentence():
 
     message = str(exc_info.value)
     assert message == "'search' and 'replace' must be used together."
-    _assert_clean(message)
+    assert_no_pydantic_dump(message)
 
 
 def test_field_level_validation_error_renders_the_validators_own_sentence():
@@ -145,7 +137,7 @@ def test_field_level_validation_error_renders_the_validators_own_sentence():
 
     message = str(exc_info.value)
     assert message == "name: 'name' must not be empty."
-    _assert_clean(message)
+    assert_no_pydantic_dump(message)
 
 
 def test_multi_error_validation_error_joins_each_fields_own_message():
@@ -155,7 +147,7 @@ def test_multi_error_validation_error_joins_each_fields_own_message():
     message = str(exc_info.value)
     assert "a: " in message and "b: " in message
     assert "; " in message  # the stated join separator
-    _assert_clean(message)
+    assert_no_pydantic_dump(message)
 
 
 def test_no_caller_value_leaks_into_the_refusal():
@@ -183,7 +175,7 @@ def test_no_caller_value_leaks_into_the_refusal():
     message = str(exc_info.value)
     assert secret not in message
     assert message == "'search' and 'replace' must be used together."
-    _assert_clean(message)
+    assert_no_pydantic_dump(message)
 
 
 # --- end-to-end: --params-json through an actual command (round 3) ------------
@@ -205,7 +197,7 @@ def test_params_json_validation_error_is_also_rendered_clean():
 
     message = _params_json_invalid_params_message(result)
     assert message == "'search' and 'replace' must be used together."
-    _assert_clean(message)
+    assert_no_pydantic_dump(message)
 
 
 def test_params_json_does_not_leak_the_callers_other_field_value():
@@ -228,7 +220,7 @@ def test_params_json_does_not_leak_the_callers_other_field_value():
     message = _params_json_invalid_params_message(result)
     assert secret not in message
     assert message == "'search' and 'replace' must be used together."
-    _assert_clean(message)
+    assert_no_pydantic_dump(message)
 
 
 def test_argv_and_params_json_report_the_identical_sentence():
