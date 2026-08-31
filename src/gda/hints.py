@@ -55,7 +55,7 @@ from typer._click.exceptions import NoSuchOption, UsageError
 from typer._click.globals import get_current_context
 
 from gda.errors import Failure, make_failure
-from gda.headless import ancestor_json, emit_failure
+from gda.headless import emit_failure, json_in_effect, remember_argv
 
 # The two registered codes this module reports (ADR-0002, the `usage` category).
 UNKNOWN_COMMAND = "unknown_command"
@@ -167,41 +167,6 @@ def _context_path(ctx: ClickContext) -> tuple[str, ...]:
     return tuple(reversed(names))
 
 
-# The context-meta key the root parser records its raw argv under. ``ctx.meta`` is one
-# dict shared by every context in the tree, so what the root records is readable from
-# wherever the refusal is finally decided — including a leaf command's parser, whose
-# own tokens are a slice of it.
-RAW_ARGV_META_KEY = "gda.raw_argv"
-
-
-def _remember_argv(ctx: ClickContext, args: list[str]) -> None:
-    """Record the tokens the ROOT parser was handed (first writer wins)."""
-    ctx.meta.setdefault(RAW_ARGV_META_KEY, list(args))
-
-
-def _json_in_effect(ctx: ClickContext) -> bool:
-    """Whether this invocation asked for JSON, in three ordered readings.
-
-    1. The command's OWN resolved flag, when the refusal is decided after its parse —
-       which is the case for ``gda help <unknown>``. It already carries an inherited
-       ancestor ``--json`` (``gda.headless._inherit_ancestor_json``), so it answers
-       for every spelling wherever it exists.
-    2. The ancestor ``--json``, recorded when the root callback (#671) or a group's
-       (#683) bound it — the reading available at parse time, before any command's
-       params exist.
-    3. The literal token in the recorded argv. A ``--json`` written AFTER the
-       offending token never parses, because the command or option it would have
-       belonged to does not exist, so the token itself is the only evidence of the
-       intent — and it is read as exactly that. The Skill teaches the trailing
-       spelling, so leaving this reading out would answer most agents in prose.
-    """
-    if bool(ctx.params.get("json_output")):
-        return True
-    if ancestor_json(ctx):
-        return True
-    return "--json" in ctx.meta.get(RAW_ARGV_META_KEY, ())
-
-
 def _sentence(message: str, hit: Optional[NearMiss], fallback: str) -> str:
     """The refusal's message: what was wrong, then what to do about it."""
     if hit is None:
@@ -273,7 +238,7 @@ def _answer(ctx: ClickContext, refusal: Refusal) -> NoReturn:
     :func:`gda.headless.emit_failure` (the single public failure channel), otherwise
     the usage error click renders — carrying the same sentence, at the same exit code.
     """
-    if _json_in_effect(ctx):
+    if json_in_effect(ctx):
         emit_failure(refusal.failure())
     raise UsageError(refusal.message, ctx)
 
@@ -293,7 +258,7 @@ def _refuse(ctx: ClickContext, refusal: Refusal) -> None:
     """
     if ctx.resilient_parsing:
         return
-    if refusal.hint is None and not _json_in_effect(ctx):
+    if refusal.hint is None and not json_in_effect(ctx):
         return
     _answer(ctx, refusal)
 
@@ -309,8 +274,8 @@ def refuse_unknown_command(path: tuple[str, ...], token: str) -> NoReturn:
 
     The context is taken from click's ambient stack because a descriptor recipe is
     handed its params, not its context (ADR-0023) — and the channel question
-    (:func:`_json_in_effect`) is a property of the invocation, which is exactly what
-    that stack holds.
+    (:func:`gda.headless.json_in_effect`) is a property of the invocation, which is
+    exactly what that stack holds.
     """
     _answer(get_current_context(), unknown_command(path, token))
 
@@ -333,7 +298,7 @@ class GdaGroup(TyperGroup):
         """Parse this group's own arguments; refuse an option it does not have."""
         # The ROOT's call is the first parse of the invocation, so this is where the
         # whole argv is recorded for every later refusal to read.
-        _remember_argv(ctx, args)
+        remember_argv(ctx, args)
         try:
             return super().parse_args(ctx, args)
         except NoSuchOption as exc:

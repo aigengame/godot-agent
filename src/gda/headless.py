@@ -124,6 +124,52 @@ def ancestor_json(ctx: ClickContext) -> bool:
     return bool(ctx.meta.get(ANCESTOR_JSON_META_KEY, False))
 
 
+# The context-meta key the root parser records its raw argv under. ``ctx.meta`` is one
+# dict shared by every context in the tree, so what the root records is readable from
+# wherever the channel is finally decided — including a leaf command's parser, whose
+# own tokens are a slice of it.
+RAW_ARGV_META_KEY = "gda.raw_argv"
+
+
+def remember_argv(ctx: ClickContext, args: list[str]) -> None:
+    """Record the tokens the ROOT parser was handed (first writer wins).
+
+    The write half of the third reading :func:`json_in_effect` makes. Called from
+    the group class the composition root mounts (``gda.hints.GdaGroup``), which is
+    where the root's first parse happens.
+    """
+    ctx.meta.setdefault(RAW_ARGV_META_KEY, list(args))
+
+
+def json_in_effect(ctx: ClickContext) -> bool:
+    """Whether this invocation asked for JSON, in three ordered readings.
+
+    1. The command's OWN resolved flag, when the question is asked after its parse —
+       the case for a dispatched command and for ``gda help <unknown>``. It already
+       carries an inherited ancestor ``--json`` (:func:`_inherit_ancestor_json`), so
+       it answers for every spelling wherever it exists.
+    2. The ancestor ``--json``, recorded when the root callback (#671) or a group's
+       (#683) bound it — the reading available at parse time, before any command's
+       params exist.
+    3. The literal token in the recorded argv. A ``--json`` written AFTER an
+       offending token never parses, because the command or option it would have
+       belonged to does not exist, so the token itself is the only evidence of the
+       intent — and it is read as exactly that. The Skill teaches the trailing
+       spelling, so leaving this reading out would answer most agents in prose.
+
+    It lives HERE, beside :func:`ancestor_json` and the option that inherits it,
+    rather than with the near-miss refusal that introduced it (``gda.hints``, #670):
+    the failure channel in this module has to ask the same question, and ``gda.hints``
+    already imports this module for it, so keeping the question there would need that
+    import to run backwards (#685).
+    """
+    if bool(ctx.params.get("json_output")):
+        return True
+    if ancestor_json(ctx):
+        return True
+    return "--json" in ctx.meta.get(RAW_ARGV_META_KEY, ())
+
+
 def _inherit_ancestor_json(
     ctx: typer.Context, param: typer.CallbackParam, value: bool
 ) -> bool:
