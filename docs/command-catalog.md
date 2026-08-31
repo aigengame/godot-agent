@@ -71,7 +71,12 @@ they are provenance, not status markers.
 
 **Enumeration** (established by #54): `scene list` walks the project's `res://`
 tree under the same exclusion rule `script list` states below, so the two see the
-same directories and differ only in the extension they collect (#712).
+same directories and differ only in the extension they collect (#712). Since #764 they
+run the same traversal too, and both match the extension **without regard to case**, as
+the engine does — a `Level.TSCN` is a scene to `ResourceLoader`, so `scene list` reports
+it. That case rule is new: the scene walk alone used to compare case-sensitively, which
+made `project statistics` count a `Level.TSCN` as a scene that `scene list` could not
+see.
 
 **Static instance reporting** (established by #400): `scene get` reads the stored
 `SceneState` without instantiating the host scene, but an instanced node is still
@@ -540,6 +545,12 @@ both static-analysis walks (the extension-filtered one behind `find-references`,
 `find-unused-resources` and the `class_name` index, and the unfiltered one `project statistics`
 counts with) — so one project cannot answer two ways. It once did: three of the four compared the
 directory NAME, so `script list` reported a script `project statistics` counted as zero (#712).
+Since #764 the four also share ONE traversal. The scaffolding around the exclusion rule had been
+copied per collector, and the copies drifted a second time — on the extension test, where the
+`scene list` walk alone compared case-sensitively — so each collector is now a single line: the
+shared traversal plus the acceptance test it passes. What they share is the traversal and the
+exclusion rule, **not** a file universe; the two static-analysis walks below still range over
+different files.
 `gda script delete`
 removes a script file and reports the removed script's `class_name`/`extends` (parsed before
 deletion), so the result names the content, not just the path. Delete honors the same addressing
@@ -886,7 +897,10 @@ Two static walks back these, over different file universes: `find-references`,
 creation resolves through) share the extension-filtered one, while `project statistics`
 counts with an unfiltered one that also sees `.import` sidecars and `project.godot` — so
 its file total does not reconcile with the others' candidate set. What is shared is the
-directory exclusion, the rule `script list` states above (#712).
+directory exclusion, the rule `script list` states above (#712), and since #764 the
+traversal itself: the two walks are one recursive walker asked two different acceptance
+questions. A shared traversal is not a shared universe — `project statistics` keeps
+counting the sidecars and the project file the other walk will never see.
 
 ---
 
