@@ -40,8 +40,8 @@ from gda_balancing.domain.model import (
     resolve_published_model_binding,
 )
 from gda_balancing.domain.operation_program import (
-    expanded_operation_body,
     operation_coordinate,
+    operation_body_instructions,
     selected_operation_index,
 )
 from gda_balancing.domain.program_reachability import (
@@ -327,19 +327,15 @@ def derive_scenario_program_requirements(
         raise ValueError("Scenario Operation is absent from the selected RIR")
     if operation["runtime_profile"] != runtime_profile:
         raise ValueError("Scenario Operation requires another Runtime profile")
-    expanded_body = expanded_operation_body(root_coordinate, operations)
     program_structure = project_reachable_program_structure(rir, [entrypoint])
+    reachable_operations = [
+        operations[coordinate] for coordinate in program_structure.operation_coordinates
+    ]
     requirements = {
         "operation_kinds": sorted(
             {
-                operation["operation_kind"],
-                *(
-                    operations[operation_coordinate(instruction["operation"])][
-                        "operation_kind"
-                    ]
-                    for instruction in expanded_body
-                    if instruction["node"] in {"invoke", "schedule"}
-                ),
+                reachable_operation["operation_kind"]
+                for reachable_operation in reachable_operations
             }
         ),
         "instruction_nodes": sorted(program_structure.runtime_node_ids),
@@ -353,7 +349,10 @@ def derive_scenario_program_requirements(
     named_streams = sorted(
         {
             instruction["stream"]
-            for instruction in expanded_body
+            for reachable_operation in reachable_operations
+            for instruction in operation_body_instructions(
+                cast(list[dict[str, Any]], reachable_operation["body"])
+            )
             if instruction["node"] == "draw"
         }
     )

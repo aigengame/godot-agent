@@ -9,7 +9,9 @@ from typing import Any, cast
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from gda_balancing.domain.operation_program import (
     OperationCoordinate,
+    closed_operation_coordinates,
     operation_coordinate,
+    operation_body_instructions,
     selected_operation_index,
 )
 
@@ -39,16 +41,6 @@ class ReachableProgramStructure:
     operation_coordinates: frozenset[OperationCoordinate]
     runtime_node_ids: frozenset[str]
     formula_programs: LifecycleFormulaPrograms
-
-
-def _body_instructions(body: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    instructions: list[Mapping[str, Any]] = []
-    for instruction in body:
-        instructions.append(instruction)
-        nested = instruction.get("body")
-        if isinstance(nested, list) and all(isinstance(row, dict) for row in nested):
-            instructions.extend(_body_instructions(cast(list[dict[str, Any]], nested)))
-    return instructions
 
 
 def reachable_formula_programs(
@@ -99,29 +91,23 @@ def project_reachable_program_structure(
     """Project Operation and Formula structure without applying consumer policy."""
     selected = cast(Mapping[str, Any], rir["selected_semantics"])
     operations = selected_operation_index(selected)
-    reachable_operations: set[OperationCoordinate] = set()
-    operation_node_ids: set[str] = set()
-    pending = [
+    roots = {
         operation_coordinate(cast(Mapping[str, Any], entrypoint["operation"]))
         for entrypoint in selected_entrypoints
-    ]
-    while pending:
-        coordinate = pending.pop()
-        if coordinate in reachable_operations:
-            continue
-        operation = operations.get(coordinate)
-        if operation is None:
-            raise ValueError(
-                "selected Model entrypoint Operation is absent from the RIR"
-            )
-        reachable_operations.add(coordinate)
-        for instruction in _body_instructions(
-            cast(list[dict[str, Any]], operation["body"])
-        ):
-            operation_node_ids.add(cast(str, instruction["node"]))
-            reference = instruction.get("operation")
-            if isinstance(reference, Mapping):
-                pending.append(operation_coordinate(reference))
+    }
+    reachable_operations = closed_operation_coordinates(roots, operations)
+    if missing := reachable_operations - operations.keys():
+        raise ValueError(
+            "selected Model entrypoint Operation is absent from the RIR: "
+            f"{sorted(missing)!r}"
+        )
+    operation_node_ids = {
+        cast(str, instruction["node"])
+        for coordinate in reachable_operations
+        for instruction in operation_body_instructions(
+            cast(list[dict[str, Any]], operations[coordinate]["body"])
+        )
+    }
 
     formula_programs = LifecycleFormulaPrograms(
         initialization=reachable_formula_programs(

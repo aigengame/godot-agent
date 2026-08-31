@@ -47,34 +47,40 @@ def selected_operation_index(
     }
 
 
-def _body_instructions(body: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def operation_body_instructions(
+    body: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Flatten one admitted Operation body in authored order."""
     instructions: list[dict[str, Any]] = []
     for instruction in body:
         instructions.append(instruction)
         nested = instruction.get("body")
         if isinstance(nested, list) and all(isinstance(row, dict) for row in nested):
-            instructions.extend(_body_instructions(cast(list[dict[str, Any]], nested)))
+            instructions.extend(
+                operation_body_instructions(cast(list[dict[str, Any]], nested))
+            )
     return instructions
 
 
 def closed_operation_coordinates(
     selected: Collection[OperationCoordinate],
     operations: Mapping[OperationCoordinate, dict[str, Any]],
-    operation_node_ids: Collection[str],
+    operation_node_ids: Collection[str] | None = None,
 ) -> set[OperationCoordinate]:
-    """Close exact Operation references through every declared reference node."""
+    """Close exact Operation references through selected or all reference nodes."""
     closed = set(selected)
     pending = list(selected)
     while pending:
         operation = operations.get(pending.pop())
         if operation is None:
             continue
-        for instruction in _body_instructions(
+        for instruction in operation_body_instructions(
             cast(list[dict[str, Any]], operation.get("body", []))
         ):
             reference = instruction.get("operation")
-            if instruction.get("node") not in operation_node_ids or not isinstance(
-                reference, dict
+            if not isinstance(reference, dict) or (
+                operation_node_ids is not None
+                and instruction.get("node") not in operation_node_ids
             ):
                 continue
             dependency = operation_coordinate(reference)
@@ -132,7 +138,7 @@ def project_operation_program(
         cast(str, instruction["node"])
         for coordinate in reachable
         if (operation := operations.get(coordinate)) is not None
-        for instruction in _body_instructions(
+        for instruction in operation_body_instructions(
             cast(list[dict[str, Any]], operation["body"])
         )
     }
@@ -151,7 +157,7 @@ def project_operation_program(
         operation = operations.get(coordinate)
         if operation is None:
             raise ValueError("admitted Operation invocation target is absent")
-        for instruction in _body_instructions(
+        for instruction in operation_body_instructions(
             cast(list[dict[str, Any]], operation["body"])
         ):
             reference = instruction.get("operation")
@@ -178,7 +184,9 @@ def project_operation_program(
             return cached
         effects = set(cast(list[str], operation["effects"]))
         refusals = set(cast(list[str], operation["refusals"]))
-        instructions = _body_instructions(cast(list[dict[str, Any]], operation["body"]))
+        instructions = operation_body_instructions(
+            cast(list[dict[str, Any]], operation["body"])
+        )
         charge = len(instructions)
         for instruction in instructions:
             reference = instruction.get("operation")
