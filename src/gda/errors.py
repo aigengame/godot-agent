@@ -136,10 +136,14 @@ def _is_too_deep(exc: ValidationError) -> bool:
 def validation_error_message(exc: ValidationError) -> str:
     """Render a ``ValidationError`` as the sentence(s) its checks actually wrote.
 
-    The shared home for BOTH input channels that build a params model directly
-    from caller-supplied values and must translate a construction failure into a
-    human message (ADR-0015): the argv path's :func:`~gda.dispatch.params_or_bad_parameter`
-    and the ``--params-json`` path's ``invoke()`` (:mod:`gda.headless`). Lives
+    The shared home for every channel that builds a model directly from
+    caller-supplied values and must translate a construction failure into a
+    human message: the two ADR-0015 input channels — the argv path's
+    :func:`~gda.dispatch.params_or_bad_parameter` and the ``--params-json``
+    path's ``invoke()`` (:mod:`gda.headless`) — and the caller-supplied FILE
+    channel, ``perf --budget``'s per-entry refusal (#759, the third consumer;
+    ``tests/support.py``'s leak-fragment guard treats this function as the
+    authority for all of them). Lives
     here, below both, because ``gda.dispatch`` imports ``gda.headless`` — a
     ``gda.headless``-side import of ``gda.dispatch`` would cycle — while both
     already import :mod:`gda.errors` for their own failure taxonomy (#713
