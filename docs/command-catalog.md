@@ -902,6 +902,21 @@ traversal itself: the two walks are one recursive walker asked two different acc
 questions. A shared traversal is not a shared universe — `project statistics` keeps
 counting the sidecars and the project file the other walk will never see.
 
+**One graph node per file, whatever a declaration spells it (#774).** A `res://` address has
+many lexical spellings for one file, and the three graph reads key on the file the engine
+resolves rather than on the spelling: every harvested path — an `[ext_resource]` line, a
+`preload()`/`load()`/`extends` argument, and `project.godot`'s own main scene and autoload
+entries — is folded through the engine's `simplify_path`, and so is the `find-references`
+target. `res://sub/../leaf.tscn` and `res://leaf.tscn` are therefore ONE node:
+`dependencies` reports the resolved path, `find-references` matches whichever side is
+aliased (aliased declaration with a canonical query, and the reverse), and
+`find-unused-resources` never reports a resource that something references under an alias.
+`project statistics` reads `project.godot` through the same accessor, so the autoload paths
+it lists are canonical too. The echoed `target` keeps the caller's own spelling — only the
+matching is canonical, and a `class_name` target is no path at all. Keying on the raw
+spellings broke all three at once: `find-unused-resources` listed an instanced scene, which
+is wrong advice with a destructive follow-up.
+
 ---
 
 ## Phase 2 — live domain commands (served by `gda-daemon`)

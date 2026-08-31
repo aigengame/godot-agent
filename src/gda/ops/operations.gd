@@ -3943,6 +3943,19 @@ func _write_text_file(path: String, source: String, noun: String) -> bool:
 # an entry point). A resource is "unused" exactly when find-references for it
 # would return empty — the same graph, one truth. statistics is not on that graph:
 # it only counts what its own scan reaches.
+#
+# ONE graph needs ONE identity per file. Every path that enters it — harvested
+# from an [ext_resource] line, from a preload/load/extends argument, or from
+# project.godot's main scene and autoloads — AND the caller's find-references
+# query pass through _canonical_resource_path, the engine's own simplify_path. A
+# file is one node however a declaration spells it: res://leaf.tscn and
+# res://sub/../leaf.tscn are the same node, not two. Keying on the raw spellings
+# broke all three reads at once (#774): dependencies named a node no file on disk
+# answers to, find-references for the canonical path missed the aliased
+# declaration, and find-unused-resources therefore advised DELETING a scene the
+# project instances — wrong advice with a destructive follow-up. The other side
+# of every comparison is canonical by construction: the walk builds each path by
+# joining directory entries, never by echoing a declaration.
 
 
 # project-find-references: find every project file that references the target — a
@@ -3971,7 +3984,11 @@ func _op_project_find_references(params: Dictionary) -> void:
 	var target_paths := {}  # res:// paths a reference may name the target by
 	var target_class := ""  # class_name token a .gd reference may name it by
 	if target.begins_with("res://"):
-		target_paths[target] = true
+		# The query is canonicalized like every harvested path (#774), so a caller
+		# that spells the target res://sub/../leaf.tscn asks about the same node
+		# the graph keys res://leaf.tscn under. The echoed "target" keeps the
+		# caller's own spelling — it also carries a class_name, which is no path.
+		target_paths[_canonical_resource_path(target)] = true
 	else:
 		# Resolve the class_name through the SAME unified resolver node add /
 		# resource create use (ADR-0032), so find-references and resource create
@@ -3981,7 +3998,7 @@ func _op_project_find_references(params: Dictionary) -> void:
 		match resolution["status"]:
 			"resolved":
 				target_class = target
-				target_paths[resolution["path"]] = true
+				target_paths[_canonical_resource_path(String(resolution["path"]))] = true
 			"ambiguous":
 				_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, _ambiguous_class_name_message(target, resolution["paths"]))
 				return
@@ -4372,7 +4389,8 @@ func _outgoing_references_of(path: String) -> Array:
 # The res:// paths an [ext_resource ... path="res://..."] line names in a
 # .tscn/.tres file — the file's external dependencies. Parsed by text: each
 # ext_resource line carries a path="..." attribute (Godot 4 also carries a uid,
-# but always the path too). Returns res:// paths in line order.
+# but always the path too). Returns res:// paths in line order, each canonical
+# (#774) so a file is one graph node however the line spells it.
 func _ext_resource_paths(path: String) -> Array[String]:
 	var out: Array[String] = []
 	var text := FileAccess.get_file_as_string(path)
@@ -4384,7 +4402,7 @@ func _ext_resource_paths(path: String) -> Array[String]:
 			continue
 		var ref := _quoted_attr(stripped, "path=")
 		if not ref.is_empty():
-			out.append(ref)
+			out.append(_canonical_resource_path(ref))
 	return out
 
 
@@ -4405,15 +4423,18 @@ func _script_outgoing_references(path: String) -> Array:
 	return out
 
 
-# Resolve a reference-path argument to a res:// path: a res:// (or uid://) path is
-# already absolute; a relative path is joined onto the referencing file's base
-# directory and simplified, so "../shared/util.gd" from res://a/b.gd becomes
-# res://shared/util.gd. uid:// references are left as-is (they round-trip through
-# Godot's UID system, not the path graph).
+# Resolve a reference-path argument to a canonical res:// path: a relative path is
+# joined onto the referencing file's base directory first, so "../shared/util.gd"
+# from res://a/b.gd becomes res://shared/util.gd. An ALREADY-prefixed argument is
+# canonicalized too and that half is the #774 fix: it used to be returned verbatim,
+# so preload("res://sub/../util.gd") and preload("res://util.gd") were two graph
+# nodes for one file. simplify_path leaves a scheme it does not own alone, so a
+# uid:// reference still passes through unchanged (it round-trips through Godot's
+# UID system, not the path graph).
 func _resolve_ref_path(ref: String, base_dir: String) -> String:
 	if ref.begins_with("res://") or ref.begins_with("uid://") or ref.begins_with("user://"):
-		return ref
-	return base_dir.path_join(ref).simplify_path()
+		return _canonical_resource_path(ref)
+	return _canonical_resource_path(base_dir.path_join(ref))
 
 
 # Find every reference to the target inside one file, appending {path, kind,
@@ -4441,7 +4462,10 @@ func _collect_references_from(path: String, target_paths: Dictionary, target_cla
 			if not stripped.begins_with("[ext_resource"):
 				continue
 			var ref := _quoted_attr(stripped, "path=")
-			if target_paths.has(ref):
+			# Canonical on BOTH sides: target_paths is seeded canonical, and the
+			# declared spelling is folded here, so an aliased declaration matches
+			# a canonical query and the reverse (#774).
+			if target_paths.has(_canonical_resource_path(ref)):
 				references.append({"path": path, "kind": "ext_resource", "context": stripped})
 	elif ext == "gd":
 		var base_dir := path.get_base_dir()
@@ -4529,13 +4553,20 @@ func _project_entry_points() -> Array[String]:
 # ProjectSettings — never run.
 func _main_scene_path() -> String:
 	var value: Variant = ProjectSettings.get_setting("application/run/main_scene", "")
-	return String(value)
+	# Canonical like every other path in the graph (#774): an aliased
+	# run/main_scene left the project's entry point matching nothing the walk
+	# found, so find-unused-resources reported the MAIN SCENE as unused.
+	# simplify_path("") is "", so an unset main scene stays the empty "none".
+	return _canonical_resource_path(String(value))
 
 
 # The project's autoload singletons as {name, path} entries, read from
 # ProjectSettings's autoload/* keys (never executed). The stored value carries a
 # leading "*" enable marker for an enabled singleton; it is stripped so the path
-# is the bare res:// path the rest of the graph compares against.
+# is the bare res:// path the rest of the graph compares against, then
+# canonicalized like every other path in the graph (#774). Order matters: the
+# marker must come off FIRST, because simplify_path does not recognize a scheme
+# behind it and folds "*res://a/../b.gd" to the broken "*res:/b.gd".
 func _project_autoloads() -> Array:
 	var out: Array = []
 	for setting in ProjectSettings.get_property_list():
@@ -4544,7 +4575,7 @@ func _project_autoloads() -> Array:
 			continue
 		var autoload_name: String = key.substr("autoload/".length())
 		var value := String(ProjectSettings.get_setting(key, ""))
-		out.append({"name": autoload_name, "path": value.trim_prefix("*")})
+		out.append({"name": autoload_name, "path": _canonical_resource_path(value.trim_prefix("*"))})
 	return out
 
 
