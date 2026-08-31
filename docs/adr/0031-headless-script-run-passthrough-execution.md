@@ -465,9 +465,10 @@ added incrementally under ADR-0025 if a concrete need appears.
 > (`classify_launch_or_crash`) now builds the envelope for all three: the captured partial
 > output under `--- captured stdout ---` / `--- captured stderr ---` (the script-run labels
 > above are untrue of an export or an import pass), tail-capped at the same 16 KiB per
-> stream, plus the elapsed wall clock and the ceiling that was reached. Those last two ride
-> the `Raw run` as `timeout_bound`, because the runner seam hands a classifier a raw run and
-> nothing else. `script run` and `scene preflight` are unchanged: each still classifies its
+> stream, plus the elapsed wall clock and the ceiling that was reached. Both ride the
+> `Raw run` — the wall clock in its existing `elapsed_seconds`, the channel label and
+> ceiling in the new `timeout_bound` — because the runner seam hands a classifier a raw
+> run and nothing else. `script run` and `scene preflight` are unchanged: each still classifies its
 > own timeout, since each carries something the shared branch cannot know (a termination
 > phase and the recognized script errors; a `timeout` STATUS that is the command's answer).
 > The `--- script stdout ---` labels, and every non-timeout envelope, keep their bytes.
