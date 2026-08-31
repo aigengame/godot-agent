@@ -199,12 +199,15 @@ gda's engine-side payloads frame their reply with Godot's full-precision JSON
 writer — the harness since #752, the headless operations payload since #771 —
 so a projected float is the exact binary64 the subject holds, on either
 channel, with one shared residual the engine decides before the writer is
-consulted: a negative zero reads back as `0.0`. The WRITE sides still differ.
-On the live wire it is a refusal: a float Godot's parser would read as `0.0` is
-rejected before a request is relayed to the harness, no decimal literal being
-able to deliver it (#752). Headless there is no refusal — a `--value` string is
-coerced by that same parser, which still drops the low digits of a
-many-digit literal and reads a `DBL_MIN`-scale one as `0.0` (#772). Two
+consulted: a negative zero reads back as `0.0`. The WRITE sides answer alike
+from one principle — a value the engine's parser cannot carry is REFUSED, never
+stored — but ask the question differently, because the two know the literal at
+different times: on the live wire gda spells it, so the refusal PREDICTS the
+outcome before the request is relayed (#752), while a `--value` string is spelled
+by the CALLER, so `node set` / `resource set` / `project set` and the live `game
+set` OBSERVE what that parser did and refuse a literal it read as `0.0` or `NaN`
+when no zero was written (#772). Both disclose the same residual instead of
+refusing it: the parser's low-order drift, which the full-precision echo shows. Two
 controls keep the shared projection safe on the live
 side: the whitelist bounds the Object classes whose storage properties the
 inline kind emits, and the texture kind is safe by construction — a fixed
