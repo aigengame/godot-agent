@@ -1,4 +1,9 @@
-"""Published Language for the Execution Open Host Service (bADR-0027)."""
+"""Published Language for the Execution Open Host Service (bADR-0027).
+
+Revision 1 closes OHS envelopes only. Nested Model Source, Experiment, and
+artifact values remain opaque here; the exact Domain authority admits or
+produces them. This module publishes no combined Standard Schema.
+"""
 
 from copy import deepcopy
 from typing import Any, Literal

@@ -45,9 +45,13 @@ would force any later adapter either to copy the contract or to call HTTP.
 - The OHS-specific integration shapes have one executable owner outside transport adapters. JSON
   Schema and HTTP contract documentation for those shapes are derived projections. Any future
   adapter projection must derive from the same owner. A projection is not a second authority.
-- An integration schema refers to an authority-owned Standard Schema value instead of expanding a
-  duplicate definition. The first implementation slice must prove that a changed authority-owned
-  schema cannot leave a stale accepted copy in the Published Language.
+- Revision 1 closes only the OHS envelopes. Nested Model Source, Experiment, and artifact values
+  remain opaque to its Pydantic schemas. The exact admitted Domain authority validates or produces
+  them, so the Published Language cannot retain a stale accepted copy of their internal shape.
+- Revision 1 does not publish a combined Standard Schema. If a later consumer requires one, its
+  projection must use resolvable references to authority-owned Standard Schema values instead of
+  expanding duplicate definitions. That need must not introduce a peer schema authority or an
+  otherwise unnecessary schema registry.
 - Human documentation defines lifecycle, identity, refusal, ordering, and evolution semantics that
   cannot be expressed by JSON Schema alone. It references the relevant bADR or specification rather
   than copying the normative algorithm or field inventory.
