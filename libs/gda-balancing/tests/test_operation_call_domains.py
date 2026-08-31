@@ -95,7 +95,7 @@ def test_projects_the_reproduced_nested_formula_domain_mismatch() -> None:
         ),
     ],
 )
-def test_returns_typed_failures_for_incomplete_calls_and_cycles(
+def test_returns_typed_failures_with_stable_operation_coordinates(
     mutate: Any,
     expected_code: str,
     expected_coordinate: tuple[str, str, str],
