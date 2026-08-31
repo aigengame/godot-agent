@@ -2,6 +2,7 @@ extends RefCounted
 
 var sessions_created := 0
 var return_invalid_artifacts := false
+var retry_failure: Dictionary = {}
 
 
 func start(_model_source: Dictionary, _experiment: Dictionary) -> Dictionary:
@@ -18,6 +19,8 @@ func run_initial_revision() -> Dictionary:
 
 
 func retry(_model_source: Dictionary, _experiment: Dictionary) -> Dictionary:
+	if not retry_failure.is_empty():
+		return retry_failure.duplicate(true)
 	sessions_created += 1
 	return {"ok": true, "revision": "baseline-%d" % sessions_created}
 

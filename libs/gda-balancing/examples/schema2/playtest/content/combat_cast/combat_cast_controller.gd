@@ -159,10 +159,12 @@ func _prepare_live_session(retrying: bool) -> Dictionary:
 	_model_source = loaded["model_source"]
 	_baseline_experiment = loaded["experiment"]
 	_defeat_threshold = loaded["defeat_threshold"]
-	var initial := _documents.initial_state_for_options(_spell_style, _rival_strength)
-	if not initial.get("ok", false):
-		return _fail_preparation(initial)
-	_combat_state = initial["value"]
+	var prepared_state := _combat_state.duplicate(true)
+	if not retrying or prepared_state.is_empty():
+		var initial := _documents.initial_state_for_options(_spell_style, _rival_strength)
+		if not initial.get("ok", false):
+			return _fail_preparation(initial)
+		prepared_state = initial["value"]
 	var established: Dictionary
 	if retrying:
 		established = await _execution.retry(_model_source, _baseline_experiment)
@@ -170,7 +172,11 @@ func _prepare_live_session(retrying: bool) -> Dictionary:
 		established = await _execution.start(_model_source, _baseline_experiment)
 	if not established.get("ok", false):
 		return _fail_preparation(established)
-	_duel.start(_combat_state)
+	_combat_state = prepared_state
+	if retrying and not _actions.is_empty():
+		_on_duel_state_changed(_duel.snapshot())
+	else:
+		_duel.start(_combat_state)
 	_log_event("combat_playtest_ready", _selected_options())
 	return {"ok": true}
 
@@ -231,7 +237,10 @@ func _fail_exchange(error: Dictionary) -> void:
 
 func _fail_preparation(error: Dictionary) -> Dictionary:
 	phase = "retry"
-	_emit_state({"phase": phase})
+	var state := {"phase": phase}
+	if not _combat_state.is_empty():
+		state["combatants"] = _combat_state.duplicate(true)
+	_emit_state(state)
 	_log_event("combat_preparation_failed", error)
 	return error
 
