@@ -89,10 +89,10 @@ address by (`.` for the root) — the `@export` properties the node's attached s
 each a `{name, type, hint, hint_string, value}` entry, where `type` is the export's declared
 Godot type name, `hint`/`hint_string` are the Godot `PropertyHint` enum value and its companion
 string the `@export` annotation produced, and `value` is the export's current value in the same
-JSON projection `node get` uses (its default on a freshly-loaded node) — the property-value
-introspection is reused from `node get` (#55), not re-implemented. An export is detected by its
-usage flags (`PROPERTY_USAGE_SCRIPT_VARIABLE` + `PROPERTY_USAGE_EDITOR`) on the script's own
-property list, so a node's inherited engine properties and a script's plain (non-`@export`)
+JSON projection `node get` uses (its default on a freshly-loaded node), at the same full binary64
+precision (#771) — the property-value introspection is reused from `node get` (#55), not
+re-implemented. An export is detected by its usage flags
+(`PROPERTY_USAGE_SCRIPT_VARIABLE` + `PROPERTY_USAGE_EDITOR`) on the script's own property list, so a node's inherited engine properties and a script's plain (non-`@export`)
 variables are excluded. A node with no script, or whose script declares no exports, is omitted;
 a scene with no exported variables anywhere is a valid, empty listing (`nodes == []`). Like
 `scene get`, get-exports reuses the shared load-failure ladder — a missing file is
@@ -404,6 +404,30 @@ callers can use a follow-up `game get` for domain-specific side effects. Its fai
 LIVE-category `live_unknown_property` / `live_uncoercible_value` (the harness reports them in-band,
 mapped by the live classifier — see
 [Phase 2 — live domain commands](#phase-2--live-domain-commands-served-by-gda-daemon)).
+
+**Number reporting** (#771) — the READ half, shared by every headless command that projects a
+value. `ops/operations.gd` frames each reply with Godot's **full-precision** JSON writer, so a
+projected float is the exact binary64 the project holds: `node get`, `scene get-exports`,
+`project get` / `project list`, `resource get`, and the value each `set` echoes all report
+`1e-300` as `1e-300` and `3.141592653589793` as `3.141592653589793`. They did not before #771 —
+the default writer formats fixed-point with at most 32 decimals, so it reported everything below
+about `1e-32.6` as `0.0` and rounded ordinary values to ~15 significant digits, handing the caller
+a number the project does not hold with nothing marking it approximate. The stored value was never
+the problem: `project.godot` held `3.141592653589793` while the reply said `3.14159265358979`.
+**One residual is disclosed rather than fixed**, and it is the same one the live replies carry: a
+NEGATIVE ZERO reads back as `0.0`, which the engine decides (`JSON::_stringify` returns `"0.0"`
+for anything equal to zero) before the precision argument applies. It is the same engine writer
+the live harness uses, so it is measured against the same corpus and the same partition —
+`gda.live_numbers` is the authority, and `tests/test_e2e_headless_number_reads.py` re-derives the
+verdict from a real engine.
+
+What a `--value` **string** becomes on the way IN is the other half and is **not** covered here:
+the ops coerce it with the engine's own parser (`String.to_float`), which drops the low decimal
+digits of a full-precision literal between `1e-4` and `1e-2` and reads a `DBL_MIN`-scale or
+subnormal literal as `0.0`. Unlike the live wire, headless does not refuse those — see
+[#772](https://github.com/aigengame/godot-agent/issues/772). So a `set` and a following `get`
+agree with each other on the value the project holds; that is what this catalog's round-trip
+claims mean, not that every literal survives coercion.
 
 **Structural edits** (established by #56): three commands restructure the node tree within a
 scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the
@@ -730,7 +754,8 @@ valid result.
 **Reading and writing settings** (established by #111): `gda project get SECTION/KEY` reads one
 setting by its full `section/key` name (e.g. `application/config/name`) and reports it as a
 `{setting, type, value}` triple — `type` is the setting's declared Godot type name and `value` its
-JSON projection, the **same projection** `node get` reports for a node property. Compound values
+JSON projection, the **same projection** `node get` reports for a node property, at the same full
+binary64 precision (#771; see "Number reporting" under [`node`](#node)). Compound values
 arrive **structured** (ADR-0035): a `Dictionary` projects to a JSON object, an `Array` or packed
 array to a JSON array, and an embedded `Object` renders as a **reference projection**
 (`{type, resource_path}` for a Resource with a `res://` path), a **texture projection**
@@ -746,7 +771,11 @@ the CLI value to the setting's **declared type** — read off the setting's curr
 `node set` reads it off the node's property list — using the **same coercion rules** the node group
 established (#55; see "Property value coercion" under [`node`](#node)). It then persists
 `project.godot` (`ProjectSettings.save()`) and reports the coerced value in the same JSON projection
-`project get` uses, so a **`set` round-trips through a `get`**. `set` edits an **existing** setting —
+`project get` uses, so a **`set` round-trips through a `get`**: both report the value
+`ProjectSettings` now holds, at full binary64 precision (#771). The round-trip is of the STORED
+value — what the CLI string coerces to first is the engine's own parser, which can read a
+many-digit or `DBL_MIN`-scale literal as a different double (#772); see "Number reporting" under
+[`node`](#node). `set` edits an **existing** setting —
 an unknown key is `unknown_setting`, never a silent create, so the type to coerce to is always known.
 A value that cannot be coerced to the setting's type is `uncoercible_value` (exit 4, the #55 code,
 `project.godot` left untouched); a failed save is `save_failed`.
@@ -755,9 +784,9 @@ A value that cannot be coerced to the setting's type is `uncoercible_value` (exi
 `ProjectSettings` keys so an agent can **discover** which settings exist — the list half of the
 `list → get → set` workflow (`get`/`set` both require you to already know the `section/key`). Each
 entry reuses the **same** `{setting, type, value}` projection `project get` reports — so a listed
-entry round-trips through `project get` — **plus** an `is_default` boolean: `false` when the key is
-customized (written in `project.godot`), `true` when it is at the engine's built-in default. By
-default the listing is only the project's **customized** settings (small and useful); `--all` widens
+entry round-trips through `project get`, floats included (#771) — **plus** an `is_default`
+boolean: `false` when the key is customized (written in `project.godot`), `true` when it is at
+the engine's built-in default. By default the listing is only the project's **customized** settings (small and useful); `--all` widens
 it to the engine's built-in defaults too, and `--section <prefix>` restricts it to keys whose name
 begins with that `section/` prefix (e.g. `application/`, `display/`) — the two compose. Internal
 engine-bookkeeping settings and the non-setting properties the engine's property list also returns
@@ -947,12 +976,16 @@ re-derives every verdict from a running engine.
   `0.0012345678901234567` arriving 31 doubles away and `0.00014285714285714284` 105.
   Refusing that band would reject ordinary game values, and preserving it would mean not
   sending a JSON number at all, the bespoke transport ADR-0021 rejected.
-- **Headless reads are NOT covered.** `ops/operations.gd` still frames results with the
-  default writer, so a headless `node get` / `scene get-exports` / `project list` /
-  `resource get` can still report a rounded or zeroed float
-  ([#771](https://github.com/aigengame/godot-agent/issues/771)). The live guarantee is
-  therefore stated on the live commands, never on the shared property shape they share
-  with the headless reads.
+- **The headless replies are framed by the same writer since #771.** `ops/operations.gd`
+  made the one-argument change this section describes, so a headless `node get` /
+  `scene get-exports` / `project list` / `resource get` reports the float the project
+  holds and carries the same negative-zero residual (see "Number reporting" under
+  [`node`](#node)). The two channels are still documented separately: the live sentences
+  are published per-field in help and `--schema` and name the WIRE, a leg a headless
+  reply never crosses, so they stay on the live commands rather than moving onto the
+  property shape both share. What differs in substance is the WRITE side — the live wire
+  REFUSES a value its parser would flatten, while a headless `--value` string is coerced
+  by that parser with no refusal ([#772](https://github.com/aigengame/godot-agent/issues/772)).
 
 - **`game` (the running game's scene graph):** `game tree` reads the runtime scene
   tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `game get` /

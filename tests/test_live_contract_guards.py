@@ -295,8 +295,9 @@ def live_float_fields(
     A description covers its own field AND its whole subtree, which is what keeps
     the promise off the shared headless models: ``GameGetResult`` states it on
     ``properties``, so the ``NodeProperty.value`` beneath it is covered without
-    ``NodeProperty`` — which ``node get`` / ``resource get`` also use, and where
-    #771 leaves headless fidelity different — making a live-only claim. Coverage
+    ``NodeProperty`` — which ``node get`` / ``resource get`` also use, and which
+    must not inherit a sentence about the live WIRE (#771) — making a live-only
+    claim. Coverage
     is collected as a SET rather than a boolean because the caller checks it
     against the field's measured writer: a parent that blankets a mixed subtree
     with one writer's sentence is then a failure, not a pass.
@@ -766,10 +767,13 @@ def test_only_the_replies_that_carry_a_gda_number_publish_the_derived_contract(
 
 
 def test_the_headless_property_shape_makes_no_live_precision_promise():
-    # The shared NodeProperty description serves `node get` / `resource get` too,
-    # where #771 leaves the default writer in place. A live-only guarantee stated
-    # there would be false for those reads — so the live commands publish it on
-    # their OWN fields, and the subtree rule above is what lets them.
+    # The shared NodeProperty description serves `node get` / `resource get` too.
+    # Since #771 those reads carry the same full binary64 precision, but not over
+    # the same LEG: both published sentences speak about the live wire (one about
+    # the writer that frames what crosses it, one about a number that never meets
+    # it), and neither is true of a headless read as WORDED. So the live commands
+    # keep publishing them on their OWN fields, and the subtree rule above is what
+    # lets them; `gda.live_numbers` records why no headless twin was authored.
     from gda.models import NodeProperty
 
     schema = json.dumps(NodeProperty.model_json_schema(), ensure_ascii=False)

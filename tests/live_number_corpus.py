@@ -1,22 +1,31 @@
-"""The #752 live-number differential corpus, and the verdicts a real engine gave it.
+"""The #752 number corpus, and the verdicts a real engine gave it.
 
-Both a unit test (``tests/test_live_numbers.py``, which checks gda's model of the
-engine against this table) and an e2e test
-(``tests/test_e2e_live_number_transport.py``, which re-derives the table from a
-real engine) read these rows, so the fast tier and the engine tier can never
-disagree about what the corpus says. It is also the ONE place the published
-counts come from: :data:`PARTITIONS` derives them from the rows below, and
-``tests/test_live_numbers.py`` reads back the two surfaces allowed to state
-them — ``gda.live_numbers``'s module docstring and ``docs/command-catalog.md``
-— requiring the derived strings verbatim, so a hand-edited count cannot
-survive. ADR-0041 and the harness comment quote no count at all; they point at
-``gda.live_numbers`` instead.
+Three tests read these rows, so no tier can disagree with another about what the
+corpus says: a unit test (``tests/test_live_numbers.py``, which checks gda's model
+of the engine against this table) and two e2e tests that re-derive it from a real
+engine — ``tests/test_e2e_live_number_transport.py`` for the live legs, and
+``tests/test_e2e_headless_number_reads.py`` for the headless reply (#771). It is
+also the ONE place the published counts come from: :data:`PARTITIONS` derives them
+from the rows below, and ``tests/test_live_numbers.py`` reads back the two surfaces
+allowed to state them — ``gda.live_numbers``'s module docstring and
+``docs/command-catalog.md`` — requiring the derived strings verbatim, so a
+hand-edited count cannot survive. ADR-0041 and the two engine-side writer comments
+quote no count at all; they point at ``gda.live_numbers`` instead.
+
+The corpus is named for the issue that measured it, not for a leg. The
+``default_stringify`` column records what one ENGINE FUNCTION does to a value, so
+it describes every reply Godot serializes: #752 measured it on the live wire, and
+#771 found the headless reply framed by the same default writer and fixed it with
+the same argument. That is why the headless direction reuses this table instead of
+forking a second one, and why it needs no column of its own — a headless read is
+measured against the same ``full_precision`` partition (:data:`PARTITIONS`).
 
 Measured on Godot 4.6.3.stable.official.7d41c59c4. Not a specification of the
-engine — a recording of it; the e2e test is what keeps the recording true.
+engine — a recording of it; the e2e tests are what keep the recording true.
 """
 
 import math
+import struct
 from typing import Literal, NamedTuple
 
 # What Godot's DEFAULT ``JSON.stringify`` did to a value on the way back. Three
@@ -219,3 +228,32 @@ PARTITIONS: dict[str, Partition] = {
         zero=0,
     ),
 }
+
+
+# --- The verdict helpers both engine tiers read -------------------------------
+# A second definition of "exact" would be a fork of this table's semantics, so the
+# live e2e and the headless e2e share these rather than each spelling their own.
+
+
+def value_bits(value: float) -> str:
+    """One value's IEEE-754 bytes — the only comparison that is not itself lossy."""
+    return struct.pack("<d", value).hex()
+
+
+def stringify_outcome(sent: float, arrived: float) -> DefaultStringify:
+    """The three-state verdict one direction gave one value (cf. LiveNumberCase).
+
+    ``changed`` and ``zero`` are DIFFERENT failures — a rounded value still
+    carries the caller's magnitude, a flattened one does not — so the corpus
+    records which, and the published table reports both.
+    """
+    if value_bits(arrived) == value_bits(sent):
+        return "exact"
+    if arrived == 0.0 and sent != 0.0:
+        return "zero"
+    return "changed"
+
+
+def tally_outcome(counts: list[int], sent: float, arrived: float) -> None:
+    """Add one value's verdict to an ``[exact, changed, zero]`` tally."""
+    counts[("exact", "changed", "zero").index(stringify_outcome(sent, arrived))] += 1
