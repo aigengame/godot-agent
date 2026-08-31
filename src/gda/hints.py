@@ -58,7 +58,12 @@ from typer._click.exceptions import NoSuchOption
 from typer._click.globals import get_current_context
 
 from gda.errors import Failure, make_failure
-from gda.headless import emit_failure, json_in_effect, remember_argv
+from gda.headless import (
+    emit_failure,
+    json_in_effect,
+    remember_argv,
+    walk_mounted_groups,
+)
 
 # The two registered codes this module reports (ADR-0002, the `usage` category).
 UNKNOWN_COMMAND = "unknown_command"
@@ -372,17 +377,25 @@ def adopt(app: typer.Typer) -> None:
     Applied once, in the composition root, AFTER every group has mounted itself — so a
     group module declares no dispatch behaviour and a group added later inherits the
     refusal by being mounted, which is the registration ADR-0040 already relies on.
-    The walk RECURSES rather than reading only the root's own groups: gda's tree is two
-    levels deep today, and a sub-group mounted on a sub-app would otherwise escape the
-    interception silently. A test walks the live tree, recursively, to pin it.
+    Reaching every group, a sub-group of a group included, is the shared walk's job
+    (``gda.headless.walk_mounted_groups``), which also states that ordering
+    requirement once for both of its visitors. A test walks the live tree,
+    recursively, to pin the outcome here.
+
+    The class is written onto the REGISTRATION record rather than onto the sub-app,
+    which is why this visitor reads no ``typer_instance``: a group registered without
+    one is never built into a command by Typer, so it is neither reached nor missed.
     """
     app.info.cls = GdaGroup
-    _adopt_groups(app)
-
-
-def _adopt_groups(app: typer.Typer) -> None:
-    """Set the class on every group of ``app``, and on their groups in turn."""
-    for group in app.registered_groups:
+    # No counterpart here to the callback refusal the other visitor raises, for two
+    # reasons. It replaces nothing a gda group declares: Typer leaves a group's `cls`
+    # a default placeholder unless `add_typer` was given one, and none is — while the
+    # option adoption would drop a real callback a group had written. And the class is
+    # exactly what gda IMPOSES on the whole surface: a group opting out of it would
+    # lose the structured refusal silently, so refusing to overwrite would protect the
+    # failure this adoption exists to prevent. Nor could such a guard be hoisted into
+    # the shared walk to cover both: `adopt_group_json` runs FIRST (`gda.cli`) and
+    # gives every group a callback, so a callback check applied to this walk too would
+    # fire on the entire tree.
+    for group in walk_mounted_groups(app):
         group.cls = GdaGroup
-        if group.typer_instance is not None:
-            _adopt_groups(group.typer_instance)

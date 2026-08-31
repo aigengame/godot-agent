@@ -8,7 +8,7 @@ classification, failure output, and JSON rendering.
 """
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, NoReturn, Optional, TypeVar
@@ -17,6 +17,7 @@ import typer
 from pydantic import BaseModel, ValidationError
 from typer._click import Context as ClickContext
 from typer.core import TyperCommand
+from typer.models import TyperInfo
 
 from gda.binary import resolve_godot_binary
 from gda.errors import (
@@ -243,6 +244,38 @@ def _group_json(
     """
 
 
+def walk_mounted_groups(app: typer.Typer) -> Iterator[TyperInfo]:
+    """Every command group mounted below ``app``, at any depth (#788).
+
+    The ONE walk over the mounted-group tree, so a cross-cutting group behavior is
+    written as a visitor over this rather than as another copy of the recursion. Two
+    visitors today: the shared ``--json`` option (:func:`adopt_group_json`, below) and
+    the refusal class (``gda.hints.adopt``). It walks the REGISTRATION-time tree — the
+    ``TyperInfo`` records ``add_typer`` leaves behind — because that is the only
+    representation that exists before Typer builds the click tree, and so the only one
+    a composition-time adopter can install anything onto. The BUILT click tree is a
+    different walk for a different purpose — reading a finished surface
+    (``gda.surface``).
+
+    **The ordering precondition, stated here once for every visitor:** the walk reports
+    what is mounted AT THE MOMENT IT RUNS, so the composition root (``gda.cli``) mounts
+    the whole tree first and adopts afterwards. A group mounted after an adoption is
+    never visited by it and silently keeps none of what it installs.
+
+    What is yielded is the registration record, not the sub-app: it is the wider handle
+    — the group's ``name`` and ``cls`` as well as its ``typer_instance`` — and one
+    visitor writes to the record itself. Typer types that instance as optional, so the
+    RECURSION skips a group without one: it carries no groups to descend into, and
+    Typer refuses to build such a group into a command at all. A visitor that needs the
+    instance says so itself; the walk does not decide that for it.
+    """
+    for group in app.registered_groups:
+        yield group
+        instance = group.typer_instance
+        if instance is not None:
+            yield from walk_mounted_groups(instance)
+
+
 def adopt_group_json(app: typer.Typer) -> None:
     """Give every group mounted below ``app`` the shared ``--json`` option (#683).
 
@@ -252,16 +285,20 @@ def adopt_group_json(app: typer.Typer) -> None:
     a line an agent composes naturally. Applied once from the composition root,
     AFTER every group has mounted itself, for the reason ``gda.hints.adopt`` is: it
     is one property of the WHOLE surface, so a group added later inherits the option
-    by being mounted rather than by remembering to declare it. The walk RECURSES for
-    the same reason that one does — a sub-group of a group would otherwise be missed
-    silently.
+    by being mounted rather than by remembering to declare it. Reaching a sub-group of
+    a group — which would otherwise be missed silently — is the shared walk's job
+    (:func:`walk_mounted_groups`), including the ordering precondition it states.
 
     Installing the option means installing the callback that carries it, so a group
     that declares a callback of its own is refused rather than silently replaced:
-    such a group must declare the shared option on that callback itself.
+    such a group must declare the shared option on that callback itself. That refusal
+    stays a property of THIS visitor, not of the walk it rides: it guards the one slot
+    this adoption writes, and the other visitor overwrites no such slot.
     """
-    for group in app.registered_groups:
+    for group in walk_mounted_groups(app):
         instance = group.typer_instance
+        # A group registered without a sub-app has no callback to carry the option;
+        # the walk's own contract leaves that reading to each visitor.
         if instance is None:
             continue
         if instance.registered_callback is not None:
@@ -271,7 +308,6 @@ def adopt_group_json(app: typer.Typer) -> None:
                 "gda.headless.adopt_group_json replace it."
             )
         instance.callback()(_group_json)
-        adopt_group_json(instance)
 
 
 def godot_option() -> Optional[str]:
