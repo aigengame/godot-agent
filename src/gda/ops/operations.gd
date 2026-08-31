@@ -6673,10 +6673,32 @@ func _atomic_write_text(path: String, content: String) -> int:
 	return OK
 
 
+# The ONE JSON writer for every headless reply (#771) — the same choice the live
+# harness made in #752, for the same reason, because it is the same engine
+# function. Godot's default JSON.stringify renders a float through String::num,
+# which formats FIXED-POINT with at most MAX_DECIMALS (32) decimals: it flattened
+# every value below ~1e-32.6 to 0.0 and rounded ordinary values to ~15 significant
+# digits (3.141592653589793 came back as 3.14159265358979, and an @export of
+# 1e-300 read back as 0.0). The full_precision argument switches it to
+# String::num_scientific (grisu2, shortest round-tripping form), which loses none
+# of those and still spells every float with a "." or an "e", so a JSON number
+# that was a float stays one. The measured corpus and its counts belong to the one
+# authority that owns them, `gda.live_numbers` (Python side) — not restated here.
+# The other three arguments keep their defaults ("" indent, sort_keys true), so
+# ONLY the number spelling changes. One residual, disclosed in the CLI contract:
+# the engine emits "0.0" for a NEGATIVE ZERO before this argument is consulted.
+#
+# This is the REPORTING half. What a value the caller sends becomes on the way IN
+# — the --value string the ops coerce with String.to_float(), which is the
+# engine's own parser — is a separate question, owned by #772.
+func _json(value: Variant) -> String:
+	return JSON.stringify(value, "", true, true)
+
+
 # Record a successful result: emit it through the sentinel contract and mark
 # the process to exit 0. The single quit() lives in _process.
 func _succeed(payload: Dictionary) -> void:
-	print(RESULT_BEGIN + JSON.stringify(payload) + RESULT_END)
+	print(RESULT_BEGIN + _json(payload) + RESULT_END)
 	_exit_code = 0
 
 
@@ -6687,7 +6709,7 @@ func _diag(message: String) -> void:
 # Record a structured failure through the ADR-0002 sentinel contract. The
 # process is left to exit non-zero via _process.
 func _fail(code: String, message: String) -> void:
-	print(RESULT_BEGIN + JSON.stringify({
+	print(RESULT_BEGIN + _json({
 		"error": {
 			"code": code,
 			"message": message,

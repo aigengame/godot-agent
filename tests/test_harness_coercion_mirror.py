@@ -1,4 +1,4 @@
-"""Drift checks for headless/live duplicated property-write policy.
+"""Drift checks for headless/live duplicated policy: property writes, and the reply writer.
 
 ``operations.gd`` (the headless op dispatcher, run via ``godot --headless
 --script <abs-fs-path>``) and ``gda_harness.gd`` (the live res:// autoload) need
@@ -88,3 +88,20 @@ def test_control_position_policy_is_byte_identical_across_the_two_gd_files():
 
     assert operations_policy, "the operations.gd Control-position policy must exist"
     assert operations_policy == harness_policy
+
+
+def test_the_reply_json_writer_is_byte_identical_across_the_two_gd_files():
+    """One writer choice, two payloads (#752 for the harness, #771 for the ops).
+
+    Each file frames its reply with Godot's FULL-PRECISION JSON writer, and that
+    one argument is the whole difference between reporting the float the project
+    holds and reporting a rounded — or, below ~1e-32.6, zeroed — approximation of
+    it. The copies are separate for the same reason the coercion block is, so an
+    edit to one that is not mirrored has a caller-visible cost: the same value
+    read back differently depending on the channel.
+    """
+    operations_writer = _top_level_function(OPERATIONS_GD, "_json")
+    harness_writer = _top_level_function(GDA_HARNESS_GD, "_json")
+
+    assert 'JSON.stringify(value, "", true, true)' in operations_writer
+    assert operations_writer == harness_writer

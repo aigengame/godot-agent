@@ -27,7 +27,14 @@ import pytest
 from gda.binary import resolve_godot_binary
 from gda.live_numbers import wire_flattens_to_zero
 
-from tests.live_number_corpus import LIVE_NUMBER_CORPUS, PARTITIONS, Partition
+from tests.live_number_corpus import (
+    LIVE_NUMBER_CORPUS,
+    PARTITIONS,
+    Partition,
+    stringify_outcome,
+    tally_outcome,
+    value_bits,
+)
 from tests.support import GDA_CMD, panel_text
 
 GODOT = resolve_godot_binary()
@@ -73,34 +80,11 @@ def _probe_source() -> str:
     """
     rows = ",\n".join(
         '\t["{bits}", "{literal}"]'.format(
-            bits=struct.pack("<d", case.value).hex(), literal=json.dumps(case.value)
+            bits=value_bits(case.value), literal=json.dumps(case.value)
         )
         for case in LIVE_NUMBER_CORPUS
     )
     return f"extends SceneTree\n\nconst CORPUS := [\n{rows},\n]\n\n\n{_PROBE_BODY}"
-
-
-def _bits(value: float) -> str:
-    return struct.pack("<d", value).hex()
-
-
-def _outcome(sent: float, arrived: float) -> str:
-    """The three-state verdict one direction gave one value (cf. LiveNumberCase).
-
-    ``changed`` and ``zero`` are DIFFERENT failures — a rounded value still
-    carries the caller's magnitude, a flattened one does not — so the corpus
-    records which, and the published table reports both.
-    """
-    if _bits(arrived) == _bits(sent):
-        return "exact"
-    if arrived == 0.0 and sent != 0.0:
-        return "zero"
-    return "changed"
-
-
-def _tally(counts: list, sent: float, arrived: float) -> None:
-    """Add one value's verdict to an [exact, changed, zero] tally."""
-    counts[("exact", "changed", "zero").index(_outcome(sent, arrived))] += 1
 
 
 def _ulp_gap(sent: float, arrived: float) -> int:
@@ -160,7 +144,7 @@ def test_the_live_number_corpus_still_describes_this_engine(godot_project):
     measured = {name: [0, 0, 0] for name in PARTITIONS}
     for case in LIVE_NUMBER_CORPUS:
         label, value = case.label, case.value
-        request, default_text, full_text = rows[_bits(value)]
+        request, default_text, full_text = rows[value_bits(value)]
 
         # --- REQUEST direction: what Godot's parser makes of gda's wire literal.
         assert request != "PARSE_NULL", label
@@ -171,7 +155,7 @@ def test_the_live_number_corpus_still_describes_this_engine(godot_project):
         )
         # ...and gda's guard predicts that verdict without asking the engine.
         assert wire_flattens_to_zero(value) is engine_zeroes, label
-        _tally(measured["request"], value, arrived)
+        tally_outcome(measured["request"], value, arrived)
         if engine_zeroes:
             parse_flattened.append(label)
             assert case.request_ulp_gap is None, label
@@ -184,15 +168,17 @@ def test_the_live_number_corpus_still_describes_this_engine(godot_project):
 
         # --- RESULT direction: the writer the harness uses is exact...
         full_arrived = float(json.loads(full_text))
-        assert _bits(full_arrived) == _bits(value) or (
+        assert value_bits(full_arrived) == value_bits(value) or (
             value == 0.0 and math.copysign(1.0, value) < 0
         ), f"{label}: full-precision stringify changed the value"
-        _tally(measured["full_precision"], value, full_arrived)
+        tally_outcome(measured["full_precision"], value, full_arrived)
 
         # ...where the DEFAULT writer, which the harness used before #752, was not.
         default_arrived = float(json.loads(default_text))
-        assert _outcome(value, default_arrived) == case.default_stringify, label
-        _tally(measured["default_stringify"], value, default_arrived)
+        assert stringify_outcome(value, default_arrived) == case.default_stringify, (
+            label
+        )
+        tally_outcome(measured["default_stringify"], value, default_arrived)
         if case.default_stringify != "exact":
             default_lost.append(label)
 
@@ -214,7 +200,7 @@ def test_the_live_number_corpus_still_describes_this_engine(godot_project):
 def test_negative_zero_is_the_one_disclosed_result_residual(godot_project):
     """`-0.0` reads back as `0.0` — the residual the CLI contract states."""
     rows = _engine_rows(godot_project)
-    _, _, full_text = rows[_bits(-0.0)]
+    _, _, full_text = rows[value_bits(-0.0)]
 
     # Not a gda choice: `JSON::_stringify` returns "0.0" for anything equal to
     # zero before the full_precision argument is consulted.
@@ -224,7 +210,8 @@ def test_negative_zero_is_the_one_disclosed_result_residual(godot_project):
     changed = [
         case.label
         for case in LIVE_NUMBER_CORPUS
-        if _bits(float(json.loads(rows[_bits(case.value)][2]))) != _bits(case.value)
+        if value_bits(float(json.loads(rows[value_bits(case.value)][2])))
+        != value_bits(case.value)
     ]
     assert changed == ["-zero"], changed
 
@@ -298,7 +285,7 @@ def test_live_reads_carry_small_and_many_digit_floats_exactly(
         precise = run("game", "get", "/root/Main", "--property", "precise")
         assert precise.returncode == 0, precise.stdout + precise.stderr
         value = json.loads(precise.stdout)["properties"][0]["value"]
-        assert _bits(value) == _bits(3.141592653589793)
+        assert value_bits(value) == value_bits(3.141592653589793)
 
         # The same writer serves a call's RETURN value.
         echoed = run(

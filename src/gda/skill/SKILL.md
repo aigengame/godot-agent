@@ -132,6 +132,8 @@ JSON — use `gda help <command> --json` for a structured payload), and the flag
 | `shader` | `create`, `get`, `set` (`.gdshader` files) |
 | `theme` | `create` (a loadable `.tres` Theme) |
 
+Every headless reply carries its floats at full binary64 precision, so a value read back through `node get`, `scene get-exports`, `project get`/`project list`, `resource get`, or the echo of a `set` is the exact number the project holds — `1e-300` reads back as `1e-300`, not `0.0`; the one residual belongs to the ENGINE's writer — a negative zero reads back as `0.0` (#771). The `--value` string you send IN is a separate matter and is NOT bounded the way the live wire is: the engine's own parser coerces it, dropping the low digits of a full-precision literal between `1e-4` and `1e-2` and reading a `DBL_MIN`-scale or subnormal literal as `0.0`, with no refusal (#772). Read the `set` echo when the exact bits matter.
+
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 
 Prerequisites: run `gda daemon start` first (optionally `--scene <res://...>` to boot a
