@@ -233,7 +233,11 @@ _Avoid_: wrapper error code, Python error code
 
 **Error envelope**:
 The structured failure result that distinguishes a failed command from a
-successful result.
+successful result. It is what `--json` emits; without that flag the same failure
+is RENDERED for a human instead — the code and its category on a head line, the
+message, each optional typed key as a labelled line, then `diagnostics` verbatim
+as real lines. Two renderings of ONE outcome, at one exit code, from one renderer
+that keys on no `Gda error code` (#685).
 _Avoid_: error blob, failure JSON
 
 **Failure evidence**:
