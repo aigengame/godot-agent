@@ -3944,18 +3944,30 @@ func _write_text_file(path: String, source: String, noun: String) -> bool:
 # would return empty — the same graph, one truth. statistics is not on that graph:
 # it only counts what its own scan reaches.
 #
-# ONE graph needs ONE identity per file. Every path that enters it — harvested
-# from an [ext_resource] line, from a preload/load/extends argument, or from
-# project.godot's main scene and autoloads — AND the caller's find-references
-# query pass through _canonical_resource_path, the engine's own simplify_path. A
-# file is one node however a declaration spells it: res://leaf.tscn and
-# res://sub/../leaf.tscn are the same node, not two. Keying on the raw spellings
-# broke all three reads at once (#774): dependencies named a node no file on disk
-# answers to, find-references for the canonical path missed the aliased
-# declaration, and find-unused-resources therefore advised DELETING a scene the
-# project instances — wrong advice with a destructive follow-up. The other side
-# of every comparison is canonical by construction: the walk builds each path by
-# joining directory entries, never by echoing a declaration.
+# ONE graph needs ONE identity per file, and that identity is the path the ENGINE
+# resolves a declaration to — not the string the declaration spells. Two spellings
+# reach the same file:
+#
+# - an ALIAS of an absolute address (res://leaf.tscn and res://sub/../leaf.tscn),
+#   folded by _canonical_resource_path, the engine's own simplify_path;
+# - a RELATIVE address, which the engine resolves against the DECLARING file's
+#   own directory — `path="../shared/leaf.tscn"` in res://scenes/main.tscn loads
+#   res://shared/leaf.tscn (measured on 4.6.3), and `preload("../shared/x.gd")`
+#   in res://scripts/user.gd loads res://shared/x.gd (measured likewise).
+#
+# So every path that enters the graph is folded by the owner that knows its base
+# directory: _normalize_ext_resource_path for an [ext_resource] line,
+# _resolve_ref_path for a preload/load/extends argument. Only two entrants have no
+# declaring file to anchor to and are absolute by construction — project.godot's
+# main scene and autoloads, and the caller's find-references query — and those go
+# straight to _canonical_resource_path.
+#
+# Keying on the raw spelling broke all three reads at once (#774): dependencies
+# named a node no file on disk answers to, find-references for the resolved path
+# missed the declaration, and find-unused-resources therefore advised DELETING a
+# scene the project instances — wrong advice with a destructive follow-up. The
+# other side of every comparison is canonical by construction: the walk builds each
+# path by joining directory entries, never by echoing a declaration.
 
 
 # project-find-references: find every project file that references the target — a
@@ -4389,20 +4401,26 @@ func _outgoing_references_of(path: String) -> Array:
 # The res:// paths an [ext_resource ... path="res://..."] line names in a
 # .tscn/.tres file — the file's external dependencies. Parsed by text: each
 # ext_resource line carries a path="..." attribute (Godot 4 also carries a uid,
-# but always the path too). Returns res:// paths in line order, each canonical
-# (#774) so a file is one graph node however the line spells it.
+# but always the path too). Returns res:// paths in line order, each under the
+# ONE graph identity (#774) so a file is one graph node however the line spells
+# it: _normalize_ext_resource_path anchors a relative declaration to the
+# DECLARING file's directory before it canonicalizes, because the engine resolves
+# it that way — `path="../shared/leaf.tscn"` in res://scenes/main.tscn loads
+# res://shared/leaf.tscn (measured on 4.6.3). Canonicalizing without anchoring
+# left the relative spelling as its own graph node.
 func _ext_resource_paths(path: String) -> Array[String]:
 	var out: Array[String] = []
 	var text := FileAccess.get_file_as_string(path)
 	if text.is_empty():
 		return out
+	var base_dir := path.get_base_dir()
 	for line in text.split("\n"):
 		var stripped := line.strip_edges()
 		if not stripped.begins_with("[ext_resource"):
 			continue
 		var ref := _quoted_attr(stripped, "path=")
 		if not ref.is_empty():
-			out.append(_canonical_resource_path(ref))
+			out.append(_normalize_ext_resource_path(ref, base_dir))
 	return out
 
 
@@ -4457,15 +4475,18 @@ func _collect_references_from(path: String, target_paths: Dictionary, target_cla
 	if text.is_empty():
 		return
 	if ext == "tscn" or ext == "tres":
+		var ext_base_dir := path.get_base_dir()
 		for line in text.split("\n"):
 			var stripped := line.strip_edges()
 			if not stripped.begins_with("[ext_resource"):
 				continue
 			var ref := _quoted_attr(stripped, "path=")
-			# Canonical on BOTH sides: target_paths is seeded canonical, and the
-			# declared spelling is folded here, so an aliased declaration matches
-			# a canonical query and the reverse (#774).
-			if target_paths.has(_canonical_resource_path(ref)):
+			# One identity on BOTH sides: target_paths is seeded canonical, and the
+			# declared spelling is folded here through the SAME owner the harvest
+			# side uses (_normalize_ext_resource_path — anchor to the declaring
+			# file's directory, then canonicalize), so an aliased OR relative
+			# declaration matches a canonical query and the reverse (#774).
+			if target_paths.has(_normalize_ext_resource_path(ref, ext_base_dir)):
 				references.append({"path": path, "kind": "ext_resource", "context": stripped})
 	elif ext == "gd":
 		var base_dir := path.get_base_dir()
