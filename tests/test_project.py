@@ -19,6 +19,7 @@ from gda.project import (
     is_engine_virtual_path,
     owning_project,
     path_outside_project,
+    target_location,
     project_anchored,
     res_escape_remainder,
     resolve_project_dir,
@@ -566,3 +567,66 @@ def test_ownership_is_reported_never_adopted(tmp_path):
 
     assert owning_project(str(inner / "main.gd"), outer) == inner
     assert resolve_project_dir(str(outer), env={}, cwd=inner) == outer
+
+
+def test_a_project_and_a_target_spelled_through_different_paths_have_one_owner(
+    tmp_path,
+):
+    # The regression the ownership walk introduced and this pins closed: the STOP
+    # test must see through a symlinked spelling the way containment already does.
+    # With the project named through a link and the target named resolved (macOS
+    # `/tmp` -> `/private/tmp` produces exactly this from any tool that realpaths a
+    # listing), a purely lexical stop walked PAST the resolved project, found its
+    # marker, and refused a correct call by naming the very project that was
+    # passed — `owning_project == project` is a machine-checkable impossibility for
+    # a code that means "a DIFFERENT project owns this".
+    real = _make_project(tmp_path / "real" / "game")
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path / "real", target_is_directory=True)
+
+    assert owning_project(str(real / "main.gd"), link / "game") is None
+    assert owning_project(str(link / "game" / "main.gd"), real) is None
+
+
+def test_ownership_says_nothing_about_a_target_outside_the_resolved_tree(tmp_path):
+    # Ownership is the SECOND half of one question, asked only of a target that is
+    # in the resolved tree; everything else is containment's. Without the bound the
+    # walk started outside the tree and could name an unrelated ancestor project as
+    # the "owner" of a target whose real problem is that it escaped — and, for the
+    # degenerate spellings that name the project directory itself, it started at
+    # the project's PARENT and so could never reach its own stop.
+    workspace = _make_project(tmp_path / "ws")
+    game = _make_project(workspace / "game")
+
+    # Escapes, res:// and filesystem alike: no owner here, refused by containment.
+    for escaping in ("res://../x.gd", "../x.gd", "res://a/../../x.gd"):
+        assert owning_project(escaping, game) is None, escaping
+        assert path_outside_project(escaping, game) is not None, escaping
+    # The project directory named as a target, in every spelling that collapses to
+    # it. `""` is the real-world shape (an unset `gda script validate "$F"`), and it
+    # used to be reported as OWNED BY the workspace above.
+    for degenerate in ("", ".", "./", "sub/..", "res://", "res://.", "res://sub/.."):
+        assert owning_project(degenerate, game) is None, degenerate
+
+
+def test_target_location_anchors_a_res_address_in_the_namespace_it_names(tmp_path):
+    # The coordinate `evidence.target_location` carries has to name a real place —
+    # it is what a caller walks up from. Handing a `res://` string to a filesystem
+    # anchoring made `Path("res://inner/main.gd")` the RELATIVE `res:/inner/main.gd`
+    # and reported `<project>/res:/inner/main.gd`, a directory that does not exist.
+    project = _make_project(tmp_path / "game")
+
+    assert target_location("res://inner/main.gd", project) == (
+        (project / "inner" / "main.gd").resolve()
+    )
+    # Every spelling of one file lands on one location, because it goes through the
+    # same canonicalizer the containment rule uses.
+    assert target_location("res://a/../inner/main.gd", project) == (
+        (project / "inner" / "main.gd").resolve()
+    )
+    assert target_location("inner/main.gd", project) == (
+        (project / "inner" / "main.gd").resolve()
+    )
+    assert target_location(str(project / "inner" / "main.gd"), project) == (
+        (project / "inner" / "main.gd").resolve()
+    )

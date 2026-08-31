@@ -692,8 +692,14 @@ tells the two apart. A target the resolved project **does not own** is **refused
 with `target_outside_project`, naming both the file and the project, rather than emitting that
 false cascade. The check applies to **every** path in a batch, and the first offender in requested
 order refuses the whole call (#663): one call has one project, so one outsider makes the requested
-set unservable. `--all` has nothing to check — the engine enumerates the resolved project's own
-tree.
+set unservable. `--all` carries no paths to check, and one KNOWN GAP: it enumerates through gda's own
+`res://` walk, which excludes only `res://.godot`, while the engine's editor scan
+additionally skips a directory holding a nested `project.godot`
+(`EditorFileSystem::_should_skip_directory`). So `--all` still compiles a nested project's
+scripts against the outer root and can report the false cascade for them, where naming the
+same file explicitly is refused. Closing it means changing the shared walk every collector
+uses; until then, read a `--all` verdict for a nested project's script as the artefact it
+is (ADR-0006 amendment, #697).
 
 "Does not own" is two questions (ADR-0006 amendment, #697). **Containment** follows the engine's
 own addressing: a relative path is anchored at the resolved project (not gda's cwd), an
@@ -704,8 +710,10 @@ cross that symlink, where only the fully resolved location decides. **Ownership*
 resolved project is the *nearest* `project.godot` at or above the target: a script under a project
 **nested inside** the resolved one is contained and still refused, because its own `res://`
 references mean the nested root. gda names the owner it found and does not adopt it — deriving the
-project from the target stays rejected — so pass `--project <owner>`. Ownership is checked
-projectless too: a file that has an owner is refused rather than compiled against nothing, while a
+project from the target stays rejected — so pass `--project <owner>`. `resource import`
+asks the same question, for the engine's own reason: its editor scan skips a nested
+project's directory, so an asset there cannot be imported into the outer project at all.
+Ownership is checked projectless too: a file that has an owner is refused rather than compiled against nothing, while a
 standalone script no project claims is still validated by filesystem path. The refusal carries
 `target_location`, `project_root` and `owning_project` as typed `evidence`, each present only when
 that refusal knows it.
@@ -891,8 +899,10 @@ resource loader" (GDA-DF-010). An asset is named as a `res://` address or a file
 inside the project; both go through ADR-0006's one containment check, so a spelling that
 still climbs above the root once canonicalized — `\` folded to `/` as the engine folds it —
 is `target_outside_project` (#763), while one that collapses back inside (`res://foo/../a.png`)
-is accepted, exactly as the script commands accept it. `user://`/`uid://` name no project
-asset and stay `invalid_params`. `resource import ASSETS... [--dry-run] [--timeout S]` reads
+is accepted, exactly as the script commands accept it. An asset a NESTED `project.godot`
+owns gets the same refusal, because the engine's own scan skips that directory
+(`EditorFileSystem::_should_skip_directory`) and would return `not_importable` after a
+wasted pass. `user://`/`uid://` name no project asset and stay `invalid_params`. `resource import ASSETS... [--dry-run] [--timeout S]` reads
 each requested asset's EVIDENCE STATE from the same project artifacts the engine's own
 reimport test reads: `cached` needs positive ARTIFACT-level evidence (a keep/skip
 importer, or the PATH-derived `.md5` receipt present with `source_md5`/`dest_md5`

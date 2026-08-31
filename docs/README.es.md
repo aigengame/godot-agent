@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=39ec3a9cbbe041ebb43a220d1e439471ae01eb041f4af3ceb9413c06a8db6849 -->
+<!-- gda-readme-i18n: source=README.md sha256=0f662187f8f07d3ec1b3eb7c9e047f39df4ba9db942cadd1f36e23aaf3f8fef7 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -511,7 +511,10 @@ informar esos errores falsos; pasa `--project` con el proyecto al que pertenecen
 archivos. Eso cubre dos casos: una ruta *fuera* del proyecto resuelto, y una ruta que
 pertenece a un `project.godot` *anidado* — gda nombra al propietario que encontró en vez
 de adoptarlo, y la misma comprobación se aplica sin proyecto resuelto, de modo que un
-script que pertenece a un proyecto nunca se compila contra nada.
+script que pertenece a un proyecto nunca se compila contra nada. `script run` y
+`resource import` rechazan igual, con el mismo código. `--all` es el único selector que
+todavía no aplica la mitad de propiedad, así que los scripts de un proyecto anidado
+pueden seguir mostrando esa cascada falsa.
 
 `script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución**:
 el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de

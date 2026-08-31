@@ -58,6 +58,7 @@ def containment_project(tmp_path):
     """A project with an inside script and asset, plus outside twins one level up."""
     project = tmp_path / "game"
     (project / "foo").mkdir(parents=True)
+    (project / "a").mkdir()
     (project / "project.godot").write_text(project_godot(), encoding="utf-8")
     (project / "bar.gd").write_text(INSIDE_GD, encoding="utf-8")
     (project / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n")
@@ -198,6 +199,88 @@ def test_the_engine_agrees_the_escape_leaves_the_project(containment_project, tm
     )
 
     assert "OUTSIDE RAN" in proc.stdout, proc.stdout + proc.stderr
+
+
+@pytest.mark.e2e
+def test_the_engine_spells_a_fully_collapsed_address_as_the_bare_scheme(
+    containment_project, tmp_path
+):
+    # The empty-join parity claim, measured rather than asserted lexically. Every
+    # other claim in `canonical_res_path`'s step-by-step docstring had an engine
+    # arm; this one — `String::simplify_path` joining an empty segment vector back
+    # to the bare drive (ustring.cpp:4223-4232) — did not, and it is the row #763
+    # changed. Run the engine on `res://a/..` as an entry script and read which
+    # address it names back: `res://`, not `res://.`, which is what gda now
+    # produces for the same spelling.
+    log = tmp_path / "engine.log"
+
+    proc = subprocess.run(
+        [
+            str(GODOT),
+            "--headless",
+            "--log-file",
+            str(log),
+            "--path",
+            str(containment_project),
+            "--script",
+            "res://a/..",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    combined = proc.stdout + proc.stderr
+    assert "Can't load script: res://" in combined, combined
+    assert "Can't load script: res://." not in combined, combined
+
+
+@pytest.mark.e2e
+def test_an_asset_a_nested_project_owns_is_refused_before_the_import_pass(tmp_path):
+    # The engine's own reason for the `resource import` half (#697 re-review):
+    # `EditorFileSystem::_should_skip_directory` skips a directory holding a nested
+    # `project.godot`, so the asset cannot be imported into the outer project at
+    # all. Measured before the fix, gda accepted the request, spent a pass and
+    # returned `not_importable`; the second half here shows the outer project's own
+    # asset still imports, so the refusal is about ownership and not about the
+    # request shape.
+    outer = tmp_path / "outer"
+    vendor = outer / "vendor"
+    vendor.mkdir(parents=True)
+    (outer / "project.godot").write_text(project_godot("outer"), encoding="utf-8")
+    (vendor / "project.godot").write_text(project_godot("vendor"), encoding="utf-8")
+    (vendor / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (outer / "own.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    refused = _run_gda(
+        "resource",
+        "import",
+        "res://vendor/pic.png",
+        "--project",
+        str(outer),
+        "--godot",
+        str(GODOT),
+        "--dry-run",
+        "--json",
+    )
+    assert refused.returncode == 4, refused.stdout + refused.stderr
+    error = json.loads(refused.stdout)["error"]
+    assert error["code"] == "target_outside_project"
+    assert error["evidence"]["owning_project"] == str(vendor.resolve())
+
+    accepted = _run_gda(
+        "resource",
+        "import",
+        "res://own.png",
+        "--project",
+        str(outer),
+        "--godot",
+        str(GODOT),
+        "--dry-run",
+        "--json",
+    )
+    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+    assert json.loads(accepted.stdout)["assets"][0]["path"] == "res://own.png"
 
 
 @pytest.mark.e2e

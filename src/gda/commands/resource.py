@@ -32,6 +32,7 @@ from gda.errors import (
     classify_launch_or_crash,
     make_failure,
     target_outside_project_failure,
+    target_owned_by_another_project_failure,
 )
 from gda.execution import ExecutionKind
 from gda.headless import (
@@ -52,8 +53,10 @@ from gda.project import (
     RES_PREFIX,
     canonical_res_path,
     is_engine_virtual_path,
+    owning_project,
     path_outside_project,
     project_anchored,
+    target_location,
 )
 from gda.render import render_property_lines, render_set_echo
 from gda.runner import launch
@@ -802,6 +805,16 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
     ``script validate`` and ``script run`` report for the same condition, in place
     of a third spelling of a generic ``invalid_params``.
 
+    Ownership (:func:`~gda.project.owning_project`) is asked here too, for the
+    engine's own reason: ``EditorFileSystem::_should_skip_directory``
+    (``editor/file_system/editor_file_system.cpp:3482``) SKIPS a directory holding
+    a nested ``project.godot`` — "Skip if another project inside this" — so an
+    asset in one cannot be imported into the outer project at all. Without the
+    check gda accepted the request, spent an engine pass, and returned
+    ``not_importable``, while ``--dry-run`` predicted a sidecar that would never
+    appear. Refusing before the pass, naming the project that CAN import it, is
+    both cheaper and truer (#697 re-review).
+
     What remains this gate's own is what is genuinely about ASSETS: ``user://`` and
     ``uid://`` are engine-virtual but not the project's ``res://`` namespace, so
     they cannot name a project asset at all, and the mapping from an accepted
@@ -824,6 +837,11 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
     project_abs = project.expanduser()
     if not project_abs.is_absolute():
         project_abs = Path.cwd() / project_abs
+    owner = owning_project(raw, project_abs)
+    if owner is not None:
+        return target_owned_by_another_project_failure(
+            target_location(raw, project_abs), owner.resolve(), project_abs
+        )
     outside = path_outside_project(raw, project_abs)
     if outside is not None:
         return target_outside_project_failure(outside, project_abs)

@@ -67,8 +67,8 @@ from gda.project import (
     canonical_res_path,
     owning_project,
     path_outside_project,
-    project_anchored,
     res_escape_remainder,
+    target_location,
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
 from gda.script_errors import (
@@ -1568,7 +1568,7 @@ def run_script_run_operation(
     owner = owning_project(script, project)
     if owner is not None:
         return target_owned_by_another_project_failure(
-            (project / script[len(RES_PREFIX) :]).resolve(),
+            target_location(script, project),
             owner.resolve(),
             project.expanduser().resolve(),
         )
@@ -2120,19 +2120,6 @@ SCRIPT_ATTACH_COMMAND: HeadlessCommand[ScriptAttachResult] = HeadlessCommand(
 )
 
 
-def _target_location(path: str, project: "Path | None") -> Path:
-    """Where a refused target really is, for the message and the typed evidence.
-
-    Anchored the way the engine addresses it when a project is resolved
-    (:func:`~gda.project.project_anchored`), at the invoker's cwd otherwise — the
-    same two rules the containment check itself uses, so one refusal cannot name a
-    different file from the one that was checked.
-    """
-    if project is None:
-        return Path(path).expanduser().resolve()
-    return project_anchored(path, project).resolve()
-
-
 def _script_validate_recipe(
     params: ScriptValidateParams,
     *,
@@ -2199,7 +2186,7 @@ def _script_validate_recipe(
         owner = owning_project(path, project)
         if owner is not None:
             return target_owned_by_another_project_failure(
-                _target_location(path, project), owner.resolve(), root
+                target_location(path, project), owner.resolve(), root
             )
         if project is not None and root is not None:
             outside = path_outside_project(path, project)

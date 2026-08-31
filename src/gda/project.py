@@ -50,7 +50,7 @@ RES_PREFIX = "res://"
 # NOT a "contains ://" test: a colon is a legal POSIX filename character, so
 # `/work/outside://deck.gd` is an ordinary — and ordinarily *outside* —
 # filesystem path that a substring test would wave through as virtual.
-ENGINE_VIRTUAL_PREFIXES = ("res://", "user://", "uid://")
+ENGINE_VIRTUAL_PREFIXES = (RES_PREFIX, "user://", "uid://")
 
 
 def is_engine_virtual_path(path: str) -> bool:
@@ -150,8 +150,9 @@ def canonical_res_path(path: str) -> str:
     (``ProjectSettings::localize_path``, ``core/config/project_settings.cpp:158``).
     Which of its steps this reproduces, in the engine's own order:
 
-    - **scheme extraction** (4153-4168: first ``://`` whose prefix is all ASCII
-      alphanumerics becomes the "drive") — reproduced NARROWLY, for an exact
+    - **scheme extraction** (4153-4168: the FIRST ``://`` is taken, and it becomes
+      the "drive" only if everything before it is ASCII alphanumeric — the engine
+      does not go looking for a later one) — reproduced NARROWLY, for an exact
       ``res://`` prefix only. The engine's other two drive branches (network share,
       Windows ``C:``) are deliberately NOT reproduced: they are unreachable once the
       scheme branch matched, and a non-``res://`` string leaves here untouched anyway.
@@ -291,7 +292,7 @@ def path_outside_project(path: str, project: Path) -> Path | None:
     location it would occupy rather than raising.
     """
     if is_engine_virtual_path(path):
-        if not path.startswith("res://"):
+        if not path.startswith(RES_PREFIX):
             return None
         escape = res_escape_remainder(path)
         if escape is None:
@@ -306,6 +307,54 @@ def path_outside_project(path: str, project: Path) -> Path | None:
         if _lexical_abs(candidate).is_relative_to(_lexical_abs(root)):
             return None
     return location
+
+
+def _within(child: Path, parent: Path) -> bool:
+    """Is ``child`` at or under ``parent``, by EITHER reading?
+
+    The same two readings :func:`path_outside_project` consults, and for the same
+    reason: the lexical one answers "was this addressed through that tree", the
+    resolved one answers "are these the same place under two spellings". Either
+    saying yes is enough.
+    """
+    if child == parent or parent in child.parents:
+        return True
+    resolved_child = child.resolve()
+    resolved_parent = parent.resolve()
+    return (
+        resolved_child == resolved_parent or resolved_parent in resolved_child.parents
+    )
+
+
+def _anchored_target(path: str, project: Path | None) -> Path:
+    """Where ``path`` addresses a file, in filesystem terms.
+
+    ONE anchoring rule for the two things that need it after containment or
+    ownership has refused — the walk :func:`owning_project` starts from, and the
+    location :func:`target_location` reports — so a refusal can never name a
+    different file from the one that was checked. It mirrors
+    :func:`path_outside_project`'s own branching: a ``res://`` address is anchored
+    in the resolved namespace (the only project it can mean), and everything else
+    is anchored the way the engine anchors it (:func:`project_anchored`), or at the
+    invoker's cwd when no project resolved.
+    """
+    if project is None:
+        return _expand_user(Path(path))
+    if path.startswith(RES_PREFIX):
+        return _expand_user(project) / canonical_res_path(path)[len(RES_PREFIX) :]
+    return project_anchored(path, project)
+
+
+def target_location(path: str, project: Path | None) -> Path:
+    """Where a refused target really is — for the message and the typed evidence.
+
+    The resolved location of :func:`_anchored_target`, so the coordinate a caller
+    walks up from names a real place rather than the spelling it was refused
+    under. Called only after a refusal, and only for the address forms the two
+    refusing checks actually look at (``res://`` and filesystem paths); the other
+    engine schemes never reach a refusal that needs a location.
+    """
+    return _anchored_target(path, project).resolve()
 
 
 def owning_project(path: str, project: Path | None) -> Path | None:
@@ -329,42 +378,62 @@ def owning_project(path: str, project: Path | None) -> Path | None:
     reports one verdict. The owner is reported so the caller can re-issue with it,
     never adopted.
 
-    **The walk is LEXICAL and bounded.** It reads the caller's own spelling
-    (:func:`_lexical_abs`, symlinks preserved) upward from the target, and stops
-    at the resolved project — which is exactly where ownership stops being in
-    question. Following symlinks instead would refuse the monorepo shared-addon
-    layout :func:`path_outside_project` deliberately accepts: ``game/addons/lib``
-    linked to ``../../libs/lib`` resolves into a tree whose own ``project.godot``
-    has nothing to do with this call, while the engine — walking the project
-    directory — reads the file as ``res://addons/lib/…`` and compiles it against
-    ``game``. With no project resolved there is nothing to stop at, so the walk
-    runs to the filesystem root: a projectless run of a file that DOES have an
-    owner is the other GDA-DF-035 reading, and it produced the same false
-    ``res://`` cascade with no project to attribute it to.
+    **Asked only of a target INSIDE the resolved tree.** Ownership is the second
+    half of one question, not a rival to the first: a target that is not in the
+    resolved project at all — an escaping ``res://`` remainder, a path that climbs
+    out, the project directory named as a target — returns ``None`` here and is
+    :func:`path_outside_project`'s to refuse. Without that bound the walk would
+    start OUTSIDE the tree and could name some unrelated ancestor project as the
+    "owner" of a target whose real problem is that it escaped.
+
+    **The walk is LEXICAL, the bound is BOTH readings.** It reads the caller's own
+    spelling (:func:`_lexical_abs`, symlinks preserved) upward from the target,
+    because following symlinks would refuse the monorepo shared-addon layout
+    :func:`path_outside_project` deliberately accepts: ``game/addons/lib`` linked
+    to ``../../libs/lib`` resolves into a tree whose own ``project.godot`` has
+    nothing to do with this call, while the engine — walking the project directory
+    — reads the file as ``res://addons/lib/…`` and compiles it against ``game``.
+    But the STOP test also consults the resolved reading, for the same reason
+    :func:`path_outside_project` always does: the project and the target may be
+    spelled through different-but-equal paths (on macOS ``/tmp`` →
+    ``/private/tmp`` alone is enough), and a purely lexical stop would walk past
+    the resolved project, find its marker, and refuse a correct call by naming the
+    very project the caller passed.
+
+    With no project resolved there is nothing to stop at, so the walk runs to the
+    filesystem root: a projectless run of a file that DOES have an owner is the
+    other GDA-DF-035 reading, and it produced the same false ``res://`` cascade
+    with no project to attribute it to.
 
     A ``user://`` or ``uid://`` address has no project-tree position to walk from
     and is left alone, as everywhere else. A ``res://`` address is anchored in the
     resolved namespace first — that is the only project it can mean — so it is
     walked exactly like the project-relative spelling of the same file.
     """
+    if is_engine_virtual_path(path) and not path.startswith(RES_PREFIX):
+        return None
     if project is None:
-        if is_engine_virtual_path(path):
-            return None
-        start = _lexical_abs(_expand_user(Path(path))).parent
-        stop = None
+        start = _lexical_abs(_anchored_target(path, None)).parent
+        stop = stop_resolved = None
     else:
         stop = _lexical_abs(_expand_user(project))
-        if path.startswith(RES_PREFIX):
-            remainder = canonical_res_path(path)[len(RES_PREFIX) :]
-            if not remainder:
-                return None
-            start = _lexical_abs(stop / remainder).parent
-        elif is_engine_virtual_path(path):
+        start = _lexical_abs(_anchored_target(path, project)).parent
+        if not _within(start, stop):
+            # The target is not a FILE in the resolved tree — an escaping res://
+            # remainder, a path that climbs out, or the project directory itself
+            # spelled as a target (``""``, ``.``, ``sub/..``), whose parent is
+            # already above the stop. Ownership has nothing to say about any of
+            # them, and walking upward from outside the tree would answer a
+            # question nobody asked: it would name some ancestor project as the
+            # "owner" of a target whose real problem is that it escaped, or of the
+            # resolved project itself. Containment is the check for those, and it
+            # runs next.
             return None
-        else:
-            start = _lexical_abs(project_anchored(path, project)).parent
+        stop_resolved = stop.resolve()
     for directory in (start, *start.parents):
-        if directory == stop:
+        if stop is not None and (
+            directory == stop or directory.resolve() == stop_resolved
+        ):
             return None
         if (directory / PROJECT_MARKER).exists():
             return directory

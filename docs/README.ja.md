@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=39ec3a9cbbe041ebb43a220d1e439471ae01eb041f4af3ceb9413c06a8db6849 -->
+<!-- gda-readme-i18n: source=README.md sha256=0f662187f8f07d3ec1b3eb7c9e047f39df4ba9db942cadd1f36e23aaf3f8fef7 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -507,7 +507,9 @@ offset プロパティを明示的に設定してください。
 まとめて扱います。解決されたプロジェクトの**外**にあるパスと、**入れ子**の `project.godot` が
 所有するパスです。gda は見つけた所有者を報告するだけで、そちらに切り替えることはしません。
 同じ検査はプロジェクトが解決されなかった場合にも働くので、プロジェクトに属するスクリプトが
-何も指定されないままコンパイルされることはありません。
+何も指定されないままコンパイルされることはありません。`script run` と `resource import` も
+同じコードで同様に拒否します。`--all` だけはまだ所有者の検査を行わないため、入れ子の
+プロジェクトのスクリプトでは偽のカスケードが出ることがあります。
 
 `script run` は指名されたプロジェクトスクリプトをワンショットで実行し、**その実行を
 通します**。成功結果はスクリプト自身の `exit_status`(意図的な非ゼロの `quit()` は gda の失敗

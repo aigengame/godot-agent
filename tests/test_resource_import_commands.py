@@ -732,6 +732,29 @@ def test_res_scheme_cannot_escape_the_project(tmp_path, spelling):
     assert "outside the resolved Godot project" in data["error"]["message"]
 
 
+def test_an_asset_a_nested_project_owns_is_refused_before_the_pass(tmp_path):
+    # #697 re-review: the engine's own scan SKIPS a directory holding a nested
+    # `project.godot` (`EditorFileSystem::_should_skip_directory`,
+    # editor/file_system/editor_file_system.cpp:3482 — "Skip if another project
+    # inside this"), so an asset in one cannot be imported into the outer project
+    # at all. gda used to accept the request, spend an engine pass, and return
+    # `not_importable`, while `--dry-run` predicted a sidecar that would never
+    # appear. It now refuses up front and names the project that CAN import it.
+    project = _project(tmp_path)
+    nested = project / "vendor"
+    nested.mkdir()
+    (nested / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    (nested / "pic.png").write_bytes(b"\x89PNG")
+
+    data = json.loads(_run(project, "res://vendor/pic.png", "--dry-run").stdout)
+
+    assert data["error"]["code"] == "target_outside_project"
+    assert data["error"]["evidence"]["owning_project"] == str(nested.resolve())
+    # The same file named by its filesystem spelling gets the same answer.
+    other = json.loads(_run(project, str(nested / "pic.png"), "--dry-run").stdout)
+    assert other["error"]["code"] == "target_outside_project"
+
+
 def test_a_res_path_that_collapses_back_inside_is_accepted(tmp_path):
     # The divergence #763 exists to reconcile, decided in the authority's favour:
     # `res://foo/../pic.png` collapses net-INSIDE and names an address the engine

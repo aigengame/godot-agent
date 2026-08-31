@@ -107,29 +107,54 @@ is a literal path component, not shell-style home expansion.
 > objections — undefined outside any project, several roots per call — do not apply: no
 > owner simply means no refusal.
 >
+> **All three commands, for one reason each.** `script validate` and `script run` apply
+> ownership because a target compiled or run against a foreign root resolves its OWN
+> `res://` references there. `resource import` applies it because the ENGINE does: the
+> editor's scan skips a directory holding a nested `project.godot`
+> (`EditorFileSystem::_should_skip_directory`,
+> `editor/file_system/editor_file_system.cpp:3482` — "Skip if another project inside
+> this"), so such an asset cannot be imported into the outer project at all. Without the
+> check gda accepted the request, spent an engine pass and returned `not_importable`,
+> while `--dry-run` predicted a sidecar that would never appear. An earlier draft of this
+> amendment exempted `resource import` on the claim that the import pass walks a nested
+> project's files; that claim was false, and the engine source is what corrected it.
+>
 > **Projectless is checked too, and still exists.** With no project resolved there is
 > nothing to be outside OF, so containment cannot fire — which is exactly how the other
 > GDA-DF-035 reading (a project nested in a plain workspace, validated from the ancestor)
 > reached a projectless engine and produced the same cascade with `project_root: null` as
-> the only clue. Ownership runs to the filesystem root there and refuses, naming the owner.
-> A standalone `.gd` that no `project.godot` claims is still validated projectless by
-> filesystem path: the fallback is preserved for exactly the files it was written for
-> ("callers who pass absolute paths and never touch `res://`").
+> the only clue. Ownership runs to the filesystem root there and refuses, naming the
+> owner. A standalone `.gd` that no `project.godot` claims is still validated projectless
+> by filesystem path.
 >
-> **Two commands, not three.** `script validate` and `script run` apply ownership;
-> `resource import` does not. The failure ownership prevents is a target's OWN `res://`
-> references resolving against a foreign root, which happens when code is compiled or run.
-> An import request is about the resolved project's asset cache: the engine's `--import`
-> pass walks that project's whole tree — a nested project's files included, as the editor
-> does — and resolves no references out of the requested asset. Containment, which all
-> three apply, is what an import request needs.
+> This half NARROWS the fallback above, and says so rather than claiming a continuity it
+> does not have. The original sentence — "keeps project context opt-in for callers who
+> pass absolute paths and never touch `res://`" — is about a calling CONVENTION, and a
+> caller using that convention on a file that does live in a project is now refused. Three
+> things make it the right trade, and the third is a real cost:
+>
+> 1. a projectless verdict on a file inside a project is computed in a context that file
+>    never runs in — `res://` resolves against gda's cwd, and the project's autoloads,
+>    `class_name` registry (ADR-0032) and settings are all absent — so even `valid: true`
+>    is only accidentally right;
+> 2. the refusal names the exact `--project` to pass, so the true verdict is one flag away;
+> 3. **but that flag widens the Project-code execution surface** (CONTEXT.md, ADR-0009): a
+>    projectless validate runs no autoloads, and `--project` boots them. gda is trading a
+>    verdict that could be wrong for one that costs the project's own startup code. Within
+>    the Trusted project assumption that is the right way round — a wrong answer is worse
+>    than a documented execution point — but it is a trade, not a free improvement.
+>
+> The `cd`-out remedy blessed below is for the CONTAINMENT half only. It does not escape
+> ownership: that walk runs to the filesystem root regardless of cwd, so for a file some
+> project claims, `--project` is the only remedy.
 >
 > **The standalone-script consequence is blessed, not worked around.** With the refusal in
 > place and `--project ""` refused as empty, there is no flag that says "ignore the project
-> I am standing in". Deliberately: the cwd is the LAST resolution step, so the answer is to
-> not stand there — `cd` out, or name the owner — and a `--no-project` escape hatch would
-> add a cross-cutting flag to every command in the surface for a case no dogfooding round
-> has produced. Revisit it when one does.
+> I am standing in". Deliberately: the cwd is the LAST resolution step, so the CONTAINMENT
+> answer is to not stand there — `cd` out, or name the owner — and a `--no-project` escape
+> hatch would add a cross-cutting flag to every command in the surface for a case no
+> dogfooding round has produced. Revisit it when one does. For a file another project OWNS,
+> `cd` changes nothing (see above) and `--project <owner>` is the only remedy.
 >
 > **Scheme sets stay per-command.** `user://` and `uid://` are engine-virtual but not the
 > project's namespace, so neither containment nor ownership says anything about them, and
@@ -166,10 +191,27 @@ is a literal path component, not shell-style home expansion.
 > identity matchable against what the engine echoes back, plus the root address naming a
 > directory rather than a script.
 >
-> **Not closed here.** A case-differing project spelling (`--project …/Game` against on-disk
-> `…/game`) is still refused on a case-insensitive filesystem: both readings compare strings
-> and `Path.resolve()` does not canonicalize case. A real fix needs a `samefile`-style walk
-> and is independent of this decision.
+> **Scope: the commands that implement it.** This amendment states a rule about the
+> commands whose gates ask the question — `script validate`, `script run`,
+> `resource import`. Other path-taking commands do not ask it: `gda scene validate
+> res://inner/main.tscn --project outer` still compiles a nested project's scene against
+> the outer root and can produce the same class of cascade. Extending the rule is a
+> separate decision with its own surface, not something this one silently implies.
+>
+> **Not closed here.** Two known gaps, both measured:
+>
+> - a case-differing project spelling (`--project …/Game` against on-disk `…/game`) is
+>   still refused on a case-insensitive filesystem: both readings compare strings and
+>   `Path.resolve()` does not canonicalize case. A real fix needs a `samefile`-style walk
+>   and is independent of this decision;
+> - `script validate --all` still produces the cascade. It enumerates through gda's OWN
+>   `res://` walk (`operations.gd`'s `_should_descend`), which excludes only
+>   `res://.godot`, while the engine's scan additionally skips a nested-project directory
+>   (and a `.gdignore` one) — so `--all` compiles nested-project scripts against the outer
+>   root and the same file gets opposite answers depending on the selector. Closing it
+>   means changing the shared walk every collector uses (`script list`, `scene list`,
+>   project analysis, the import gap listing), which is its own slice with its own blast
+>   radius.
 
 ## Considered options
 

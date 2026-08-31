@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.script import ScriptSetMode
+from gda.project import owning_project
 from gda.runner import RunResult
 from tests.support import (
     SCRIPT_CREATE_RESULT as CREATE_RESULT,
@@ -491,6 +492,26 @@ def test_script_attach_reports_the_displaced_script(monkeypatch):
     assert json.loads(result.stdout)["replaced_script"] == "res://old.gd"
 
 
+# The absolute directory the engine-free `script validate` tests below address
+# scripts in. It never exists on disk — the runner is faked — but since #697 the
+# recipe asks whether some `project.godot` ABOVE a target claims it, walking to the
+# filesystem root when no project resolved. "Nothing above /tmp/proj is a Godot
+# project" is therefore an assumption about the MACHINE that a dozen unrelated
+# verdicts now rest on, and /tmp is exactly where a scratch project gets left. The
+# assumption is asserted once, by name, so a stray marker fails HERE with its cause
+# stated instead of turning a dozen tests into `target_outside_project` refusals
+# whose messages point everywhere else.
+PROJECTLESS_DIR = Path("/tmp/proj")
+
+
+def test_the_projectless_test_paths_really_have_no_owning_project():
+    assert owning_project(str(PROJECTLESS_DIR / "ok.gd"), None) is None, (
+        f"a project.godot exists at or above {PROJECTLESS_DIR}, so the projectless "
+        "`script validate` tests in this module no longer address a projectless "
+        "target — remove it, or move those tests under a pytest tmp_path"
+    )
+
+
 def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypatch):
     # script validate (issue #118): a valid script is a successful op (exit 0)
     # reporting valid=true, no error_string, and no diagnostics. A single path is a
@@ -798,6 +819,34 @@ def test_script_validate_refuses_a_target_a_nested_project_owns(monkeypatch, tmp
     }
     # Refused BEFORE the engine: the false cascade is never produced at all.
     assert fake.calls == []
+
+
+def test_script_validate_names_a_res_target_s_real_location(monkeypatch, tmp_path):
+    # The coordinate has to name a real place: it is what a caller walks up from to
+    # find the owner for itself. Handing the `res://` string to a filesystem
+    # anchoring made `Path("res://inner/main.gd")` the RELATIVE `res:/inner/main.gd`
+    # and reported `<project>/res:/inner/main.gd`, a directory that does not exist —
+    # in the human message and in the typed evidence alike.
+    outer = _project(tmp_path, "outer")
+    inner = _project(tmp_path, "outer/inner")
+    inject_runner(monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            "res://inner/main.gd",
+            "--project",
+            str(outer),
+            "--json",
+        ],
+    )
+
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "target_outside_project"
+    assert error["evidence"]["target_location"] == str((inner / "main.gd").resolve())
+    assert "res:" not in error["evidence"]["target_location"]
 
 
 def test_script_validate_refuses_a_projectless_target_that_has_an_owner(

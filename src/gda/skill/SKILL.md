@@ -125,9 +125,12 @@ from them) usually means the wrong project, not a broken script — `null` means
 project was resolved at all. Pass `--project` for the project that owns the files
 and re-read the verdict. gda refuses up front, with `target_outside_project`, when
 the resolved project plainly does not own a path — outside its tree, or claimed by
-a nested `project.godot`, and with no project resolved too. It names the owner it
-found (`evidence.owning_project`) but never switches to it: re-issue with
-`--project <owner>`.
+a nested `project.godot`, and with no project resolved too (`script run` and
+`resource import` refuse the same way). It names the owner it found
+(`evidence.owning_project`) but never switches to it: re-issue with
+`--project <owner>`. One gap: `--all` does NOT apply that check, so a nested
+project's scripts can still show a false missing-`res://` cascade there — name them
+explicitly with their own `--project` to get the true verdict.
 
 ## Discovery
 
