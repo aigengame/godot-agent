@@ -992,6 +992,32 @@ def test_cli_publication_and_http_inline_execution_are_semantically_identical(
     }
 
 
+def test_cli_and_http_return_the_same_authority_owned_refusal(
+    tmp_path: Path,
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
+    model_source, experiment = _roguelike_documents()
+    model_source["unknown_member"] = True
+    source_path = tmp_path / "model-source.json"
+    source_path.write_text(json.dumps(model_source), encoding="utf-8")
+
+    cli_check = _run_console("model", "check", str(source_path))
+    http_result = shared_execution_http_service.create_session(
+        model_source,
+        experiment,
+    )
+
+    assert (cli_check.returncode, cli_check.stderr) == (2, "")
+    assert http_result["outcome"] == "refusal"
+    cli_refusal = json.loads(cli_check.stdout)["error"]
+    assert cli_refusal.pop("category") == "refusal"
+    assert {
+        name: value
+        for name, value in http_result["refusal"].items()
+        if value is not None
+    } == cli_refusal
+
+
 def test_aggregate_http_limit_preserves_the_model_source_ingress_refusal(
     shared_execution_http_service: ExecutionHttpTestService,
 ) -> None:
