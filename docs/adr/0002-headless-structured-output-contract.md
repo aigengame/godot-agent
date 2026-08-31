@@ -233,7 +233,7 @@ operation, and parse codes the CLI assigns).
 | Code | Category | Source | Exit Code | Meaning |
 | --- | --- | --- | --- | --- |
 | `binary_not_found` | `environment` | `runner` | `127` | The Godot binary could not be launched. |
-| `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. One command does not report it: `scene preflight` reports its own `timeout` status instead (#664). |
+| `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout; the envelope carries the run's captured partial output, the ceiling it reached and the elapsed wall clock. One command does not report it: `scene preflight` reports its own `timeout` status instead (#664). |
 | `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
 | `unknown_command` | `usage` | `classifier` | `2` | gda has no such command; discover the surface with `gda schema` or `gda --help`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unknown_option` | `usage` | `classifier` | `2` | The command exists but has no such option; read its options with `--help` or its input contract with `--schema`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |

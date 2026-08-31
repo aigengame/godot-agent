@@ -95,9 +95,10 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         # wall-clock bound of its own and reports exceeding it as a `timeout`
         # STATUS on a successful result, so an agent that branches on this code
         # alone would never see that command's timeout.
-        "Godot launched but did not return before the runner timeout. One command "
-        "does not report it: `scene preflight` reports its own `timeout` status "
-        "instead.",
+        "Godot launched but did not return before the runner timeout; the envelope "
+        "carries the run's captured partial output, the ceiling it reached and "
+        "the elapsed wall clock. One command does not report it: `scene "
+        "preflight` reports its own `timeout` status instead.",
     ),
     ErrorCodeSpec(
         "user_data_unwritable",

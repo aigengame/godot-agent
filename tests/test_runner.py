@@ -14,35 +14,15 @@ from pathlib import Path
 
 from gda.exit_codes import EXIT_NOT_FOUND
 from gda.runner import OPERATIONS_GD, LaunchFailure, SubprocessGodotRunner
-
-
-class _RecordingRun:
-    """A ``subprocess.run`` double recording the call and returning a clean exit."""
-
-    def __init__(self) -> None:
-        self.cmd: list[str] | None = None
-        self.kwargs: dict | None = None
-
-    def __call__(self, cmd, **kwargs):
-        self.cmd = cmd
-        self.kwargs = kwargs
-
-        class _Proc:
-            # The primitive captures bytes (no text=True) and decodes UTF-8
-            # itself, so the double mirrors that real subprocess contract (#33).
-            stdout = b"<<<GDA:RESULT>>>{}<<<GDA:END>>>"
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
+from tests.support import RecordingSpawn
 
 
 def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch):
     # A projectless op spawns `--headless --script operations.gd -- <op> <json>`
     # with no --path and no working directory: everything after `--` reaches the
     # script verbatim via OS.get_cmdline_user_args().
-    rec = _RecordingRun()
-    monkeypatch.setattr(subprocess, "run", rec)
+    rec = RecordingSpawn("<<<GDA:RESULT>>>{}<<<GDA:END>>>")
+    monkeypatch.setattr(subprocess, "Popen", rec)
     runner = SubprocessGodotRunner(Path("/x/Godot"))
 
     runner.run("info", {"a": 1})
@@ -67,8 +47,8 @@ def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch):
 def test_run_against_a_project_passes_path(monkeypatch):
     # When a project is resolved it is passed as --path so the engine runs against
     # it and res:// resolves there (#32); --path precedes the --script tail.
-    rec = _RecordingRun()
-    monkeypatch.setattr(subprocess, "run", rec)
+    rec = RecordingSpawn("<<<GDA:RESULT>>>{}<<<GDA:END>>>")
+    monkeypatch.setattr(subprocess, "Popen", rec)
     project = Path("/tmp/proj")
     runner = SubprocessGodotRunner(Path("/x/Godot"), project=project)
 

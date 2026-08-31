@@ -48,7 +48,7 @@ from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023
 from gda.errors import (
     SCRIPT_OUTPUT_STDERR_HEADER,
     SCRIPT_OUTPUT_STDOUT_HEADER,
-    SCRIPT_OUTPUT_TAIL_CAP_BYTES,
+    CAPTURED_OUTPUT_TAIL_CAP_BYTES,
     Failure,
 )
 from gda.execution import ExecutionKind
@@ -820,7 +820,7 @@ def test_a_timeout_reflects_the_timeout_elapsed_and_phase_in_the_message():
     assert "elapsed 30.25s" in outcome.error.message
     assert TerminationPhase.OUTPUT_SEEN.value in outcome.error.message
     # The cap is STATED, so a reader knows the output was truncated and by how much.
-    assert str(SCRIPT_OUTPUT_TAIL_CAP_BYTES) in outcome.error.message
+    assert str(CAPTURED_OUTPUT_TAIL_CAP_BYTES) in outcome.error.message
 
 
 def test_a_timeout_carries_the_captured_partial_output_as_diagnostics():
@@ -869,8 +869,8 @@ def test_a_timeout_truncates_each_stream_to_the_stated_tail():
     assert isinstance(outcome, Failure)
     diagnostics = outcome.error.diagnostics
     assert "LAST LINE" in diagnostics
-    assert diagnostics.count("x") == SCRIPT_OUTPUT_TAIL_CAP_BYTES - len("LAST LINE\n")
-    assert diagnostics.count("y") == SCRIPT_OUTPUT_TAIL_CAP_BYTES
+    assert diagnostics.count("x") == CAPTURED_OUTPUT_TAIL_CAP_BYTES - len("LAST LINE\n")
+    assert diagnostics.count("y") == CAPTURED_OUTPUT_TAIL_CAP_BYTES
 
 
 def test_an_aborted_run_is_the_registered_early_termination_verdict():
@@ -1309,11 +1309,11 @@ def test_the_output_cap_bounds_utf8_BYTES_not_characters():
     # lands mid-character: the leading partial byte is DROPPED rather than becoming a
     # replacement character, since the truncation is gda's own and inventing a U+FFFD
     # would misreport the engine's output as malformed.
-    per_stream = SCRIPT_OUTPUT_TAIL_CAP_BYTES // len("界".encode())
+    per_stream = CAPTURED_OUTPUT_TAIL_CAP_BYTES // len("界".encode())
     assert diagnostics.count("界") == per_stream * 2
     assert "�" not in diagnostics
     # And the payload really is bounded in the unit the message names.
-    assert len(diagnostics.encode("utf-8")) <= 2 * SCRIPT_OUTPUT_TAIL_CAP_BYTES + 512
+    assert len(diagnostics.encode("utf-8")) <= 2 * CAPTURED_OUTPUT_TAIL_CAP_BYTES + 512
     assert "UTF-8 bytes (16 KiB)" in outcome.error.message
 
 
