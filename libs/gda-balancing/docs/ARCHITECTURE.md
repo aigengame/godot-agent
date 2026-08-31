@@ -161,7 +161,7 @@ flowchart TB
         direction TB
         subgraph UI["UI / Interfaces"]
             U["Structured CLI"]
-            T["Execution OHS adapters<br/>Resource-oriented HTTP · MCP"]
+            T["Execution OHS adapter<br/>Resource-oriented HTTP"]
             E["Execution Service Language<br/>shared OHS contract"]
 
             E -. "defines contract used by" .-> T
@@ -675,12 +675,13 @@ authority.
   `interfaces/cli` adapter owns Command descriptors, the immutable registry, schema and manifest
   projection, argv binding, help, rendering, envelopes, and exit codes. The proposed Execution OHS
   owns one Published Language for OHS-specific handles, selections, response framing, and shared OHS
-  errors. It does not own or copy Standard Schema contracts. Resource-oriented HTTP and MCP are
-  sibling adapters that use this language and call the same Application service directly. The
-  current HTTP adapter owns routes, methods, media types, status mapping, and HTTP error projection.
-  Its local companion host owns process authentication, readiness, status, shutdown, and the
-  in-process server lifecycle. An executable Interface entry point is the composition root for its
-  process. Interface adapters translate values. They do not implement language or evaluation rules
+  errors. It does not own or copy Standard Schema contracts. The current Resource-oriented HTTP
+  adapter uses this language and calls the Application service directly. It owns routes, methods,
+  media types, status mapping, and HTTP error projection. Its local companion host owns process
+  authentication, readiness, status, shutdown, and the in-process server lifecycle. An executable
+  Interface entry point is the composition root for its process. Interface adapters translate
+  values. They do not implement language or evaluation rules. Any future adapter must use the same
+  language and Application boundary rather than wrap HTTP or add another semantic path
   (bADR-0026/0027).
 - `application` coordinates one public use case at a time. It returns typed results or refusals. It
   also coordinates process-local Execution sessions, immutable Experiment revisions, and their
@@ -714,7 +715,7 @@ policy from domain-neutral storage mechanisms.
 
 | Layer | Subsystem | Responsibility | Produces or exposes |
 | --- | --- | --- | --- |
-| UI / Interfaces | Inbound adapters | Bind external protocols and present public outcomes without owning execution meaning | Structured CLI commands, Resource-oriented HTTP, future MCP, Surface manifest, envelopes, and protocol responses |
+| UI / Interfaces | Inbound adapters | Bind external protocols and present public outcomes without owning execution meaning | Structured CLI commands, Resource-oriented HTTP, Surface manifest, envelopes, and protocol responses |
 | UI / Interfaces | Execution OHS and Published Language | Define application-agnostic execution capabilities and only the OHS-specific integration contract | Session handles, revision selections, service-response framing, shared OHS errors, and derived adapter schemas |
 | Application | Public use cases | Coordinate each public operation and process-local Execution-session ordering without Interface protocol or presentation rules | Typed results or refusals, session/revision handles, plus publication receipts when the operation publishes artifacts |
 | Domain | Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, and admission outcome |
@@ -737,32 +738,29 @@ contracts instead of copying their fields into a transport-owned model.
 
 ```mermaid
 flowchart TB
-    C["Local applications · future local web applications · agent clients"]
+    C["Local applications · future local web applications"]
 
     subgraph IF["UI / Interfaces"]
         direction TB
         H["Resource-oriented HTTP adapter"]
-        M["MCP adapter"]
         P["Execution Service Language<br/>shared OHS contract"]
 
         P -. "defines contract used by" .-> H
-        P -. "defines contract used by" .-> M
     end
 
     A["Application<br/>protocol-neutral execution use cases"]
     D["Domain<br/>Standard Schema authorities and execution meaning"]
 
-    C -->|"uses one adapter"| H
-    C -->|"uses one adapter"| M
+    C -->|"uses"| H
     H -->|"invokes"| A
-    M -->|"invokes"| A
     A -->|"uses"| D
 ```
 
-The HTTP and MCP adapters are peers. Neither calls the other. The current HTTP API is
-Resource-oriented; it does not claim complete REST conformance. A demonstrated consumer need can
-justify additional REST constraints or a versioned contract change. MCP can add task-oriented tools
-or immutable resources without becoming a second execution service (bADR-0027).
+The current HTTP API is Resource-oriented; it does not claim complete REST conformance. A
+demonstrated consumer need can justify additional REST constraints or a versioned contract change.
+Another transport adapter, including MCP, is deferred until a concrete consumer requires it. A
+future adapter uses the same Published Language and calls Application directly; it does not wrap
+HTTP or become a second execution service (bADR-0027).
 
 ## 5. Language and semantic model
 
@@ -1578,7 +1576,8 @@ owned through model/experiment operations, not independent user workflows.
 The ungrouped `serve` command starts the local companion host for the loopback-only,
 Resource-oriented HTTP adapter. It is a foreground operational command, not a new semantic command
 group. bADR-0026 owns its accepted `/v1` transport and lifecycle boundaries. Proposed bADR-0027
-extracts the shared Execution OHS and Published Language without changing the current wire contract.
+extracts the shared Execution OHS and Published Language without changing the current HTTP protocol
+contract.
 
 Each command has one structured **Command descriptor** that owns its parameters, defaults,
 channels, outcome decoding, and schema reference. Help, structured parameter schema, `--schema`, and
@@ -1617,7 +1616,7 @@ coverage from implementation proof.
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
 | Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | The current #546 authority, compatible package closure, and `RPG-STAT-01` path are rebuilt, and production and independent consumers agree on the new primitive and package vectors. Earlier non-RPG and Roguelike results do not carry automatically; their current-identity evidence, the public Extension Invariance Receipt, and broader mechanic breadth remain open |
-| Operability | Descriptor-derived CLI, local Execution HTTP adapter, proposed Execution OHS and Published Language, immutable artifacts, idempotent invocation, receipts | Local descriptor, HTTP, and publication paths were exercised; the shared OHS contract, MCP adapter, production adapters, and complete public surface remain open |
+| Operability | Descriptor-derived CLI, local Execution HTTP adapter, proposed Execution OHS and Published Language, immutable artifacts, idempotent invocation, receipts | Local descriptor, HTTP, and publication paths were exercised; the shared OHS contract, production adapter extraction, and complete public surface remain open; additional transport adapters are deferred until a concrete consumer requires one |
 
 The current evidence supports these status statements:
 
@@ -2088,7 +2087,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Canonical Formula notation | [bADR-0024](badr/0024-canonical-reversible-formula-notation.md) | Formula pairing, parse/render, and JSON contract vectors |
 | Host implementation dependencies | [bADR-0025](badr/0025-dependency-directed-implementation-layers.md) | Import-direction gate, Interface-boundary regressions, and source/wheel parity |
 | Local Execution HTTP Interface | [bADR-0026](badr/0026-local-http-execution-service.md) | Loopback service, closed protocol, exact revisions, and CLI/HTTP parity vectors |
-| Execution OHS and Published Language | [bADR-0027](badr/0027-execution-open-host-service-and-published-language.md) | Issue #789 design acceptance, shared-contract extraction, adapter parity, and MCP tracer |
+| Execution OHS and Published Language | [bADR-0027](badr/0027-execution-open-host-service-and-published-language.md) | Issue #789 design acceptance, shared-contract extraction, authority conformance, and semantic HTTP parity |
 
 PRD #534 remains the live answer to “is this accepted and complete?” This document answers “what
 system are we building, where does each responsibility belong, and in what order can we prove it?”

@@ -1038,9 +1038,9 @@ _Avoid_: random seed (ambiguous), default seed
 
 **Execution Open Host Service**:
 The application-agnostic integration boundary that exposes execution capabilities through the
-`Execution Service Language`. Resource-oriented HTTP and MCP are sibling Interface adapters for
-this boundary; the OHS is not a tactical Domain Service, public-network deployment, or transport
-process (bADR-0027).
+`Execution Service Language`. Resource-oriented HTTP is its current Interface adapter. A future
+adapter uses the same language and Application boundary when a concrete consumer justifies it; the
+OHS is not a tactical Domain Service, public-network deployment, or transport process (bADR-0027).
 _Avoid_: Domain Service, playtest service, HTTP service (unqualified)
 
 **Execution Service Language**:
@@ -1050,7 +1050,7 @@ errors. It references authority-owned Standard Schema contracts and never copies
 schemas, rules, semantics, identities, outcomes, or refusals. Its initial contract is `Execution
 Service Language revision 1`, a compatibility label rather than a Package Release coordinate or
 transport version (bADR-0027).
-_Avoid_: HTTP schema, MCP schema, second Standard Schema
+_Avoid_: transport-owned schema, second Standard Schema
 
 ### Runtime
 
