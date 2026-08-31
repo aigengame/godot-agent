@@ -55,7 +55,7 @@ from typer._click.exceptions import NoSuchOption, UsageError
 from typer._click.globals import get_current_context
 
 from gda.errors import Failure, make_failure
-from gda.headless import emit_failure, root_json
+from gda.headless import ancestor_json, emit_failure
 
 # The two registered codes this module reports (ADR-0002, the `usage` category).
 UNKNOWN_COMMAND = "unknown_command"
@@ -139,28 +139,15 @@ NEAR_MISSES: dict[tuple[str, ...], NearMiss] = {
 }
 
 
-def near_miss(
-    path: tuple[str, ...], token: str, *, on_group: bool
-) -> Optional[NearMiss]:
+def near_miss(path: tuple[str, ...], token: str) -> Optional[NearMiss]:
     """The curated correction for ``token`` under ``path``, or ``None``.
 
-    The table is consulted first. The one rule that is NOT a spelling row follows: a
-    ``--json`` rejected by a GROUP's own parser. Its correction depends on which group
-    was addressed rather than on the group's name, and every group (including any
-    added later) has it, so it is keyed on that SHAPE instead of on fifteen identical
-    rows. It is also the spelling the bundled Skill documents as a usage error, which
-    is how an agent that reads the guidance still ends up here.
+    Table lookups only. A group's ``--json`` was once corrected here by a rule keyed
+    on the tree SHAPE rather than on a spelling; #683 gave every group the option, so
+    the rule went with it — a hint pointing away from an invocation that now works
+    would be worse than none.
     """
-    hit = NEAR_MISSES.get((*path, token))
-    if hit is not None:
-        return hit
-    if on_group and token == "--json" and path:
-        return NearMiss(
-            f"gda {' '.join(path)} <command> --json",
-            "a group's own parser takes only `--help`; `--json` belongs to the "
-            "command, or to the root before it",
-        )
-    return None
+    return NEAR_MISSES.get((*path, token))
 
 
 def _context_path(ctx: ClickContext) -> tuple[str, ...]:
@@ -197,10 +184,11 @@ def _json_in_effect(ctx: ClickContext) -> bool:
 
     1. The command's OWN resolved flag, when the refusal is decided after its parse —
        which is the case for ``gda help <unknown>``. It already carries an inherited
-       root ``--json`` (``gda.headless._inherit_root_json``), so it answers for both
-       spellings wherever it exists.
-    2. The root ``--json``, recorded when the root callback bound it (#671) — the
-       reading available at parse time, before any command's params exist.
+       ancestor ``--json`` (``gda.headless._inherit_ancestor_json``), so it answers
+       for every spelling wherever it exists.
+    2. The ancestor ``--json``, recorded when the root callback (#671) or a group's
+       (#683) bound it — the reading available at parse time, before any command's
+       params exist.
     3. The literal token in the recorded argv. A ``--json`` written AFTER the
        offending token never parses, because the command or option it would have
        belonged to does not exist, so the token itself is the only evidence of the
@@ -209,7 +197,7 @@ def _json_in_effect(ctx: ClickContext) -> bool:
     """
     if bool(ctx.params.get("json_output")):
         return True
-    if root_json(ctx):
+    if ancestor_json(ctx):
         return True
     return "--json" in ctx.meta.get(RAW_ARGV_META_KEY, ())
 
@@ -249,7 +237,7 @@ def unknown_command(path: tuple[str, ...], token: str) -> Refusal:
     two arms agree verbatim even under ``python -m gda``, whose own name is
     ``python -m gda``.
     """
-    hit = near_miss(path, token, on_group=False)
+    hit = near_miss(path, token)
     named = " ".join([CLI_NAME, *path, token])
     return Refusal(
         UNKNOWN_COMMAND,
@@ -261,11 +249,11 @@ def unknown_command(path: tuple[str, ...], token: str) -> Refusal:
 def unknown_option(path: tuple[str, ...], token: str, *, on_group: bool) -> Refusal:
     """The refusal for option ``token`` on the command ``path`` names.
 
-    ``on_group`` picks the remedy, not the wording: a GROUP has only ``--help`` to
-    read, while a leaf command also has ``--schema`` — its machine-readable input
+    ``on_group`` picks the remedy, not the wording: a GROUP is read with ``--help``
+    alone, while a leaf command also has ``--schema`` — its machine-readable input
     contract, which is what an agent should read next.
     """
-    hit = near_miss(path, token, on_group=on_group)
+    hit = near_miss(path, token)
     named = " ".join([CLI_NAME, *path])
     fallback = f"run `{named} --help` for the options it takes"
     if not on_group:

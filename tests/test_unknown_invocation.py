@@ -143,18 +143,6 @@ def test_script_run_script_option_points_at_the_positional_form():
     assert error["hint"] == "gda script run <path>"
 
 
-def test_a_groups_json_flag_points_at_the_command_that_takes_it():
-    # The one refusal keyed on the tree SHAPE rather than on a spelling: a group's own
-    # parser takes only `--help`, so `gda <group> --json` is rejected there — the
-    # spelling the Skill already documents as a usage error. Keyed on shape, so every
-    # group (and any group added later) is covered without a row each.
-    result = CliRunner().invoke(app, ["scene", "--json"])
-
-    error = _envelope(result)
-    assert error["code"] == UNKNOWN_OPTION
-    assert error["hint"] == "gda scene <command> --json"
-
-
 # --- the table is the single authority, and it stays honest -------------------
 
 

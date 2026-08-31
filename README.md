@@ -643,7 +643,7 @@ input event.
 
 | Flag       | Description                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. Also accepted at the root: `gda --json <group> <command>` means the same as passing it after the command. |
+| `--json`    | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. Accepted before the command too: `gda --json <group> <command>` and `gda <group> --json <command>` mean the same as passing it after the command. |
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |

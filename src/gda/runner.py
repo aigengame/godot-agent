@@ -90,7 +90,7 @@ class RunResult:
 # The per-invocation user-data root the CLI resolved, or ``None`` for the engine
 # default. Process-wide because it is process-wide CONFIG, not an operation
 # parameter: it is set once from the root ``--user-data-root`` option (the same
-# hand-over shape as ``gda.headless.set_root_json``) and every later launch on any
+# hand-over shape as ``gda.headless.set_ancestor_json``) and every later launch on any
 # channel inherits it, so no channel has to plumb it through the runner seam.
 #
 # ``None`` means the option was ABSENT. An empty string means it was given empty,
