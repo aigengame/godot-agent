@@ -902,6 +902,32 @@ traversal itself: the two walks are one recursive walker asked two different acc
 questions. A shared traversal is not a shared universe — `project statistics` keeps
 counting the sidecars and the project file the other walk will never see.
 
+**One graph node per file, whatever a declaration spells it (#774).** One file has many
+spellings, and the three graph reads key on the file the engine resolves rather than on the
+spelling. Two spellings reach the same file, and each needs its own fold:
+
+- an **alias** of an absolute address — `res://sub/../leaf.tscn` for `res://leaf.tscn` —
+  which the engine's `simplify_path` folds;
+- a **relative** address, which the engine resolves against the directory of the file that
+  DECLARES it. `path="../shared/leaf.tscn"` in `res://scenes/main.tscn` loads
+  `res://shared/leaf.tscn`, and `preload("../shared/x.gd")` in `res://scripts/user.gd` loads
+  `res://shared/x.gd`. Such a path is anchored to that directory first, then simplified.
+
+Every harvested path is folded this way — an `[ext_resource]` line and a
+`preload()`/`load()`/`extends` argument by the rule above; `project.godot`'s main scene and
+autoload entries, and the `find-references` target, are absolute already and are only
+simplified. So `dependencies` reports the resolved path (never a bare `../…` that names no
+file), `find-references` matches whichever side is aliased or relative (a folded declaration
+with a canonical query, and the reverse), and `find-unused-resources` never reports a
+resource that something references under another spelling. `project statistics` reads
+`project.godot` through the same accessor, so the autoload paths it lists are canonical too.
+
+The echoed `target` keeps the caller's own spelling, and each reference's `context` keeps the
+line as written — only the matching is folded, so an agent still sees the text it must edit.
+A `class_name` target is no path at all. Keying on the raw spelling broke all three reads at
+once: `find-unused-resources` listed an instanced scene, which is wrong advice with a
+destructive follow-up.
+
 ---
 
 ## Phase 2 — live domain commands (served by `gda-daemon`)

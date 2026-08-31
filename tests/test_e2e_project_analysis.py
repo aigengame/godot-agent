@@ -617,3 +617,304 @@ def test_project_walks_agree_on_a_nested_dot_godot_directory(tmp_path):
     # otherwise BOTH be dependency source rows and unused candidates, so this
     # arm fails if the exclusion ever widens past `res://.godot` itself.
     assert not any(p.startswith("res://.godot/") for p in [*by_source, *unused])
+
+
+# --- alias spellings are one graph node (#774) -------------------------------
+#
+# A `res://` address has many lexical spellings for one file: `res://leaf.tscn`
+# and `res://sub/../leaf.tscn` are the SAME file to the engine, which folds every
+# address through `simplify_path` before it resolves one. The three graph reads
+# used to key on the raw spelling instead, so an aliased declaration made a graph
+# node no file on disk answered to, `find-references` for the real path missed the
+# reference, and `find-unused-resources` therefore advised deleting a scene the
+# project instances. These tests pin the identity on BOTH sides of the comparison
+# — the harvested declaration and the caller's query — over every harvest site:
+# an `[ext_resource]` line, a `preload()` argument, and `project.godot`'s own
+# main-scene and autoload entries.
+
+ALIAS_PROJECT_GODOT = project_godot(
+    name="gda-alias-fixture",
+    extra="""\
+run/main_scene="res://sub/../parent.tscn"
+
+[autoload]
+
+Hud="*res://sub/../hud.tscn"
+""",
+)
+
+# The aliased [ext_resource] declaration: parent.tscn really instances leaf.tscn,
+# the engine resolves the spelling, and the graph must agree that it does. It also
+# instances nested.tscn under a RELATIVE spelling — no `res://` prefix at all, which
+# the engine resolves against parent.tscn's own directory (the project root here).
+ALIAS_PARENT_TSCN = """\
+[gd_scene load_steps=3 format=3 uid="uid://baliasparent"]
+
+[ext_resource type="PackedScene" path="res://sub/../leaf.tscn" id="1_leaf"]
+[ext_resource type="PackedScene" path="scenes/nested.tscn" id="2_nested"]
+
+[node name="Parent" type="Node2D"]
+
+[node name="Leaf" parent="." instance=ExtResource("1_leaf")]
+
+[node name="Nested" parent="." instance=ExtResource("2_nested")]
+"""
+
+ALIAS_LEAF_TSCN = """\
+[gd_scene format=3 uid="uid://baliasleaf"]
+
+[node name="Leaf" type="Node2D"]
+"""
+
+# The relative declaration that ESCAPES its own directory: nested.tscn lives in
+# res://scenes/, and the engine resolves `../shared/deep.tscn` from there to
+# res://shared/deep.tscn (measured on 4.6.3). Canonicalizing this spelling without
+# first anchoring it to the DECLARING file's directory leaves `../shared/deep.tscn`
+# unchanged — a graph node no file on disk answers to.
+ALIAS_NESTED_TSCN = """\
+[gd_scene load_steps=2 format=3 uid="uid://baliasnested"]
+
+[ext_resource type="PackedScene" path="../shared/deep.tscn" id="1_deep"]
+
+[node name="Nested" type="Node2D"]
+
+[node name="Deep" parent="." instance=ExtResource("1_deep")]
+"""
+
+ALIAS_DEEP_TSCN = """\
+[gd_scene format=3 uid="uid://baliasdeep"]
+
+[node name="Deep" type="Node2D"]
+"""
+
+# The autoload scene, named by project.godot under an aliased spelling.
+ALIAS_HUD_TSCN = """\
+[gd_scene format=3 uid="uid://baliashud"]
+
+[node name="Hud" type="Node"]
+"""
+
+# The reverse direction: a CANONICAL declaration the query aliases.
+ALIAS_CANONICAL_TSCN = """\
+[gd_scene load_steps=2 format=3 uid="uid://baliascanon"]
+
+[ext_resource type="Texture2D" path="res://icon.png" id="1_icon"]
+
+[node name="Canonical" type="Sprite2D"]
+texture = ExtResource("1_icon")
+"""
+
+# The script-side harvest site: an already-prefixed, aliased preload argument.
+ALIAS_USER_GD = """\
+extends Node
+
+const Helper = preload("res://sub/../helper.gd")
+"""
+
+ALIAS_HELPER_GD = """\
+extends RefCounted
+"""
+
+ALIAS_ORPHAN_TRES = """\
+[gd_resource type="Resource" format=3]
+
+[resource]
+"""
+
+
+@pytest.fixture
+def alias_project(tmp_path):
+    """A project whose references are declared under alias spellings (#774).
+
+    Every reference here names a file that really exists and that the engine
+    really resolves; only the SPELLING is aliased. ``sub/`` is a real directory
+    (it holds the orphan) so the aliases read as something an agent would
+    plausibly write, not as a synthetic string.
+
+    Two families of spelling are covered, because they need two different folds:
+    an ALIAS of an absolute address (``res://sub/../leaf.tscn``), which only needs
+    simplifying, and a RELATIVE address (``scenes/nested.tscn`` from the root,
+    ``../shared/deep.tscn`` from ``res://scenes/``), which must first be anchored
+    to the DECLARING file's own directory — the way the engine resolves it.
+    """
+    (tmp_path / "project.godot").write_text(ALIAS_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "parent.tscn").write_text(ALIAS_PARENT_TSCN, encoding="utf-8")
+    (tmp_path / "leaf.tscn").write_text(ALIAS_LEAF_TSCN, encoding="utf-8")
+    (tmp_path / "hud.tscn").write_text(ALIAS_HUD_TSCN, encoding="utf-8")
+    (tmp_path / "canonical.tscn").write_text(ALIAS_CANONICAL_TSCN, encoding="utf-8")
+    (tmp_path / "user.gd").write_text(ALIAS_USER_GD, encoding="utf-8")
+    (tmp_path / "helper.gd").write_text(ALIAS_HELPER_GD, encoding="utf-8")
+    (tmp_path / "icon.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "orphan.tres").write_text(ALIAS_ORPHAN_TRES, encoding="utf-8")
+    scenes = tmp_path / "scenes"
+    scenes.mkdir()
+    (scenes / "nested.tscn").write_text(ALIAS_NESTED_TSCN, encoding="utf-8")
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "deep.tscn").write_text(ALIAS_DEEP_TSCN, encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.e2e
+def test_dependencies_keys_an_aliased_declaration_canonically(alias_project):
+    proc = _gda(alias_project, "project", "dependencies", "--json")
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    by_source = {
+        row["path"]: row["depends_on"]
+        for row in json.loads(proc.stdout)["dependencies"]
+    }
+
+    # The aliased [ext_resource] and the aliased preload both report the file the
+    # engine resolves, not the spelling the declaration used. parent.tscn's second
+    # reference is spelled RELATIVE ("scenes/nested.tscn") and must be anchored to
+    # the declaring file's directory before it is canonicalized.
+    assert by_source["res://parent.tscn"] == [
+        {"path": "res://leaf.tscn", "kind": "ext_resource"},
+        {"path": "res://scenes/nested.tscn", "kind": "ext_resource"},
+    ]
+    # The relative reference that ESCAPES its own directory, resolved from the
+    # declaring file rather than from the project root.
+    assert by_source["res://scenes/nested.tscn"] == [
+        {"path": "res://shared/deep.tscn", "kind": "ext_resource"}
+    ]
+    assert by_source["res://user.gd"] == [
+        {"path": "res://helper.gd", "kind": "preload"}
+    ]
+    # No graph node names a path that no file on disk answers to. Both arms are
+    # load-bearing: `..` catches an unanchored `../shared/deep.tscn`, and the
+    # `res://` prefix catches an unanchored `scenes/nested.tscn`, which carries no
+    # `..` to be caught by.
+    named = {dep["path"] for deps in by_source.values() for dep in deps}
+    assert not any(".." in path.split("/") for path in named), named
+    assert all(path.startswith("res://") for path in named), named
+
+
+@pytest.mark.e2e
+def test_find_references_matches_an_aliased_declaration_from_a_canonical_query(
+    alias_project,
+):
+    scene = _gda(
+        alias_project, "project", "find-references", "res://leaf.tscn", "--json"
+    )
+    script = _gda(
+        alias_project, "project", "find-references", "res://helper.gd", "--json"
+    )
+
+    assert scene.returncode == 0, scene.stdout + scene.stderr
+    assert script.returncode == 0, script.stdout + script.stderr
+    assert [(r["path"], r["kind"]) for r in json.loads(scene.stdout)["references"]] == [
+        ("res://parent.tscn", "ext_resource")
+    ]
+    assert [
+        (r["path"], r["kind"]) for r in json.loads(script.stdout)["references"]
+    ] == [("res://user.gd", "preload")]
+
+
+@pytest.mark.e2e
+def test_find_references_matches_a_relative_declaration(alias_project):
+    # The reference is declared `../shared/deep.tscn` from res://scenes/nested.tscn;
+    # the engine loads res://shared/deep.tscn, so a query for that path must find
+    # the declaring site. Reported empty before the declaring file's directory was
+    # used to anchor the spelling.
+    deep = _gda(
+        alias_project, "project", "find-references", "res://shared/deep.tscn", "--json"
+    )
+    # And the prefix-less relative form, declared `scenes/nested.tscn` from the
+    # project root — a spelling with no `..` in it at all.
+    nested = _gda(
+        alias_project,
+        "project",
+        "find-references",
+        "res://scenes/nested.tscn",
+        "--json",
+    )
+
+    assert deep.returncode == 0, deep.stdout + deep.stderr
+    assert nested.returncode == 0, nested.stdout + nested.stderr
+    assert [(r["path"], r["kind"]) for r in json.loads(deep.stdout)["references"]] == [
+        ("res://scenes/nested.tscn", "ext_resource")
+    ]
+    assert [
+        (r["path"], r["kind"]) for r in json.loads(nested.stdout)["references"]
+    ] == [("res://parent.tscn", "ext_resource")]
+    # The context is the line as written, so the agent still sees the spelling it
+    # must edit — only the MATCHING is normalized.
+    assert (
+        '"../shared/deep.tscn"' in json.loads(deep.stdout)["references"][0]["context"]
+    )
+
+
+@pytest.mark.e2e
+def test_find_references_matches_a_canonical_declaration_from_an_aliased_query(
+    alias_project,
+):
+    proc = _gda(
+        alias_project,
+        "project",
+        "find-references",
+        "res://sub/../icon.png",
+        "--json",
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    data = json.loads(proc.stdout)
+    # The echoed target keeps the caller's own spelling; the MATCHING does not.
+    assert data["target"] == "res://sub/../icon.png"
+    assert [(r["path"], r["kind"]) for r in data["references"]] == [
+        ("res://canonical.tscn", "ext_resource")
+    ]
+
+
+@pytest.mark.e2e
+def test_find_references_matches_an_aliased_project_level_entry(alias_project):
+    # project.godot is a harvest site too: its main scene and autoloads name a
+    # resource by path the way an ext_resource line does.
+    main = _gda(
+        alias_project, "project", "find-references", "res://parent.tscn", "--json"
+    )
+    autoload = _gda(
+        alias_project, "project", "find-references", "res://hud.tscn", "--json"
+    )
+
+    assert main.returncode == 0, main.stdout + main.stderr
+    assert autoload.returncode == 0, autoload.stdout + autoload.stderr
+    assert ("project.godot", "main_scene") in {
+        (r["path"], r["kind"]) for r in json.loads(main.stdout)["references"]
+    }
+    assert ("project.godot", "autoload") in {
+        (r["path"], r["kind"]) for r in json.loads(autoload.stdout)["references"]
+    }
+
+
+@pytest.mark.e2e
+def test_find_unused_resources_never_lists_an_aliased_reference(alias_project):
+    proc = _gda(alias_project, "project", "find-unused-resources", "--json")
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    unused = json.loads(proc.stdout)["unused"]
+
+    # The destructive advice this issue is about: leaf.tscn is instanced by
+    # parent.tscn, and parent.tscn/hud.tscn are project entry points — all three
+    # under alias spellings. None of them is deletable.
+    assert "res://leaf.tscn" not in unused
+    assert "res://parent.tscn" not in unused
+    assert "res://hud.tscn" not in unused
+    assert "res://icon.png" not in unused
+    # Same advice, reached through the RELATIVE spellings: nested.tscn is instanced
+    # by the main scene and deep.tscn by nested.tscn. Before the anchor, both were
+    # reported deletable — including a scene the project's own main scene loads.
+    assert "res://scenes/nested.tscn" not in unused
+    assert "res://shared/deep.tscn" not in unused
+    # The report still works: the genuinely unreferenced resource is reported.
+    assert "res://sub/orphan.tres" in unused
+
+    # The consistency criterion holds under alias spellings too: unused means
+    # exactly "find-references returns empty".
+    for path in unused:
+        refs = json.loads(
+            _gda(alias_project, "project", "find-references", path, "--json").stdout
+        )["references"]
+        assert refs == [], f"{path} reported unused but has references {refs}"
