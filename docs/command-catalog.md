@@ -755,6 +755,17 @@ arms that abort even though it is recognized (#722): it interrupts nothing — e
 continues at the next statement — so a script that reports an invariant and then computes
 quietly is alive by construction. It does appear in the run's `diagnostics`, which are advisory:
 a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
+`script run` takes the two portable script-path forms — a `res://` address and a
+project-relative path — and decides the whole path edge before any launch (ADR-0031). Six
+shapes are `invalid_path`: an absolute path, another engine scheme, a leading `~`, a path
+naming the project root, an address whose trailing code point Godot's `strip_edges`
+removes, and one carrying an engine-log line boundary. A path **escaping above the root**
+is the shared containment verdict instead, `target_outside_project` (ADR-0006 amendment,
+#697/#763) — the code `script validate` and `resource import` report for the same
+condition; it names no root, because this edge is decided ahead of the projectless check.
+The resolved project must also OWN the script: a nearer `project.godot` between the two is
+the same refusal, naming the owner to pass.
+
 Every `script run` failure that computed evidence also carries it as DATA on the
 envelope's optional `evidence` key (#687): the child's own `exit_status` on `--strict`'s
 `script_failed`; `elapsed_seconds` / `termination_phase` on the two gda-ended envelopes,
@@ -876,7 +887,12 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 **Scoped import surface** (shipped, #668, per the issue's revised contract): a clean
 worktree carries the sources and their committed `.import` sidecars but not the gitignored
 `.godot/` cache, so a one-shot run's `preload()` of e.g. a PNG fails with "no recognized
-resource loader" (GDA-DF-010). `resource import ASSETS... [--dry-run] [--timeout S]` reads
+resource loader" (GDA-DF-010). An asset is named as a `res://` address or a filesystem path
+inside the project; both go through ADR-0006's one containment check, so a spelling that
+still climbs above the root once canonicalized — `\` folded to `/` as the engine folds it —
+is `target_outside_project` (#763), while one that collapses back inside (`res://foo/../a.png`)
+is accepted, exactly as the script commands accept it. `user://`/`uid://` name no project
+asset and stay `invalid_params`. `resource import ASSETS... [--dry-run] [--timeout S]` reads
 each requested asset's EVIDENCE STATE from the same project artifacts the engine's own
 reimport test reads: `cached` needs positive ARTIFACT-level evidence (a keep/skip
 importer, or the PATH-derived `.md5` receipt present with `source_md5`/`dest_md5`
