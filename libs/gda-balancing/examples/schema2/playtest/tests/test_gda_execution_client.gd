@@ -11,7 +11,6 @@ func _init() -> void:
 
 
 func _run() -> void:
-	_expect_provenance_projection()
 	var executable := OS.get_environment("GDA_BALANCING_EXECUTABLE")
 	_expect(not executable.is_empty(), "test executable is provided")
 	if executable.is_empty():
@@ -68,70 +67,6 @@ func _run() -> void:
 	_expect(stopped.get("ok", false), "client shuts down its service process")
 	client.queue_free()
 	_finish()
-
-
-func _expect_provenance_projection() -> void:
-	for primary_kind in ["evaluation-run", "experiment-verdict"]:
-		var projected := GdaExecutionClient.project_run_provenance(
-			_provenance_run(primary_kind)
-		)
-		_expect(
-			projected.get("primary_artifact_kind") == primary_kind,
-			"%s is retained as the primary artifact" % primary_kind,
-		)
-		for member in [
-			"primary_artifact_identity",
-			"experiment_identity",
-			"event_trace_identity",
-			"snapshot_series_identity",
-			"metric_dataset_identity",
-			"reproduction_receipt_identity",
-		]:
-			_expect(
-				not str(projected.get(member, "")).is_empty(),
-				"%s provenance includes %s" % [primary_kind, member],
-			)
-	var incomplete := _provenance_run("evaluation-run")
-	incomplete["artifacts"].erase("metric-dataset")
-	_expect(
-		GdaExecutionClient.project_run_provenance(incomplete).is_empty(),
-		"incomplete provenance is refused",
-	)
-
-
-func _provenance_run(primary_kind: String) -> Dictionary:
-	var artifacts := {
-		"event-trace": {
-			"artifact_kind": "event-trace",
-			"content_identity": "trace-id",
-			"experiment_identity": "experiment-id",
-		},
-		"snapshot-series": {
-			"artifact_kind": "snapshot-series",
-			"content_identity": "snapshots-id",
-			"experiment_identity": "experiment-id",
-		},
-		"metric-dataset": {
-			"artifact_kind": "metric-dataset",
-			"content_identity": "metrics-id",
-			"experiment_identity": "experiment-id",
-		},
-		"reproduction-receipt": {
-			"artifact_kind": "reproduction-receipt",
-			"content_identity": "receipt-id",
-			"experiment_identity": "experiment-id",
-		},
-	}
-	artifacts[primary_kind] = {
-		"artifact_kind": primary_kind,
-		"content_identity": "primary-id",
-		"experiment_identity": "experiment-id",
-		"event_trace_identity": "trace-id",
-		"snapshot_series_identity": "snapshots-id",
-		"metric_dataset_identity": "metrics-id",
-		"reproduction_receipt_identity": "receipt-id",
-	}
-	return {"artifacts": artifacts}
 
 
 func _expect_compatibility_gate(client: Node) -> void:

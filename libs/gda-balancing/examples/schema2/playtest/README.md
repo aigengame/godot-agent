@@ -155,6 +155,8 @@ ui/<application> -> content/<application> -> content/playtest_execution_coordina
 - `content/playtest_execution_coordinator.gd` coordinates service startup, Execution-session
   creation, exact-revision admission and execution, retry cleanup, deletion, and shutdown. It
   reports the failed lifecycle stage and preserves the original service or refusal payload.
+- `content/playtest_run_provenance.gd` validates shared artifact identities and projects the opaque
+  maintainer provenance that Content can include in saved feedback.
 - `systems/` is optional. It advances validated gameplay values when an application has a gameplay
   state machine. It does not parse protocol or Standard Schema structures and does not repeat
   calculations already performed by `gda-balancing`. Attack Damage Training consumes validated
