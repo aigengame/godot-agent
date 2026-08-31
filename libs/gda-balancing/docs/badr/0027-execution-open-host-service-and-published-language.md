@@ -60,8 +60,9 @@ would force any later adapter either to copy the contract or to call HTTP.
 
 Execution Service Language revision 1 contains four execution capabilities. The following table
 maps the shared contract to the current Pydantic shapes and routes without copying their complete
-schemas. Model Source Packages, Experiment Specifications, artifact members, and
-`Schema2RefusalReport` remain references to their authority-owned contracts.
+schemas. Model Source Packages, Experiment Specifications, and artifact members remain opaque
+values governed by their authority-owned contracts. `Schema2RefusalReport` remains the reused
+authority-owned refusal contract.
 
 | Shared capability | Shared input and result | Current HTTP shape | Current route |
 | --- | --- | --- | --- |
@@ -174,7 +175,9 @@ shared OHS error remains distinct from a Domain refusal and from an adapter pars
   shapes. The first implementation slice moves only the shared contract and preserves semantic HTTP
   behavior.
 - The HTTP projection and any later adapter projection must derive from the one Published-Language
-  owner and must refer to authority-owned Standard Schema contracts.
+  owner. Revision 1 keeps nested Standard Schema values opaque and leaves their validation or
+  production to the exact Domain authority. A later combined schema must use resolvable references
+  if a demonstrated consumer requires that projection.
 - Existing playtests remain HTTP consumers. They gain no Kernel, LDB, or artifact awareness.
 - bADR-0026 remains accepted for the current local host and `/v1` behavior. This decision refines
   only the shared integration ownership and the rule for future adapters.
@@ -187,9 +190,11 @@ shared OHS error remains distinct from a Domain refusal and from an adapter pars
    Start from before-change HTTP contract cases and preserve `/v1` routes, methods, normative
    headers, statuses, closed decoded JSON shapes and values, identities, error codes, ordering,
    authentication, lifecycle, and playtest use under Execution Service Language revision 1.
-3. **Authority conformance**: prove that integration schemas reference authority-owned Standard
-   Schema contracts and cannot retain a copied stale shape. Include positive, refusal, boundary,
-   and mutation cases.
+3. **Authority conformance**: prove that the integration schemas close OHS envelopes, leave nested
+   authority-owned values opaque and unchanged, and delegate their validation or production to the
+   exact Domain authority. Include positive, refusal, boundary, and mutation cases. If a later
+   demonstrated need adds a combined schema, prove that it uses resolvable authority-owned
+   references instead of copied shapes.
 4. **HTTP adoption**: make the Resource-oriented HTTP adapter consume the shared contract. Retain
    bADR-0026 lifecycle, security, failure, and source/wheel evidence.
 5. **Stop at the accepted scope**: add no MCP-specific production artifact or gate. Deeper REST,
