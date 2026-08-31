@@ -227,8 +227,8 @@ the params contract states the two bounds are not cross-checked. That verdict ca
 evidence the launch measured, the same two numbers the `launch_timeout` envelope reports on
 every other channel: `elapsed_seconds`, how long the run actually took, beside `timeout_seconds`,
 the `--timeout` it reached — so an agent can tell the two causes apart instead of re-running to
-find out. Both keys appear on the `timeout` verdict only, and are omitted (never null) from
-every other one, which nothing bounded (#787). Only addressing and environment problems fail: `path_not_found`,
+find out. Both keys appear on the `timeout` verdict only; every other verdict omits them
+rather than reporting null, because nothing bounded that run (#787). Only addressing and environment problems fail: `path_not_found`,
 `invalid_path`, `not_a_scene`, preflight's `missing_dependency` for a scene the engine cannot
 instantiate at all, and the shared binary/crash envelopes. One case that looks like a refusal but
 is a verdict: an unresolvable `[ext_resource]` referenced from a `[sub_resource]` (an
