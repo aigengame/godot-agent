@@ -8044,9 +8044,9 @@ def test_program_reachability_keeps_required_and_supported_policies_separate(
     refused = experiment_runtime_module.prepare_experiment(mutated_checked)
     assert isinstance(refused, Schema2RefusalReport)
     assert refused.stage == "resolution"
-    assert refused.diagnostics[0].primary.pointer == (
-        "/runtime/required_evaluator/instruction_nodes"
-    )
+    primary = refused.diagnostics[0].primary
+    assert isinstance(primary, ArtifactLocation)
+    assert primary.pointer == "/runtime/required_evaluator/instruction_nodes"
 
 
 def test_evaluator_build_identity_covers_only_domain_implementation(monkeypatch):
