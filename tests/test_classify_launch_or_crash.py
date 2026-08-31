@@ -1,12 +1,17 @@
-"""classify_launch_or_crash — the env/crash classifier prefix (issue #185).
+"""classify_launch_or_crash — the env/crash classifier prefix (issues #185, #714).
 
-Both headless channels open classification with the same env/crash prefix: a
+Every headless channel opens classification with the same env/crash prefix: a
 synthesized ``NOT_FOUND`` launch failure → ``binary_not_found``, a synthesized
 ``TIMEOUT`` → ``launch_timeout``, and a signal death (``exit < 0``) →
 ``engine_crashed``; anything else returns ``None`` so the caller's
 channel-specific tail takes over. That mapping used to be written (and asserted)
 twice — once in ``classify_run``, once in ``classify_export_run``. It now lives in
 one shared function, tested here once; each channel's suite keeps only its tail.
+
+The ``TIMEOUT`` arm is where being ONE function pays: the sentinel, export and
+import channels reach it through three different classifiers, so the evidence a
+hung run reports — its captured output, the ceiling it reached and the wall clock
+it spent — is asserted here once and holds for all three (#714).
 
 Environment failures key on the runner's typed ``launch_failure`` reason, not the
 exit code, so an engine (or wrapper) that *genuinely* exits 124/127 falls through
@@ -17,10 +22,14 @@ fall-through is asserted here, the operation classification in each channel suit
 
 from pathlib import Path
 
-from gda.errors import Failure, classify_launch_or_crash
+from gda.errors import (
+    CAPTURED_OUTPUT_TAIL_CAP_BYTES,
+    Failure,
+    classify_launch_or_crash,
+)
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
 from gda.models import ErrorCategory
-from gda.runner import LaunchFailure, RunResult
+from gda.runner import LaunchFailure, RunResult, TimeoutBound
 
 BINARY = Path("/x/Godot")
 
@@ -47,7 +56,7 @@ def test_synthesized_not_found_maps_to_binary_not_found():
 def test_synthesized_timeout_maps_to_launch_timeout_distinct_from_not_found():
     result = RunResult(
         stdout="",
-        stderr="gda: Godot timed out after 60.0s\n",
+        stderr="",
         exit_code=EXIT_TIMEOUT,
         launch_failure=LaunchFailure.TIMEOUT,
     )
@@ -58,6 +67,85 @@ def test_synthesized_timeout_maps_to_launch_timeout_distinct_from_not_found():
     assert failure.exit_code == EXIT_TIMEOUT
     assert failure.error.category == ErrorCategory.ENVIRONMENT
     assert failure.error.code == "launch_timeout"
+
+
+def test_a_timeout_carries_the_captured_output_the_ceiling_and_the_clock():
+    # THE #714 acceptance criterion, asserted on the ONE branch all three buffered
+    # channels open with. Before it, a hung sentinel op / export / import pass came
+    # back with nothing but "gda: <label> timed out after <n>s": the engine's own
+    # output was discarded by the buffered capture, and the envelope reported
+    # neither how long the run had actually taken nor how far it got.
+    result = RunResult(
+        stdout="[  50% ] exporting resources\n",
+        stderr="ERROR: the exporter wedged\n",
+        exit_code=EXIT_TIMEOUT,
+        launch_failure=LaunchFailure.TIMEOUT,
+        elapsed_seconds=601.25,
+        timeout_bound=TimeoutBound("Godot export", 600.0),
+    )
+
+    failure = classify_launch_or_crash(result, BINARY)
+
+    assert isinstance(failure, Failure)
+    assert failure.error.code == "launch_timeout"
+    # WHICH launch gave up, the ceiling it reached, and the wall clock it spent —
+    # the three numbers that tell a merely-slow run from a stuck one.
+    assert failure.error.message.startswith("Godot export launched but did not return")
+    assert "timeout of 600.0s" in failure.error.message
+    assert "elapsed 601.25s" in failure.error.message
+    # The cap is STATED, so a caller knows the diagnostics are a tail and not all.
+    assert f"{CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB)" in (
+        failure.error.message
+    )
+    # And both streams are carried under fixed labels, so one split reads either.
+    assert failure.error.diagnostics == (
+        "--- captured stdout ---\n[  50% ] exporting resources\n"
+        "--- captured stderr ---\nERROR: the exporter wedged\n"
+    )
+
+
+def test_a_timeout_tail_caps_each_captured_stream():
+    # `diagnostics` is serialized inline in the JSON result, so a run that looped for
+    # ten minutes must not put ten minutes of output in an error envelope. The TAIL
+    # is what is kept: where the run got to is the interesting end.
+    result = RunResult(
+        stdout="x" * (CAPTURED_OUTPUT_TAIL_CAP_BYTES * 2) + "LAST LINE\n",
+        stderr="y" * (CAPTURED_OUTPUT_TAIL_CAP_BYTES * 2),
+        exit_code=EXIT_TIMEOUT,
+        launch_failure=LaunchFailure.TIMEOUT,
+        elapsed_seconds=60.0,
+        timeout_bound=TimeoutBound("Godot", 60.0),
+    )
+
+    failure = classify_launch_or_crash(result, BINARY)
+
+    assert isinstance(failure, Failure)
+    diagnostics = failure.error.diagnostics
+    assert "LAST LINE" in diagnostics
+    assert diagnostics.count("x") == CAPTURED_OUTPUT_TAIL_CAP_BYTES - len("LAST LINE\n")
+    assert diagnostics.count("y") == CAPTURED_OUTPUT_TAIL_CAP_BYTES
+
+
+def test_an_unmeasured_timeout_still_reports_rather_than_crashing():
+    # A hand-built RunResult at a test seam carries neither bound nor clock. The
+    # builder degrades to the bare sentence instead of asserting on a boundary
+    # value, which would kill the command (and vanish under -O).
+    failure = classify_launch_or_crash(
+        RunResult(
+            stdout="",
+            stderr="",
+            exit_code=EXIT_TIMEOUT,
+            launch_failure=LaunchFailure.TIMEOUT,
+        ),
+        BINARY,
+    )
+
+    assert isinstance(failure, Failure)
+    assert failure.error.code == "launch_timeout"
+    assert failure.error.message.startswith(
+        "Godot launched but did not return before the timeout."
+    )
+    assert "elapsed" not in failure.error.message
 
 
 def test_signal_death_maps_to_engine_crashed_naming_the_signal():

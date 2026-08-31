@@ -1563,12 +1563,11 @@ def run_script_run_operation(
     # via --path, so no working directory is needed (unlike the export channel,
     # whose relative output path needs cwd=project).
     args = ["--path", str(project), "--script", script]
-    # Pass a watch, which is what switches the shared primitive from buffered
-    # capture to STREAMING capture (#655): whatever the run produced survives a
-    # timeout, the wall clock is measured, and — only when the caller declared a
-    # completion marker — a run whose script died can be ended in seconds instead
-    # of at the ceiling. The watch is inert without a marker, so the no-marker
-    # invocation gains the captured output and nothing else.
+    # Pass a watch, this channel's POLICY over the shared primitive (#655): only
+    # when the caller declared a completion marker can a run whose script died be
+    # ended in seconds instead of at the ceiling. The watch is inert without a
+    # marker; the captured output and the measured wall clock come from the launch
+    # itself, which every channel gets.
     raw = run_launch(
         binary,
         args,

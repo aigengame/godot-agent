@@ -13,7 +13,9 @@ between modules or imported test-module-to-test-module (issue #39).
 
 import json
 import re
+import subprocess
 import sys
+import tempfile
 
 from gda.runner import RunResult
 
@@ -980,3 +982,79 @@ def assert_windowed_ok(result):
         handle_no_display_code(gda_error_code(result.stdout))
     assert result.returncode == 0, result.stdout + result.stderr
     return result
+
+
+class RecordingSpawn:
+    """A ``subprocess.Popen`` double: records the spawn and replays a canned run.
+
+    Every headless launch STREAMS (#714), so the primitive reads the child's pipes
+    by file descriptor rather than taking a buffer back from ``subprocess.run``. A
+    double therefore has to have a PROCESS's shape — readable descriptors, a poll
+    that answers, a wait that returns — and it is one double rather than one per
+    suite because what the suites are actually after is the same in all of them:
+    the argv gda built, the ``cwd`` it spawned in, and the child environment it
+    passed. The canned streams are backed by temp FILES, not a pipe, so a payload
+    is not bounded by the OS pipe buffer the way a self-written pipe would be.
+
+    ``alive`` makes the child one that never returns: ``poll`` answers ``None``
+    and ``wait`` times out until ``terminate`` — a hung engine, for a test that
+    wants the launch's own bound to end the run without spending a real one.
+    """
+
+    def __init__(
+        self,
+        payload: str = "",
+        stderr: str = "",
+        returncode: int = 0,
+        *,
+        alive: bool = False,
+    ) -> None:
+        self.cmd: list[str] | None = None
+        self.kwargs: dict | None = None
+        self.spawns = 0
+        self._stdout = payload.encode()
+        self._stderr = stderr.encode()
+        self._returncode = returncode
+        self._alive = alive
+
+    def __call__(self, cmd, **kwargs):
+        self.cmd = cmd
+        self.kwargs = kwargs
+        self.spawns += 1
+        return _CannedProcess(
+            self._stdout, self._stderr, self._returncode, alive=self._alive
+        )
+
+
+class _CannedProcess:
+    """The child :class:`RecordingSpawn` hands back — see its docstring."""
+
+    def __init__(
+        self, stdout: bytes, stderr: bytes, returncode: int, *, alive: bool
+    ) -> None:
+        self.stdout = _readable(stdout)
+        self.stderr = _readable(stderr)
+        self.returncode = returncode
+        self._alive = alive
+
+    def poll(self):
+        return None if self._alive else self.returncode
+
+    def wait(self, timeout: float | None = None):
+        if self._alive:
+            raise subprocess.TimeoutExpired(cmd="fake-engine", timeout=timeout or 0.0)
+        return self.returncode
+
+    def terminate(self) -> None:
+        self._alive = False
+
+    def kill(self) -> None:
+        self._alive = False
+
+
+def _readable(data: bytes):
+    """A real readable file descriptor holding ``data``, then EOF."""
+    handle = tempfile.TemporaryFile(buffering=0)
+    handle.write(data)
+    handle.seek(0)
+    return handle

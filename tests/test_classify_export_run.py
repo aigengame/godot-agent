@@ -20,7 +20,7 @@ from gda.commands.export import (
 )
 from gda.errors import Failure, export_path_unset_failure
 from gda.exit_codes import EXIT_OPERATION
-from gda.runner import LaunchFailure, RunResult
+from gda.runner import LaunchFailure, RunResult, TimeoutBound
 
 BINARY = Path("/x/Godot")
 
@@ -98,25 +98,30 @@ def test_other_nonzero_maps_to_generic_export_failed():
     assert "disk full" in outcome.error.diagnostics
 
 
-def test_export_timeout_envelope_keeps_byte_compatible_diagnostics():
-    # Regression for the #185 review: an export timeout maps to launch_timeout,
-    # and the runner-synthesized stderr is carried verbatim into the PUBLIC
-    # GdaError.diagnostics — the field serialized in `export run --json`. The
-    # refactor must keep that diagnostics string byte-compatible with the pre-#185
-    # "Godot export timed out" wording, so the error envelope is unchanged.
-    timeout_stderr = "gda: Godot export timed out after 600.0s\n"
+def test_export_timeout_envelope_carries_the_exports_own_captured_output():
+    # An export timeout maps to launch_timeout through the SHARED prefix, and since
+    # #714 the envelope carries the export's own partial output instead of the
+    # runner-synthesized "gda: Godot export timed out after 600.0s" that stood in
+    # for it. This channel keeps nothing of its own here: the pin is that it goes
+    # through the shared branch and that the export's evidence survives into the
+    # PUBLIC GdaError the `export run --json` failure serializes.
     outcome = _classify(
         RunResult(
-            stdout="",
-            stderr=timeout_stderr,
+            stdout="[  90% ] packing pck\n",
+            stderr="ERROR: the platform toolchain never answered\n",
             exit_code=124,
             launch_failure=LaunchFailure.TIMEOUT,
+            elapsed_seconds=600.4,
+            timeout_bound=TimeoutBound("Godot export", 600.0),
         )
     )
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "launch_timeout"
-    assert outcome.error.diagnostics == timeout_stderr
+    assert outcome.error.message.startswith("Godot export launched but did not return")
+    assert "timeout of 600.0s" in outcome.error.message
+    assert "packing pck" in outcome.error.diagnostics
+    assert "the platform toolchain never answered" in outcome.error.diagnostics
 
 
 def test_export_path_unset_failure_builder():

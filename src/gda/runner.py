@@ -34,6 +34,13 @@ OPERATIONS_GD = Path(__file__).parent / "ops" / "operations.gd"
 # the CLI fails loudly instead of blocking forever.
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
+# How a timeout NAMES the launch it ended. Each channel passes its own
+# (``"Godot export"``, ``"Godot import"``, …); the sentinel channel keeps the bare
+# engine name it has always reported. It rides the result as part of
+# :class:`TimeoutBound` and is rendered by the shared ``launch_timeout``
+# classifier, so a caller still learns WHICH launch gave up (#185, #714).
+DEFAULT_TIMEOUT_LABEL = "Godot"
+
 # The environment variable naming a per-invocation user-data root, the env half of
 # the `--user-data-root` option (issue #653). Same flag > env precedence shape as
 # ``GDA_GODOT`` / ``GDA_PROJECT``.
@@ -58,13 +65,32 @@ class LaunchFailure(enum.Enum):
     USER_DATA_UNWRITABLE = "user_data_unwritable"
     # gda ended the run EARLY, before the timeout, because the watching channel's
     # own :class:`LaunchWatch` asked it to (issue #655). Reachable only for a
-    # caller that passes a ``watch``, which today is ``gda script run`` alone —
-    # and that channel classifies this value itself, because only it knows what
-    # its watch condition means. ``classify_launch_or_crash`` therefore does NOT
-    # map it: a shared classifier has no honest generic code for "the caller's
+    # caller that passes a POLICY ``watch``, which today is ``gda script run``
+    # alone — and that channel classifies this value itself, because only it knows
+    # what its watch condition means. ``classify_launch_or_crash`` therefore does
+    # NOT map it: a shared classifier has no honest generic code for "the caller's
     # own declared condition fired". A future watching channel must classify it
     # too rather than fall through to that shared prefix.
     ABORTED = "aborted"
+
+
+@dataclass(frozen=True)
+class TimeoutBound:
+    """The bound a synthesized ``TIMEOUT`` result was ended at (issue #714).
+
+    Set by :func:`launch` and by nothing else, because the primitive is the only
+    place that knows both halves — and it is the only thing that CROSSES the runner
+    seam: ``GodotRunner.run`` hands a channel's classifier a
+    :class:`RunResult` and nothing more, so a shared classifier cannot otherwise
+    learn which launch gave up, or after how long. Carrying the pair here is what
+    lets ONE ``launch_timeout`` branch report "Godot export … before the timeout of
+    600.0s" without every ``classify_run`` call site plumbing it (#714).
+    """
+
+    #: How this launch is NAMED in the failure — see :data:`DEFAULT_TIMEOUT_LABEL`.
+    label: str
+    #: The ceiling, in seconds, that the launch reached.
+    seconds: float
 
 
 @dataclass
@@ -79,12 +105,16 @@ class RunResult:
     # engine returning one; ``None`` means the exit_code is the engine's own
     # (issue #15).
     launch_failure: "LaunchFailure | None" = None
-    # The launch's wall clock, measured only on the STREAMING capture path (issue
-    # #655) — ``None`` under the buffered capture, which does not time itself. It is the
-    # datum that tells a merely-slow run from a hung one: a timeout at 121s of a
-    # 120s ceiling is a suite that outgrew its budget, while one that produced its
-    # last output at 2s is stuck.
+    # The launch's wall clock, measured on every launch (issue #655; every channel
+    # since #714). It is the datum that tells a merely-slow run from a hung one: a
+    # timeout at 121s of a 120s ceiling is a suite that outgrew its budget, while
+    # one that produced its last output at 2s is stuck. ``None`` only on a result
+    # the primitive did not measure — a launch refused before the spawn, or a
+    # hand-built result at a test seam.
     elapsed_seconds: float | None = None
+    # The ceiling this run reached, set only on a synthesized ``TIMEOUT`` result
+    # (issue #714) — see :class:`TimeoutBound`.
+    timeout_bound: "TimeoutBound | None" = None
 
 
 # The per-invocation user-data root the CLI resolved, or ``None`` for the engine
@@ -414,19 +444,13 @@ def _user_data_unwritable_stderr(
 
 
 class LaunchWatch(Protocol):
-    """A channel's incremental view of one streaming launch (issue #655).
+    """A channel's incremental POLICY over one launch (issue #655).
 
-    Passing a watch to :func:`launch` switches the primitive from BUFFERED capture
-    (``subprocess.run``, which discards everything the child wrote when the
-    timeout expires) to STREAMING capture, which changes three things about the
-    launch and nothing else:
-
-    - the child's stdout/stderr are read as they arrive, so **whatever the run
-      produced before gda ended it survives** into the ``RunResult`` — the
-      dogfooding defect this seam exists for (GDA-DF-012/GDA-DF-032: a 120s
-      timeout whose diagnostics held only the timeout message);
-    - the launch is timed, so ``RunResult.elapsed_seconds`` is populated;
-    - the watch can **end the run early**, before the timeout.
+    Every launch streams — the child's stdout/stderr are read as they arrive, so
+    whatever a run produced before gda ended it survives into the ``RunResult``,
+    and the launch is timed (#714 moved the last three channels across; see
+    :func:`launch`). A watch adds the one thing streaming alone cannot decide:
+    **ending a run early**, before the timeout.
 
     The primitive owns the MECHANISM (spawn, read, decode, deadline, terminate)
     and the watch owns the POLICY (what the output means, and when a run is not
@@ -435,6 +459,7 @@ class LaunchWatch(Protocol):
     completion marker did not" is ``script run``'s domain knowledge, not the
     channel-agnostic primitive's — and ADR-0031 rejected gda imposing any
     contract on a user-authored entry script, so only a caller can declare one.
+    A channel with no such rule passes no watch and gets :class:`_CaptureOnly`.
 
     :meth:`observe` is polled on a fixed cadence for the whole run, **including
     polls where no output arrived** (both arguments empty), so a policy keyed on
@@ -460,11 +485,28 @@ class LaunchWatch(Protocol):
         ...
 
 
-# How often the streaming path polls the child and its watch. It bounds the extra
-# latency an early abort or a timeout can carry (a poll may sleep through the
-# moment the condition became true), so it is small — but not so small that a
-# 120s run spends its time waking up: 0.05s is ~2400 polls over the default
-# ``script run`` ceiling.
+class _CaptureOnly:
+    """The watch of a channel that has no early-abort rule (issue #714).
+
+    Streaming is the only capture strategy, so a channel no longer opts into it —
+    it opts into a POLICY, and most channels have none. Observing without ever
+    ending a run is the honest default: gda cannot tell from outside a process
+    whether a quiet engine is stuck or working, and only a caller who declared what
+    finishing looks like (``script run``'s ``--completion-marker``) can. So the
+    ONLY bound for these channels is the caller's timeout, and what they get from
+    the loop is the capture and the clock.
+    """
+
+    def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
+        return False
+
+
+# How often the launch loop polls its watch. It bounds the extra latency an early
+# abort or a timeout can carry (a poll may wait through the moment the condition
+# became true), so it is small — but not so small that a 120s run spends its time
+# waking up: 0.05s is ~2400 polls over the default ``script run`` ceiling. It does
+# NOT bound how quickly a finished run is noticed: the wait ends the instant the
+# child exits (see :func:`_spawn_streamed`).
 _POLL_INTERVAL_SECONDS = 0.05
 
 # One read syscall's ceiling on the streaming path. The pipe is read with
@@ -501,8 +543,8 @@ class _StreamCapture:
     and decoding each chunk independently would turn a legitimate non-ASCII
     character into two replacement characters. Feeding one decoder across every
     chunk — and flushing it once at the end — yields exactly what decoding the
-    whole buffer at once yields, so the streaming path's text is identical to the
-    buffered strategy's for the same bytes.
+    whole buffer at once yields, so the text is identical to a whole-buffer decode
+    of the same bytes.
     """
 
     def __init__(self, pipe: IO[bytes]) -> None:
@@ -558,28 +600,31 @@ def launch(
     *,
     cwd: Path | None,
     timeout: float,
-    timeout_label: str = "Godot",
+    timeout_label: str = DEFAULT_TIMEOUT_LABEL,
     watch: Optional[LaunchWatch] = None,
 ) -> RunResult:
     """Spawn one ``godot --headless`` process and normalize its raw outcome.
 
     The single home of the headless-launch primitive: it builds
     ``[binary, --headless, *args]``, runs it with a timeout capturing raw
-    *bytes*, and returns a normalized :class:`RunResult`. Both Phase-1 channels
-    — the sentinel op-dispatch runner and the native-export runner — build only
-    their channel-specific argv tail (and the export-only ``cwd``) and delegate
+    *bytes*, and returns a normalized :class:`RunResult`. Every Phase-1 channel
+    — the sentinel op-dispatch runner, the native-export runner, the
+    ``resource import`` pass, ``script run`` and ``scene preflight`` — builds only
+    its channel-specific argv tail (and the export-only ``cwd``) and delegates
     the spawn/timeout/``OSError``/decode handling here, so a launch-handling fix
-    lands in one place rather than two copies (issue #185, ADR-0010).
+    lands in one place rather than five copies (issue #185, ADR-0010).
 
-    The mapping, identical for both channels:
+    The mapping, identical for every channel:
 
-    - ``subprocess.TimeoutExpired`` → a synthesized ``EXIT_TIMEOUT`` result
-      flagged ``LaunchFailure.TIMEOUT``: launched, but did not return before the
-      timeout (a hung engine bounded so the CLI fails loudly, #15). The diagnostic
-      names ``timeout_label`` (default ``"Godot"``; the export channel passes
-      ``"Godot export"``) — this stderr is carried into ``GdaError.diagnostics``
-      and serialized in ``--json``, so the per-channel wording is part of the
-      public error envelope and stays byte-compatible across the refactor (#185);
+    - the timeout reached → a synthesized ``EXIT_TIMEOUT`` result flagged
+      ``LaunchFailure.TIMEOUT``: launched, but did not return before the
+      timeout (a hung engine bounded so the CLI fails loudly, #15). Both streams
+      hold **what the run had already produced**, verbatim, and no gda prose: the
+      classifier composes the diagnostics from that capture, so mixing gda's own
+      sentence into the child's stderr would corrupt the very evidence the
+      streaming capture exists to preserve. What the run cannot say for itself —
+      which launch this was, and the ceiling it reached — rides the result as
+      :class:`TimeoutBound`, beside the measured ``elapsed_seconds`` (#714);
     - ``OSError`` → a synthesized ``EXIT_NOT_FOUND`` result flagged
       ``LaunchFailure.NOT_FOUND``: the configured binary could not be launched —
       ``FileNotFoundError`` (missing), ``PermissionError`` (a directory like
@@ -587,9 +632,8 @@ def launch(
       file), and any other ``OSError`` from ``exec`` are the one environment
       failure of there being no engine to run (#33). The synthesized typed
       reason lets the classifier key environment on it, not on the overloaded
-      exit code (#15). ``OSError`` does not subsume ``TimeoutExpired`` (a
-      ``SubprocessError``), so the timeout path above is preserved. The OS
-      message is kept as advisory stderr to disambiguate which mode occurred;
+      exit code (#15). The OS message is kept as advisory stderr to disambiguate
+      which mode occurred;
     - otherwise → the engine's own ``returncode`` with ``launch_failure=None``,
       and stdout/stderr decoded as UTF-8 with ``errors="replace"`` (see below).
 
@@ -603,27 +647,20 @@ def launch(
     because it is an engine option and the sentinel channel's tail ends in the
     ``--`` user-args separator.
 
-    **Two capture strategies, one mapping (issue #655).** ``watch`` selects how the
-    child's output is captured, and nothing else:
+    **One capture strategy (issue #714).** Every launch STREAMS: both pipes are
+    read as they arrive and the run is timed. #655 introduced streaming beside a
+    buffered ``subprocess.run`` capture that discarded the child's output at the
+    timeout, keeping the sentinel and export channels on the buffered one so their
+    published timeout envelopes stayed byte-identical while the mechanism was
+    proven. #714 moved those channels — and the ``resource import`` pass, the third
+    that shared the discard — across, which left the buffered strategy with no
+    caller at all; a second capture path nothing selects is a trap for the next
+    channel, not an option, so it is gone.
 
-    - ``None`` (the default, and what the sentinel and export channels pass) —
-      BUFFERED capture via ``subprocess.run``. A timeout DISCARDS whatever the
-      child wrote and synthesizes the ``gda: <label> timed out after <n>s``
-      diagnostic in its place, exactly as before.
-    - a :class:`LaunchWatch` (``gda script run``) — STREAMING capture. A timeout
-      PRESERVES the captured stdout/stderr verbatim and carries no gda prose in
-      either stream, because the watching channel composes its own diagnostics
-      from the capture; ``elapsed_seconds`` is populated; and the watch may end
-      the run early as ``LaunchFailure.ABORTED``.
-
-    Keeping the buffered strategy is deliberate rather than transitional debt: the
-    other two channels' timeout results are a published part of their error
-    envelopes, and this change had to leave them byte-identical. Moving them onto
-    the preserving path is the named follow-up the issue records, and it is a
-    one-line switch here — not a second mechanism to write. What is NOT duplicated
-    is the failure mapping: both strategies return through the same
-    :func:`_timeout_result` / :func:`_not_found_result`, so the timeout and
-    launch-failure taxonomy still has exactly one home.
+    ``watch`` is therefore POLICY, not strategy: a channel that can recognize a run
+    not worth waiting out passes one and may end the launch early as
+    ``LaunchFailure.ABORTED`` (``gda script run``, ADR-0031); a channel with no
+    such rule passes nothing and gets :class:`_CaptureOnly`.
     """
     try:
         root = resolve_user_data_root()
@@ -648,22 +685,14 @@ def launch(
         with user_data_placement(root) as placement:
             # Only the preparation above can raise UserDataUnwritable: the spawn
             # itself maps every OSError to the NOT_FOUND result below.
-            if watch is None:
-                return _spawn(
-                    binary,
-                    args,
-                    cwd=cwd,
-                    timeout=timeout,
-                    timeout_label=timeout_label,
-                    placement=placement,
-                )
             return _spawn_streamed(
                 binary,
                 args,
                 cwd=cwd,
                 timeout=timeout,
+                timeout_label=timeout_label,
                 placement=placement,
-                watch=watch,
+                watch=watch if watch is not None else _CaptureOnly(),
             )
     except UserDataUnwritable as exc:
         return RunResult(
@@ -674,81 +703,12 @@ def launch(
         )
 
 
-def _spawn(
-    binary: Path,
-    args: list[str],
-    *,
-    cwd: Path | None,
-    timeout: float,
-    timeout_label: str,
-    placement: UserDataPlacement,
-) -> RunResult:
-    """Run one prepared launch with BUFFERED capture — see :func:`launch`.
-
-    Reads both streams in one ``subprocess.run`` call, which is why a timeout here
-    has nothing left to report: the call discards what it buffered when it raises.
-    """
-    cmd = [str(binary), "--headless", "--log-file", str(placement.log_file), *args]
-    try:
-        # Capture raw bytes (no ``text=True``): Godot's ``JSON.stringify`` emits
-        # UTF-8, but ``text=True`` would decode with the host locale, which
-        # mojibakes or raises ``UnicodeDecodeError`` on a non-UTF-8 locale (e.g.
-        # Windows cp1252/cp936) for a non-ASCII node name or echoed path. We
-        # decode UTF-8 explicitly below so user content round-trips regardless of
-        # locale (issue #33).
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=timeout,
-            # Pass the working directory as a string (not a Path): the export
-            # channel resolves a relative output path against this CWD, and the
-            # spawn shape stays byte-identical to the pre-#185 ``str(project)``.
-            cwd=str(cwd) if cwd is not None else None,
-            # ``None`` (the common case) inherits gda's own environment; a full
-            # child environment is built only when ``--user-data-root`` overrides
-            # the platform variable Godot resolves ``user://`` from (#653).
-            env=placement.env,
-        )
-    except subprocess.TimeoutExpired:
-        return _timeout_result(timeout, timeout_label)
-    except OSError as exc:
-        return _not_found_result(binary, exc)
-    return RunResult(
-        # Decode the engine's bytes as UTF-8 with a replacement policy: a
-        # well-behaved operation emits valid UTF-8, so ``replace`` only ever
-        # fires on genuinely malformed bytes — and the runner never crashes on
-        # engine output. A malformed result then surfaces as a structured
-        # ``contract_violation`` downstream rather than an escaping
-        # ``UnicodeDecodeError`` traceback (ADR-0002).
-        stdout=proc.stdout.decode("utf-8", errors="replace"),
-        stderr=proc.stderr.decode("utf-8", errors="replace"),
-        exit_code=proc.returncode,
-    )
-
-
-def _timeout_result(timeout: float, timeout_label: str) -> RunResult:
-    """The synthesized result of a run that outlived the BUFFERED capture's timeout.
-
-    The output is gone — ``subprocess.run`` discards it when the timeout expires —
-    so the diagnostic stands in for it. That wording is carried into
-    ``GdaError.diagnostics`` and serialized in ``--json``, which makes it part of
-    the public error envelope of the sentinel and export channels; it is kept
-    byte-for-byte, and shared here, so no channel can drift from it (#185, #655).
-    """
-    return RunResult(
-        stdout="",
-        stderr=f"gda: {timeout_label} timed out after {timeout}s\n",
-        exit_code=EXIT_TIMEOUT,
-        launch_failure=LaunchFailure.TIMEOUT,
-    )
-
-
 def _not_found_result(binary: Path, exc: OSError) -> RunResult:
     """The synthesized result of a binary that could not be launched at all.
 
-    Shared by both capture strategies: an ``OSError`` from ``exec`` is the one
-    environment failure of there being no engine to run, whichever way gda was
-    going to read its output (#33, #655).
+    An ``OSError`` from ``exec`` is the one environment failure of there being no
+    engine to run; it is reported before any capture exists, so it is the same
+    result for every channel (#33).
     """
     return RunResult(
         stdout="",
@@ -764,19 +724,19 @@ def _spawn_streamed(
     *,
     cwd: Path | None,
     timeout: float,
+    timeout_label: str,
     placement: UserDataPlacement,
     watch: LaunchWatch,
 ) -> RunResult:
-    """Run one prepared launch with STREAMING capture — see :func:`launch` (#655).
+    """Run one prepared launch, reading both pipes as they arrive (#655, #714).
 
-    The same argv, cwd and child environment as :func:`_spawn`; only the reading
-    differs. Both pipes are drained on their own threads while this loop owns the
-    deadline and the watch, so:
+    Both pipes are drained on their own threads while this loop owns the deadline
+    and the watch, so:
 
     - a timeout returns the output the child had ALREADY produced, verbatim,
       instead of discarding it. This is the whole point: a script error that
-      aborted a run before its ``quit()`` had already been printed, and a
-      buffered capture threw it away (GDA-DF-012);
+      aborted a run before its ``quit()`` had already been printed, and the
+      buffered capture this replaced threw it away (GDA-DF-012);
     - the watch can end the run before the deadline, reported as
       ``LaunchFailure.ABORTED``;
     - the wall clock is measured either way, so a slow-but-live run is
@@ -791,13 +751,23 @@ def _spawn_streamed(
     cmd = [str(binary), "--headless", "--log-file", str(placement.log_file), *args]
     started = time.monotonic()
     try:
-        # Bytes, not ``text=True``, for the same locale reason as ``_spawn`` (#33);
-        # the decode happens in ``_StreamCapture``, incrementally.
+        # Capture raw bytes (no ``text=True``): Godot's ``JSON.stringify`` emits
+        # UTF-8, but ``text=True`` would decode with the host locale, which
+        # mojibakes or raises ``UnicodeDecodeError`` on a non-UTF-8 locale (e.g.
+        # Windows cp1252/cp936) for a non-ASCII node name or echoed path. The decode
+        # happens in ``_StreamCapture``, incrementally and explicitly as UTF-8, so
+        # user content round-trips regardless of locale (issue #33).
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            # Pass the working directory as a string (not a Path): the export
+            # channel resolves a relative output path against this CWD, and the
+            # spawn shape stays byte-identical to the pre-#185 ``str(project)``.
             cwd=str(cwd) if cwd is not None else None,
+            # ``None`` (the common case) inherits gda's own environment; a full
+            # child environment is built only when ``--user-data-root`` overrides
+            # the platform variable Godot resolves ``user://`` from (#653).
             env=placement.env,
         )
     except OSError as exc:
@@ -841,7 +811,17 @@ def _spawn_streamed(
                 break
             if elapsed >= timeout:
                 break
-            time.sleep(_POLL_INTERVAL_SECONDS)
+            # WAIT on the child rather than sleeping through the interval: this loop
+            # now runs on every gda invocation (#714), and a plain sleep would charge
+            # each one up to a poll interval of latency after its engine had already
+            # exited. ``wait`` returns the instant the child does, and otherwise
+            # keeps exactly the cadence the watch is promised. It cannot deadlock on
+            # a full pipe — the documented hazard for ``wait`` with ``PIPE`` — because
+            # the reader threads are what drain those pipes, not this loop.
+            try:
+                proc.wait(timeout=_POLL_INTERVAL_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
         else:
             # The loop ended because the child exited on its own, so the wall clock
             # is that exit — not the stale value from the last poll.
@@ -855,14 +835,14 @@ def _spawn_streamed(
         # The WHOLE teardown lives here, so it runs on every exit from the loop
         # above — including one by exception. A streaming launch must never outlive
         # its gda process, and the guarantee cannot be left on the happy path: the
-        # runs this strategy exists for are exactly the ones that do NOT stop on
+        # runs this loop exists for are exactly the ones that do NOT stop on
         # their own, so an orphaned engine idles forever and repeated interruptions
-        # accumulate engines contending over ``user://``. The buffered strategy gets
-        # this free (``subprocess.run`` kills its child when an exception leaves its
-        # ``with`` block), so this path owes the same.
+        # accumulate engines contending over ``user://``. (``subprocess.run`` used to
+        # give this free by killing its child when an exception left its ``with``
+        # block; owning the process means owning that guarantee too.)
         #
         # ``BaseException`` matters, not just ``Exception``: a Ctrl-C out of the poll
-        # sleep is a ``KeyboardInterrupt``, and when gda runs in its own process
+        # wait is a ``KeyboardInterrupt``, and when gda runs in its own process
         # group the signal never reaches the engine at all. A ``finally`` covers
         # both, and covers whatever a caller's ``watch`` raised.
         #
@@ -902,14 +882,18 @@ def _spawn_streamed(
     if ended_by_gda:
         return RunResult(
             # The CAPTURE, kept verbatim — no gda prose in either stream. The
-            # watching channel composes the timeout diagnostics from this, so
+            # classifying channel composes the timeout diagnostics from this, so
             # mixing gda's own sentence into the child's stderr would corrupt the
-            # very evidence the streaming path exists to preserve.
+            # very evidence the streaming capture exists to preserve.
             stdout=stdout,
             stderr=stderr,
             exit_code=EXIT_TIMEOUT,
             launch_failure=LaunchFailure.TIMEOUT,
             elapsed_seconds=elapsed,
+            # What the capture cannot say for itself, and the only way a shared
+            # classifier can learn it: which launch this was, and the ceiling it
+            # reached (#714).
+            timeout_bound=TimeoutBound(timeout_label, timeout),
         )
     return RunResult(
         stdout=stdout,
@@ -977,10 +961,11 @@ def sentinel_args(
 
     Two channels build this tail (#664): :class:`SubprocessGodotRunner`, the
     default sentinel runner, and ``scene preflight``, which dispatches the same
-    kind of op but needs :func:`launch`'s STREAMING capture — so it calls the
-    primitive itself rather than going through the runner seam. Extracting the
-    spelling keeps that second channel from re-deriving it, and keeps a change to
-    it (a new separator, another engine flag) landing in one place.
+    kind of op but calls :func:`launch` itself — it bifurcates on the launch's own
+    outcome (a timeout is its VERDICT, not an error) rather than handing the result
+    to a classifier through the runner seam. Extracting the spelling keeps that
+    second channel from re-deriving it, and keeps a change to it (a new separator,
+    another engine flag) landing in one place.
     """
     args: list[str] = []
     if project is not None:

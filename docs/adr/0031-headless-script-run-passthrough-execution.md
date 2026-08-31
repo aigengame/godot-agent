@@ -454,3 +454,21 @@ added incrementally under ADR-0025 if a concrete need appears.
 > status and full byte count) and the TMPDIR remediation; a post-create failure
 > releases the descriptor and unlinks the partial file before failing. `stderr`
 > and the failure envelopes' partial-output evidence keep their existing shapes.
+
+> **Outcome (2026-08-31, #714) — the buffered strategy is gone; every channel streams.**
+> The 2026-08-17 amendment above recorded the sentinel and export channels staying on the
+> buffered capture, with their published timeout envelopes byte-identical, and named moving
+> them as follow-up work. That follow-up landed. Three channels moved, not two — the
+> `resource import` engine pass calls the same primitive and classifies through the same
+> branch — which left the buffered strategy with no caller and it was deleted, so a future
+> channel cannot be silently left on the discard. The shared `launch_timeout` branch
+> (`classify_launch_or_crash`) now builds the envelope for all three: the captured partial
+> output under `--- captured stdout ---` / `--- captured stderr ---` (the script-run labels
+> above are untrue of an export or an import pass), tail-capped at the same 16 KiB per
+> stream, plus the elapsed wall clock and the ceiling that was reached. Both ride the
+> `Raw run` — the wall clock in its existing `elapsed_seconds`, the channel label and
+> ceiling in the new `timeout_bound` — because the runner seam hands a classifier a raw
+> run and nothing else. `script run` and `scene preflight` are unchanged: each still classifies its
+> own timeout, since each carries something the shared branch cannot know (a termination
+> phase and the recognized script errors; a `timeout` STATUS that is the command's answer).
+> The `--- script stdout ---` labels, and every non-timeout envelope, keep their bytes.
