@@ -63,7 +63,7 @@ schemas. Model Source Packages, Experiment Specifications, artifact members, and
 | --- | --- | --- | --- |
 | `establish-session` | Input: one Model Source Package and initial Experiment Specification. Result: session handle, exact Resolved Model identity, and admitted revision identity, or an authority-owned admission refusal. | `CreateExecutionSessionRequest` to `ExecutionSessionCreatedResponse` or `RefusalResponse` | `POST /v1/execution-sessions` |
 | `admit-experiment-revision` | Input: session handle and complete Experiment Specification. Result: revision identity and whether it was newly admitted, an admission refusal, or `unknown_execution_session`. | Path `session_id` plus `AdmitExperimentRevisionRequest` to `ExperimentRevisionAdmittedResponse`, `RefusalResponse`, or the shared OHS error | `POST /v1/execution-sessions/{session_id}/experiment-revisions` |
-| `run-experiment-revision` | Input: session handle and exact revision identity. Result: authority-owned success, verdict, or refusal artifacts, or an unknown-handle error. | Path `session_id` plus `RunExperimentRequest` to `RunSuccessResponse`, `RunVerdictResponse`, `RunRefusalResponse`, or a shared OHS error | `POST /v1/execution-sessions/{session_id}/runs` |
+| `run-experiment-revision` | Input: session handle and exact revision identity. Result: authority-owned success, verdict, or refusal artifacts, `unknown_execution_session`, or `unknown_experiment_revision`. | Path `session_id` plus `RunExperimentRequest` to `RunSuccessResponse`, `RunVerdictResponse`, `RunRefusalResponse`, `unknown_execution_session`, or `unknown_experiment_revision` | `POST /v1/execution-sessions/{session_id}/runs` |
 | `release-session` | Input: session handle. Result: released session handle or `unknown_execution_session`. | Path `session_id` and an empty body to `ExecutionSessionDeletedResponse` or the shared OHS error | `DELETE /v1/execution-sessions/{session_id}` |
 
 `GET /v1/status` and `POST /v1/shutdown` are not OHS capabilities. They are local-companion-host
@@ -93,7 +93,7 @@ paths and response bytes remain unchanged during contract extraction.
 | Owner | Owns | Current error or refusal mapping |
 | --- | --- | --- |
 | Execution Service Language | Capability names, OHS handles and selections, response framing, and shared OHS errors | `unknown_execution_session` and `unknown_experiment_revision` |
-| Application | Session and revision state, admission order, execution order, and the conditions behind unknown-handle errors | Raises typed conditions; owns no wire code or response envelope |
+| Application | Session and revision state, admission order, execution order, and the conditions behind `unknown_execution_session` and `unknown_experiment_revision` | Raises typed conditions; owns no wire code or response envelope |
 | Domain | Standard Schema admission, execution, artifacts, identities, outcomes, and refusals | `Schema2RefusalReport` and execution success, verdict, or refusal meaning |
 | Resource-oriented HTTP adapter | Routes, methods, media types, request bounds, HTTP status, and HTTP error projection | `invalid_request`, `request_too_large`, `unsupported_media_type`, `unknown_endpoint`, `method_not_allowed`, and `internal_error` |
 | MCP adapter | Tools, resources, optional prompts, MCP schemas, structured content, and MCP error projection | Maps shared results and errors to the selected MCP revision without HTTP codes |
