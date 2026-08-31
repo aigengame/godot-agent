@@ -7,7 +7,9 @@ from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.application.execution_sessions import (
     ExecutionSessionCreated,
+    ExecutionSessionNotFound,
     ExperimentRevisionAdmitted,
+    ExperimentRevisionNotFound,
 )
 from gda_balancing.application.experiment_execution import (
     ExperimentExecutionOutcome,
@@ -57,6 +59,15 @@ def execution_service_error(
     )
 
 
+def execution_service_error_from_condition(
+    condition: ExecutionSessionNotFound | ExperimentRevisionNotFound,
+) -> ExecutionServiceErrorEnvelope:
+    """Frame one Application selection condition as a shared OHS error."""
+    if isinstance(condition, ExecutionSessionNotFound):
+        return execution_service_error("unknown_execution_session")
+    return execution_service_error("unknown_experiment_revision")
+
+
 class CreateExecutionSessionRequest(BaseModel):
     """Complete authored values required to establish one session."""
 
@@ -104,6 +115,7 @@ class AdmitExperimentRevisionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    session_id: str
     experiment_specification: dict[str, Any]
 
 
@@ -134,6 +146,7 @@ class RunExperimentRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    session_id: str
     revision_id: str
 
 
@@ -193,4 +206,12 @@ class ExecutionSessionDeletedResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     outcome: Literal["success"] = "success"
+    session_id: str
+
+
+class ReleaseExecutionSessionRequest(BaseModel):
+    """The session selected for release."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     session_id: str

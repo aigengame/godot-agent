@@ -22,8 +22,10 @@ from starlette.types import Receive, Scope, Send
 
 from gda_balancing.application.execution_sessions import (
     ExecutionSessionCreated,
+    ExecutionSessionNotFound,
     ExecutionSessions,
     ExperimentRevisionAdmitted,
+    ExperimentRevisionNotFound,
 )
 from gda_balancing.application.experiment_execution import (
     ExperimentExecutionRefusal,
@@ -46,6 +48,7 @@ from gda_balancing.interfaces.execution_service_language import (
     ExecutionSessionCreatedResponse,
     ExecutionSessionDeletedResponse,
     ExperimentRevisionAdmittedResponse,
+    ReleaseExecutionSessionRequest,
     RefusalResponse,
     RunExperimentRequest,
     RunRefusalResponse,
@@ -54,6 +57,7 @@ from gda_balancing.interfaces.execution_service_language import (
     admit_experiment_revision_response,
     establish_session_response,
     execution_service_error,
+    execution_service_error_from_condition,
     run_experiment_revision_response,
 )
 from gda_balancing.interfaces.http.api_v1 import create_api_v1
@@ -170,7 +174,10 @@ def test_execution_service_language_frames_establish_session_results() -> None:
 
 
 def test_execution_service_language_admit_revision_contract_is_closed() -> None:
-    payload = {"experiment_specification": {"schema_version": "2.0.0"}}
+    payload = {
+        "session_id": "session-1",
+        "experiment_specification": {"schema_version": "2.0.0"},
+    }
 
     request = AdmitExperimentRevisionRequest.model_validate(payload)
     response = ExperimentRevisionAdmittedResponse(
@@ -208,7 +215,10 @@ def test_execution_service_language_frames_revision_admission_results() -> None:
 
 
 def test_execution_service_language_run_success_contract_is_closed() -> None:
-    payload = {"revision_id": "sha256:experiment"}
+    payload = {
+        "session_id": "session-1",
+        "revision_id": "sha256:experiment",
+    }
     artifacts = {"evaluation-run": {"artifact_kind": "evaluation-run"}}
 
     request = RunExperimentRequest.model_validate(payload)
@@ -301,8 +311,10 @@ def test_execution_service_language_run_outcomes_share_one_artifact_shape() -> N
 
 
 def test_execution_service_language_release_session_contract_is_closed() -> None:
+    request = ReleaseExecutionSessionRequest(session_id="session-1")
     response = ExecutionSessionDeletedResponse(session_id="session-1")
 
+    assert request.model_dump(mode="json") == {"session_id": "session-1"}
     assert response.model_dump(mode="json") == {
         "outcome": "success",
         "session_id": "session-1",
@@ -343,6 +355,25 @@ def test_execution_service_language_owns_shared_selection_errors(
             "message": message,
         }
     }
+
+
+@pytest.mark.parametrize(
+    ("condition", "code"),
+    [
+        (ExecutionSessionNotFound("session-1"), "unknown_execution_session"),
+        (
+            ExperimentRevisionNotFound("sha256:experiment"),
+            "unknown_experiment_revision",
+        ),
+    ],
+)
+def test_execution_service_language_maps_application_selection_conditions(
+    condition: ExecutionSessionNotFound | ExperimentRevisionNotFound,
+    code: ExecutionServiceErrorCode,
+) -> None:
+    error = execution_service_error_from_condition(condition)
+
+    assert error.error.code == code
 
 
 @pytest.fixture(scope="module")
@@ -643,6 +674,30 @@ def test_closed_request_schema_rejects_unknown_members_before_application() -> N
                 "model_source": model_source,
                 "experiment_specification": experiment,
                 "implicit_active_revision": True,
+            },
+        )
+
+        assert status == 400
+        assert error == {
+            "error": {
+                "category": "service",
+                "code": "invalid_request",
+                "message": "the request does not match the closed HTTP schema",
+            }
+        }
+
+
+def test_http_body_cannot_repeat_the_path_owned_session_selection() -> None:
+    model_source, experiment = _roguelike_documents()
+
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
+        status, error = service.request_error(
+            f"/v1/execution-sessions/{created['session_id']}/experiment-revisions",
+            method="POST",
+            body={
+                "session_id": created["session_id"],
+                "experiment_specification": experiment,
             },
         )
 

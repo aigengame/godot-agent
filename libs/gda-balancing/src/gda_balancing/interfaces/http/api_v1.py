@@ -1,5 +1,6 @@
 """The versioned, application-agnostic local Execution HTTP API."""
 
+from collections.abc import Mapping
 import json
 from typing import Any, Literal, TypeVar, cast
 
@@ -22,12 +23,12 @@ from gda_balancing.infrastructure.distribution import distribution_version
 from gda_balancing.interfaces.execution_service_language import (
     AdmitExperimentRevisionRequest,
     CreateExecutionSessionRequest,
-    ExecutionServiceErrorCode,
     ExecutionSessionDeletedResponse,
+    ReleaseExecutionSessionRequest,
     RunExperimentRequest,
     admit_experiment_revision_response,
     establish_session_response,
-    execution_service_error,
+    execution_service_error_from_condition,
     run_experiment_revision_response,
 )
 from gda_balancing.interfaces.http.service_errors import (
@@ -54,10 +55,10 @@ class _DuplicateObjectMember(ValueError):
 
 
 def _execution_service_error_response(
-    code: ExecutionServiceErrorCode,
+    condition: ExecutionSessionNotFound | ExperimentRevisionNotFound,
 ) -> JSONResponse:
     return JSONResponse(
-        execution_service_error(code).model_dump(mode="json"),
+        execution_service_error_from_condition(condition).model_dump(mode="json"),
         status_code=404,
     )
 
@@ -76,6 +77,7 @@ async def _request_model(
     model: type[RequestModel],
     *,
     max_bytes: int,
+    bound_members: Mapping[str, Any] | None = None,
 ) -> RequestModel:
     media_type = request.headers.get("content-type", "").partition(";")[0].strip()
     if media_type.lower() != "application/json":
@@ -83,6 +85,12 @@ async def _request_model(
     body = await read_bounded_request_body(request, max_bytes=max_bytes)
     try:
         value = json.loads(body, object_pairs_hook=_closed_json_object)
+        if bound_members:
+            if not isinstance(value, dict) or any(
+                name in value for name in bound_members
+            ):
+                raise InvalidHttpRequest
+            value = {**value, **bound_members}
         return model.model_validate(value)
     except (
         _DuplicateObjectMember,
@@ -139,15 +147,16 @@ def create_api_v1() -> ASGIApp:
             request,
             AdmitExperimentRevisionRequest,
             max_bytes=max_source_bytes + _PROTOCOL_ENVELOPE_BYTES,
+            bound_members={"session_id": request.path_params["session_id"]},
         )
         try:
             result = await run_in_threadpool(
                 sessions.admit_revision,
-                request.path_params["session_id"],
+                payload.session_id,
                 payload.experiment_specification,
             )
-        except ExecutionSessionNotFound:
-            return _execution_service_error_response("unknown_execution_session")
+        except ExecutionSessionNotFound as error:
+            return _execution_service_error_response(error)
         body = admit_experiment_revision_response(result)
         return JSONResponse(body.model_dump(mode="json"))
 
@@ -156,29 +165,32 @@ def create_api_v1() -> ASGIApp:
             request,
             RunExperimentRequest,
             max_bytes=SMALL_HTTP_REQUEST_BYTES,
+            bound_members={"session_id": request.path_params["session_id"]},
         )
         try:
             result = await run_in_threadpool(
                 sessions.run,
-                request.path_params["session_id"],
+                payload.session_id,
                 payload.revision_id,
             )
-        except ExecutionSessionNotFound:
-            return _execution_service_error_response("unknown_execution_session")
-        except ExperimentRevisionNotFound:
-            return _execution_service_error_response("unknown_experiment_revision")
+        except ExecutionSessionNotFound as error:
+            return _execution_service_error_response(error)
+        except ExperimentRevisionNotFound as error:
+            return _execution_service_error_response(error)
         body = run_experiment_revision_response(result)
         return JSONResponse(body.model_dump(mode="json"))
 
     async def delete_execution_session(request: Request) -> Response:
         await require_empty_request(request)
-        session_id = request.path_params["session_id"]
+        payload = ReleaseExecutionSessionRequest(
+            session_id=request.path_params["session_id"]
+        )
         try:
-            await run_in_threadpool(sessions.delete, session_id)
-        except ExecutionSessionNotFound:
-            return _execution_service_error_response("unknown_execution_session")
+            await run_in_threadpool(sessions.delete, payload.session_id)
+        except ExecutionSessionNotFound as error:
+            return _execution_service_error_response(error)
         return JSONResponse(
-            ExecutionSessionDeletedResponse(session_id=session_id).model_dump(
+            ExecutionSessionDeletedResponse(session_id=payload.session_id).model_dump(
                 mode="json"
             )
         )
