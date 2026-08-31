@@ -25,12 +25,18 @@ from gda_balancing.application.execution_sessions import (
     ExecutionSessions,
     ExperimentRevisionAdmitted,
 )
+from gda_balancing.application.experiment_execution import (
+    ExperimentExecutionRefusal,
+    ExperimentExecutionSuccess,
+    ExperimentExecutionVerdict,
+)
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
+from gda_balancing.domain.publication_types import PublicationMember
 from gda_balancing.domain.runtime.projections import evaluator_build_identity
 from gda_balancing.interfaces.execution_service_language import (
     EXECUTION_SERVICE_LANGUAGE_REVISION,
@@ -45,7 +51,10 @@ from gda_balancing.interfaces.execution_service_language import (
     RunRefusalResponse,
     RunSuccessResponse,
     RunVerdictResponse,
+    admit_experiment_revision_response,
+    establish_session_response,
     execution_service_error,
+    run_experiment_revision_response,
 )
 from gda_balancing.interfaces.http.api_v1 import create_api_v1
 from gda_balancing.interfaces.http.local_host import (
@@ -141,6 +150,25 @@ def test_execution_service_language_establish_session_contract_is_closed() -> No
         )
 
 
+def test_execution_service_language_frames_establish_session_results() -> None:
+    created = ExecutionSessionCreated(
+        session_id="session-1",
+        resolved_model_identity="sha256:resolved-model",
+        revision_id="sha256:experiment",
+    )
+    refusal = _example_refusal()
+
+    success = establish_session_response(created)
+    refused = establish_session_response(refusal)
+
+    assert success == ExecutionSessionCreatedResponse(
+        session_id="session-1",
+        resolved_model_identity="sha256:resolved-model",
+        revision_id="sha256:experiment",
+    )
+    assert refused == RefusalResponse(refusal=refusal)
+
+
 def test_execution_service_language_admit_revision_contract_is_closed() -> None:
     payload = {"experiment_specification": {"schema_version": "2.0.0"}}
 
@@ -162,6 +190,23 @@ def test_execution_service_language_admit_revision_contract_is_closed() -> None:
         )
 
 
+def test_execution_service_language_frames_revision_admission_results() -> None:
+    admitted = ExperimentRevisionAdmitted(
+        revision_id="sha256:experiment",
+        created=True,
+    )
+    refusal = _example_refusal()
+
+    success = admit_experiment_revision_response(admitted)
+    refused = admit_experiment_revision_response(refusal)
+
+    assert success == ExperimentRevisionAdmittedResponse(
+        revision_id="sha256:experiment",
+        created=True,
+    )
+    assert refused == RefusalResponse(refusal=refusal)
+
+
 def test_execution_service_language_run_success_contract_is_closed() -> None:
     payload = {"revision_id": "sha256:experiment"}
     artifacts = {"evaluation-run": {"artifact_kind": "evaluation-run"}}
@@ -176,6 +221,47 @@ def test_execution_service_language_run_success_contract_is_closed() -> None:
     }
     with pytest.raises(ValidationError):
         RunExperimentRequest.model_validate({**payload, "latest": True})
+
+
+def test_execution_service_language_frames_run_results() -> None:
+    artifact = {"artifact_kind": "evaluation-run", "events": [{"value": 7}]}
+    member = PublicationMember(
+        value=artifact,
+        artifact_kind="evaluation-run",
+        wire_schema_identity="sha256:wire-schema",
+        content_identity="sha256:artifact",
+    )
+    refusal = _example_refusal()
+
+    success = run_experiment_revision_response(
+        ExperimentExecutionSuccess(members={"evaluation-run": member})
+    )
+    verdict = run_experiment_revision_response(
+        ExperimentExecutionVerdict(
+            failed_metrics=("damage-floor",),
+            members={"evaluation-run": member},
+        )
+    )
+    refused = run_experiment_revision_response(
+        ExperimentExecutionRefusal(
+            report=refusal,
+            members={"evaluation-run": member},
+        )
+    )
+
+    assert success == RunSuccessResponse(
+        artifacts={"evaluation-run": artifact},
+    )
+    assert verdict == RunVerdictResponse(
+        failed_metrics=["damage-floor"],
+        artifacts={"evaluation-run": artifact},
+    )
+    assert refused == RunRefusalResponse(
+        refusal=refusal,
+        artifacts={"evaluation-run": artifact},
+    )
+    artifact["events"][0]["value"] = 99
+    assert success.artifacts["evaluation-run"]["events"] == [{"value": 7}]
 
 
 def test_execution_service_language_reuses_the_domain_refusal_contract() -> None:

@@ -1,6 +1,5 @@
 """The versioned, application-agnostic local Execution HTTP API."""
 
-from copy import deepcopy
 import json
 from typing import Any, Literal, TypeVar, cast
 
@@ -14,33 +13,22 @@ from starlette.routing import Route
 from starlette.types import ASGIApp
 
 from gda_balancing.application.execution_sessions import (
-    ExecutionSessionCreated,
     ExecutionSessionNotFound,
     ExecutionSessions,
     ExperimentRevisionNotFound,
-    ExperimentRevisionAdmitted,
-)
-from gda_balancing.application.experiment_execution import (
-    ExperimentExecutionRefusal,
-    ExperimentExecutionSuccess,
-    ExperimentExecutionVerdict,
 )
 from gda_balancing.domain.authority.context import packaged_authority_context
-from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.infrastructure.distribution import distribution_version
 from gda_balancing.interfaces.execution_service_language import (
     AdmitExperimentRevisionRequest,
     CreateExecutionSessionRequest,
     ExecutionServiceErrorCode,
-    ExecutionSessionCreatedResponse,
     ExecutionSessionDeletedResponse,
-    ExperimentRevisionAdmittedResponse,
-    RefusalResponse,
     RunExperimentRequest,
-    RunRefusalResponse,
-    RunSuccessResponse,
-    RunVerdictResponse,
+    admit_experiment_revision_response,
+    establish_session_response,
     execution_service_error,
+    run_experiment_revision_response,
 )
 from gda_balancing.interfaces.http.service_errors import (
     SMALL_HTTP_REQUEST_BYTES,
@@ -143,15 +131,7 @@ def create_api_v1() -> ASGIApp:
             payload.model_source,
             payload.experiment_specification,
         )
-        if isinstance(result, Schema2RefusalReport):
-            body = RefusalResponse(refusal=result)
-        else:
-            assert isinstance(result, ExecutionSessionCreated)
-            body = ExecutionSessionCreatedResponse(
-                session_id=result.session_id,
-                resolved_model_identity=result.resolved_model_identity,
-                revision_id=result.revision_id,
-            )
+        body = establish_session_response(result)
         return JSONResponse(body.model_dump(mode="json"))
 
     async def admit_experiment_revision(request: Request) -> Response:
@@ -168,14 +148,7 @@ def create_api_v1() -> ASGIApp:
             )
         except ExecutionSessionNotFound:
             return _execution_service_error_response("unknown_execution_session")
-        if isinstance(result, Schema2RefusalReport):
-            body = RefusalResponse(refusal=result)
-        else:
-            assert isinstance(result, ExperimentRevisionAdmitted)
-            body = ExperimentRevisionAdmittedResponse(
-                revision_id=result.revision_id,
-                created=result.created,
-            )
+        body = admit_experiment_revision_response(result)
         return JSONResponse(body.model_dump(mode="json"))
 
     async def run_experiment_revision(request: Request) -> Response:
@@ -194,22 +167,7 @@ def create_api_v1() -> ASGIApp:
             return _execution_service_error_response("unknown_execution_session")
         except ExperimentRevisionNotFound:
             return _execution_service_error_response("unknown_experiment_revision")
-        artifacts = {
-            name: deepcopy(member.value) for name, member in result.members.items()
-        }
-        if isinstance(result, ExperimentExecutionSuccess):
-            body = RunSuccessResponse(artifacts=artifacts)
-        elif isinstance(result, ExperimentExecutionVerdict):
-            body = RunVerdictResponse(
-                failed_metrics=list(result.failed_metrics),
-                artifacts=artifacts,
-            )
-        else:
-            assert isinstance(result, ExperimentExecutionRefusal)
-            body = RunRefusalResponse(
-                refusal=result.report,
-                artifacts=artifacts,
-            )
+        body = run_experiment_revision_response(result)
         return JSONResponse(body.model_dump(mode="json"))
 
     async def delete_execution_session(request: Request) -> Response:

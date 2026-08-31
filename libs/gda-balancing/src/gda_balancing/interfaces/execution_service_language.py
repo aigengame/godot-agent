@@ -1,9 +1,20 @@
 """Published Language for the Execution Open Host Service (bADR-0027)."""
 
+from copy import deepcopy
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from gda_balancing.application.execution_sessions import (
+    ExecutionSessionCreated,
+    ExperimentRevisionAdmitted,
+)
+from gda_balancing.application.experiment_execution import (
+    ExperimentExecutionOutcome,
+    ExperimentExecutionRefusal,
+    ExperimentExecutionSuccess,
+    ExperimentExecutionVerdict,
+)
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
@@ -75,6 +86,19 @@ class RefusalResponse(BaseModel):
     refusal: Schema2RefusalReport
 
 
+def establish_session_response(
+    result: ExecutionSessionCreated | Schema2RefusalReport,
+) -> ExecutionSessionCreatedResponse | RefusalResponse:
+    """Frame one Application result for the establish-session capability."""
+    if isinstance(result, Schema2RefusalReport):
+        return RefusalResponse(refusal=result)
+    return ExecutionSessionCreatedResponse(
+        session_id=result.session_id,
+        resolved_model_identity=result.resolved_model_identity,
+        revision_id=result.revision_id,
+    )
+
+
 class AdmitExperimentRevisionRequest(BaseModel):
     """One complete Experiment value for an existing session."""
 
@@ -91,6 +115,18 @@ class ExperimentRevisionAdmittedResponse(BaseModel):
     outcome: Literal["success"] = "success"
     revision_id: str
     created: bool
+
+
+def admit_experiment_revision_response(
+    result: ExperimentRevisionAdmitted | Schema2RefusalReport,
+) -> ExperimentRevisionAdmittedResponse | RefusalResponse:
+    """Frame one Application result for the revision-admission capability."""
+    if isinstance(result, Schema2RefusalReport):
+        return RefusalResponse(refusal=result)
+    return ExperimentRevisionAdmittedResponse(
+        revision_id=result.revision_id,
+        created=result.created,
+    )
 
 
 class RunExperimentRequest(BaseModel):
@@ -128,6 +164,27 @@ class RunRefusalResponse(BaseModel):
     outcome: Literal["refusal"] = "refusal"
     refusal: Schema2RefusalReport
     artifacts: dict[str, dict[str, Any]]
+
+
+def run_experiment_revision_response(
+    result: ExperimentExecutionOutcome,
+) -> RunSuccessResponse | RunVerdictResponse | RunRefusalResponse:
+    """Frame one Application result for the run-revision capability."""
+    artifacts = {
+        name: deepcopy(member.value) for name, member in result.members.items()
+    }
+    if isinstance(result, ExperimentExecutionSuccess):
+        return RunSuccessResponse(artifacts=artifacts)
+    if isinstance(result, ExperimentExecutionVerdict):
+        return RunVerdictResponse(
+            failed_metrics=list(result.failed_metrics),
+            artifacts=artifacts,
+        )
+    assert isinstance(result, ExperimentExecutionRefusal)
+    return RunRefusalResponse(
+        refusal=result.report,
+        artifacts=artifacts,
+    )
 
 
 class ExecutionSessionDeletedResponse(BaseModel):
