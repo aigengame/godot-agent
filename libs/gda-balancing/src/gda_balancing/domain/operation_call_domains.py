@@ -12,9 +12,9 @@ from gda_balancing.domain.formula.inference import (
     infer_formula_slot_parameter_contract,
 )
 from gda_balancing.domain.formula.types import formula_contract_from_operation
+from gda_balancing.domain.operation_program import OperationCoordinate
 
 
-OperationCoordinate = tuple[str, str, str]
 OperationSlotCoordinate = tuple[str, str, str, str]
 LiteralContractResolver = Callable[[Any, dict[str, Any]], dict[str, Any] | None]
 
