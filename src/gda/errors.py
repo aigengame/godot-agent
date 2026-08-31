@@ -798,10 +798,14 @@ def target_outside_project_failure(location: Path, project: Path) -> Failure:
 
     The two commands that hold a resolved project when they ask the containment
     question share this builder — ``script validate``'s recipe and ``resource
-    import``'s asset gate — so one condition reports one code, one message shape
-    and one pair of typed coordinates (#763). ``script run``'s pre-launch address
-    gate reaches the same verdict from the same rule but before project
-    resolution, so it carries the lexical sibling below.
+    import``'s asset gate — so one condition reports one code, one message and one
+    pair of typed coordinates (#763). The message says what is true of BOTH: a
+    target gda addresses through the project's ``res://`` namespace has no place
+    in that namespace. Why that matters differs per command — a compile resolves
+    the target's own dependencies, an import writes into the project's cache — and
+    that belongs in each command's docs, not in a sentence trying to be both.
+    ``script run``'s pre-launch address gate reaches the same verdict from the same
+    rule but before project resolution, so it carries the lexical sibling below.
 
     Until #697 this reused ``project_not_found``, which was true of neither the
     condition nor the remedy: a project WAS resolved, and the fix is to name a
@@ -816,10 +820,10 @@ def target_outside_project_failure(location: Path, project: Path) -> Failure:
     """
     return make_failure(
         "target_outside_project",
-        f"{location} is outside the resolved Godot project {project}: its res:// "
-        "dependencies would resolve against the wrong root, so nothing was "
-        "parsed. Pass --project for the project that owns this file, or name a "
-        "file inside the resolved one.",
+        f"{location} is outside the resolved Godot project {project}: gda "
+        "addresses a target through that project's res:// namespace, and this "
+        "one has no place in it, so nothing was run. Pass --project for the "
+        "project that owns this file, or name one inside the resolved project.",
         "",
         evidence=FailureEvidence(
             target_location=str(location), project_root=str(project)
@@ -855,8 +859,8 @@ def target_owned_by_another_project_failure(
     return make_failure(
         "target_outside_project",
         f"{location} belongs to the Godot project {owner}, but this call resolved "
-        f"{resolved}: its res:// references would resolve against the wrong root, "
-        f"so nothing was parsed. Pass --project {owner} to validate it in the "
+        f"{resolved}: its own res:// references would resolve against the wrong "
+        f"root, so nothing was run. Pass --project {owner} to work on it in the "
         "project that owns it.",
         "",
         evidence=FailureEvidence(

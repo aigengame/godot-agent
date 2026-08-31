@@ -170,7 +170,7 @@ def canonical_res_path(path: str) -> str:
     - **``.``/``..`` collapse with the leading-``..`` strip DISABLED for ``res://``**
       (4204-4221) — reproduced: ``normpath`` on a RELATIVE remainder keeps a leading
       ``..`` for the same reason the engine keeps it (``absolute_path`` is forced
-      false for a ``res://`` address at 4203), and that is what lets a caller of
+      false for a ``res://`` address at 4204), and that is what lets a caller of
       this function see an escape at all rather than have it silently swallowed.
     - **the join** (4223-4232) — reproduced INCLUDING the empty case, which is
       the parity gap #766 documented and #763 closes: when every segment
