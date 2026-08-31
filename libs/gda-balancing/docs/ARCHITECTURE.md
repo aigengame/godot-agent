@@ -27,7 +27,7 @@ module, or prototype may become an accidental second specification.
 | --- | --- | --- |
 | This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-subsystem invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
 | [`BALANCING-CONTEXT.md`](../BALANCING-CONTEXT.md) | Canonical domain terms and distinctions | Architecture planning or executable semantics |
-| [bADR-0012…0026](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
+| [bADR-0012…0027](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
 | [Product PRD #501](https://github.com/aigengame/godot-agent/issues/501) | `gda-balancing` product outcomes, milestones, and relationship to the `gda` family | Standard Schema 2.0 architecture details |
 | [PRD #534](https://github.com/aigengame/godot-agent/issues/534) | Product requirements, acceptance criteria, and live completion tracking | Macro architecture or machine semantics |
 | [`standard-schema-2.0/`](standard-schema-2.0/) | Acceptance artifacts, coverage matrices, and prototype evidence status | Language authority or proof by prose |
@@ -162,9 +162,9 @@ flowchart TB
         subgraph UI["UI / Interfaces"]
             U["Structured CLI"]
             T["Execution OHS adapters<br/>Resource-oriented HTTP · MCP"]
-            E["Execution Open Host Service<br/>Execution Service Language"]
+            E["Execution Service Language<br/>shared OHS contract"]
 
-            T -->|"projects"| E
+            E -. "defines contract used by" .-> T
         end
         subgraph APP["Application"]
             A["Public use cases<br/>one operation at a time"]
@@ -196,7 +196,7 @@ flowchart TB
         end
 
         U -->|submits| A
-        E -->|submits| A
+        T -->|submits| A
         A -->|"invokes Kernel/LDB bootstrap"| B
         A -->|"invokes Model compiler"| C
         A -->|"invokes Experiment semantics"| X
@@ -674,13 +674,14 @@ authority.
 - `interfaces` owns inbound protocol binding, integration contracts, and presentation. The
   `interfaces/cli` adapter owns Command descriptors, the immutable registry, schema and manifest
   projection, argv binding, help, rendering, envelopes, and exit codes. The proposed Execution OHS
-  owns one Published Language for OHS-specific handles, selections, response framing, service
-  errors, and lifecycle facts. It does not own or copy Standard Schema contracts. Resource-oriented
-  HTTP and MCP are sibling adapters that project this language and call the same Application
-  service. The current HTTP adapter also owns routes, methods, status mapping, authentication, and
-  other HTTP facts. Its local companion host owns the in-process server lifecycle, readiness, and
-  shutdown. An executable Interface entry point is the composition root for its process. Interface
-  adapters translate values. They do not implement language or evaluation rules (bADR-0026/0027).
+  owns one Published Language for OHS-specific handles, selections, response framing, and shared OHS
+  errors. It does not own or copy Standard Schema contracts. Resource-oriented HTTP and MCP are
+  sibling adapters that use this language and call the same Application service directly. The
+  current HTTP adapter owns routes, methods, media types, status mapping, and HTTP error projection.
+  Its local companion host owns process authentication, readiness, status, shutdown, and the
+  in-process server lifecycle. An executable Interface entry point is the composition root for its
+  process. Interface adapters translate values. They do not implement language or evaluation rules
+  (bADR-0026/0027).
 - `application` coordinates one public use case at a time. It returns typed results or refusals. It
   also coordinates process-local Execution sessions, immutable Experiment revisions, and their
   ordering. It does not parse an external protocol, write presentation channels, build Interface
@@ -714,7 +715,7 @@ policy from domain-neutral storage mechanisms.
 | Layer | Subsystem | Responsibility | Produces or exposes |
 | --- | --- | --- | --- |
 | UI / Interfaces | Inbound adapters | Bind external protocols and present public outcomes without owning execution meaning | Structured CLI commands, Resource-oriented HTTP, future MCP, Surface manifest, envelopes, and protocol responses |
-| UI / Interfaces | Execution OHS and Published Language | Define application-agnostic execution capabilities and only the OHS-specific integration contract | Session handles, revision selections, service-response framing, service errors, lifecycle facts, and derived adapter schemas |
+| UI / Interfaces | Execution OHS and Published Language | Define application-agnostic execution capabilities and only the OHS-specific integration contract | Session handles, revision selections, service-response framing, shared OHS errors, and derived adapter schemas |
 | Application | Public use cases | Coordinate each public operation and process-local Execution-session ordering without Interface protocol or presentation rules | Typed results or refusals, session/revision handles, plus publication receipts when the operation publishes artifacts |
 | Domain | Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, and admission outcome |
 | Domain | Package resolver | Select one deterministic and compatible package closure | Canonical Package Lock and resolution receipt |
@@ -742,10 +743,10 @@ flowchart TB
         direction TB
         H["Resource-oriented HTTP adapter"]
         M["MCP adapter"]
-        P["Execution Open Host Service<br/>Execution Service Language"]
+        P["Execution Service Language<br/>shared OHS contract"]
 
-        H -->|"projects"| P
-        M -->|"projects"| P
+        P -. "defines contract used by" .-> H
+        P -. "defines contract used by" .-> M
     end
 
     A["Application<br/>protocol-neutral execution use cases"]
@@ -753,7 +754,8 @@ flowchart TB
 
     C -->|"uses one adapter"| H
     C -->|"uses one adapter"| M
-    P -->|"invokes"| A
+    H -->|"invokes"| A
+    M -->|"invokes"| A
     A -->|"uses"| D
 ```
 

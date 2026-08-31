@@ -15,7 +15,8 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
 > Published Language from transport-specific ownership. Until that decision is accepted and
 > implemented, this bADR remains the authority for the current `/v1` wire contract and local host.
 > The follow-up changes integration ownership, not the Standard Schema authorities or the accepted
-> HTTP behavior recorded here.
+> HTTP behavior recorded here. It classifies `/v1/status`, like `/v1/shutdown`, as a local-host
+> operation rather than a shared OHS capability while preserving both routes and response shapes.
 
 ## Decision
 
