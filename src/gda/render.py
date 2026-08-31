@@ -20,13 +20,18 @@ read / set-echo lines. Two of them carry rationale worth stating here:
 - **Node-tree outline.** :func:`render_node_tree` walks any node shape carrying
   ``name``/``type``/``children``, so the on-disk ``scene``/``node`` trees and the
   runtime ``game`` tree share one indented outline.
+- **Failure layout.** :func:`render_failure` is the one human rendering of the
+  shared error envelope (#685). Unlike the success renderers it is not per command
+  and is not bound to a descriptor: the envelope is ONE shape for every command
+  (ADR-0004), so its human form is one function nothing keys a code on.
 """
 
 import json
 from collections.abc import Sequence
 from typing import Any, Protocol
 
-from gda.models import NodeProperty
+from gda.models import FailureEvidence, GdaError, NodeProperty
+from gda.script_errors import script_error_line
 
 
 def format_value(value: Any) -> str:
@@ -38,6 +43,80 @@ def format_value(value: Any) -> str:
     ``[x, y]``), and this owns that projection for the human path.
     """
     return json.dumps(value)
+
+
+def render_failure(error: GdaError) -> str:
+    """Render a failure envelope as the lines a human reads (#685).
+
+    The human half of the public failure channel, and the counterpart of a command's
+    own success renderer: :func:`gda.headless.emit_failure` calls this when the
+    invocation did not ask for JSON. Before it existed there was no human channel at
+    all — every failure was the ``{"error": {...}}`` line — so a caller without
+    ``--json`` read a ``script run --strict`` capture as one escaped blob, which is
+    the evidence that flag exists to produce.
+
+    ONE renderer for every ``Gda error code``: nothing here keys on a code, so a
+    command cannot grow a private failure layout. It is also TOTAL over the envelope
+    — the verdict, the message, then each optional key (``probe`` #667, ``hint``
+    #670, ``evidence`` #687) — because the text replaces a JSON line that carried all
+    of them, and a human failure that quietly dropped one would say less than what it
+    replaced.
+
+    The order is short-before-long: the fixed-size parts stay together under the head
+    line, and ``diagnostics`` goes last because it is the only unbounded part (two
+    16 KiB tail-capped captures on a timeout), so it can never push the verdict off a
+    terminal. Absent parts render NOTHING — no empty section, no blank tail — and the
+    string carries no trailing newline, since the CLI's ``typer.echo`` adds exactly
+    one.
+
+    The recognized script errors can therefore appear twice on the two ``script run``
+    verdicts that also render them into ``diagnostics`` prose
+    (``gda.errors._ended_run_diagnostics``). That is accepted rather than
+    special-cased: for the four other codes carrying ``evidence.script_errors`` the
+    diagnostics is RAW engine stderr, where the curated list is the summary that makes
+    the dump readable — and suppressing it per code is exactly the per-command layout
+    this renderer exists to prevent.
+    """
+    lines = [f"error: {error.code} ({error.category.value})", error.message]
+    if error.probe is not None:
+        lines.append(f"probe: {error.probe.name} ({error.probe.platform})")
+    if error.hint is not None:
+        lines.append(f"hint: {error.hint}")
+    if error.evidence is not None:
+        lines.extend(_evidence_lines(error.evidence))
+    if error.diagnostics.strip():
+        lines.extend(("", error.diagnostics.strip("\n")))
+    return "\n".join(lines)
+
+
+def _evidence_lines(evidence: FailureEvidence) -> list[str]:
+    """The ``evidence:`` block, or nothing when this object carries no field.
+
+    Every field of :class:`~gda.models.FailureEvidence` is individually optional and
+    omitted rather than nulled (#687), so this enumerates them in the model's own
+    declaration order — one authority for what the evidence IS, read the same way by
+    both channels — and returns an empty list when none is set, rather than a header
+    over nothing.
+
+    The clock is rendered to two decimals, the same precision the ``launch_timeout``
+    message already states it in, so the prose and the block cannot disagree about
+    the same run; the full-precision value stays in the JSON channel.
+    """
+    body: list[str] = []
+    if evidence.exit_status is not None:
+        body.append(f"  exit status: {evidence.exit_status}")
+    if evidence.elapsed_seconds is not None:
+        body.append(f"  elapsed: {evidence.elapsed_seconds:.2f}s")
+    if evidence.timeout_seconds is not None:
+        body.append(f"  timeout: {evidence.timeout_seconds}s")
+    if evidence.termination_phase is not None:
+        body.append(f"  termination phase: {evidence.termination_phase.value}")
+    if evidence.script_errors:
+        body.append("  script errors:")
+        body.extend(
+            f"    {script_error_line(error)}" for error in evidence.script_errors
+        )
+    return ["evidence:", *body] if body else []
 
 
 class NodeOutline(Protocol):

@@ -36,6 +36,7 @@ from gda.models import (
     GdaErrorEnvelope,
     LiveStackConstraints,
 )
+from gda.render import render_failure
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
@@ -158,10 +159,10 @@ def json_in_effect(ctx: ClickContext) -> bool:
        spelling, so leaving this reading out would answer most agents in prose.
 
     It lives HERE, beside :func:`ancestor_json` and the option that inherits it,
-    rather than with the near-miss refusal that introduced it (``gda.hints``, #670):
-    the failure channel in this module has to ask the same question, and ``gda.hints``
-    already imports this module for it, so keeping the question there would need that
-    import to run backwards (#685).
+    rather than with the near-miss refusal that introduced it (``gda.hints``, #670),
+    because :func:`emit_failure` in this module now asks the same question — and
+    ``gda.hints`` already imports this module for that channel, so keeping the
+    question there would need the import to run backwards (#685).
     """
     if bool(ctx.params.get("json_output")):
         return True
@@ -541,7 +542,10 @@ def schema_command_class(
                     name not in _GLOBAL_OPTION_NAMES and _from_command_line(ctx, name)
                     for name in ctx.params
                 ):
-                    emit_failure(conflicting_params_input_failure())
+                    emit_failure(
+                        conflicting_params_input_failure(),
+                        json_output=json_in_effect(ctx),
+                    )
                 raw = ctx.params["params_json"]
                 # ``-`` reads the object from stdin so large payloads avoid OS
                 # argv length limits and process-listing leakage (ADR-0015).
@@ -558,7 +562,8 @@ def schema_command_class(
                     # caller's OTHER field values (e.g. a large --content payload) back
                     # into the structured envelope's message.
                     emit_failure(
-                        invalid_params_json_failure(validation_error_message(exc))
+                        invalid_params_json_failure(validation_error_message(exc)),
+                        json_output=json_in_effect(ctx),
                     )
                 if _params_json_dispatch is None:  # pragma: no cover - misconfig
                     raise RuntimeError(
@@ -572,14 +577,25 @@ def schema_command_class(
     return _SchemaCommand
 
 
-def emit_failure(failure: Failure) -> NoReturn:
-    """Emit a structured error envelope to stdout and exit non-zero.
+def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
+    """Emit a failure on the channel the caller asked for, and exit non-zero.
 
-    The single home for the public failure channel (ADR-0002): a ``Failure``
-    becomes the ``{"error": {...}}`` envelope on stdout and selects the process
-    exit code. Shared by the sentinel-pipeline commands (via :meth:`HeadlessCommand.run`)
-    and the native-export command (``export run``), which classifies its own
-    subprocess outcome but emits failures through this same channel.
+    The single home for the public failure channel (ADR-0002), and — like
+    :func:`emit_result` for the success channel — TWO renderings of one outcome: a
+    ``Failure`` becomes the ``{"error": {...}}`` envelope under ``--json``, else the
+    human lines of :func:`gda.render.render_failure`. Either way it selects the
+    process exit code, which is the same on both channels. Shared by the
+    sentinel-pipeline commands (via :meth:`HeadlessCommand.run`), the native-export
+    command (``export run``), the CLI dispatch tails, and the near-miss refusal
+    (``gda.hints``).
+
+    ``json_output`` is REQUIRED and keyword-only: until #685 this function had no
+    channel to choose, so every call site emitted JSON whether or not the caller had
+    asked for it, and a human read a labelled ``script run --strict`` capture as one
+    escaped line. Making it explicit is what keeps that from silently returning: a
+    new call site cannot default its way back into the wrong channel. Where the
+    caller holds a click context rather than the flag, :func:`json_in_effect`
+    answers it.
 
     ``exclude_none`` keeps the envelope's OPTIONAL context keys out of the JSON
     entirely when a failure has none, rather than emitting them as ``null``. So
@@ -596,12 +612,13 @@ def emit_failure(failure: Failure) -> NoReturn:
     key set, so a record does not read differently depending on which half of the
     contract carried it (:class:`gda.models.FailureEvidence`).
     """
-    typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json(exclude_none=True))
+    if json_output:
+        typer.echo(
+            GdaErrorEnvelope(error=failure.error).model_dump_json(exclude_none=True)
+        )
+    else:
+        typer.echo(render_failure(failure.error))
     raise typer.Exit(code=failure.exit_code)
-
-
-# Backwards-compatible private alias for in-module call sites.
-_fail = emit_failure
 
 
 def emit_result(
@@ -747,21 +764,28 @@ class HeadlessCommand(Generic[M]):
         params: BaseModel,
         *,
         godot: Optional[str],
+        json_output: bool,
         project: Optional[Path] = None,
         make_runner: RunnerFactory = make_subprocess_runner,
     ) -> M:
         """Run the command and return its typed success model.
 
-        Diagnostics are forwarded to stderr. Failures are emitted as the public
-        structured error envelope and terminate via Typer's exit path. The
-        outcome is produced by :meth:`execute`; this method adds the
-        emit-and-exit-on-failure behavior shared by every CLI command.
+        Diagnostics are forwarded to stderr. Failures are emitted on the caller's
+        channel — the structured envelope under ``--json``, else the rendered lines —
+        and terminate via Typer's exit path. The outcome is produced by
+        :meth:`execute`; this method adds the emit-and-exit-on-failure behavior
+        shared by every CLI command.
+
+        It therefore takes ``json_output`` for the same reason :meth:`emit` does:
+        emitting is a PUBLIC-channel act, and since #685 there are two channels.
+        A caller that wants the outcome rather than the emission calls
+        :meth:`execute`, which chooses nothing and returns the ``Failure``.
         """
         outcome = self.execute(
             params, godot=godot, project=project, make_runner=make_runner
         )
         if isinstance(outcome, Failure):
-            _fail(outcome)
+            emit_failure(outcome, json_output=json_output)
         return outcome
 
     def emit(
@@ -779,5 +803,11 @@ class HeadlessCommand(Generic[M]):
         renderer, ADR-0023) — the descriptor is in hand here, so there is no
         type-keyed table to consult.
         """
-        result = self.run(params, godot=godot, project=project, make_runner=make_runner)
+        result = self.run(
+            params,
+            godot=godot,
+            project=project,
+            json_output=json_output,
+            make_runner=make_runner,
+        )
         emit_result(result, json_output, self.render)

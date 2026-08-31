@@ -83,6 +83,7 @@ def test_params_json_conflicting_with_individual_args_is_a_structured_usage_erro
             "/tmp/proj/main.tscn",
             "--params-json",
             '{"path": "/tmp/proj/main.tscn", "root_type": "Node2D"}',
+            "--json",
         ],
     )
 
@@ -99,7 +100,9 @@ def test_invalid_json_params_is_a_structured_error(monkeypatch):
         RunResult(stdout=sentinel(SCENE_CREATE_RESULT), stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(app, ["scene", "create", "--params-json", "{not json"])
+    result = CliRunner().invoke(
+        app, ["scene", "create", "--params-json", "{not json", "--json"]
+    )
 
     assert result.exit_code != 0
     err = json.loads(result.stdout)["error"]
@@ -115,7 +118,14 @@ def test_schema_invalid_params_object_is_a_structured_error(monkeypatch):
     )
 
     result = CliRunner().invoke(
-        app, ["scene", "create", "--params-json", '{"path": "/tmp/proj/main.tscn"}']
+        app,
+        [
+            "scene",
+            "create",
+            "--params-json",
+            '{"path": "/tmp/proj/main.tscn"}',
+            "--json",
+        ],
     )
 
     assert result.exit_code != 0
@@ -214,7 +224,13 @@ def test_wrong_typed_path_is_a_structured_error_not_a_traceback(monkeypatch):
 
     result = CliRunner().invoke(
         app,
-        ["scene", "create", "--params-json", '{"path": 123, "root_type": "Node2D"}'],
+        [
+            "scene",
+            "create",
+            "--params-json",
+            '{"path": 123, "root_type": "Node2D"}',
+            "--json",
+        ],
     )
 
     assert result.exit_code != 0
@@ -261,6 +277,7 @@ def test_script_create_params_json_rejects_content_and_extends(monkeypatch):
             "create",
             "--params-json",
             '{"path": "/tmp/proj/hero.gd", "content": "extends Node\\n", "extends_type": "Node2D"}',
+            "--json",
         ],
     )
 
@@ -281,6 +298,7 @@ def test_shader_create_params_json_rejects_content_and_shader_type(monkeypatch):
             "create",
             "--params-json",
             '{"path": "/tmp/proj/wave.gdshader", "content": "shader_type spatial;", "shader_type": "spatial"}',
+            "--json",
         ],
     )
 
@@ -303,6 +321,7 @@ def test_script_set_params_json_rejects_inconsistent_edit_fields(monkeypatch):
             "set",
             "--params-json",
             '{"path": "/tmp/proj/hero.gd", "search": "a"}',
+            "--json",
         ],
     )
 
@@ -321,6 +340,7 @@ def test_perf_monitor_params_json_rejects_both_selectors(monkeypatch):
             "monitor",
             "--params-json",
             '{"node": "/root/Main/Player", "property": "position", "signal": "hit"}',
+            "--json",
         ],
     )
 
@@ -333,7 +353,7 @@ def test_perf_monitor_params_json_rejects_neither_selector(monkeypatch):
     # request is ambiguous, not a default-to-something dispatch.
     result = CliRunner().invoke(
         app,
-        ["perf", "monitor", "--params-json", '{"node": "/root/Main/Player"}'],
+        ["perf", "monitor", "--params-json", '{"node": "/root/Main/Player"}', "--json"],
     )
 
     assert result.exit_code != 0
@@ -350,6 +370,7 @@ def test_perf_monitor_params_json_rejects_frames_over_range(monkeypatch):
             "monitor",
             "--params-json",
             '{"node": "/root/Main/Player", "property": "position", "frames": 601}',
+            "--json",
         ],
     )
 
@@ -366,6 +387,7 @@ def test_perf_monitor_params_json_rejects_frames_below_range(monkeypatch):
             "monitor",
             "--params-json",
             '{"node": "/root/Main/Player", "property": "position", "frames": 0}',
+            "--json",
         ],
     )
 

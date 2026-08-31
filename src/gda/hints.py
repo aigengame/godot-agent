@@ -239,7 +239,11 @@ def _answer(ctx: ClickContext, refusal: Refusal) -> NoReturn:
     the usage error click renders — carrying the same sentence, at the same exit code.
     """
     if json_in_effect(ctx):
-        emit_failure(refusal.failure())
+        # ``json_output=True`` by construction: the branch IS the channel question,
+        # asked here rather than inside the emitter because the human answer is not a
+        # rendered envelope at all — it is click's own usage error, which carries the
+        # same sentence and the same exit code (#685).
+        emit_failure(refusal.failure(), json_output=True)
     raise UsageError(refusal.message, ctx)
 
 
