@@ -1,8 +1,8 @@
 class_name RewardTrial
 extends RefCounted
 
-const GdaExecutionClient = preload(
-	"res://addons/gda_balancing_client/gda_execution_client.gd"
+const PlaytestRunProvenance = preload(
+	"res://content/playtest_run_provenance.gd"
 )
 const REWARD_OPERATION := "game.generation.select-reward-v1"
 const BUILD_OPERATION := "game.build.replace-reward-v1"
@@ -42,7 +42,7 @@ func admit_run_result(
 	var trace: Dictionary = artifacts.get("event-trace", {})
 	if trace.get("artifact_kind") != "event-trace":
 		return _failure("missing_event_trace")
-	var provenance := GdaExecutionClient.project_run_provenance(run_result)
+	var provenance := PlaytestRunProvenance.project(run_result)
 	if provenance.is_empty():
 		return _failure("incomplete_artifact_provenance")
 

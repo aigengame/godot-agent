@@ -19,6 +19,7 @@ import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.experiment_artifacts as experiment_artifacts_module
 import gda_balancing.domain.experiment_artifact_replay as experiment_artifact_replay_module
 import gda_balancing.domain.operation_program as operation_program_module
+import gda_balancing.domain.program_reachability as program_reachability_module
 import gda_balancing.domain.runtime.projections as runtime_projection_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
 import schema2_operation_execution_conformance_support as operation_conformance_module
@@ -7827,37 +7828,16 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     first = runtime_projection_module.evaluator_manifest(checked)
-    operations = operation_program_module.selected_operation_index(
-        checked.rir["selected_semantics"]
-    )
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     selected_entrypoints = [
         entrypoints[event["entrypoint"]]
         for scenario in checked.value["scenarios"]
         for event in runtime_projection_module.scenario_transition_events(scenario)
     ]
-    formula_nodes = {
-        row["instruction"]["node"]
-        for phase in ("initialization", "event", "observation")
-        for program in runtime_projection_module.formula_programs_reachable_from_entrypoints(
-            checked,
-            selected_entrypoints,
-            phase=phase,
-        )
-        for row in program["body"]
-    }
-    operation_nodes = {
-        instruction["node"]
-        for scenario in checked.value["scenarios"]
-        for event in scenario["event_plan"]
-        for instruction in operation_program_module.expanded_operation_body(
-            operation_program_module.operation_coordinate(
-                entrypoints[event["entrypoint"]]["operation"]
-            ),
-            operations,
-        )
-    }
-    assert set(first.value["instruction_nodes"]) == formula_nodes | operation_nodes
+    projected = program_reachability_module.project_reachable_program_structure(
+        checked.rir, selected_entrypoints
+    )
+    assert set(first.value["instruction_nodes"]) == projected.runtime_node_ids
     assert first.value["evaluator_build_identity"] == (
         runtime_projection_module.evaluator_build_identity()
     )
@@ -7872,6 +7852,81 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         != (first.value["implementation_identity"])
     )
     assert changed_build.content_identity != first.content_identity
+
+
+def test_experiment_keeps_required_and_supported_evaluator_policies_separate(
+    tmp_path, run_cli, monkeypatch
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
+    entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
+    scenario = checked.value["scenarios"][0]
+    event = runtime_projection_module.scenario_transition_events(scenario)[0]
+    selected_entrypoints = [entrypoints[event["entrypoint"]]]
+    baseline = program_reachability_module.project_reachable_program_structure(
+        checked.rir, selected_entrypoints
+    )
+    phase, program = next(
+        (phase, programs[0])
+        for phase in program_reachability_module.LIFECYCLE_PHASES
+        if (programs := baseline.formula_programs.for_phase(phase))
+    )
+    added_contract = next(
+        row
+        for row in checked.kernel["meta_format"]["runtime_program"]["nodes"]
+        if row["semantics"]["operator"]
+        in runtime_projection_module.SUPPORTED_RUNTIME_OPERATORS
+        and row["id"] not in baseline.runtime_node_ids
+    )
+    added_node = added_contract["id"]
+    mutated_rir = deepcopy(checked.rir)
+    program_index = checked.rir["initialization_programs"].index(program)
+    added_instruction = deepcopy(program["body"][0])
+    added_instruction["instruction"]["node"] = added_node
+    mutated_rir["initialization_programs"][program_index]["body"].append(
+        added_instruction
+    )
+    projected = program_reachability_module.project_reachable_program_structure(
+        mutated_rir, selected_entrypoints
+    )
+    assert added_node in projected.runtime_node_ids
+    assert added_node in {
+        row["instruction"]["node"]
+        for row in projected.formula_programs.for_phase(phase)[0]["body"]
+    }
+
+    requirements, _named_streams = (
+        experiment_admission_module.derive_scenario_program_requirements(
+            mutated_rir,
+            event["entrypoint"],
+            checked.value["runtime"]["profile"],
+            checked.value["seed"]["algorithm"],
+        )
+    )
+    assert added_node in requirements["instruction_nodes"]
+    mutated_value = deepcopy(checked.value)
+    mutated_value["runtime"]["required_evaluator"] = requirements
+    mutated_checked = replace(checked, rir=mutated_rir, value=mutated_value)
+    assert (
+        added_node
+        in runtime_projection_module.evaluator_manifest(mutated_checked).value[
+            "instruction_nodes"
+        ]
+    )
+
+    monkeypatch.setattr(
+        runtime_projection_module,
+        "SUPPORTED_RUNTIME_OPERATORS",
+        runtime_projection_module.SUPPORTED_RUNTIME_OPERATORS
+        - {added_contract["semantics"]["operator"]},
+    )
+    refused = experiment_runtime_module.prepare_experiment(mutated_checked)
+    assert isinstance(refused, Schema2RefusalReport)
+    assert refused.stage == "resolution"
+    primary = refused.diagnostics[0].primary
+    assert isinstance(primary, ArtifactLocation)
+    assert primary.pointer == "/runtime/required_evaluator/instruction_nodes"
 
 
 def test_evaluator_build_identity_covers_only_domain_implementation(monkeypatch):

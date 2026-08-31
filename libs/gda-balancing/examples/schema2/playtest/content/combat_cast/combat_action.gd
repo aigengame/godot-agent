@@ -1,8 +1,8 @@
 class_name CombatAction
 extends RefCounted
 
-const GdaExecutionClient = preload(
-	"res://addons/gda_balancing_client/gda_execution_client.gd"
+const PlaytestRunProvenance = preload(
+	"res://content/playtest_run_provenance.gd"
 )
 const ACTOR_CONTRACTS := {
 	"player": {
@@ -65,7 +65,7 @@ func admit_run_result(
 		return _failure("missing_snapshot_series")
 	if metrics.get("artifact_kind") != "metric-dataset":
 		return _failure("missing_metric_dataset")
-	var provenance := GdaExecutionClient.project_run_provenance(run_result)
+	var provenance := PlaytestRunProvenance.project(run_result)
 	if provenance.is_empty():
 		return _failure("incomplete_artifact_provenance")
 

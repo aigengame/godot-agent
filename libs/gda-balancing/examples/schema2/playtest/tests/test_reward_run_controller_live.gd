@@ -6,6 +6,9 @@ const GdaExecutionClient = preload(
 const RewardRunController = preload(
 	"res://content/reward_run/reward_run_controller.gd"
 )
+const PlaytestExecutionCoordinator = preload(
+	"res://content/playtest_execution_coordinator.gd"
+)
 const RewardRun = preload("res://systems/reward_run.gd")
 
 func _init() -> void:
@@ -17,11 +20,12 @@ func _run() -> void:
 	var executable := OS.get_environment("GDA_BALANCING_EXECUTABLE")
 	var client := GdaExecutionClient.new()
 	get_root().add_child(client)
+	var execution := PlaytestExecutionCoordinator.new()
+	execution.configure(client, executable)
 	var controller := RewardRunController.new()
 	get_root().add_child(controller)
 	controller.configure(
-		client,
-		executable,
+		execution,
 		RewardRun.new(),
 	)
 	var started: Dictionary = await controller.start()

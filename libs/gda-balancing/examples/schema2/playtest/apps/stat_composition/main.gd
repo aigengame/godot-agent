@@ -6,11 +6,15 @@ const GdaExecutionClient = preload(
 const StatCompositionController = preload(
 	"res://content/stat_composition/stat_composition_controller.gd"
 )
+const PlaytestExecutionCoordinator = preload(
+	"res://content/playtest_execution_coordinator.gd"
+)
 
 @onready var _view: Control = $StatCompositionView
 
 var _client: GdaExecutionClient
 var _controller: StatCompositionController
+var _execution: PlaytestExecutionCoordinator
 var _shutting_down := false
 
 
@@ -19,11 +23,13 @@ func _ready() -> void:
 	_client = GdaExecutionClient.new()
 	_client.name = "GdaExecutionClient"
 	add_child(_client)
+	_execution = PlaytestExecutionCoordinator.new()
+	_execution.configure(_client, _user_option("gda-balancing-executable"))
 	_controller = StatCompositionController.new()
 	_controller.name = "StatCompositionController"
 	add_child(_controller)
 	_view.bind(_controller)
-	_controller.configure(_client, _user_option("gda-balancing-executable"))
+	_controller.configure(_execution)
 	await _controller.start()
 
 

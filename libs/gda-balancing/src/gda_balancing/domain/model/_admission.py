@@ -27,23 +27,21 @@ from gda_balancing.domain.formula.notation import (
     admit_formula_pair,
     formula_schema_version,
 )
-from gda_balancing.domain.formula.inference import (
-    infer_formula_slot_parameter_contract as _infer_formula_slot_parameter_contract,
-)
 from gda_balancing.domain.formula.types import (
     formula_contract_contains as _formula_contract_contains,
-    formula_contract_from_operation as _formula_contract_from_operation,
     formula_contract_matches as _formula_contract_matches,
     formula_contract_matches_operation as _formula_contract_matches_operation,
 )
 from gda_balancing.domain.authority.runtime_validation import (
-    fixed_operation_value_contract,
     operation_literal_context_contract as _literal_context_contract,
 )
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
     language_structured_value_index,
+)
+from gda_balancing.domain.operation_call_domains import (
+    project_concrete_operation_call_domains,
 )
 
 from gda_balancing.domain.model._resolution import (
@@ -68,7 +66,6 @@ from gda_balancing.domain.model._lowering import (
     _formula_operation_identity,
     _formula_symbol_dependencies,
     _package_lock,
-    _project_concrete_operation_call_closure,
     _reachable_derived_formula_sites,
     _reachable_operation_formula_dependencies,
     _resolved_alias_rows,
@@ -83,6 +80,11 @@ from gda_balancing.domain.model._lowering import (
     _symbol_initialization_contract,
     _value_contract_matches,
     _value_policy_is_valid,
+)
+from gda_balancing.domain.model._operation_call_domain_adapters import (
+    build_operation_call_domain_input,
+    resolved_rir_entrypoint_call,
+    resolved_rir_formula_call,
 )
 
 
@@ -968,34 +970,24 @@ def _formula_program_graph_is_admitted(
                     or set(port_ids) != set(ports)
                 ):
                     return False
-                call_arguments: dict[str, dict[str, Any]] = {}
-                known_call_arguments: dict[str, Any] = {}
-                for argument in arguments:
-                    if (
-                        set(argument) != {"port", "operand"}
-                        or (contract := operand_contract(argument.get("operand")))
-                        is None
-                    ):
-                        return False
-                    port_id = cast(str, argument["port"])
-                    if not _formula_contract_matches_operation(
-                        contract, ports[port_id]
-                    ):
-                        return False
-                    call_arguments[port_id] = contract
-                    operand = cast(dict[str, Any], argument["operand"])
-                    if operand.get("kind") == "literal":
-                        known_call_arguments[port_id] = operand.get("value")
+                concrete_call = resolved_rir_formula_call(
+                    operation,
+                    arguments,
+                    operand_contract,
+                )
+                if concrete_call is None or any(
+                    not _formula_contract_matches_operation(contract, ports[port_id])
+                    for port_id, contract in cast(
+                        dict[str, dict[str, Any]], concrete_call["arguments"]
+                    ).items()
+                ):
+                    return False
                 operation_dependencies_by_key[key].append(
                     (cast(str, operation_ref["identity"]), operation)
                 )
                 formula_operation_roots.add(coordinate)
                 concrete_operation_calls.setdefault(coordinate, []).append(
-                    {
-                        "arguments": call_arguments,
-                        "known_arguments": known_call_arguments,
-                        "result": node["result"],
-                    }
+                    concrete_call | {"result": node["result"]}
                 )
             elif node.get("node") == "conditional":
                 if set(node) != {
@@ -1123,79 +1115,30 @@ def _formula_program_graph_is_admitted(
             cast(str, operation_ref.get("id")),
         )
         operation = operations_by_coordinate.get(coordinate)
-        arguments = entrypoint.get("arguments")
-        if operation is None or not isinstance(arguments, list):
+        if operation is None:
             return False
-        call_arguments: dict[str, dict[str, Any]] = {}
-        known_call_arguments: dict[str, Any] = {}
-        for argument in arguments:
-            if not isinstance(argument, dict) or not isinstance(
-                argument.get("port"), dict
-            ):
-                return False
-            port_id = cast(str, argument["port"].get("name"))
-            operand = argument.get("operand")
-            if not isinstance(operand, dict):
-                return False
-            if operand.get("kind") == "symbol":
-                symbol = operand.get("symbol")
-                if not isinstance(symbol, dict):
-                    return False
-                contract = declarations_by_symbol.get(
-                    (
-                        cast(str, symbol.get("module")),
-                        cast(str, symbol.get("name")),
-                    )
-                )
-            elif operand.get("kind") == "literal":
-                context_type = operand.get("context_type")
-                if not isinstance(context_type, dict):
-                    return False
-                try:
-                    contract = cast(
-                        dict[str, Any],
-                        _formula_contract_from_operation(context_type),
-                    )
-                except ValueError:
-                    return False
-                value = operand.get("value")
-                if isinstance(value, int) and not isinstance(value, bool):
-                    contract = {
-                        **contract,
-                        "domain_kind": "closed-interval",
-                        "domain": {"minimum": value, "maximum": value},
-                    }
-                known_call_arguments[port_id] = value
-            elif operand.get("kind") == "event-reference":
-                event_reference_contract = fixed_operation_value_contract(
-                    kernel, "kernel-event-reference"
-                )
-                if event_reference_contract is None:
-                    return False
-                contract = cast(
-                    dict[str, Any],
-                    _formula_contract_from_operation(event_reference_contract),
-                )
-            else:
-                return False
-            if not isinstance(contract, dict):
-                return False
-            call_arguments[port_id] = contract
-        concrete_operation_calls.setdefault(coordinate, []).append(
-            {
-                "arguments": call_arguments,
-                "known_arguments": known_call_arguments,
-            }
-        )
-    try:
-        concrete_operation_calls = _project_concrete_operation_call_closure(
-            operations_by_coordinate,
-            concrete_operation_calls,
-            kernel,
-            language_bundle,
-            cast(dict[str, Any], policy["notation_conversion"]),
+        concrete_call = resolved_rir_entrypoint_call(
+            entrypoint,
+            operation,
             declarations_by_symbol,
+            kernel,
         )
+        if concrete_call is None:
+            return False
+        concrete_operation_calls.setdefault(coordinate, []).append(concrete_call)
+    try:
+        call_domain_projection = project_concrete_operation_call_domains(
+            build_operation_call_domain_input(
+                operations_by_coordinate,
+                concrete_operation_calls,
+                cast(list[dict[str, Any]], bindings),
+                declarations_by_symbol,
+                kernel,
+                language_bundle,
+                cast(dict[str, Any], policy["notation_conversion"]),
+            )
+        )
+        concrete_operation_calls = call_domain_projection.calls
     except (KeyError, TypeError, ValueError):
         return False
     reachable_operations = _selected_resolved_operation_coordinates(
@@ -1387,15 +1330,16 @@ def _formula_program_graph_is_admitted(
                     slot_parameter,
                 ):
                     return False
-                for call in concrete_calls:
-                    try:
-                        actual_contract = _infer_formula_slot_parameter_contract(
-                            operation,
-                            slot_parameter,
-                            call,
-                            cast(dict[str, Any], policy["notation_conversion"]),
-                        )
-                    except (KeyError, TypeError, ValueError):
+                projected_parameters = (
+                    call_domain_projection.slot_parameter_contracts.get(slot_key, [])
+                )
+                if len(projected_parameters) != len(concrete_calls):
+                    return False
+                for parameter_projection in projected_parameters:
+                    actual_contract = parameter_projection.get(
+                        cast(str, operand["parameter"])
+                    )
+                    if not isinstance(actual_contract, dict):
                         return False
                     if not _formula_contract_contains(
                         parameters[argument["parameter"]], actual_contract

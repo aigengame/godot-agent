@@ -6,12 +6,16 @@ const GdaExecutionClient = preload(
 const CombatCastController = preload(
 	"res://content/combat_cast/combat_cast_controller.gd"
 )
+const PlaytestExecutionCoordinator = preload(
+	"res://content/playtest_execution_coordinator.gd"
+)
 const CombatDuel = preload("res://systems/combat_duel.gd")
 
 @onready var _view: Control = $CombatCastView
 
 var _client: GdaExecutionClient
 var _controller: CombatCastController
+var _execution: PlaytestExecutionCoordinator
 var _shutting_down := false
 
 
@@ -20,13 +24,14 @@ func _ready() -> void:
 	_client = GdaExecutionClient.new()
 	_client.name = "GdaExecutionClient"
 	add_child(_client)
+	_execution = PlaytestExecutionCoordinator.new()
+	_execution.configure(_client, _user_option("gda-balancing-executable"))
 	_controller = CombatCastController.new()
 	_controller.name = "CombatCastController"
 	add_child(_controller)
 	_view.bind(_controller)
 	_controller.configure(
-		_client,
-		_user_option("gda-balancing-executable"),
+		_execution,
 		CombatDuel.new(),
 	)
 	await _controller.start()

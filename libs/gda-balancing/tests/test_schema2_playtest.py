@@ -238,6 +238,7 @@ def test_each_playtest_has_an_explicit_thin_application_entry():
         assert (app / "main.tscn").is_file()
         source = (app / "main.gd").read_text(encoding="utf-8")
         assert "GdaExecutionClient" in source
+        assert "PlaytestExecutionCoordinator" in source
         assert controller_name in source
         if system_name is None:
             assert "res://systems/" not in source
@@ -265,6 +266,16 @@ def test_playtest_common_modules_have_multiple_real_app_consumers():
         path.read_text() for path in (_PLAYTEST / "content").glob("*/*_controller.gd")
     ]
     assert sum("GdaExecutionClient" in source for source in app_sources) == 4
+    assert sum("PlaytestExecutionCoordinator" in source for source in app_sources) == 4
+    assert all("_execution" in source for source in controller_sources)
+    for source in controller_sources:
+        for transport_call in (
+            "admit_revision(",
+            "create_session(",
+            "delete_session(",
+            "run_revision(",
+        ):
+            assert transport_call not in source
     assert sum("PlaytestFeedbackFile" in source for source in controller_sources) == 4
     assert (
         sum(
@@ -277,9 +288,23 @@ def test_playtest_common_modules_have_multiple_real_app_consumers():
         _PLAYTEST / "addons/gda_balancing_client/gda_execution_client.gd"
     ).read_text()
     assert re.search(r"\b(reward|combat|effect)\b", client, re.IGNORECASE) is None
+    assert "project_run_provenance" not in client
+    coordinator = (_PLAYTEST / "content/playtest_execution_coordinator.gd").read_text()
+    assert re.search(r"\b(reward|combat|effect)\b", coordinator, re.IGNORECASE) is None
     shell = (_PLAYTEST / "ui/playtest_shell.gd").read_text()
     assert 'DisplayServer.clipboard_set(JSON.stringify(payload, "\\t"))' in shell
     assert "ProjectSettings.globalize_path(path)" in shell
+
+
+def test_playtest_content_does_not_bind_the_concrete_transport_adapter():
+    for script in (_PLAYTEST / "content").rglob("*.gd"):
+        source = script.read_text(encoding="utf-8")
+        assert "res://addons/gda_balancing_client" not in source, script
+
+    projector = (_PLAYTEST / "content/playtest_run_provenance.gd").read_text(
+        encoding="utf-8"
+    )
+    assert "static func project(run_result: Dictionary)" in projector
 
 
 def test_playtest_documentation_covers_each_player_and_maintainer_path():
@@ -334,6 +359,8 @@ def test_playtest_keeps_focused_runtime_behavior_proofs():
         "test_combat_cast_controller_failure.gd",
         "test_combat_cast_main_live.gd",
         "test_combat_cast_view.gd",
+        "test_playtest_execution_coordinator.gd",
+        "test_playtest_run_provenance.gd",
         "test_playtest.gd",
         "test_reward_run_controller_failure.gd",
         "test_reward_run_controller_live.gd",

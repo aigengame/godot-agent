@@ -37,7 +37,6 @@ from gda_balancing.domain.runtime.projections import (
     event_catalog_record as _event_catalog_record,
     extend_runtime_journal_identity as _extend_runtime_journal_identity,
     external_input_identity as _external_input_identity,
-    formula_programs_reachable_from_entrypoints as _formula_programs_reachable_from_entrypoints,
     metric_definition_identity as _metric_definition_identity,
     observation_event_id as _observation_event_id,
     operation_formula_evaluation_record as _operation_formula_evaluation_record,
@@ -59,6 +58,7 @@ from gda_balancing.domain.runtime.projections import (
     scheduled_event_id as _scheduled_event_id,
     scheduler_contract as _scheduler_contract,
 )
+from gda_balancing.domain.program_reachability import reachable_formula_programs
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
@@ -734,8 +734,8 @@ def _evaluate_initialization_programs(
     phase: str = "initialization",
 ) -> int:
     """Evaluate closed generic programs in one authority-owned lifecycle frame."""
-    programs = _formula_programs_reachable_from_entrypoints(
-        checked,
+    programs = reachable_formula_programs(
+        checked.rir,
         selected_entrypoints,
         phase=phase,
     )

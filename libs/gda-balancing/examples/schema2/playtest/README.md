@@ -134,27 +134,36 @@ The project uses four downward dependency layers. Each application has a thin co
 
 ```text
 apps/<application>/main
-          |
-          v
-ui/<application> -> content/<application> -> addons/gda_balancing_client
-                              |                         |
-                              |                         v
-                              +-> systems/<application> local gda-balancing service
-                                  (when gameplay state needs one)
+          +--------------------+-----------------------------+
+          |                    |                             |
+          v                    v                             v
+ui/<application> -> content/<application> -> content/playtest_execution_coordinator
+                              |                             |
+                              v                             v
+                  systems/<application>          addons/gda_balancing_client
+                  (when gameplay state                     |
+                   needs one)                              v
+                                             local gda-balancing service
 ```
 
-- `apps/` creates one view, one Content controller, and one game-neutral execution client for each
-  application. It owns no gameplay or document rules.
+- `apps/` creates one view, one Content controller, one shared Content execution coordinator, and
+  one game-neutral execution client for each application. It owns no gameplay or document rules.
 - `ui/` owns player presentation, feature controls, feature questions, localization, and Tweens.
-- `content/` reads maintained documents, creates complete Experiment revisions, validates returned
-  relationships, projects gameplay values, coordinates application flow, and records feedback.
+- Each application module under `content/` reads maintained documents, creates complete Experiment
+  Specification documents, validates returned relationships, projects gameplay values, coordinates
+  player flow, and records feedback.
+- `content/playtest_execution_coordinator.gd` coordinates service startup, Execution-session
+  creation, exact-revision admission and execution, retry cleanup, deletion, and shutdown. It
+  reports the failed lifecycle stage and preserves the original service or refusal payload.
+- `content/playtest_run_provenance.gd` validates shared artifact identities and projects the opaque
+  maintainer provenance that Content can include in saved feedback.
 - `systems/` is optional. It advances validated gameplay values when an application has a gameplay
   state machine. It does not parse protocol or Standard Schema structures and does not repeat
   calculations already performed by `gda-balancing`. Attack Damage Training consumes validated
   results directly through Content, so it intentionally has no `systems/` module.
 - `addons/gda_balancing_client/` owns executable discovery, child-process lifetime, readiness,
-  credentials, generic `/v1` requests, handles, and shutdown. It contains no Reward, Combat, or
-  Effect fields.
+  credentials, generic `/v1` requests, JSON transport, handles, and forced process stop. It
+  contains no Reward, Combat, or Effect fields.
 - `addons/playtest_feedback_file/`, `ui/playtest_shell.gd`, and `scripts/run_playtest.sh` contain
   only behavior used by multiple applications.
 

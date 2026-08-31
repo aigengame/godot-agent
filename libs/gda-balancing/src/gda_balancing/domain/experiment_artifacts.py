@@ -40,7 +40,6 @@ from gda_balancing.domain.runtime.projections import (
     evaluator_manifest as _evaluator_manifest,
     event_catalog_record as _event_catalog_record,
     extend_runtime_journal_identity as _extend_runtime_journal_identity,
-    formula_programs_reachable_from_entrypoints as _formula_programs_reachable_from_entrypoints,
     metric_definition_identity as _metric_definition_identity,
     named_value_rows as _named_value_rows,
     observation_event_id as _observation_event_id,
@@ -59,6 +58,7 @@ from gda_balancing.domain.runtime.projections import (
     scheduled_event_id as _scheduled_event_id,
     scheduler_contract as _scheduler_contract,
 )
+from gda_balancing.domain.program_reachability import reachable_formula_programs
 
 _INVALID_FORMULA_EVIDENCE = object()
 _EXPERIMENT_RUNTIME_REFUSAL_NAMES = frozenset(
@@ -1362,8 +1362,8 @@ def _formula_charge_through_evaluation_site(
 ) -> int | None:
     if evaluation_site_identity is None:
         return None
-    programs = _formula_programs_reachable_from_entrypoints(
-        checked,
+    programs = reachable_formula_programs(
+        checked.rir,
         selected_entrypoints,
         phase=phase,
     )
@@ -1794,8 +1794,8 @@ def _terminal_audit_is_valid(
         resolved_entrypoints[cast(str, event["entrypoint"])]
         for event in _scenario_transition_events(scenario)
     ]
-    event_formula_programs = _formula_programs_reachable_from_entrypoints(
-        checked,
+    event_formula_programs = reachable_formula_programs(
+        checked.rir,
         selected_entrypoints,
         phase="event",
     )

@@ -22,25 +22,22 @@ var last_feedback_path := ""
 var _attacks: Array[StatCompositionAttack] = []
 var _baseline_experiment: Dictionary = {}
 var _busy := false
-var _client: Node
+var _execution
 var _documents := StatCompositionDocuments.new()
 var _documents_ready := false
-var _executable_path := ""
 var _feedback := PlaytestFeedbackFile.new()
 var _last_attack: Dictionary = {}
 var _last_state: Dictionary = {}
 var _model_source: Dictionary = {}
 var _rules: Dictionary = {}
-var _session := ""
 var _settings := {"buff_enabled": 1, "level": 3, "weapon_damage_bonus": 8}
 var _setting_contracts: Dictionary = {}
 var _target_health := 120
 var _target_max_health := 120
 
 
-func configure(client: Node, executable_path: String) -> void:
-	_client = client
-	_executable_path = executable_path
+func configure(execution) -> void:
+	_execution = execution
 
 
 func start() -> Dictionary:
@@ -49,7 +46,7 @@ func start() -> Dictionary:
 	playtest_complete = false
 	_documents_ready = false
 	_target_health = 120
-	return await _prepare_live_session()
+	return await _prepare_live_session(false)
 
 
 func set_playtest_options(
@@ -111,21 +108,15 @@ func retry() -> Dictionary:
 	if _busy:
 		return _failure("attack_in_flight", "an attack is already in flight")
 	_busy = true
-	if not _session.is_empty():
-		await _client.delete_session(_session)
-	await _client.shutdown()
-	_session = ""
+	var result := await _prepare_live_session(true)
 	_busy = false
-	return await _prepare_live_session()
+	return result
 
 
 func shutdown() -> Dictionary:
-	if _client == null:
+	if _execution == null:
 		return {"ok": true}
-	if not _session.is_empty():
-		await _client.delete_session(_session)
-		_session = ""
-	return await _client.shutdown()
+	return await _execution.shutdown()
 
 
 func submit_feedback(
@@ -171,7 +162,7 @@ func current_state() -> Dictionary:
 	return _last_state.duplicate(true)
 
 
-func _prepare_live_session() -> Dictionary:
+func _prepare_live_session(retrying: bool) -> Dictionary:
 	phase = "preparing"
 	_emit_state()
 	if not _documents_ready:
@@ -187,17 +178,13 @@ func _prepare_live_session() -> Dictionary:
 		for name in _settings:
 			_settings[name] = int(_setting_contracts[name]["value"])
 		_documents_ready = true
-	var started: Dictionary = await _client.start(_executable_path)
-	if not started.get("ok", false):
-		return _fail_preparation(started)
-	var created: Dictionary = await _client.create_session(
-		_model_source,
-		_baseline_experiment,
-	)
-	if not created.get("ok", false):
-		await _client.shutdown()
-		return _fail_preparation(created)
-	_session = created["session"]
+	var established: Dictionary
+	if retrying:
+		established = await _execution.retry(_model_source, _baseline_experiment)
+	else:
+		established = await _execution.start(_model_source, _baseline_experiment)
+	if not established.get("ok", false):
+		return _fail_preparation(established)
 	phase = "ready"
 	_emit_state()
 	_log_event("stat_training_ready", {"completed_attacks": _attacks.size()})
@@ -217,15 +204,11 @@ func _run_attack() -> void:
 	if not authored.get("ok", false):
 		_fail_attack(authored)
 		return
-	var admitted: Dictionary = await _client.admit_revision(_session, authored["value"])
-	if not admitted.get("ok", false):
-		_fail_attack(admitted)
-		return
-	var revision := str(admitted["revision"])
-	var run: Dictionary = await _client.run_revision(_session, revision)
+	var run: Dictionary = await _execution.admit_and_run(authored["value"])
 	if not run.get("ok", false):
 		_fail_attack(run)
 		return
+	var revision := str(run["revision"])
 	var attack := StatCompositionAttack.new()
 	var projected := attack.admit_run_result(
 		run["value"],
