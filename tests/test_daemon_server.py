@@ -419,6 +419,33 @@ def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
         silent_harness.close()
 
 
+def test_the_live_timeout_message_names_its_cause_and_rules_out_a_pause(monkeypatch):
+    # #684's diagnosis hint, with its premise corrected. The issue asked for a
+    # SUSPENDED SceneTree to be named as a likely cause; a project cannot reach
+    # that state — on Godot 4.6.3 `SceneTree.set_suspend`/`is_suspended` are bound
+    # to neither GDScript nor ClassDB, and the engine's only callers are the remote
+    # debugger's suspend/next-frame messages, which never reach a daemon-launched
+    # session. Naming it would send an agent after something its project cannot
+    # have done. What the message names instead is the reachable class (the game
+    # stopped returning to its main loop) plus the wrong suspicion it must rule out
+    # — a PAUSED tree, which the harness serves through on PROCESS_MODE_ALWAYS
+    # (#656) and which is the first thing an agent watching a frozen game blames.
+    monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
+    daemon_end, silent_harness = socket.socketpair()
+    session = EngineSession(cast(subprocess.Popen, _FakeProc()), daemon_end)
+    try:
+        reply = session.request("game-tree", {})
+    finally:
+        daemon_end.close()
+        silent_harness.close()
+
+    error = parse_result(reply["stdout"])["error"]
+    assert error["code"] == "live_timeout"
+    assert "stopped returning to its main loop" in error["message"]
+    assert "A paused SceneTree is NOT a cause" in error["message"]
+    assert "suspend" not in error["message"].lower(), error["message"]
+
+
 def test_a_trickled_reply_cannot_outlast_the_relays_own_bound(monkeypatch):
     # The relay reads the reply in as many chunks as the harness sends, and a
     # socket timeout restarts on each one — so OP_TIMEOUT bounded INACTIVITY, not

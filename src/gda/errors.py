@@ -360,6 +360,26 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     Both optional inputs degrade rather than crash. A hand-built ``RunResult`` at a
     test seam carries neither bound nor clock, and reporting a timeout is a better
     answer to that than an assertion that would kill the command.
+
+    **The remediation reads caller-first (#717).** ``launch_timeout`` keeps its
+    registered ``environment`` category — the code also fires for a genuinely
+    environmental hang, and the category is public ABI a consumer keys on — but the
+    category alone sends an agent to environment remedies (retry, reinstall, another
+    host) when the ceiling was frequently ITS OWN choice. So the sentence leads with
+    what the caller can act on: read the capture, then raise the ceiling. The flag is
+    named WITH its qualifier, because only ``resource import`` of this builder's three
+    channels exposes ``--timeout`` (the sentinel's 60s and the export's 600s are gda's
+    own, fixed); telling every caller to raise a flag most of them do not have was the
+    misfire #717 warned about. Environment suspicion comes last, and with the
+    condition that earns it — a capture showing the engine never started.
+
+    **What the capture is NOT is a verdict (#716).** A recognized engine or script
+    error inside the captured stream stays ADVISORY: it never re-verdicts this code
+    into a #651 entry-load failure. gda observed one thing — that it stopped waiting —
+    and inferred nothing; the stream is partial by construction (tail-capped, cut
+    mid-flight), so a recognized line can be stale or half-written, and a silent
+    misattribution is the worst shape for an agent branching on ``code``. Decided for
+    all four launch-backed channels and recorded in ADR-0002 beside the registry row.
     """
     bound = raw.timeout_bound
     label = bound.label if bound is not None else DEFAULT_TIMEOUT_LABEL
@@ -370,9 +390,14 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     return make_failure(
         "launch_timeout",
         f"{label} launched but did not return before the timeout"
-        f"{ceiling}{elapsed}. The captured output is in diagnostics, truncated to "
+        f"{ceiling}{elapsed}. Reaching the ceiling is not by itself an engine or "
+        f"host fault: read the captured output in diagnostics for how far the run "
+        f"got, and raise the ceiling (--timeout, where the command exposes one) for "
+        f"a run that was merely slow — suspect the binary or the machine only when "
+        f"the capture shows the engine never started. The capture is truncated to "
         f"the last {CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each "
-        f"stream.",
+        f"stream, and any engine error in it is advisory: the verdict here is the "
+        f"timeout.",
         _labelled_output(
             _tail(raw.stdout),
             _tail(raw.stderr),
@@ -805,6 +830,13 @@ def script_run_timeout_failure(
     the stated output cap, and the diagnostics carry the captured tail. An agent
     reading only ``message`` can already tell "raise ``--timeout``" from "this run
     is stuck".
+
+    The message also states that the recognized errors are ADVISORY (#716). This is
+    the channel where that matters most: the diagnostics here open with "recognized
+    script errors seen before the timeout", so it is the one envelope that hands an
+    agent a parsed #651-shaped cause under a timeout verdict. gda does not re-verdict
+    on it and neither should the caller — see ADR-0002's `Outcome (2026-08-31, #716 /
+    #717)` note beside the ``launch_timeout`` registry row for why.
     """
     return make_failure(
         "launch_timeout",
@@ -813,7 +845,9 @@ def script_run_timeout_failure(
         f"output is in diagnostics, truncated to the last "
         f"{CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; raise "
         f"--timeout for a run that is merely slow, or declare "
-        f"--completion-marker to end an aborted run early.",
+        f"--completion-marker to end an aborted run early. Any recognized script "
+        f"errors in the diagnostics are advisory: the verdict here is the timeout, "
+        f"not an entry-load failure.",
         _ended_run_diagnostics("the timeout", script_errors, stdout, stderr),
     )
 

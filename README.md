@@ -743,7 +743,7 @@ or agent can branch on the failure **category without parsing the JSON error**:
 | `0`       | —             | Success.                                                              |
 | `2`       | `usage`       | `gda` could not resolve what was asked for — an unrecognized command or option. A recognized near miss carries the invocation to use instead in the envelope's `hint`. |
 | `127`     | `environment` | The Godot binary could not be launched (shell convention: not found). |
-| `124`     | `environment` | Godot launched but did not return before the runner timeout (shell convention: timed out). |
+| `124`     | `environment` | Godot launched but did not return before the runner timeout (shell convention: timed out). The category describes how the run ENDED, not the host: read the captured partial output in `diagnostics` and raise the ceiling (`--timeout`, where the command has one) before suspecting the binary or the machine. |
 | `3`       | `version`     | The detected Godot version is below the supported minimum.            |
 | `4`       | `operation`   | The engine ran but the operation failed — a registered operation error, an engine crash, or an unstructured non-zero exit. |
 | `5`       | `parse`       | The process claimed success but violated the structured-output contract. |

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ff68f26d3fed2c1ef1d07cfd235ba93a282a5a9a6aecb560c6858a90794343e3 -->
+<!-- gda-readme-i18n: source=README.md sha256=dca00ff7f1f42a591e21f18f0bcea603b60f7154d1f4d03ab7e5525f148d2a80 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -750,7 +750,7 @@ Headless の Godot は、バナー、警告、`print()` の出力を stdout に�
 | `0`       | —             | 成功。                                                              |
 | `2`       | `usage`       | `gda` が要求内容を解決できませんでした — 認識できないコマンドまたはオプション。既知の近い綴りであれば、エンベロープの `hint` に使うべき呼び出しが入ります。 |
 | `127`     | `environment` | Godot バイナリを起動できませんでした(シェルの慣例: not found)。 |
-| `124`     | `environment` | Godot は起動したが、ランナーのタイムアウト前に戻りませんでした(シェルの慣例: timed out)。 |
+| `124`     | `environment` | Godot は起動したが、ランナーのタイムアウト前に戻りませんでした(シェルの慣例: timed out)。このカテゴリが表すのは実行が**どう終わったか**であって、ホストの状態ではありません。`diagnostics` にキャプチャされた部分出力を読み、上限を上げてから(`--timeout`、それを持つコマンドの場合)、バイナリやマシンを疑ってください。 |
 | `3`       | `version`     | 検出された Godot のバージョンが、サポートされる最小値を下回っています。 |
 | `4`       | `operation`   | エンジンは動作したが操作が失敗しました — 登録済みの操作エラー、エンジンのクラッシュ、または非構造の非ゼロ終了。 |
 | `5`       | `parse`       | プロセスは成功を主張したが、構造化出力の契約に違反しました。 |

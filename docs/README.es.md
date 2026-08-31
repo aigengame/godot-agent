@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ff68f26d3fed2c1ef1d07cfd235ba93a282a5a9a6aecb560c6858a90794343e3 -->
+<!-- gda-readme-i18n: source=README.md sha256=dca00ff7f1f42a591e21f18f0bcea603b60f7154d1f4d03ab7e5525f148d2a80 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -761,7 +761,7 @@ para que un shell o un agente pueda bifurcar según la **categoría del fallo si
 | `0`       | —             | Éxito.                                                               |
 | `2`       | `usage`       | `gda` no pudo resolver lo que se le pidió — un comando o una opción que no reconoce. Un caso cercano reconocido lleva en el `hint` del sobre la invocación que debe usarse. |
 | `127`     | `environment` | No se pudo lanzar el binario de Godot (convención de shell: no encontrado). |
-| `124`     | `environment` | Godot se lanzó pero no retornó antes del timeout del runner (convención de shell: tiempo agotado). |
+| `124`     | `environment` | Godot se lanzó pero no retornó antes del timeout del runner (convención de shell: tiempo agotado). La categoría describe cómo TERMINÓ la ejecución, no el estado del host: lee la salida parcial capturada en `diagnostics` y sube el límite (`--timeout`, donde el comando lo expone) antes de sospechar del binario o de la máquina. |
 | `3`       | `version`     | La versión de Godot detectada está por debajo del mínimo soportado.   |
 | `4`       | `operation`   | El motor se ejecutó pero la operación falló — un error de operación registrado, una caída del motor o una salida no nula no estructurada. |
 | `5`       | `parse`       | El proceso declaró éxito pero violó el contrato de salida estructurada. |

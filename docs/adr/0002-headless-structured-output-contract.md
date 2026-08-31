@@ -325,6 +325,48 @@ operation, and parse codes the CLI assigns).
 | `live_windowed_permission_denied` | `environment` | `classifier` | `127` | A windowed Engine session was requested (`gda daemon start --windowed`) but this process is denied the window-server lookup (e.g. a sandbox), so gda cannot tell whether the host has one; re-run outside the restriction to find out rather than recording the host as display-less (Phase 2, #667). |
 | `harness_install_permission_denied` | `environment` | `classifier` | `127` | The gda harness install (`gda daemon start` — including a repeat start's self-sync — or `gda daemon install`) was REFUSED access to the project's filesystem: the OS denied the permission, or the filesystem is read-only. The message names the path that was refused, and any partial write is rolled back where the filesystem still allows it. A filesystem failure that is NOT a refusal — a full disk, a missing or malformed path, an I/O error — does not carry this code; it propagates as before: after the same rollback when a snapshot exists, and directly when the failure came from the pre-install snapshot read itself, which has written nothing to roll back. (Phase 2, #700) |
 
+> **Outcome (2026-08-31, #716 / #717) — `launch_timeout` keeps its category, and a
+> timed-out run's captured stream stays advisory.** Both questions are about the one
+> row above, and #714 is what reopened them: it put the run's captured partial output,
+> the ceiling it reached and its elapsed wall clock on the envelope for EVERY
+> launch-backed channel. They are decided once, here, because this row is where all
+> four are governed — the sentinel dispatch, the native export and the `resource
+> import` pass through the shared builder, and `script run` through its own builder
+> under the same code.
+>
+> - **The captured stream does not re-verdict (#716).** A recognized entry-load error
+>   inside the capture — one that would satisfy a #651 verdict on a run that had
+>   finished — stays an advisory diagnostic under `launch_timeout`; the code is
+>   unchanged. Only one of the two facts is gda's own: it OBSERVED that it stopped
+>   waiting, and would have to INFER the entry-load cause from bytes the child happened
+>   to have written by then. That inference is unsound by construction — the capture is
+>   tail-capped and was cut mid-flight, so a recognized line can be an earlier phase's
+>   error the run survived, or half a line — and the misattribution would be silent,
+>   which is the worst shape for an agent branching on `code`. The need a re-verdict
+>   was meant to serve is the cause as DATA, and #687 owns that: typed evidence on the
+>   envelope keeps the honest verdict AND delivers the precise cause. The failure
+>   message states the rule in one clause, so a caller reading the diagnostics does not
+>   re-verdict on gda's behalf either.
+> - **The category stays `environment` (#717).** Reaching a ceiling the caller chose is
+>   a normal outcome of probing a slow suite, and `environment` points an agent at
+>   retry / reinstall / another-host remedies — but the same code also fires for a
+>   genuinely environmental hang, so no other category is true of the whole row, and
+>   `category` is public ABI every consumer keys on. A second code for the
+>   caller-configured case would double the branch surface to carry a provenance fact
+>   that does not change what to do next; that fact, if it is ever wanted as data,
+>   belongs on #687's evidence object. What was actually wrong was the REMEDIATION
+>   ORDER, so the message now leads with the caller's remedy — read the capture, then
+>   raise the ceiling — and puts binary/host suspicion last, under the condition that
+>   earns it (a capture showing the engine never started). `--timeout` is named WITH
+>   its qualifier, because of the shared builder's three channels only `resource
+>   import` exposes it: the sentinel's 60s and the export's 600s are gda's own, fixed.
+>   No registry, category, exit-code or schema change follows — the equality-pinned
+>   registry test is untouched, which is what proves the scope.
+>
+> `scene preflight` is an exception to neither half: it does not report this code at
+> all. Its bound IS its answer, recorded in the 2026-08-19 (#664) scope note above —
+> read that note rather than re-deriving the difference by diffing the two commands.
+
 ## Considered options
 
 - **Sentinel-delimited JSON on stdout** (chosen) — simplest, streamable, and the

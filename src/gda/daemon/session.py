@@ -163,9 +163,29 @@ class EngineSession:
             # "State consistency"); correlating replies instead would change the
             # cross-language harness protocol and belongs to its own decision.
             self._channel_stale = True
+            # The message names the cause class and rules out the wrong suspicion
+            # (#684). A timeout here means the game stopped returning to its main
+            # loop, so the harness's serving loop stopped with it — a blocking loop
+            # or wait in game code. What it does NOT mean is that the game is
+            # paused, which is the first thing an agent watching a frozen game will
+            # suspect: the harness runs `PROCESS_MODE_ALWAYS` and serves right
+            # through `SceneTree.paused` (#656), so ruling that out here saves a
+            # wrong diagnosis. #684 proposed naming a SUSPENDED SceneTree instead;
+            # it is not named because a project cannot reach that state — verified
+            # on Godot 4.6.3, `set_suspend`/`is_suspended` are bound to neither
+            # GDScript nor ClassDB, and the engine's only callers are the remote
+            # debugger's `scene:suspend_changed` and next-frame messages (the
+            # editor Game view's Suspend/step buttons). See the "paused vs
+            # suspended" note in the skill for the engine mechanism. The CLI-side
+            # backstop in `live_runner` keeps its bare sentence: it is reached only
+            # when the DAEMON stops answering, which this cause does not produce.
             return error_reply(
                 "live_timeout",
-                f"the engine session did not return within {int(OP_TIMEOUT)}s",
+                f"the engine session did not return within {int(OP_TIMEOUT)}s; the "
+                "game stopped returning to its main loop, so the gda harness "
+                "cannot tick — look for a blocking loop or wait in game code. A "
+                "paused SceneTree is NOT a cause: the harness serves through a "
+                "pause. `gda diag errors` and `gda logger tail` still read.",
             )
         except OSError:
             self._channel_stale = True

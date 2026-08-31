@@ -727,7 +727,15 @@ projection fields, not assumptions, when consuming `stdout`. Bounded, not summar
 record semantics stay with the project tool. `--timeout <s>` bounds the wall clock; a run gda ends at that
 ceiling reports `launch_timeout` carrying the captured partial output, the elapsed seconds and
 a termination phase — `launched` (the engine wrote nothing at all) or `output_seen` (it was
-alive and did not finish) — so a slow suite is distinguishable from a hang.
+alive and did not finish) — so a slow suite is distinguishable from a hang. Two decisions
+govern how to READ that envelope, taken once for every launch-backed channel and recorded
+beside ADR-0002's `launch_timeout` registry row (#716 / #717). Its `environment` category
+STANDS — the code also fires for a genuinely environmental hang — but it describes how the
+run ended, not the host: the remediation reads caller-first, so raise `--timeout` and read
+the capture before suspecting the binary or the machine. And the recognized script errors
+the diagnostics carry are ADVISORY — they never re-verdict the timeout into an entry-load
+code, because the capture is tail-capped and was cut mid-flight, so a recognized line can be
+one the run survived. Typed delivery of those errors is #687's, not a re-verdict.
 `--completion-marker <line>` declares a liveness contract — the script prints that line when
 its work is done — and a run that hit a recognized error attributable to the entry script, has
 not printed the marker, and then goes silent on both streams is ended in seconds and reported
@@ -880,7 +888,11 @@ states, the requested assets' sidecars-to-be, and `pass_will_also_import` — th
 stale assets the project-wide pass will re-import (invalid ones excluded; assets with no
 sidecar and generated `.uid` files are the engine's to decide, so the real run's `created`
 list is the authoritative inventory). Plain `gda script run` never triggers an import
-pass. The pass executes engine importer code over project content — within the `Trusted
+pass. A pass that outruns `--timeout` reports the shared `launch_timeout` envelope with
+the pass's own captured output, the ceiling it reached and the elapsed clock — read it the
+caller-first way [`script run`](#script) describes: this is the one channel on that shared
+builder with a `--timeout` to raise (the sentinel's 60s and the export's 600s are gda's
+own, fixed). The pass executes engine importer code over project content — within the `Trusted
 project` assumption (ADR-0009), recorded on the Project-code execution surface (no new
 trust axis, per the issue's triage decision).
 
@@ -969,6 +981,27 @@ an attached editor. Live ops are distributed by their real domain object (ADR-00
 lumped into one "live" group. Because the daemon↔harness transport is a Unix domain
 socket (ADR-0021), **Phase-2 live requires Godot 4.6+ and is macOS/Linux only**; Phase-1
 headless is unaffected (4.4+, cross-platform).
+
+**Live serving under `SceneTree.paused` vs `suspended` (#684).** Live operations keep
+serving through a PAUSED tree: the `gda harness` sets `PROCESS_MODE_ALWAYS` on itself, so
+its serving loop ticks while the game is frozen (#656). There is no equivalent escape for a
+SUSPENDED tree — `Node::can_process()` is `is_inside_tree() && !tree->is_suspended() &&
+_can_process(is_paused())` (engine `scene/main/node.cpp`), so no process mode ticks at all
+while the tree is suspended, the harness included. That would be a dead end rather than a
+degraded mode: every live operation stalls until `live_timeout`, input injection cannot
+resume the game (it is served by the loop that is not ticking), and gda can neither detect
+it from inside the session nor recover it from outside.
+
+**But a project cannot reach that state**, which is what #684 assumed: `SceneTree`'s
+`set_suspend`/`is_suspended` are bound to neither GDScript nor ClassDB — verified on Godot
+4.6.3, where `get_tree().suspended = true` is an invalid assignment and
+`ClassDB.class_has_method("SceneTree", "set_suspend", true)` is `false`. The engine's only
+callers are the remote debugger's `scene:suspend_changed` and next-frame messages
+(`scene/debugger/scene_debugger.cpp`), driven by the editor Game view's Suspend and step
+buttons — an editor-launched game, never a daemon-launched `Engine session`. So this is a
+documented engine limit, not a project-authoring hazard and not a `live_timeout` cause to
+diagnose: that message names the reachable class (the game stopped returning to its main
+loop) and rules out the wrong suspicion (a paused tree, which the harness serves through).
 
 **Live number transport (#752).** The live legs carry JSON (ADR-0021), and Godot 4.6.3's
 JSON parser and its default writer both change some binary64 values — differently, so the

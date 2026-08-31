@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ff68f26d3fed2c1ef1d07cfd235ba93a282a5a9a6aecb560c6858a90794343e3 -->
+<!-- gda-readme-i18n: source=README.md sha256=dca00ff7f1f42a591e21f18f0bcea603b60f7154d1f4d03ab7e5525f148d2a80 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -703,7 +703,7 @@ Headless 的 Godot 会把它的横幅、警告和 `print()` 输出混在 stdout 
 | `0`       | —             | 成功。                                                              |
 | `2`       | `usage`       | `gda` 无法解析你的请求——命令或选项无法识别。若属于已知的近似写法，信封的 `hint` 会给出应当改用的调用方式。 |
 | `127`     | `environment` | Godot 二进制文件无法启动（shell 惯例：not found）。 |
-| `124`     | `environment` | Godot 启动了，但在 runner 超时之前没有返回（shell 惯例：timed out）。 |
+| `124`     | `environment` | Godot 启动了，但在 runner 超时之前没有返回（shell 惯例：timed out）。该分类描述的是这次运行**如何结束**，而不是主机状态：先读 `diagnostics` 里捕获到的部分输出，并抬高上限（`--timeout`，在提供该选项的命令上），再去怀疑二进制或机器。 |
 | `3`       | `version`     | 检测到的 Godot 版本低于受支持的最低版本。            |
 | `4`       | `operation`   | 引擎运行了，但操作失败了——已注册的操作错误、引擎崩溃，或进程以非零退出码退出且没有结构化输出。 |
 | `5`       | `parse`       | 进程返回成功，但输出不符合结构化契约。 |
