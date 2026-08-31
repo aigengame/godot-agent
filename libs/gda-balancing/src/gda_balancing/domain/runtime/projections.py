@@ -16,12 +16,9 @@ from gda_balancing.domain.experiment import (
     CheckedExperiment,
     _ordered_root_events_under,
     _scenario_root_events,
-    reachable_formula_programs,
 )
-from gda_balancing.domain.operation_program import (
-    operation_coordinate,
-    project_operation_program,
-    selected_operation_index,
+from gda_balancing.domain.program_reachability import (
+    project_reachable_program_structure,
 )
 from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
@@ -598,20 +595,6 @@ def canonical_metric_dataset(
     return identities, ordered
 
 
-def formula_programs_reachable_from_entrypoints(
-    checked: CheckedExperiment,
-    selected_entrypoints: Sequence[dict[str, Any]],
-    *,
-    phase: str,
-) -> list[dict[str, Any]]:
-    """Project one lifecycle phase to the sites selected by a Scenario."""
-    return reachable_formula_programs(
-        checked.rir,
-        selected_entrypoints,
-        phase=phase,
-    )
-
-
 @cache
 def evaluator_build_identity() -> str:
     """Bind evaluator provenance to the installed Python source build."""
@@ -642,44 +625,19 @@ def evaluator_build_identity() -> str:
 def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     """Project the evaluator's authority-derived capability manifest."""
     runtime = runtime_contract(checked)
-    operations = selected_operation_index(checked.rir["selected_semantics"])
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
-    operation_node_ids = {
-        cast(str, row["id"])
-        for row in runtime["nodes"]
-        if row["semantics"]["operator"] in {"invoke-operation", "schedule-operation"}
-    }
-    invocation_node_ids = {
-        cast(str, row["id"])
-        for row in runtime["nodes"]
-        if row["semantics"]["operator"] == "invoke-operation"
-    }
-    reachable_nodes = set().union(
-        *(
-            project_operation_program(
-                operation_coordinate(entrypoints[event["entrypoint"]]["operation"]),
-                operations,
-                operation_node_ids=operation_node_ids,
-                invocation_node_ids=invocation_node_ids,
-            ).node_ids
-            for scenario in checked.value["scenarios"]
+    reachable_nodes: set[str] = set()
+    for scenario in checked.value["scenarios"]:
+        selected_entrypoints = [
+            entrypoints[event["entrypoint"]]
             for event in scenario_transition_events(scenario)
+        ]
+        reachable_nodes.update(
+            project_reachable_program_structure(
+                checked.rir,
+                selected_entrypoints,
+            ).runtime_node_ids
         )
-    )
-    reachable_nodes.update(
-        row["instruction"]["node"]
-        for scenario in checked.value["scenarios"]
-        for phase in ("initialization", "event", "observation")
-        for program in formula_programs_reachable_from_entrypoints(
-            checked,
-            [
-                entrypoints[event["entrypoint"]]
-                for event in scenario_transition_events(scenario)
-            ],
-            phase=phase,
-        )
-        for row in cast(list[dict[str, Any]], program["body"])
-    )
     nodes = sorted(
         row["id"]
         for row in runtime["nodes"]

@@ -13,8 +13,8 @@ from gda_balancing.domain.operation_program import (
     operation_coordinate,
     selected_operation_index,
 )
+from gda_balancing.domain.program_reachability import reachable_formula_programs
 from gda_balancing.domain.runtime.projections import (
-    formula_programs_reachable_from_entrypoints,
     operation_formula_evaluation_record,
     resolved_display_names,
     runtime_contract,
@@ -405,8 +405,8 @@ def evaluate_initialization_programs(
     phase: str = "initialization",
 ) -> int:
     """Independently replay closed Formula initialization programs."""
-    programs = formula_programs_reachable_from_entrypoints(
-        checked, selected_entrypoints, phase=phase
+    programs = reachable_formula_programs(
+        checked.rir, selected_entrypoints, phase=phase
     )
     if not programs:
         return consumed_steps
