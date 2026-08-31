@@ -11,6 +11,12 @@ filesystem-publication workflow is not a suitable coordination protocol for a ru
 new interface must reuse the existing Application and Domain behavior without creating another
 Model, Experiment, Runtime, artifact, identity, or refusal authority.
 
+> **Follow-up design:** proposed bADR-0027 extracts the shared Execution Open Host Service and its
+> Published Language from transport-specific ownership. Until that decision is accepted and
+> implemented, this bADR remains the authority for the current `/v1` wire contract and local host.
+> The follow-up changes integration ownership, not the Standard Schema authorities or the accepted
+> HTTP behavior recorded here.
+
 ## Decision
 
 ### Service and authority boundary
