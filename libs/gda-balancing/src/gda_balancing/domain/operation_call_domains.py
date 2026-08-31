@@ -33,6 +33,30 @@ class ConcreteOperationCallDomainError(ValueError):
         self.coordinate = coordinate
 
 
+def _require_operation_coordinate(
+    reference: Any,
+    owner: OperationCoordinate,
+) -> OperationCoordinate:
+    if (
+        not isinstance(reference, dict)
+        or set(reference) != {"package", "version", "id"}
+        or not all(
+            isinstance(reference.get(member), str) and reference[member]
+            for member in ("package", "version", "id")
+        )
+    ):
+        raise ConcreteOperationCallDomainError(
+            "malformed_operation_reference",
+            "nested Operation reference is malformed",
+            owner,
+        )
+    return (
+        cast(str, reference["package"]),
+        cast(str, reference["version"]),
+        cast(str, reference["id"]),
+    )
+
+
 @dataclass(frozen=True)
 class ConcreteOperationCallDomainInput:
     """Neutral input for one production Operation call-domain projection."""
@@ -102,20 +126,9 @@ def project_concrete_operation_call_domains(
                     return True
                 if instruction.get("node") not in projection_input.operation_node_ids:
                     continue
-                operation_ref = instruction.get("operation")
-                if not isinstance(operation_ref, dict) or not all(
-                    isinstance(operation_ref.get(member), str)
-                    for member in ("package", "version", "id")
-                ):
-                    raise ConcreteOperationCallDomainError(
-                        "malformed_operation_reference",
-                        "nested Operation reference is malformed",
-                        coordinate,
-                    )
-                child_coordinate = (
-                    cast(str, operation_ref["package"]),
-                    cast(str, operation_ref["version"]),
-                    cast(str, operation_ref["id"]),
+                child_coordinate = _require_operation_coordinate(
+                    instruction.get("operation"),
+                    coordinate,
                 )
                 if reaches_formula_slot(child_coordinate, (*stack, coordinate)):
                     return True
@@ -261,20 +274,9 @@ def project_concrete_operation_call_domains(
                     walk(cast(list[dict[str, Any]], nested))
                 if node not in projection_input.operation_node_ids:
                     continue
-                operation_ref = instruction.get("operation")
-                if not isinstance(operation_ref, dict) or not all(
-                    isinstance(operation_ref.get(member), str)
-                    for member in ("package", "version", "id")
-                ):
-                    raise ConcreteOperationCallDomainError(
-                        "malformed_operation_reference",
-                        "nested Operation reference is malformed",
-                        coordinate,
-                    )
-                child_coordinate = (
-                    cast(str, operation_ref["package"]),
-                    cast(str, operation_ref["version"]),
-                    cast(str, operation_ref["id"]),
+                child_coordinate = _require_operation_coordinate(
+                    instruction.get("operation"),
+                    coordinate,
                 )
                 child = operations.get(child_coordinate)
                 if child is None:
