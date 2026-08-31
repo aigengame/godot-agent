@@ -110,13 +110,14 @@ and re-read the verdict.
 - `gda version --json` — which `gda` is installed and where from; `gda info` — the
   engine's version.
 
-**`--json` placement.** `gda --json <group> <command>` and `gda <group> <command> --json` mean the
-same thing — a root `--json` applies to the command it invokes — so either spelling works, as does
-both at once. `gda schema --json` is accepted too, and idempotent: the manifest is already JSON.
-Two limits: the `--help` FLAG always renders TEXT (`gda --json --help` returns the same help, never
-JSON — use `gda help <command> --json` for a structured payload), and two spellings are still usage
-errors (exit `2`) — `gda <group> --json` (a group's parser takes only `--help`; the structured
-refusal hints the command form) and a bare `gda --json` with no command (`Missing command.`).
+**`--json` placement.** Every parser takes it: `gda --json <group> <command>`,
+`gda <group> --json <command>` and `gda <group> <command> --json` mean the same thing — a `--json`
+written before the command applies to the command it invokes — so any spelling works, as do several
+at once. `gda schema --json` is accepted too, and idempotent: the manifest is already JSON. Two
+limits: the `--help` FLAG always renders TEXT (`gda --json --help` returns the same help, never
+JSON — use `gda help <command> --json` for a structured payload), and the flag is not a command, so
+`gda <group> --json` and a bare `gda --json` with no command are both the usage error
+`Missing command.` (exit `2`).
 
 ## Headless commands (Godot 4.4+, all platforms)
 
@@ -130,6 +131,8 @@ refusal hints the command form) and a bare `gda --json` with no command (`Missin
 | `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
 | `shader` | `create`, `get`, `set` (`.gdshader` files) |
 | `theme` | `create` (a loadable `.tres` Theme) |
+
+Every headless reply carries its floats at full binary64 precision, so a value read back through `node get`, `scene get-exports`, `project get`/`project list`, `resource get`, or the echo of a `set` is the exact number the project holds — `1e-300` reads back as `1e-300`, not `0.0`; the one residual belongs to the ENGINE's writer — a negative zero reads back as `0.0` (#771). The `--value` string you send IN is a separate matter and is NOT bounded the way the live wire is: the engine's own parser coerces it, dropping the low digits of a full-precision literal between `1e-4` and `1e-2` and reading a `DBL_MIN`-scale or subnormal literal as `0.0`, with no refusal (#772). Read the `set` echo when the exact bits matter.
 
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 

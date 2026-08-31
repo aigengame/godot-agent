@@ -937,26 +937,6 @@ def render_scene_preflight(preflight: "ScenePreflightResult") -> str:
     return "\n".join(lines)
 
 
-class _CaptureOnlyWatch:
-    """``scene preflight``'s :class:`~gda.runner.LaunchWatch`: stream, never abort (#664).
-
-    Passing a watch is what switches the launch primitive from BUFFERED capture to
-    STREAMING (see :class:`gda.runner.LaunchWatch`), and streaming is what this
-    channel needs: a buffered timeout DISCARDS everything the child wrote, and for a
-    scene that never came up that discarded text is the entire evidence — the
-    verdict would say "timeout" and carry nothing.
-
-    It observes and never ends a run, which is deliberate rather than unfinished.
-    ``script run``'s watch can end one because its caller DECLARED what finishing
-    looks like (``--completion-marker``); nobody declares that for a booting scene,
-    and a scene that prints an error is very often still coming up. So the only
-    bound here is the caller's ``--timeout``, and what the watch buys is the capture.
-    """
-
-    def observe(self, *, stdout: str, stderr: str, elapsed: float) -> bool:
-        return False
-
-
 def run_scene_preflight_operation(
     params: ScenePreflightParams,
     *,
@@ -973,10 +953,10 @@ def run_scene_preflight_operation(
     It dispatches an ordinary ADR-0002 sentinel op — the entry script is gda's own
     ``operations.gd``, so the engine can and does report a structured verdict — but
     it calls :func:`gda.runner.launch` directly instead of going through the runner
-    seam, for ONE reason: the seam's buffered capture throws the child's output away
-    at a timeout, and a scene that never came up leaves nothing else behind. The argv
-    is still the shared :func:`gda.runner.sentinel_args` spelling, so the two
-    channels cannot drift on how an op is dispatched.
+    seam, for ONE reason: it bifurcates on the launch's OWN outcome, since a run gda
+    ended at the bound is this command's verdict rather than a failure to classify.
+    The argv is still the shared :func:`gda.runner.sentinel_args` spelling, so the
+    two channels cannot drift on how an op is dispatched.
 
     The outcome bifurcates by WHOSE failure it is, which is where this command
     departs from every other launch-backed channel:
@@ -1020,7 +1000,6 @@ def run_scene_preflight_operation(
         cwd=None,
         timeout=params.timeout,
         timeout_label="Godot scene preflight",
-        watch=_CaptureOnlyWatch(),
     )
     # Forward the engine's own stream, exactly as the sentinel channel does
     # (``HeadlessCommand.execute``): a preflight's stderr is where the booted scene's

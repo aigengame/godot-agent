@@ -88,24 +88,25 @@ _Avoid_: consistency, coherence, sync
 
 **Headless launch**:
 The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
-the sentinel op-dispatch runner, the native-export runner, the `gda script run`
-user-script runner (ADR-0031), and the `gda scene preflight` runner, which
-dispatches an ordinary sentinel op but calls the primitive itself for its
-streaming capture (#664). Given the binary, an argv tail, an optional working
-directory, and a timeout, it builds `[binary, --headless, --log-file <gda-owned
-path>, *args]`, captures bytes with the timeout, and normalizes the outcome into a
-`Raw run` (the single home of the spawn / timeout / launch-failure / UTF-8-decode
-handling). Each channel contributes only its argv tail and the export-only cwd. It
-also owns the launch's `User-data placement` — resolved and preflighted here, once,
-so no channel plumbs it (#653). It offers two **capture strategies**, differing only
-in how the child is read: **buffered** (the sentinel-runner and export channels),
-which discards the child's output when the timeout expires and reports the wait
-instead; and **streaming** (`gda script run`, and `gda scene preflight` — which
-dispatches a sentinel op but calls the primitive itself precisely for this
-capture), which reads both pipes as they arrive, so the output survives a timeout,
-times the launch, and lets the channel end the run early through a caller-supplied
-watch. Both share one timeout / launch-failure mapping
-(#655).
+the sentinel op-dispatch runner, the native-export runner, the `gda resource
+import` engine pass, the `gda script run` user-script runner (ADR-0031), and the
+`gda scene preflight` runner, which dispatches an ordinary sentinel op but calls
+the primitive itself because it bifurcates on the launch's own outcome, a timeout
+being its verdict rather than a failure to classify (#664). Given the binary, an
+argv tail, an optional working directory, and a timeout, it builds `[binary,
+--headless, --log-file <gda-owned path>, *args]`, captures bytes with the timeout,
+and normalizes the outcome into a `Raw run` (the single home of the spawn /
+timeout / launch-failure / UTF-8-decode handling). Each channel contributes only
+its argv tail and the export-only cwd. It also owns the launch's `User-data
+placement` — resolved and preflighted here, once, so no channel plumbs it (#653).
+Every launch **streams**: both pipes are read as they arrive, so whatever the run
+produced before gda ended it survives, and the launch is timed. #655 introduced
+that beside a **buffered** strategy which discarded the child's output at the
+timeout and reported the wait instead, keeping the other channels on it while the
+mechanism was proven; #714 moved the last three across and deleted it, so there is
+ONE strategy and no channel can be left on the discard. What a channel may still
+choose is a `LaunchWatch` — POLICY, not strategy: a rule for ending a run EARLY
+that only that channel can state (`gda script run`'s `Completion marker`).
 _Avoid_: spawn helper, subprocess wrapper
 
 **User-data placement**:
@@ -126,18 +127,23 @@ _Avoid_: log redirect, user dir, sandbox
 
 **Raw run**:
 The normalized outcome a `Headless launch` returns — `{stdout, stderr, exit_code,
-launch_failure, elapsed_seconds}`, unparsed — before any classification.
-`launch_failure` is set only when the primitive synthesized the result (binary
-missing, timed out, the `User-data placement` was refused, or a watch ended the run)
-rather than the engine returning one, so the classifier keys environment failures on
-that typed reason, not on the overloaded exit code. Under the streaming capture
-strategy the streams hold **what the run had already produced** rather than a gda
-notice, and `elapsed_seconds` carries the wall clock; under the buffered strategy they
-are empty on a timeout and `elapsed_seconds` is `None` (#655). Those launch-backed
-channels all return the one `RunResult` shape. Normally internal, it is **promoted to
-a public result by `gda script run`** — the one operation whose success result *is* a
-Raw run (minus `launch_failure`, `elapsed_seconds`, and the streams' timeout
-semantics, all of which are lifted out into an `Error envelope`; since #665 the
+launch_failure, elapsed_seconds, timeout_bound}`, unparsed — before any
+classification. `launch_failure` is set only when the primitive synthesized the
+result (binary missing, timed out, the `User-data placement` was refused, or a
+watch ended the run) rather than the engine returning one, so the classifier keys
+environment failures on that typed reason, not on the overloaded exit code. The
+streams hold **what the run had already produced** rather than a gda notice, and
+`elapsed_seconds` carries the wall clock — on every channel (#655, #714).
+`timeout_bound` is the pair a timed-out run cannot state for itself: WHICH launch
+gave up (its channel label) and the ceiling it reached. It is set only on a
+`TIMEOUT` result and it rides the result because it is the only thing that crosses
+the runner seam — the shared `launch_timeout` classifier has the raw run and
+nothing else, so without it two of the three channels could not name their own
+ceiling (#714). Those launch-backed channels all return the one `RunResult` shape.
+Normally internal, it is **promoted to a public result by `gda script run`** — the
+one operation whose success result *is* a Raw run (minus `launch_failure`,
+`elapsed_seconds`, `timeout_bound`, and the streams' timeout semantics, all of
+which are lifted out into an `Error envelope`; since #665 the
 promoted `stdout` is additionally a BOUNDED projection — verbatim up to a cap,
 above it the leading cap bytes with the complete stream spilled to a file the
 result names), so its `exit_status` can be non-zero on success (ADR-0031).
@@ -188,14 +194,18 @@ fallback** for anything else. One projection shared across **every value gda
 emits** — the `get` reads (`project`/`node`/`resource get`), the value echoed by
 `node set`/`resource set`, the per-entry value of `project list` and `scene
 get-exports`, and the live `game get` read — so a value reads the same
-everywhere. That sameness is of SHAPE; numeric FIDELITY is not yet uniform.
-The harness frames every reply with Godot's full-precision JSON writer, so a
-LIVE projected float crosses exactly — the one residual being that a negative
-zero reads back as `0.0` — while the headless writer still flattens small
-floats to `0.0` and rounds ordinary ones (#771). The write-side mirror on the
-live wire is a refusal: a float Godot's parser would read as `0.0` is rejected
-before a request is relayed to the harness, no decimal literal being able to
-deliver it (#752). Two controls keep the shared projection safe on the live
+everywhere. That sameness covers numeric FIDELITY as well as shape: both of
+gda's engine-side payloads frame their reply with Godot's full-precision JSON
+writer — the harness since #752, the headless operations payload since #771 —
+so a projected float is the exact binary64 the subject holds, on either
+channel, with one shared residual the engine decides before the writer is
+consulted: a negative zero reads back as `0.0`. The WRITE sides still differ.
+On the live wire it is a refusal: a float Godot's parser would read as `0.0` is
+rejected before a request is relayed to the harness, no decimal literal being
+able to deliver it (#752). Headless there is no refusal — a `--value` string is
+coerced by that same parser, which still drops the low digits of a
+many-digit literal and reads a `DBL_MIN`-scale one as `0.0` (#772). Two
+controls keep the shared projection safe on the live
 side: the whitelist bounds the Object classes whose storage properties the
 inline kind emits, and the texture kind is safe by construction — a fixed
 getter shape with its one expensive readback behind the explicit digest opt-in

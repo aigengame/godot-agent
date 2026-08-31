@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=76e086abf7307138e3a741e6d89aadab413f83570ffdb2a2ad8da2e34e2b992a -->
+<!-- gda-readme-i18n: source=README.md sha256=ff68f26d3fed2c1ef1d07cfd235ba93a282a5a9a6aecb560c6858a90794343e3 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -660,7 +660,7 @@ de entrada.
 
 | Flag       | Descripción                                                        |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emite el resultado como un único objeto JSON en stdout. Sin él, los comandos imprimen una representación concisa y legible para humanos. También se acepta en la raíz: `gda --json <group> <command>` significa lo mismo que pasarlo después del comando. |
+| `--json`    | Emite el resultado como un único objeto JSON en stdout. Sin él, los comandos imprimen una representación concisa y legible para humanos. También se acepta antes del comando: `gda --json <group> <command>` y `gda <group> --json <command>` significan lo mismo que pasarlo después del comando. |
 | `--schema`  | Emite el contrato JSON Schema de entrada/salida del comando (sin lanzar Godot). |
 | `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT` y el valor por defecto). |
 | `--project` | Directorio del proyecto de Godot para la resolución de `res://` (anula `$GDA_PROJECT`; por defecto, el directorio actual si es un proyecto). Solo comandos de dominio. Resolver un proyecto ejecuta el código de ese proyecto — consulta [Ejecución del código del proyecto](#configuration). |

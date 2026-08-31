@@ -37,7 +37,7 @@ from gda.commands import (
     theme as theme_commands,
 )
 from gda import hints
-from gda.headless import root_json, set_root_json
+from gda.headless import adopt_group_json, ancestor_json, set_ancestor_json
 from gda.provenance import build_version_provenance, render_version_line
 from gda.runner import USER_DATA_ROOT_ENV, set_user_data_root
 
@@ -87,9 +87,9 @@ def _record_root_json(ctx: typer.Context, value: bool) -> bool:
     Recorded from the option's OWN callback rather than the group-callback body so
     the value is in place before any other root option is processed — which is what
     lets ``--version`` below render either form (#659). How the value travels is the
-    option layer's contract (``gda.headless.set_root_json``), not this module's.
+    option layer's contract (``gda.headless.set_ancestor_json``), not this module's.
     """
-    set_root_json(ctx, value)
+    set_ancestor_json(ctx, value)
     return value
 
 
@@ -103,7 +103,7 @@ def _version_callback(ctx: typer.Context, value: Optional[bool]) -> None:
     """
     if not value or ctx.resilient_parsing:
         return
-    if root_json(ctx):
+    if ancestor_json(ctx):
         typer.echo(build_version_provenance().model_dump_json())
     else:
         typer.echo(render_version_line())
@@ -161,12 +161,13 @@ def main(
     #
     # `--json` is accepted here so the ONE documented rule an agent follows —
     # "always pass --json" — never dies with exit 2 on the discovery surface
-    # (`gda --json --help`, `gda --json <group> <command> …`, #671). It is NOT
+    # (`gda --json --help`, `gda --json <group> <command> …`, #671); every group
+    # takes it for the same reason (`adopt_group_json` below, #683). It is NOT
     # inert: handing it to the shared option layer makes the invoked command's own
-    # `--json` inherit it, so the root and post-command spellings mean the same
-    # thing — accepting a flag that silently returned human text would be worse than
-    # the loud usage error it replaced. The --json hand-over happens in the
-    # option's own callback (`_record_root_json`), so it needs no line here.
+    # `--json` inherit it, so all three spellings mean the same thing — accepting a
+    # flag that silently returned human text would be worse than the loud usage
+    # error it replaced. The --json hand-over happens in the option's own callback
+    # (`_record_root_json`), so it needs no line here.
     # `--user-data-root` is a root option because it is process-wide ENVIRONMENT
     # placement, not an operation parameter: it applies to whichever command runs,
     # on every channel that spawns an engine, and the runner reads it there (#653).
@@ -175,6 +176,13 @@ def main(
 
 
 meta_commands.register(app)
+
+# Every mounted group is given the shared `--json` option, so the flag parses at the
+# THIRD parser site too: `gda <group> --json <command>` (#683). Applied here, once
+# the tree is complete, for the same reason the refusal class below is — it is one
+# property of the whole surface, not something each group module re-declares. The
+# option, and what a group does with it, are `gda.headless`.
+adopt_group_json(app)
 
 # Every group — the root included — is given gda's own click group class LAST, once
 # the tree is complete (#670). It refuses an unrecognized command or option with the

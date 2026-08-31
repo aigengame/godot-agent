@@ -13,7 +13,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.runner import LaunchFailure, RunResult
+from gda.runner import LaunchFailure, RunResult, TimeoutBound
 from tests.support import inject_runner as _inject
 from tests.support import raw_sentinel, sentinel
 
@@ -42,16 +42,20 @@ def test_binary_not_found_maps_to_environment_error(monkeypatch):
 
 
 def test_launch_timeout_maps_to_environment_error_distinct_from_not_found(monkeypatch):
-    # A launched-but-hung engine is bounded by the runner's timeout: exit 124
-    # with a timeout diagnostic (#2). It is still an environment failure but
-    # must be distinguishable from binary-not-found.
+    # A launched-but-hung engine is bounded by the runner's timeout: exit 124 (#2).
+    # It is still an environment failure but must be distinguishable from
+    # binary-not-found. Since #714 the sentinel channel's own partial capture is
+    # what the run left behind, so that is what reaches both stderr (forwarded, as
+    # on any run) and the envelope's diagnostics.
     _inject(
         monkeypatch,
         RunResult(
             stdout="",
-            stderr="gda: Godot timed out after 60.0s\n",
+            stderr="Godot Engine v4.6.stable\n",
             exit_code=124,
             launch_failure=LaunchFailure.TIMEOUT,
+            elapsed_seconds=60.1,
+            timeout_bound=TimeoutBound("Godot", 60.0),
         ),
     )
 
@@ -62,7 +66,9 @@ def test_launch_timeout_maps_to_environment_error_distinct_from_not_found(monkey
     assert err["category"] == "environment"
     # Distinguishable from the binary-not-found case via a distinct code.
     assert err["code"] == "launch_timeout"
-    assert "timed out" in result.stderr
+    assert "did not return before the timeout of 60.0s" in err["message"]
+    assert "Godot Engine v4.6.stable" in err["diagnostics"]
+    assert "Godot Engine v4.6.stable" in result.stderr
 
 
 def test_operation_failure_maps_to_operation_error_distinct_from_environment(

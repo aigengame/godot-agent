@@ -19,7 +19,8 @@ engine. The decision tree, top to bottom (``code`` in parentheses; the four
 
 - launch NOT_FOUND → environment / binary_not_found  (runner could not launch it)
 - launch TIMEOUT   → environment / launch_timeout     (runner launched it but it
-  hung past the timeout)
+  hung past the timeout; the envelope carries the captured partial output, the
+  ceiling it reached and the elapsed wall clock, #714)
 - launch USER_DATA_UNWRITABLE → environment / user_data_unwritable (the engine log
   target gda owns could not be created, so the launch was refused, #653)
 - exit < 0  → operation   / engine_crashed         (engine killed by a signal)
@@ -57,7 +58,7 @@ from gda.models import (
     OperationErrorEnvelope,
 )
 from gda.parser import parse_result
-from gda.runner import LaunchFailure, RunResult
+from gda.runner import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
 # features gda relies on exist. Resolved from the version gda info reports; the
@@ -136,10 +137,14 @@ def _is_too_deep(exc: ValidationError) -> bool:
 def validation_error_message(exc: ValidationError) -> str:
     """Render a ``ValidationError`` as the sentence(s) its checks actually wrote.
 
-    The shared home for BOTH input channels that build a params model directly
-    from caller-supplied values and must translate a construction failure into a
-    human message (ADR-0015): the argv path's :func:`~gda.dispatch.params_or_bad_parameter`
-    and the ``--params-json`` path's ``invoke()`` (:mod:`gda.headless`). Lives
+    The shared home for every channel that builds a model directly from
+    caller-supplied values and must translate a construction failure into a
+    human message: the two ADR-0015 input channels — the argv path's
+    :func:`~gda.dispatch.params_or_bad_parameter` and the ``--params-json``
+    path's ``invoke()`` (:mod:`gda.headless`) — and the caller-supplied FILE
+    channel, ``perf --budget``'s per-entry refusal (#759, the third consumer;
+    ``tests/support.py``'s leak-fragment guard treats this function as the
+    authority for all of them). Lives
     here, below both, because ``gda.dispatch`` imports ``gda.headless`` — a
     ``gda.headless``-side import of ``gda.dispatch`` would cycle — while both
     already import :mod:`gda.errors` for their own failure taxonomy (#713
@@ -244,16 +249,154 @@ def invalid_params_json_failure(detail: str) -> Failure:
     )
 
 
+# --- What a failure reports of the output a run had already produced. Shared by
+# the ``script run`` verdicts that own a script's output (#651, #655) and, since
+# #714, by the ``launch_timeout`` envelope every launch-backed channel reports.
+# ---------------------------------------------------------------------------
+
+# The section headers of a `script_failed` envelope's ``diagnostics`` (#651). The
+# layout is fixed and both sections are ALWAYS emitted — an empty stream yields an
+# empty section rather than a missing one — so a consumer can split on the headers
+# without first discovering which streams the script happened to write to.
+SCRIPT_OUTPUT_STDOUT_HEADER = "--- script stdout ---"
+SCRIPT_OUTPUT_STDERR_HEADER = "--- script stderr ---"
+
+# The same two sections for a failure whose subject is the LAUNCH rather than a
+# script (#714). A distinct pair, because "script" would be untrue of an export or
+# an import pass — and because the script-run headers are published envelope bytes
+# that AC3 keeps unchanged. The `captured` wording names what these sections are:
+# what gda had read when it stopped waiting, not a stream the run finished writing.
+CAPTURED_STDOUT_HEADER = "--- captured stdout ---"
+CAPTURED_STDERR_HEADER = "--- captured stderr ---"
+
+
+def _labelled_output(
+    stdout: str, stderr: str, *, stdout_header: str, stderr_header: str
+) -> str:
+    """Both of the child's streams as one labelled ``diagnostics`` string (#651).
+
+    ``GdaError.diagnostics`` is a free-form ``str`` (ADR-0004), and for a failure
+    that IS the script's own — ``script_failed`` — the script's own output is the
+    diagnostic. A GDScript test runner reports through ``print()``, i.e. stdout, so
+    carrying stderr alone would hand a ``--strict`` CI caller a failure with no
+    content. Both streams are labelled rather than concatenated so the caller can
+    still tell which is which. The headers are the caller's because the same layout
+    serves two subjects — a script's own output, and a launch's capture (#714).
+    """
+    parts = []
+    for header, stream in ((stdout_header, stdout), (stderr_header, stderr)):
+        # Keep each section's payload verbatim, only guaranteeing the newline that
+        # puts the next header on its own line.
+        body = stream if stream.endswith("\n") or not stream else stream + "\n"
+        parts.append(f"{header}\n{body}")
+    return "".join(parts)
+
+
+def _labelled_script_output(stdout: str, stderr: str) -> str:
+    """:func:`_labelled_output` under the ``script run`` headers (#651)."""
+    return _labelled_output(
+        stdout,
+        stderr,
+        stdout_header=SCRIPT_OUTPUT_STDOUT_HEADER,
+        stderr_header=SCRIPT_OUTPUT_STDERR_HEADER,
+    )
+
+
+# How much of each stream a failure carries into its ``diagnostics`` when it
+# reports what a run had already produced (#655). Such a run can have produced
+# arbitrarily much output — a test suite that looped for two minutes — and
+# ``diagnostics`` is serialized inline in the JSON result, so it is bounded. The cap
+# is FIXED rather than an option: one more knob to reason about buys nothing an
+# agent wants, and a stated constant is something a caller can rely on. The TAIL is
+# kept, not the head: the interesting part of a run that did not finish is where it
+# got to.
+#
+# The bound is in **UTF-8 bytes**, not characters, because bytes are what actually
+# costs: a character cap of the same number let non-ASCII output through at up to
+# 3-4x the intended size (16Ki CJK characters encode to ~48KiB), so a bound meant to
+# keep a result payload small silently did not. Bytes also make the stated figure
+# mean one thing to a reader measuring the JSON.
+CAPTURED_OUTPUT_TAIL_CAP_BYTES = 16 * 1024
+
+
+def _tail(stream: str) -> str:
+    """The last :data:`CAPTURED_OUTPUT_TAIL_CAP_BYTES` UTF-8 bytes of a stream.
+
+    Slicing bytes can land inside a multi-byte sequence, so the decode uses
+    ``errors="ignore"`` to drop a leading partial character rather than emit a
+    replacement character for it: the truncation is gda's own doing, and inventing a
+    ``U+FFFD`` would misreport the engine's output as malformed. Only that boundary
+    is affected — anything genuinely malformed was already replaced when the capture
+    was decoded, and survives here as the replacement character it became.
+    """
+    encoded = stream.encode("utf-8")
+    if len(encoded) <= CAPTURED_OUTPUT_TAIL_CAP_BYTES:
+        return stream
+    return encoded[-CAPTURED_OUTPUT_TAIL_CAP_BYTES:].decode("utf-8", errors="ignore")
+
+
+def launch_timeout_failure(raw: RunResult) -> Failure:
+    """The ``launch_timeout`` envelope for a run gda stopped waiting for (#714).
+
+    The ONE place a launch's timeout becomes an error envelope, and the
+    reason it is a function of the raw result alone: the sentinel, export and
+    import channels reach it through three different classifiers, and two of them
+    cannot see the ceiling their runner was given — the runner seam hands them a
+    :class:`~gda.runner.RunResult` and nothing else. So the primitive puts the
+    ceiling ON the result (:class:`~gda.runner.TimeoutBound`) and this builder reads
+    it, instead of every ``classify_run`` call site plumbing a timeout through.
+
+    What the envelope carries is the evidence the discard used to destroy: the
+    partial output both streams held when gda ended the run, tail-capped with the
+    cap stated, plus the elapsed wall clock beside the ceiling — which is what tells
+    a run that was merely slow from one that was stuck (GDA-DF-012/GDA-DF-032, the
+    dogfooding pair that #655 fixed for ``script run`` and this closes for the rest).
+
+    ``script run`` and ``scene preflight`` do NOT come here: each classifies its own
+    timeout, because each has something to add this cannot know — a termination
+    phase and the recognized script errors, or a ``timeout`` status that is the
+    command's ANSWER rather than a failure at all.
+
+    Both optional inputs degrade rather than crash. A hand-built ``RunResult`` at a
+    test seam carries neither bound nor clock, and reporting a timeout is a better
+    answer to that than an assertion that would kill the command.
+    """
+    bound = raw.timeout_bound
+    label = bound.label if bound is not None else DEFAULT_TIMEOUT_LABEL
+    ceiling = "" if bound is None else f" of {bound.seconds}s"
+    elapsed = (
+        "" if raw.elapsed_seconds is None else f" (elapsed {raw.elapsed_seconds:.2f}s)"
+    )
+    return make_failure(
+        "launch_timeout",
+        f"{label} launched but did not return before the timeout"
+        f"{ceiling}{elapsed}. The captured output is in diagnostics, truncated to "
+        f"the last {CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each "
+        f"stream.",
+        _labelled_output(
+            _tail(raw.stdout),
+            _tail(raw.stderr),
+            stdout_header=CAPTURED_STDOUT_HEADER,
+            stderr_header=CAPTURED_STDERR_HEADER,
+        ),
+    )
+
+
 def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | None:
-    """The env/crash classifier prefix shared by both headless channels (#185).
+    """The env/crash classifier prefix shared by the headless channels (#185).
 
     The single home of the launch-failure and signal-death mapping that the
-    sentinel channel (``classify_run``) and the native-export channel
-    (``classify_export_run``) both open with, so a missing binary, a hung run,
-    or a signal death is classified identically across both (ADR-0010 — reuse
-    the machinery rather than duplicate it). Returns the env/crash ``Failure``
-    for the three modes below, or ``None`` to let the caller's channel-specific
-    tail (sentinel parse+validate vs synthesize-from-exit-code) take over.
+    sentinel channel (``classify_run``), the native-export channel
+    (``classify_export_run``) and the ``resource import`` pass all open with, so a
+    missing binary, a hung run, or a signal death is classified identically across
+    every one of them (ADR-0010 — reuse the machinery rather than duplicate it).
+    Returns the env/crash ``Failure`` for the three modes below, or ``None`` to let
+    the caller's channel-specific tail (sentinel parse+validate vs
+    synthesize-from-exit-code) take over.
+
+    Being the single home is what makes the timeout evidence a property of every
+    channel rather than of whichever one was fixed last: the hung-run branch is
+    written ONCE, so all three report the same envelope (#714).
 
     Environment failures key on the runner's typed ``launch_failure`` reason,
     not the exit code, so an engine (or shell/AppImage wrapper) that *genuinely*
@@ -267,11 +410,7 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
             raw.stderr,
         )
     if raw.launch_failure is LaunchFailure.TIMEOUT:
-        return make_failure(
-            "launch_timeout",
-            "Godot launched but did not return before the timeout",
-            raw.stderr,
-        )
+        return launch_timeout_failure(raw)
     if raw.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE:
         # Refused before the spawn (issue #653): the engine builds its file logger
         # ahead of any project code and dies with signal 11 when it cannot open the
@@ -584,36 +723,6 @@ def script_did_not_run_failure(
     )
 
 
-# The section headers of a `script_failed` envelope's ``diagnostics`` (#651). The
-# layout is fixed and both sections are ALWAYS emitted — an empty stream yields an
-# empty section rather than a missing one — so a consumer can split on the headers
-# without first discovering which streams the script happened to write to.
-SCRIPT_OUTPUT_STDOUT_HEADER = "--- script stdout ---"
-SCRIPT_OUTPUT_STDERR_HEADER = "--- script stderr ---"
-
-
-def _labelled_script_output(stdout: str, stderr: str) -> str:
-    """Both of the child's streams as one labelled ``diagnostics`` string (#651).
-
-    ``GdaError.diagnostics`` is a free-form ``str`` (ADR-0004), and for a failure
-    that IS the script's own — ``script_failed`` — the script's own output is the
-    diagnostic. A GDScript test runner reports through ``print()``, i.e. stdout, so
-    carrying stderr alone would hand a ``--strict`` CI caller a failure with no
-    content. Both streams are labelled rather than concatenated so the caller can
-    still tell which is which.
-    """
-    parts = []
-    for header, stream in (
-        (SCRIPT_OUTPUT_STDOUT_HEADER, stdout),
-        (SCRIPT_OUTPUT_STDERR_HEADER, stderr),
-    ):
-        # Keep each section's payload verbatim, only guaranteeing the newline that
-        # puts the next header on its own line.
-        body = stream if stream.endswith("\n") or not stream else stream + "\n"
-        parts.append(f"{header}\n{body}")
-    return "".join(parts)
-
-
 def script_exit_status_failure(
     script: str, exit_status: int, stdout: str, stderr: str
 ) -> Failure:
@@ -639,38 +748,6 @@ def script_exit_status_failure(
         f"script run --strict: {script} exited with status {exit_status}",
         _labelled_script_output(stdout, stderr),
     )
-
-
-# How much of each stream a gda-ENDED ``script run`` carries into its
-# ``diagnostics`` (#655). A run gda cut short can have produced arbitrarily much
-# output — a test suite that looped for two minutes — and ``diagnostics`` is
-# serialized inline in the JSON result, so it is bounded. The cap is FIXED rather
-# than an option: one more knob to reason about buys nothing an agent wants, and a
-# stated constant is something a caller can rely on. The TAIL is kept, not the
-# head: the interesting part of a run that did not finish is where it got to.
-#
-# The bound is in **UTF-8 bytes**, not characters, because bytes are what actually
-# costs: a character cap of the same number let non-ASCII output through at up to
-# 3-4x the intended size (16Ki CJK characters encode to ~48KiB), so a bound meant to
-# keep a result payload small silently did not. Bytes also make the stated figure
-# mean one thing to a reader measuring the JSON.
-SCRIPT_OUTPUT_TAIL_CAP_BYTES = 16 * 1024
-
-
-def _tail(stream: str) -> str:
-    """The last :data:`SCRIPT_OUTPUT_TAIL_CAP_BYTES` UTF-8 bytes of a stream.
-
-    Slicing bytes can land inside a multi-byte sequence, so the decode uses
-    ``errors="ignore"`` to drop a leading partial character rather than emit a
-    replacement character for it: the truncation is gda's own doing, and inventing a
-    ``U+FFFD`` would misreport the engine's output as malformed. Only that boundary
-    is affected — anything genuinely malformed was already replaced when the capture
-    was decoded, and survives here as the replacement character it became.
-    """
-    encoded = stream.encode("utf-8")
-    if len(encoded) <= SCRIPT_OUTPUT_TAIL_CAP_BYTES:
-        return stream
-    return encoded[-SCRIPT_OUTPUT_TAIL_CAP_BYTES:].decode("utf-8", errors="ignore")
 
 
 def _ended_run_diagnostics(
@@ -734,7 +811,7 @@ def script_run_timeout_failure(
         f"script run: {script} did not return before the --timeout of {timeout}s "
         f"(elapsed {elapsed:.2f}s, termination phase '{phase}'). The captured "
         f"output is in diagnostics, truncated to the last "
-        f"{SCRIPT_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; raise "
+        f"{CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; raise "
         f"--timeout for a run that is merely slow, or declare "
         f"--completion-marker to end an aborted run early.",
         _ended_run_diagnostics("the timeout", script_errors, stdout, stderr),
@@ -793,7 +870,7 @@ def script_run_aborted_failure(
         f"should print progress during them, or run without a marker. "
         f"The --timeout of {timeout}s was not reached. The captured "
         f"output is in diagnostics, truncated to the last "
-        f"{SCRIPT_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; "
+        f"{CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; "
         f"termination phase '{phase}'.",
         _ended_run_diagnostics("the abort", script_errors, stdout, stderr),
     )

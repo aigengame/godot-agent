@@ -67,15 +67,14 @@ def test_a_clean_start_is_ready_and_started(monkeypatch, tmp_path):
         "project_root": str(project.resolve()),
     }
     # The sentinel op was dispatched through the shared argv spelling, under the
-    # resolved project, with a watch (which is what selects the streaming capture).
-    (_binary, args, cwd, timeout, _label, watch) = calls[0]
+    # resolved project.
+    (_binary, args, cwd, timeout, _label, _watch) = calls[0]
     assert args[:2] == ["--path", str(project)]
     assert args[2] == "--script"
     assert args[4:6] == ["--", "scene-preflight"]
     assert json.loads(args[6])["path"] == "res://main.tscn"
     assert cwd is None
     assert timeout == pytest.approx(30.0)
-    assert watch is not None
 
 
 def test_a_script_error_during_startup_is_reported_though_the_scene_reached_ready(
@@ -358,23 +357,28 @@ def test_a_timeout_outranks_a_sentinel_that_arrived_before_it(monkeypatch, tmp_p
     assert json.loads(result.stdout)["status"] == "timeout"
 
 
-def test_the_watch_never_ends_a_run_which_is_what_keeps_aborted_unreachable():
-    # gda.runner documents that a watching channel must classify LaunchFailure.ABORTED
-    # itself, because the shared prefix has no honest code for "the caller's own
-    # declared condition fired". This channel declares no such condition — it takes a
-    # watch ONLY to select the streaming capture — so ABORTED is unreachable here.
-    # That invariant lives in one method, and this is what pins it: a policy added to
-    # `observe` later fails this test rather than silently degrading an abort into a
-    # contract_violation.
-    from gda.commands.scene import _CaptureOnlyWatch
+def test_this_channel_declares_no_watch_which_is_what_keeps_aborted_unreachable(
+    monkeypatch, tmp_path
+):
+    # gda.runner documents that a WATCHING channel must classify
+    # LaunchFailure.ABORTED itself, because the shared prefix has no honest code for
+    # "the caller's own declared condition fired". This channel declares no such
+    # condition — a scene that prints an error is very often still coming up, and
+    # nobody declares what a booting scene finishing looks like — so it passes no
+    # watch, and ABORTED is unreachable here. The invariant is an argument the launch
+    # does NOT get: adding a policy watch later fails this test rather than silently
+    # degrading an abort into a contract_violation.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
 
-    watch = _CaptureOnlyWatch()
-
-    assert (
-        watch.observe(stdout="anything", stderr="ERROR: everything", elapsed=999.0)
-        is False
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
     )
-    assert watch.observe(stdout="", stderr="", elapsed=0.0) is False
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    (*_head, watch) = calls[0]
+    assert watch is None
 
 
 @pytest.mark.parametrize(

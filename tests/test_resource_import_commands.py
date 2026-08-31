@@ -17,7 +17,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.runner import LaunchFailure, RunResult
+from gda.runner import LaunchFailure, RunResult, TimeoutBound
 
 runner_cli = CliRunner()
 
@@ -269,15 +269,41 @@ def test_launch_failures_classify_through_the_shared_prefix(monkeypatch, tmp_pat
 
     def timed_out(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
         return RunResult(
-            stdout="",
+            stdout="[  30% ] importing res://icon.png\n",
             stderr="took too long",
             exit_code=124,
             launch_failure=LaunchFailure.TIMEOUT,
+            elapsed_seconds=timeout + 0.2,
+            timeout_bound=TimeoutBound(timeout_label, timeout),
         )
 
     monkeypatch.setattr("gda.commands.resource.launch", timed_out)
     timed = json.loads(_run(project, "res://icon.png").stdout)
     assert timed["error"]["code"] == "launch_timeout"
+    # The THIRD buffered channel, on the shared branch with the other two (#714):
+    # its label, its ceiling and its own captured output, none of it forked here.
+    assert timed["error"]["message"].startswith("Godot import launched but did not")
+    assert "importing res://icon.png" in timed["error"]["diagnostics"]
+    assert "took too long" in timed["error"]["diagnostics"]
+
+
+def test_the_import_pass_declares_its_own_timeout_label(monkeypatch, tmp_path):
+    # The label is this channel's one contribution to the shared timeout envelope,
+    # and it is what tells an agent WHICH launch gave up when three of them report
+    # the same code. Pinned at the call site, because nothing else would notice it
+    # silently reverting to the sentinel channel's bare "Godot".
+    project = _project(tmp_path)
+    seen: dict[str, object] = {}
+
+    def recording(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        seen["label"] = timeout_label
+        seen["timeout"] = timeout
+        return RunResult(stdout="", stderr="", exit_code=0)
+
+    monkeypatch.setattr("gda.commands.resource.launch", recording)
+    _run(project, "res://icon.png", "--timeout", "7")
+
+    assert seen == {"label": "Godot import", "timeout": 7.0}
 
     def engine_failed(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
         return RunResult(stdout="", stderr="importer exploded", exit_code=1)

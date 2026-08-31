@@ -1,5 +1,10 @@
-"""The live wire's NUMBER domain — what a JSON number survives on the way to and
-from an engine session (#752).
+"""The engine's NUMBER domain — what a JSON number survives on the way to and from
+Godot (#752, #771).
+
+Named for the live wire, which is where #752 measured it; the WRITER half is the
+engine's and belongs to both channels. #771 found ``ops/operations.gd`` framing every
+HEADLESS reply with the same default writer described below, and fixed it with the
+same one argument, so the result-direction paragraph now speaks for both.
 
 The live legs carry JSON (ADR-0021): the daemon writes ``{op, params}`` with
 Python's ``json``, the harness reads it with Godot's ``JSON.parse_string``, and the
@@ -28,11 +33,20 @@ rows it split **41 exact / 15 changed / 40 flattened to ``0.0``**, and a
 ``full_precision`` mode instead renders through ``String::num_scientific``
 (grisu2, shortest round-tripping form), which was exact on **95 of the 96** corpus
 rows and on all 5500 of that sweep — the sweep drew no negative zero, and the
-single corpus miss IS that value. The harness therefore stringifies every reply with
-``full_precision`` (``gda_harness.gd``'s ``_json``), and the result direction
-carries full binary64 precision. One residual, kept in the public contract because
-it is an engine early return (``JSON::_stringify`` emits ``"0.0"`` for anything
-equal to zero): a NEGATIVE ZERO reads back as ``0.0``.
+single corpus miss IS that value. BOTH of gda's engine-side payloads therefore
+stringify every reply with ``full_precision`` — the harness (``gda_harness.gd``'s
+``_json``, #752) and the headless operations payload (``ops/operations.gd``'s
+``_json``, #771) — and the result direction carries full binary64 precision on
+either channel. One residual, kept in the public contract because it is an engine
+early return (``JSON::_stringify`` emits ``"0.0"`` for anything equal to zero): a
+NEGATIVE ZERO reads back as ``0.0``.
+
+A headless read needs no separate corpus and gets none: it is measured against the
+same rows and the same ``full_precision`` partition, re-derived from a real engine by
+``tests/test_e2e_headless_number_reads.py``. Its REQUEST half is a different
+question from the live one — a headless ``--value`` is a STRING the operation coerces
+with ``String.to_float``, not a JSON number the parser reads — and it is owned by
+#772, so nothing here is claimed about it.
 
 **The result path has TWO writers, and each float has exactly one of them.** The
 paragraph above is about the engine's: a value the game reports is stringified by
@@ -245,6 +259,17 @@ def find_unrepresentable(value: object, path: str) -> "str | None":
 # property of: the #770 review found the engine sentence inherited by fields the
 # engine never wrote, and a claim that does not say whose value it describes
 # invites exactly that.
+
+# Only the LIVE surfaces publish these. The engine-writer guarantee below became
+# true of headless replies too (#771), but the sentence is not shared onto them: it
+# names the live WIRE, a leg a headless reply never crosses, and it is attached
+# per-field by a guard that walks the LIVE result models. Sharing the string would
+# put a wire claim on a headless read; authoring a headless twin would be the
+# near-duplicate this module exists to prevent. The headless channel therefore states
+# the same fact once, in prose, on the surfaces that document headless behaviour
+# (``docs/command-catalog.md``, ``CONTEXT.md``, the bundled Skill). Publishing it in
+# ``--schema`` needs the derived discipline the live side has — a walk over the
+# headless float-bearing fields — which is a slice of its own, not a rider on #771.
 
 # For a value the ENGINE produced and its full-precision writer serialized.
 LIVE_ENGINE_PRECISION = (

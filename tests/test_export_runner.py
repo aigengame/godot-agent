@@ -20,35 +20,15 @@ from pathlib import Path
 
 import gda.runner as runner_mod
 from gda.export_runner import SubprocessExportRunner
-
-
-class _RecordingRun:
-    """A ``subprocess.run`` double recording the call and returning a clean exit."""
-
-    def __init__(self) -> None:
-        self.cmd: list[str] | None = None
-        self.kwargs: dict | None = None
-
-    def __call__(self, cmd, **kwargs):
-        self.cmd = cmd
-        self.kwargs = kwargs
-
-        class _Proc:
-            # The primitive captures bytes (no text=True) and decodes UTF-8
-            # itself, so the double mirrors that real subprocess contract (#33).
-            stdout = b""
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
+from tests.support import RecordingSpawn
 
 
 def test_export_runs_with_project_as_cwd(monkeypatch):
     # The configured export_path is relative and Godot resolves a relative output
     # path against its CWD, so the runner must spawn Godot with cwd = the project
     # for the artifact to land inside the project (the #121 acceptance behavior).
-    rec = _RecordingRun()
-    monkeypatch.setattr(runner_mod.subprocess, "run", rec)
+    rec = RecordingSpawn()
+    monkeypatch.setattr(runner_mod.subprocess, "Popen", rec)
     project = Path("/tmp/proj")
 
     runner = SubprocessExportRunner(Path("/x/Godot"), project=project)
@@ -74,8 +54,8 @@ def test_relative_project_is_absolutized_so_cwd_and_path_agree(monkeypatch):
     # empty export_failed. The runner must absolutize the project so --path and
     # cwd name the SAME absolute directory (reaching the resolution an absolute
     # --project reaches).
-    rec = _RecordingRun()
-    monkeypatch.setattr(runner_mod.subprocess, "run", rec)
+    rec = RecordingSpawn()
+    monkeypatch.setattr(runner_mod.subprocess, "Popen", rec)
     relative = Path("relproj")
     expected = str(relative.absolute())
 
@@ -103,8 +83,8 @@ def test_relative_and_absolute_project_reach_the_same_resolution(monkeypatch, tm
     abs_project.mkdir()
 
     def _spawn(project: Path) -> tuple[list[str], dict]:
-        rec = _RecordingRun()
-        monkeypatch.setattr(runner_mod.subprocess, "run", rec)
+        rec = RecordingSpawn()
+        monkeypatch.setattr(runner_mod.subprocess, "Popen", rec)
         SubprocessExportRunner(Path("/x/Godot"), project=project).run(
             "Linux/X11", "release", "build/game.x86_64"
         )
@@ -123,8 +103,8 @@ def test_relative_and_absolute_project_reach_the_same_resolution(monkeypatch, tm
 def test_export_without_project_passes_no_cwd(monkeypatch):
     # Projectless runs (no resolved project) spawn with the default cwd — there is
     # no project root to resolve a relative path against.
-    rec = _RecordingRun()
-    monkeypatch.setattr(runner_mod.subprocess, "run", rec)
+    rec = RecordingSpawn()
+    monkeypatch.setattr(runner_mod.subprocess, "Popen", rec)
 
     runner = SubprocessExportRunner(Path("/x/Godot"), project=None)
     runner.run("Linux/X11", "release", "/abs/out.x86_64")
@@ -152,25 +132,30 @@ def test_export_launch_failure_surfaces_through_the_typed_run_adapter(tmp_path):
     assert result.launch_failure is LaunchFailure.NOT_FOUND
 
 
-def test_export_timeout_keeps_the_export_worded_diagnostic(monkeypatch):
+def test_export_timeout_names_the_export_channel_and_its_ceiling(monkeypatch):
     # The export channel passes timeout_label="Godot export" to the shared
-    # primitive so its timeout stderr stays byte-compatible with the pre-#185
-    # wording. This stderr is what the classifier carries into the public
-    # GdaError.diagnostics, so the wording is part of `export run --json` (#185
-    # review). The shared launch handling itself is tested in test_launch.py.
-    import subprocess
-
+    # primitive. Since #714 that label no longer composes a synthesized stderr —
+    # the streams carry the export's own captured output — so it rides the result
+    # as its TimeoutBound, together with the ceiling. Both reach the public
+    # `launch_timeout` message of `export run --json` through the shared
+    # classifier, which is why this channel still declares a label at all. The
+    # shared launch handling itself is tested in test_launch.py.
     from gda.exit_codes import EXIT_TIMEOUT
     from gda.runner import LaunchFailure
 
-    def fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
+    monkeypatch.setattr(
+        runner_mod.subprocess,
+        "Popen",
+        RecordingSpawn(stderr="ERROR: export step wedged\n", alive=True),
+    )
 
-    monkeypatch.setattr(runner_mod.subprocess, "run", fake_run)
-
-    runner = SubprocessExportRunner(Path("/x/Godot"), timeout=600.0)
+    runner = SubprocessExportRunner(Path("/x/Godot"), timeout=0.05)
     result = runner.run("Linux/X11", "release", "out.x86_64")
 
     assert result.exit_code == EXIT_TIMEOUT
-    assert result.stderr == "gda: Godot export timed out after 600.0s\n"
     assert result.launch_failure is LaunchFailure.TIMEOUT
+    assert result.timeout_bound is not None
+    assert result.timeout_bound.label == "Godot export"
+    assert result.timeout_bound.seconds == 0.05
+    # And the export's own output survived the bound, in place of the discard.
+    assert result.stderr == "ERROR: export step wedged\n"

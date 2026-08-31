@@ -1,13 +1,19 @@
 """The headless-launch primitive maps subprocess failures to a RunResult (#185).
 
 ``launch`` is the single home of the spawn / timeout / ``OSError`` / UTF-8-decode
-handling that both Phase-1 channels (the sentinel op runner and the native-export
-runner) delegate to. A hung or missing engine must not surface as a raw Python
-traceback; it is turned into a synthesized non-zero-exit :class:`RunResult` with a
-typed ``launch_failure`` and a diagnostic on stderr — the launch-handling contract
-that used to be written (and tested) twice, now exercised once here. The
-channel-specific argv tail / export-only cwd stay tested in each runner's own
-suite.
+handling that every Phase-1 channel (the sentinel op runner, the native-export
+runner, the ``resource import`` pass, ``script run`` and ``scene preflight``)
+delegates to. A hung or missing engine must not surface as a raw Python traceback;
+it is turned into a synthesized non-zero-exit :class:`RunResult` with a typed
+``launch_failure`` — the launch-handling contract that used to be written (and
+tested) twice, now exercised once here. The channel-specific argv tail /
+export-only cwd stay tested in each runner's own suite.
+
+Since #714 there is ONE capture strategy: every launch streams. These tests drive
+REAL child processes — a small stand-in script in place of the engine — rather
+than a fake ``Popen``, because what the capture is about is what real pipes and a
+real process lifetime do. (``tests.support.RecordingSpawn`` exists for the suites
+whose subject is the SPAWN SHAPE rather than the capture.)
 """
 
 import shlex
@@ -21,7 +27,7 @@ import pytest
 
 from gda import runner
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
-from gda.runner import LaunchFailure, launch
+from gda.runner import LaunchFailure, TimeoutBound, launch
 
 
 def test_missing_binary_maps_to_not_found_not_traceback():
@@ -62,174 +68,11 @@ def test_non_executable_file_binary_maps_to_not_found_not_traceback(tmp_path):
     assert result.launch_failure is LaunchFailure.NOT_FOUND
 
 
-def test_timeout_maps_to_synthesized_timeout_result(monkeypatch):
-    def fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    result = launch(Path("/any/Godot"), ["--version"], cwd=None, timeout=0.01)
-
-    assert result.exit_code == EXIT_TIMEOUT
-    # Default label is "Godot": the sentinel channel keeps its exact pre-#185
-    # timeout diagnostic wording.
-    assert result.stderr == "gda: Godot timed out after 0.01s\n"
-    assert result.launch_failure is LaunchFailure.TIMEOUT
-
-
-def test_timeout_label_customizes_the_diagnostic(monkeypatch):
-    # The export channel passes a distinct label so its timeout diagnostic stays
-    # byte-compatible with the pre-#185 "Godot export timed out" wording — the
-    # stderr the classifier carries into the public GdaError.diagnostics (#185).
-    def fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    result = launch(
-        Path("/any/Godot"),
-        ["--export-release", "Web", "out"],
-        cwd=None,
-        timeout=600.0,
-        timeout_label="Godot export",
-    )
-
-    assert result.exit_code == EXIT_TIMEOUT
-    assert result.stderr == "gda: Godot export timed out after 600.0s\n"
-    assert result.launch_failure is LaunchFailure.TIMEOUT
-
-
-def test_timeout_is_passed_through_to_subprocess(monkeypatch):
-    captured = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["timeout"] = kwargs.get("timeout")
-
-        class _Proc:
-            # The primitive captures bytes (no text=True) and decodes UTF-8
-            # itself, so the double mirrors that real subprocess contract (#33).
-            stdout = b""
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    result = launch(Path("/any/Godot"), ["--version"], cwd=None, timeout=42.0)
-
-    assert captured["timeout"] == 42.0
-    # An engine that actually returned has no synthesized launch failure, so its
-    # exit code is classified as the engine's own result (#15).
-    assert result.launch_failure is None
-
-
-def test_builds_headless_argv_from_binary_and_tail(monkeypatch):
-    captured = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-
-        class _Proc:
-            stdout = b""
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    launch(Path("/x/Godot"), ["--path", "/p", "--version"], cwd=None, timeout=60.0)
-
-    # The primitive always prepends `[binary, --headless, --log-file <gda path>]`
-    # to the caller's tail: gda owns the engine log target on every launch (#653).
-    assert captured["cmd"][:3] == ["/x/Godot", "--headless", "--log-file"]
-    assert captured["cmd"][4:] == ["--path", "/p", "--version"]
-
-
-def test_engine_output_is_decoded_as_utf8_regardless_of_host_locale(monkeypatch):
-    # Godot's JSON.stringify emits raw UTF-8, but subprocess(text=True) would
-    # decode with the host locale. On a non-UTF-8 locale a non-ASCII node name
-    # mojibakes or raises UnicodeDecodeError. The primitive must capture bytes and
-    # decode UTF-8 explicitly so user content round-trips (#33). We prove this by
-    # returning raw UTF-8 *bytes* from subprocess (the bytes mode the fix uses).
-    payload = '<<<GDA:RESULT>>>{"name":"日本語"}<<<GDA:END>>>'
-    stdout_bytes = payload.encode("utf-8")
-    stderr_bytes = "警告: ノード名\n".encode("utf-8")
-
-    def fake_run(cmd, **kwargs):
-        # The fix drops text=True and captures bytes; assert that contract here
-        # so the test fails loudly if decoding silently reverts to locale text.
-        assert kwargs.get("text") in (None, False)
-
-        class _Proc:
-            stdout = stdout_bytes
-            stderr = stderr_bytes
-            returncode = 0
-
-        return _Proc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    result = launch(Path("/any/Godot"), ["--version"], cwd=None, timeout=60.0)
-
-    assert "日本語" in result.stdout
-    assert "警告: ノード名" in result.stderr
-
-
-def test_cwd_is_passed_through_to_subprocess_as_a_string(monkeypatch, tmp_path):
-    # The export channel relies on cwd to resolve a relative output path; the
-    # primitive must forward it (as a string, the historical spawn shape).
-    captured = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["cwd"] = kwargs.get("cwd")
-
-        class _Proc:
-            stdout = b""
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    launch(Path("/x/Godot"), ["--version"], cwd=tmp_path, timeout=60.0)
-
-    assert captured["cwd"] == str(tmp_path)
-
-
-def test_cwd_none_passes_no_working_directory(monkeypatch):
-    captured = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["cwd"] = kwargs.get("cwd")
-
-        class _Proc:
-            stdout = b""
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
-
-    assert captured["cwd"] is None
-
-
-# --- The STREAMING capture path (#655). Selected by passing a ``watch``; without one
-# the BUFFERED behaviour asserted above is unchanged, which the
-# ``test_the_buffered_path_still_*`` guard below pins for the sentinel and export
-# channels that rely on it.
-#
-# These drive a REAL child process — a small shebang script standing in for the
-# engine — rather than a fake ``Popen``. The whole point of the streaming path is
-# what real pipes and a real process lifetime do (a buffered capture threw away the
-# output that a real Godot had already written), so faking the spawn would only
-# assert the fake. The stand-in ignores the ``--headless --log-file <path>`` head
-# that ``launch`` injects, exactly as it ignores every other argv tail.
+# The stand-in engines every test below drives. A REAL child process, not a fake
+# ``Popen``: what the capture is about is what real pipes and a real process
+# lifetime do, so faking the spawn would only assert the fake. Both ignore the
+# ``--headless --log-file <path>`` head that ``launch`` injects, exactly as they
+# ignore every other argv tail.
 
 
 def _fake_engine(tmp_path: Path, body: str) -> Path:
@@ -251,15 +94,14 @@ def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Pat
     """A ``/bin/sh`` stand-in, kept for WALL-CLOCK SPEED, not correctness (#728).
 
     Diverges from ``_fake_engine`` on purpose: that one pays a fresh Python
-    interpreter's startup before it writes a byte. The one test that uses this
-    (``test_streaming_timeout_preserves_the_output_the_child_already_wrote``)
-    used to race that startup against a real deadline; that race is gone —
-    the test now controls the runner's clock directly, so a slower child could
-    no longer flip the result. ``/bin/sh`` stays anyway: the test still waits,
-    in real wall-clock time, for this REAL child to actually write its output
-    before the (now fake) deadline is allowed to cross, and a cheap shell keeps
-    that wait — and the suite — fast rather than paying a Python interpreter's
-    startup for no reason.
+    interpreter's startup before it writes a byte, which every test that races a
+    REAL deadline against the child's first output would then be racing too —
+    flaky on a loaded machine, at a ceiling short enough to keep the suite fast.
+    A cheap shell writes in milliseconds, so those tests get a wide margin without
+    a long ceiling. (``test_streaming_timeout_preserves_the_output_the_child_already_wrote``
+    additionally controls the runner's clock, and keeps this stand-in because it
+    still waits in real time for the child to write before letting the fake
+    deadline cross.)
 
     ``printf '%s\\n'``, not ``echo``: XSI ``echo`` interprets backslash
     escapes in its operand on this platform's ``/bin/sh``, so a payload
@@ -282,6 +124,114 @@ def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Pat
     )
     script.chmod(0o755)
     return script
+
+
+def test_timeout_synthesizes_a_result_that_keeps_what_the_run_produced(tmp_path):
+    # The bound gda puts on a hung engine, and the evidence it comes back with. The
+    # run below writes to both streams and then never returns; `launch` ends it at
+    # the ceiling and reports what it had already read — the whole of #714, which
+    # replaced a capture that discarded exactly this.
+    engine = _fast_fake_engine(tmp_path, "BOOTED", "wedged")
+
+    result = launch(engine, ["--version"], cwd=None, timeout=1.0)
+
+    assert result.exit_code == EXIT_TIMEOUT
+    assert result.launch_failure is LaunchFailure.TIMEOUT
+    assert result.stdout == "BOOTED\n"
+    assert result.stderr == "wedged\n"
+    # No gda prose in either stream: the classifier composes the sentence from the
+    # bound below, so mixing one in would corrupt the evidence.
+    assert "timed out" not in result.stderr
+    # The caller's own ceiling is what ended it, and the clock says so.
+    assert result.elapsed_seconds is not None
+    assert 1.0 <= result.elapsed_seconds < 3.0
+    # Default label: the sentinel channel's launch is just "Godot".
+    assert result.timeout_bound == TimeoutBound("Godot", 1.0)
+
+
+def test_the_timeout_bound_carries_the_channels_own_label(tmp_path):
+    # The export channel passes a distinct label, and the import pass another. The
+    # label rides the result rather than a synthesized stderr (#714), because the
+    # shared classifier is the only place that renders it and the runner seam hands
+    # that classifier a RunResult and nothing else.
+    engine = _fast_fake_engine(tmp_path, "packing", "")
+
+    result = launch(
+        engine,
+        ["--export-release", "Web", "out"],
+        cwd=None,
+        timeout=1.0,
+        timeout_label="Godot export",
+    )
+
+    assert result.launch_failure is LaunchFailure.TIMEOUT
+    assert result.timeout_bound == TimeoutBound("Godot export", 1.0)
+
+
+def test_builds_headless_argv_from_binary_and_tail(tmp_path):
+    # The stand-in echoes the argv it was handed, so the assertion is on the argv
+    # the OS really received rather than on a recorded call.
+    engine = _fake_engine(tmp_path, "print('\\x00'.join(sys.argv[1:]))\n")
+
+    result = launch(engine, ["--path", "/p", "--version"], cwd=None, timeout=30.0)
+
+    argv = result.stdout.rstrip("\n").split("\x00")
+    # The primitive always prepends `[--headless, --log-file <gda path>]` to the
+    # caller's tail: gda owns the engine log target on every launch (#653).
+    assert argv[:2] == ["--headless", "--log-file"]
+    assert argv[3:] == ["--path", "/p", "--version"]
+
+
+def test_engine_output_is_decoded_as_utf8_regardless_of_host_locale(tmp_path):
+    # Godot's JSON.stringify emits raw UTF-8, but decoding with the host locale
+    # would mojibake or raise UnicodeDecodeError on a non-UTF-8 locale for a
+    # non-ASCII node name or echoed path. The primitive captures BYTES and decodes
+    # UTF-8 explicitly, so user content round-trips (#33). The stand-in writes
+    # through the raw buffers so the bytes on the wire are the ones under test.
+    engine = _fake_engine(
+        tmp_path,
+        "sys.stdout.buffer.write("
+        '\'<<<GDA:RESULT>>>{"name":"\\u65e5\\u672c\\u8a9e"}<<<GDA:END>>>\''
+        ".encode('utf-8'))\n"
+        "sys.stderr.buffer.write("
+        "'\\u8b66\\u544a: \\u30ce\\u30fc\\u30c9\\u540d\\n'.encode('utf-8'))\n",
+    )
+
+    result = launch(engine, ["--version"], cwd=None, timeout=30.0)
+
+    assert "日本語" in result.stdout
+    assert "警告: ノード名" in result.stderr
+
+
+def test_cwd_is_passed_through_to_the_child(tmp_path):
+    # The export channel relies on cwd to resolve a relative output path, so the
+    # primitive must forward it — and the child must really start there.
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    engine = _fake_engine(tmp_path, "import os\nprint(os.getcwd())\n")
+
+    result = launch(engine, ["--version"], cwd=workdir, timeout=30.0)
+
+    assert Path(result.stdout.strip()).resolve() == workdir.resolve()
+
+
+def test_cwd_none_leaves_the_child_in_gdas_own_directory(tmp_path):
+    # Projectless launches pass no working directory, so the child simply inherits
+    # gda's — never a directory the primitive invented.
+    engine = _fake_engine(tmp_path, "import os\nprint(os.getcwd())\n")
+
+    result = launch(engine, ["--version"], cwd=None, timeout=30.0)
+
+    assert Path(result.stdout.strip()).resolve() == Path.cwd().resolve()
+
+
+# --- What a POLICY ``watch`` adds on top of the capture every launch gets (#655):
+# it can end a run BEFORE the timeout, and it is fed the output as it arrives. The
+# capture and the clock themselves are asserted above, on the no-watch launches
+# every other channel makes.
+#
+# The stand-in engine ignores the ``--headless --log-file <path>`` head that
+# ``launch`` injects, exactly as it ignores every other argv tail.
 
 
 class _RecordingWatch:
@@ -556,23 +506,25 @@ def test_streaming_maps_a_missing_binary_to_the_same_not_found_result():
     assert streamed.stderr == buffered.stderr
 
 
-def test_the_buffered_path_still_discards_output_and_keeps_its_diagnostic(tmp_path):
-    # The byte-identity guard for the sentinel and export channels (#655): they pass
-    # NO watch, so their timeout result must stay exactly what it was — the output
-    # discarded and the ``gda: <label> timed out after <n>s`` diagnostic standing in
-    # for it, which is published prose in their error envelopes. Moving them onto the
-    # preserving path is named follow-up work, not this change.
-    engine = _fake_engine(
-        tmp_path, "print('written but discarded', flush=True)\ntime.sleep(30)\n"
-    )
+def test_a_watchless_launch_streams_and_never_ends_a_run_early(tmp_path):
+    # The pairing that makes ``watch`` POLICY rather than strategy (#714): a launch
+    # WITHOUT one still captures and still times itself, and the only thing it gives
+    # up is the early abort. Both halves are asserted against the same engine, so a
+    # regression that made the no-watch path buffered again — or one that let it end
+    # a run on its own — fails here.
+    engine = _fast_fake_engine(tmp_path, "written and kept", "and this too")
 
+    started = time.monotonic()
     result = launch(engine, [], cwd=None, timeout=1.0, timeout_label="Godot export")
+    waited = time.monotonic() - started
 
     assert result.launch_failure is LaunchFailure.TIMEOUT
-    assert result.stdout == ""
-    assert result.stderr == "gda: Godot export timed out after 1.0s\n"
-    # And it does not time itself — the clock is the streaming path's addition.
-    assert result.elapsed_seconds is None
+    assert result.stdout == "written and kept\n"
+    assert result.stderr == "and this too\n"
+    assert result.elapsed_seconds is not None
+    assert result.timeout_bound == TimeoutBound("Godot export", 1.0)
+    # It waited out the ceiling rather than ending early on the output it saw.
+    assert waited >= 1.0
 
 
 def _capture_popen(monkeypatch) -> list:

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=76e086abf7307138e3a741e6d89aadab413f83570ffdb2a2ad8da2e34e2b992a -->
+<!-- gda-readme-i18n: source=README.md sha256=ff68f26d3fed2c1ef1d07cfd235ba93a282a5a9a6aecb560c6858a90794343e3 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -612,7 +612,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 
 | Flag       | 说明                                                               |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出。不加它时，命令会打印一份简洁的、供人阅读的渲染结果。根级同样接受该 flag：`gda --json <group> <command>` 与写在命令之后含义相同。 |
+| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出。不加它时，命令会打印一份简洁的、供人阅读的渲染结果。命令之前同样接受该 flag：`gda --json <group> <command>` 与 `gda <group> --json <command>` 都与写在命令之后含义相同。 |
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
 | `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |

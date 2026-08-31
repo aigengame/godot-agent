@@ -35,7 +35,7 @@ from gda.runner import (
     set_user_data_root,
     user_data_placement,
 )
-from tests.support import VERSION_INFO, sentinel
+from tests.support import VERSION_INFO, RecordingSpawn, sentinel
 
 
 @pytest.fixture(autouse=True)
@@ -44,32 +44,6 @@ def _no_root_override():
     set_user_data_root(None)
     yield
     set_user_data_root(None)
-
-
-class _RecordingRun:
-    """A ``subprocess.run`` double recording the call and returning a clean exit.
-
-    ``payload`` is the raw stdout the fake engine writes; the CLI-seam tests pass a
-    real ADR-0002 sentinel so the command SUCCEEDS, and the argv assertion is then
-    made on a working invocation rather than on one that happened to fail late.
-    """
-
-    def __init__(self, payload: str = "") -> None:
-        self.cmd: list[str] | None = None
-        self.kwargs: dict | None = None
-        self._payload = payload.encode()
-
-    def __call__(self, cmd, **kwargs):
-        self.cmd = cmd
-        self.kwargs = kwargs
-        payload = self._payload
-
-        class _Proc:
-            stdout = payload
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
 
 
 def _log_file_arg(cmd: list[str]) -> Path:
@@ -103,21 +77,17 @@ def test_default_launch_redirects_the_log_to_a_gda_owned_file(monkeypatch):
     # hands it a target it has already created.
     seen: dict[str, object] = {}
 
-    def fake_run(cmd, **kwargs):
-        log_file = _log_file_arg(cmd)
-        # Created BEFORE the spawn — that creation is the preflight, and it is what
-        # guarantees the engine's own FileAccess open cannot fail.
-        seen["name"] = log_file.name
-        seen["existed"] = log_file.exists()
+    class _Inspecting(RecordingSpawn):
+        def __call__(self, cmd, **kwargs):
+            log_file = _log_file_arg(cmd)
+            # Read DURING the spawn: the target is created BEFORE it — that creation
+            # is the preflight, and it is what guarantees the engine's own FileAccess
+            # open cannot fail.
+            seen["name"] = log_file.name
+            seen["existed"] = log_file.exists()
+            return super().__call__(cmd, **kwargs)
 
-        class _Proc:
-            stdout = b""
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", _Inspecting())
 
     launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
 
@@ -127,8 +97,8 @@ def test_default_launch_redirects_the_log_to_a_gda_owned_file(monkeypatch):
 def test_default_launch_does_not_touch_the_child_environment(monkeypatch):
     # Without a root, gda redirects the LOG only: `user://`, the export templates
     # and the editor settings all stay where the engine puts them by default.
-    rec = _RecordingRun()
-    monkeypatch.setattr(subprocess, "run", rec)
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
 
     launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
 
@@ -136,21 +106,13 @@ def test_default_launch_does_not_touch_the_child_environment(monkeypatch):
 
 
 def test_default_log_target_is_removed_after_the_run(monkeypatch):
-    seen: dict[str, Path] = {}
-
-    def fake_run(cmd, **kwargs):
-        seen["log"] = _log_file_arg(cmd)
-
-        class _Proc:
-            stdout = b""
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
 
     launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
+
+    assert rec.cmd is not None
+    seen = {"log": _log_file_arg(rec.cmd)}
 
     # A private temporary directory, cleaned up so repeated invocations do not
     # accumulate stale logs.
@@ -165,17 +127,12 @@ def test_concurrent_default_launches_get_distinct_log_targets(monkeypatch):
     # must never name the same target.
     targets: list[Path] = []
 
-    def fake_run(cmd, **kwargs):
-        targets.append(_log_file_arg(cmd))
+    class _Collecting(RecordingSpawn):
+        def __call__(self, cmd, **kwargs):
+            targets.append(_log_file_arg(cmd))
+            return super().__call__(cmd, **kwargs)
 
-        class _Proc:
-            stdout = b""
-            stderr = b""
-            returncode = 0
-
-        return _Proc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", _Collecting())
 
     launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
     launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
@@ -190,11 +147,11 @@ def test_concurrent_default_launches_get_distinct_log_targets(monkeypatch):
 
 def test_unwritable_log_root_is_refused_before_the_spawn(monkeypatch, tmp_path):
     # The whole point: refuse with a typed reason instead of letting the engine
-    # segfault in its logger. `subprocess.run` must never be reached.
+    # segfault in its logger. `subprocess.Popen` must never be reached.
     def _must_not_spawn(*args, **kwargs):  # pragma: no cover - guard
         raise AssertionError("the engine must not be spawned")
 
-    monkeypatch.setattr(subprocess, "run", _must_not_spawn)
+    monkeypatch.setattr(subprocess, "Popen", _must_not_spawn)
     locked = tmp_path / "locked"
     locked.mkdir()
     locked.chmod(0o555)
@@ -211,7 +168,7 @@ def test_unwritable_log_root_is_refused_before_the_spawn(monkeypatch, tmp_path):
 
 
 def test_refusal_diagnostics_name_binary_user_data_and_log_path(monkeypatch, tmp_path):
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
     locked = tmp_path / "locked"
     locked.mkdir()
     locked.chmod(0o555)
@@ -237,7 +194,7 @@ def test_refusal_diagnostics_name_binary_user_data_and_log_path(monkeypatch, tmp
 def test_default_root_refusal_names_the_engine_resolved_user_data_dir(monkeypatch):
     # With no --user-data-root, the failure must still name where `user://` lives
     # — the engine's own resolved directory — and say gda is not redirecting it.
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
 
     def _explode(*args, **kwargs):
         raise PermissionError(13, "Permission denied")
@@ -263,13 +220,13 @@ def test_the_two_refusal_shapes_point_at_different_directories(monkeypatch, tmp_
     # diagnostics — not the code — must disambiguate which one failed. Pinned as a
     # PAIR: the default-branch refusal must not blame the explicit root's derived
     # path, and vice versa.
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
     monkeypatch.setattr("gda.runner.tempfile.mkdtemp", _permission_denied("gda-log-"))
 
     default_refusal = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
 
     monkeypatch.undo()
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
     locked = tmp_path / "locked"
     locked.mkdir()
     locked.chmod(0o555)
@@ -319,8 +276,8 @@ def test_refusal_classifies_as_the_environment_error_code():
 def test_root_redirects_both_the_log_and_the_platform_data_variable(
     monkeypatch, tmp_path
 ):
-    rec = _RecordingRun()
-    monkeypatch.setattr(subprocess, "run", rec)
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
     root = tmp_path / "udr"
     set_user_data_root(str(root))
 
@@ -345,8 +302,8 @@ def test_a_relative_root_is_absolutized_against_gda_cwd(monkeypatch, tmp_path):
     # spawns with cwd=<project>). The preflight would then pass for a file the engine
     # never opens, and the engine would die in rotate_file() on the one it did —
     # reintroducing the crash. Same bug class as the export channel's --path (#344).
-    rec = _RecordingRun()
-    monkeypatch.setattr(subprocess, "run", rec)
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
     monkeypatch.chdir(tmp_path)
     set_user_data_root("./rel")
 
@@ -363,8 +320,8 @@ def test_a_relative_root_absolutizes_the_platform_override_too(monkeypatch, tmp_
     # engine IGNORES a relative XDG_DATA_HOME outright (OS_LinuxBSD::get_data_path),
     # so a relative root would silently not redirect `user://` at all while the docs
     # promise it does.
-    rec = _RecordingRun()
-    monkeypatch.setattr(subprocess, "run", rec)
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
     monkeypatch.chdir(tmp_path)
     set_user_data_root("./rel")
 
@@ -386,7 +343,7 @@ def test_explicit_root_probes_the_platform_derived_data_path(monkeypatch, tmp_pa
     def _must_not_spawn(*args, **kwargs):  # pragma: no cover - guard
         raise AssertionError("the engine must not be spawned")
 
-    monkeypatch.setattr(subprocess, "run", _must_not_spawn)
+    monkeypatch.setattr(subprocess, "Popen", _must_not_spawn)
     root = tmp_path / "udr"
     # The probe logic is shape-agnostic; pin a NESTED derivation so this runs
     # identically on every platform (the real macOS shape nests under
@@ -427,7 +384,7 @@ def test_an_empty_explicit_flag_is_refused_not_demoted_to_the_environment(monkey
     def _must_not_spawn(*args, **kwargs):  # pragma: no cover - guard
         raise AssertionError("the engine must not be spawned")
 
-    monkeypatch.setattr(subprocess, "run", _must_not_spawn)
+    monkeypatch.setattr(subprocess, "Popen", _must_not_spawn)
     monkeypatch.setenv(USER_DATA_ROOT_ENV, "/from/env")
     set_user_data_root("")
 
@@ -541,8 +498,8 @@ def test_the_root_option_reaches_the_launch(monkeypatch, tmp_path):
     # callback's `set_user_data_root(...)` line leaves the whole suite green and the
     # flag silently inert — a live risk, since a sibling change rewrites exactly
     # those lines in `gda.cli`.
-    rec = _RecordingRun(sentinel(VERSION_INFO))
-    monkeypatch.setattr(subprocess, "run", rec)
+    rec = RecordingSpawn(sentinel(VERSION_INFO))
+    monkeypatch.setattr(subprocess, "Popen", rec)
     monkeypatch.delenv(USER_DATA_ROOT_ENV, raising=False)
     root = tmp_path / "from-the-flag"
 
@@ -560,8 +517,8 @@ def test_without_the_root_option_the_launch_keeps_the_engine_default(
     # The negative half: absent the flag (and the env twin), nothing is redirected
     # but the log — so this pair fails if the option is wired to always-on as well
     # as if it is wired to nothing.
-    rec = _RecordingRun(sentinel(VERSION_INFO))
-    monkeypatch.setattr(subprocess, "run", rec)
+    rec = RecordingSpawn(sentinel(VERSION_INFO))
+    monkeypatch.setattr(subprocess, "Popen", rec)
     monkeypatch.delenv(USER_DATA_ROOT_ENV, raising=False)
 
     result = CliRunner().invoke(app, ["info", "--json"])

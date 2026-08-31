@@ -3919,20 +3919,55 @@ func _write_text_file(path: String, source: String, noun: String) -> bool:
 
 # --- project static-analysis reads (issue #116) -----------------------------
 #
-# Four read-only, project-wide reads, all backed by a SINGLE static project scan
-# (_scan_project). The scan reads files as TEXT — it parses each .tscn/.tres for
-# its [ext_resource path="..."] entries and each .gd for its preload/load/extends
-# references — and never instantiates a scene or loads/compiles a script (the
-# read trust boundary of issue #30). Reads still run under --project, so the
-# engine constructs the project's autoloads at startup before _initialize (the
-# residual project-code execution of issue #61); the scan itself adds none.
+# Four read-only, project-wide reads, backed by TWO static scans over different
+# file universes. find-references, dependencies and find-unused-resources share
+# the extension-filtered scan (_collect_resource_paths); statistics counts with
+# the unfiltered one (_collect_all_file_paths), which also sees the .import
+# sidecars and project.godot the other excludes — so its file total does not
+# reconcile with the others' candidate set. The two scans share one traversal
+# (_collect_paths) and one directory-exclusion rule (_should_descend), which is
+# what keeps them from disagreeing about the TREE while ranging over different
+# files within it.
 #
-# All four share one reference graph so they stay consistent (acceptance
-# criterion): find-references reports the incoming references of one target;
-# dependencies reports the outgoing references of every scene/resource;
+# Both scans read files as TEXT — parsing each .tscn/.tres for its
+# [ext_resource path="..."] entries and each .gd for its preload/load/extends
+# references — and never instantiate a scene or load/compile a script (the read
+# trust boundary of issue #30). Reads still run under --project, so the engine
+# constructs the project's autoloads at startup before _initialize (the residual
+# project-code execution of issue #61); the scans themselves add none.
+#
+# The THREE reference-graph reads share one graph so they stay consistent
+# (acceptance criterion): find-references reports the incoming references of one
+# target; dependencies reports the outgoing references of every scene/resource;
 # find-unused-resources reports the resources with no incoming reference (and not
 # an entry point). A resource is "unused" exactly when find-references for it
-# would return empty — the same graph, one truth.
+# would return empty — the same graph, one truth. statistics is not on that graph:
+# it only counts what its own scan reaches.
+#
+# ONE graph needs ONE identity per file, and that identity is the path the ENGINE
+# resolves a declaration to — not the string the declaration spells. Two spellings
+# reach the same file:
+#
+# - an ALIAS of an absolute address (res://leaf.tscn and res://sub/../leaf.tscn),
+#   folded by _canonical_resource_path, the engine's own simplify_path;
+# - a RELATIVE address, which the engine resolves against the DECLARING file's
+#   own directory — `path="../shared/leaf.tscn"` in res://scenes/main.tscn loads
+#   res://shared/leaf.tscn (measured on 4.6.3), and `preload("../shared/x.gd")`
+#   in res://scripts/user.gd loads res://shared/x.gd (measured likewise).
+#
+# So every path that enters the graph is folded by the owner that knows its base
+# directory: _normalize_ext_resource_path for an [ext_resource] line,
+# _resolve_ref_path for a preload/load/extends argument. Only two entrants have no
+# declaring file to anchor to and are absolute by construction — project.godot's
+# main scene and autoloads, and the caller's find-references query — and those go
+# straight to _canonical_resource_path.
+#
+# Keying on the raw spelling broke all three reads at once (#774): dependencies
+# named a node no file on disk answers to, find-references for the resolved path
+# missed the declaration, and find-unused-resources therefore advised DELETING a
+# scene the project instances — wrong advice with a destructive follow-up. The
+# other side of every comparison is canonical by construction: the walk builds each
+# path by joining directory entries, never by echoing a declaration.
 
 
 # project-find-references: find every project file that references the target — a
@@ -3961,7 +3996,11 @@ func _op_project_find_references(params: Dictionary) -> void:
 	var target_paths := {}  # res:// paths a reference may name the target by
 	var target_class := ""  # class_name token a .gd reference may name it by
 	if target.begins_with("res://"):
-		target_paths[target] = true
+		# The query is canonicalized like every harvested path (#774), so a caller
+		# that spells the target res://sub/../leaf.tscn asks about the same node
+		# the graph keys res://leaf.tscn under. The echoed "target" keeps the
+		# caller's own spelling — it also carries a class_name, which is no path.
+		target_paths[_canonical_resource_path(target)] = true
 	else:
 		# Resolve the class_name through the SAME unified resolver node add /
 		# resource create use (ADR-0032), so find-references and resource create
@@ -3971,7 +4010,7 @@ func _op_project_find_references(params: Dictionary) -> void:
 		match resolution["status"]:
 			"resolved":
 				target_class = target
-				target_paths[resolution["path"]] = true
+				target_paths[_canonical_resource_path(String(resolution["path"]))] = true
 			"ambiguous":
 				_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, _ambiguous_class_name_message(target, resolution["paths"]))
 				return
@@ -4172,8 +4211,9 @@ func _resolve_project_class_script(class_token: String) -> Dictionary:
 
 # Build (once per process) the class_name → declaring-.gd-paths index for the
 # resolver's tier-3 static scan (ADR-0032). Walks the full res:// tree skipping
-# the root cache — reusing the shared recursive walker (_collect_resource_paths,
-# which already enumerates .gd among the graph resources) — and parses each .gd's
+# the root cache — reusing the extension-filtered collector
+# (_collect_resource_paths, which already enumerates .gd among the graph
+# resources) — and parses each .gd's
 # class_name from raw source with the existing never-compiled parser
 # (_script_metadata). A class_name declared in more than one .gd maps to multiple
 # paths (sorted, so an ambiguous_class_name error is deterministic regardless of
@@ -4237,51 +4277,71 @@ func _should_descend(child: String) -> bool:
 	return child != ENGINE_CACHE_DIR
 
 
+# The ONE res:// traversal (#764). Open the directory, enumerate hidden entries,
+# loop, ask _should_descend about each child DIRECTORY, and close the listing —
+# the scaffolding that used to be copied into all four collectors below, where
+# the copies were free to drift and one pair already had (see
+# _collect_scene_paths). `accept` is the only thing a caller varies: it is asked
+# about each FILE and decides whether the walk collects it, so the four
+# collectors differ in exactly that predicate and in nothing else.
+#
+# The collectors share this TRAVERSAL, not a file universe. `accept` is what makes
+# _collect_all_file_paths count the import sidecars and project.godot that
+# _collect_resource_paths excludes: one traversal, one exclusion rule, different
+# universes.
+#
+# Navigational entries ('.', '..') stay off, so the recursion cannot loop back on
+# itself (issue #54 review). Hidden entries are enumerated, so a .hidden.tscn, or
+# any file under a dot-prefixed directory, is collected as promised — the dot
+# prefix is not the exclusion test, _should_descend is, and that decision stays
+# its alone (#712).
+#
+# `accept` is asked about the full res:// child path, not the bare entry name: it
+# is the shape the predicates the collectors reuse (_is_scene_path,
+# _is_script_path, _is_graph_resource_path) are written against. The two agree on
+# the extension anyway — String.get_extension() stops at the last '/', so a file
+# with no extension under a dotted directory (res://a.b/README) answers "" either
+# way — but only the full path can carry a test that looks at the directory too.
+func _collect_paths(dir_path: String, accept: Callable, out: Array[String]) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.include_hidden = true
+	dir.list_dir_begin()
+	var entry := dir.get_next()
+	while not entry.is_empty():
+		var child := dir_path.path_join(entry)
+		if dir.current_is_dir():
+			if _should_descend(child):
+				_collect_paths(child, accept, out)
+		elif accept.call(child):
+			out.append(child)
+		entry = dir.get_next()
+	dir.list_dir_end()
+
+
+# The unfiltered acceptance test: every file the traversal reaches (#764). A named
+# predicate rather than an inline lambda, so the statistics walk reads as the same
+# one-line shape as the other three collectors and its universe has a name.
+func _accept_any_file(_path: String) -> bool:
+	return true
+
+
 # Recursively collect every RESOURCE-bearing file under res:// — the files that
 # can carry references (.tscn/.tres scenes & resources, .gd scripts) AND the leaf
 # asset resources (everything else except import sidecars, the project file, and
-# the .godot cache). Mirrors _collect_scene_paths: hidden entries enumerated,
-# navigational entries off, directory descent decided by _should_descend. This is
-# the universe the reference graph, find-unused and the class_name index range
-# over.
+# the .godot cache). This is the universe the reference graph, find-unused and the
+# class_name index range over.
 func _collect_resource_paths(dir_path: String, out: Array[String]) -> void:
-	var dir := DirAccess.open(dir_path)
-	if dir == null:
-		return
-	dir.include_hidden = true
-	dir.list_dir_begin()
-	var entry := dir.get_next()
-	while not entry.is_empty():
-		var child := dir_path.path_join(entry)
-		if dir.current_is_dir():
-			if _should_descend(child):
-				_collect_resource_paths(child, out)
-		elif _is_graph_resource_path(child):
-			out.append(child)
-		entry = dir.get_next()
-	dir.list_dir_end()
+	_collect_paths(dir_path, _is_graph_resource_path, out)
 
 
-# Recursively collect EVERY file under res:// (descending per _should_descend)
-# for the statistics counts — unlike _collect_resource_paths this keeps import
-# sidecars, project.godot and every asset, since statistics counts all files. The
-# two walks therefore range over DIFFERENT universes under the same exclusion.
+# Recursively collect EVERY file under res:// for the statistics counts — unlike
+# _collect_resource_paths this keeps import sidecars, project.godot and every
+# asset, since statistics counts all files. The two walks therefore range over
+# DIFFERENT universes under the same traversal and the same exclusion.
 func _collect_all_file_paths(dir_path: String, out: Array[String]) -> void:
-	var dir := DirAccess.open(dir_path)
-	if dir == null:
-		return
-	dir.include_hidden = true
-	dir.list_dir_begin()
-	var entry := dir.get_next()
-	while not entry.is_empty():
-		var child := dir_path.path_join(entry)
-		if dir.current_is_dir():
-			if _should_descend(child):
-				_collect_all_file_paths(child, out)
-		else:
-			out.append(child)
-		entry = dir.get_next()
-	dir.list_dir_end()
+	_collect_paths(dir_path, _accept_any_file, out)
 
 
 # Whether a path names a file the reference graph / find-unused treat as a
@@ -4341,19 +4401,26 @@ func _outgoing_references_of(path: String) -> Array:
 # The res:// paths an [ext_resource ... path="res://..."] line names in a
 # .tscn/.tres file — the file's external dependencies. Parsed by text: each
 # ext_resource line carries a path="..." attribute (Godot 4 also carries a uid,
-# but always the path too). Returns res:// paths in line order.
+# but always the path too). Returns res:// paths in line order, each under the
+# ONE graph identity (#774) so a file is one graph node however the line spells
+# it: _normalize_ext_resource_path anchors a relative declaration to the
+# DECLARING file's directory before it canonicalizes, because the engine resolves
+# it that way — `path="../shared/leaf.tscn"` in res://scenes/main.tscn loads
+# res://shared/leaf.tscn (measured on 4.6.3). Canonicalizing without anchoring
+# left the relative spelling as its own graph node.
 func _ext_resource_paths(path: String) -> Array[String]:
 	var out: Array[String] = []
 	var text := FileAccess.get_file_as_string(path)
 	if text.is_empty():
 		return out
+	var base_dir := path.get_base_dir()
 	for line in text.split("\n"):
 		var stripped := line.strip_edges()
 		if not stripped.begins_with("[ext_resource"):
 			continue
 		var ref := _quoted_attr(stripped, "path=")
 		if not ref.is_empty():
-			out.append(ref)
+			out.append(_normalize_ext_resource_path(ref, base_dir))
 	return out
 
 
@@ -4374,15 +4441,18 @@ func _script_outgoing_references(path: String) -> Array:
 	return out
 
 
-# Resolve a reference-path argument to a res:// path: a res:// (or uid://) path is
-# already absolute; a relative path is joined onto the referencing file's base
-# directory and simplified, so "../shared/util.gd" from res://a/b.gd becomes
-# res://shared/util.gd. uid:// references are left as-is (they round-trip through
-# Godot's UID system, not the path graph).
+# Resolve a reference-path argument to a canonical res:// path: a relative path is
+# joined onto the referencing file's base directory first, so "../shared/util.gd"
+# from res://a/b.gd becomes res://shared/util.gd. An ALREADY-prefixed argument is
+# canonicalized too and that half is the #774 fix: it used to be returned verbatim,
+# so preload("res://sub/../util.gd") and preload("res://util.gd") were two graph
+# nodes for one file. simplify_path leaves a scheme it does not own alone, so a
+# uid:// reference still passes through unchanged (it round-trips through Godot's
+# UID system, not the path graph).
 func _resolve_ref_path(ref: String, base_dir: String) -> String:
 	if ref.begins_with("res://") or ref.begins_with("uid://") or ref.begins_with("user://"):
-		return ref
-	return base_dir.path_join(ref).simplify_path()
+		return _canonical_resource_path(ref)
+	return _canonical_resource_path(base_dir.path_join(ref))
 
 
 # Find every reference to the target inside one file, appending {path, kind,
@@ -4405,12 +4475,18 @@ func _collect_references_from(path: String, target_paths: Dictionary, target_cla
 	if text.is_empty():
 		return
 	if ext == "tscn" or ext == "tres":
+		var ext_base_dir := path.get_base_dir()
 		for line in text.split("\n"):
 			var stripped := line.strip_edges()
 			if not stripped.begins_with("[ext_resource"):
 				continue
 			var ref := _quoted_attr(stripped, "path=")
-			if target_paths.has(ref):
+			# One identity on BOTH sides: target_paths is seeded canonical, and the
+			# declared spelling is folded here through the SAME owner the harvest
+			# side uses (_normalize_ext_resource_path — anchor to the declaring
+			# file's directory, then canonicalize), so an aliased OR relative
+			# declaration matches a canonical query and the reverse (#774).
+			if target_paths.has(_normalize_ext_resource_path(ref, ext_base_dir)):
 				references.append({"path": path, "kind": "ext_resource", "context": stripped})
 	elif ext == "gd":
 		var base_dir := path.get_base_dir()
@@ -4498,13 +4574,20 @@ func _project_entry_points() -> Array[String]:
 # ProjectSettings — never run.
 func _main_scene_path() -> String:
 	var value: Variant = ProjectSettings.get_setting("application/run/main_scene", "")
-	return String(value)
+	# Canonical like every other path in the graph (#774): an aliased
+	# run/main_scene left the project's entry point matching nothing the walk
+	# found, so find-unused-resources reported the MAIN SCENE as unused.
+	# simplify_path("") is "", so an unset main scene stays the empty "none".
+	return _canonical_resource_path(String(value))
 
 
 # The project's autoload singletons as {name, path} entries, read from
 # ProjectSettings's autoload/* keys (never executed). The stored value carries a
 # leading "*" enable marker for an enabled singleton; it is stripped so the path
-# is the bare res:// path the rest of the graph compares against.
+# is the bare res:// path the rest of the graph compares against, then
+# canonicalized like every other path in the graph (#774). Order matters: the
+# marker must come off FIRST, because simplify_path does not recognize a scheme
+# behind it and folds "*res://a/../b.gd" to the broken "*res:/b.gd".
 func _project_autoloads() -> Array:
 	var out: Array = []
 	for setting in ProjectSettings.get_property_list():
@@ -4513,7 +4596,7 @@ func _project_autoloads() -> Array:
 			continue
 		var autoload_name: String = key.substr("autoload/".length())
 		var value := String(ProjectSettings.get_setting(key, ""))
-		out.append({"name": autoload_name, "path": value.trim_prefix("*")})
+		out.append({"name": autoload_name, "path": _canonical_resource_path(value.trim_prefix("*"))})
 	return out
 
 
@@ -4656,10 +4739,15 @@ func _is_class_name_declaration_of(line: String, target_class: String) -> bool:
 
 
 # Whether a path names a scene file in the TEXT form gda authors and reads: a
-# .tscn. Only scene-validate asks, because it is the only op whose answer comes
-# from the file's own text rather than from the loaded resource — see the refusal
-# it raises. Every other scene op keys on loadability instead, so a .scn that
-# loads is served there as before.
+# .tscn. Two callers ask. scene-validate asks because it is the only op whose
+# answer comes from the file's own text rather than from the loaded resource —
+# see the refusal it raises. The scene walk asks because it lists exactly that
+# universe, and reusing this predicate is what keeps the listing and the refusal
+# from disagreeing about what a scene file is (#764). Every other scene op keys on
+# loadability instead, so a .scn that loads is served there as before.
+#
+# The comparison is case-insensitive because the engine's own recognition is:
+# ResourceFormatLoader::recognize_path matches the extension with nocasecmp_to.
 func _is_scene_path(path: String) -> bool:
 	return path.get_extension().to_lower() == "tscn"
 
@@ -4785,30 +4873,24 @@ func _has_project() -> bool:
 	return DirAccess.dir_exists_absolute("res://") and FileAccess.file_exists("res://project.godot")
 
 
-# Recursively collect every .tscn under res:// (issue #54), descending per
-# _should_descend. The dot prefix is not part of that test, so a legitimately
-# hidden scene (a .hidden.tscn, or one under a dot-prefixed directory) is
-# enumerated as promised (issue #54 review). Paths are returned as res:// paths
-# so they round-trip into other scene commands.
+# Recursively collect every .tscn under res:// (issue #54) over the shared
+# traversal, which enumerates hidden entries and asks _should_descend about every
+# directory. Paths are returned as res:// paths so they round-trip into other
+# scene commands.
+#
+# The acceptance test is _is_scene_path, so the extension is matched WITHOUT
+# regard to case. It used to be matched case-sensitively here and only here, and
+# that made one project answer two ways: `project statistics` counted a Level.TSCN
+# as a scene (it lowercases the extension before classifying) while `scene list`
+# could not see it at all. The engine is the arbiter and it is case-insensitive —
+# ResourceFormatLoader::recognize_path compares the extension with nocasecmp_to
+# (core/io/resource_loader.cpp), ResourceSaver does the same, and the editor's own
+# filesystem scan lowercases every extension before classifying it
+# (editor/file_system/editor_file_system.cpp). A Level.TSCN IS a scene to Godot,
+# so `scene list` now reports it; that listing is the one output this change grew
+# (#764).
 func _collect_scene_paths(dir_path: String, out: Array[String]) -> void:
-	var dir := DirAccess.open(dir_path)
-	if dir == null:
-		return
-	# Hidden entries are off by default; enable them so a .hidden.tscn or a scene
-	# under a dot-prefixed directory is enumerated. Navigational entries ('.',
-	# '..') stay off, so recursion cannot loop back on itself (issue #54 review).
-	dir.include_hidden = true
-	dir.list_dir_begin()
-	var entry := dir.get_next()
-	while not entry.is_empty():
-		var child := dir_path.path_join(entry)
-		if dir.current_is_dir():
-			if _should_descend(child):
-				_collect_scene_paths(child, out)
-		elif entry.get_extension() == "tscn":
-			out.append(child)
-		entry = dir.get_next()
-	dir.list_dir_end()
+	_collect_paths(dir_path, _is_scene_path, out)
 
 
 # Summarize one .tscn for the listing: its path plus the root node's name/type
@@ -4837,26 +4919,14 @@ func _scene_summary(path: String) -> Dictionary:
 	}
 
 
-# Recursively collect every .gd script under res:// (issue #117), descending per
-# _should_descend. Hidden entries are enumerated (a .hidden.gd, or a script under
-# a dot-prefixed directory) and navigational entries stay off. Paths are returned
-# as res:// paths so they round-trip into other script commands.
+# Recursively collect every .gd script under res:// (issue #117) over the shared
+# traversal, which enumerates hidden entries (a .hidden.gd, or a script under a
+# dot-prefixed directory) and asks _should_descend about every directory. Paths
+# are returned as res:// paths so they round-trip into other script commands. The
+# acceptance test is _is_script_path — the same predicate the script group's
+# addressing boundary uses, case-insensitive as the engine is.
 func _collect_script_paths(dir_path: String, out: Array[String]) -> void:
-	var dir := DirAccess.open(dir_path)
-	if dir == null:
-		return
-	dir.include_hidden = true
-	dir.list_dir_begin()
-	var entry := dir.get_next()
-	while not entry.is_empty():
-		var child := dir_path.path_join(entry)
-		if dir.current_is_dir():
-			if _should_descend(child):
-				_collect_script_paths(child, out)
-		elif entry.get_extension().to_lower() == "gd":
-			out.append(child)
-		entry = dir.get_next()
-	dir.list_dir_end()
+	_collect_paths(dir_path, _is_script_path, out)
 
 
 # Summarize one .gd for the listing: its path plus the class_name/extends parsed
@@ -6603,10 +6673,32 @@ func _atomic_write_text(path: String, content: String) -> int:
 	return OK
 
 
+# The ONE JSON writer for every headless reply (#771) — the same choice the live
+# harness made in #752, for the same reason, because it is the same engine
+# function. Godot's default JSON.stringify renders a float through String::num,
+# which formats FIXED-POINT with at most MAX_DECIMALS (32) decimals: it flattened
+# every value below ~1e-32.6 to 0.0 and rounded ordinary values to ~15 significant
+# digits (3.141592653589793 came back as 3.14159265358979, and an @export of
+# 1e-300 read back as 0.0). The full_precision argument switches it to
+# String::num_scientific (grisu2, shortest round-tripping form), which loses none
+# of those and still spells every float with a "." or an "e", so a JSON number
+# that was a float stays one. The measured corpus and its counts belong to the one
+# authority that owns them, `gda.live_numbers` (Python side) — not restated here.
+# The other three arguments keep their defaults ("" indent, sort_keys true), so
+# ONLY the number spelling changes. One residual, disclosed in the CLI contract:
+# the engine emits "0.0" for a NEGATIVE ZERO before this argument is consulted.
+#
+# This is the REPORTING half. What a value the caller sends becomes on the way IN
+# — the --value string the ops coerce with String.to_float(), which is the
+# engine's own parser — is a separate question, owned by #772.
+func _json(value: Variant) -> String:
+	return JSON.stringify(value, "", true, true)
+
+
 # Record a successful result: emit it through the sentinel contract and mark
 # the process to exit 0. The single quit() lives in _process.
 func _succeed(payload: Dictionary) -> void:
-	print(RESULT_BEGIN + JSON.stringify(payload) + RESULT_END)
+	print(RESULT_BEGIN + _json(payload) + RESULT_END)
 	_exit_code = 0
 
 
@@ -6617,7 +6709,7 @@ func _diag(message: String) -> void:
 # Record a structured failure through the ADR-0002 sentinel contract. The
 # process is left to exit non-zero via _process.
 func _fail(code: String, message: String) -> void:
-	print(RESULT_BEGIN + JSON.stringify({
+	print(RESULT_BEGIN + _json({
 		"error": {
 			"code": code,
 			"message": message,

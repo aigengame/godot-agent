@@ -93,10 +93,11 @@ class SubprocessExportRunner:
         if project is not None:
             args += ["--path", str(project)]
         args += [flag, preset, output_path]
-        # Pass the export-specific timeout label: on a timeout the primitive's
-        # stderr is carried into GdaError.diagnostics and serialized in
-        # `export run --json`, so it is part of the public error envelope and must
-        # stay byte-compatible with the pre-#185 "Godot export timed out" wording.
+        # Pass the export-specific timeout label: it rides a timed-out result as
+        # part of its `TimeoutBound` and names this channel in the public
+        # `launch_timeout` message that `export run --json` serializes (#714, which
+        # replaced the synthesized "Godot export timed out" stderr this label used
+        # to compose with the export's own captured output).
         return launch(
             self.binary,
             args,
