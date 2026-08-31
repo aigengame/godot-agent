@@ -33,7 +33,10 @@ from gda_balancing.domain.model import (
     check_model_source,
 )
 from gda_balancing.domain.model._compilation import lower_checked_model
-from schema2_authority_support import mutable_authorities
+from schema2_authority_support import (
+    definition_matches_package_coordinate,
+    mutable_authorities,
+)
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -288,6 +291,12 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                     for definition in definitions
                     if (definition if key_member is None else definition[key_member])
                     in owned
+                    and definition_matches_package_coordinate(
+                        definition,
+                        authority_path=entry["authority_path"],
+                        package_id=package["id"],
+                        package_version=package["version"],
+                    )
                 ]
             )
         runtime_paths = set(package["runtime_semantic_paths"])
@@ -1346,13 +1355,37 @@ def _reference_formula_contract_matches_operation(
 ) -> bool:
     formula_type = formula_contract["type_identity"]
     operation_type = operation_contract["type"]
-    return formula_type == {
-        "package": operation_type["package"],
-        "version": operation_type["version"],
-        "symbol": operation_type["id"],
-    } and all(
-        formula_contract[member] == operation_contract[member]
-        for member in ("representation", "kind", "unit", "numeric_policy")
+    actual_domain = formula_contract.get("domain")
+    formal_domain = operation_contract.get("domain")
+    domain_matches = formal_domain == {"kind": "actual"} or (
+        actual_domain == formal_domain
+        or (
+            formula_contract.get("domain_kind") == "closed-interval"
+            and isinstance(actual_domain, dict)
+            and isinstance(formal_domain, dict)
+            and formal_domain.get("kind") == "closed-interval"
+            and all(
+                isinstance(domain.get(member), int)
+                and not isinstance(domain[member], bool)
+                for domain in (actual_domain, formal_domain)
+                for member in ("minimum", "maximum")
+            )
+            and formal_domain["minimum"] <= actual_domain["minimum"]
+            and actual_domain["maximum"] <= formal_domain["maximum"]
+        )
+    )
+    return (
+        formula_type
+        == {
+            "package": operation_type["package"],
+            "version": operation_type["version"],
+            "symbol": operation_type["id"],
+        }
+        and domain_matches
+        and all(
+            formula_contract[member] == operation_contract[member]
+            for member in ("representation", "kind", "unit", "numeric_policy")
+        )
     )
 
 

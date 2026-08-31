@@ -899,6 +899,22 @@ class _FormulaParser:
                     "model.reason.formula-type-mismatch",
                     "Formula operand is incompatible with its Operation port",
                 )
+            literal_domain = literal_contract.get("domain")
+            value = operand.get("value")
+            if (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and isinstance(literal_domain, dict)
+                and literal_domain.get("kind") == "closed-interval"
+            ):
+                return cast(
+                    dict[str, Any],
+                    formula_contract_from_operation(literal_contract)
+                    | {
+                        "domain_kind": "closed-interval",
+                        "domain": {"minimum": value, "maximum": value},
+                    },
+                )
             return None
         if contract is None or not formula_contract_matches_operation(
             self.resolve_contract(contract), expected
@@ -1206,6 +1222,11 @@ class _FormulaParser:
             for port, (operand, contract) in zip(ports, operands, strict=True)
         ]
         result = self.infer_operation_result(operation, ports, typed_operands)
+        arguments = [
+            {"port": port, "operand": operand}
+            for port, (operand, _contract) in zip(ports, operands, strict=True)
+        ]
+        arguments.sort(key=lambda argument: cast(str, argument["port"]))
         node = {
             "id": local,
             "node": "operation-call",
@@ -1214,10 +1235,7 @@ class _FormulaParser:
                 "version": operation.coordinate[1],
                 "id": operation.coordinate[2],
             },
-            "arguments": [
-                {"port": port, "operand": operand}
-                for port, (operand, _contract) in zip(ports, operands, strict=True)
-            ],
+            "arguments": arguments,
             "result": result,
         }
         return node, result

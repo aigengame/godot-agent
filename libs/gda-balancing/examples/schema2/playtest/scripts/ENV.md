@@ -36,6 +36,10 @@ examples/schema2/playtest/scripts/run_combat_cast.sh
 GDA_GODOT=/absolute/path/to/Godot \
 GDA_BALANCING_EXECUTABLE="$PWD/.venv/bin/gda-balancing" \
 examples/schema2/playtest/scripts/run_periodic_effect.sh
+
+GDA_GODOT=/absolute/path/to/Godot \
+GDA_BALANCING_EXECUTABLE="$PWD/.venv/bin/gda-balancing" \
+examples/schema2/playtest/scripts/run_stat_composition.sh
 ```
 
 On macOS, a typical Godot application path has this form:
@@ -60,6 +64,7 @@ export GDA_BALANCING_EXECUTABLE="$PWD/.venv/bin/gda-balancing"
 examples/schema2/playtest/scripts/run_reward_run.sh
 examples/schema2/playtest/scripts/run_combat_cast.sh
 examples/schema2/playtest/scripts/run_periodic_effect.sh
+examples/schema2/playtest/scripts/run_stat_composition.sh
 ```
 
 The applications normally run one at a time. If you launch more than one, each application starts

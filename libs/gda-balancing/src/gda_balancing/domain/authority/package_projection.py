@@ -657,7 +657,13 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                                 "outcome": {"const": "refused"},
                                 "result": {"type": "null"},
                                 "result_artifact": {"const": False},
-                                "signal": {"enum": ["numeric-overflow", "step-limit"]},
+                                "signal": {
+                                    "enum": [
+                                        "invalid-domain",
+                                        "numeric-overflow",
+                                        "step-limit",
+                                    ]
+                                },
                             },
                             "required": expect_members,
                             "unevaluatedProperties": False,

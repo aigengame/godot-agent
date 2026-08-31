@@ -1,6 +1,9 @@
 class_name RewardTrial
 extends RefCounted
 
+const GdaExecutionClient = preload(
+	"res://addons/gda_balancing_client/gda_execution_client.gd"
+)
 const REWARD_OPERATION := "game.generation.select-reward-v1"
 const BUILD_OPERATION := "game.build.replace-reward-v1"
 const REWARD_SELECTION_TYPE := {
@@ -39,6 +42,9 @@ func admit_run_result(
 	var trace: Dictionary = artifacts.get("event-trace", {})
 	if trace.get("artifact_kind") != "event-trace":
 		return _failure("missing_event_trace")
+	var provenance := GdaExecutionClient.project_run_provenance(run_result)
+	if provenance.is_empty():
+		return _failure("incomplete_artifact_provenance")
 
 	var reward_event := _operation_event(trace, REWARD_OPERATION)
 	var build_event := _operation_event(trace, BUILD_OPERATION)
@@ -93,7 +99,7 @@ func admit_run_result(
 		"power_before": int(build["power_before"]),
 		"power_after": int(build["power_after"]),
 	}
-	_provenance = _artifact_provenance(artifacts, trace)
+	_provenance = provenance
 	return {"ok": true}
 
 
@@ -157,22 +163,6 @@ static func _integer_fact(event: Dictionary, name: String):
 	if found.size() != 1 or found[0].get("kind") != "integer":
 		return null
 	return found[0].get("integer")
-
-
-static func _artifact_provenance(
-	artifacts: Dictionary,
-	trace: Dictionary,
-) -> Dictionary:
-	return {
-		"experiment_identity": str(trace.get("experiment_identity", "")),
-		"event_trace_identity": str(trace.get("content_identity", "")),
-		"evaluation_run_identity": str(
-			artifacts.get("evaluation-run", {}).get("content_identity", "")
-		),
-		"reproduction_receipt_identity": str(
-			artifacts.get("reproduction-receipt", {}).get("content_identity", "")
-		),
-	}
 
 
 static func _failure(detail: String) -> Dictionary:

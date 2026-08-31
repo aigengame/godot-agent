@@ -377,7 +377,7 @@
               "domain_kind": "closed-interval",
               "domain": {
                 "minimum": 0,
-                "maximum": 1000
+                "maximum": 2000
               },
               "numeric_policy": "exact-int64"
             },
@@ -403,7 +403,7 @@
             "domain_kind": "closed-interval",
             "domain": {
               "minimum": 0,
-              "maximum": 1000
+              "maximum": 2000
             },
             "numeric_policy": "exact-int64"
           },
@@ -441,7 +441,7 @@
                   "domain_kind": "closed-interval",
                   "domain": {
                     "minimum": -1000,
-                    "maximum": 1000
+                    "maximum": 2000
                   },
                   "numeric_policy": "exact-int64"
                 }
@@ -471,7 +471,7 @@
                   "domain_kind": "closed-interval",
                   "domain": {
                     "minimum": 0,
-                    "maximum": 1000
+                    "maximum": 2000
                   },
                   "numeric_policy": "exact-int64"
                 }

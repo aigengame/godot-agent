@@ -10,12 +10,13 @@ from functools import cache
 from typing import Any, cast
 
 from gda_balancing.domain.artifacts import identified_artifact, wire_schema_identity
-from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.canonical import JsonValue, content_identity
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
     _ordered_root_events_under,
     _scenario_root_events,
+    reachable_formula_programs,
 )
 from gda_balancing.domain.operation_program import (
     operation_coordinate,
@@ -47,6 +48,7 @@ SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "guarded-outcome-block",
         "integer-add",
         "integer-compare",
+        "integer-floor-divide",
         "typed-literal",
         "integer-maximum",
         "integer-multiply",
@@ -603,38 +605,11 @@ def formula_programs_reachable_from_entrypoints(
     phase: str,
 ) -> list[dict[str, Any]]:
     """Project one lifecycle phase to the sites selected by a Scenario."""
-    programs = [
-        program
-        for program in cast(
-            list[dict[str, Any]], checked.rir["initialization_programs"]
-        )
-        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
-    ]
-    reachable_targets = {
-        canonical_bytes(cast(JsonValue, operand["symbol"]))
-        for entrypoint in selected_entrypoints
-        for binding in cast(list[dict[str, Any]], entrypoint["arguments"])
-        if (operand := cast(dict[str, Any], binding["operand"]))["kind"] == "symbol"
-    }
-    while True:
-        previous_targets = len(reachable_targets)
-        for program in programs:
-            target = canonical_bytes(cast(JsonValue, program["target"]))
-            if target not in reachable_targets:
-                continue
-            reachable_targets.update(
-                canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
-                for row in cast(list[dict[str, Any]], program["inputs"])
-                if (operand := cast(dict[str, Any], row["operand"]))["kind"]
-                != "literal"
-            )
-        if len(reachable_targets) == previous_targets:
-            break
-    return [
-        program
-        for program in programs
-        if canonical_bytes(cast(JsonValue, program["target"])) in reachable_targets
-    ]
+    return reachable_formula_programs(
+        checked.rir,
+        selected_entrypoints,
+        phase=phase,
+    )
 
 
 @cache
@@ -690,6 +665,20 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             for scenario in checked.value["scenarios"]
             for event in scenario_transition_events(scenario)
         )
+    )
+    reachable_nodes.update(
+        row["instruction"]["node"]
+        for scenario in checked.value["scenarios"]
+        for phase in ("initialization", "event", "observation")
+        for program in formula_programs_reachable_from_entrypoints(
+            checked,
+            [
+                entrypoints[event["entrypoint"]]
+                for event in scenario_transition_events(scenario)
+            ],
+            phase=phase,
+        )
+        for row in cast(list[dict[str, Any]], program["body"])
     )
     nodes = sorted(
         row["id"]

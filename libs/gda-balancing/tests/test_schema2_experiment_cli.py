@@ -216,6 +216,49 @@ def test_runtime_canonical_equality_compares_kernel_booleans():
     assert variables["result"] is True
 
 
+def test_runtime_and_replay_floor_divide_round_toward_negative_infinity():
+    instruction = {
+        "left": "dividend",
+        "node": "floor-divide",
+        "right": "divisor",
+        "target": "result",
+    }
+    node_contract = {"semantics": {"operator": "integer-floor-divide"}}
+    numeric = {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)}
+
+    for execute in (
+        experiment_runtime_module._execute_value_instruction,
+        experiment_artifact_replay_module.execute_value_instruction,
+    ):
+        variables = {"dividend": -5, "divisor": 2}
+        execute(instruction, variables, numeric, node_contract)
+        assert variables["result"] == -3
+
+
+@pytest.mark.parametrize("divisor", [0, -2], ids=["zero", "negative"])
+def test_runtime_and_replay_refuse_a_non_positive_floor_divisor(divisor):
+    instruction = {
+        "left": "dividend",
+        "node": "floor-divide",
+        "right": "divisor",
+        "target": "result",
+    }
+    node_contract = {"semantics": {"operator": "integer-floor-divide"}}
+    numeric = {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)}
+
+    for execute in (
+        experiment_runtime_module._execute_value_instruction,
+        experiment_artifact_replay_module.execute_value_instruction,
+    ):
+        with pytest.raises(ValueError, match="floor-divide divisor must be positive"):
+            execute(
+                instruction,
+                {"dividend": 5, "divisor": divisor},
+                numeric,
+                node_contract,
+            )
+
+
 def test_runtime_integer_projection_without_an_envelope_profile_is_not_applicable():
     authority_context = authority_module.packaged_authority_context()
     structured_authority = replace(
@@ -466,6 +509,31 @@ def _rpg_model_source() -> dict[str, Any]:
     return source
 
 
+def _widen_mitigated_damage_formula(
+    source: dict[str, Any],
+    *,
+    damage_before_defense_maximum: int | None = None,
+    mitigation_minimum: int | None = None,
+) -> None:
+    formula = next(
+        row
+        for row in source["modules"][0]["formulas"]
+        if row["id"] == "mitigated-damage"
+    )
+    parameters = {row["id"]: row for row in formula["parameters"]}
+    if damage_before_defense_maximum is not None:
+        parameters["damage_before_defense"]["domain"]["maximum"] = (
+            damage_before_defense_maximum
+        )
+    if mitigation_minimum is not None:
+        parameters["mitigation"]["domain"]["minimum"] = mitigation_minimum
+
+    result_maximum = (1 << 63) - 1
+    formula["result"]["domain"]["maximum"] = result_maximum
+    for node in formula["body"]["nodes"]:
+        node["result"]["domain"]["maximum"] = result_maximum
+
+
 def _metric_contract(metric: dict[str, Any]) -> dict[str, Any]:
     return {
         **metric,
@@ -566,6 +634,14 @@ def _reference_evaluate_value_program_vector(
                 value = values[instruction["left"]] - values[instruction["right"]]
             elif node == "multiply":
                 value = values[instruction["left"]] * values[instruction["right"]]
+            elif node == "floor-divide":
+                divisor = values[instruction["right"]]
+                if divisor <= 0:
+                    signal = "invalid-domain"
+                    site = row["evaluation_site_identity"]
+                    result = None
+                    break
+                value = values[instruction["left"]] // divisor
             elif node == "maximum":
                 value = max(
                     values[instruction["left"]],
@@ -4954,6 +5030,8 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
         for row in source_value["modules"][0]["formulas"]
         if row["id"] == "mitigated-damage"
     )
+    mitigation = next(row for row in formula["parameters"] if row["id"] == "mitigation")
+    mitigation["domain"]["maximum"] = 2000
     boolean_contract = {
         "type": "Boolean",
         "representation": "Bool",
@@ -5041,19 +5119,13 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
         build_receipt=build_receipt,
         base_damage=24,
     )
-    specification["runtime"]["required_evaluator"]["instruction_nodes"] = [
-        "add",
-        "constant",
-        "copy",
-        "draw",
-        "if",
-        "invoke",
-        "less-than",
-        "less-than-or-equal",
-        "multiply",
-        "precondition-greater-than-or-equal",
-        "subtract-state",
-    ]
+    requirements, _ = experiment_admission_module.derive_scenario_program_requirements(
+        rir,
+        entrypoint_id="combat.cast",
+        runtime_profile=specification["runtime"]["profile"],
+        rng_algorithm=specification["seed"]["algorithm"],
+    )
+    specification["runtime"]["required_evaluator"] = requirements
     specification_path = tmp_path / "conditional-formula-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
@@ -5465,7 +5537,9 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
     tmp_path, run_cli
 ):
     source_value = _rpg_model_source()
-    source_value["modules"][0]["symbols"].append(_rpg_value("formula_bonus", "input"))
+    formula_bonus = _rpg_value("formula_bonus", "input")
+    formula_bonus["domain"]["maximum"] = 2000
+    source_value["modules"][0]["symbols"].append(formula_bonus)
     formula = next(
         row
         for row in source_value["modules"][0]["formulas"]
@@ -6679,11 +6753,7 @@ def test_operation_conformance_indexes_same_named_package_definitions_exactly():
 def test_generation_operation_vectors_cover_success_fallback_and_refusals():
     _kernel, ldb = mutable_authorities()
 
-    assert {
-        vector["id"]: vector["category"]
-        for package_id, _package_version, vector in operation_execution_vectors(ldb)
-        if package_id == "game.generation"
-    } == {
+    expected = {
         "generation.select.success": "deterministic-rng",
         "generation.select.no-reward-outcome": "outcome",
         "generation.select.empty-refusal": "boundary",
@@ -6692,15 +6762,26 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
         "generation.select.invalid-fallback-policy-after-refusal": "rollback-replay",
         "generation.select.invalid-option-refusal": "semantic-mutation",
     }
+    vectors_by_version = {
+        version: {
+            vector["id"]: vector["category"]
+            for package_id, package_version, vector in operation_execution_vectors(ldb)
+            if package_id == "game.generation" and package_version == version
+        }
+        for version in ("1.0.0", "1.1.0")
+    }
+    assert vectors_by_version["1.0.0"] == expected
+    assert vectors_by_version["1.1.0"] == {
+        f"game.generation.v1-1.{vector_id}": category
+        for vector_id, category in expected.items()
+    }
 
 
 def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
     kernel, ldb = mutable_authorities()
     context = authority_module.admit_authority_context(kernel, ldb)
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
-    operations = {
-        operation["id"]: operation for operation in ldb["language"]["operations"]
-    }
+    operations = conformance_operation_index(ldb)
     vectors = [
         (package_id, package_version, vector)
         for package_id, package_version, vector in operation_execution_vectors(ldb)
@@ -6710,13 +6791,15 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
     assert {vector["id"] for _package, _version, vector in vectors} == {
         "generation.select.invalid-fallback-policy-before-refusal",
         "generation.select.invalid-fallback-policy-after-refusal",
+        "game.generation.v1-1.generation.select.invalid-fallback-policy-before-refusal",
+        "game.generation.v1-1.generation.select.invalid-fallback-policy-after-refusal",
         "build.replace.invalid-plan-refusal",
     }
 
     harnesses = {}
     for package_id, package_version, vector in vectors:
-        operation = operations[vector["operation"]]
         coordinate = (package_id, package_version, vector["operation"])
+        operation = operations[coordinate]
         harness = harnesses.get(coordinate)
         if harness is None:
             harness = operation_conformance_module.compile_operation_execution_harness(
@@ -7372,6 +7455,10 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         "formula.runtime.observation.positive.post-transition-snapshot",
         "formula.runtime.observation.boundary.snapshot-cache-key",
         "formula.runtime.observation.refusal.atomic-prefix",
+        "formula.runtime.floor-divide.exact",
+        "formula.runtime.floor-divide.negative-non-exact",
+        "formula.runtime.floor-divide.refuse.zero-divisor",
+        "formula.runtime.floor-divide.refuse.negative-divisor",
     }
     for vector in vectors:
         production = experiment_runtime_module._evaluate_value_program_vector(vector)
@@ -7744,7 +7831,22 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         checked.rir["selected_semantics"]
     )
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
-    assert set(first.value["instruction_nodes"]) == {
+    selected_entrypoints = [
+        entrypoints[event["entrypoint"]]
+        for scenario in checked.value["scenarios"]
+        for event in runtime_projection_module.scenario_transition_events(scenario)
+    ]
+    formula_nodes = {
+        row["instruction"]["node"]
+        for phase in ("initialization", "event", "observation")
+        for program in runtime_projection_module.formula_programs_reachable_from_entrypoints(
+            checked,
+            selected_entrypoints,
+            phase=phase,
+        )
+        for row in program["body"]
+    }
+    operation_nodes = {
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for event in scenario["event_plan"]
@@ -7755,6 +7857,7 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
             operations,
         )
     }
+    assert set(first.value["instruction_nodes"]) == formula_nodes | operation_nodes
     assert first.value["evaluator_build_identity"] == (
         runtime_projection_module.evaluator_build_identity()
     )
@@ -8173,6 +8276,10 @@ def _assert_high_damage_event_behavior(
     )
     if extend_base_damage_domain:
         base_damage["domain"]["maximum"] = (1 << 63) - 1
+        _widen_mitigated_damage_formula(
+            source_value,
+            damage_before_defense_maximum=(1 << 63) - 1,
+        )
     source = tmp_path / "rpg-overflow-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -8312,6 +8419,10 @@ def test_formula_overflow_terminal_audit_names_the_exact_evaluation_site(
         if row["symbol"] == "target_defense"
     )
     target_defense["domain"]["minimum"] = -(1 << 63)
+    _widen_mitigated_damage_formula(
+        source_value,
+        mitigation_minimum=-(1 << 63),
+    )
     source = tmp_path / "formula-overflow-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -8907,6 +9018,10 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
         if symbol["symbol"] == "base_damage"
     )
     base_damage["domain"]["maximum"] = (1 << 63) - 1
+    _widen_mitigated_damage_formula(
+        source_value,
+        damage_before_defense_maximum=(1 << 63) - 1,
+    )
     source = tmp_path / "rpg-overflow-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(

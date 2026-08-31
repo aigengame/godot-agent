@@ -1,0 +1,175 @@
+extends "res://tests/playtest_test_case.gd"
+
+const StatCompositionController = preload(
+	"res://content/stat_composition/stat_composition_controller.gd"
+)
+const StatCompositionView = preload(
+	"res://ui/stat_composition/stat_composition_view.gd"
+)
+
+class RecordingController extends StatCompositionController:
+	var feedback_actions := 0
+	var primary_actions := 0
+	var selected_options: Dictionary = {}
+
+	func primary_action() -> void:
+		primary_actions += 1
+
+	func open_feedback() -> void:
+		feedback_actions += 1
+
+	func set_playtest_options(
+		level: int, weapon_damage_bonus: int, buff_enabled: bool
+	) -> Dictionary:
+		selected_options = {
+			"buff_enabled": 1 if buff_enabled else 0,
+			"level": level,
+			"weapon_damage_bonus": weapon_damage_bonus,
+		}
+		return {"ok": true}
+
+
+func _init() -> void:
+	super()
+	call_deferred("_run")
+
+
+func _run() -> void:
+	var controller := RecordingController.new()
+	get_root().add_child(controller)
+	var view := StatCompositionView.new()
+	get_root().add_child(view)
+	await process_frame
+	view.bind(controller)
+	controller.view_state_changed.emit(_state("ready"))
+	await process_frame
+	var floating_damage := view.find_child("FloatingDamage", true, false) as Label
+	var floating_damage_origin_y := floating_damage.position.y
+	var level := view.find_child("StatLevel", true, false) as HSlider
+	var weapon := view.find_child("WeaponDamageBonus", true, false) as HSlider
+	var buff := view.find_child("DamageBuff", true, false) as CheckButton
+	_expect(level != null and weapon != null and buff != null, "player settings are visible")
+	if weapon != null:
+		weapon.value = 18
+	await process_frame
+	_expect(
+		controller.selected_options
+		== {"buff_enabled": 1, "level": 3, "weapon_damage_bonus": 18},
+		"setting edits reach Content",
+	)
+	var action := view.find_child("PrimaryAction", true, false) as Button
+	_expect(action != null and not action.disabled, "Attack is available")
+	if action != null:
+		action.pressed.emit()
+	_expect(controller.primary_actions == 1, "the UI submits Attack")
+	var resolved := _state("ready")
+	resolved["attack_count"] = 1
+	resolved["target_health"] = 60
+	resolved["last_attack"] = {
+		"capped": true,
+		"metrics": {
+			"attack_damage": 60,
+			"base_damage": 20,
+			"build_damage": 18,
+			"damage_dealt": 60,
+			"effect_damage": 12,
+			"pre_buff_damage": 50,
+			"progression_damage": 12,
+			"target_health": 60,
+		},
+	}
+	controller.view_state_changed.emit(resolved)
+	await create_timer(0.35).timeout
+	var first_float_end_y := floating_damage.position.y
+	var result := view.find_child("AttackResult", true, false) as Label
+	var badge := view.find_child("MaximumBadge", true, false) as Label
+	_expect(
+		result != null and result.text == "Attack Damage 60. Dealt 60 damage. Dummy HP: 60.",
+		"the result uses direct player wording",
+	)
+	_expect(badge != null and badge.text == "MAX 60 REACHED", "the cap is explicit")
+	var alternate_maximum := resolved.duplicate(true)
+	alternate_maximum["rules"]["maximum_damage"] = 75
+	alternate_maximum["last_attack"]["capped"] = false
+	controller.view_state_changed.emit(alternate_maximum)
+	await process_frame
+	var maximum_question := view.find_child(
+		"MaximumFeedbackQuestion", true, false
+	) as Label
+	_expect(
+		maximum_question != null
+		and maximum_question.text == "Was the 75 damage maximum clear?",
+		"the feedback question follows the maintained maximum",
+	)
+	var repeated_attack := resolved.duplicate(true)
+	repeated_attack["attack_count"] = 2
+	controller.view_state_changed.emit(repeated_attack)
+	await create_timer(0.35).timeout
+	_expect(
+		is_equal_approx(floating_damage.position.y, first_float_end_y),
+		"repeated attacks animate from the same floating-damage origin",
+	)
+	var health := view.find_child("DummyHealth", true, false) as ProgressBar
+	_expect(_bar_color(health) == Color("d64545"), "the HP bar uses the red gameplay color")
+	var defeated := resolved.duplicate(true)
+	defeated["phase"] = "defeated"
+	defeated["target_health"] = 0
+	controller.view_state_changed.emit(defeated)
+	await process_frame
+	var feedback := view.find_child("OpenStatFeedback", true, false) as Button
+	_expect(feedback != null and feedback.visible, "defeat offers a separate feedback action")
+	if feedback != null:
+		feedback.pressed.emit()
+	_expect(controller.feedback_actions == 1, "the UI opens feedback separately")
+	if action != null:
+		action.pressed.emit()
+	_expect(controller.primary_actions == 2, "the terminal primary action offers Restart")
+	controller.view_state_changed.emit(_state("ready"))
+	await process_frame
+	var base_value := view.find_child("BaseValue", true, false) as Label
+	_expect(health != null and health.value == 120, "Restart restores visible HP")
+	_expect(result != null and result.text.is_empty(), "Restart clears the previous result")
+	_expect(base_value != null and base_value.text == "—", "Restart clears the breakdown")
+	_expect(
+		is_equal_approx(floating_damage.position.y, floating_damage_origin_y),
+		"Restart restores the floating-damage origin",
+	)
+	var restarted_attack := resolved.duplicate(true)
+	restarted_attack["last_attack"]["metrics"]["damage_dealt"] = 30
+	controller.view_state_changed.emit(restarted_attack)
+	await process_frame
+	_expect(
+		floating_damage != null and floating_damage.text == "-30",
+		"the first attack after Restart animates again",
+	)
+	view.queue_free()
+	controller.queue_free()
+	_finish()
+
+
+func _state(phase_name: String) -> Dictionary:
+	return {
+		"attack_count": 0,
+		"phase": phase_name,
+		"rules": {
+			"base_damage": 20,
+			"buff_percent": 25,
+			"damage_per_level": 4,
+			"maximum_damage": 60,
+		},
+		"setting_contracts": {
+			"buff_enabled": {"minimum": 0, "maximum": 1, "value": 1},
+			"level": {"minimum": 1, "maximum": 10, "value": 3},
+			"weapon_damage_bonus": {"minimum": 0, "maximum": 20, "value": 8},
+		},
+		"settings": {"buff_enabled": 1, "level": 3, "weapon_damage_bonus": 8},
+		"target_health": 120,
+		"target_max_health": 120,
+	}
+
+
+func _bar_color(bar: ProgressBar) -> Color:
+	if bar == null:
+		return Color.TRANSPARENT
+	var fill := bar.get_theme_stylebox("fill") as StyleBoxFlat
+	return fill.bg_color if fill != null else Color.TRANSPARENT

@@ -270,6 +270,7 @@ def execute_value_instruction(
         value = variables[cast(str, instruction["value"])]
     elif operator in {
         "integer-add",
+        "integer-floor-divide",
         "integer-subtract",
         "integer-multiply",
         "integer-maximum",
@@ -280,9 +281,13 @@ def execute_value_instruction(
         right = _require_runtime_integer(
             variables[cast(str, instruction["right"])], structured_authority
         )
+        if operator == "integer-floor-divide" and right <= 0:
+            raise ValueError("floor-divide divisor must be positive")
         value = (
             left + right
             if operator == "integer-add"
+            else left // right
+            if operator == "integer-floor-divide"
             else left - right
             if operator == "integer-subtract"
             else left * right

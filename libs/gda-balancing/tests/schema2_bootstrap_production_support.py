@@ -64,6 +64,15 @@ def _refresh_package_closure_and_reidentify(ldb: LanguageBundleIndex) -> None:
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
     ]
+    uniqueness_law = next(
+        law
+        for law in kernel["admission"]["laws"]
+        if law["id"] == "kernel.identifiers.unique"
+    )
+    identity_keys = {
+        collection["path"].removeprefix("language_bundle."): collection["keys"]
+        for collection in uniqueness_law["arguments"]["collections"]
+    }
 
     def path_values(root: Any, dotted: str) -> list[Any]:
         values = [root]
@@ -84,6 +93,7 @@ def _refresh_package_closure_and_reidentify(ldb: LanguageBundleIndex) -> None:
             definitions = path_values(ldb, entry["authority_path"])
             owners = path_values(package, projection["owners_path"])
             key_member = projection["key_member"]
+            coordinate_members = identity_keys.get(entry["authority_path"], [])
             entry["definitions"] = deepcopy(
                 [
                     definition
@@ -94,6 +104,16 @@ def _refresh_package_closure_and_reidentify(ldb: LanguageBundleIndex) -> None:
                         else definition
                     )
                     in owners
+                    and (
+                        not isinstance(definition, dict)
+                        or "package" not in coordinate_members
+                        or definition.get("package") == package["id"]
+                    )
+                    and (
+                        not isinstance(definition, dict)
+                        or "version" not in coordinate_members
+                        or definition.get("version") == package["version"]
+                    )
                 ]
             )
         _bind_package_vector_set(package, _package_vector_set(ldb, package))

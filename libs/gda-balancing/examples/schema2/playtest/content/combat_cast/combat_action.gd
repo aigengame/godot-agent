@@ -1,6 +1,9 @@
 class_name CombatAction
 extends RefCounted
 
+const GdaExecutionClient = preload(
+	"res://addons/gda_balancing_client/gda_execution_client.gd"
+)
 const ACTOR_CONTRACTS := {
 	"player": {
 		"cost_fact": "player_action_cost",
@@ -62,6 +65,9 @@ func admit_run_result(
 		return _failure("missing_snapshot_series")
 	if metrics.get("artifact_kind") != "metric-dataset":
 		return _failure("missing_metric_dataset")
+	var provenance := GdaExecutionClient.project_run_provenance(run_result)
+	if provenance.is_empty():
+		return _failure("incomplete_artifact_provenance")
 
 	var transitions: Array[Dictionary] = []
 	for event in trace.get("events", []):
@@ -120,7 +126,7 @@ func admit_run_result(
 	_initial = expected_initial.duplicate(true)
 	_mana_cost = int(cost)
 	_outcome = outcome_id
-	_provenance = _artifact_provenance(artifacts, trace, snapshots)
+	_provenance = provenance
 	_revision = revision
 	_terminal = terminal
 	return {"ok": true}
@@ -213,24 +219,6 @@ func _integer_fact(event: Dictionary, name: String):
 
 func _is_integer_number(value) -> bool:
 	return value is int or (value is float and is_finite(value) and float(int(value)) == value)
-
-
-func _artifact_provenance(
-	artifacts: Dictionary,
-	trace: Dictionary,
-	snapshots: Dictionary,
-) -> Dictionary:
-	return {
-		"evaluation_run_identity": str(
-			artifacts.get("evaluation-run", {}).get("content_identity", "")
-		),
-		"event_trace_identity": str(trace.get("content_identity", "")),
-		"experiment_identity": str(trace.get("experiment_identity", "")),
-		"reproduction_receipt_identity": str(
-			artifacts.get("reproduction-receipt", {}).get("content_identity", "")
-		),
-		"snapshot_series_identity": str(snapshots.get("content_identity", "")),
-	}
 
 
 func _failure(detail: String) -> Dictionary:

@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:53ba784725ff78d51d0dd00b8e0de8b2c7c183c790358e2924fc93fcb207812c"
+    "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -700,6 +700,7 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "add",
             "constant",
             "copy",
+            "floor-divide",
             "if",
             "maximum",
             "multiply",
@@ -993,6 +994,7 @@ def _consumer_b_value_program_instruction_is_closed(
     operand_fields = {
         "copy": ("value",),
         "add": ("left", "right"),
+        "floor-divide": ("left", "right"),
         "maximum": ("left", "right"),
         "multiply": ("left", "right"),
         "subtract": ("left", "right"),
@@ -1532,7 +1534,8 @@ def _consumer_b_package_evidence_vectors_are_closed(
                     or (
                         expect["outcome"] == "refused"
                         and expect.get("result") is None
-                        and expect.get("signal") in {"numeric-overflow", "step-limit"}
+                        and expect.get("signal")
+                        in {"invalid-domain", "numeric-overflow", "step-limit"}
                         and expect["result_artifact"] is False
                     )
                 )
@@ -2107,35 +2110,25 @@ def _consumer_b_package_semantic_projections_are_exact(
                 return False
             embedded.extend(entry["definitions"])
 
-        def definition_key(value: Any) -> tuple[str, bytes] | None:
-            if key_member is None:
-                try:
-                    return ("value", _encoded(value))
-                except (TypeError, ValueError, UnicodeEncodeError):
-                    return None
-            if (
+        def definition_value(value: Any) -> bytes | None:
+            if key_member is not None and (
                 not isinstance(key_member, str)
                 or not isinstance(value, dict)
                 or key_member not in value
             ):
                 return None
             try:
-                return ("member", _encoded(value[key_member]))
+                return _encoded(value)
             except (TypeError, ValueError, UnicodeEncodeError):
                 return None
 
-        embedded_keys = [definition_key(value) for value in embedded]
-        authority_keys = [definition_key(value) for value in authority_definitions]
-        if (
-            any(key is None for key in embedded_keys)
-            or any(key is None for key in authority_keys)
-            or len(set(embedded_keys)) != len(embedded_keys)
-            or len(set(authority_keys)) != len(authority_keys)
+        embedded_values = [definition_value(value) for value in embedded]
+        authority_values = [definition_value(value) for value in authority_definitions]
+        if any(value is None for value in embedded_values) or any(
+            value is None for value in authority_values
         ):
             return False
-        if dict(zip(embedded_keys, embedded, strict=True)) != dict(
-            zip(authority_keys, authority_definitions, strict=True)
-        ):
+        if set(embedded_values) != set(authority_values):
             return False
     return True
 
@@ -6816,6 +6809,7 @@ def _consumer_b_runtime_authority_is_closed(
                 kind
                 not in {
                     "fixed-value-contract",
+                    "positive-runtime-numeric-domain",
                     "runtime-numeric",
                     "same-value-contract",
                     "writable-port",
@@ -7332,28 +7326,43 @@ def _consumer_b_operation_composition_subjects(
             for member in ("package", "version", "id")
         )
     }
-    owners: dict[str, tuple[str, str]] = {}
+    by_coordinate: dict[tuple[str, str, str], dict[str, Any]] = {}
     for package in packages:
         if not isinstance(package, dict):
             continue
         package_id = package.get("id")
         package_version = package.get("version")
-        if not isinstance(package_id, str) or not isinstance(package_version, str):
+        semantic_closure = package.get("semantic_closure")
+        if (
+            not isinstance(package_id, str)
+            or not isinstance(package_version, str)
+            or not isinstance(semantic_closure, list)
+        ):
             continue
-        exports = package.get("exports")
-        exported = exports.get("operations") if isinstance(exports, dict) else None
-        if not isinstance(exported, list):
+        operations_entry = next(
+            (
+                entry
+                for entry in semantic_closure
+                if isinstance(entry, dict)
+                and entry.get("authority_path") == "language.operations"
+            ),
+            None,
+        )
+        definitions = (
+            operations_entry.get("definitions")
+            if isinstance(operations_entry, dict)
+            else None
+        )
+        if not isinstance(definitions, list):
             continue
-        for operation_id in exported:
-            if isinstance(operation_id, str):
-                owners[operation_id] = (package_id, package_version)
-    by_coordinate = {
-        (*owners[operation["id"]], operation["id"]): operation
-        for operation in operations
-        if isinstance(operation, dict)
-        and isinstance(operation.get("id"), str)
-        and operation["id"] in owners
-    }
+        for operation in definitions:
+            operation_id = operation.get("id") if isinstance(operation, dict) else None
+            if not isinstance(operation_id, str):
+                continue
+            coordinate = (package_id, package_version, operation_id)
+            if coordinate in by_coordinate:
+                return (f"language.operations.{package_id}@{package_version}",)
+            by_coordinate[coordinate] = operation
     found: set[str] = set()
     closed: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
     guard_body_coordinates: set[tuple[str, str, str]] = set()
@@ -7504,6 +7513,7 @@ def _consumer_b_operation_composition_subjects(
                 if isinstance(profile, dict)
                 and profile.get("source_kind") == "integer"
                 and profile.get("type") == exact_type
+                and profile.get("domain") == {"kind": "actual"}
             ]
             if len(scalar_profiles) == 1:
                 profile = scalar_profiles[0]
@@ -7903,6 +7913,35 @@ def _consumer_b_operation_composition_subjects(
                                 for candidate in candidates
                                 if candidate.get("numeric_policy")
                                 in runtime_numeric_policies
+                            )
+                            if not narrowed:
+                                found.add(
+                                    subject(
+                                        coordinate,
+                                        str(instruction_index),
+                                        "typing",
+                                    )
+                                )
+                                return None
+                            narrow_reference(
+                                instruction,
+                                member,
+                                narrowed,
+                            )
+                    if kind == "positive-runtime-numeric-domain":
+                        for member, candidates in zip(
+                            members,
+                            resolved,
+                            strict=True,
+                        ):
+                            narrowed = tuple(
+                                candidate
+                                for candidate in candidates
+                                if isinstance(candidate.get("domain"), dict)
+                                and candidate["domain"].get("kind") == "closed-interval"
+                                and isinstance(candidate["domain"].get("minimum"), int)
+                                and not isinstance(candidate["domain"]["minimum"], bool)
+                                and candidate["domain"]["minimum"] > 0
                             )
                             if not narrowed:
                                 found.add(
@@ -8807,6 +8846,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             }
             derived_diagnostics: list[Any] = []
             derived_vectors: list[Any] = []
+
+            def extend_unique(target: list[Any], definitions: list[Any]) -> None:
+                for definition in definitions:
+                    if definition not in target:
+                        target.append(deepcopy(definition))
+
             for release, vector_set in zip(
                 graph_releases, graph_vector_sets, strict=True
             ):
@@ -8818,7 +8863,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     ):
                         continue
                     if authority_path == "diagnostics":
-                        derived_diagnostics.extend(deepcopy(definitions))
+                        extend_unique(derived_diagnostics, definitions)
                         continue
                     if not authority_path.startswith("language."):
                         continue
@@ -8826,7 +8871,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     target = language
                     for segment in segments[:-1]:
                         target = target.setdefault(segment, {})
-                    target.setdefault(segments[-1], []).extend(deepcopy(definitions))
+                    extend_unique(target.setdefault(segments[-1], []), definitions)
                 derived_vectors.extend(
                     deepcopy(vector_set.get("vector_definitions", []))
                 )

@@ -2,6 +2,8 @@
 
 # ruff: noqa: F403, F405
 import schema2_bootstrap_conformance_support as bootstrap_support
+from gda_balancing.domain.formula.inference import infer_formula_operation_result
+from gda_balancing.domain.formula.types import formula_contract_matches_operation
 from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
 
@@ -204,9 +206,9 @@ def test_two_consumers_refuse_reidentified_authority_type_mismatches(mutation):
 def test_two_consumers_type_empty_semantic_collections_from_kernel_contracts():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
-    package = ldb["language"]["packages"][0]
     ldb["language"]["conversions"] = []
-    package["exports"]["conversions"] = []
+    for package in ldb["language"]["packages"]:
+        package["exports"]["conversions"] = []
     _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -291,6 +293,290 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
         if item["code"] == "language.duplicate_symbol"
     )
     assert duplicate["stage"] == "static"
+
+
+def test_quantity_2_2_adds_only_the_required_composition_operations():
+    ldb = _authority_candidate()["language_bundle"]
+    releases = {
+        (package["id"], package["version"]): package
+        for package in ldb["language"]["packages"]
+    }
+
+    quantity_2_1 = releases[("core.quantity", "2.1.0")]
+    quantity_2_2 = releases[("core.quantity", "2.2.0")]
+    assert quantity_2_1["exports"]["operations"] == [
+        "quantity.floor-zero",
+        "quantity.identity",
+        "quantity.less-than",
+        "quantity.maximum",
+        "quantity.subtract",
+    ]
+    assert quantity_2_2["exports"]["operations"] == [
+        "quantity.add",
+        "quantity.floor-divide",
+        "quantity.floor-zero",
+        "quantity.identity",
+        "quantity.less-than",
+        "quantity.maximum",
+        "quantity.minimum",
+        "quantity.multiply",
+        "quantity.subtract",
+    ]
+
+    operations = {
+        operation["id"]: operation
+        for operation in next(
+            entry["definitions"]
+            for entry in quantity_2_2["semantic_closure"]
+            if entry["authority_path"] == "language.operations"
+        )
+    }
+    assert [row["node"] for row in operations["quantity.minimum"]["body"]] == [
+        "less-than",
+        "if",
+    ]
+    floor_divide = operations["quantity.floor-divide"]
+    assert floor_divide["body"] == [
+        {
+            "left": "left",
+            "node": "floor-divide",
+            "right": "right",
+            "target": "result",
+        }
+    ]
+    assert floor_divide["inputs"][1]["domain"] == {
+        "kind": "closed-interval",
+        "minimum": 1,
+        "maximum": 2**63 - 1,
+    }
+    assert floor_divide["refusals"] == []
+
+
+def test_quantity_2_2_composition_inference_and_positive_divisor_contract():
+    ldb = _authority_candidate()["language_bundle"]
+    releases = {
+        (package["id"], package["version"]): package
+        for package in ldb["language"]["packages"]
+    }
+    quantity = releases[("core.quantity", "2.2.0")]
+    operations = {
+        operation["id"]: operation
+        for operation in next(
+            entry["definitions"]
+            for entry in quantity["semantic_closure"]
+            if entry["authority_path"] == "language.operations"
+        )
+    }
+    compiler = releases[("standard.compiler", "1.1.0")]
+    profile = next(
+        definition
+        for entry in compiler["semantic_closure"]
+        if entry["authority_path"] == "language.resolution_profiles"
+        for definition in entry["definitions"]
+        if definition["id"] == "exact-import-resolution-v1"
+    )
+    policy = profile["extensions"]["standard.formula"]["notation_conversion"]
+
+    def contract(minimum: int, maximum: int) -> dict[str, Any]:
+        return {
+            "domain": {"minimum": minimum, "maximum": maximum},
+            "domain_kind": "closed-interval",
+            "kind": "scalar",
+            "numeric_policy": "exact-int64",
+            "representation": "Int",
+            "type_identity": {
+                "package": "core.quantity",
+                "symbol": "Quantity",
+                "version": "2.2.0",
+            },
+            "unit": "1",
+        }
+
+    floor_divide = operations["quantity.floor-divide"]
+    assert formula_contract_matches_operation(contract(2, 3), floor_divide["inputs"][1])
+    assert not formula_contract_matches_operation(
+        contract(0, 3), floor_divide["inputs"][1]
+    )
+    assert infer_formula_operation_result(
+        floor_divide,
+        ["left", "right"],
+        [contract(-10, 10), contract(2, 3)],
+        contract(-10, 10),
+        policy,
+        {},
+    )["domain"] == {"minimum": -5, "maximum": 5}
+
+    expected_domains = {
+        "quantity.add": {"minimum": 2, "maximum": 8},
+        "quantity.minimum": {"minimum": -2, "maximum": 5},
+        "quantity.multiply": {"minimum": -12, "maximum": 15},
+    }
+    for operation_id, expected_domain in expected_domains.items():
+        operation = operations[operation_id]
+        assert (
+            infer_formula_operation_result(
+                operation,
+                ["left", "right"],
+                [
+                    contract(-2, 3),
+                    contract(4, 5)
+                    if operation_id != "quantity.multiply"
+                    else contract(-4, 5),
+                ],
+                contract(-2, 3),
+                policy,
+                {},
+            )["domain"]
+            == expected_domain
+        )
+
+
+def test_quantity_2_2_has_one_compatible_downstream_release_chain():
+    ldb = _authority_candidate()["language_bundle"]
+    releases = {
+        (package["id"], package["version"]): package
+        for package in ldb["language"]["packages"]
+    }
+    expected_dependencies = {
+        ("game.check", "1.1.0"): [
+            {"id": "core.quantity", "version": "2.2.0"},
+            {"id": "standard.runtime", "version": "1.1.0"},
+        ],
+        ("game.resource", "1.1.0"): [
+            {"id": "core.quantity", "version": "2.2.0"},
+            {"id": "standard.runtime", "version": "1.1.0"},
+        ],
+        ("game.generation", "1.1.0"): [
+            {"id": "core.quantity", "version": "2.2.0"},
+            {"id": "standard.runtime", "version": "1.1.0"},
+            {"id": "standard.schema", "version": "2.4.0"},
+        ],
+        ("game.combat", "2.2.0"): [
+            {"id": "core.quantity", "version": "2.2.0"},
+            {"id": "game.check", "version": "1.1.0"},
+            {"id": "game.resource", "version": "1.1.0"},
+            {"id": "standard.runtime", "version": "1.1.0"},
+        ],
+    }
+    retained_versions = {
+        "game.check": "1.0.1",
+        "game.resource": "1.0.1",
+        "game.generation": "1.0.0",
+        "game.combat": "2.1.0",
+    }
+
+    assert {
+        (package, version) for package, version in retained_versions.items()
+    } <= set(releases)
+    for coordinate, dependencies in expected_dependencies.items():
+        release = releases[coordinate]
+        assert release["dependencies"]["required"] == dependencies
+        assert (
+            release["exports"]
+            == releases[(coordinate[0], retained_versions[coordinate[0]])]["exports"]
+        )
+
+        vector_set = next(
+            item
+            for item in ldb.package_conformance_vector_sets
+            if (item["package_id"], item["package_version"]) == coordinate
+        )
+        dependency_vectors = [
+            vector
+            for vector in vector_set["vector_definitions"]
+            if vector.get("kind") == "package-contract"
+            and vector.get("probe") == {"path": "dependencies.required"}
+        ]
+        assert [vector["expect"] for vector in dependency_vectors] == [dependencies]
+
+
+def test_stat_contribution_releases_own_pure_formula_slots():
+    ldb = _authority_candidate()["language_bundle"]
+    releases = {
+        (package["id"], package["version"]): package
+        for package in ldb["language"]["packages"]
+    }
+    expected = {
+        ("game.progression", "1.0.0"): {
+            "dependencies": [{"id": "core.quantity", "version": "2.2.0"}],
+            "operation": "game.progression.contribution@1",
+            "slot": "progression-policy",
+            "parameters": ["level", "damage_per_level"],
+        },
+        ("game.build", "2.0.0"): {
+            "dependencies": [
+                {"id": "core.quantity", "version": "2.2.0"},
+                {"id": "game.generation", "version": "1.1.0"},
+                {"id": "standard.runtime", "version": "1.1.0"},
+                {"id": "standard.schema", "version": "2.4.0"},
+            ],
+            "operation": "game.build.contribution@1",
+            "slot": "build-policy",
+            "parameters": ["weapon_damage_bonus"],
+        },
+        ("game.effect", "2.0.0"): {
+            "dependencies": [
+                {"id": "core.quantity", "version": "2.2.0"},
+                {"id": "standard.runtime", "version": "1.1.0"},
+            ],
+            "operation": "game.effect.contribute@1",
+            "slot": "effect-policy",
+            "parameters": ["pre_buff_damage", "buff_percent", "buff_enabled"],
+        },
+    }
+
+    for coordinate, contract in expected.items():
+        release = releases[coordinate]
+        assert release["dependencies"]["required"] == contract["dependencies"]
+        assert contract["operation"] in release["exports"]["operations"]
+        operations = next(
+            entry["definitions"]
+            for entry in release["semantic_closure"]
+            if entry["authority_path"] == "language.operations"
+        )
+        operation = next(
+            item for item in operations if item["id"] == contract["operation"]
+        )
+        assert operation["operation_kind"] == "pure-expression"
+        assert operation["effects"] == []
+        assert operation["result"]["source"] == {"kind": "local", "name": "result"}
+        [slot] = operation["extensions"]["standard.formula-slots"]
+        assert slot["id"] == contract["slot"]
+        assert slot["context"] == {
+            "frame": "pre-event-snapshot",
+            "phase": "event",
+        }
+        assert [parameter["id"] for parameter in slot["parameters"]] == contract[
+            "parameters"
+        ]
+        assert [parameter["source"] for parameter in slot["parameters"]] == [
+            {"kind": "port", "name": name} for name in contract["parameters"]
+        ]
+        assert slot["target"] == "result"
+        assert slot["placeholder_index"] == 0
+        assert slot["placeholder_length"] == len(operation["body"])
+
+
+@pytest.mark.parametrize(
+    ("package_id", "previous_version", "breaking_version"),
+    (
+        ("game.build", "1.0.0", "2.0.0"),
+        ("game.effect", "1.0.0", "2.0.0"),
+    ),
+)
+def test_stat_contribution_breaking_releases_retain_the_previous_major_line(
+    package_id,
+    previous_version,
+    breaking_version,
+):
+    ldb = _authority_candidate()["language_bundle"]
+    releases = {
+        (package["id"], package["version"]): package
+        for package in ldb["language"]["packages"]
+    }
+    assert (package_id, previous_version) in releases
+    assert (package_id, breaking_version) in releases
+    assert (package_id, "1.1.0") not in releases
 
 
 def test_coherent_package_semantic_change_changes_the_release_identity():
@@ -378,6 +664,8 @@ def test_bootstrap_executes_every_rule_vector_into_a_stable_projection():
     assert dict(admission.rule_projections).keys() == {
         "quantity.declare.valid",
         "quantity.lower.valid",
+        "quantity.v2-2.quantity.declare.valid",
+        "quantity.v2-2.quantity.lower.valid",
         "structured.declare.valid",
         "structured.lower.valid",
     }
@@ -1080,25 +1368,39 @@ def test_reidentified_deletion_and_behavior_mutation_of_every_reason_refuse():
             authority = deepcopy(baseline)
             ldb = authority["language_bundle"]
             reason_id = reasons[index]["id"]
-            package = next(
+            owners = [
                 candidate
                 for candidate in ldb["language"]["packages"]
                 if reason_id in candidate["exports"]["reasons"]
-            )
-            target = next(
-                entry["definitions"]
-                for entry in package["semantic_closure"]
-                if entry["authority_path"] == "language.reasons"
-            )
-            reason = next(
-                definition for definition in target if definition["id"] == reason_id
-            )
+            ]
             if mutation == "delete":
-                package["exports"]["reasons"].remove(reason_id)
-                target.remove(reason)
+                for package in owners:
+                    target = next(
+                        entry["definitions"]
+                        for entry in package["semantic_closure"]
+                        if entry["authority_path"] == "language.reasons"
+                    )
+                    package["exports"]["reasons"].remove(reason_id)
+                    target.remove(
+                        next(
+                            definition
+                            for definition in target
+                            if definition["id"] == reason_id
+                        )
+                    )
+                    _reidentify_package_release(package)
             else:
+                package = owners[0]
+                target = next(
+                    entry["definitions"]
+                    for entry in package["semantic_closure"]
+                    if entry["authority_path"] == "language.reasons"
+                )
+                reason = next(
+                    definition for definition in target if definition["id"] == reason_id
+                )
                 reason["predicate"]["operation"] += ".changed"
-            _reidentify_package_release(package)
+                _reidentify_package_release(package)
             _reidentify_graph_root(ldb)
             first = _consumer_a(authority["kernel"], ldb)
             second = _consumer_b(authority["kernel"], ldb)

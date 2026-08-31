@@ -183,6 +183,13 @@ def derive_language_index(
 
     diagnostics: list[Any] = []
     vectors: list[Any] = []
+
+    def extend_unique(target: list[Any], definitions: list[Any]) -> None:
+        """Coalesce equal definitions contributed by compatible releases."""
+        for definition in definitions:
+            if definition not in target:
+                target.append(deepcopy(definition))
+
     for release, vector_set in zip(
         package_releases, package_conformance_vector_sets, strict=True
     ):
@@ -197,7 +204,7 @@ def derive_language_index(
             if not isinstance(authority_path, str) or not isinstance(definitions, list):
                 continue
             if authority_path == "diagnostics":
-                diagnostics.extend(deepcopy(definitions))
+                extend_unique(diagnostics, definitions)
                 continue
             if not authority_path.startswith("language."):
                 continue
@@ -212,7 +219,7 @@ def derive_language_index(
             existing = target.setdefault(leaf, [])
             if not isinstance(existing, list):
                 raise ValueError(f"authority path collision at {authority_path}")
-            existing.extend(deepcopy(definitions))
+            extend_unique(existing, definitions)
         vector_definitions = vector_set.get("vector_definitions")
         if isinstance(vector_definitions, list):
             vectors.extend(deepcopy(vector_definitions))

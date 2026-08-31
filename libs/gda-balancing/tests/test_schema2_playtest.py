@@ -20,6 +20,7 @@ def test_schema2_delivery_entries_share_maintained_authoring_sources():
             "experiment.json",
             "same-time-experiment.json",
         },
+        "rpg-stat-composition": {"model-source.json", "experiment.json"},
         "structured-selection": {"model-source.json", "experiment.json"},
     }
 
@@ -184,6 +185,11 @@ def test_playtest_uses_maintained_sources_without_an_intermediate_case_schema():
             "model-source.json",
             "same-time-experiment.json",
         ),
+        "stat_composition/stat_composition_documents.gd": (
+            "res://../rpg-stat-composition",
+            "model-source.json",
+            "experiment.json",
+        ),
     }
     for relative_path, expected_values in maintained_documents.items():
         source = (_PLAYTEST / "content" / relative_path).read_text(encoding="utf-8")
@@ -196,6 +202,7 @@ def test_playtest_has_explicit_local_launch_actions_and_no_standalone_export_cla
         "run_reward_run.sh": "res://apps/reward_run/main.tscn",
         "run_combat_cast.sh": "res://apps/combat_cast/main.tscn",
         "run_periodic_effect.sh": "res://apps/periodic_effect/main.tscn",
+        "run_stat_composition.sh": "res://apps/stat_composition/main.tscn",
     }
     for filename, scene in launch_scenes.items():
         launch = _PLAYTEST / "scripts" / filename
@@ -222,6 +229,7 @@ def test_each_playtest_has_an_explicit_thin_application_entry():
         "reward_run": ("RewardRunController", "RewardRun"),
         "combat_cast": ("CombatCastController", "CombatDuel"),
         "periodic_effect": ("PeriodicEffectController", "PeriodicEffectTimeline"),
+        "stat_composition": ("StatCompositionController", None),
     }
     assert {path.name for path in (_PLAYTEST / "apps").iterdir()} == set(app_modules)
     for app_name, (controller_name, system_name) in app_modules.items():
@@ -231,8 +239,11 @@ def test_each_playtest_has_an_explicit_thin_application_entry():
         source = (app / "main.gd").read_text(encoding="utf-8")
         assert "GdaExecutionClient" in source
         assert controller_name in source
-        assert system_name in source
-        assert "res://systems/" in source
+        if system_name is None:
+            assert "res://systems/" not in source
+        else:
+            assert system_name in source
+            assert "res://systems/" in source
         assert 'preload("res://ui/' not in source
         assert "model-source.json" not in source
         assert "experiment.json" not in source
@@ -253,14 +264,14 @@ def test_playtest_common_modules_have_multiple_real_app_consumers():
     controller_sources = [
         path.read_text() for path in (_PLAYTEST / "content").glob("*/*_controller.gd")
     ]
-    assert sum("GdaExecutionClient" in source for source in app_sources) == 3
-    assert sum("PlaytestFeedbackFile" in source for source in controller_sources) == 3
+    assert sum("GdaExecutionClient" in source for source in app_sources) == 4
+    assert sum("PlaytestFeedbackFile" in source for source in controller_sources) == 4
     assert (
         sum(
             "run_playtest.sh" in path.read_text()
             for path in (_PLAYTEST / "scripts").glob("run_*.sh")
         )
-        == 3
+        == 4
     )
     client = (
         _PLAYTEST / "addons/gda_balancing_client/gda_execution_client.gd"
@@ -291,6 +302,12 @@ def test_playtest_documentation_covers_each_player_and_maintainer_path():
             "test_periodic_effect_main_live.gd",
             "model-source.json",
             "same-time-experiment.json",
+        ),
+        "rpg-stat-composition": (
+            "run_stat_composition.sh",
+            "test_stat_composition_main_live.gd",
+            "model-source.json",
+            "experiment.json",
         ),
     }
     for example, required_terms in maintained_examples.items():
@@ -324,6 +341,11 @@ def test_playtest_keeps_focused_runtime_behavior_proofs():
         "test_reward_run_live_trials.gd",
         "test_reward_run_main_live.gd",
         "test_reward_run_view.gd",
+        "test_stat_composition_controller_failure.gd",
+        "test_stat_composition_controller_live.gd",
+        "test_stat_composition_documents.gd",
+        "test_stat_composition_main_live.gd",
+        "test_stat_composition_view.gd",
     }
     actual = {path.name for path in (_PLAYTEST / "tests").glob("test_*.gd")}
     assert required <= actual

@@ -669,7 +669,14 @@ def _infer_result(
             values[target] = with_interval(anchor, (literal, literal))
         elif rule_id == "copy-contract":
             values[target] = deepcopy(values[instruction[rule["source_member"]]])
-        elif rule_id in {"closed-interval-maximum", "closed-interval-subtract"}:
+        elif rule_id in {
+            "closed-interval-add",
+            "closed-interval-floor-divide",
+            "closed-interval-maximum",
+            "closed-interval-multiply",
+            "closed-interval-select",
+            "closed-interval-subtract",
+        }:
             left_name, right_name = [
                 instruction[member] for member in rule["operand_members"]
             ]
@@ -677,12 +684,46 @@ def _infer_result(
             left_bounds, right_bounds = interval(left), interval(right)
             if left_bounds is None or right_bounds is None:
                 values[target] = deepcopy(left)
+            elif rule_id == "closed-interval-add":
+                values[target] = with_interval(
+                    left,
+                    (
+                        left_bounds[0] + right_bounds[0],
+                        left_bounds[1] + right_bounds[1],
+                    ),
+                )
             elif rule_id == "closed-interval-subtract":
                 values[target] = with_interval(
                     left,
                     (
                         left_bounds[0] - right_bounds[1],
                         left_bounds[1] - right_bounds[0],
+                    ),
+                )
+            elif rule_id == "closed-interval-multiply":
+                products = tuple(
+                    left_value * right_value
+                    for left_value in left_bounds
+                    for right_value in right_bounds
+                )
+                values[target] = with_interval(left, (min(products), max(products)))
+            elif rule_id == "closed-interval-floor-divide":
+                if right_bounds[0] <= 0:
+                    raise ValueError(
+                        "independent floor-divide divisor domain is not positive"
+                    )
+                quotients = tuple(
+                    left_value // right_value
+                    for left_value in left_bounds
+                    for right_value in right_bounds
+                )
+                values[target] = with_interval(left, (min(quotients), max(quotients)))
+            elif rule_id == "closed-interval-select":
+                values[target] = with_interval(
+                    left,
+                    (
+                        min(left_bounds[0], right_bounds[0]),
+                        max(left_bounds[1], right_bounds[1]),
                     ),
                 )
             else:

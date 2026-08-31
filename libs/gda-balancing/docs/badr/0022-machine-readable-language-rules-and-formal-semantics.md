@@ -26,6 +26,19 @@ structured formal judgments, and an honest proof/conformance boundary.
 > The anonymous/inline Authoring-AST sugar retained below is unchanged. Model Source, RIR, and Model
 > explanation carry the pair without making expression text an alternative semantic authority.
 
+> **Amendment (2026-08-26, #546):** The unreleased Schema 2.0 Kernel adds one
+> `integer-floor-divide` primitive. It accepts exact-int64 operands, requires a positive divisor,
+> and rounds the quotient toward negative infinity. Zero or negative divisors fail the admitted
+> input-domain contract before execution. Positive-divisor exact-int64 division has no overflow
+> case; a preceding multiplication retains its ordinary numeric-overflow refusal.
+> `core.quantity@2.2.0` exposes the typed `quantity.floor-divide` Operation. It also exposes
+> `quantity.add`, `quantity.multiply`, and `quantity.minimum` by composing existing Kernel
+> primitives. These Operations do not add floating arithmetic, ratio values, another Numeric
+> profile, or implicit conversions. A future numeric profile can extend the language through its
+> own demonstrated requirements; this first release does not promise polymorphic division.
+> bADR-0017 owns the compatible `RPG-STAT-01` consumer release chain. A Model cannot select this
+> Quantity release together with an older consumer that still requires `core.quantity@2.1.0`.
+
 > **Amendment (2026-08-03, #594):** The Experiment judgment admits one closed discriminated Event
 > plan, derives one-time initialization and observation members, and resolves Runtime-owned Event
 > identities/order before dispatch. The small-step Runtime judgment dispatches one Event, while the
@@ -115,8 +128,9 @@ structured formal judgments, and an honest proof/conformance boundary.
 > irreducible primitive, fact kind, term type, premise operator, or judgment construct requires the
 > next Schema major.
 
-> The #640 replacement LDB is unreleased. Its `standard.schema@2.4.0` release may be completed and
-> reidentified before publication only when the complete LDB and every
+> The #640 replacement LDB remains unreleased and is superseded by the #546 Kernel replacement. The
+> current LDB's `standard.schema@2.4.0` release may be completed and reidentified before publication
+> only when the complete LDB and every
 > affected downstream identity are rebuilt together. After that Package Release is published, a
 > later semantic or accepted-input change follows bADR-0016 package versioning instead of rebinding
 > the published release in place.
@@ -553,6 +567,11 @@ structured formal judgments, and an honest proof/conformance boundary.
   precondition outcome. Delete, move between families, or reidentify-mutate each selected node and
   require the same admission/refusal behavior across independent consumers; host support alone
   cannot keep the Operation executable.
+- Execute exact-int64 floor division for an exact quotient and a non-exact quotient, including a
+  negative dividend. Refuse zero and negative divisors through the authority-owned contract and
+  test multiplication overflow in the Formula that produces the dividend. Delete or
+  reidentify-mutate the primitive and require both consumers to refuse before host arithmetic can
+  preserve the old result.
 - Execute `is-empty`, `require`, and `guard-block` through both consumers. Cover true and false
   `expected` values; true and false guard conditions; an empty guard body; an early refusal; a
   terminal outcome; malformed and non-Boolean conditions; an undeclared outcome; a nested guard;

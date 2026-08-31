@@ -40,6 +40,9 @@ _RPG_PERIODIC_EFFECT_EXAMPLE = (
 _ROGUELIKE_REWARD_BUILD_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
 )
+_RPG_STAT_COMPOSITION_EXAMPLE = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "rpg-stat-composition"
+)
 
 
 def _console_script() -> str:
@@ -745,6 +748,242 @@ class TestKeyUserPath:
         )["snapshots"]
         assert len(snapshots) == len(trace["events"]) + 1
 
+    def test_stat_composition_runs_the_golden_attack_and_replays_exactly(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        built = _run(
+            "model",
+            "build",
+            str(_RPG_STAT_COMPOSITION_EXAMPLE / "model-source.json"),
+            "--out",
+            str(tmp_path / "stat-composition-model"),
+            "--invocation-key",
+            "1" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, ""), built.stdout
+        build_receipt = json.loads(built.stdout)
+        build_receipt_path = tmp_path / "stat-composition-model-set-receipt.json"
+        build_receipt_path.write_text(json.dumps(build_receipt), encoding="utf-8")
+        experiment = json.loads(
+            (_RPG_STAT_COMPOSITION_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        build_record = json.loads(
+            _receipt_members(build_receipt)["build-receipt"].read_text(encoding="utf-8")
+        )
+        assert {
+            "kernel_identity": experiment["kernel_identity"],
+            "language_bundle_identity": experiment["language_bundle_identity"],
+            **experiment["model"],
+        } == {
+            "kernel_identity": build_record["kernel_identity"],
+            "language_bundle_identity": build_record["language_bundle_identity"],
+            "source_identity": build_record["source_identity"],
+            "build_receipt_identity": build_record["content_identity"],
+            "resolved_model_identity": build_record["resolved_model_identity"],
+            "package_lock_identity": build_record["package_lock_identity"],
+            "rir_identity": build_record["rir_identity"],
+        }
+        assert experiment["runtime"]["required_evaluator"]["rng_algorithms"] == [
+            "splitmix64-v1"
+        ]
+        assert experiment["scenarios"][0]["named_streams"] == []
+
+        receipts = []
+        traces = []
+        for name, key in (("golden-first", "2" * 64), ("golden-replay", "3" * 64)):
+            receipt, trace = _run_experiment_variant(
+                tmp_path,
+                experiment,
+                name=name,
+                invocation_key=key,
+            )
+            receipts.append(receipt)
+            traces.append(trace)
+
+        assert traces[0] == traces[1]
+        members = _receipt_members(receipts[0])
+        dataset = json.loads(members["metric-dataset"].read_text(encoding="utf-8"))
+        evaluator = json.loads(
+            members["evaluator-capability-manifest"].read_text(encoding="utf-8")
+        )
+        evaluation_run = json.loads(
+            members["evaluation-run"].read_text(encoding="utf-8")
+        )
+        assert {
+            "add",
+            "floor-divide",
+            "less-than",
+        } <= set(evaluator["instruction_nodes"])
+        assert (
+            evaluator["instruction_nodes"]
+            == experiment["runtime"]["required_evaluator"]["instruction_nodes"]
+        )
+        assert {sample["metric"]: sample["value"] for sample in dataset["samples"]} == {
+            "attack_damage": 50,
+            "base_damage": 20,
+            "build_damage": 8,
+            "damage_dealt": 50,
+            "effect_damage": 10,
+            "pre_buff_damage": 40,
+            "progression_damage": 12,
+            "target_health": 70,
+        }
+        assert all(sample["within_target"] for sample in dataset["samples"])
+
+        run_receipt_path = tmp_path / "golden-first-set-receipt.json"
+        run_receipt_path.write_text(json.dumps(receipts[0]), encoding="utf-8")
+        verified = _run(
+            "evidence",
+            "verify",
+            "--claim-kind",
+            "evaluable",
+            "--source",
+            str(_RPG_STAT_COMPOSITION_EXAMPLE / "model-source.json"),
+            "--specification",
+            str(tmp_path / "golden-first.json"),
+            "--model-build-artifact-set-receipt",
+            str(build_receipt_path),
+            "--experiment-run-artifact-set-receipt",
+            str(run_receipt_path),
+        )
+        assert (verified.returncode, verified.stderr) == (0, ""), verified.stdout
+        candidate = json.loads(verified.stdout)
+        assert candidate["claim_kind"] == "evaluable"
+        assert candidate["claim_state"] == "candidate"
+        assert candidate["producing_outcome"] == "success"
+        assert candidate["model_source_identity"] == build_record["source_identity"]
+        assert candidate["experiment_identity"] == evaluation_run["experiment_identity"]
+        assert (
+            candidate["model_build_artifact_set_receipt_identity"]
+            == (build_receipt["content_identity"])
+        )
+        assert (
+            candidate["experiment_run_artifact_set_receipt_identity"]
+            == (receipts[0]["content_identity"])
+        )
+
+    def test_stat_composition_boundary_vectors_use_the_shared_experiment(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        built = _run(
+            "model",
+            "build",
+            str(_RPG_STAT_COMPOSITION_EXAMPLE / "model-source.json"),
+            "--out",
+            str(tmp_path / "stat-composition-model"),
+            "--invocation-key",
+            "4" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, ""), built.stdout
+        baseline = json.loads(
+            (_RPG_STAT_COMPOSITION_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(baseline, json.loads(built.stdout))
+        vectors = (
+            (
+                "rpg.stat.round-down-boundary-v1",
+                {"weapon_damage_bonus": 10},
+                {
+                    "attack_damage": 52,
+                    "base_damage": 20,
+                    "build_damage": 10,
+                    "damage_dealt": 52,
+                    "effect_damage": 10,
+                    "pre_buff_damage": 42,
+                    "progression_damage": 12,
+                    "target_health": 68,
+                },
+            ),
+            (
+                "rpg.stat.cap-exact-boundary-v1",
+                {"weapon_damage_bonus": 16},
+                {
+                    "attack_damage": 60,
+                    "base_damage": 20,
+                    "build_damage": 16,
+                    "damage_dealt": 60,
+                    "effect_damage": 12,
+                    "pre_buff_damage": 48,
+                    "progression_damage": 12,
+                    "target_health": 60,
+                },
+            ),
+            (
+                "rpg.stat.cap-clamped-boundary-v1",
+                {"weapon_damage_bonus": 18},
+                {
+                    "attack_damage": 60,
+                    "base_damage": 20,
+                    "build_damage": 18,
+                    "damage_dealt": 60,
+                    "effect_damage": 12,
+                    "pre_buff_damage": 50,
+                    "progression_damage": 12,
+                    "target_health": 60,
+                },
+            ),
+            (
+                "rpg.stat.maximum-domain-v1",
+                {
+                    "base_damage": 1000,
+                    "buff_enabled": 1,
+                    "buff_percent": 100,
+                    "damage_per_level": 100,
+                    "level": 10,
+                    "maximum_damage": 1000,
+                    "target_health": 1000,
+                    "weapon_damage_bonus": 20,
+                },
+                {
+                    "attack_damage": 1000,
+                    "base_damage": 1000,
+                    "build_damage": 20,
+                    "damage_dealt": 1000,
+                    "effect_damage": 2020,
+                    "pre_buff_damage": 2020,
+                    "progression_damage": 1000,
+                    "target_health": 0,
+                },
+            ),
+        )
+
+        for index, (vector_id, assignments, expected) in enumerate(vectors, start=5):
+            experiment = json.loads(json.dumps(baseline))
+            experiment["id"] = vector_id
+            scenario = experiment["scenarios"][0]
+            for name, value in assignments.items():
+                next(
+                    row
+                    for row in scenario["assignments"]
+                    if row["target"]["name"] == name
+                )["value"] = value
+            for metric in experiment["metrics"]:
+                value = expected[metric["id"]]
+                metric["target"] = {"minimum": value, "maximum": value}
+            receipt, _trace = _run_experiment_variant(
+                tmp_path,
+                experiment,
+                name=vector_id,
+                invocation_key=str(index) * 64,
+            )
+            dataset = json.loads(
+                _receipt_members(receipt)["metric-dataset"].read_text(encoding="utf-8")
+            )
+            assert {
+                sample["metric"]: sample["value"] for sample in dataset["samples"]
+            } == expected, vector_id
+            assert all(sample["within_target"] for sample in dataset["samples"]), (
+                vector_id
+            )
+
     def test_periodic_effect_snapshot_and_live_policies_observe_same_time_order(
         self, tmp_path, monkeypatch
     ):
@@ -1150,6 +1389,19 @@ class TestKeyUserPath:
             if symbol["symbol"] == "magnitude_threshold"
         )
         threshold_symbol["domain"]["minimum"] = -(1 << 63)
+        magnitude_formula = next(
+            formula
+            for formula in source["modules"][0]["formulas"]
+            if formula["id"] == "periodic-magnitude"
+        )
+        next(
+            parameter
+            for parameter in magnitude_formula["parameters"]
+            if parameter["id"] == "threshold"
+        )["domain"]["minimum"] = -(1 << 63)
+        magnitude_formula["result"]["domain"]["maximum"] = (1 << 63) - 1
+        for node in magnitude_formula["body"]["nodes"]:
+            node["result"]["domain"]["maximum"] = (1 << 63) - 1
         source_path = tmp_path / "overflow-periodic-model.json"
         source_path.write_text(json.dumps(source), encoding="utf-8")
         built = _run(
