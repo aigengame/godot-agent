@@ -74,7 +74,7 @@ def usage_error_text(result) -> str:
 # sentence its check wrote (``gda.errors.validation_error_message``, #713/#754)
 # and for every test asserting the dump does not leak: the argv and
 # ``--params-json`` channels (tests/test_dispatch.py) and the ``perf
-# --budget-file`` loader (#759). A single home keeps a later pydantic dump
+# --budget`` loader (#759). A single home keeps a later pydantic dump
 # format from silently weakening half the assertions.
 PYDANTIC_DUMP_FRAGMENTS = ("pydantic.dev", "input_value=", "[type=")
 
