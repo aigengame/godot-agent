@@ -6,6 +6,9 @@ const GdaExecutionClient = preload(
 const PeriodicEffectController = preload(
 	"res://content/periodic_effect/periodic_effect_controller.gd"
 )
+const PlaytestExecutionCoordinator = preload(
+	"res://content/playtest_execution_coordinator.gd"
+)
 const PeriodicEffectTimeline = preload(
 	"res://systems/periodic_effect_timeline.gd"
 )
@@ -20,11 +23,12 @@ func _init() -> void:
 func _run() -> void:
 	var client := GdaExecutionClient.new()
 	get_root().add_child(client)
+	var execution := PlaytestExecutionCoordinator.new()
+	execution.configure(client, OS.get_environment("GDA_BALANCING_EXECUTABLE"))
 	var controller := PeriodicEffectController.new()
 	get_root().add_child(controller)
 	controller.configure(
-		client,
-		OS.get_environment("GDA_BALANCING_EXECUTABLE"),
+		execution,
 		PeriodicEffectTimeline.new(),
 	)
 	var started: Dictionary = await controller.start()

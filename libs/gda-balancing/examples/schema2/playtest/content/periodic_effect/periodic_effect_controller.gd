@@ -23,15 +23,12 @@ var phase := "loading"
 var playtest_complete := false
 var last_feedback_path := ""
 
-var _client: Node
-var _executable_path := ""
+var _execution
 var _documents := PeriodicEffectDocuments.new()
 var _feedback := PlaytestFeedbackFile.new()
 var _timeline: PeriodicEffectTimeline
 var _model_source: Dictionary = {}
 var _experiments: Dictionary = {}
-var _session := ""
-var _initial_revision := ""
 var _initial_health := 0
 var _damage_threshold := 0
 var _trials: Array[PeriodicEffectTrial] = []
@@ -40,12 +37,10 @@ var _busy := false
 
 
 func configure(
-	client: Node,
-	executable_path: String,
+	execution,
 	timeline: PeriodicEffectTimeline,
 ) -> void:
-	_client = client
-	_executable_path = executable_path
+	_execution = execution
 	_timeline = timeline
 	_timeline.state_changed.connect(_on_timeline_state_changed)
 
@@ -53,7 +48,7 @@ func configure(
 func start() -> Dictionary:
 	_trials.clear()
 	playtest_complete = false
-	return await _prepare_live_session()
+	return await _prepare_live_session(false)
 
 
 func primary_action() -> void:
@@ -83,21 +78,15 @@ func retry() -> Dictionary:
 	if _busy:
 		return _failure("trial_in_flight", "a live trial is already in flight")
 	_busy = true
-	if not _session.is_empty():
-		await _client.delete_session(_session)
-	await _client.shutdown()
-	_session = ""
+	var result := await _prepare_live_session(true)
 	_busy = false
-	return await _prepare_live_session()
+	return result
 
 
 func shutdown() -> Dictionary:
-	if _client == null:
+	if _execution == null:
 		return {"ok": true}
-	if not _session.is_empty():
-		await _client.delete_session(_session)
-		_session = ""
-	return await _client.shutdown()
+	return await _execution.shutdown()
 
 
 func submit_feedback(
@@ -138,7 +127,7 @@ func current_state() -> Dictionary:
 	return _last_state.duplicate(true)
 
 
-func _prepare_live_session() -> Dictionary:
+func _prepare_live_session(retrying: bool) -> Dictionary:
 	phase = "preparing"
 	_emit_state({"phase": phase})
 	var loaded: Dictionary = _documents.load_maintained()
@@ -151,18 +140,13 @@ func _prepare_live_session() -> Dictionary:
 		"dynamic": loaded["dynamic_experiment"],
 		"snapshot": loaded["snapshot_experiment"],
 	}
-	var started: Dictionary = await _client.start(_executable_path)
-	if not started.get("ok", false):
-		return _fail_preparation(started)
-	var created: Dictionary = await _client.create_session(
-		_model_source,
-		_experiments["dynamic"],
-	)
-	if not created.get("ok", false):
-		await _client.shutdown()
-		return _fail_preparation(created)
-	_session = created["session"]
-	_initial_revision = created["revision"]
+	var established: Dictionary
+	if retrying:
+		established = await _execution.retry(_model_source, _experiments["dynamic"])
+	else:
+		established = await _execution.start(_model_source, _experiments["dynamic"])
+	if not established.get("ok", false):
+		return _fail_preparation(established)
 	_emit_ready()
 	_log_event("periodic_playtest_ready", {"completed": _trials.size()})
 	return {"ok": true}
@@ -175,19 +159,15 @@ func _run_next_trial() -> void:
 	phase = "preparing_trial"
 	_emit_state({"phase": phase})
 	var policy := TRIAL_KINDS[_trials.size()]
-	var revision := _initial_revision
+	var run: Dictionary
 	if policy == "snapshot":
-		var admitted: Dictionary = await _client.admit_revision(
-			_session, _experiments[policy]
-		)
-		if not admitted.get("ok", false):
-			_fail_trial(admitted)
-			return
-		revision = admitted["revision"]
-	var run: Dictionary = await _client.run_revision(_session, revision)
+		run = await _execution.admit_and_run(_experiments[policy])
+	else:
+		run = await _execution.run_initial_revision()
 	if not run.get("ok", false):
 		_fail_trial(run)
 		return
+	var revision := str(run["revision"])
 	var trial := PeriodicEffectTrial.new()
 	var projected: Dictionary = trial.admit_run_result(
 		run["value"],

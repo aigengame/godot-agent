@@ -6,6 +6,9 @@ const GdaExecutionClient = preload(
 const StatCompositionController = preload(
 	"res://content/stat_composition/stat_composition_controller.gd"
 )
+const PlaytestExecutionCoordinator = preload(
+	"res://content/playtest_execution_coordinator.gd"
+)
 const WAIT_TIMEOUT_MSEC := 60000
 
 
@@ -17,9 +20,11 @@ func _init() -> void:
 func _run() -> void:
 	var client := GdaExecutionClient.new()
 	get_root().add_child(client)
+	var execution := PlaytestExecutionCoordinator.new()
+	execution.configure(client, OS.get_environment("GDA_BALANCING_EXECUTABLE"))
 	var controller := StatCompositionController.new()
 	get_root().add_child(controller)
-	controller.configure(client, OS.get_environment("GDA_BALANCING_EXECUTABLE"))
+	controller.configure(execution)
 	var started: Dictionary = await controller.start()
 	_expect(started.get("ok", false), "Attack Damage Training prepares")
 	_expect(controller.current_state().get("phase") == "ready", "the first attack is ready")

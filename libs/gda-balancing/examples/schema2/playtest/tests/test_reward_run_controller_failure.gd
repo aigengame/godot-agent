@@ -4,36 +4,9 @@ const RewardRunController = preload(
 	"res://content/reward_run/reward_run_controller.gd"
 )
 const RewardRun = preload("res://systems/reward_run.gd")
-
-class RefusingExecutionClient extends Node:
-	var sessions_created := 0
-
-	func start(_executable_path: String = "") -> Dictionary:
-		return {"ok": true}
-
-	func create_session(_model: Dictionary, _experiment: Dictionary) -> Dictionary:
-		sessions_created += 1
-		return {
-			"ok": true,
-			"session": "session-%d" % sessions_created,
-			"revision": "baseline",
-		}
-
-	func admit_revision(_session: String, _experiment: Dictionary) -> Dictionary:
-		return {"ok": true, "revision": "candidate"}
-
-	func run_revision(_session: String, _revision: String) -> Dictionary:
-		return {
-			"ok": false,
-			"kind": "execution_refused",
-			"value": {"outcome": "refusal"},
-		}
-
-	func delete_session(_session: String) -> Dictionary:
-		return {"ok": true}
-
-	func shutdown() -> Dictionary:
-		return {"ok": true}
+const FakePlaytestExecutionCoordinator = preload(
+	"res://tests/fake_playtest_execution_coordinator.gd"
+)
 
 
 func _init() -> void:
@@ -42,13 +15,11 @@ func _init() -> void:
 
 
 func _run() -> void:
-	var client := RefusingExecutionClient.new()
-	get_root().add_child(client)
+	var execution := FakePlaytestExecutionCoordinator.new()
 	var controller := RewardRunController.new()
 	get_root().add_child(controller)
 	controller.configure(
-		client,
-		"unused-by-boundary-test",
+		execution,
 		RewardRun.new(),
 	)
 	controller.primary_action()
@@ -66,7 +37,7 @@ func _run() -> void:
 
 	var retried: Dictionary = await controller.retry()
 	_expect(retried.get("ok", false), "explicit retry recreates the live session")
-	_expect(client.sessions_created == 2, "retry establishes a new Execution session")
+	_expect(execution.sessions_created == 2, "retry establishes a new Execution session")
 	_expect(
 		controller.current_state().get("phase") == "choose_frequency",
 		"retry returns to the player control",
@@ -74,5 +45,4 @@ func _run() -> void:
 
 	await controller.shutdown()
 	controller.queue_free()
-	client.queue_free()
 	_finish()

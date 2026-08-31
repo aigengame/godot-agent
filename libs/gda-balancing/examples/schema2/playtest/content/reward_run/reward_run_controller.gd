@@ -22,8 +22,7 @@ var current_trial := ""
 var playtest_complete := false
 var last_feedback_path := ""
 
-var _client: Node
-var _executable_path := ""
+var _execution
 var _documents := RewardRunDocuments.new()
 var _feedback := PlaytestFeedbackFile.new()
 var _run: RewardRun
@@ -31,19 +30,16 @@ var _model_source: Dictionary = {}
 var _baseline_experiment: Dictionary = {}
 var _reward_frequency: Dictionary = {}
 var _selected_reward_frequency := 0
-var _session := ""
 var _trials: Array[RewardTrial] = []
 var _last_state: Dictionary = {}
 var _busy := false
 
 
 func configure(
-	client: Node,
-	executable_path: String,
+	execution,
 	run: RewardRun,
 ) -> void:
-	_client = client
-	_executable_path = executable_path
+	_execution = execution
 	_run = run
 	_run.state_changed.connect(_on_run_state_changed)
 
@@ -51,7 +47,7 @@ func configure(
 func start() -> Dictionary:
 	_trials.clear()
 	playtest_complete = false
-	return await _prepare_live_session()
+	return await _prepare_live_session(false)
 
 
 func start_trial(reward_frequency: int) -> Dictionary:
@@ -75,16 +71,7 @@ func start_trial(reward_frequency: int) -> Dictionary:
 	)
 	if not revised.get("ok", false):
 		return _fail_trial(revised)
-	var admitted: Dictionary = await _client.admit_revision(
-		_session,
-		revised["value"],
-	)
-	if not admitted.get("ok", false):
-		return _fail_trial(admitted)
-	var executed: Dictionary = await _client.run_revision(
-		_session,
-		admitted["revision"],
-	)
+	var executed: Dictionary = await _execution.admit_and_run(revised["value"])
 	if not executed.get("ok", false):
 		return _fail_trial(executed)
 	var trial := RewardTrial.new()
@@ -92,7 +79,7 @@ func start_trial(reward_frequency: int) -> Dictionary:
 		executed["value"],
 		reward_frequency,
 		TRIAL_IDS[_trials.size()],
-		admitted["revision"],
+		executed["revision"],
 	)
 	if not projected.get("ok", false):
 		return _fail_trial(projected)
@@ -145,21 +132,15 @@ func retry() -> Dictionary:
 	if _busy:
 		return _failure("trial_in_flight", "a live trial is already in flight")
 	_busy = true
-	if not _session.is_empty():
-		await _client.delete_session(_session)
-	await _client.shutdown()
-	_session = ""
+	var result := await _prepare_live_session(true)
 	_busy = false
-	return await _prepare_live_session()
+	return result
 
 
 func shutdown() -> Dictionary:
-	if _client == null:
+	if _execution == null:
 		return {"ok": true}
-	if not _session.is_empty():
-		await _client.delete_session(_session)
-		_session = ""
-	return await _client.shutdown()
+	return await _execution.shutdown()
 
 
 func submit_feedback(
@@ -200,7 +181,7 @@ func current_state() -> Dictionary:
 	return _last_state.duplicate(true)
 
 
-func _prepare_live_session() -> Dictionary:
+func _prepare_live_session(retrying: bool) -> Dictionary:
 	phase = "preparing"
 	_emit_state(
 		{
@@ -223,17 +204,13 @@ func _prepare_live_session() -> Dictionary:
 	):
 		_selected_reward_frequency = int(_reward_frequency["value"])
 
-	var started: Dictionary = await _client.start(_executable_path)
-	if not started.get("ok", false):
-		return _fail_preparation(started)
-	var created: Dictionary = await _client.create_session(
-		_model_source,
-		_baseline_experiment,
-	)
-	if not created.get("ok", false):
-		await _client.shutdown()
-		return _fail_preparation(created)
-	_session = created["session"]
+	var established: Dictionary
+	if retrying:
+		established = await _execution.retry(_model_source, _baseline_experiment)
+	else:
+		established = await _execution.start(_model_source, _baseline_experiment)
+	if not established.get("ok", false):
+		return _fail_preparation(established)
 	_emit_frequency_choice()
 	_log_event(
 		"playtest_ready",

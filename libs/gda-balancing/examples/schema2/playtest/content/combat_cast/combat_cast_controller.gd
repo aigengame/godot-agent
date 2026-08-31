@@ -21,24 +21,21 @@ var last_feedback_path := ""
 var _actions: Array[CombatAction] = []
 var _battle_outcome := ""
 var _busy := false
-var _client: Node
+var _execution
 var _combat_state: Dictionary = {}
 var _documents := CombatCastDocuments.new()
 var _duel: CombatDuel
 var _defeat_threshold := 0
-var _executable_path := ""
 var _feedback := PlaytestFeedbackFile.new()
 var _last_state: Dictionary = {}
 var _model_source: Dictionary = {}
 var _baseline_experiment: Dictionary = {}
 var _rival_strength := "normal"
-var _session := ""
 var _spell_style := "balanced"
 
 
-func configure(client: Node, executable_path: String, duel: CombatDuel) -> void:
-	_client = client
-	_executable_path = executable_path
+func configure(execution, duel: CombatDuel) -> void:
+	_execution = execution
 	_duel = duel
 	_duel.state_changed.connect(_on_duel_state_changed)
 
@@ -47,7 +44,7 @@ func start() -> Dictionary:
 	_actions.clear()
 	_battle_outcome = ""
 	playtest_complete = false
-	return await _prepare_live_session()
+	return await _prepare_live_session(false)
 
 
 func primary_action() -> void:
@@ -102,21 +99,15 @@ func retry() -> Dictionary:
 	if _busy:
 		return _failure("action_in_flight", "a live action is already in flight")
 	_busy = true
-	if not _session.is_empty():
-		await _client.delete_session(_session)
-	await _client.shutdown()
-	_session = ""
+	var result := await _prepare_live_session(true)
 	_busy = false
-	return await _prepare_live_session()
+	return result
 
 
 func shutdown() -> Dictionary:
-	if _client == null:
+	if _execution == null:
 		return {"ok": true}
-	if not _session.is_empty():
-		await _client.delete_session(_session)
-		_session = ""
-	return await _client.shutdown()
+	return await _execution.shutdown()
 
 
 func submit_feedback(
@@ -159,7 +150,7 @@ func current_state() -> Dictionary:
 	return _last_state.duplicate(true)
 
 
-func _prepare_live_session() -> Dictionary:
+func _prepare_live_session(retrying: bool) -> Dictionary:
 	phase = "preparing"
 	_emit_state({"phase": phase})
 	var loaded: Dictionary = _documents.load_maintained()
@@ -172,17 +163,13 @@ func _prepare_live_session() -> Dictionary:
 	if not initial.get("ok", false):
 		return _fail_preparation(initial)
 	_combat_state = initial["value"]
-	var started: Dictionary = await _client.start(_executable_path)
-	if not started.get("ok", false):
-		return _fail_preparation(started)
-	var created: Dictionary = await _client.create_session(
-		_model_source,
-		_baseline_experiment,
-	)
-	if not created.get("ok", false):
-		await _client.shutdown()
-		return _fail_preparation(created)
-	_session = created["session"]
+	var established: Dictionary
+	if retrying:
+		established = await _execution.retry(_model_source, _baseline_experiment)
+	else:
+		established = await _execution.start(_model_source, _baseline_experiment)
+	if not established.get("ok", false):
+		return _fail_preparation(established)
 	_duel.start(_combat_state)
 	_log_event("combat_playtest_ready", _selected_options())
 	return {"ok": true}
@@ -204,15 +191,11 @@ func _run_action(actor: String) -> void:
 	if not authored.get("ok", false):
 		_fail_exchange(authored)
 		return
-	var admitted: Dictionary = await _client.admit_revision(_session, authored["value"])
-	if not admitted.get("ok", false):
-		_fail_exchange(admitted)
-		return
-	var revision := str(admitted["revision"])
-	var run: Dictionary = await _client.run_revision(_session, revision)
+	var run: Dictionary = await _execution.admit_and_run(authored["value"])
 	if not run.get("ok", false):
 		_fail_exchange(run)
 		return
+	var revision := str(run["revision"])
 	var action := CombatAction.new()
 	var projected: Dictionary = action.admit_run_result(
 		run["value"], _combat_state, actor, revision, _defeat_threshold

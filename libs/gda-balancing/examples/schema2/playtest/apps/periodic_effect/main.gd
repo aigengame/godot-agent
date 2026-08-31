@@ -6,6 +6,9 @@ const GdaExecutionClient = preload(
 const PeriodicEffectController = preload(
 	"res://content/periodic_effect/periodic_effect_controller.gd"
 )
+const PlaytestExecutionCoordinator = preload(
+	"res://content/playtest_execution_coordinator.gd"
+)
 const PeriodicEffectTimeline = preload(
 	"res://systems/periodic_effect_timeline.gd"
 )
@@ -14,6 +17,7 @@ const PeriodicEffectTimeline = preload(
 
 var _client: GdaExecutionClient
 var _controller: PeriodicEffectController
+var _execution: PlaytestExecutionCoordinator
 var _shutting_down := false
 
 
@@ -22,13 +26,14 @@ func _ready() -> void:
 	_client = GdaExecutionClient.new()
 	_client.name = "GdaExecutionClient"
 	add_child(_client)
+	_execution = PlaytestExecutionCoordinator.new()
+	_execution.configure(_client, _user_option("gda-balancing-executable"))
 	_controller = PeriodicEffectController.new()
 	_controller.name = "PeriodicEffectController"
 	add_child(_controller)
 	_view.bind(_controller)
 	_controller.configure(
-		_client,
-		_user_option("gda-balancing-executable"),
+		_execution,
 		PeriodicEffectTimeline.new(),
 	)
 	await _controller.start()
