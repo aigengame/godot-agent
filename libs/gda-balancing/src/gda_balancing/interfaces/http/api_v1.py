@@ -28,6 +28,20 @@ from gda_balancing.application.experiment_execution import (
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.infrastructure.distribution import distribution_version
+from gda_balancing.interfaces.execution_service_language import (
+    AdmitExperimentRevisionRequest,
+    CreateExecutionSessionRequest,
+    ExecutionServiceErrorCode,
+    ExecutionSessionCreatedResponse,
+    ExecutionSessionDeletedResponse,
+    ExperimentRevisionAdmittedResponse,
+    RefusalResponse,
+    RunExperimentRequest,
+    RunRefusalResponse,
+    RunSuccessResponse,
+    RunVerdictResponse,
+    execution_service_error,
+)
 from gda_balancing.interfaces.http.service_errors import (
     SMALL_HTTP_REQUEST_BYTES,
     HttpRequestTooLarge,
@@ -39,7 +53,6 @@ from gda_balancing.interfaces.http.service_errors import (
     read_bounded_request_body,
     request_too_large_response,
     require_empty_request,
-    service_error_response,
     unsupported_media_type_response,
 )
 
@@ -50,6 +63,15 @@ RequestModel = TypeVar("RequestModel", bound=BaseModel)
 
 class _DuplicateObjectMember(ValueError):
     """A JSON object repeats a member name before schema admission."""
+
+
+def _execution_service_error_response(
+    code: ExecutionServiceErrorCode,
+) -> JSONResponse:
+    return JSONResponse(
+        execution_service_error(code).model_dump(mode="json"),
+        status_code=404,
+    )
 
 
 def _closed_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -91,99 +113,6 @@ class StatusResponse(BaseModel):
     status: Literal["ready"] = "ready"
     protocol: Literal["v1"] = PROTOCOL_VERSION
     toolkit_version: str
-
-
-class CreateExecutionSessionRequest(BaseModel):
-    """Complete authored values required to establish one session."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    model_source: dict[str, Any]
-    experiment_specification: dict[str, Any]
-
-
-class ExecutionSessionCreatedResponse(BaseModel):
-    """Exact identities established by successful session admission."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["success"] = "success"
-    session_id: str
-    resolved_model_identity: str
-    revision_id: str
-
-
-class RefusalResponse(BaseModel):
-    """Existing Domain refusal returned through the HTTP transport."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["refusal"] = "refusal"
-    refusal: Schema2RefusalReport
-
-
-class AdmitExperimentRevisionRequest(BaseModel):
-    """One complete Experiment value for an existing session."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    experiment_specification: dict[str, Any]
-
-
-class ExperimentRevisionAdmittedResponse(BaseModel):
-    """Identity and insertion state of an admitted revision."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["success"] = "success"
-    revision_id: str
-    created: bool
-
-
-class RunExperimentRequest(BaseModel):
-    """The exact immutable revision selected for one run."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    revision_id: str
-
-
-class RunSuccessResponse(BaseModel):
-    """A successful execution with its existing artifacts inline."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["success"] = "success"
-    artifacts: dict[str, dict[str, Any]]
-
-
-class RunVerdictResponse(BaseModel):
-    """A metric verdict with its existing artifacts inline."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["verdict"] = "verdict"
-    failed_metrics: list[str]
-    artifacts: dict[str, dict[str, Any]]
-
-
-class RunRefusalResponse(BaseModel):
-    """A typed refusal with any terminal-audit artifacts inline."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["refusal"] = "refusal"
-    refusal: Schema2RefusalReport
-    artifacts: dict[str, dict[str, Any]]
-
-
-class ExecutionSessionDeletedResponse(BaseModel):
-    """Acknowledgement that one process-local session was released."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["success"] = "success"
-    session_id: str
 
 
 def create_api_v1() -> ASGIApp:
@@ -238,11 +167,7 @@ def create_api_v1() -> ASGIApp:
                 payload.experiment_specification,
             )
         except ExecutionSessionNotFound:
-            return service_error_response(
-                code="unknown_execution_session",
-                message="the Execution session does not exist",
-                status_code=404,
-            )
+            return _execution_service_error_response("unknown_execution_session")
         if isinstance(result, Schema2RefusalReport):
             body = RefusalResponse(refusal=result)
         else:
@@ -266,17 +191,9 @@ def create_api_v1() -> ASGIApp:
                 payload.revision_id,
             )
         except ExecutionSessionNotFound:
-            return service_error_response(
-                code="unknown_execution_session",
-                message="the Execution session does not exist",
-                status_code=404,
-            )
+            return _execution_service_error_response("unknown_execution_session")
         except ExperimentRevisionNotFound:
-            return service_error_response(
-                code="unknown_experiment_revision",
-                message="the Experiment revision does not exist",
-                status_code=404,
-            )
+            return _execution_service_error_response("unknown_experiment_revision")
         artifacts = {
             name: deepcopy(member.value) for name, member in result.members.items()
         }
@@ -301,11 +218,7 @@ def create_api_v1() -> ASGIApp:
         try:
             await run_in_threadpool(sessions.delete, session_id)
         except ExecutionSessionNotFound:
-            return service_error_response(
-                code="unknown_execution_session",
-                message="the Execution session does not exist",
-                status_code=404,
-            )
+            return _execution_service_error_response("unknown_execution_session")
         return JSONResponse(
             ExecutionSessionDeletedResponse(session_id=session_id).model_dump(
                 mode="json"

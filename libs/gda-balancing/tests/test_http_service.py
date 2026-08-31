@@ -17,6 +17,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
+from pydantic import ValidationError
 from starlette.types import Receive, Scope, Send
 
 from gda_balancing.application.execution_sessions import (
@@ -25,7 +26,27 @@ from gda_balancing.application.execution_sessions import (
     ExperimentRevisionAdmitted,
 )
 from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.diagnostics import (
+    ArtifactLocation,
+    Schema2Diagnostic,
+    Schema2RefusalReport,
+)
 from gda_balancing.domain.runtime.projections import evaluator_build_identity
+from gda_balancing.interfaces.execution_service_language import (
+    EXECUTION_SERVICE_LANGUAGE_REVISION,
+    AdmitExperimentRevisionRequest,
+    CreateExecutionSessionRequest,
+    ExecutionServiceErrorCode,
+    ExecutionSessionCreatedResponse,
+    ExecutionSessionDeletedResponse,
+    ExperimentRevisionAdmittedResponse,
+    RefusalResponse,
+    RunExperimentRequest,
+    RunRefusalResponse,
+    RunSuccessResponse,
+    RunVerdictResponse,
+    execution_service_error,
+)
 from gda_balancing.interfaces.http.api_v1 import create_api_v1
 from gda_balancing.interfaces.http.local_host import (
     LocalHostReadiness,
@@ -74,6 +95,168 @@ def _rpg_combat_documents() -> tuple[dict[str, Any], dict[str, Any]]:
             (_RPG_COMBAT_EXAMPLE / "experiment.json").read_text(encoding="utf-8")
         ),
     )
+
+
+def _example_refusal() -> Schema2RefusalReport:
+    return Schema2RefusalReport(
+        stage="ingress",
+        diagnostics=(
+            Schema2Diagnostic(
+                code="language.invalid_source",
+                message="the source is invalid",
+                primary=ArtifactLocation(
+                    content_identity="sha256:source",
+                    pointer="/",
+                ),
+            ),
+        ),
+        truncated=False,
+    )
+
+
+def test_execution_service_language_establish_session_contract_is_closed() -> None:
+    payload = {
+        "model_source": {"schema_version": "2.0.0"},
+        "experiment_specification": {"schema_version": "2.0.0"},
+    }
+
+    request = CreateExecutionSessionRequest.model_validate(payload)
+    response = ExecutionSessionCreatedResponse(
+        session_id="session-1",
+        resolved_model_identity="sha256:resolved-model",
+        revision_id="sha256:experiment",
+    )
+
+    assert EXECUTION_SERVICE_LANGUAGE_REVISION == 1
+    assert request.model_dump(mode="json") == payload
+    assert response.model_dump(mode="json") == {
+        "outcome": "success",
+        "session_id": "session-1",
+        "resolved_model_identity": "sha256:resolved-model",
+        "revision_id": "sha256:experiment",
+    }
+    with pytest.raises(ValidationError):
+        CreateExecutionSessionRequest.model_validate(
+            {**payload, "implicit_active_revision": True}
+        )
+
+
+def test_execution_service_language_admit_revision_contract_is_closed() -> None:
+    payload = {"experiment_specification": {"schema_version": "2.0.0"}}
+
+    request = AdmitExperimentRevisionRequest.model_validate(payload)
+    response = ExperimentRevisionAdmittedResponse(
+        revision_id="sha256:experiment",
+        created=True,
+    )
+
+    assert request.model_dump(mode="json") == payload
+    assert response.model_dump(mode="json") == {
+        "outcome": "success",
+        "revision_id": "sha256:experiment",
+        "created": True,
+    }
+    with pytest.raises(ValidationError):
+        AdmitExperimentRevisionRequest.model_validate(
+            {**payload, "replace_active_revision": True}
+        )
+
+
+def test_execution_service_language_run_success_contract_is_closed() -> None:
+    payload = {"revision_id": "sha256:experiment"}
+    artifacts = {"evaluation-run": {"artifact_kind": "evaluation-run"}}
+
+    request = RunExperimentRequest.model_validate(payload)
+    response = RunSuccessResponse(artifacts=artifacts)
+
+    assert request.model_dump(mode="json") == payload
+    assert response.model_dump(mode="json") == {
+        "outcome": "success",
+        "artifacts": artifacts,
+    }
+    with pytest.raises(ValidationError):
+        RunExperimentRequest.model_validate({**payload, "latest": True})
+
+
+def test_execution_service_language_reuses_the_domain_refusal_contract() -> None:
+    refusal = _example_refusal()
+
+    response = RefusalResponse(refusal=refusal)
+    mutated = response.model_dump(mode="json")
+    mutated["refusal"]["transport_extension"] = True
+
+    assert response.refusal is refusal
+    assert "Schema2RefusalReport" in RefusalResponse.model_json_schema()["$defs"]
+    with pytest.raises(ValidationError):
+        RefusalResponse.model_validate(mutated)
+
+
+def test_execution_service_language_run_outcomes_share_one_artifact_shape() -> None:
+    artifacts = {"evaluation-run": {"artifact_kind": "evaluation-run"}}
+    refusal = _example_refusal()
+
+    verdict = RunVerdictResponse(
+        failed_metrics=["damage-per-turn"],
+        artifacts=artifacts,
+    )
+    refused = RunRefusalResponse(refusal=refusal, artifacts=artifacts)
+
+    assert verdict.model_dump(mode="json") == {
+        "outcome": "verdict",
+        "failed_metrics": ["damage-per-turn"],
+        "artifacts": artifacts,
+    }
+    assert refused.model_dump(mode="json") == {
+        "outcome": "refusal",
+        "refusal": refusal.model_dump(mode="json"),
+        "artifacts": artifacts,
+    }
+    assert refused.refusal is refusal
+
+
+def test_execution_service_language_release_session_contract_is_closed() -> None:
+    response = ExecutionSessionDeletedResponse(session_id="session-1")
+
+    assert response.model_dump(mode="json") == {
+        "outcome": "success",
+        "session_id": "session-1",
+    }
+    with pytest.raises(ValidationError):
+        ExecutionSessionDeletedResponse.model_validate(
+            {
+                "outcome": "success",
+                "session_id": "session-1",
+                "remaining_revisions": 0,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        (
+            "unknown_execution_session",
+            "the Execution session does not exist",
+        ),
+        (
+            "unknown_experiment_revision",
+            "the Experiment revision does not exist",
+        ),
+    ],
+)
+def test_execution_service_language_owns_shared_selection_errors(
+    code: ExecutionServiceErrorCode,
+    message: str,
+) -> None:
+    error = execution_service_error(code)
+
+    assert error.model_dump(mode="json") == {
+        "error": {
+            "category": "service",
+            "code": code,
+            "message": message,
+        }
+    }
 
 
 @pytest.fixture(scope="module")
