@@ -632,14 +632,18 @@ def reference_execute_event(
                     )
                 elif operator in {
                     "integer-add",
+                    "integer-floor-divide",
                     "integer-subtract",
                     "integer-multiply",
                     "integer-maximum",
                 }:
                     left = integer(cell(instruction["left"])["value"])
                     right = integer(cell(instruction["right"])["value"])
+                    if operator == "integer-floor-divide" and right <= 0:
+                        raise ValueError("floor-divide divisor must be positive")
                     result = {
                         "integer-add": lambda: left + right,
+                        "integer-floor-divide": lambda: left // right,
                         "integer-subtract": lambda: left - right,
                         "integer-multiply": lambda: left * right,
                         "integer-maximum": lambda: max(left, right),

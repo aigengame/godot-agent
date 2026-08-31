@@ -28,6 +28,36 @@ def formula_contract_matches(
     )
 
 
+def formula_contract_contains(
+    container: dict[str, Any],
+    actual: dict[str, Any],
+) -> bool:
+    """Return whether one Formula contract accepts every value in another."""
+    if container.get("type_identity") != actual.get("type_identity") or any(
+        container.get(member) != actual.get(member)
+        for member in ("representation", "kind", "unit", "numeric_policy")
+    ):
+        return False
+    container_domain = container.get("domain")
+    actual_domain = actual.get("domain")
+    if (
+        container.get("domain_kind") != "closed-interval"
+        or actual.get("domain_kind") != "closed-interval"
+        or not isinstance(container_domain, dict)
+        or not isinstance(actual_domain, dict)
+        or not all(
+            isinstance(domain.get(member), int) and not isinstance(domain[member], bool)
+            for domain in (container_domain, actual_domain)
+            for member in ("minimum", "maximum")
+        )
+    ):
+        return container_domain == actual_domain
+    return (
+        container_domain["minimum"] <= actual_domain["minimum"]
+        and actual_domain["maximum"] <= container_domain["maximum"]
+    )
+
+
 def formula_contract_matches_operation(
     formula_contract: dict[str, Any],
     operation_contract: dict[str, Any],
@@ -35,12 +65,32 @@ def formula_contract_matches_operation(
     """Compare a resolved Formula contract with an Operation formal contract."""
     formula_type = formula_contract.get("type_identity")
     operation_type = operation_contract.get("type")
+    actual_domain = formula_contract.get("domain")
+    formal_domain = operation_contract.get("domain")
+    domain_matches = formal_domain == {"kind": "actual"} or (
+        actual_domain == formal_domain
+        or (
+            formula_contract.get("domain_kind") == "closed-interval"
+            and isinstance(actual_domain, dict)
+            and isinstance(formal_domain, dict)
+            and formal_domain.get("kind") == "closed-interval"
+            and all(
+                isinstance(domain.get(member), int)
+                and not isinstance(domain[member], bool)
+                for domain in (actual_domain, formal_domain)
+                for member in ("minimum", "maximum")
+            )
+            and formal_domain["minimum"] <= actual_domain["minimum"]
+            and actual_domain["maximum"] <= formal_domain["maximum"]
+        )
+    )
     return (
         isinstance(formula_type, dict)
         and isinstance(operation_type, dict)
         and formula_type.get("package") == operation_type.get("package")
         and formula_type.get("version") == operation_type.get("version")
         and formula_type.get("symbol") == operation_type.get("id")
+        and domain_matches
         and all(
             formula_contract.get(member) == operation_contract.get(member)
             for member in (

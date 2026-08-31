@@ -1,0 +1,384 @@
+{
+  "schema_version": "2.0.0",
+  "id": "example.rpg-stat-composition.golden-attack",
+  "version": "1.0.0",
+  "kernel_identity": "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6",
+  "language_bundle_identity": "sha256:57d83b20f0e198668fd22e2284229ebba8f5849f970c8b59a6871e23a032726e",
+  "model": {
+    "source_identity": "sha256:2e3d7bf0de0833648ef80b6889eb8a321aa806ae7a6f67d6b3b5673d27d2c9e1",
+    "build_receipt_identity": "sha256:bfa91557dd7de78d001f5b73fb4b055115f8609a0570f60d2339cfcca60fdf2c",
+    "resolved_model_identity": "sha256:0c9a3e69849c297154c32e8eaac25d71f35e39e0e1b65ad7f09ebe8bb5df7113",
+    "package_lock_identity": "sha256:6d78655a59fe8563576de4289faec9563fdd071d814df8b6298b898fff914f8e",
+    "rir_identity": "sha256:7b6c877a75d27d3064e5d96d0783c0f89d86b84fc97000d14b48772f3d9ffdf6"
+  },
+  "runtime": {
+    "profile": "standard.exact-int64-event-v1",
+    "required_evaluator": {
+      "operation_kinds": [
+        "event-fragment"
+      ],
+      "instruction_nodes": [
+        "add",
+        "constant",
+        "copy",
+        "floor-divide",
+        "if",
+        "less-than",
+        "less-than-or-equal",
+        "maximum",
+        "multiply",
+        "subtract",
+        "subtract-state"
+      ],
+      "effects": [
+        "event.commit",
+        "metric.observe",
+        "rng.named-stream",
+        "snapshot.commit"
+      ],
+      "numeric_policies": [
+        "exact-int64"
+      ],
+      "rng_algorithms": [
+        "splitmix64-v1"
+      ],
+      "runtime_profiles": [
+        "standard.exact-int64-event-v1"
+      ]
+    }
+  },
+  "seed": {
+    "algorithm": "splitmix64-v1",
+    "value": 20260827
+  },
+  "scenarios": [
+    {
+      "id": "golden-attack",
+      "event_plan": [
+        {
+          "kind": "transition-invocation",
+          "root_event_ref": "attack-training-dummy",
+          "logical_time": 0,
+          "priority": 0,
+          "entrypoint": "stats.attack-training-dummy",
+          "payload": []
+        }
+      ],
+      "assignments": [
+        {
+          "target": {
+            "model": "example.rpg-stat-composition",
+            "module": "stats",
+            "name": "base_damage"
+          },
+          "value": 20
+        },
+        {
+          "target": {
+            "model": "example.rpg-stat-composition",
+            "module": "stats",
+            "name": "damage_per_level"
+          },
+          "value": 4
+        },
+        {
+          "target": {
+            "model": "example.rpg-stat-composition",
+            "module": "stats",
+            "name": "level"
+          },
+          "value": 3
+        },
+        {
+          "target": {
+            "model": "example.rpg-stat-composition",
+            "module": "stats",
+            "name": "weapon_damage_bonus"
+          },
+          "value": 8
+        },
+        {
+          "target": {
+            "model": "example.rpg-stat-composition",
+            "module": "stats",
+            "name": "buff_percent"
+          },
+          "value": 25
+        },
+        {
+          "target": {
+            "model": "example.rpg-stat-composition",
+            "module": "stats",
+            "name": "buff_enabled"
+          },
+          "value": 1
+        },
+        {
+          "target": {
+            "model": "example.rpg-stat-composition",
+            "module": "stats",
+            "name": "maximum_damage"
+          },
+          "value": 60
+        },
+        {
+          "target": {
+            "model": "example.rpg-stat-composition",
+            "module": "stats",
+            "name": "target_health"
+          },
+          "value": 120
+        }
+      ],
+      "named_streams": [],
+      "terminal_condition": {
+        "kind": "queue-drained"
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "id": "base_damage",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "scenario",
+          "value": "golden-attack"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "applied",
+        "member": "base_damage"
+      },
+      "target": {
+        "minimum": 20,
+        "maximum": 20
+      }
+    },
+    {
+      "id": "progression_damage",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "scenario",
+          "value": "golden-attack"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "applied",
+        "member": "progression_damage"
+      },
+      "target": {
+        "minimum": 12,
+        "maximum": 12
+      }
+    },
+    {
+      "id": "build_damage",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "scenario",
+          "value": "golden-attack"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "applied",
+        "member": "build_damage"
+      },
+      "target": {
+        "minimum": 8,
+        "maximum": 8
+      }
+    },
+    {
+      "id": "pre_buff_damage",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "scenario",
+          "value": "golden-attack"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "applied",
+        "member": "pre_buff_damage"
+      },
+      "target": {
+        "minimum": 40,
+        "maximum": 40
+      }
+    },
+    {
+      "id": "effect_damage",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "scenario",
+          "value": "golden-attack"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "applied",
+        "member": "effect_damage"
+      },
+      "target": {
+        "minimum": 10,
+        "maximum": 10
+      }
+    },
+    {
+      "id": "attack_damage",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "scenario",
+          "value": "golden-attack"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "applied",
+        "member": "attack_damage"
+      },
+      "target": {
+        "minimum": 50,
+        "maximum": 50
+      }
+    },
+    {
+      "id": "damage_dealt",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "scenario",
+          "value": "golden-attack"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "applied",
+        "member": "damage_dealt"
+      },
+      "target": {
+        "minimum": 50,
+        "maximum": 50
+      }
+    },
+    {
+      "id": "target_health",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "scenario",
+          "value": "golden-attack"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "target_health"
+      },
+      "target": {
+        "minimum": 70,
+        "maximum": 70
+      }
+    }
+  ],
+  "acceptance": {
+    "policy": "all-metrics-within-target"
+  }
+}

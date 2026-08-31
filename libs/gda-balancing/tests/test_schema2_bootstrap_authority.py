@@ -728,6 +728,36 @@ def test_cancel_target_is_a_kernel_owned_schedule_result_reference():
     }
 
 
+def test_kernel_owns_exact_int64_floor_divide_primitive():
+    runtime = _authority_candidate()["kernel"]["meta_format"]["runtime_program"]
+    node = next(row for row in runtime["nodes"] if row["id"] == "floor-divide")
+
+    assert node == {
+        "family": "expression",
+        "id": "floor-divide",
+        "operand_constraints": [
+            {"kind": "runtime-numeric", "members": ["left", "right"]},
+            {"kind": "positive-runtime-numeric-domain", "members": ["right"]},
+        ],
+        "refusals": [],
+        "required_members": ["node", "target", "left", "right"],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {
+            "kind": "local",
+            "typing": {
+                "kind": "same-as-references",
+                "members": ["left"],
+            },
+        },
+        "semantics": {"operator": "integer-floor-divide"},
+    }
+    assert "floor-divide" in runtime["expression_nodes"]
+    assert any(
+        vector["id"] == "runtime.node.floor-divide" and vector["node"] == "floor-divide"
+        for vector in runtime["vectors"]
+    )
+
+
 @pytest.mark.parametrize(
     "mutation",
     (
@@ -933,12 +963,15 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     authority = _authority_candidate()
     kernel = authority["kernel"]
     ldb = authority["language_bundle"]
-    packages = {package["id"]: package for package in ldb["language"]["packages"]}
+    packages = {
+        (package["id"], package["version"]): package
+        for package in ldb["language"]["packages"]
+    }
     vector_sets = {
-        vector_set["package_id"]: vector_set
+        (vector_set["package_id"], vector_set["package_version"]): vector_set
         for vector_set in ldb.package_conformance_vector_sets
     }
-    runtime_package = packages["standard.runtime"]
+    runtime_package = packages[("standard.runtime", "1.1.0")]
     runtime_profile = next(
         definition
         for entry in runtime_package["semantic_closure"]
@@ -997,15 +1030,15 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "snapshot_identity_domain": "runtime-snapshot-v2",
     }
     expected_vector_ids = {
-        "standard.schema": {
+        ("standard.schema", "2.4.0"): {
             "formula.schema.accept.named-typed-pure-graph",
             "formula.schema.refuse.dynamic-or-effectful-graph",
         },
-        "standard.compiler": {
+        ("standard.compiler", "1.1.0"): {
             "formula.compiler.accept.closed-static-graph",
             "formula.compiler.refuse.invalid-closure",
         },
-        "standard.runtime": {
+        ("standard.runtime", "1.1.0"): {
             "formula.runtime.accept.initialization-and-event-frames",
             "formula.runtime.refuse.initialization-atomically",
             "formula.runtime.boundary.cache-charge-invariant",
@@ -1013,7 +1046,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
             "formula.runtime.observation.boundary.snapshot-cache-key",
             "formula.runtime.observation.refusal.atomic-prefix",
         },
-        "core.quantity": {
+        ("core.quantity", "2.1.0"): {
             "formula.quantity.accept.pure-operation-closure",
             "formula.quantity.accept.boolean-comparison",
             "formula.notation.quantity.floor-zero",
@@ -1022,18 +1055,18 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
             "formula.notation.quantity.maximum",
             "formula.notation.quantity.subtract",
         },
-        "game.combat": {
+        ("game.combat", "2.1.0"): {
             "formula.combat.accept.damage-slot-binding",
             "formula.combat.refuse.missing-or-duplicate-slot-binding",
         },
     }
-    for package_id, expected in expected_vector_ids.items():
+    for coordinate, expected in expected_vector_ids.items():
         assert expected <= {
-            vector["id"] for vector in vector_sets[package_id]["vector_definitions"]
+            vector["id"] for vector in vector_sets[coordinate]["vector_definitions"]
         }
     runtime_vectors = {
         vector["id"]: vector
-        for vector in vector_sets["standard.runtime"]["vector_definitions"]
+        for vector in vector_sets[("standard.runtime", "1.1.0")]["vector_definitions"]
     }
     kernel_vector_kinds = {
         kind["id"] for kind in kernel["meta_format"]["package_vector"]["kinds"]
@@ -1041,7 +1074,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     assert "artifact-evidence" not in kernel_vector_kinds
     assert {
         runtime_vectors[vector_id]["kind"]
-        for vector_id in expected_vector_ids["standard.runtime"]
+        for vector_id in expected_vector_ids[("standard.runtime", "1.1.0")]
         if ".observation." in vector_id
     } == {"value-program"}
     assert runtime_package["exports"]["artifact_wire_schemas"] == []
@@ -1062,13 +1095,13 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "runtime.lifecycle-observation.positive",
         "runtime.lifecycle-observation.refusal",
     }
-    for vector_id in expected_vector_ids["standard.runtime"]:
+    for vector_id in expected_vector_ids[("standard.runtime", "1.1.0")]:
         if ".observation." not in vector_id:
             continue
         vector = runtime_vectors[vector_id]
         assert vector["input"]["site"] in expected_sites
         assert vector["expect"]["site"] == vector["input"]["site"]
-    compiler_package = packages["standard.compiler"]
+    compiler_package = packages[("standard.compiler", "1.1.0")]
     resolution_profile = next(
         definition
         for entry in compiler_package["semantic_closure"]
@@ -1081,7 +1114,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     ] == [{"alias": "Boolean", "contract": "kernel-boolean"}]
     quantity_operations = {
         definition["id"]: definition
-        for entry in packages["core.quantity"]["semantic_closure"]
+        for entry in packages[("core.quantity", "2.1.0")]["semantic_closure"]
         if entry["authority_path"] == "language.operations"
         for definition in entry["definitions"]
     }
@@ -1103,7 +1136,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     }
     quantity_vectors = {
         vector["id"]: vector
-        for vector in vector_sets["core.quantity"]["vector_definitions"]
+        for vector in vector_sets[("core.quantity", "2.1.0")]["vector_definitions"]
     }
     for operation_id, operation in quantity_operations.items():
         vector_id = f"formula.notation.{operation_id}"

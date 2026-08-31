@@ -17,6 +17,7 @@ uv sync
 | Reward selection and build replacement | [`../roguelike-reward-build/`](../roguelike-reward-build/) | [Seeded Roguelike reward and build tuning](../roguelike-reward-build/README.md) |
 | Reciprocal RPG combat | [`../rpg-combat-cast/`](../rpg-combat-cast/) | [Reciprocal RPG combat through ordered Runtime Events](../rpg-combat-cast/README.md) |
 | Periodic Effect timing | [`../rpg-periodic-effect/`](../rpg-periodic-effect/) | [One periodic Effect through the Runtime Event queue](../rpg-periodic-effect/README.md) |
+| RPG Attack Damage composition | [`../rpg-stat-composition/`](../rpg-stat-composition/) | [Level, Weapon, Buff, rounding, and cap composition](../rpg-stat-composition/README.md) |
 | Neutral structured values | [`../structured-selection/`](../structured-selection/) | [Structured values through Model build and Runtime](../structured-selection/README.md) |
 
 Each tutorial reads its linked `model-source.json` and `experiment*.json` files directly. Tutorial

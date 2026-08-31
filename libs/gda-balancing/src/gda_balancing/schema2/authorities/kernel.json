@@ -131,7 +131,8 @@
             },
             {
               "keys": [
-                "id"
+                "id",
+                "version"
               ],
               "path": "language_bundle.language.components",
               "subject": "language.components"
@@ -145,7 +146,8 @@
             },
             {
               "keys": [
-                "id"
+                "id",
+                "version"
               ],
               "path": "language_bundle.language.conversions",
               "subject": "language.conversions"
@@ -166,7 +168,8 @@
             },
             {
               "keys": [
-                "id"
+                "id",
+                "version"
               ],
               "path": "language_bundle.language.operations",
               "subject": "language.operations"
@@ -913,7 +916,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:53ba784725ff78d51d0dd00b8e0de8b2c7c183c790358e2924fc93fcb207812c",
+  "content_identity": "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -4518,6 +4521,7 @@
             "add",
             "constant",
             "copy",
+            "floor-divide",
             "if",
             "maximum",
             "multiply",
@@ -5612,6 +5616,7 @@
         "constant",
         "copy",
         "equal",
+        "floor-divide",
         "greater-than-or-equal",
         "if",
         "less-than",
@@ -5830,6 +5835,48 @@
           },
           "semantics": {
             "operator": "canonical-equal"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "floor-divide",
+          "operand_constraints": [
+            {
+              "kind": "runtime-numeric",
+              "members": [
+                "left",
+                "right"
+              ]
+            },
+            {
+              "kind": "positive-runtime-numeric-domain",
+              "members": [
+                "right"
+              ]
+            }
+          ],
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "left",
+            "right"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left"
+              ]
+            }
+          },
+          "semantics": {
+            "operator": "integer-floor-divide"
           }
         },
         {
@@ -6679,6 +6726,45 @@
           },
           "kind": "node",
           "node": "equal"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "runtime-numeric",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              },
+              {
+                "kind": "positive-runtime-numeric-domain",
+                "members": [
+                  "right"
+                ]
+              }
+            ],
+            "operator": "integer-floor-divide",
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left"
+              ]
+            }
+          },
+          "id": "runtime.node.floor-divide",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "left",
+              "right"
+            ]
+          },
+          "kind": "node",
+          "node": "floor-divide"
         },
         {
           "expect": {

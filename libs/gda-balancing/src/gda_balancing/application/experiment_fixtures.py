@@ -38,13 +38,28 @@ def _prepare_experiment(
         raise RuntimeError("Experiment conformance source fixture is not literal")
     source_value = deepcopy(source_fixture["source"])
     if runtime_refusal:
+        minimum = -(1 << 63)
+        maximum = (1 << 63) - 1
         target_defense = next(
             row
             for module in source_value["modules"]
             for row in module["symbols"]
             if row["symbol"] == "target_defense"
         )
-        target_defense["domain"]["minimum"] = -(1 << 63)
+        target_defense["domain"]["minimum"] = minimum
+        mitigated_damage = next(
+            row
+            for module in source_value["modules"]
+            for row in module["formulas"]
+            if row["id"] == "mitigated-damage"
+        )
+        mitigation = next(
+            row for row in mitigated_damage["parameters"] if row["id"] == "mitigation"
+        )
+        mitigation["domain"]["minimum"] = minimum
+        mitigated_damage["result"]["domain"]["maximum"] = maximum
+        for node in mitigated_damage["body"]["nodes"]:
+            node["result"]["domain"]["maximum"] = maximum
     source = root / f"experiment-model-{token}.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     built = build_model(
