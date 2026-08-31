@@ -556,11 +556,21 @@ def test_script_validate_refuses_a_script_outside_the_resolved_project(
 
     assert result.exit_code == 4
     error = json.loads(result.stdout)["error"]
-    assert error["code"] == "project_not_found"
+    # #697: the sibling code, not `project_not_found` — a project WAS resolved, it
+    # just does not own this file, and the remedy is a DIFFERENT project rather
+    # than supplying one. Reusing the projectless code said neither.
+    assert error["code"] == "target_outside_project"
     assert error["category"] == "operation"
     # Both locations are named: where the file is, and which project was resolved.
     assert str(outsider.resolve()) in error["message"]
     assert str(proj.resolve()) in error["message"]
+    # ...and both ride as TYPED evidence (#687), because they are exactly the pair
+    # a caller needs to do for itself the derivation ADR-0006 refuses to do for it:
+    # walk up from the target to its own project.godot and re-issue with it.
+    assert error["evidence"] == {
+        "target_location": str(outsider.resolve()),
+        "project_root": str(proj.resolve()),
+    }
     # Nothing was parsed: no engine call was made at all.
     assert fake.calls == []
 
@@ -591,7 +601,7 @@ def test_script_validate_refusal_is_identical_on_the_params_json_path(
     )
 
     assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
+    assert json.loads(result.stdout)["error"]["code"] == "target_outside_project"
     assert fake.calls == []
 
 
@@ -647,7 +657,7 @@ def test_script_validate_refuses_a_res_dotdot_escape_the_same_as_the_absolute_sp
     error_abs = json.loads(result_abs.stdout)["error"]
     error_res = json.loads(result_res.stdout)["error"]
     assert result_abs.exit_code == result_res.exit_code == 4
-    assert error_abs["code"] == error_res["code"] == "project_not_found"
+    assert error_abs["code"] == error_res["code"] == "target_outside_project"
     assert error_abs["category"] == error_res["category"] == "operation"
     # Both spellings name the SAME underlying location in their message.
     assert str(outsider.resolve()) in error_abs["message"]
@@ -747,8 +757,97 @@ def test_script_validate_does_not_refuse_a_colon_bearing_path_as_virtual(
     )
 
     assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
+    assert json.loads(result.stdout)["error"]["code"] == "target_outside_project"
     assert fake.calls == []
+
+
+def test_script_validate_refuses_a_target_a_nested_project_owns(monkeypatch, tmp_path):
+    # GDA-DF-035 reading 2, end to end: `outer` and `outer/inner` are both
+    # projects, `inner/main.gd` preloads `res://local_dep.gd` meaning INNER's root.
+    # Validated with --project outer the engine reported a cascade of false missing
+    # -file errors for a file that is perfectly valid in its own project, and only
+    # `project_root` hinted why. ADR-0006's 2026-08-31 amendment (#697) refuses
+    # instead and names the owner to pass.
+    outer = _project(tmp_path, "outer")
+    inner = _project(tmp_path, "outer/inner")
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            str(inner / "main.gd"),
+            "--project",
+            str(outer),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "target_outside_project"
+    assert str(inner) in error["message"]
+    # The owner is typed, because it is the one thing the caller has to retype.
+    assert error["evidence"] == {
+        "target_location": str((inner / "main.gd").resolve()),
+        "project_root": str(outer.resolve()),
+        "owning_project": str(inner.resolve()),
+    }
+    # Refused BEFORE the engine: the false cascade is never produced at all.
+    assert fake.calls == []
+
+
+def test_script_validate_refuses_a_projectless_target_that_has_an_owner(
+    monkeypatch, tmp_path
+):
+    # GDA-DF-035 reading 1 — the EXACT dogfooded invocation: a project nested in a
+    # plain workspace, validated from the ancestor. Nothing resolves, so the
+    # containment check had no root to be outside of and the file went to a
+    # projectless engine, where its res:// references resolved against nothing and
+    # produced the same cascade with `project_root: null` as the only clue.
+    workspace = tmp_path / "workspace"
+    game = _project(workspace, "game")
+    monkeypatch.chdir(workspace)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["script", "validate", "game/main.gd", "--json"])
+
+    assert result.exit_code == 4
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "target_outside_project"
+    # No root resolved, so that coordinate is OMITTED rather than invented — and
+    # the owner, the actionable one, is there.
+    assert error["evidence"] == {
+        "target_location": str((game / "main.gd").resolve()),
+        "owning_project": str(game.resolve()),
+    }
+    assert fake.calls == []
+
+
+def test_script_validate_still_validates_a_standalone_script_projectless(
+    monkeypatch, tmp_path
+):
+    # The mode ADR-0006 keeps, and the boundary of the refusal above: a loose .gd
+    # that no project.godot claims is still validated projectless by filesystem
+    # path. The ownership probe must not turn the documented fallback into a
+    # refusal for the files it exists to serve.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "scratch.gd").write_text("extends Node\n", encoding="utf-8")
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(stdout=_validate_sentinel(_ok("scratch.gd")), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(app, ["script", "validate", "scratch.gd", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout)["project_root"] is None
+    assert fake.calls, "a standalone script still reaches the engine"
 
 
 def _ancestor_cwd_project(monkeypatch, tmp_path):
@@ -837,7 +936,7 @@ def test_script_validate_still_refuses_a_relative_target_that_climbs_out(
     )
 
     assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
+    assert json.loads(result.stdout)["error"]["code"] == "target_outside_project"
     assert fake.calls == []
 
 
@@ -1247,7 +1346,7 @@ def test_script_validate_refuses_a_batch_whose_second_path_is_outside_the_projec
 
     assert result.exit_code == 4
     error = json.loads(result.stdout)["error"]
-    assert error["code"] == "project_not_found"
+    assert error["code"] == "target_outside_project"
     assert str(outsider.resolve()) in error["message"]
     assert fake.calls == []
 

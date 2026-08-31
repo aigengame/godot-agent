@@ -228,9 +228,6 @@ def test_params_json_accepts_the_project_relative_form_too(monkeypatch, tmp_path
         "",
         ".",
         "sub/..",
-        "..",
-        "../outside.gd",
-        "res://../outside.gd",
         "~nosuchuser_gda_test/x.gd",
     ],
 )
@@ -241,6 +238,8 @@ def test_a_non_project_scoped_path_emits_invalid_path_envelope(
     # another engine scheme, and a path naming the project root. `""` is the shape a
     # caller actually hits — an unset variable in `gda script run "$SCRIPT"` — which
     # reached the engine and came back a phantom exit-0 success before this guard.
+    # These are ADDRESS-FORM refusals; the upward escapes moved to the shared
+    # containment code below (#763).
     project = _project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
@@ -253,6 +252,30 @@ def test_a_non_project_scoped_path_emits_invalid_path_envelope(
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "invalid_path"
     assert not calls, "no engine launch on an invalid path"
+
+
+@pytest.mark.parametrize("script", ["..", "../outside.gd", "res://../outside.gd"])
+def test_an_escaping_path_emits_the_shared_containment_code(
+    monkeypatch, tmp_path, script
+):
+    # #763 at the CLI boundary: an upward escape is the SAME condition
+    # `script validate` and `resource import` refuse, so it reports the same code —
+    # one containment answer instead of a per-command spelling. It stays a
+    # pre-launch refusal, and it names no resolved root, because this whole path
+    # edge is decided ahead of the projectless check (ADR-0031).
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", script, "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "target_outside_project"
+    assert "evidence" not in err
+    assert not calls, "no engine launch on an escaping path"
 
 
 def test_a_tilde_path_is_refused_as_the_absolute_path_it_means(monkeypatch, tmp_path):

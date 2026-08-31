@@ -123,7 +123,11 @@ before you act on a `valid=false`: it names the project the scripts were compile
 against, and a verdict full of missing-`res://` errors (plus the type errors derived
 from them) usually means the wrong project, not a broken script — `null` means no
 project was resolved at all. Pass `--project` for the project that owns the files
-and re-read the verdict.
+and re-read the verdict. gda refuses up front, with `target_outside_project`, when
+the resolved project plainly does not own a path — outside its tree, or claimed by
+a nested `project.godot`, and with no project resolved too. It names the owner it
+found (`evidence.owning_project`) but never switches to it: re-issue with
+`--project <owner>`.
 
 ## Discovery
 

@@ -69,6 +69,108 @@ is a literal path component, not shell-style home expansion.
   it does not appear in a command's `--schema` input contract (ADR-0004) — the
   same treatment as `--godot`.
 
+> **Amendment (2026-08-31, #697 / #763) — a target another `project.godot` owns is
+> REFUSED, not derived from; and containment is one answer, in one place.**
+>
+> The option below, "derive the project from the target path", stays rejected — and this
+> amendment states what follows from that, which the original decision left for a caller
+> to discover: gda refuses a target the resolved project does not own, and `--project`
+> naming the owner is the supported way to say what you mean.
+>
+> **Why derivation stays rejected.** The reason recorded below got stronger, not weaker.
+> One call spanning several paths could imply several roots — and since #663's batch
+> `script validate` that is the normal case, not a corner. `project_root`, the field #695
+> added so a caller can attribute a `res://` cascade, would stop naming one thing. And the
+> dogfooded failure (GDA-DF-035) is a caller pointing gda at the wrong root: refusing NAMES
+> that condition, while deriving would paper over it and leave the caller unable to tell
+> which root a verdict came from.
+>
+> **What "does not own" means — two halves, one verdict.** A target belongs to the
+> resolved project only when both hold, and either one failing is the same refusal:
+>
+> 1. **Containment** — the target is inside the resolved project's tree
+>    (`gda.project.path_outside_project`). Unchanged in rule; see the second half of this
+>    amendment for where it is now decided.
+> 2. **Ownership** — the resolved project is the *nearest* `project.godot` at or above the
+>    target (`gda.project.owning_project`). This half is new. A target can sit squarely
+>    inside the resolved tree and still be owned by a nested project, and then its own
+>    `res://` references resolve against a root that is not its own: `outer/inner/main.gd`
+>    reads `valid` under `--project outer/inner` and `invalid` under `--project outer`,
+>    from a cascade of false missing-file errors. #695 pinned that as a deliberate scope
+>    line waiting on this amendment.
+>
+> **Finding an owner is not deriving one.** The walk is bounded (it stops at the resolved
+> project), lexical (it reads the caller's own spelling, so a monorepo's symlinked-in
+> shared directory stays inside as the engine reads it), and its result is REPORTED, never
+> adopted: resolution is still flag > env > cwd, one call still has exactly one root, and a
+> batch naming several owners still returns one verdict. The rejected option's two
+> objections — undefined outside any project, several roots per call — do not apply: no
+> owner simply means no refusal.
+>
+> **Projectless is checked too, and still exists.** With no project resolved there is
+> nothing to be outside OF, so containment cannot fire — which is exactly how the other
+> GDA-DF-035 reading (a project nested in a plain workspace, validated from the ancestor)
+> reached a projectless engine and produced the same cascade with `project_root: null` as
+> the only clue. Ownership runs to the filesystem root there and refuses, naming the owner.
+> A standalone `.gd` that no `project.godot` claims is still validated projectless by
+> filesystem path: the fallback is preserved for exactly the files it was written for
+> ("callers who pass absolute paths and never touch `res://`").
+>
+> **Two commands, not three.** `script validate` and `script run` apply ownership;
+> `resource import` does not. The failure ownership prevents is a target's OWN `res://`
+> references resolving against a foreign root, which happens when code is compiled or run.
+> An import request is about the resolved project's asset cache: the engine's `--import`
+> pass walks that project's whole tree — a nested project's files included, as the editor
+> does — and resolves no references out of the requested asset. Containment, which all
+> three apply, is what an import request needs.
+>
+> **The standalone-script consequence is blessed, not worked around.** With the refusal in
+> place and `--project ""` refused as empty, there is no flag that says "ignore the project
+> I am standing in". Deliberately: the cwd is the LAST resolution step, so the answer is to
+> not stand there — `cd` out, or name the owner — and a `--no-project` escape hatch would
+> add a cross-cutting flag to every command in the surface for a case no dogfooding round
+> has produced. Revisit it when one does.
+>
+> **Scheme sets stay per-command.** `user://` and `uid://` are engine-virtual but not the
+> project's namespace, so neither containment nor ownership says anything about them, and
+> each command's scheme set follows from its own contract: `script run` refuses them
+> because lifting a project-relative path onto `res://` cannot represent a second scheme
+> (ADR-0031); `resource import` refuses them because an asset is by definition a `res://`
+> member; `script validate` accepts them because the engine loads them and reports a true
+> verdict (verified on Godot 4.6.3: `gda script validate user://bad.gd` returns the real
+> parse error). Narrowing `script validate` would remove a working input with no
+> demonstrated defect.
+>
+> **`target_outside_project` is minted** (ADR-0002 registry) and is what all of the above
+> reports. `project_not_found` was true of neither the condition nor the remedy here — a
+> project WAS resolved, and the fix is to name a different one — and #697 stated the honest
+> trigger for a sibling code as a second producer of the class. Convergence produces three:
+> `script validate`, `script run` and `resource import` all report it. The refusal carries
+> the three coordinates of the mismatch as typed evidence (#687): `target_location`,
+> `project_root`, `owning_project` — each omitted when that refusal does not know it, which
+> is how gda hands over what it found without acting on it.
+>
+> **One containment answer, in the path authority (#763).** Three gates used to answer this
+> ADR's own question three ways, and two of them disagreed: `resource import` refused ANY
+> literal `..` (so `res://foo/../bar.gd`, which collapses net-inside, was refused there and
+> accepted by both script commands) and split on `PurePosixPath`, so `res://..\x.png` was one
+> segment carrying no `..` at all — inert on POSIX, a real parent-directory escape on
+> Windows. `gda.project` now owns the whole answer: `canonical_res_path` (the engine's
+> `String::simplify_path`, reproduced step by step — including the empty join, so the
+> project root has ONE spelling, `res://`, closing the parity gap PR #766 documented),
+> `res_escape_remainder` (canonicalize, then read what is still climbing), and the two
+> functions above. `gda.script_errors`, where the canonicalizer was written, is now one
+> consumer among several — the import that had this ADR's authority depending on a stderr
+> parser is gone. What stays with `script run` is what is genuinely its own: the
+> engine-`strip_edges` suffix and the engine-log line-boundary rules, which keep a canonical
+> identity matchable against what the engine echoes back, plus the root address naming a
+> directory rather than a script.
+>
+> **Not closed here.** A case-differing project spelling (`--project …/Game` against on-disk
+> `…/game`) is still refused on a case-insensitive filesystem: both readings compare strings
+> and `Path.resolve()` does not canonicalize case. A real fix needs a `samefile`-style walk
+> and is independent of this decision.
+
 ## Considered options
 
 - **`--project` flag, projectless fallback** (chosen) — explicit and

@@ -783,30 +783,112 @@ def script_run_project_not_found_failure() -> Failure:
     )
 
 
-def script_outside_project_failure(location: Path, project: Path) -> Failure:
-    """The ``project_not_found`` refusal for a target outside the resolved project (#658).
+def target_outside_project_failure(location: Path, project: Path) -> Failure:
+    """The ``target_outside_project`` refusal for a target outside the resolved project (#658, #697).
 
     ADR-0006 resolves ONE project per call (``--project`` > ``$GDA_PROJECT`` >
-    cwd) and deliberately does not derive it from the target path. A target that
-    lies outside that project would still be compiled against it, so every
-    ``res://`` dependency it names resolves against the wrong root: the engine
-    reports a cascade of missing-file and derived type errors for a file that is
-    perfectly valid in its own project, and the single project-context mistake is
-    buried under them. gda therefore refuses *before* the target is parsed and
-    reports the mismatch itself, naming both sides so the reader can see which
-    one is wrong.
+    cwd) and — as of its 2026-08-31 amendment, deliberately and now explicitly —
+    does not derive one from the target path. A target that lies outside that
+    project would still be compiled against it, so every ``res://`` dependency it
+    names resolves against the wrong root: the engine reports a cascade of
+    missing-file and derived type errors for a file that is perfectly valid in
+    its own project, and the single project-context mistake is buried under them.
+    gda therefore refuses *before* the target is parsed and reports the mismatch
+    itself, naming both sides so the reader can see which one is wrong.
 
-    It reuses ``project_not_found`` rather than minting a code: the failure is
-    that no project usable for this target was resolved, and the remedy is the
-    project context (``--project``) — the same class of mistake, and the same
-    branch an agent takes, as ``script run``'s projectless edge (ADR-0031).
+    The two commands that hold a resolved project when they ask the containment
+    question share this builder — ``script validate``'s recipe and ``resource
+    import``'s asset gate — so one condition reports one code, one message shape
+    and one pair of typed coordinates (#763). ``script run``'s pre-launch address
+    gate reaches the same verdict from the same rule but before project
+    resolution, so it carries the lexical sibling below.
+
+    Until #697 this reused ``project_not_found``, which was true of neither the
+    condition nor the remedy: a project WAS resolved, and the fix is to name a
+    DIFFERENT one (or a different target), not to supply one. The amendment mints
+    the sibling code on the trigger it had already stated — a second producer of
+    the class — which the convergence of #763 satisfies three times over.
+
+    The location and the resolved root also ride as typed evidence (#687), because
+    they are exactly the pair a caller needs to do for itself the derivation gda
+    refuses to do for it: walk up from the target to its own ``project.godot`` and
+    re-issue with that ``--project``.
     """
     return make_failure(
-        "project_not_found",
+        "target_outside_project",
         f"{location} is outside the resolved Godot project {project}: its res:// "
         "dependencies would resolve against the wrong root, so nothing was "
         "parsed. Pass --project for the project that owns this file, or name a "
         "file inside the resolved one.",
+        "",
+        evidence=FailureEvidence(
+            target_location=str(location), project_root=str(project)
+        ),
+    )
+
+
+def target_owned_by_another_project_failure(
+    location: Path, owner: Path, project: Path | None
+) -> Failure:
+    """The ``target_outside_project`` refusal for a target a NEARER project owns (#697).
+
+    The other half of the containment question, and the one
+    :func:`gda.project.path_outside_project` cannot see: the target sits inside the
+    resolved project's tree (or inside no project gda resolved at all), yet a
+    ``project.godot`` between it and that root claims it. Compiled or run against
+    the resolved root, every ``res://`` reference the target makes then resolves
+    against a root that is not its own — dogfooding GDA-DF-035, where the same file
+    reads valid or invalid depending only on which ancestor was named.
+
+    ADR-0006's 2026-08-31 amendment decides that this refuses rather than derives,
+    and this message is where the decision is visible to the caller: gda names the
+    owner it found and hands the call back, instead of quietly re-rooting the call
+    on it. The owner is the one thing the caller has to retype, so it rides typed
+    as well (#687).
+
+    ``project`` is ``None`` for a projectless run — the second GDA-DF-035 reading,
+    which produced the same false cascade with no root to attribute it to.
+    """
+    resolved = (
+        f"the resolved project {project}" if project is not None else "no project"
+    )
+    return make_failure(
+        "target_outside_project",
+        f"{location} belongs to the Godot project {owner}, but this call resolved "
+        f"{resolved}: its res:// references would resolve against the wrong root, "
+        f"so nothing was parsed. Pass --project {owner} to validate it in the "
+        "project that owns it.",
+        "",
+        evidence=FailureEvidence(
+            target_location=str(location),
+            project_root=str(project) if project is not None else None,
+            owning_project=str(owner),
+        ),
+    )
+
+
+def script_escapes_project_failure(script: str) -> Failure:
+    """The ``target_outside_project`` refusal ``script run`` makes lexically (#675, #697).
+
+    The same verdict, from the same rule (:func:`gda.project.res_escape_remainder`),
+    for the one gate that asks the containment question BEFORE a project is
+    resolved: ``script run`` decides its whole path ABI edge on the spelling alone,
+    ahead of the projectless check (ADR-0031). So this names no location and no
+    root — it has neither, and carries no evidence rather than inventing a project
+    the call may not even have — while still reporting the condition under the code
+    every other command reports it under, which is what an agent branches on.
+
+    Kept apart from :func:`target_outside_project_failure` rather than folded into
+    it behind two optional arguments: the difference is not a formatting variant
+    but WHICH facts the caller holds, and a builder whose message silently drops
+    half of itself is the kind of seam that later grows a wrong default.
+    """
+    return make_failure(
+        "target_outside_project",
+        f"script {script!r} escapes above the project root: script run addresses "
+        "only files inside the project it runs against, so nothing was launched. "
+        "Pass --project for the project that owns this file, or name a path "
+        "inside the project.",
         "",
     )
 

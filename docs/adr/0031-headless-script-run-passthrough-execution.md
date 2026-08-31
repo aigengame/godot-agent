@@ -97,6 +97,25 @@ status: accepted
 > otherwise the accepted form and the form every failure message quotes would differ with nothing to
 > connect them. This is a schema addition in ADR-0004's sense, moving with the implementation.
 >
+> **Amendment (2026-08-31, #697 / #763) — the upward escape leaves this ABI edge for the
+> shared containment code, and the resolved project must OWN the script.** Two changes, both
+> from ADR-0006's amendment of the same date.
+>
+> The path gate below refuses seven shapes as `invalid_path`. Six are questions about the
+> FORM of an address and stay exactly as recorded. The seventh — a path **escaping above the
+> root** — is not a spelling question but the containment question every path-taking command
+> asks, so it now reports `target_outside_project`, the code `script validate` and
+> `resource import` report for the same condition, and it reaches that verdict through the
+> shared rule (`gda.project.res_escape_remainder`) instead of a copy of it. The gate itself
+> returns the refusal rather than `None`, so each shape carries its own code. Because the
+> whole path edge is decided ahead of the projectless check, this one refusal names no
+> resolved root and carries no typed evidence — it has neither.
+>
+> Second: after the project resolves, `script run` also requires it to be the script's OWNER
+> — no nearer `project.godot` between the two. The lexical gate cannot see one, and running
+> against the outer root would resolve the script's own `res://` references against a root
+> that is not its own. One rule, two commands, one code.
+>
 > **What stays refused**, all decided before any launch as `invalid_path`: an **absolute** path;
 > **another engine scheme** (`user://`, `uid://` — lifting one would splice a second scheme into a
 > res:// address and send the engine after a path nobody typed); a leading `~` (a filesystem HOME

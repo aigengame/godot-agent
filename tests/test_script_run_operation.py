@@ -287,26 +287,6 @@ def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
         "sub/..",
         "res://",
         "res://.",
-        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded before
-        # #698 fixed the parser (the engine's `Can't load script: res://..` used to
-        # parse back as `res://.`), and `../outside.gd` actually EXECUTED a script
-        # outside the project — refused regardless of the parser's own fix.
-        "..",
-        "sub/../..",
-        "../outside.gd",
-        "res://..",
-        "res://../outside.gd",
-        "../../etc/passwd",
-        # The SAME escape spelled with the engine's other separator. Godot folds
-        # `\\` to `/` across a res:// address before it collapses anything
-        # (`String::simplify_path`, ustring.cpp:4192), and this gate lifts a
-        # project-relative path onto a res:// address first, so both of these
-        # named the file one level above the project and were LAUNCHED — the
-        # widest form of the containment bypass PR #766's round-2 review found,
-        # closed here by the shared canonicalizer learning the fold.
-        "res://..\\outside.gd",
-        "..\\outside.gd",
-        "res://a\\..\\..\\outside.gd",
         # A leading `~` is a HOME reference — a filesystem address form. It reaches
         # the operation unexpanded only when the shared normalizer could not resolve
         # the user (#699); a resolvable `~/x.gd` arrives already expanded to an
@@ -339,16 +319,15 @@ def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
 )
 def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
     # The path ABI edge (ADR-0031, narrowed by #675): accepting the project-relative
-    # form must not accept everything ELSE that is merely non-absolute. The root and
-    # escape cases are load-bearing — the engine answers `Can't load script: res://.`
-    # / `res://..`, and before #698 fixed the parser that address came back with the
+    # form must not accept everything ELSE that is merely non-absolute. The root
+    # cases are load-bearing — the engine answers `Can't load script: res://.` /
+    # `res://..`, and before #698 fixed the parser that address came back with the
     # sentence period stripped, so it never matched the entry and the run reported a
-    # PHANTOM SUCCESS (exit 0). This refusal stays regardless of the parser's own fix
-    # — a resolvable escape is worse: `../outside.gd` RAN a script outside the
-    # project, which is exactly the ADR-0009 widening the amendment cites as its
-    # reason for refusing absolute paths. The trailing-engine-trim and embedded-line-
-    # boundary cases are the same phantom-success failure mode through two other
-    # identity-loss mechanisms — see #698 / PR #756.
+    # PHANTOM SUCCESS (exit 0). The trailing-engine-trim and embedded-line-boundary
+    # cases are the same phantom-success failure mode through two other
+    # identity-loss mechanisms — see #698 / PR #756. Every shape here is a question
+    # about the FORM of an address; the upward escape is the shared containment
+    # question and moved to the code below (#763).
     outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
 
     assert isinstance(outcome, Failure)
@@ -359,6 +338,98 @@ def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
     assert repr(script) in outcome.error.message
     assert "project-relative" in outcome.error.message
     assert "res://" in outcome.error.message
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded before
+        # #698 fixed the parser (the engine's `Can't load script: res://..` used to
+        # parse back as `res://.`), and `../outside.gd` actually EXECUTED a script
+        # outside the project — refused regardless of the parser's own fix, because
+        # running a script outside the project is precisely the ADR-0009 widening
+        # the ADR-0031 amendment cites for refusing absolute paths.
+        "..",
+        "sub/../..",
+        "../outside.gd",
+        "res://..",
+        "res://../outside.gd",
+        "../../etc/passwd",
+        # The SAME escape spelled with the engine's other separator. Godot folds
+        # `\\` to `/` across a res:// address before it collapses anything
+        # (`String::simplify_path`, ustring.cpp:4192), and this gate lifts a
+        # project-relative path onto a res:// address first, so both of these
+        # named the file one level above the project and were LAUNCHED — the
+        # widest form of the containment bypass PR #766's round-2 review found,
+        # closed by the shared canonicalizer learning the fold.
+        "res://..\\outside.gd",
+        "..\\outside.gd",
+        "res://a\\..\\..\\outside.gd",
+    ],
+)
+def test_an_escape_above_the_root_is_the_shared_containment_refusal(script):
+    # #763: this gate no longer decides containment for itself. It asks
+    # `gda.project.res_escape_remainder` — the lexical half of the authority
+    # `script validate` and `resource import` reach through
+    # (`path_outside_project`) — and reports the verdict under the code THEY report
+    # it under. Before, one condition had three codes across the three commands
+    # (`project_not_found` / `invalid_path` / `invalid_params`), so an agent could
+    # not branch on it once.
+    outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "target_outside_project"
+    assert not launch.calls, "no engine launch on an escaping path"
+    assert repr(script) in outcome.error.message
+    # No typed evidence: this gate runs BEFORE the projectless check (ADR-0031), so
+    # it holds neither the target's real location nor a resolved root, and it says
+    # so by omitting the key rather than by naming a project the call may not have.
+    assert outcome.error.evidence is None
+
+
+def test_a_script_a_nested_project_owns_is_refused_before_any_launch(tmp_path):
+    # ADR-0006's 2026-08-31 amendment, second command (#697): ONE rule, applied by
+    # `script validate` and `script run` alike. The address gate is lexical, so it
+    # cannot see a `project.godot` between the resolved root and the script;
+    # launched anyway, the script's own `res://` references would resolve against a
+    # root that is not its own — GDA-DF-035 in the executing form, where the wrong
+    # answer is a run that did something rather than a verdict that read wrong.
+    outer = tmp_path / "outer"
+    inner = outer / "inner"
+    inner.mkdir(parents=True)
+    (outer / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    (inner / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+
+    outcome, launch = _run(
+        RunResult(stdout="", stderr="", exit_code=0),
+        script="inner/main.gd",
+        project=outer,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "target_outside_project"
+    assert not launch.calls, "no engine launch on a script another project owns"
+    assert outcome.error.evidence is not None
+    assert outcome.error.evidence.owning_project == str(inner.resolve())
+
+
+def test_a_script_the_resolved_project_owns_still_launches(tmp_path):
+    # The boundary of the probe: the ordinary call. Every existing `script run`
+    # test uses a project directory that holds no marker at all, so this is the one
+    # that would catch a probe reading the resolved root's OWN marker as a foreign
+    # owner and refusing every correct invocation.
+    project = tmp_path / "game"
+    (project / "tests").mkdir(parents=True)
+    (project / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+
+    outcome, launch = _run(
+        RunResult(stdout="ok\n", stderr="", exit_code=0),
+        script="tests/logic.gd",
+        project=project,
+    )
+
+    assert isinstance(outcome, ScriptRunResult), getattr(outcome, "error", None)
+    assert launch.calls, "an owned script must reach the engine"
 
 
 def test_no_resolved_project_is_project_not_found_before_any_launch():

@@ -36,12 +36,14 @@ from gda.errors import (
     classify_run,
     make_failure,
     script_did_not_run_failure,
+    script_escapes_project_failure,
     script_exit_status_failure,
-    script_outside_project_failure,
     script_path_invalid_failure,
     script_run_aborted_failure,
     script_run_project_not_found_failure,
     script_run_timeout_failure,
+    target_outside_project_failure,
+    target_owned_by_another_project_failure,
     termination_phase,
     unresolvable_binary_failure,
 )
@@ -60,12 +62,18 @@ from gda.models import (
     ProjectRootedResult,
     TerminationPhase,
 )
-from gda.project import path_outside_project
+from gda.project import (
+    RES_PREFIX,
+    canonical_res_path,
+    owning_project,
+    path_outside_project,
+    project_anchored,
+    res_escape_remainder,
+)
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
 from gda.script_errors import (
     ScriptError,
     ScriptErrorKind,
-    canonical_res_path,
     entry_load_failure,
     parse_script_errors,
     script_error_line,
@@ -1154,16 +1162,12 @@ class ScriptRunResult(BaseModel):
 # Both accepted input spellings are folded onto it (ADR-0031 amendment, #675): a
 # res:// path is already one, and a project-relative path is relative to exactly
 # this root. An absolute/filesystem path is not, which is why it stays refused.
-_RES_PREFIX = "res://"
-
-# The canonical remainders that name the project ROOT itself rather than a script
-# inside it. Both spellings occur: an EMPTY remainder (`res://`) and one that
-# normalizes to `.` (`res://.`), so the degenerate check must cover the pair.
-_ROOT_REMAINDERS = frozenset({"", "."})
+# Imported from ADR-0006's path authority (`gda.project`) with the canonicalizer
+# it belongs to, rather than restated here (#763).
 
 
-def _project_scoped_res_path(script: str) -> str | None:
-    """The canonical ``res://`` address of an accepted script path, or ``None`` (#675).
+def _project_scoped_res_path(script: str) -> "str | Failure":
+    """The canonical ``res://`` address of an accepted script path, or the refusal (#675).
 
     The single acceptance gate for ``script run``'s path argument, applied BEFORE any
     launch so every refusal is a structured ``invalid_path`` and never an engine
@@ -1172,8 +1176,15 @@ def _project_scoped_res_path(script: str) -> str | None:
     :func:`canonical_res_path`, so the argv, the entry-load verdict and the reported
     path cannot diverge by input spelling.
 
-    Returns ``None`` for the seven shapes that are not project-scoped script
-    addresses. Each must be caught HERE, because each is otherwise launched:
+    Returns a structured :class:`~gda.errors.Failure` for the seven shapes that
+    are not project-scoped script addresses. Each must be caught HERE, because each
+    is otherwise launched. Six are ``invalid_path`` — this gate's own ADR-0031 ABI
+    edge, about the shape of an ADDRESS — and the seventh, the upward escape, is
+    ``target_outside_project``: that one is not a spelling question but the shared
+    containment question, decided by the shared rule and reported under the code
+    every other command reports it under (#763). It is also the one refusal this
+    gate makes with no project in hand, since the whole path edge is decided ahead
+    of the projectless check, which is why its message names no root:
 
     - an **absolute** path — outside the ``--project`` context (the reasons it stays
       refused are recorded on :func:`gda.errors.script_path_invalid_failure`);
@@ -1196,12 +1207,19 @@ def _project_scoped_res_path(script: str) -> str | None:
       the address into separate records. No one record retains the canonical entry
       identity, so a never-run entry can again report a phantom success. Ordinary
       leading and internal ASCII spaces remain accepted;
-    - a path that names the project **root** (``""``, ``"."``, ``"sub/.."``) — it names
-      a directory, not a script. An unset shell variable makes ``gda script run
-      "$SCRIPT"`` exactly this;
+    - a path that names the project **root** (``""``, ``"."``, ``"sub/.."``, and the
+      ``res://`` / ``res://.`` spellings) — it names a directory, not a script. An
+      unset shell variable makes ``gda script run "$SCRIPT"`` exactly this. ONE
+      remainder now spells the root, the engine's own empty one, because the shared
+      canonicalizer reproduces ``simplify_path``'s empty join too (#763) — the
+      former two-member root set was this gate accommodating a parity gap in a
+      primitive it did not own;
     - a path that **escapes above the root** (``".."``, ``"../outside.gd"``, and their
       ``res://`` spellings) — the project is the whole addressable scope, so an
-      upward escape names something the ``--project`` contract does not cover.
+      upward escape names something the ``--project`` contract does not cover. This
+      is the one clause this gate no longer decides for itself: it asks
+      :func:`gda.project.res_escape_remainder`, the shared rule ``script validate``
+      and ``resource import`` reach through :func:`gda.project.path_outside_project`.
 
     The last two are load-bearing, and it is not tidiness. The root-address clause
     is ALSO belt-and-suspenders against a parser risk: the engine answers a root
@@ -1230,36 +1248,42 @@ def _project_scoped_res_path(script: str) -> str | None:
     The escape test is on the canonical remainder's first SEGMENT, not a string
     prefix: ``res://..foo.gd`` is a legal file whose name merely starts with two dots,
     and must stay accepted.
+
+    The two rules that stay wholly local are the last two above, and deliberately
+    (#763): the trailing-``strip_edges`` suffix and the engine-log line boundary are
+    not containment at all but VERDICT MATCHING — they keep the canonical identity
+    matchable against what the engine echoes back on stderr, a concern only a
+    channel that reads that stderr has.
     """
     if Path(script).is_absolute():
-        return None
-    if "://" in script and not script.startswith(_RES_PREFIX):
-        return None
+        return script_path_invalid_failure(script)
+    if "://" in script and not script.startswith(RES_PREFIX):
+        return script_path_invalid_failure(script)
     # Only a LEADING `~` is a home reference (expanduser's own rule), so `sub/~x.gd`
     # stays a legal project-relative filename.
     if script.startswith("~"):
-        return None
-    lifted = script if script.startswith(_RES_PREFIX) else _RES_PREFIX + script
+        return script_path_invalid_failure(script)
+    lifted = script if script.startswith(RES_PREFIX) else RES_PREFIX + script
     canonical = canonical_res_path(lifted)
     # What the canonical address names UNDER the project root. canonical_res_path has
-    # already collapsed `.`/`..`, so a remainder that STILL leads with a `..` segment
-    # is an irreducible upward escape, and an empty/`.` one is the root itself.
-    remainder = canonical[len(_RES_PREFIX) :]
-    if remainder in _ROOT_REMAINDERS:
-        return None
-    if remainder == ".." or remainder.startswith("../"):
-        return None
+    # already collapsed `.`/`..` — and, like the engine, spells the fully collapsed
+    # case as the bare scheme — so an EMPTY remainder is the root itself.
+    remainder = canonical[len(RES_PREFIX) :]
+    if not remainder:
+        return script_path_invalid_failure(script)
+    if res_escape_remainder(canonical) is not None:
+        return script_escapes_project_failure(script)
     # Godot 4.6.3's String::strip_edges() removes trailing code points <= U+0020.
     # Refuse exactly that engine-normalized suffix set; Python str.rstrip() is wider
     # and would reject NBSP / EM SPACE even though Godot preserves them. Do not trim:
     # that would silently launch a different address from the one the caller named.
     if ord(remainder[-1]) <= 0x20:
-        return None
+        return script_path_invalid_failure(script)
     # engine_log owns the line protocol through str.splitlines(). Sentinels make a
     # boundary at either edge observable (splitlines otherwise suppresses a terminal
     # empty record), while any ordinary one-line address still produces one record.
     if len(engine_log_lines(f"x{remainder}x")) != 1:
-        return None
+        return script_path_invalid_failure(script)
     return canonical
 
 
@@ -1528,13 +1552,26 @@ def run_script_run_operation(
     # the entry-load verdict would silently fall through to a phantom success. The
     # raw `script` is kept for the refusal message, so it still quotes what the user
     # actually typed.
-    canonical = _project_scoped_res_path(script)
-    if canonical is None:
-        return script_path_invalid_failure(script)
+    outcome = _project_scoped_res_path(script)
+    if isinstance(outcome, Failure):
+        return outcome
     # Then require a resolved project — BOTH accepted forms resolve against one.
     if project is None:
         return script_run_project_not_found_failure()
-    script = canonical
+    script = outcome
+    # And require it to be the script's OWNER (ADR-0006 amendment, #697): the
+    # address gate above is lexical, so it cannot see a `project.godot` nested
+    # between the resolved root and the script. Running against the outer root
+    # would resolve the script's own `res://` references against a root that is
+    # not its own — GDA-DF-035 in the executing form. One rule, two commands: the
+    # same probe `script validate` applies, reported under the same code.
+    owner = owning_project(script, project)
+    if owner is not None:
+        return target_owned_by_another_project_failure(
+            (project / script[len(RES_PREFIX) :]).resolve(),
+            owner.resolve(),
+            project.expanduser().resolve(),
+        )
 
     try:
         binary = resolve_godot_binary(godot)
@@ -2083,6 +2120,19 @@ SCRIPT_ATTACH_COMMAND: HeadlessCommand[ScriptAttachResult] = HeadlessCommand(
 )
 
 
+def _target_location(path: str, project: "Path | None") -> Path:
+    """Where a refused target really is, for the message and the typed evidence.
+
+    Anchored the way the engine addresses it when a project is resolved
+    (:func:`~gda.project.project_anchored`), at the invoker's cwd otherwise — the
+    same two rules the containment check itself uses, so one refusal cannot name a
+    different file from the one that was checked.
+    """
+    if project is None:
+        return Path(path).expanduser().resolve()
+    return project_anchored(path, project).resolve()
+
+
 def _script_validate_recipe(
     params: ScriptValidateParams,
     *,
@@ -2102,17 +2152,29 @@ def _script_validate_recipe(
     compiled against a root that does not own them. A script outside the resolved
     project is refused HERE, before the engine is spawned, so the false ``res://``
     dependency cascade is never produced (see
-    :func:`~gda.errors.script_outside_project_failure`). The FIRST offender in
+    :func:`~gda.errors.target_outside_project_failure`). The FIRST offender in
     requested order is named, and it refuses the whole batch: the whole call has
     one project, so one outsider makes the requested set unservable, not just its
-    own entry. Only a *resolved* project can be missed, so projectless is not a
-    refusal: with no project resolved, gda validates standalone scripts by
-    filesystem path exactly as before (ADR-0006's projectless fallback). Whether a
-    script belongs to some OTHER project is not asked — deriving a project from the
-    target path is what ADR-0006 rejected, and discovering the nearest
-    ``project.godot`` waits on an amendment to it. ``--all`` has nothing to check:
-    the engine enumerates the resolved project's own tree, so every path it
-    produces is inside by construction.
+    own entry.
+
+    The refusal has TWO halves since ADR-0006's 2026-08-31 amendment (#697), and
+    the second is why a *projectless* call is now checked too. Containment
+    (:func:`~gda.project.path_outside_project`) asks whether the target is in the
+    resolved project's tree, which only a resolved project can fail. Ownership
+    (:func:`~gda.project.owning_project`) asks whether that project is really the
+    target's OWNER — a ``project.godot`` nearer to the target claims it — and that
+    is the half GDA-DF-035 exposed in both its readings: an ancestor that is a
+    project, with the target in a nested one; and a projectless run of a file that
+    does have an owner. Both compiled the target against a root that was not its
+    own and produced the same cascade of false ``res://`` errors. gda refuses and
+    names the owner instead of adopting it: deriving the root from the target is
+    what ADR-0006 rejected and the amendment keeps rejected, so ``--project``
+    naming the owner stays the way to say what you mean. A standalone script with
+    no owner is still validated projectless by filesystem path, exactly as before.
+
+    ``--all`` has nothing to check: the engine enumerates the resolved project's
+    own tree, so every path it produces is inside by construction — and any nested
+    project it enumerates is one the engine itself compiles against this root.
 
     Then the report: the resolved project is stamped onto the result as
     ``project_root``, so a caller reading a ``valid=false`` verdict sees which
@@ -2128,13 +2190,21 @@ def _script_validate_recipe(
     built once by the caller, identical on the argv and ``--params-json`` paths
     (ADR-0015).
     """
-    root = None
-    if project is not None:
-        root = project.expanduser().resolve()
-        for path in params.paths:
+    root = None if project is None else project.expanduser().resolve()
+    for path in params.paths:
+        # Ownership first: it is the more specific diagnosis, and it is the only
+        # one a projectless call can make. Containment then needs a root to be
+        # outside OF — `root` is set exactly when `project` is, and both are named
+        # so the narrowing stays local to the branch that uses them.
+        owner = owning_project(path, project)
+        if owner is not None:
+            return target_owned_by_another_project_failure(
+                _target_location(path, project), owner.resolve(), root
+            )
+        if project is not None and root is not None:
             outside = path_outside_project(path, project)
             if outside is not None:
-                return script_outside_project_failure(outside, root)
+                return target_outside_project_failure(outside, root)
     # The runner seam is read off the module at call time — never imported by
     # name — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
     # Naming the HEADLESS factory directly is correct only while this command is

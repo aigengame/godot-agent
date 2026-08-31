@@ -54,8 +54,10 @@ canonicalizes a ``res://`` path before reporting it, so an entry script invoked 
 spelling against the caller's raw one silently missed the match and reported a
 phantom success, so every ``path`` this module produces — and every path
 :func:`entry_load_failure` compares against — is put through
-:func:`canonical_res_path` first. Lexical only: no filesystem access, no symlink
-resolution, so it stays a pure function.
+:func:`gda.project.canonical_res_path` first. Lexical only: no filesystem access,
+no symlink resolution, so it stays a pure function. It is ADR-0006's path
+authority that owns that canonicalizer (#763); this module imports it, as the
+command gates do.
 
 The recognized sentences, verbatim from Godot 4.6.3::
 
@@ -80,7 +82,6 @@ sentence is whatever the project wrote (#722)::
            [1] _ready (res://probe.gd:5)
 """
 
-import posixpath
 import re
 from collections.abc import Sequence
 from enum import Enum
@@ -89,10 +90,14 @@ from pydantic import BaseModel, Field
 
 from gda.engine_log import parse_errors
 
-# The res:// scheme prefix. A diagnostic's ``path`` is only ever a res:// address:
-# the engine's own ``at:`` frame for an engine-side error names a C++ source file
+# The res:// scheme prefix and the canonicalizer, both owned by ADR-0006's path
+# authority (:mod:`gda.project`, #763) and imported here rather than defined here:
+# they are lexical address rules with several consumers, and this module is the
+# stderr parser — one consumer among them. A diagnostic's ``path`` is only ever a
+# res:// address, which is why the prefix matters at all here: the engine's own
+# ``at:`` frame for an engine-side error names a C++ source file
 # (``modules/gdscript/gdscript.cpp``), which is gda-irrelevant noise.
-_RES_PREFIX = "res://"
+from gda.project import RES_PREFIX, canonical_res_path
 
 # The engine's ``SCRIPT ERROR:`` records carry the compile failure as a message
 # prefixed ``Parse Error:``; every other SCRIPT ERROR is a runtime failure raised
@@ -209,64 +214,6 @@ _CANNOT_OPEN_FILE = re.compile(r"^Cannot open file '(?P<path>[^']*)'")
 # `print_verbose`, never an `ERROR:` line `parse_errors` recognizes, so it
 # cannot reach this regex.
 _FAILED_LOADING_RESOURCE = re.compile(r"^Failed loading resource: (?P<path>.+)\.$")
-
-
-def canonical_res_path(path: str) -> str:
-    """The canonical lexical form of a ``res://`` address (#651 review claim 1).
-
-    ONE resource identity, used on both sides of every comparison and for the argv
-    gda hands the engine. Godot canonicalizes internally before it reports a path,
-    so ``res://dir/../bad.gd`` comes back as ``res://bad.gd``; comparing the
-    engine's spelling against the caller's raw one missed the match and let a
-    failed run report success.
-
-    Purely lexical — no filesystem access — so it is safe on a path that does not
-    exist, which is exactly the missing-entry-script case. A non-``res://`` string
-    is returned unchanged: this normalizes an address, it does not validate one.
-
-    **Against ``String::simplify_path``** (``core/string/ustring.cpp:4149-4233``,
-    Godot ``4.6-stable-3260-g070dc9897e``), the engine function every ``res://``
-    address passes through before the engine resolves or reports it
-    (``ProjectSettings::localize_path``, ``core/config/project_settings.cpp:158``).
-    Which of its steps this reproduces, in the engine's own order:
-
-    - **scheme extraction** (4153-4168: first ``://`` whose prefix is all ASCII
-      alphanumerics becomes the "drive") — reproduced NARROWLY, for an exact
-      ``res://`` prefix only. The engine's other two drive branches (network share,
-      Windows ``C:``) are deliberately NOT reproduced: they are unreachable once the
-      scheme branch matched, and a non-``res://`` string leaves here untouched anyway.
-    - **``\\`` → ``/`` across the whole remainder** (4192) — reproduced, and it must
-      run BEFORE the leading-slash strip below, exactly as the engine runs it before
-      its own empty-segment split: ``res://\\a.gd`` folds to ``res://a.gd``, which is
-      no longer possible once the strip has already passed over a backslash. Without
-      this step ``res://..\\outside.gd`` read as an ordinary in-project filename
-      while the engine loaded the file one directory ABOVE the project and reported
-      it back as ``res://../outside.gd`` (#762).
-    - **repeated-``//`` collapse and ``split("/", false)``** (4193-4201) — reproduced
-      by the leading-slash strip plus ``posixpath.normpath``, which collapses runs of
-      separators and drops a trailing one. The strip is what covers POSIX's one
-      divergence: it gives exactly two leading slashes a special meaning (``//a``
-      stays ``//a``), so ``res:////a.gd`` would otherwise stay uncanonicalized.
-    - **``.``/``..`` collapse with the leading-``..`` strip DISABLED for ``res://``**
-      (4204-4221) — reproduced: ``normpath`` on a RELATIVE remainder keeps a leading
-      ``..`` for the same reason the engine keeps it, and that is what lets a caller
-      of this function see an escape at all rather than have it silently swallowed.
-
-    One stated gap, in the join (4223-4232): when every segment collapses away the
-    engine yields the bare ``res://`` while ``normpath`` yields ``.``, so
-    ``res://a/..`` canonicalizes here to ``res://.``. Both spellings name the project
-    root and every consumer already treats the pair alike — ``script run``'s gate
-    tests the pair explicitly (``_ROOT_REMAINDERS``) and a ``.`` is not an upward
-    escape — so closing it would only churn a deliberate accommodation that #763
-    owns reconciling.
-    """
-    if not path.startswith(_RES_PREFIX):
-        return path
-    remainder = path[len(_RES_PREFIX) :].replace("\\", "/").lstrip("/")
-    if not remainder:
-        return _RES_PREFIX
-    # normpath("") is ".", so the empty case is handled above rather than here.
-    return _RES_PREFIX + posixpath.normpath(remainder)
 
 
 # WHY the prose below is a comment and not this enum's docstring (#687): a model
@@ -555,7 +502,7 @@ def _script_error(record: dict, message: str) -> ScriptError:
     file = record.get("file")
     path = (
         canonical_res_path(file)
-        if isinstance(file, str) and file.startswith(_RES_PREFIX)
+        if isinstance(file, str) and file.startswith(RES_PREFIX)
         else None
     )
     return ScriptError(
@@ -617,7 +564,7 @@ def _first_script_frame(callstack: object) -> tuple[str, int | None] | None:
         if not isinstance(frame, dict):
             continue
         file = frame.get("file")
-        if isinstance(file, str) and file.startswith(_RES_PREFIX):
+        if isinstance(file, str) and file.startswith(RES_PREFIX):
             line = frame.get("line")
             return file, line if isinstance(line, int) else None
     return None

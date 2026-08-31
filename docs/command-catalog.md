@@ -688,18 +688,27 @@ gda ran projectless. It is **required and nullable**, and reported once per call
 script (ADR-0006 resolves one project per call), so every verdict carries the key. It exists
 because a script compiled against the wrong project reports every `res://` dependency as missing
 plus the type errors derived from them, which reads as a broken script; `project_root` is what
-tells the two apart. A target **outside** the resolved project is **refused before parsing** with
-`project_not_found` naming both the file and the project, rather than emitting that false cascade.
-The check applies to **every** path in a batch, and the first offender in requested order refuses
-the whole call (#663): one call has one project, so one outsider makes the requested set
-unservable. `--all` has nothing to check — the engine enumerates the resolved project's own tree.
-Containment follows the engine's own addressing: a relative path is anchored at the resolved
-project (not gda's cwd), an engine-virtual path (`res://`, `user://`, `uid://`) is inside by
-construction, and a file reached through a symlink into the project counts as inside — except when
-a `..` traversal could cross that symlink, where only the fully resolved location decides. gda
-never derives the project from the target path (ADR-0006), so a script under a project **nested
-inside** the resolved one is contained and not refused; `project_root` is what surfaces that
-mismatch, pending the ADR-0006 amendment tracked in #697.
+tells the two apart. A target the resolved project **does not own** is **refused before parsing**
+with `target_outside_project`, naming both the file and the project, rather than emitting that
+false cascade. The check applies to **every** path in a batch, and the first offender in requested
+order refuses the whole call (#663): one call has one project, so one outsider makes the requested
+set unservable. `--all` has nothing to check — the engine enumerates the resolved project's own
+tree.
+
+"Does not own" is two questions (ADR-0006 amendment, #697). **Containment** follows the engine's
+own addressing: a relative path is anchored at the resolved project (not gda's cwd), an
+engine-virtual path (`res://`, `user://`, `uid://`) is inside by construction — except a `res://`
+spelling that still climbs above the root once canonicalized, which is refused — and a file
+reached through a symlink into the project counts as inside, except when a `..` traversal could
+cross that symlink, where only the fully resolved location decides. **Ownership** asks whether the
+resolved project is the *nearest* `project.godot` at or above the target: a script under a project
+**nested inside** the resolved one is contained and still refused, because its own `res://`
+references mean the nested root. gda names the owner it found and does not adopt it — deriving the
+project from the target stays rejected — so pass `--project <owner>`. Ownership is checked
+projectless too: a file that has an owner is refused rather than compiled against nothing, while a
+standalone script no project claims is still validated by filesystem path. The refusal carries
+`target_location`, `project_root` and `owning_project` as typed `evidence`, each present only when
+that refusal knows it.
 
 | Command | Description |
 | --- | --- |

@@ -19,7 +19,7 @@ import hashlib
 import json
 import os
 import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 import typer
@@ -27,7 +27,12 @@ from pydantic import BaseModel, Field, model_validator
 
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure, classify_launch_or_crash, make_failure
+from gda.errors import (
+    Failure,
+    classify_launch_or_crash,
+    make_failure,
+    target_outside_project_failure,
+)
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -44,6 +49,8 @@ from gda.models import (
     projected_value_schema_extra,
 )
 from gda.project import (
+    RES_PREFIX,
+    canonical_res_path,
     is_engine_virtual_path,
     path_outside_project,
     project_anchored,
@@ -768,26 +775,39 @@ def _parse_receipt_assignments(text: str) -> "dict[str, str] | None":
 def _asset_res_path(project: Path, raw: str) -> "str | Failure":
     """Normalize one requested asset to its res:// path, or the refusal.
 
-    Containment reuses the ADR-0006 authority rather than a second gate (#738
-    review): a filesystem path goes through :func:`path_outside_project` (the
-    resolved + lexical double reading, so a legitimately symlinked-in file is
-    accepted and a ``..``-through-a-symlink escape is not), anchored the way
-    the engine would anchor it (:func:`project_anchored`). A ``res://`` path
-    is the ENGINE's virtual namespace: it is read lexically — symlinks inside
-    the project stay as spelled, exactly as the engine walks them — and a
-    ``..`` component is refused outright, because the ``res://`` namespace has
-    no parent to step into.
+    ONE containment question, asked once, for BOTH accepted input forms (#763).
+    :func:`path_outside_project` — ADR-0006's authority — answers it: for a
+    filesystem path by its resolved + lexical double reading (so a legitimately
+    symlinked-in file is accepted and a ``..``-through-a-symlink escape is not),
+    anchored the way the engine would anchor it (:func:`project_anchored`); for a
+    ``res://`` address by the shared lexical rule, which canonicalizes the spelling
+    exactly as ``String::simplify_path`` does and refuses only what is still
+    climbing above the namespace root afterwards.
+
+    That replaces this gate's own ``".." in rel.parts`` check, which was a
+    DIFFERENT rule wearing the same name, and wrong in both directions:
+
+    - it refused ``res://foo/../bar.png``, which collapses net-INSIDE and is an
+      address the engine resolves happily — the same spelling ``script validate``
+      and ``script run`` both accept, so one input had two verdicts (pinned by
+      ``tests/test_project.py`` as this issue's to-reconcile);
+    - it split on ``PurePosixPath`` parts, so ``res://..\\x.png`` was ONE segment
+      carrying no ``..`` at all and passed. On POSIX the later ``is_file()`` check
+      happened to stop it; on native Windows ``\\`` IS a separator and the join
+      reaches the parent directory. The shared canonicalizer folds ``\\`` to ``/``
+      first, as the engine does, so the escape is refused on every platform by the
+      one rule instead of by a platform accident (#763, PR #766 round-2 review).
+
+    The refusal is also the shared one now: ``target_outside_project``, the code
+    ``script validate`` and ``script run`` report for the same condition, in place
+    of a third spelling of a generic ``invalid_params``.
+
+    What remains this gate's own is what is genuinely about ASSETS: ``user://`` and
+    ``uid://`` are engine-virtual but not the project's ``res://`` namespace, so
+    they cannot name a project asset at all, and the mapping from an accepted
+    filesystem path back to the ``res://`` address the engine will import.
     """
-    if raw.startswith("res://"):
-        rel = PurePosixPath(raw[len("res://") :])
-        if rel.is_absolute() or ".." in rel.parts:
-            return make_failure(
-                "invalid_params",
-                f"asset {raw!r} escapes the res:// namespace ('..' is not part of it).",
-                "",
-            )
-        return "res://" + rel.as_posix()
-    if is_engine_virtual_path(raw):
+    if is_engine_virtual_path(raw) and not raw.startswith(RES_PREFIX):
         # user:// / uid:// are engine-virtual but NOT the project's res://
         # namespace: gda cannot address them as project assets, and passing
         # them on would misread them as literal filesystem names (#738
@@ -806,11 +826,12 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
         project_abs = Path.cwd() / project_abs
     outside = path_outside_project(raw, project_abs)
     if outside is not None:
-        return make_failure(
-            "invalid_params",
-            f"asset {raw!r} is outside the project {project} (it is at {outside}).",
-            "",
-        )
+        return target_outside_project_failure(outside, project_abs)
+    if raw.startswith(RES_PREFIX):
+        # Already in the engine's namespace: canonicalize the spelling and stop.
+        # Reading it lexically is what the engine does too — a symlink inside the
+        # project stays as spelled, because Godot walks the project directory.
+        return canonical_res_path(raw)
     anchored = project_anchored(raw, project_abs)
     try:
         rel_fs = anchored.resolve().relative_to(project_abs.resolve())
@@ -830,7 +851,10 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
                 f"asset {raw!r} could not be addressed inside the project {project}.",
                 "",
             )
-    return "res://" + rel_fs.as_posix()
+    # Through the SAME canonicalizer as the res:// form, so both input spellings
+    # of one asset produce one address — `.` (the project root, from `foo/..`)
+    # included, which `PurePosixPath` used to hand on as the bogus `res://.`.
+    return canonical_res_path(RES_PREFIX + rel_fs.as_posix())
 
 
 def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
