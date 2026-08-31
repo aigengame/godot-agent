@@ -110,13 +110,14 @@ and re-read the verdict.
 - `gda version --json` — which `gda` is installed and where from; `gda info` — the
   engine's version.
 
-**`--json` placement.** `gda --json <group> <command>` and `gda <group> <command> --json` mean the
-same thing — a root `--json` applies to the command it invokes — so either spelling works, as does
-both at once. `gda schema --json` is accepted too, and idempotent: the manifest is already JSON.
-Two limits: the `--help` FLAG always renders TEXT (`gda --json --help` returns the same help, never
-JSON — use `gda help <command> --json` for a structured payload), and two spellings are still usage
-errors (exit `2`) — `gda <group> --json` (a group's parser takes only `--help`; the structured
-refusal hints the command form) and a bare `gda --json` with no command (`Missing command.`).
+**`--json` placement.** Every parser takes it: `gda --json <group> <command>`,
+`gda <group> --json <command>` and `gda <group> <command> --json` mean the same thing — a `--json`
+written before the command applies to the command it invokes — so any spelling works, as do several
+at once. `gda schema --json` is accepted too, and idempotent: the manifest is already JSON. Two
+limits: the `--help` FLAG always renders TEXT (`gda --json --help` returns the same help, never
+JSON — use `gda help <command> --json` for a structured payload), and the flag is not a command, so
+`gda <group> --json` and a bare `gda --json` with no command are both the usage error
+`Missing command.` (exit `2`).
 
 ## Headless commands (Godot 4.4+, all platforms)
 

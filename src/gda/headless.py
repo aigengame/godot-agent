@@ -86,26 +86,29 @@ def command_constraints(
     )
 
 
-# The context-meta key a root ``--json`` is recorded under (#671). ``ctx.meta`` is
-# ONE dict shared by every context in the tree (click nests it from the parent), so
-# what the root callback records is readable from the invoked command's context.
-# Dotted and package-scoped, per click's documented convention for the namespace.
-ROOT_JSON_META_KEY = "gda.root_json"
+# The context-meta key a ``--json`` given ABOVE the invoked command is recorded
+# under (#671, #683). ``ctx.meta`` is ONE dict shared by every context in the tree
+# (click nests it from the parent), so what an ancestor parser records — the root
+# callback, or a group's — is readable from the invoked command's context. Dotted
+# and package-scoped, per click's documented convention for the namespace.
+ANCESTOR_JSON_META_KEY = "gda.ancestor_json"
 
 
-def set_root_json(ctx: typer.Context, value: bool) -> None:
-    """Record a root ``--json`` for the command the root is about to invoke.
+def set_ancestor_json(ctx: typer.Context, value: bool) -> None:
+    """Record a ``--json`` an ANCESTOR parser bound, for the command it invokes.
 
-    The write half of the root-flag contract, owned HERE next to the options that
-    read it (:func:`_inherit_root_json`, :func:`root_json`), so the knowledge runs
-    downward: the CLI composition root CALLS this to hand the flag over, instead of
-    this module reaching up into that module's private parameter names.
+    The write half of the contract, owned HERE next to the options that read it
+    (:func:`_inherit_ancestor_json`, :func:`ancestor_json`), so the knowledge runs
+    downward: the CLI composition root CALLS this to hand its root flag over,
+    instead of this module reaching up into that module's private parameter names.
+    A group hands its own flag over the same way (:func:`adopt_group_json`), which
+    is what makes the three parser sites one contract rather than three.
     """
-    ctx.meta[ROOT_JSON_META_KEY] = bool(value)
+    ctx.meta[ANCESTOR_JSON_META_KEY] = bool(value)
 
 
-def root_json(ctx: ClickContext) -> bool:
-    """Whether a root ``--json`` was recorded for this invocation (#659).
+def ancestor_json(ctx: ClickContext) -> bool:
+    """Whether a ``--json`` above the invoked command was recorded (#659, #683).
 
     The read half of the same contract, for the readers that are not a command: the
     root's own ``--version``, which renders either a human line or the structured
@@ -118,38 +121,107 @@ def root_json(ctx: ClickContext) -> bool:
     ``typer.Context`` is a subclass, so every existing caller still fits, and this
     function only ever reads ``ctx.meta``.
     """
-    return bool(ctx.meta.get(ROOT_JSON_META_KEY, False))
+    return bool(ctx.meta.get(ANCESTOR_JSON_META_KEY, False))
 
 
-def _inherit_root_json(
+def _inherit_ancestor_json(
     ctx: typer.Context, param: typer.CallbackParam, value: bool
 ) -> bool:
-    """Let a root ``--json`` stand for the command's own (#671).
+    """Let a ``--json`` written above the command stand for the command's own.
 
     The Skill teaches ONE rule — "always pass ``--json``" — and an agent may spell
-    it at the root (``gda --json node get …``) or after the command
-    (``gda node get … --json``). The two must MEAN the same thing, or accepting the
-    root flag would be worse than rejecting it: a silently inert flag returns human
-    text to a caller that asked for JSON, where the old ``No such option`` at least
-    failed loudly.
+    it at the root (``gda --json node get …``), between the group and the command
+    (``gda node --json get …``, #683), or after the command
+    (``gda node get … --json``). All three must MEAN the same thing, or accepting
+    the outer ones would be worse than rejecting them: a silently inert flag returns
+    human text to a caller that asked for JSON, where the old ``No such option`` at
+    least failed loudly.
 
-    A command's own flag wins when given; otherwise the value the root recorded
-    through :func:`set_root_json` applies — click runs the group's callback before
-    it parses the subcommand, so the record is already in place. Living on the
-    shared :func:`json_option` means every call site inherits it with no per-command
-    wiring, including the ``--params-json`` dispatch path, which reads
+    A command's own flag wins when given; otherwise the value an ancestor recorded
+    through :func:`set_ancestor_json` applies — click binds a parser's own options
+    before it parses the subcommand, so the record is already in place. Living on
+    the shared :func:`json_option` means every call site inherits it with no
+    per-command wiring, including the ``--params-json`` dispatch path, which reads
     ``ctx.params`` after this callback has run.
     """
-    return bool(value) or root_json(ctx)
+    return bool(value) or ancestor_json(ctx)
 
 
 def json_option() -> bool:
     return typer.Option(
         False,
         "--json",
-        callback=_inherit_root_json,
+        callback=_inherit_ancestor_json,
         help="Emit the result as a single JSON object.",
     )
+
+
+def _record_group_json(
+    ctx: typer.Context, param: typer.CallbackParam, value: bool
+) -> bool:
+    """Hand a GROUP's ``--json`` down to the command that group is about to run.
+
+    Bound from the option's OWN callback rather than from the group callback's body,
+    so the record is in place before click parses the subcommand no matter what the
+    group body later grows — the shape the root already uses (``gda.cli``).
+
+    Only a GIVEN flag is recorded: the option's ``False`` default must not erase a
+    root ``--json`` the outer parser recorded, or the outer spelling would depend on
+    the inner one.
+    """
+    if value:
+        set_ancestor_json(ctx, True)
+    return value
+
+
+def _group_json(
+    ctx: typer.Context,
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        callback=_record_group_json,
+        help="Emit the invoked command's result as JSON — the same as passing "
+        "--json after the command.",
+    ),
+) -> None:
+    """The callback every command group is given, so ``--json`` parses there too.
+
+    One function shared by all of them: the flag means the same thing under every
+    group, and the same rule written once per group would be that many chances to
+    drift. Its body has nothing to do — the option's own callback did the work — but
+    the function must exist, because a group's options ARE its callback's parameters.
+    """
+
+
+def adopt_group_json(app: typer.Typer) -> None:
+    """Give every group mounted below ``app`` the shared ``--json`` option (#683).
+
+    The third parser site. ``gda --json <group> <command>`` and
+    ``gda <group> <command> --json`` already meant the same thing; the spelling in
+    between died with ``No such option``, so the one rule the Skill teaches broke on
+    a line an agent composes naturally. Applied once from the composition root,
+    AFTER every group has mounted itself, for the reason ``gda.hints.adopt`` is: it
+    is one property of the WHOLE surface, so a group added later inherits the option
+    by being mounted rather than by remembering to declare it. The walk RECURSES for
+    the same reason that one does — a sub-group of a group would otherwise be missed
+    silently.
+
+    Installing the option means installing the callback that carries it, so a group
+    that declares a callback of its own is refused rather than silently replaced:
+    such a group must declare the shared option on that callback itself.
+    """
+    for group in app.registered_groups:
+        instance = group.typer_instance
+        if instance is None:
+            continue
+        if instance.registered_callback is not None:
+            raise RuntimeError(
+                f"command group {group.name!r} declares its own callback; declare "
+                "the shared --json option on it instead of letting "
+                "gda.headless.adopt_group_json replace it."
+            )
+        instance.callback()(_group_json)
+        adopt_group_json(instance)
 
 
 def godot_option() -> Optional[str]:

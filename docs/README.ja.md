@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=76e086abf7307138e3a741e6d89aadab413f83570ffdb2a2ad8da2e34e2b992a -->
+<!-- gda-readme-i18n: source=README.md sha256=ff68f26d3fed2c1ef1d07cfd235ba93a282a5a9a6aecb560c6858a90794343e3 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -651,7 +651,7 @@ Godot は daemon セッション内で `get_mouse_position()` /
 
 | フラグ       | 説明                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | 結果を stdout に単一の JSON オブジェクトとして出力します。指定しない場合、コマンドは簡潔な人間可読のレンダリングを出力します。ルートでも受け付けます: `gda --json <group> <command>` はコマンドの後ろに付けた場合と同じ意味です。 |
+| `--json`    | 結果を stdout に単一の JSON オブジェクトとして出力します。指定しない場合、コマンドは簡潔な人間可読のレンダリングを出力します。コマンドの前でも受け付けます: `gda --json <group> <command>` と `gda <group> --json <command>` はコマンドの後ろに付けた場合と同じ意味です。 |
 | `--schema`  | コマンドの入出力 JSON Schema 契約を出力します(Godot は起動されません)。 |
 | `--godot`   | Godot バイナリへのパス(`$GDA_GODOT` とデフォルトを上書きします)。 |
 | `--project` | `res://` 解決のための Godot プロジェクトディレクトリ(`$GDA_PROJECT` を上書き。プロジェクトであればカレントディレクトリがデフォルト)。ドメインコマンドのみ。プロジェクトの解決はそのプロジェクトのコードを実行します — [プロジェクトコードの実行](#configuration) を参照してください。 |

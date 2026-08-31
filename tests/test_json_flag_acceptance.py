@@ -1,19 +1,21 @@
-"""`--json` is accepted on the discovery surfaces too (issue #671).
+"""`--json` is accepted on the discovery surfaces too (issues #671, #683).
 
 The bundled Skill teaches ONE rule — "always pass `--json`" — so a client that
 follows it must never be answered with a usage error (exit 2). Discovery used to
-break that rule at **two different parser sites**, which is why a root-only fix
+break that rule at **three different parser sites**, which is why a root-only fix
 would be incomplete:
 
 - the ROOT parser (`gda --json --help`, `gda --json <command>`): the root callback
   declared only `--version`, so the flag died before any subcommand was resolved;
 - the `schema` SUBCOMMAND parser (`gda schema --json`): it declared only
-  `--schema`, so the whole-surface JSON manifest rejected the JSON flag.
+  `--schema`, so the whole-surface JSON manifest rejected the JSON flag;
+- every mounted GROUP's parser (`gda scene --json get …`, #683): a group declared no
+  options at all, so the flag written between the group and the command exited 2.
 
-Accepting the root flag is not enough on its own: a root `--json` that parsed but
-did nothing would hand human text to a caller that asked for JSON — worse than the
-loud `No such option` it replaced. So the root flag is INHERITED by the invoked
-command (`gda.headless._inherit_root_json`), and the tests below pin that
+Accepting an outer flag is not enough on its own: a `--json` that parsed but did
+nothing would hand human text to a caller that asked for JSON — worse than the loud
+`No such option` it replaced. So an ancestor's flag is INHERITED by the invoked
+command (`gda.headless._inherit_ancestor_json`), and the tests below pin that
 equivalence, not just the exit code.
 
 The root itself later grew one payload of its own — `--version` (#659) — so the
@@ -27,15 +29,19 @@ import json
 import subprocess
 from importlib.metadata import version
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.meta import read_skill_text
+from gda.headless import adopt_group_json
 from gda.runner import RunResult
 from tests.support import (
     SCENE_GET_RESULT,
     GDA_CMD,
     inject_runner,
+    panel_text,
     plain_text,
     sentinel,
 )
@@ -160,18 +166,129 @@ def test_root_json_reaches_the_params_json_dispatch_path():
     assert json.loads(result.stdout)["name"] == "gda"
 
 
+# --- the GROUP parser site (issue #683) ---------------------------------------
+
+
+def _scene_get(monkeypatch, args: list[str]):
+    """Invoke ``args`` with the runner seam faked, so no Godot is spawned.
+
+    ``scene get`` is the probe for this site because it renders HUMAN text by
+    default: a flag that parsed but did not reach the command would show up here as
+    that text, which is the failure mode acceptance alone would hide.
+    """
+    inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(SCENE_GET_RESULT), stderr="", exit_code=0),
+    )
+    return CliRunner().invoke(app, args)
+
+
+def test_group_json_is_equivalent_to_the_commands_own_json(monkeypatch):
+    # The third parser site: a `--json` between the group and the command used to
+    # die with `No such option`, so the one rule the Skill teaches broke on a line
+    # an agent composes naturally. All three spellings must agree byte for byte.
+    group_spelling = _scene_get(monkeypatch, ["scene", "--json", "get", "/tmp/x.tscn"])
+    command_spelling = _scene_get(
+        monkeypatch, ["scene", "get", "/tmp/x.tscn", "--json"]
+    )
+    root_spelling = _scene_get(monkeypatch, ["--json", "scene", "get", "/tmp/x.tscn"])
+    no_flag = _scene_get(monkeypatch, ["scene", "get", "/tmp/x.tscn"])
+
+    assert group_spelling.exit_code == 0, group_spelling.stdout
+    assert group_spelling.stdout == command_spelling.stdout == root_spelling.stdout
+    assert json.loads(group_spelling.stdout)
+    # …and the default is unchanged: no flag still means human text.
+    assert no_flag.exit_code == 0
+    assert not no_flag.stdout.startswith("{")
+
+
+def test_the_three_spellings_stack_without_conflicting(monkeypatch):
+    # Belt and braces: a client that writes the flag everywhere gets one answer,
+    # not a second output shape to handle.
+    everywhere = _scene_get(
+        monkeypatch, ["--json", "scene", "--json", "get", "/tmp/x.tscn", "--json"]
+    )
+    command_only = _scene_get(monkeypatch, ["scene", "get", "/tmp/x.tscn", "--json"])
+
+    assert everywhere.exit_code == 0, everywhere.stdout
+    assert everywhere.stdout == command_only.stdout
+
+
+def test_group_json_reaches_the_params_json_dispatch_path(monkeypatch):
+    # `--params-json` is intercepted by the command class and dispatched through its
+    # own tail (ADR-0015), which reads `ctx.params` — i.e. after the inherit
+    # callback has run, so a group flag is honored there too.
+    result = _scene_get(
+        monkeypatch,
+        ["scene", "--json", "get", "--params-json", '{"path": "/tmp/x.tscn"}'],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout)["path"]
+
+
+def test_group_json_without_a_command_is_still_a_usage_error():
+    # Acceptance moved the failure to the honest one; it did not invent a payload.
+    # `gda <group> --json` says what a bare `gda --json` says, at the same exit code.
+    result = CliRunner().invoke(app, ["scene", "--json"])
+    bare_root = CliRunner().invoke(app, ["--json"])
+
+    assert result.exit_code == 2
+    assert bare_root.exit_code == 2
+    assert "Missing command." in panel_text(result.stderr)
+    assert "Missing command." in panel_text(bare_root.stderr)
+
+
+def test_every_group_advertises_the_json_option_in_its_help():
+    # The option is installed onto every MOUNTED group at composition
+    # (`gda.headless.adopt_group_json`), so the check walks the live tree rather than
+    # naming the groups: one added later is covered by being mounted. A group is the
+    # node with a `commands` mapping — the duck-type `gda.surface` walks with too.
+    root: object = typer.main.get_command(app)
+    groups = [
+        name
+        for name, command in getattr(root, "commands", {}).items()
+        if getattr(command, "commands", None) is not None
+    ]
+
+    assert groups, "the live tree reported no command groups"
+    for name in groups:
+        rendered = CliRunner().invoke(app, [name, "--help"])
+
+        assert rendered.exit_code == 0, rendered.stdout
+        assert "--json" in plain_text(rendered.stdout), name
+
+
+def test_the_walker_refuses_to_replace_a_groups_own_callback():
+    # Installing the option means installing the callback that carries it. No group
+    # declares one today; one that grows a callback must declare the shared option
+    # on it, so the walker says so instead of dropping that callback silently.
+    root = typer.Typer()
+    group = typer.Typer()
+
+    @group.callback()
+    def _own(ctx: typer.Context) -> None:
+        """A group with business of its own."""
+
+    root.add_typer(group, name="own")
+
+    with pytest.raises(RuntimeError, match="own"):
+        adopt_group_json(root)
+
+
 # --- the shipped guidance states the same contract ----------------------------
 
 
 def test_skill_documents_the_json_placement_contract():
     # The Skill is the guidance an agent actually reads, so the placement rule has
     # to ship WITH the behavior, not only in a PR description. Token-level checks:
-    # the two equivalent spellings are named, and so are the two that still exit 2
-    # (a group's bare parser and a root flag with no command). Prose is free to be
-    # reworded; these tokens are the contract.
+    # the three equivalent spellings are named, and so are the two that still exit 2
+    # (either flavour of "the flag, but no command"). Prose is free to be reworded;
+    # these tokens are the contract.
     text = read_skill_text()
 
     assert "`gda --json <group> <command>`" in text
+    assert "`gda <group> --json <command>`" in text
     assert "`gda <group> <command> --json`" in text
     assert "`gda schema --json`" in text
     assert "`gda --json --help`" in text
@@ -212,8 +329,8 @@ def test_root_version_without_the_flag_stays_text():
 # --- the real out-of-process CLI ---------------------------------------------
 
 
-def test_real_out_of_process_cli_accepts_json_at_both_sites():
-    # Both fixes through a REAL process (`python -m gda`, the same `app` the
+def test_real_out_of_process_cli_accepts_json_at_every_site():
+    # Every fix through a REAL process (`python -m gda`, the same `app` the
     # console script wraps), not only the in-process CliRunner. Deliberately not
     # marked `e2e`: this repo's `e2e` marker means "spawns a real Godot process",
     # and nothing here does.
@@ -236,3 +353,12 @@ def test_real_out_of_process_cli_accepts_json_at_both_sites():
     )
     assert inherited.returncode == 0, inherited.stderr
     assert json.loads(inherited.stdout)["name"] == "gda"
+
+    # The group site needs a command that spawns nothing: `--schema` answers from
+    # the command's own models, so it proves the flag PARSED between the group and
+    # the command without reaching for an engine.
+    on_a_group = subprocess.run(
+        [*GDA_CMD, "scene", "--json", "get", "--schema"], capture_output=True, text=True
+    )
+    assert on_a_group.returncode == 0, on_a_group.stderr
+    assert set(json.loads(on_a_group.stdout)) >= {"input", "output", "error"}
