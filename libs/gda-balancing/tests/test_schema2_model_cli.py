@@ -2568,6 +2568,104 @@ def test_resolved_model_admission_rejects_reidentified_nested_formula_domain_esc
     assert admission.diagnostics == ("language.resolved_authority_mismatch",)
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "nested-argument",
+        "nested-result-source",
+        "missing-slot-binding",
+        "changed-slot-binding",
+    ),
+)
+def test_resolved_model_admission_rejects_reidentified_call_domain_mutations(
+    mutation,
+):
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_checking_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    lowered = model_compilation_module.lower_checked_model(checked)
+    artifacts = {
+        name: deepcopy(lowered[name])
+        for name in ("package-lock", "rir-semantic-payload", "resolved-model")
+    }
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    kernel, language_bundle = mutable_authorities()
+    policy = model_lowering_module._formula_policy(language_bundle)
+    domains = cast(dict[str, str], policy["identity_domains"])
+    selected_operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    damage = selected_operations["game.combat.damage-v1"]
+    cast_operation = selected_operations["game.combat.cast-v1"]
+    damage_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("operation", {}).get("id") == "game.combat.damage-v1"
+    )
+    slot_binding = next(
+        binding
+        for binding in rir["formula_bindings"]
+        if binding["site"].get("kind") == "operation-slot"
+        and binding["site"]["operation"]["id"] == "game.combat.damage-v1"
+    )
+
+    if mutation == "nested-argument":
+        base_damage = next(
+            argument
+            for argument in damage_call["arguments"]
+            if argument["port"] == "base_damage"
+        )
+        base_damage["operand"] = {"kind": "literal", "literal": 1001}
+    elif mutation == "nested-result-source":
+        damage["result"]["source"] = {
+            "kind": "operation-result",
+            "site": "missing-site",
+        }
+    elif mutation == "missing-slot-binding":
+        rir["formula_bindings"].remove(slot_binding)
+    else:
+        slot_binding["site"]["slot"] = "missing-slot"
+        site_body = {
+            key: value
+            for key, value in slot_binding["site"].items()
+            if key != "identity"
+        }
+        slot_binding["site"]["identity"] = content_identity(
+            domains["evaluation_site"], cast(JsonValue, site_body)
+        )
+        binding_body = {
+            key: value for key, value in slot_binding.items() if key != "identity"
+        }
+        slot_binding["identity"] = content_identity(
+            domains["binding"], cast(JsonValue, binding_body)
+        )
+
+    assert (
+        model_admission_module._formula_program_graph_is_admitted(
+            kernel,
+            language_bundle,
+            rir["declarations"],
+            rir["formulas"],
+            rir["formula_bindings"],
+            rir["entrypoints"],
+            rir["selected_semantics"],
+        )
+        is False
+    )
+    _reidentify(rir, "rir-semantic-payload-v2")
+    resolved_model = cast(dict[str, Any], artifacts["resolved-model"])
+    resolved_model["rir_identity"] = rir["content_identity"]
+    _reidentify(resolved_model, "resolved-model-v2")
+
+    admission = model_admission_module.admit_resolved_model(artifacts)
+
+    assert admission.admitted is False
+    assert admission.diagnostics == ("language.resolved_authority_mismatch",)
+
+
 def test_model_check_reaches_operations_called_by_bound_formulas(run_cli):
     exit_code, stdout, stderr = run_cli(
         ["model", "check", str(_RPG_STAT_COMPOSITION_SOURCE)]
