@@ -269,7 +269,11 @@ def walk_mounted_groups(app: typer.Typer) -> Iterator[TyperInfo]:
     Typer refuses to build such a group into a command at all. A visitor that needs the
     instance says so itself; the walk does not decide that for it.
     """
-    for group in app.registered_groups:
+    # Snapshot, so the docstring's "what is mounted at the moment it runs" is
+    # literally true: a visitor that mounts a group MID-WALK is excluded rather
+    # than lazily swept in (#792 review P3-2 — no visitor does this today; the
+    # snapshot makes the documented boundary the actual one).
+    for group in list(app.registered_groups):
         yield group
         instance = group.typer_instance
         if instance is not None:
