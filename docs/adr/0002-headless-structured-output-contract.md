@@ -115,7 +115,11 @@ the standard build), and they never determine the outcome or a stable code.
 >   `launch_timeout` envelope every other launch-backed channel reports. The
 >   difference is what the timeout MEANS: elsewhere it means gda could not get you
 >   an answer, while here the question was whether this scene completes its
->   preflight within the bound — so the bound being reached IS the answer. Scoped
+>   preflight within the bound — so the bound being reached IS the answer. *(#787
+>   note, 2026-09-01: the SHAPE difference stands, but the numeric EVIDENCE is now
+>   at parity — the timeout verdict carries `elapsed_seconds` and `timeout_seconds`
+>   read off the same launch measurement the `launch_timeout` envelope publishes.)*
+>   Scoped
 >   to this command: an
 >   unlaunchable binary, an unusable user-data placement, a signal death, and the
 >   op's own structured refusals stay the shared envelope.

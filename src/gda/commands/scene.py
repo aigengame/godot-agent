@@ -1099,10 +1099,15 @@ def run_scene_preflight_operation(
             status=SceneStartupStatus.TIMEOUT,
             diagnostics=diagnostics,
             project_root=str(root) if root is not None else None,
+            # Both fallbacks read the SAME source when the clock is missing (#791
+            # review P3-2): a seam-injected result carrying a bound but no clock
+            # would otherwise render the self-contradictory pair
+            # "--timeout 8.0s reached (elapsed 5.00s)". Production never takes
+            # either arm — the streaming launch always fills both.
             elapsed_seconds=(
                 raw.elapsed_seconds
                 if raw.elapsed_seconds is not None
-                else params.timeout
+                else (bound.seconds if bound is not None else params.timeout)
             ),
             timeout_seconds=bound.seconds if bound is not None else params.timeout,
         )
