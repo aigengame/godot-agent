@@ -65,6 +65,7 @@ from gda.models import (
 from gda.project import (
     RES_PREFIX,
     canonical_res_path,
+    owner_relative_target,
     owning_project,
     path_outside_project,
     res_escape_remainder,
@@ -1571,6 +1572,7 @@ def run_script_run_operation(
             target_location(script, project),
             owner.resolve(),
             project.expanduser().resolve(),
+            owner_relative_target(script, project, owner),
         )
 
     try:
@@ -2186,7 +2188,10 @@ def _script_validate_recipe(
         owner = owning_project(path, project)
         if owner is not None:
             return target_owned_by_another_project_failure(
-                target_location(path, project), owner.resolve(), root
+                target_location(path, project),
+                owner.resolve(),
+                root,
+                owner_relative_target(path, project, owner),
             )
         if project is not None and root is not None:
             outside = path_outside_project(path, project)

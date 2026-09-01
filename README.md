@@ -495,7 +495,10 @@ instead of reporting those false errors; pass `--project` for the project that o
 files. That covers two cases: a path outside the resolved project, and a path a *nested*
 `project.godot` owns — gda names the owner it found rather than switching to it, and the
 same check runs with no project resolved, so a script that belongs to a project is never
-compiled against nothing. `script run` and `resource import` refuse the same way, under the
+compiled against nothing. For the nested case the message states the whole re-issue: the
+`--project` to pass and the target respelled relative to that owner, because a relative
+path anchors at the project and the original spelling would not be found under the new
+one. `script run` and `resource import` refuse the same way, under the
 same code. `--all` is the one selector that does not apply the ownership half yet, so a
 nested project's scripts can still show the false cascade there.
 

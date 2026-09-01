@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0f662187f8f07d3ec1b3eb7c9e047f39df4ba9db942cadd1f36e23aaf3f8fef7 -->
+<!-- gda-readme-i18n: source=README.md sha256=9ee297b6943985d55526d9519c2e4bee7d4ce1c301aa05e0e834b9ed9640b3c0 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -472,6 +472,8 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 假错误；此时请用 `--project` 指定真正拥有这些文件的项目。这涵盖两种情况：位于所解析项目**之外**
 的路径，以及被**嵌套的** `project.godot` 拥有的路径——gda 只报告它找到的拥有者，不会改用它；
 同一检查在未解析到项目时同样生效，因此属于某个项目的脚本不会在没有项目的情况下被编译。
+对于嵌套这一种情况，错误消息会给出完整的重新调用方式：要传的 `--project`，以及相对该拥有者
+重新拼写的目标——相对路径以项目为基准，原来的拼写在新项目下找不到。
 `script run` 与 `resource import` 以同样的错误码同样拒绝。`--all` 是唯一尚未执行所有者检查的
 选择方式，因此嵌套项目中的脚本在那里仍可能出现这串假错误。
 

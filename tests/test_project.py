@@ -17,6 +17,7 @@ from gda.project import (
     PROJECT_MARKER,
     canonical_res_path,
     is_engine_virtual_path,
+    owner_relative_target,
     owning_project,
     path_outside_project,
     target_location,
@@ -538,11 +539,81 @@ def test_a_symlinked_in_PROJECT_is_owned_by_it_like_a_nested_one(tmp_path):
     (vendored / "card.gd").write_text("extends Node\n", encoding="utf-8")
     (proj / "addons" / "demo").symlink_to(vendored, target_is_directory=True)
 
-    # The walk stays lexical, so the owner it names is the path the caller typed,
-    # not the link target — the same directory the engine reads the file through.
+    # The PROBE answers in the caller's own spelling, because the walk is lexical —
+    # that is what keeps the plain-library case above inside. What the ENVELOPE
+    # reports is that answer RESOLVED (every call site passes `owner.resolve()`),
+    # so a caller reading `evidence.owning_project` sees `libs/demo`, not
+    # `game/addons/demo`. Deliberate, and the two are one directory either way:
+    # `target_location` and `project_root` are both published resolved
+    # (`FailureEvidence`), and a refusal that mixed forms would let a caller
+    # compare two coordinates that are not in the same coordinate system. The
+    # spelling the caller typed is not lost — the re-issue target is derived from
+    # it, below.
     assert owning_project(str(proj / "addons" / "demo" / "card.gd"), proj) == (
         proj / "addons" / "demo"
     )
+    assert (
+        owner_relative_target(
+            str(proj / "addons" / "demo" / "card.gd"),
+            proj,
+            proj / "addons" / "demo",
+        )
+        == "card.gd"
+    )
+
+
+def test_the_reissue_target_is_lexical_so_a_file_link_still_has_one(tmp_path):
+    # Why the respelling subtracts the LEXICAL pair and not the resolved one. A
+    # file link inside a nested project points its resolved location out of that
+    # project, so `target_location.relative_to(owning_project)` — the subtraction a
+    # caller can do from the published coordinates, and the obvious way to write
+    # this helper — raises instead of answering. The lexical pair cannot: the owner
+    # is always a lexical ancestor of the lexical target, by construction of the
+    # walk that found it. And `link.gd` is the spelling that WORKS, because the
+    # engine walks the project directory too.
+    outer = _make_project(tmp_path / "outer")
+    inner = _make_project(outer / "inner")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "x.gd").write_text("extends Node\n", encoding="utf-8")
+    (inner / "link.gd").symlink_to(elsewhere / "x.gd")
+
+    assert owning_project("inner/link.gd", outer) == inner
+    assert owner_relative_target("inner/link.gd", outer, inner) == "link.gd"
+    # The resolved subtraction, shown failing on the same input.
+    with pytest.raises(ValueError):
+        target_location("inner/link.gd", outer).relative_to(inner.resolve())
+
+
+def test_the_reissue_target_answers_the_same_for_every_accepted_spelling(tmp_path):
+    # `res://`, project-relative and absolute all address one file, so they must
+    # produce one re-issue — the three refusing commands take different subsets of
+    # them and the sentence is shared.
+    outer = _make_project(tmp_path / "outer")
+    inner = _make_project(outer / "inner")
+    (inner / "sub").mkdir()
+
+    for spelling in (
+        "res://inner/sub/main.gd",
+        "inner/sub/main.gd",
+        str(inner / "sub" / "main.gd"),
+    ):
+        assert owner_relative_target(spelling, outer, inner) == "sub/main.gd", spelling
+
+
+def test_the_reissue_target_of_a_projectless_call_is_relative_to_the_owner(
+    tmp_path, monkeypatch
+):
+    # The projectless GDA-DF-035 reading: no root resolved, so the target anchors
+    # at gda's cwd and the owner is found by walking to the filesystem root. The
+    # re-issue still has to be the owner-relative spelling, not the cwd-relative
+    # one the caller typed.
+    monkeypatch.chdir(tmp_path)
+    game = _make_project(tmp_path / "workspace" / "game")
+    (game / "main.gd").write_text("extends Node\n", encoding="utf-8")
+
+    assert owning_project("workspace/game/main.gd", None) == game
+    assert owner_relative_target("workspace/game/main.gd", None, game) == "main.gd"
 
 
 def test_ownership_says_nothing_about_the_other_engine_schemes(tmp_path):

@@ -23,6 +23,7 @@ real engine produces, and the claim is that gda now never lets it be produced.
 """
 
 import json
+import re
 import subprocess
 
 import pytest
@@ -394,3 +395,133 @@ def test_a_standalone_script_is_still_validated_projectless(tmp_path):
     data = json.loads(proc.stdout)
     assert data["valid"] is True
     assert data["project_root"] is None
+
+
+# The two operands the ownership refusal names, read back out of the sentence a
+# caller actually gets. Non-greedy up to the one literal that separates them, so
+# a project path containing the phrase cannot swallow the target.
+REISSUE = re.compile(
+    r"--project (?P<project>.+?) and address the target as '(?P<target>[^']*)'"
+)
+
+
+@pytest.fixture
+def owned_target_project(tmp_path):
+    """`outer`, with a nested `inner` project holding a runnable script and an asset."""
+    outer = tmp_path / "outer"
+    inner = outer / "inner"
+    inner.mkdir(parents=True)
+    (outer / "project.godot").write_text(project_godot("outer"), encoding="utf-8")
+    (inner / "project.godot").write_text(project_godot("inner"), encoding="utf-8")
+    (inner / "main.gd").write_text(INSIDE_GD, encoding="utf-8")
+    (inner / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    return outer
+
+
+# (argv head, the spelling that gets refused, extra argv). One row per refusing
+# command, each addressing its own kind of target in its own accepted form.
+REFUSING_COMMANDS = [
+    (("script", "validate"), "inner/main.gd", ()),
+    (("script", "run"), "inner/main.gd", ("--timeout", "60")),
+    (("resource", "import"), "inner/pic.png", ("--dry-run",)),
+]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(("head", "spelling", "extra"), REFUSING_COMMANDS)
+def test_the_refusal_states_a_reissue_that_actually_runs(
+    owned_target_project, head, spelling, extra
+):
+    # The #799 review's trap, as an executable test: a remediation is only a
+    # remediation if following it verbatim WORKS. It did not. "Pass --project
+    # <owner>" alone leaves the caller's own spelling in place, and that spelling
+    # anchors at the project (ADR-0006), so the re-issue reached a file that is not
+    # there — `path_not_found` for `validate`, `script_not_found` for `run` after a
+    # full engine launch. The absolute `evidence.target_location` was no help
+    # either: `script run` refuses it by ADR-0031's one-address rule.
+    #
+    # So this reads the two operands OUT of the message and runs them. Nothing here
+    # knows the fixture's layout — if the sentence is wrong, the re-issue fails.
+    outer = str(owned_target_project)
+    refused = _run_gda(
+        *head, spelling, "--project", outer, "--godot", str(GODOT), *extra, "--json"
+    )
+    assert refused.returncode == 4, refused.stdout + refused.stderr
+    error = json.loads(refused.stdout)["error"]
+    assert error["code"] == "target_outside_project"
+
+    stated = REISSUE.search(error["message"])
+    assert stated is not None, error["message"]
+
+    reissued = _run_gda(
+        *head,
+        stated["target"],
+        "--project",
+        stated["project"],
+        "--godot",
+        str(GODOT),
+        *extra,
+        "--json",
+    )
+    assert reissued.returncode == 0, reissued.stdout + reissued.stderr
+
+    # And the half that says WHY the target had to be named beside the project:
+    # the same re-issue with the caller's original spelling still fails, so the
+    # sentence is not merely decorated with a value the caller already had.
+    stale = _run_gda(
+        *head,
+        spelling,
+        "--project",
+        stated["project"],
+        "--godot",
+        str(GODOT),
+        *extra,
+        "--json",
+    )
+    assert stale.returncode != 0, stale.stdout
+
+
+@pytest.mark.e2e
+def test_the_stated_reissue_survives_a_link_spelled_owner(tmp_path):
+    # The spelling the resolved coordinates cannot produce. `outer/addons/vendored`
+    # links at a checkout that is its own project, so the refusal reports the
+    # owner and the location RESOLVED — both under `vendor/pkg`, neither naming
+    # the link the caller typed. Subtracting one from the other would still work
+    # here; what would not is the file-link case in the sibling unit test, and one
+    # lexical rule serves both. This pins that the link-spelled arm is executable.
+    outer = tmp_path / "outer"
+    (outer / "addons").mkdir(parents=True)
+    (outer / "project.godot").write_text(project_godot("outer"), encoding="utf-8")
+    pkg = tmp_path / "vendor" / "pkg"
+    pkg.mkdir(parents=True)
+    (pkg / "project.godot").write_text(project_godot("pkg"), encoding="utf-8")
+    (pkg / "vend.gd").write_text(INSIDE_GD, encoding="utf-8")
+    (outer / "addons" / "vendored").symlink_to(pkg, target_is_directory=True)
+
+    refused = _run_gda(
+        "script",
+        "validate",
+        "addons/vendored/vend.gd",
+        "--project",
+        str(outer),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+    assert refused.returncode == 4, refused.stdout + refused.stderr
+    stated = REISSUE.search(json.loads(refused.stdout)["error"]["message"])
+    assert stated is not None
+    assert stated["target"] == "vend.gd"
+
+    reissued = _run_gda(
+        "script",
+        "validate",
+        stated["target"],
+        "--project",
+        stated["project"],
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+    assert reissued.returncode == 0, reissued.stdout + reissued.stderr
+    assert json.loads(reissued.stdout)["valid"] is True

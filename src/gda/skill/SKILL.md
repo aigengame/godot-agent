@@ -127,8 +127,10 @@ and re-read the verdict. gda refuses up front, with `target_outside_project`, wh
 the resolved project plainly does not own a path — outside its tree, or claimed by
 a nested `project.godot`, and with no project resolved too (`script run` and
 `resource import` refuse the same way). It names the owner it found
-(`evidence.owning_project`) but never switches to it: re-issue with
-`--project <owner>`. One gap: `--all` does NOT apply that check, so a nested
+(`evidence.owning_project`) but never switches to it, and the message states the
+whole re-issue: `--project <owner>` AND the target respelled relative to that
+owner — a relative path anchors at the project, so your original spelling would
+not be found under the new one. One gap: `--all` does NOT apply that check, so a nested
 project's scripts can still show a false missing-`res://` cascade there — name them
 explicitly with their own `--project` to get the true verdict.
 

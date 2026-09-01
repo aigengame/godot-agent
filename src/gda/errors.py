@@ -814,9 +814,11 @@ def target_outside_project_failure(location: Path, project: Path) -> Failure:
     the class — which the convergence of #763 satisfies three times over.
 
     The location and the resolved root also ride as typed evidence (#687), because
-    they are exactly the pair a caller needs to do for itself the derivation gda
-    refuses to do for it: walk up from the target to its own ``project.godot`` and
-    re-issue with that ``--project``.
+    they are what a caller derives for itself the derivation gda refuses to do for
+    it: walk up from the location to its own ``project.godot``, and re-issue with
+    that ``--project`` and the target respelled relative to it. Unlike the owner
+    refusal below, this one cannot state that re-issue outright — it found no owner
+    to state it against, which is the condition — so it names the direction only.
     """
     return make_failure(
         "target_outside_project",
@@ -832,7 +834,7 @@ def target_outside_project_failure(location: Path, project: Path) -> Failure:
 
 
 def target_owned_by_another_project_failure(
-    location: Path, owner: Path, project: Path | None
+    location: Path, owner: Path, project: Path | None, reissue_target: str
 ) -> Failure:
     """The ``target_outside_project`` refusal for a target a NEARER project owns (#697).
 
@@ -847,8 +849,22 @@ def target_owned_by_another_project_failure(
     ADR-0006's 2026-08-31 amendment decides that this refuses rather than derives,
     and this message is where the decision is visible to the caller: gda names the
     owner it found and hands the call back, instead of quietly re-rooting the call
-    on it. The owner is the one thing the caller has to retype, so it rides typed
-    as well (#687).
+    on it. The owner rides typed as well (#687).
+
+    The message names BOTH operands of the re-issue, because the owner alone does
+    not make one (#799 review). A relative target anchors at the resolved project,
+    so re-issuing the caller's own spelling under the owner's ``--project`` reaches
+    a file that is not there; and ``script run`` refuses the absolute
+    ``target_location`` this same refusal reports, by ADR-0031's one-address rule.
+    ``reissue_target`` is the target relative to the owner
+    (:func:`gda.project.owner_relative_target`) — the one spelling all three
+    refusing commands accept — so following the sentence verbatim under any of
+    them runs the call the caller meant.
+
+    It is stated in the message rather than added as a fourth evidence field: the
+    respelling is DERIVABLE from the two coordinates already published
+    (``target_location`` relative to ``owning_project``), which is exactly the
+    second clause of ADR-0004's criterion for what may enter that object.
 
     ``project`` is ``None`` for a projectless run — the second GDA-DF-035 reading,
     which produced the same false cascade with no root to attribute it to.
@@ -860,8 +876,8 @@ def target_owned_by_another_project_failure(
         "target_outside_project",
         f"{location} belongs to the Godot project {owner}, but this call resolved "
         f"{resolved}: its own res:// references would resolve against the wrong "
-        f"root, so nothing was run. Pass --project {owner} to work on it in the "
-        "project that owns it.",
+        f"root, so nothing was run. Pass --project {owner} and address the target "
+        f"as {reissue_target!r} to work on it in the project that owns it.",
         "",
         evidence=FailureEvidence(
             target_location=str(location),

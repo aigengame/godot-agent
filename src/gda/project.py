@@ -357,6 +357,36 @@ def target_location(path: str, project: Path | None) -> Path:
     return _anchored_target(path, project).resolve()
 
 
+def owner_relative_target(path: str, project: Path | None, owner: Path) -> str:
+    """How the caller re-addresses ``path`` against ``owner`` (#799 review).
+
+    The refusal :func:`owning_project` produces has to be ACTIONABLE, and naming
+    the owner alone is not: a relative target anchors at the resolved project
+    (:func:`project_anchored`), so re-issuing the same spelling under the owner's
+    ``--project`` reaches a file that is not there (``path_not_found``), and the
+    absolute location the refusal reports as evidence is a form ``script run``
+    structurally refuses (ADR-0031's one-address model). The one spelling all
+    three refusing commands accept is the target's path RELATIVE to the project
+    named, so that is what this computes and the message states.
+
+    The reading is LEXICAL on both sides, and that is not a shortcut — it is the
+    only reading that is total. :func:`owning_project` walks the caller's own
+    spelling, so the owner it returns is always a lexical ancestor of the lexical
+    target and this subtraction cannot fail. The resolved pair CAN fail: a file
+    link inside a nested project points its resolved location outside the resolved
+    owner, and the spelling that works there is still the link's own. Lexical is
+    also what the engine reads — it walks the project directory — so the result is
+    the address the engine resolves to the same file.
+
+    ``owner`` must be the value :func:`owning_project` returned for the same
+    ``path`` and ``project``; the totality argument above is about exactly that
+    pair. Forward slashes, so the spelling is portable to the caller's next
+    invocation on any platform.
+    """
+    target = _lexical_abs(_anchored_target(path, project))
+    return target.relative_to(_lexical_abs(owner)).as_posix()
+
+
 def owning_project(path: str, project: Path | None) -> Path | None:
     """The Godot project that owns ``path``, when it is NOT ``project`` (#697).
 
@@ -430,6 +460,16 @@ def owning_project(path: str, project: Path | None) -> Path | None:
             # runs next.
             return None
         stop_resolved = stop.resolve()
+    # The resolved half of the stop test is per-ancestor, and `resolve()` is itself
+    # O(depth), so the walk is O(depth^2) syscalls — and #663 makes it per batch
+    # entry. Measured on macOS APFS (200-call mean): 0.07 ms at depth 1, 1.04 ms at
+    # 20, 7.2 ms at 60, 27.3 ms at 120 (#799 review). It stands as written: a real
+    # project layout is single-digit depth, where the cost is under a tenth of a
+    # millisecond against a headless launch of hundreds, and resolving `start` once
+    # and walking the two chains in lockstep would buy that back by keeping two
+    # chains in step through the case the double reading exists FOR — a symlink,
+    # where the resolved chain is not the lexical one's image. Revisit if a
+    # measurement, not a shape, says so.
     for directory in (start, *start.parents):
         if stop is not None and (
             directory == stop or directory.resolve() == stop_resolved

@@ -29,7 +29,12 @@ from pathlib import Path
 import pytest
 
 from gda.commands.resource import _asset_res_path
-from gda.commands.script import _project_scoped_res_path
+from gda.commands.script import (
+    ScriptValidateParams,
+    _project_scoped_res_path,
+    _script_validate_recipe,
+    run_script_run_operation,
+)
 from gda.errors import Failure
 from gda.project import PROJECT_MARKER, path_outside_project
 
@@ -159,3 +164,110 @@ def test_an_absolute_outside_path_is_one_question_asked_by_two_gates(project, tm
         outcome = _project_scoped_res_path(spelling)
         assert isinstance(outcome, Failure), spelling
         assert outcome.error.code == "invalid_path", spelling
+
+
+# The OWNERSHIP half of the same question (#697), across the same three gates. The
+# containment table above drives them from one spelling; this does the same for the
+# half that was added later and had no shared row — each command was pinned only by
+# its own test, so a gate could drift out of the convergence and only its own suite
+# would notice (#799 review).
+#
+# The res:// and project-relative spellings are BOTH here because ownership anchors
+# them differently on the way in (`_anchored_target`) and must still land on one
+# answer.
+OWNED_SPELLINGS = ["res://inner/main.gd", "inner/main.gd"]
+
+
+@pytest.fixture
+def nested(project: Path) -> Path:
+    """The resolved project, with a second project nested one directory in."""
+    inner = project / "inner"
+    inner.mkdir()
+    (inner / PROJECT_MARKER).write_text("config_version=5\n", encoding="utf-8")
+    (inner / "main.gd").write_text("extends Node\n", encoding="utf-8")
+    return inner
+
+
+def _never_launched(*args, **kwargs):
+    raise AssertionError("ownership must be decided before any engine launch")
+
+
+def _ownership_refusals(project: Path, spelling: str) -> "list[tuple[str, object]]":
+    """The three gates' answers, each at the level that BUILDS the envelope.
+
+    Typed `object`, not the union of the three: each gate has its own success type
+    and the point of every caller is the `isinstance(..., Failure)` narrowing, which
+    is also the first assertion each of them makes.
+
+    Unlike the containment table, which can ask the shared primitive directly, the
+    ownership verdict is only interesting once a command has turned it into a
+    refusal: the three coordinates and the re-issue sentence are built per call
+    site, and that is where they drifted. Every one of these returns before an
+    engine is needed — `script run`'s fake launch asserts it is never reached.
+    """
+    return [
+        (
+            "script validate",
+            _script_validate_recipe(
+                ScriptValidateParams(paths=[spelling]), project=project, godot=None
+            ),
+        ),
+        (
+            "script run",
+            run_script_run_operation(
+                script=spelling,
+                godot=None,
+                project=project,
+                make_launch=_never_launched,
+            ),
+        ),
+        ("resource import", _asset_res_path(project, spelling)),
+    ]
+
+
+@pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
+def test_every_gate_reaches_the_same_ownership_verdict(project, nested, spelling):
+    # One nested project, three commands, one answer — asserted together for the
+    # same reason the containment table is: the invariant is that they AGREE.
+    for name, outcome in _ownership_refusals(project, spelling):
+        assert isinstance(outcome, Failure), name
+        assert outcome.error.code == "target_outside_project", name
+        evidence = outcome.error.evidence
+        assert evidence is not None, name
+        assert evidence.owning_project == str(nested.resolve()), name
+        assert evidence.target_location == str((nested / "main.gd").resolve()), name
+
+
+@pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
+def test_every_gate_reports_the_resolved_project_root(project, nested, spelling):
+    # `FailureEvidence.project_root` publishes "the project gda resolved for this
+    # call, in its resolved form — the same value a successful result reports". One
+    # gate did not: `_asset_res_path` reported the project as the caller spelled it,
+    # so the same call answered `/tmp/…` from `resource import` and `/private/tmp/…`
+    # from `script validate` on macOS (#799 review).
+    #
+    # The divergence is DRIVEN rather than inherited from the platform: `tmp_path`
+    # is already resolved on macOS, so a fixture path alone cannot tell the two
+    # readings apart and this row would pass either way. An `alias/..` hop is a
+    # difference `resolve()` removes on every platform, which is what makes this an
+    # assertion about the promised FORM instead of about a host's `/tmp`.
+    (project.parent / "alias").mkdir()
+    spelled = project.parent / "alias" / ".." / project.name
+
+    for name, outcome in _ownership_refusals(spelled, spelling):
+        assert isinstance(outcome, Failure), name
+        assert outcome.error.evidence is not None, name
+        assert outcome.error.evidence.project_root == str(project.resolve()), name
+
+
+@pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
+def test_every_gate_states_the_same_reissue(project, nested, spelling):
+    # The remediation is part of the shared answer too, not per-command prose: the
+    # owner to pass AND the target to spell. `tests/test_e2e_res_containment.py`
+    # proves the stated pair actually runs; this proves all three state it.
+    for name, outcome in _ownership_refusals(project, spelling):
+        assert isinstance(outcome, Failure), name
+        assert (
+            f"--project {nested.resolve()} and address the target as 'main.gd'"
+            in outcome.error.message
+        ), name

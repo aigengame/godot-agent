@@ -107,6 +107,36 @@ is a literal path component, not shell-style home expansion.
 > objections — undefined outside any project, several roots per call — do not apply: no
 > owner simply means no refusal.
 >
+> **The symlink edge, decided rather than left open.** #697 recorded one case for this
+> amendment to settle: a link inside project P leading to content another project Q owns.
+> It SPLITS, and the split is what the lexical walk says about two different things, not
+> two rules:
+>
+> - a DIRECTORY link — `game/addons/vendored` at a checkout that carries its own
+>   `project.godot` — is REFUSED, owner `vendored`. The walk climbs the caller's spelling,
+>   and the marker is there in it;
+> - a FILE link — `game/linked.gd` at a file inside another project — is ACCEPTED, owner
+>   `game`. The walk climbs the DIRECTORIES above the link, and those are `game`'s.
+>
+> A project marker lives in a directory, so only a directory link can carry one into P's
+> tree; that is the whole of the difference. The plain-library case
+> (`game/addons/cardlib` at a directory with no `project.godot`) is untouched and still
+> inside — the case the lexical walk exists for.
+>
+> The refusal reports the owner RESOLVED, as it reports the other two coordinates: the
+> caller sees `libs/demo`, not `game/addons/demo`. One coordinate system, so the three
+> published values can be compared with each other. The caller's own spelling is not lost —
+> the re-issue target the message states is derived from it.
+>
+> **Enumeration is not targeting.** This amendment decides what a caller may NAME as a
+> target, from the caller's own spelling; what the project ENUMERATES is
+> [ADR-0032](0032-project-local-class-name-resolution-static-fallback.md)'s `res://` walk,
+> whose exclusions are decided by filesystem identity (its 2026-08-31 amendment, #760). The
+> two questions are different and their answers can differ for one directory — a vendored
+> checkout reached through a link is enumerable content whose `class_name`s resolve into the
+> outer index, and is refused as a target. That is the layer boundary rather than a
+> contradiction, and it is also the shape of the `--all` gap below.
+>
 > **All three commands, for one reason each.** `script validate` and `script run` apply
 > ownership because a target compiled or run against a foreign root resolves its OWN
 > `res://` references there. `resource import` applies it because the ENGINE does: the
@@ -205,13 +235,13 @@ is a literal path component, not shell-style home expansion.
 >   `Path.resolve()` does not canonicalize case. A real fix needs a `samefile`-style walk
 >   and is independent of this decision;
 > - `script validate --all` still produces the cascade. It enumerates through gda's OWN
->   `res://` walk (`operations.gd`'s `_should_descend`), which excludes only
->   `res://.godot`, while the engine's scan additionally skips a nested-project directory
->   (and a `.gdignore` one) — so `--all` compiles nested-project scripts against the outer
+>   `res://` walk (`operations.gd`'s `_should_descend`), which does not skip a directory
+>   holding a nested `project.godot` — the engine's editor scan does (and skips a
+>   `.gdignore` one too) — so `--all` compiles nested-project scripts against the outer
 >   root and the same file gets opposite answers depending on the selector. Closing it
 >   means changing the shared walk every collector uses (`script list`, `scene list`,
 >   project analysis, the import gap listing), which is its own slice with its own blast
->   radius.
+>   radius. The walk's full exclusion rule is ADR-0032's to state, not this one's.
 
 ## Considered options
 

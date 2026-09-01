@@ -693,13 +693,15 @@ with `target_outside_project`, naming both the file and the project, rather than
 false cascade. The check applies to **every** path in a batch, and the first offender in requested
 order refuses the whole call (#663): one call has one project, so one outsider makes the requested
 set unservable. `--all` carries no paths to check, and one KNOWN GAP: it enumerates through gda's own
-`res://` walk, which excludes only `res://.godot`, while the engine's editor scan
-additionally skips a directory holding a nested `project.godot`
-(`EditorFileSystem::_should_skip_directory`). So `--all` still compiles a nested project's
-scripts against the outer root and can report the false cascade for them, where naming the
-same file explicitly is refused. Closing it means changing the shared walk every collector
-uses; until then, read a `--all` verdict for a nested project's script as the artefact it
-is (ADR-0006 amendment, #697).
+`res://` walk, which does not skip a directory holding a nested `project.godot`, while the
+engine's editor scan does (`EditorFileSystem::_should_skip_directory`). So `--all` still
+compiles a nested project's scripts against the outer root and can report the false cascade
+for them, where naming the same file explicitly is refused. That gap is one face of a layer
+boundary and not only a bug: the walk decides what the project can ADDRESS, by filesystem
+identity (see the exclusion passage above); this gate decides what a caller may NAME as a
+target, from the caller's own spelling. Closing it means changing the shared walk every
+collector uses; until then, read an `--all` verdict for a nested project's script as the
+artefact it is (ADR-0006 amendment, #697).
 
 "Does not own" is two questions (ADR-0006 amendment, #697). **Containment** follows the engine's
 own addressing: a relative path is anchored at the resolved project (not gda's cwd), an
@@ -709,10 +711,17 @@ reached through a symlink into the project counts as inside, except when a `..` 
 cross that symlink, where only the fully resolved location decides. **Ownership** asks whether the
 resolved project is the *nearest* `project.godot` at or above the target: a script under a project
 **nested inside** the resolved one is contained and still refused, because its own `res://`
-references mean the nested root. gda names the owner it found and does not adopt it — deriving the
-project from the target stays rejected — so pass `--project <owner>`. `resource import`
-asks the same question, for the engine's own reason: its editor scan skips a nested
-project's directory, so an asset there cannot be imported into the outer project at all.
+references mean the nested root. The walk reads the caller's SPELLING, so a **directory**
+symlink at a checkout that carries its own `project.godot` is refused (the marker is in the
+spelling) while a **file** symlink at a file inside another project is accepted (the
+directories above it are the resolved project's) — one rule, two cases, and only a directory
+can carry a marker in. gda names the owner it found and does not adopt it — deriving the
+project from the target stays rejected — so pass `--project <owner>` **with the target
+respelled relative to that owner**; the refusal states both, because a relative path anchors
+at the project and the caller's original spelling would not be found under the new one.
+`resource import` asks the same question, for the engine's own reason: its editor scan skips
+a nested project's directory, so an asset there cannot be imported into the outer project at
+all.
 Ownership is checked projectless too: a file that has an owner is refused rather than compiled against nothing, while a
 standalone script no project claims is still validated by filesystem path. The refusal carries
 `target_location`, `project_root` and `owning_project` as typed `evidence`, each present only when

@@ -53,6 +53,7 @@ from gda.project import (
     RES_PREFIX,
     canonical_res_path,
     is_engine_virtual_path,
+    owner_relative_target,
     owning_project,
     path_outside_project,
     project_anchored,
@@ -837,14 +838,24 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
     project_abs = project.expanduser()
     if not project_abs.is_absolute():
         project_abs = Path.cwd() / project_abs
+    # The checks read the project as SPELLED (the double reading is theirs to make);
+    # the refusals report it RESOLVED, which is what `FailureEvidence.project_root`
+    # publishes ("in its resolved form — the same value a successful result
+    # reports") and what the two sibling gates already did. Reporting `project_abs`
+    # itself made this one command answer `/tmp/...` where `script validate`
+    # answered `/private/tmp/...` for the same call (#799 review).
+    root = project_abs.resolve()
     owner = owning_project(raw, project_abs)
     if owner is not None:
         return target_owned_by_another_project_failure(
-            target_location(raw, project_abs), owner.resolve(), project_abs
+            target_location(raw, project_abs),
+            owner.resolve(),
+            root,
+            owner_relative_target(raw, project_abs, owner),
         )
     outside = path_outside_project(raw, project_abs)
     if outside is not None:
-        return target_outside_project_failure(outside, project_abs)
+        return target_outside_project_failure(outside, root)
     if raw.startswith(RES_PREFIX):
         # Already in the engine's namespace: canonicalize the spelling and stop.
         # Reading it lexically is what the engine does too — a symlink inside the
