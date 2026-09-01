@@ -39,9 +39,10 @@ and forced any later adapter either to copy the contract or to call HTTP.
   explicit adapter migration. Compatible additions do not create another language or schema owner.
 - The Published Language does not become a Standard Schema authority. Kernel, LDB, Model,
   Experiment, Runtime, Evidence, and other accepted authorities continue to own their schemas,
-  rules, semantics, identities, and refusals. The Execution Service Language references their
-  exact normative contracts and versions. It does not copy their fields, emit a peer schema,
-  reinterpret them, or expose an implementation-private Domain model.
+  rules, semantics, identities, and refusals. The Execution Service Language carries their values
+  opaquely, and the Domain applies the applicable authority-owned contracts. The language does not
+  copy their fields, emit a peer schema, reinterpret them, or expose an implementation-private
+  Domain model.
 - The OHS-specific integration shapes have one executable owner outside transport adapters. JSON
   Schema and HTTP contract documentation for those shapes are derived projections. Any future
   adapter projection must derive from the same owner. A projection is not a second authority.
