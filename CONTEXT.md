@@ -200,14 +200,17 @@ writer — the harness since #752, the headless operations payload since #771 �
 so a projected float is the exact binary64 the subject holds, on either
 channel, with one shared residual the engine decides before the writer is
 consulted: a negative zero reads back as `0.0`. The WRITE sides answer alike
-from one principle — a value the engine's parser cannot carry is REFUSED, never
-stored — but ask the question differently, because the two know the literal at
-different times: on the live wire gda spells it, so the refusal PREDICTS the
-outcome before the request is relayed (#752), while a `--value` string is spelled
-by the CALLER, so `node set` / `resource set` / `project set` and the live `game
-set` OBSERVE what that parser did and refuse a literal it read as `0.0` or `NaN`
-when no zero was written (#772). Both disclose the same residual instead of
-refusing it: the parser's low-order drift, which the full-precision echo shows. Two
+from one principle — a literal the engine's parser reads as `0.0` or `NaN` although
+no zero was written is REFUSED, never stored — but ask the question differently,
+because the two know the literal at different times: on the live wire gda spells it,
+so the refusal PREDICTS the outcome before the request is relayed (#752), while a
+`--value` string is spelled by the CALLER, so `node set` / `resource set` /
+`project set` and the live `game set` OBSERVE what that parser did (#772). What the
+parser produces bounds the rule on both sides: the low-order drift is disclosed
+rather than refused, which the full-precision echo shows, and so is an OVERFLOW — a
+`--value` of `1e400` is stored as the `inf` the parser saturates it to, since that
+is the engine's number for the magnitude asked, not a different one put in its
+place. Two
 controls keep the shared projection safe on the live
 side: the whitelist bounds the Object classes whose storage properties the
 inline kind emits, and the texture kind is safe by construction — a fixed

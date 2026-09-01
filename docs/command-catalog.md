@@ -327,7 +327,10 @@ scene and reports the addressed node's **storage** properties (the ones that ser
 declared Godot type name and `value` is its JSON projection. `gda node set` takes the property's
 declared type as the coercion target and converts the CLI `--value` **string** to it; the value
 the node ends up holding is reported back in the same JSON projection `node get` uses, so a `set`
-round-trips through a `get`. An unknown property is `unknown_property`; a value that cannot be
+round-trips through a `get` — with one measured exception, the scene packer's elision, recorded
+under "Number coercion" below: a float value too close to the property's declared default is
+omitted from the `.tscn` altogether, so the `set` echo reports what was written and the following
+`get` reads the default. An unknown property is `unknown_property`; a value that cannot be
 coerced to the property's type is `uncoercible_value` (both exit 4, file untouched). `node get`
 reads but does not save, so it skips the re-save guard; `node set` is a mutating op and honors the
 mutation integrity boundary above. The supported target types and the string forms they accept:
@@ -457,10 +460,17 @@ property declared `@export var v: float = 0.0`, `--value 1e-6` echoes `1e-6` and
 can see it, and `project set` (measured) is unaffected, so it is recorded here rather than
 folded into the rule above.
 
-The rule keys on what the parser PRODUCED, which draws two edges. An **overflow is not
-refused**: `1e400` reads as `inf`, which the scene file records as `inf` and the reply reports as
-JSON `null` — the engine's writer has no number for it — so it is loud rather than the silent
-substitution this rule exists to stop. A literal **below binary64's reach is refused**
+The rule keys on what the parser PRODUCED, and the two edges it draws are separated by what
+gets STORED, not by how loudly the result reads back — a stored `NaN` and a stored `inf` both
+report as JSON `null`, so the reply cannot tell them apart. An **overflow is not refused**:
+`1e400` reads as `inf`, the correctly-rounded IEEE-754 answer for a magnitude past binary64's
+top, and the scene file records `inf` — the engine's number for "larger than it can hold", in
+the direction the caller asked for, not a different number put in its place. `0e600` reads as
+`NaN`, which is not the value, not near it and not in its direction, and that is the
+substitution this rule exists to stop. The overflow carries a residual of its own, disclosed
+here rather than refused: `inf` is stored but cannot be REPORTED, so the `set` echo and every
+later `node get` / `project get` read it as JSON `null`. A literal **below binary64's reach is
+refused**
 anyway — `1e-400` fails exactly as `1e-320` does, although zero is the correctly-rounded answer
 there; the coercion cannot tell a true underflow from the engine's −309 cliff without modelling
 the parser it asks instead, and a caller who means zero writes `0`. One path does not reach the

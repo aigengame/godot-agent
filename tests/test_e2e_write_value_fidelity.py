@@ -124,6 +124,22 @@ def _parse_literals(tmp_path, literals: list[str]) -> list[float]:
     return [struct.unpack("<d", bytes.fromhex(row))[0] for row in rows]
 
 
+def _corpus_spellings() -> list[str]:
+    """Every corpus row in BOTH spellings — the sweep this direction is measured on.
+
+    ``repr`` is what ``json.dumps`` puts on the wire; the fixed spelling is what a
+    caller types. A ``5e-324`` written out in full is not a spelling anyone types, so
+    the fixed form is dropped past 400 characters.
+    """
+    literals: list[str] = []
+    for case in LIVE_NUMBER_CORPUS:
+        literals.append(repr(case.value))
+        fixed = fixed_spelling(case.value)
+        if len(fixed) < 400:
+            literals.append(fixed)
+    return literals
+
+
 @pytest.mark.e2e
 def test_the_write_policy_matches_what_this_engine_does_to_the_corpus(tmp_path):
     """Every corpus row, in both spellings, judged by the engine and by the rule.
@@ -133,12 +149,7 @@ def test_the_write_policy_matches_what_this_engine_does_to_the_corpus(tmp_path):
     drift included. Asserting that over the whole corpus is what makes "observe the
     outcome" a claim about this engine rather than about three examples.
     """
-    literals: list[str] = []
-    for case in LIVE_NUMBER_CORPUS:
-        literals.append(repr(case.value))
-        fixed = fixed_spelling(case.value)
-        if len(fixed) < 400:  # a 5e-324 written out in full is not a spelling
-            literals.append(fixed)
+    literals = _corpus_spellings()
 
     measured = list(zip(literals, _parse_literals(tmp_path, literals)))
     refused = [row for row in measured if policy_refuses(*row)]
@@ -181,6 +192,76 @@ def test_the_write_policy_matches_what_this_engine_does_to_the_corpus(tmp_path):
         assert value_bits(arrived) == value_bits(value)
 
 
+# The literal set this direction PUBLISHES its measurement over: every corpus row
+# in both spellings, plus `WRITE_CASES`, plus the edge literals the contract names
+# by hand. Spelled out here, and partitioned by the test below, so the published
+# counts are re-derivable from an artifact instead of hand-carried in prose — the
+# discipline #770 established for the READ side's `gda.live_numbers.PARTITIONS`.
+NAMED_EDGE_LITERALS = (
+    "1e400",  # the accepted overflow
+    "0.0012345678901234567",  # the mantissa-cap rows the remedy is named on: the
+    "1.2345678901234567e-3",  # fixed spelling drifts, the scientific one is exact
+    "1.4285714285714284e-4",
+)
+
+# Five buckets, every literal in exactly one, measured on Godot 4.6.3. `nan` and
+# `inf` are the two single-member edges the contract names; `1e-400` sits in
+# `zeroed` and is refused with the rest of that bucket although 0.0 is the
+# correctly-rounded answer there. `refused` is `zeroed` + `nan`, which is the whole
+# rule: everything else is accepted, drift included.
+PUBLISHED_PARTITION = {"exact": 109, "drifted": 31, "zeroed": 37, "nan": 1, "inf": 1}
+PUBLISHED_REFUSED = 38
+
+
+@pytest.mark.e2e
+def test_the_published_partition_is_what_this_engine_produces(tmp_path):
+    """The counts the contract publishes, re-derived from a real engine.
+
+    The sibling test above asserts the rule's PROPERTIES over the corpus; this one
+    pins the SHAPE of the outcome over the whole published set, so the numbers a
+    reader is given can be checked rather than trusted. A corpus edit or an engine
+    whose parser changed fails here loudly, which is the point.
+    """
+    literals = (
+        _corpus_spellings()
+        + [literal for literal, _, _ in WRITE_CASES]
+        + list(NAMED_EDGE_LITERALS)
+    )
+    measured = list(zip(literals, _parse_literals(tmp_path, literals)))
+
+    buckets: dict[str, list[str]] = {name: [] for name in PUBLISHED_PARTITION}
+    for literal, value in measured:
+        if math.isnan(value):
+            buckets["nan"].append(literal)
+        elif math.isinf(value):
+            buckets["inf"].append(literal)
+        elif value == 0.0 and not names_zero(literal):
+            buckets["zeroed"].append(literal)
+        elif value_bits(value) == value_bits(float(literal)):
+            buckets["exact"].append(literal)
+        else:
+            buckets["drifted"].append(literal)
+
+    assert {name: len(rows) for name, rows in buckets.items()} == PUBLISHED_PARTITION
+    assert sum(len(rows) for rows in buckets.values()) == len(literals)
+    assert buckets["nan"] == ["0e600"]
+    assert buckets["inf"] == ["1e400"]
+    assert "1e-400" in buckets["zeroed"]
+
+    refused = [row for row in measured if policy_refuses(*row)]
+    assert len(refused) == PUBLISHED_REFUSED
+    assert PUBLISHED_REFUSED == len(buckets["zeroed"]) + len(buckets["nan"])
+
+    # The load-bearing claim, over every published row: nothing the rule ACCEPTS is
+    # a destroyed value.
+    for literal, value in measured:
+        if policy_refuses(literal, value):
+            continue
+        assert not math.isnan(value), literal
+        if not names_zero(literal):
+            assert value != 0.0, literal
+
+
 # --- the command tier: headless `node set` ------------------------------------
 
 # The export's default is 1.0, NOT 0.0, and that is load-bearing. Godot's scene
@@ -191,7 +272,17 @@ def test_the_write_policy_matches_what_this_engine_does_to_the_corpus(tmp_path):
 # from the .tscn and reads back as 0.0 — a real silent loss, but the PACKER's and
 # not the parser's, so this module keeps it out of the way instead of measuring it
 # (`docs/command-catalog.md` records it under "Number coercion").
-PROBE_GD = "extends Node2D\n\n@export var v: float = 1.0\n"
+# The extra properties are the note-attribution controls: a type that never
+# reaches `_coerce_float` (`n`, `d`), one that takes the literal verbatim (`s`),
+# and a list type whose ARITY can fail before any component is parsed (`pos2`).
+PROBE_GD = (
+    "extends Node2D\n\n"
+    "@export var v: float = 1.0\n"
+    "@export var n: int = 0\n"
+    "@export var d: Dictionary = {}\n"
+    '@export var s: String = ""\n'
+    "@export var pos2: Vector2 = Vector2.ZERO\n"
+)
 PROBE_TSCN = (
     "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://probe.gd" id="1"]\n\n'
@@ -396,6 +487,62 @@ def test_the_refusal_is_narrow_and_names_its_remedy(probe_project):
 
 
 @pytest.mark.e2e
+def test_the_note_explains_only_the_refusal_it_diagnosed(probe_project):
+    """The note belongs to the FLOAT coercion, not to every uncoercible failure.
+
+    A destroyed literal in the argument text is not the same fact as a coercion
+    that refused BECAUSE of it. An `int`, a `Dictionary` and a wrong-arity
+    `Vector2` never reach `_coerce_float`, so the parser did not decide their
+    failure and no re-spelling would fix it — attaching the fidelity explanation
+    to them names a false cause and an unreachable remedy. Each of these carried
+    the note before this test existed.
+    """
+    scene = probe_project / "main.tscn"
+    run = _headless_runner(probe_project)
+
+    def message(*args):
+        result = run("node", "set", str(scene), "--node", ".", *args)
+        assert result.returncode == 4, (args, result.stdout, result.stderr)
+        payload = json.loads(result.stdout)["error"]
+        assert payload["code"] == "uncoercible_value", args
+        return payload["message"]
+
+    # An int property: the int coercion refuses `1e-320` because it is not an int
+    # spelling. The float parser is not involved, and the base message is exact.
+    assert message("--property", "n", "--value", "1e-320") == (
+        "cannot coerce value 1e-320 to int for property n on node ."
+    )
+    # A Dictionary property: refused by the JSON/`str_to_var` parse, not by
+    # `String.to_float`.
+    assert message("--property", "d", "--value", "0.000000000000000001") == (
+        "cannot coerce value 0.000000000000000001 to Dictionary"
+        " for property d on node ."
+    )
+    # A Vector2 with three components fails on ARITY, before a component is parsed.
+    assert message("--property", "pos2", "--value", "1,2,1e-320") == (
+        "cannot coerce value 1,2,1e-320 to Vector2 for property pos2 on node ."
+    )
+    # A component that is not a float spelling at all stops the walk where
+    # `_coerce_float_list` stops: the failure is that component, not the later one.
+    assert message("--property", "pos2", "--value", "abc,1e-320") == (
+        "cannot coerce value abc,1e-320 to Vector2 for property pos2 on node ."
+    )
+
+    # The positive controls: where the float coercion IS the refusal, the note
+    # stays, and a list type names the ONE offending component.
+    assert "reads 1e-320 as 0.0" in message("--property", "v", "--value", "1e-320")
+    assert "reads 1e-320 as 0.0" in message("--property", "pos2", "--value", "1,1e-320")
+
+    # A String property takes the literal verbatim — there is no float to destroy,
+    # so this is a SUCCESS the refusal must never reach.
+    stored = run(
+        "node", "set", str(scene), "--node", ".", "--property", "s", "--value", "1e-320"
+    )
+    assert stored.returncode == 0, stored.stdout + stored.stderr
+    assert json.loads(stored.stdout)["value"] == "1e-320"
+
+
+@pytest.mark.e2e
 def test_project_set_shares_the_refusal(probe_project):
     """The policy is the shared coercion's, not `node set`'s (the mirror's point)."""
     (probe_project / "project.godot").write_text(
@@ -422,7 +569,7 @@ def test_project_set_shares_the_refusal(probe_project):
 
 # --- the command tier: live `game set` through a real daemon -------------------
 
-LIVE_MAIN_GD = "extends Node2D\n\nvar v := 1.5\n"
+LIVE_MAIN_GD = "extends Node2D\n\nvar v := 1.5\nvar n := 0\n"
 LIVE_MAIN_TSCN = (
     "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://live_main.gd" id="1"]\n\n'
@@ -482,5 +629,18 @@ def test_game_set_refuses_the_same_literals_against_a_real_daemon(
         )
         assert accepted.returncode == 0, accepted.stdout + accepted.stderr
         assert value_bits(json.loads(accepted.stdout)["value"]) == value_bits(1e-18)
+
+        # ...and the note's attribution is the harness copy's too: an int variable
+        # never reaches the float coercion, so the live refusal keeps the plain
+        # message rather than blaming a parser that never saw the literal.
+        misattributed = run(
+            "game", "set", "/root/Main", "--property", "n", "--value", "1e-320"
+        )
+        assert misattributed.returncode != 0, misattributed.stdout
+        error = json.loads(misattributed.stdout)["error"]
+        assert error["code"] == "live_uncoercible_value", misattributed.stdout
+        assert error["message"] == (
+            "cannot coerce value 1e-320 to int for script variable n on node /root/Main"
+        ), misattributed.stdout
     finally:
         run("daemon", "stop")

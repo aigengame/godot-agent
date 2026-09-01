@@ -1778,7 +1778,7 @@ func _op_node_set(params: Dictionary) -> void:
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value "
 					+ raw_position.c_escape()
 					+ " to Vector2 for property position on node " + node_path
-					+ _float_fidelity_note(raw_position))
+					+ _float_fidelity_note(raw_position, TYPE_VECTOR2))
 			return
 		var target_position: Vector2 = coerced_position
 		control.set_position(target_position)
@@ -1827,7 +1827,8 @@ func _op_node_set(params: Dictionary) -> void:
 			root.free()
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
 					+ " to " + _type_name(declared_type) + " for property " + prop_name
-					+ " on node " + node_path + _float_fidelity_note(raw_value))
+					+ " on node " + node_path
+					+ _float_fidelity_note(raw_value, declared_type))
 			return
 
 		node.set(prop_name, coerced)
@@ -2983,7 +2984,8 @@ func _op_resource_set(params: Dictionary) -> void:
 		if coerced == null:
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
 					+ " to " + _type_name(declared_type) + " for property " + prop_name
-					+ " on resource " + path + _float_fidelity_note(raw_value))
+					+ " on resource " + path
+					+ _float_fidelity_note(raw_value, declared_type))
 			return
 		resource.set(prop_name, coerced)
 		# Read the value back off the resource before reporting — it now holds the
@@ -3618,7 +3620,7 @@ func _op_project_set(params: Dictionary) -> void:
 	if coerced == null:
 		_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
 				+ " to " + _type_name(declared_type) + " for project setting " + setting
-				+ _float_fidelity_note(raw_value))
+				+ _float_fidelity_note(raw_value, declared_type))
 		return
 
 	ProjectSettings.set_setting(setting, coerced)
@@ -6282,25 +6284,61 @@ func _float_literal_is_destroyed(literal: String) -> bool:
 	return is_nan(parsed) or (parsed == 0.0 and not _float_literal_names_zero(literal))
 
 
-# The explanation appended to an uncoercible_value message when the coercion failed
-# because the parser destroyed a float literal, and "" when it failed for the
-# ordinary reason — so a value like "abc" keeps the message it always had. Scans the
-# comma-separated components, so a Vector2 or Color list names the ONE offending
-# component instead of the whole argument.
-func _float_fidelity_note(raw: String) -> String:
-	for part in raw.split(","):
+# The literal whose destruction ACTUALLY refused this coercion, or "" when the
+# refusal was anything else. A note must never explain a failure it did not
+# diagnose, so this walks exactly what `_coerce_value` walks for `type`, in the
+# same order and behind the same gates: only TYPE_FLOAT, TYPE_VECTOR2 and
+# TYPE_COLOR reach `_coerce_float` at all — TYPE_INT, TYPE_VECTOR2I,
+# TYPE_DICTIONARY, TYPE_ARRAY and the rest refuse for reasons of their own and no
+# float spelling would help them; a wrong component count refuses on ARITY before
+# a component is parsed; a Color in hex form parses no float; and a component that
+# is not a float spelling at all is the ordinary uncoercible failure, which stops
+# the walk where `_coerce_float_list` stops.
+func _destroyed_float_literal(raw: String, type: int) -> String:
+	var components: PackedStringArray
+	match type:
+		TYPE_FLOAT:
+			components = PackedStringArray([raw])
+		TYPE_VECTOR2:
+			components = raw.split(",")
+			if components.size() != 2:
+				return ""
+		TYPE_COLOR:
+			var trimmed := raw.strip_edges()
+			if trimmed.begins_with("#"):
+				return ""
+			components = trimmed.split(",")
+			if components.size() != 3 and components.size() != 4:
+				return ""
+		_:
+			return ""
+	for part in components:
 		var literal := part.strip_edges()
-		if not _float_literal_is_destroyed(literal):
-			continue
-		var outcome := "NaN" if is_nan(literal.to_float()) else "0.0"
-		return " — Godot's own float parser reads " + literal.c_escape() + " as " \
-				+ outcome + ", so the write would store a number you did not send;" \
-				+ " gda refuses it instead of changing your value silently. Try the" \
-				+ " same value in scientific notation carrying only the digits it needs" \
-				+ " (1e-18, not 0.000000000000000001); if that reads as 0.0 too, the" \
-				+ " value is below this parser's reach and no decimal spelling delivers" \
-				+ " it — the live wire refuses that same class (#752)"
+		if not literal.is_valid_float():
+			return ""
+		if _float_literal_is_destroyed(literal):
+			return literal
 	return ""
+
+
+# The explanation appended to an uncoercible_value message when `_coerce_float`
+# refused a destroyed literal, and "" for every OTHER coercion failure — so "abc"
+# on a float, any value on an int or a Dictionary, and a three-component Vector2
+# all keep the message they always had. `type` is the declared type the failed
+# `_coerce_value` was given; a list type names the ONE offending component rather
+# than the whole argument.
+func _float_fidelity_note(raw: String, type: int) -> String:
+	var literal := _destroyed_float_literal(raw, type)
+	if literal.is_empty():
+		return ""
+	var outcome := "NaN" if is_nan(literal.to_float()) else "0.0"
+	return " — Godot's own float parser reads " + literal.c_escape() + " as " \
+			+ outcome + ", so the write would store a number you did not send;" \
+			+ " gda refuses it instead of changing your value silently. Try the" \
+			+ " same value in scientific notation carrying only the digits it needs" \
+			+ " (1e-18, not 0.000000000000000001); if that reads as 0.0 too, the" \
+			+ " value is below this parser's reach and no decimal spelling delivers" \
+			+ " it — the live wire refuses that same class as well"
 
 
 func _coerce_float(raw: String) -> Variant:

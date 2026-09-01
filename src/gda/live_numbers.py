@@ -161,10 +161,17 @@ mirrored byte-identically in ``ops/operations.gd`` and ``harness/gda_harness.gd`
 both channels.
 
 Keying on what the parser PRODUCED draws two edges, named here so the contract is not
-read wider — or narrower — than it is. An OVERFLOW is not refused: ``1e400`` reads as
-``inf``, which the reply reports as JSON ``null`` — the engine's writer has no number
-for it — so it is loud rather than the silent substitution this rule exists to stop. A literal below binary64's reach
-IS refused, even where zero is the correctly-rounded answer a faithful parser would
+read wider — or narrower — than it is. They are separated by what gets STORED, not by
+how loudly the result reads back: a stored ``NaN`` and a stored ``inf`` both report as
+JSON ``null``, so the reply cannot tell them apart. An OVERFLOW is not refused:
+``1e400`` reads as ``inf``, the correctly-rounded IEEE-754 answer for a magnitude past
+binary64's top — the engine's number for "larger than it can hold", in the direction
+the caller asked for, not a different number put in its place — and it is stored as
+``inf``. ``0e600`` reads as ``NaN``, which is not the value, not near it and not in
+its direction; that is the substitution the rule exists to stop. The accepted overflow
+carries its own residual, disclosed rather than refused: ``inf`` is stored but cannot
+be REPORTED, so the echo and every later read give JSON ``null``. A literal below
+binary64's reach IS refused, even where zero is the correctly-rounded answer a faithful parser would
 also give: ``1e-400`` is refused exactly as ``1e-320`` is, because nothing at the
 coercion site can tell a true underflow from the engine's −309 cliff without modelling
 the parser it deliberately asks instead — a caller who means zero writes ``0``. And one
