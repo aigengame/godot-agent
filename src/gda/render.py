@@ -60,7 +60,10 @@ def render_failure(error: GdaError) -> str:
     — the verdict, the message, then each optional key (``probe`` #667, ``hint``
     #670, ``evidence`` #687) — because the text replaces a JSON line that carried all
     of them, and a human failure that quietly dropped one would say less than what it
-    replaced.
+    replaced. Every one of those keys is REACHABLE here: ``hint`` is set only by the
+    near-miss refusal (``gda.hints``), which answers through this channel too rather
+    than through the parser's own usage error (#798 review) — before that, totality
+    over ``hint`` was a dead branch.
 
     The order is short-before-long: the fixed-size parts stay together under the head
     line, and ``diagnostics`` goes last because it is the only unbounded part (two

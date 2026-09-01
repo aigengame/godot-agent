@@ -31,10 +31,13 @@ surfaces from the leaf's parser, which runs inside its parent group's
 :meth:`GdaGroup.invoke`. So no command module — and no leaf command class — carries
 a line of this.
 
-**Which channel answers.** With ``--json`` in effect the refusal is the structured
-envelope on stdout; otherwise it is the human usage error, carrying the same
-correction in its message. Both exit ``2``, the code a usage error already exited
-with, so nothing that keyed on the exit changes.
+**Which channel answers.** Whichever the invocation asked for, through the ONE
+public failure channel (``gda.headless.emit_failure``): the structured envelope
+under ``--json``, else the same failure rendered as human lines, correction
+included (#685). Both exit ``2``, the code a usage error already exited with, so
+nothing that keyed on the exit changes. What does NOT go through it is the case
+where gda has no advice and no JSON was asked for — there the parser's own message
+is left untouched, which is gda declining to answer rather than a second layout.
 """
 
 from dataclasses import dataclass
@@ -44,14 +47,14 @@ import typer
 from typer.core import TyperGroup
 
 # Typer 0.26 VENDORS click (``typer._click``), so a Typer parser raises
-# ``typer._click.exceptions.*`` — NOT the identically named classes in the top-level
-# ``click`` package, which are a DIFFERENT class object. Catching click's would leave
-# every interception below silently dead, so the vendored classes are what is
-# imported here. ``typer`` re-exports only ``BadParameter`` from that hierarchy, and
-# a test pins that these classes are the ones it is built on, so a future Typer that
-# moves them fails loudly instead of quietly disabling the refusal.
+# ``typer._click.exceptions.*`` — NOT the identically named class in the top-level
+# ``click`` package, which is a DIFFERENT class object. Catching click's would leave
+# every interception below silently dead, so the vendored class is what is imported
+# here. ``typer`` re-exports only ``BadParameter`` from that hierarchy, and a test
+# pins that this class is in the one it is built on, so a future Typer that moves it
+# fails loudly instead of quietly disabling the refusal.
 from typer._click import Context as ClickContext
-from typer._click.exceptions import NoSuchOption, UsageError
+from typer._click.exceptions import NoSuchOption
 from typer._click.globals import get_current_context
 
 from gda.errors import Failure, make_failure
@@ -233,18 +236,25 @@ def unknown_option(path: tuple[str, ...], token: str, *, on_group: bool) -> Refu
 def _answer(ctx: ClickContext, refusal: Refusal) -> NoReturn:
     """Answer ``refusal`` in the channel the caller asked for. Never returns.
 
-    The ONE answering path, so the JSON and human channels stay two renderings of one
-    refusal: with ``--json`` in effect it is the ADR-0002 envelope through
-    :func:`gda.headless.emit_failure` (the single public failure channel), otherwise
-    the usage error click renders — carrying the same sentence, at the same exit code.
+    Through :func:`gda.headless.emit_failure`, the single public failure channel, so
+    a usage refusal gets the SAME two renderings as every other failure gda reports:
+    the ADR-0002 envelope under ``--json``, else the human lines of
+    :func:`gda.render.render_failure` (#685).
+
+    Until the #798 review the human arm raised click's own ``UsageError`` instead,
+    which was a SECOND private layout for the whole ``usage`` category — no head
+    line, no code, no category, and no ``hint`` line — printed on stderr while its
+    own ``--json`` twin already went to stdout. Routing it here removes the split in
+    both: the two renderings of one refusal now differ only in shape, and the human
+    ``usage`` failure lands on the stream every other human failure uses. The
+    sentence and the exit code are what they always were, so the ``Usage:`` synopsis
+    click added is the only thing lost — and the sentence carries the remedy that
+    synopsis pointed at, either the curated invocation or the ``--help`` to run.
+
+    It is also what makes the renderer TOTAL over the envelope rather than partly
+    dead: ``hint`` is set nowhere else, so before this it could never reach a human.
     """
-    if json_in_effect(ctx):
-        # ``json_output=True`` by construction: the branch IS the channel question,
-        # asked here rather than inside the emitter because the human answer is not a
-        # rendered envelope at all — it is click's own usage error, which carries the
-        # same sentence and the same exit code (#685).
-        emit_failure(refusal.failure(), json_output=True)
-    raise UsageError(refusal.message, ctx)
+    emit_failure(refusal.failure(), json_output=json_in_effect(ctx))
 
 
 def _refuse(ctx: ClickContext, refusal: Refusal) -> None:
@@ -259,6 +269,11 @@ def _refuse(ctx: ClickContext, refusal: Refusal) -> None:
     - When gda has no advice AND no JSON was asked for, it returns so Typer's own
       message — its did-you-mean guess included — is left exactly as it was. gda
       speaks up only where it has something to add.
+
+    That second rule is gda declining to ANSWER, not a second gda layout: the
+    message a human then reads is the parser's, unchanged, and says nothing about
+    gda. Every refusal gda does answer goes through :func:`_answer` and its one
+    renderer.
     """
     if ctx.resilient_parsing:
         return

@@ -237,7 +237,10 @@ successful result. It is what `--json` emits; without that flag the same failure
 is RENDERED for a human instead — the code and its category on a head line, the
 message, each optional typed key as a labelled line, then `diagnostics` verbatim
 as real lines. Two renderings of ONE outcome, at one exit code, from one renderer
-that keys on no `Gda error code` (#685).
+that keys on no `Gda error code` — the `usage` refusals included, since they answer
+through this channel rather than through the parser's own error (#685). Where gda
+has no correction to add to a parser refusal it does not answer at all and the
+parser's message stands, which is silence rather than a second layout.
 _Avoid_: error blob, failure JSON
 
 **Failure evidence**:
@@ -268,8 +271,9 @@ _Avoid_: diagnostics, error context, error details
 The corrected invocation gda returns when it RECOGNIZES a wrong one — an unknown
 command or option it holds a curated entry for (`gda scene inspect` → `gda scene
 get`, `gda --schema` → `gda schema`). It rides the `Error envelope` as the optional
-`hint` key, so an agent re-issues the corrected command without parsing prose; the
-human error carries the same correction in its message. Curated, never a
+`hint` key, so an agent re-issues the corrected command without parsing prose; both
+of that envelope's renderings carry it — the human one as its own `hint:` line,
+beside the same correction in the message. Curated, never a
 string-similarity guess: similarity is silent whenever the spelling is not close
 and the nearest string can be a different — even opposite — operation. One table
 (`src/gda/hints.py`) is the authority, kept honest by a test that re-resolves every

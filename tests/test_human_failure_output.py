@@ -263,3 +263,21 @@ def test_the_json_channel_stays_the_model_dump_for_every_registered_code(capsys)
             exclude_none=True
         )
         assert capsys.readouterr().out == expected + "\n", spec.code
+
+
+def test_a_usage_refusal_without_json_is_rendered_by_the_same_one_renderer():
+    # The `usage` category answers here too (#798 review). It used to raise click's
+    # own `UsageError` in human mode — a SECOND private layout, with no head line, no
+    # code and no category, on stderr while its own `--json` twin already went to
+    # stdout. `hint` is reachable only on this path, so routing it here is also what
+    # makes the renderer's totality over the envelope real rather than dead code.
+    result = CliRunner().invoke(app, ["scene", "inspect"])
+
+    assert result.exit_code == 2
+    assert result.stdout.splitlines() == [
+        "error: unknown_command (usage)",
+        "`gda scene inspect` is not a gda command. Use `gda scene get` instead: "
+        "`get` is the read verb in every group (ADR-0005); it reports the scene's "
+        "structured node tree",
+        "hint: gda scene get",
+    ]

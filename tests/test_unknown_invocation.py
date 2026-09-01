@@ -9,9 +9,10 @@ so it stays unparseable and it can name a *different* operation than the one mea
 
 These tests pin the two halves of the fix:
 
-- the CHANNEL — with `--json` in effect the refusal is gda's ordinary
-  `{"error": {...}}` envelope on stdout, at the same exit 2 the usage error already
-  used, so nothing that keyed on the exit code changes;
+- the CHANNEL — the refusal is answered by gda's one public failure channel, as the
+  `{"error": {...}}` envelope with `--json` in effect and as the same failure's human
+  lines without it (#685), at the same exit 2 the usage error already used, so
+  nothing that keyed on the exit code changes;
 - the CONTENT — a curated near-miss carries the supported invocation in a
   machine-readable `hint`, so an agent re-issues the corrected command without
   parsing a sentence.
@@ -62,13 +63,16 @@ def test_an_unknown_group_command_is_a_structured_refusal(args):
     assert result.exit_code == EXIT_USAGE
 
 
-def test_an_unknown_command_without_json_stays_a_human_usage_error():
-    # The default channel is unchanged: no `--json`, no envelope — the hint rides the
-    # human error instead, on stderr, at the same exit code.
+def test_an_unknown_command_without_json_is_the_human_rendering_of_the_envelope():
+    # No `--json`, no envelope — the same refusal rendered as lines by the shared
+    # failure renderer, at the same exit code. Its layout is pinned in
+    # `test_human_failure_output.py`; what this pins is that the refusal reaches that
+    # renderer at all, rather than click's own usage error (#798 review).
     result = CliRunner().invoke(app, ["scene", "inspect"])
 
     assert result.exit_code == EXIT_USAGE
     assert not result.stdout.startswith("{")
+    assert result.stdout.startswith(f"error: {UNKNOWN_COMMAND} (usage)\n")
     assert "gda scene get" in plain_text(result.output)
 
 
@@ -235,12 +239,14 @@ def test_both_refusal_codes_are_registered_at_the_usage_exit():
 
 
 def test_the_intercepted_exception_is_the_one_typer_raises():
-    # Typer 0.26 VENDORS click, so `typer._click.exceptions.UsageError` and the
+    # Typer 0.26 VENDORS click, so `typer._click.exceptions.NoSuchOption` and the
     # identically named class in the top-level `click` package are DIFFERENT types:
     # catching the wrong one leaves the interception silently dead. `typer.BadParameter`
-    # is public and is built on the vendored hierarchy, so this pins that the classes
-    # gda catches are the ones a Typer parser actually raises.
-    from gda.hints import NoSuchOption, UsageError
+    # is public and is built on the vendored hierarchy, so this pins that the class gda
+    # holds is in the one a Typer parser actually raises from.
+    from typer._click.exceptions import UsageError
+
+    from gda.hints import NoSuchOption
 
     assert issubclass(typer.BadParameter, UsageError)
     assert issubclass(NoSuchOption, UsageError)
@@ -311,11 +317,14 @@ def test_the_parser_and_help_arms_return_the_same_envelope():
 
 def test_the_parser_and_help_arms_share_the_human_channel_too():
     # The CHANNEL must match as well as the words: without `--json` neither arm may
-    # print an envelope to stdout — an agent that asked for text gets text, and the
-    # correction rides the human error on stderr.
+    # print an envelope — an agent that asked for text gets text — and both go
+    # through the one human failure renderer, so the two arms agree byte for byte
+    # rather than by two layouts happening to say the same thing.
     parser, through_help = _arms(["scene", "inspect"], json=False)
 
     assert parser.exit_code == through_help.exit_code == EXIT_USAGE
+    assert parser.stdout == through_help.stdout
     for result in (parser, through_help):
         assert not result.stdout.startswith("{"), result.stdout
+        assert result.stdout.startswith(f"error: {UNKNOWN_COMMAND} (usage)\n")
         assert "gda scene get" in plain_text(result.output)
