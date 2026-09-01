@@ -145,6 +145,9 @@ def _assert_caller_first_remediation(message: str) -> None:
     # channels has a `--timeout` (the sentinel's 60s and the export's 600s are
     # gda's own, fixed).
     assert "--timeout, where the command exposes one" in message
+    # The channels that qualifier excludes still get a next step (PR #793 review).
+    assert "Where the command exposes no --timeout" in message
+    assert "reduce the work or give the machine more headroom" in message
     assert "any engine error in it is advisory" in message
 
 

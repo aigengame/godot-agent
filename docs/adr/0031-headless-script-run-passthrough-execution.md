@@ -474,11 +474,13 @@ added incrementally under ADR-0025 if a concrete need appears.
 > The `--- script stdout ---` labels, and every non-timeout envelope, keep their bytes.
 
 > **Outcome (2026-08-31, #716) — the "failure by another route" shape is decided, and
-> not here.** The amendment at the top of this ADR records a `script run` whose entry
-> never loaded reaching `launch_timeout` rather than a #651 verdict, and defers whether
-> the captured stream should narrow it. Since #714 that shape belongs to four channels
-> rather than one, so the decision was taken where all four are governed: the captured
-> stream stays ADVISORY and never re-verdicts the timeout. The reasoning, and the
+> not here.** The #651 amendment at the top of this ADR records a `script run` whose
+> entry never loaded reaching `launch_timeout` rather than a #651 verdict — "a failure
+> by another route". Whether the captured stream should NARROW it is deferred a step
+> later, in point 3 of the 2026-08-17 (#655) amendment: "narrowing it is a separate
+> decision". Since #714 that shape belongs to four channels rather than one, so the
+> decision was taken where all four are governed: the captured stream stays ADVISORY
+> and never re-verdicts the timeout. The reasoning, and the
 > sibling decision that the code keeps its `environment` category, are in ADR-0002's
 > `Outcome (2026-08-31, #716 / #717)` note beside the `launch_timeout` registry row;
 > they are not restated here. `script_run_timeout_failure` is unchanged in verdict, in

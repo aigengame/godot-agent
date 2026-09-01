@@ -181,6 +181,14 @@ def test_the_timeout_remediation_reads_caller_first():
     # misfire #717 warned about.
     assert "--timeout, where the command exposes one" in message
 
+    # ...and the two channels that qualifier EXCLUDES are then given their own next
+    # step rather than a dead end (PR #793 review). An agent on the sentinel's 60s
+    # or the export's 600s that has read the capture and seen the engine working has
+    # nothing to raise; naming what is still actionable there is what keeps the
+    # caller-first reading from running out before the host suspicion it withholds.
+    assert "Where the command exposes no --timeout" in message
+    assert "reduce the work or give the machine more headroom" in message
+
 
 def test_the_timeout_message_says_a_captured_error_is_advisory():
     # #716's decision, made observable at the point of consumption: a recognized

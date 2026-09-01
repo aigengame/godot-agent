@@ -743,11 +743,18 @@ or agent can branch on the failure **category without parsing the JSON error**:
 | `0`       | —             | Success.                                                              |
 | `2`       | `usage`       | `gda` could not resolve what was asked for — an unrecognized command or option. A recognized near miss carries the invocation to use instead in the envelope's `hint`. |
 | `127`     | `environment` | The Godot binary could not be launched (shell convention: not found). |
-| `124`     | `environment` | Godot launched but did not return before the runner timeout (shell convention: timed out). The category describes how the run ENDED, not the host: read the captured partial output in `diagnostics` and raise the ceiling (`--timeout`, where the command has one) before suspecting the binary or the machine. |
+| `124`     | `environment` | Godot launched but did not return before the runner timeout (shell convention: timed out) — see **Reading a `124`** below. |
 | `3`       | `version`     | The detected Godot version is below the supported minimum.            |
 | `4`       | `operation`   | The engine ran but the operation failed — a registered operation error, an engine crash, or an unstructured non-zero exit. |
 | `5`       | `parse`       | The process claimed success but violated the structured-output contract. |
 | `6`       | `live`        | A live operation failed — e.g. no running daemon/session, or a live timeout. |
+
+**Reading a `124`.** The `environment` category describes how the run ENDED, not the
+host. Read the captured partial output in `diagnostics` for how far the run got, then
+raise the ceiling with `--timeout` where the command exposes one; where it does not the
+ceiling is gda's own, so reduce the work or give the machine more headroom. Suspect the
+binary or the machine only when the capture shows the engine never started. Any engine
+error inside that capture is advisory — the verdict is the timeout.
 
 These values are the public ABI; their authoritative source is
 [`src/gda/exit_codes.py`](src/gda/exit_codes.py). The `{"error": {category, code, …}}`

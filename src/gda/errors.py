@@ -370,8 +370,13 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     named WITH its qualifier, because only ``resource import`` of this builder's three
     channels exposes ``--timeout`` (the sentinel's 60s and the export's 600s are gda's
     own, fixed); telling every caller to raise a flag most of them do not have was the
-    misfire #717 warned about. Environment suspicion comes last, and with the
-    condition that earns it — a capture showing the engine never started.
+    misfire #717 warned about. Those two fixed-ceiling channels then get their OWN next
+    step rather than a dead end (PR #793 review): the qualifier alone leaves a caller
+    who has read the capture and seen the engine working with nothing left to do, so
+    the message names what is still actionable there — less work, or more machine
+    headroom. It stops short of calling such a run stuck: that would be the same
+    unearned inference this PR's other half refuses. Environment suspicion comes last,
+    and with the condition that earns it — a capture showing the engine never started.
 
     **What the capture is NOT is a verdict (#716).** A recognized engine or script
     error inside the captured stream stays ADVISORY: it never re-verdicts this code
@@ -394,7 +399,9 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
         f"host fault: read the captured output in diagnostics for how far the run "
         f"got, and raise the ceiling (--timeout, where the command exposes one) for "
         f"a run that was merely slow — suspect the binary or the machine only when "
-        f"the capture shows the engine never started. The capture is truncated to "
+        f"the capture shows the engine never started. Where the command exposes no "
+        f"--timeout the ceiling is gda's own and cannot be raised: reduce the work "
+        f"or give the machine more headroom. The capture is truncated to "
         f"the last {CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each "
         f"stream, and any engine error in it is advisory: the verdict here is the "
         f"timeout.",

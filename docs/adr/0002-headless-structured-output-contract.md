@@ -344,9 +344,15 @@ operation, and parse codes the CLI assigns).
 >   error the run survived, or half a line — and the misattribution would be silent,
 >   which is the worst shape for an agent branching on `code`. The need a re-verdict
 >   was meant to serve is the cause as DATA, and #687 owns that: typed evidence on the
->   envelope keeps the honest verdict AND delivers the precise cause. The failure
->   message states the rule in one clause, so a caller reading the diagnostics does not
->   re-verdict on gda's behalf either.
+>   envelope keeps the honest verdict AND carries what the channel can prove instead of
+>   the capture. Its reach is BOUNDED, and this decision does not assume otherwise: a
+>   PARSED cause exists only where a channel parses one, which today is `script run`
+>   alone. The other three carry how the run ended — the ceiling it reached and its
+>   elapsed clock — and keep the capture in `diagnostics` as prose, which is what the
+>   advisory rule above governs. What this decision needs from #687 is that the capture
+>   stops being the only evidence, not that every channel end up with the same evidence.
+>   The failure message states the rule in one clause, so a caller reading the
+>   diagnostics does not re-verdict on gda's behalf either.
 > - **The category stays `environment` (#717).** Reaching a ceiling the caller chose is
 >   a normal outcome of probing a slow suite, and `environment` points an agent at
 >   retry / reinstall / another-host remedies — but the same code also fires for a

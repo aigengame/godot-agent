@@ -1000,8 +1000,11 @@ callers are the remote debugger's `scene:suspend_changed` and next-frame message
 (`scene/debugger/scene_debugger.cpp`), driven by the editor Game view's Suspend and step
 buttons — an editor-launched game, never a daemon-launched `Engine session`. So this is a
 documented engine limit, not a project-authoring hazard and not a `live_timeout` cause to
-diagnose: that message names the reachable class (the game stopped returning to its main
-loop) and rules out the wrong suspicion (a paused tree, which the harness serves through).
+diagnose: that message names the causes a caller can act on (most often a game that stopped
+returning to its main loop, and — leaving the loop running — a multi-frame window outrunning
+the fixed bound, whose remedy is fewer frames) and rules out the wrong suspicion (a paused
+tree, which the harness serves through). It states neither as fact: gda observed the
+silence, not its cause.
 
 **Live number transport (#752).** The live legs carry JSON (ADR-0021), and Godot 4.6.3's
 JSON parser and its default writer both change some binary64 values — differently, so the
@@ -1294,7 +1297,11 @@ re-derives every verdict from a running engine.
   request is a structured `invalid_params` before it reaches the harness. A missing
   node is `live_perf_node_not_found`, an absent property `live_perf_property_not_found`,
   an absent signal `live_perf_signal_not_found`; a genuinely stalled engine is caught
-  by the daemon-level `live_timeout`.
+  by the daemon-level `live_timeout`. That guard is a fixed 30s wall clock while the
+  window is counted in ENGINE frames with no bound of its own, so a window is bounded
+  in practice by the game's own frame rate too: a request for more than `30 x fps`
+  frames reports `live_timeout` on a game that never stalled. Lower `--frames` rather
+  than reading that as a hang — the message says so.
   `perf monitors` also has a WINDOW mode (shipped, #662; the issue's triage
   decision put it on the existing command — no third near-homonym). With
   `--frames N`, the harness reads every selected engine monitor once per frame
