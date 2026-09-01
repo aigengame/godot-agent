@@ -1034,6 +1034,25 @@ reproduction receipt records that complete binding; the Resolved Runtime profile
 platform, Numeric, RNG, scheduler, effect, and budget choices.
 _Avoid_: random seed (ambiguous), default seed
 
+### Integration boundary
+
+**Execution Open Host Service**:
+The application-agnostic integration boundary that exposes execution capabilities through the
+`Execution Service Language`. Resource-oriented HTTP is its current Interface adapter. A future
+adapter uses the same language and Application boundary when a concrete consumer justifies it; the
+OHS is not a tactical Domain Service, public-network deployment, or transport process (bADR-0027).
+_Avoid_: Domain Service, playtest service, HTTP service (unqualified)
+
+**Execution Service Language**:
+The Published Language for the `Execution Open Host Service`. It owns only OHS-specific integration
+contracts, such as session handles, revision selection, service-response framing, and shared OHS
+errors. It keeps nested authority-owned Standard Schema values opaque. Domain validates or produces
+them under the applicable contracts. The language never copies or redefines their schemas, rules,
+semantics, identities, outcomes, or refusals. Its initial contract is `Execution Service Language
+revision 1`, a compatibility label rather than a Package Release coordinate or transport version
+(bADR-0027).
+_Avoid_: transport-owned schema, second Standard Schema
+
 ### Runtime
 
 **Execution session**:

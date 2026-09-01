@@ -27,7 +27,7 @@ module, or prototype may become an accidental second specification.
 | --- | --- | --- |
 | This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-subsystem invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
 | [`BALANCING-CONTEXT.md`](../BALANCING-CONTEXT.md) | Canonical domain terms and distinctions | Architecture planning or executable semantics |
-| [bADR-0012…0026](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
+| [bADR-0012…0027](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
 | [Product PRD #501](https://github.com/aigengame/godot-agent/issues/501) | `gda-balancing` product outcomes, milestones, and relationship to the `gda` family | Standard Schema 2.0 architecture details |
 | [PRD #534](https://github.com/aigengame/godot-agent/issues/534) | Product requirements, acceptance criteria, and live completion tracking | Macro architecture or machine semantics |
 | [`standard-schema-2.0/`](standard-schema-2.0/) | Acceptance artifacts, coverage matrices, and prototype evidence status | Language authority or proof by prose |
@@ -160,7 +160,11 @@ flowchart TB
     subgraph HOST["Conforming host implementation"]
         direction TB
         subgraph UI["UI / Interfaces"]
-            U["Inbound Interfaces<br/>Structured CLI · local Execution HTTP API"]
+            U["Structured CLI"]
+            T["Execution OHS adapter<br/>Resource-oriented HTTP"]
+            E["Execution Service Language<br/>shared OHS contract"]
+
+            E -. "defines contract used by" .-> T
         end
         subgraph APP["Application"]
             A["Public use cases<br/>one operation at a time"]
@@ -192,6 +196,7 @@ flowchart TB
         end
 
         U -->|submits| A
+        T -->|submits| A
         A -->|"invokes Kernel/LDB bootstrap"| B
         A -->|"invokes Model compiler"| C
         A -->|"invokes Experiment semantics"| X
@@ -204,15 +209,17 @@ flowchart TB
     end
 
     O["Published immutable facts<br/>Resolved Model · Metric dataset · Evaluation run<br/>Replay comparison · Evidence assertion · Locators · Receipts"]
-    S["Interface outcomes<br/>CLI envelope and channels · HTTP JSON response"]
+    S["Interface outcomes<br/>CLI envelope and channels · OHS adapter response"]
     G["Approval Record<br/>independent governance decision"]
 
     K -->|"supplies machine authority"| B
     L -->|"supplies language content"| B
     H -->|supplies| U
+    H -->|supplies| T
     Q -->|publishes| O
     O -. "supplies published comparison and prerequisites" .-> V
     U -->|renders| S
+    T -->|renders| S
     O -. "Evidence assertion informs" .-> G
 ```
 
@@ -664,13 +671,18 @@ flowchart TB
 The diagram shows allowed cross-layer imports. It does not show processing or Standard Schema
 authority.
 
-- `interfaces` owns inbound protocol binding and presentation. The `interfaces/cli` adapter owns
-  Command descriptors, the immutable registry, schema and manifest projection, argv binding, help,
-  rendering, envelopes, and exit codes. The loopback HTTP adapter owns its versioned routes, closed
-  transport schemas, authentication, and status mapping. Its local companion host owns the
-  in-process server lifecycle, readiness, and shutdown. An executable Interface entry point is the
-  composition root for its process. Interface adapters translate values. They do not implement
-  language or evaluation rules (bADR-0026).
+- `interfaces` owns inbound protocol binding, integration contracts, and presentation. The
+  `interfaces/cli` adapter owns Command descriptors, the immutable registry, schema and manifest
+  projection, argv binding, help, rendering, envelopes, and exit codes. The Execution OHS
+  owns one Published Language for OHS-specific handles, selections, response framing, and shared OHS
+  errors. It does not own or copy Standard Schema contracts. The current Resource-oriented HTTP
+  adapter uses this language and calls the Application service directly. It owns routes, methods,
+  media types, status mapping, and HTTP error projection. Its local companion host owns process
+  authentication, readiness, status, shutdown, and the in-process server lifecycle. An executable
+  Interface entry point is the composition root for its process. Interface adapters translate
+  values. They do not implement language or evaluation rules. Any future adapter must use the same
+  language and Application boundary rather than wrap HTTP or add another semantic path
+  (bADR-0026/0027).
 - `application` coordinates one public use case at a time. It returns typed results or refusals. It
   also coordinates process-local Execution sessions, immutable Experiment revisions, and their
   ordering. It does not parse an external protocol, write presentation channels, build Interface
@@ -703,7 +715,8 @@ policy from domain-neutral storage mechanisms.
 
 | Layer | Subsystem | Responsibility | Produces or exposes |
 | --- | --- | --- | --- |
-| UI / Interfaces | Inbound adapters | Bind external protocols and present public outcomes | Structured CLI commands, the loopback Execution HTTP API, Surface manifest, envelopes, and exit codes |
+| UI / Interfaces | Inbound adapters | Bind external protocols and present public outcomes without owning execution meaning | Structured CLI commands, Resource-oriented HTTP, Surface manifest, envelopes, and protocol responses |
+| UI / Interfaces | Execution OHS and Published Language | Define application-agnostic execution capabilities and only the OHS-specific integration contract | Session handles, revision selections, service-response framing, shared OHS errors, and derived adapter schemas |
 | Application | Public use cases | Coordinate each public operation and process-local Execution-session ordering without Interface protocol or presentation rules | Typed results or refusals, session/revision handles, plus publication receipts when the operation publishes artifacts |
 | Domain | Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, and admission outcome |
 | Domain | Package resolver | Select one deterministic and compatible package closure | Canonical Package Lock and resolution receipt |
@@ -715,6 +728,40 @@ policy from domain-neutral storage mechanisms.
 | Domain | Artifact policy | Define artifact identity, set completeness, publication, retrieval, and recovery | Artifact envelopes, Locators, and Receipts |
 | Infrastructure | Input and resource access | Read bounded input, packaged resources, and distribution metadata | Bytes, technical metadata, or explicit I/O failures |
 | Infrastructure | Atomic filesystem mechanisms | Lock, stage, materialize, and atomically commit files | Atomic file-operation outcomes |
+
+### 4.3 Execution open host boundary
+
+The Execution OHS gives several downstream contexts one stable integration boundary. Its Published
+Language defines only concepts introduced at that boundary. Standard Schema values keep their
+Domain-owned schemas, identities, rules, semantics, and refusals. An adapter passes those values
+without copying their fields into a transport-owned model. Domain applies the applicable
+authority-owned contracts.
+
+```mermaid
+flowchart TB
+    C["Local applications · future local web applications"]
+
+    subgraph IF["UI / Interfaces"]
+        direction TB
+        H["Resource-oriented HTTP adapter"]
+        P["Execution Service Language<br/>shared OHS contract"]
+
+        P -. "defines contract used by" .-> H
+    end
+
+    A["Application<br/>protocol-neutral execution use cases"]
+    D["Domain<br/>Standard Schema authorities and execution meaning"]
+
+    C -->|"uses"| H
+    H -->|"invokes"| A
+    A -->|"uses"| D
+```
+
+The current HTTP API is Resource-oriented; it does not claim complete REST conformance. A
+demonstrated consumer need can justify additional REST constraints or a versioned contract change.
+Another transport adapter, including MCP, is deferred until a concrete consumer requires it. A
+future adapter uses the same Published Language and calls Application directly; it does not wrap
+HTTP or become a second execution service (bADR-0027).
 
 ## 5. Language and semantic model
 
@@ -1527,9 +1574,11 @@ The Standard Schema 2.x CLI follows artifact ownership rather than internal impl
 There is no public `runtime` or `metrics` command group: those are execution and artifact concepts
 owned through model/experiment operations, not independent user workflows.
 
-The ungrouped `serve` command starts the loopback-only Execution HTTP Interface. It is a foreground
-operational command, not a new semantic command group. bADR-0026 owns its transport and lifecycle
-boundaries.
+The ungrouped `serve` command starts the local companion host for the loopback-only,
+Resource-oriented HTTP adapter. It is a foreground operational command, not a new semantic command
+group. bADR-0026 owns its accepted `/v1` transport and lifecycle boundaries. Accepted bADR-0027
+owns the shared Execution OHS and Published Language without changing the current HTTP protocol
+contract.
 
 Each command has one structured **Command descriptor** that owns its parameters, defaults,
 channels, outcome decoding, and schema reference. Help, structured parameter schema, `--schema`, and
@@ -1568,7 +1617,7 @@ coverage from implementation proof.
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
 | Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | The current #546 authority, compatible package closure, and `RPG-STAT-01` path are rebuilt, and production and independent consumers agree on the new primitive and package vectors. Earlier non-RPG and Roguelike results do not carry automatically; their current-identity evidence, the public Extension Invariance Receipt, and broader mechanic breadth remain open |
-| Operability | Descriptor-derived CLI, local Execution HTTP Interface, immutable artifacts, idempotent invocation, receipts | Local descriptor, HTTP, and publication paths were exercised; production adapters and complete public surface remain open |
+| Operability | Descriptor-derived CLI, local Execution HTTP adapter, Execution OHS and Published Language, immutable artifacts, idempotent invocation, receipts | Local descriptor, HTTP, and publication paths were exercised; the shared OHS contract is extracted, the HTTP adapter consumes it, and semantic parity is covered; additional transport adapters are deferred until a concrete consumer requires one |
 
 The current evidence supports these status statements:
 
@@ -2039,6 +2088,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Canonical Formula notation | [bADR-0024](badr/0024-canonical-reversible-formula-notation.md) | Formula pairing, parse/render, and JSON contract vectors |
 | Host implementation dependencies | [bADR-0025](badr/0025-dependency-directed-implementation-layers.md) | Import-direction gate, Interface-boundary regressions, and source/wheel parity |
 | Local Execution HTTP Interface | [bADR-0026](badr/0026-local-http-execution-service.md) | Loopback service, closed protocol, exact revisions, and CLI/HTTP parity vectors |
+| Execution OHS and Published Language | [bADR-0027](badr/0027-execution-open-host-service-and-published-language.md) | Issue #789 design acceptance, shared-contract extraction, authority conformance, and semantic HTTP parity |
 
 PRD #534 remains the live answer to “is this accepted and complete?” This document answers “what
 system are we building, where does each responsibility belong, and in what order can we prove it?”
