@@ -60,10 +60,13 @@ instantiation (and the Node-vs-Resource base-class check) remains **split per si
 > the boundary is now: a `class_name` declared in a script inside the ROOT engine cache does not
 > resolve, whatever path reaches it (the #760 repro resolved `RootCacheThing` through an alias); a
 > `class_name` under a NESTED `.godot`, or in a vendored checkout reached through a link, still
-> does. A file link at an authored script is indexed under both its paths, so a `class_name` it
-> declares is `ambiguous_class_name` — the same report this ADR already gives a name declared in two
-> files. The full rule and its rationale live with the walk, in `docs/command-catalog.md`'s
-> exclusion passage.
+> resolves — for ENUMERATION and this index. Whether that same file may be NAMED as an operation's
+> target is a different question, owned by ADR-0006's addressing gate rather than by this ADR: the
+> walk decides what the project can address by filesystem identity, the gate decides what a caller
+> may operate on from the caller's own spelling. A file link at an authored script is indexed under
+> both its paths, so a `class_name` it declares is `ambiguous_class_name` — the same report this ADR
+> already gives a name declared in two files. The full rule and its rationale live with the walk, in
+> `docs/command-catalog.md`'s exclusion passage.
 
 **Explicit contract edges:**
 

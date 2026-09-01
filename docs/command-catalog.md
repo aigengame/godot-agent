@@ -580,26 +580,49 @@ visible under a second name — and let a cycle (`sub/loop` -> `sub`) be descend
 refused another symlink hop, spelling one `.gd` 33 ways with a deepest path 174 characters long.
 The walk therefore **follows a link, as the engine does** — `DirAccess` stats a link entry so a
 linked directory lists as a directory, `ResourceLoader` loads through an alias, and gda's own
-addressing gate already counts a symlinked-in file as part of the project's `res://` namespace
-(ADR-0006) — but it **identifies what it reaches by filesystem identity**, through the engine's own
+containment gate already counts a symlinked-in file as part of the project's `res://` namespace
+(the containment rule under `script validate` below, implemented in `src/gda/project.py`) — but it
+**identifies what it reaches by filesystem identity**, through the engine's own
 `DirAccess.is_equivalent` (`st_dev`/`st_ino` on Unix, the volume+file id on Windows), rather than by
 the spelling that reached it. Two rules follow:
 
-- the **engine cache is excluded by identity**, so no alias re-admits it: not a directory link AT
-  `res://.godot`, not one INTO a subdirectory of it, and not a FILE link at a file inside it. That
-  last shape is a second touch point — it reaches the acceptance test without passing the descent
-  decision — so both branches of the walk ask the same owner;
-- a linked directory **already on the current descent chain is not re-entered**, so a cycle ends by
-  rule once every real directory has been walked, and the listing is a decided, bounded answer
-  rather than the leftovers of an OS limit.
+- the **engine cache is excluded by identity**, so no symlink alias re-admits it: not a directory
+  link AT `res://.godot`, not one INTO a subdirectory of it, not a FILE link at a file inside it,
+  and not any of those three reached under a second spelling — a parent directory that is itself a
+  link. That last shape is why the walk resolves **every component** of a path rather than only its
+  last one: a link's target is read against the directory the kernel reads it from, never against
+  the spelling the walk arrived by. The file link is a second touch point — it reaches the
+  acceptance test without passing the descent decision — so both branches of the walk ask the same
+  owner. A **hard** link is outside the rule by construction, not by oversight: the filesystem does
+  not report one as a link, so a hard link at a file inside the cache is enumerated like any other
+  file. The guarantee is about symlink aliases;
+- a linked directory **already on the current descent chain is not re-entered**, so a cycle
+  terminates by rule instead of at the OS symlink limit. What the listing enumerates is distinct
+  `res://` **paths**, not distinct directories: a directory reachable through several link paths is
+  reported under each of them, and mutually linked directories multiply the spellings quickly. The
+  answer is a decided, finite one rather than the leftovers of an OS limit — that is the guarantee,
+  and it is not "each real directory exactly once".
+
+A refused descent is reported by **omission**: the cycle's paths are simply absent, and no result
+field names the link the walk declined to follow. Adding one was considered and declined — it would
+widen all four collectors' result contracts for a diagnostic the listing already carries, and none
+of the four has a place for a per-path note.
 
 Both rules are about **where** a link leads, not about links: a vendored checkout that physically
 lives outside `res://` and is reached through a directory link inside it is walked and enumerated
-exactly as an ordinary directory, and its scripts' `class_name`s resolve. One consequence is kept
-deliberately — a FILE link at authored content is enumerated under **both** paths, since both are
-real `res://` addresses the engine loads; when the linked script declares a `class_name`, those two
-paths make it `ambiguous_class_name` (ADR-0032), the same report gda gives any project that declares
-one name twice.
+exactly as an ordinary directory, and its scripts' `class_name`s resolve — including a checkout that
+carries an engine cache of its own, which is that checkout's cache and not this project's. One
+consequence is kept deliberately — a FILE link at authored content is enumerated under **both**
+paths, since both are real `res://` addresses the engine loads; when the linked script declares a
+`class_name`, those two paths make it `ambiguous_class_name` (ADR-0032), the same report gda gives
+any project that declares one name twice.
+
+**Enumeration is not targeting.** Being reached by this walk says what the project can address; it
+does not say gda will operate on the path once it is NAMED as an operation's target. That is the
+separate question the containment rule under `script validate` below answers, and the two read
+differently on purpose — this walk decides by filesystem identity, containment reads the caller's
+own spelling. So a linked-in sub-project can be enumerated, counted and indexed here while whether
+it may be named as a target is settled there.
 
 `gda script delete`
 removes a script file and reports the removed script's `class_name`/`extends` (parsed before

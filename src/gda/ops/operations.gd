@@ -165,11 +165,22 @@ const SCENE_STARTUP_NOT_READY := "not_ready"
 const ENGINE_CACHE_DIR := "res://.godot"
 
 # How far a res:// walk follows symlinks when it asks whether an entry is the
-# engine cache (#760): the links resolved in one chain, and the ancestors probed
-# above a resolved target. One bound serves both, and 32 is the ceiling the OS
-# itself puts on symlink resolution (MAXSYMLINKS on macOS and Linux) — a chain gda
-# gives up on is one the kernel would refuse to open anyway, so the bound cannot
-# hide a path the walk could otherwise have reached.
+# engine cache (#760): the links followed in one chain, and the passes the
+# component-by-component resolution takes to reach its fixed point. Both count
+# SYMLINK TRAVERSALS — a pass that changes the path resolved at least one more
+# link — which is the quantity the OS itself bounds, so a chain gda gives up on
+# is one the kernel would refuse to open anyway and the bound cannot hide a path
+# the walk could otherwise have reached. The value is the LOWER of the two
+# ceilings gda targets: MAXSYMLINKS is 32 on macOS (MacOSX.sdk/usr/include/
+# sys/param.h:197) and 40 on Linux (include/linux/namei.h), so a 33-to-40-link
+# chain is resolvable on Linux and gda stops short of it — accepted, because
+# such a chain is not a shape an honest project produces.
+#
+# The ancestor climb in _is_in_engine_cache is deliberately NOT bounded by this
+# constant: it counts path COMPONENTS, a quantity no kernel limits, and running
+# out of steps there returned false, which ADMITTED cache content — the opposite
+# direction from the failure MAXSYMLINKS reasons about, and a leak at 32 levels
+# below the cache (#795 review). It terminates on its own at the root instead.
 const SYMLINK_PROBE_MAX_STEPS := 32
 
 # The project-info settings (issue #111), read with a default so a project that
@@ -4283,12 +4294,17 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 # identifies what it reached by FILESYSTEM IDENTITY, not by the spelling that
 # reached it. Two rules follow, and only a link pays for them:
 #
-#   - the engine cache is excluded by identity, so no alias re-admits it
-#     (_is_in_engine_cache);
+#   - the engine cache is excluded by identity, so no SYMLINK alias re-admits it
+#     (_is_in_engine_cache — which also states why a hard link is outside the
+#     rule);
 #   - a linked directory already on this descent CHAIN is not re-entered, so a
-#     cycle ends by rule after each real directory has been walked once, instead
-#     of running to the OS symlink limit — `sub/loop -> sub` once emitted 33
-#     spellings of one file, the deepest 174 characters long.
+#     cycle terminates by rule instead of running to the OS symlink limit —
+#     `sub/loop -> sub` once emitted 33 spellings of one file, the deepest 174
+#     characters long. The chain is per-BRANCH, so what the walk enumerates is
+#     distinct res:// PATHS: a directory reachable through several link paths is
+#     reported under each, and mutually linked directories multiply the spellings
+#     quickly. The answer is decided and finite — that is the guarantee — not
+#     "each real directory exactly once" (#795 review).
 #
 # A link to ordinary authored content — a vendored checkout reached through one —
 # is neither the cache nor an ancestor, so it is followed and enumerated exactly
@@ -4333,54 +4349,125 @@ func _should_collect(dir: DirAccess, child: String) -> bool:
 # The identity test is the ENGINE's own: DirAccess.is_equivalent compares
 # (st_dev, st_ino) on Unix and (VolumeSerialNumber, FileId) on Windows, both
 # stat-resolved, and falls back to string equality when a path cannot be stat'd
-# (DirAccess::is_equivalent, core/io/dir_access.cpp:636-638, overridden in
+# (DirAccess::is_equivalent, core/io/dir_access.cpp:630-632, overridden in
 # DirAccessUnix::is_equivalent, drivers/unix/dir_access_unix.cpp:713-729, and
-# DirAccessWindows::is_equivalent, drivers/windows/dir_access_windows.cpp:442-462;
-# line numbers from a 4.6-stable+ checkout). gda does not answer "are these
-# the same directory" itself, and the fallback degrades to exactly the lexical
-# rule this predicate replaced — a project with no `res://.godot` at all keeps
+# DirAccessWindows::is_equivalent, drivers/windows/dir_access_windows.cpp:411-431;
+# line numbers from the 4.6.3-stable tag). gda does not answer "are these the
+# same directory" itself, and the fallback degrades to exactly the lexical rule
+# this predicate replaced — a project with no `res://.godot` at all keeps
 # answering as it did.
 #
-# The link target is resolved by hand because DirAccess cannot do it for us:
+# The path is resolved by hand first because DirAccess cannot do it for us:
 # DirAccessUnix::fix_path simplifies a path LEXICALLY before every syscall
 # (drivers/unix/dir_access_unix.cpp:55-57), so a `..` appended to a link never
 # reaches the kernel and cannot be used to walk up out of an alias (measured on
 # 4.6.3: is_equivalent("res://nested/.godot/..", "res://") answers false through an
-# alias of the root cache). DirAccessUnix::read_link gives the raw target, relative
-# to the link's own directory (drivers/unix/dir_access_unix.cpp:481-499).
+# alias of the root cache).
 #
-# Ancestors are probed so a link INTO the cache — `res://nested/imported ->
-# res://.godot/imported` — is excluded too, not only a link AT it. Each probe is
-# stat-resolved, so an ancestor that is itself an alias of the cache still
-# answers true. A deliberately nested chain of links could still spell a path
-# whose ancestors resolve elsewhere; that is a Trusted project (ADR-0009)
-# question, not one this predicate defends against — the rule exists so an honest
-# project's aliases report honestly.
+# ANCESTORS of the resolved path are probed, so a link INTO the cache —
+# `res://nested/imported -> res://.godot/imported` — is excluded too, not only a
+# link AT it. That climb is why _fully_resolved_path has to resolve EVERY
+# component and not just the last one: with `link1 -> sub/deep` and
+# `sub/deep/c -> ../../.godot`, reading the target against the spelling
+# `res://link1` instead of against the real `res://sub/deep` made the ancestors
+# of `res://link1/c` a directory the kernel never visits, and answered that the
+# cache was not reached — the same wrong answer in both directions, admitting the
+# root cache under one spelling and hiding a vendored checkout's own nested cache
+# under another (#795 review). The climb carries no step bound of its own: it
+# counts path COMPONENTS, which no kernel limits, and get_base_dir() shortens the
+# path every step until the root is its own parent.
+#
+# What survives is a link gda cannot read — a target read_link refuses, or a
+# chain longer than the OS resolves — which stops at the furthest path it did
+# resolve, so an unresolvable alias is reported rather than hidden. Hard links
+# are outside the rule by construction: the filesystem does not call them links,
+# so is_link never reports one and this predicate is never asked. The guarantee
+# is therefore about SYMLINK aliases.
 func _is_in_engine_cache(dir: DirAccess, path: String) -> bool:
-	var probe := _resolved_link_path(dir, path)
-	for _step in range(SYMLINK_PROBE_MAX_STEPS):
-		if dir.is_equivalent(probe, ENGINE_CACHE_DIR):
-			return true
+	var probe := _fully_resolved_path(dir, path)
+	while not dir.is_equivalent(probe, ENGINE_CACHE_DIR):
 		var parent := probe.get_base_dir()
 		if parent.is_empty() or parent == probe:
 			return false
 		probe = parent
-	return false
+	return true
 
 
-# The path a link finally names, following a chain of links up to the OS's own
-# ceiling (#760). A relative target is joined onto the directory holding the
-# link, which is how the kernel reads it; an absolute one is taken as it is.
-# Returns `path` unchanged when it is not a link, when the target cannot be read,
-# and when the chain outruns the bound — a path gda could not resolve is one it
-# reports rather than hides.
+# The path `path` really names, resolved the way the KERNEL resolves one: every
+# component read against the components already resolved before it, not against
+# the spelling that reached it (#795 review).
+#
+# One pass rebuilds the path component by component (_resolve_path_segments); a
+# component whose target itself names a link is resolved by the NEXT pass, and
+# the passes stop as soon as one changes nothing. A pass that does change the
+# path resolved at least one more link, so SYMLINK_PROBE_MAX_STEPS bounds the
+# passes for the same reason it bounds the hops inside one chain.
+func _fully_resolved_path(dir: DirAccess, path: String) -> String:
+	var resolved := path
+	for _pass in range(SYMLINK_PROBE_MAX_STEPS):
+		var next_path := _resolve_path_segments(dir, resolved)
+		if next_path == resolved:
+			break
+		resolved = next_path
+	return resolved
+
+
+# One left-to-right pass of the component resolution above: split `path` into its
+# root and its components, then rebuild it, resolving each component against the
+# prefix already rebuilt.
+#
+# The split climbs with get_base_dir()/get_file() rather than looking for a `/`,
+# so it makes no assumption about the root it is given — `res://`, a Unix `/`, or
+# a Windows drive all end the climb by being their own base directory, and a
+# read_link target that leaves the project (an absolute path outside `res://`) is
+# rebuilt on its own root.
+#
+# `..` pops the rebuilt prefix instead of being appended, which is the kernel's
+# reading and is safe here for the reason the lexical shortcut is not: the prefix
+# it pops is already resolved, so its parent is the real one. That is also what
+# keeps the result canonical enough for the ancestor climb above.
+func _resolve_path_segments(dir: DirAccess, path: String) -> String:
+	var segments: Array[String] = []
+	var root := path
+	while true:
+		var base := root.get_base_dir()
+		if base == root:
+			break
+		segments.push_front(root.get_file())
+		root = base
+	var resolved := root
+	for segment in segments:
+		if segment.is_empty() or segment == ".":
+			continue
+		if segment == "..":
+			resolved = resolved.get_base_dir()
+			continue
+		resolved = _resolved_link_path(dir, resolved.path_join(segment))
+	return resolved
+
+
+# The path ONE component finally names, following a chain of links up to the OS's
+# own ceiling (#760). A relative target is joined onto the directory holding the
+# link — correct for the first hop, whose base the caller has already resolved,
+# and repaired for any later one by the next pass of _fully_resolved_path. An
+# absolute target is taken as it is.
+#
+# Returns the FURTHEST path it resolved: `path` itself when that is not a link,
+# and otherwise the last target it read before the target became unreadable, the
+# chain outran the bound, or a target named the path it came from. That last case
+# is what a failed DirAccessWindows::read_link looks like — it returns the fixed
+# input path, never the empty string, and otherwise returns an already-resolved
+# absolute path from GetFinalPathNameByHandleW (drivers/windows/
+# dir_access_windows.cpp:444-462) — so on Windows an unopenable reparse point
+# stops after one probe instead of spinning out the bound, and the relative join
+# below is dead code by that platform's contract rather than by accident.
 func _resolved_link_path(dir: DirAccess, path: String) -> String:
 	var current := path
 	for _step in range(SYMLINK_PROBE_MAX_STEPS):
 		if not dir.is_link(current):
 			return current
 		var target := dir.read_link(current)
-		if target.is_empty():
+		if target.is_empty() or target == current:
 			return current
 		current = target if target.is_absolute_path() else current.get_base_dir().path_join(target)
 	return current

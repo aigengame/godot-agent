@@ -160,8 +160,16 @@ def test_the_two_file_universes_survive_the_shared_traversal(walk_project):
 # Two files planted INSIDE the engine cache — content no agent authored, which
 # every collector must keep out however it is spelled. `class_name` is what makes
 # the aliasing visible in the resolver too: it is the exact repro from #760.
+#
+# They extend **Node** so the index assertion can FAIL. Both once extended
+# RefCounted, which made `node add --type RootCacheThing` answer
+# `invalid_node_type` whether or not the alias leaked — the leak reported "is not
+# a Node-derived script: res://<alias>", the clean walk "no .gd script declares
+# class_name" — so the guard for the fifth consumer of the walk asserted a code
+# that no regression could change (#795 review). Node-derived, a leak makes the
+# same call SUCCEED, which is an outcome no wording can blur.
 ROOT_CACHE_GD = """\
-extends RefCounted
+extends Node
 class_name RootCacheThing
 """
 
@@ -172,14 +180,15 @@ ROOT_CACHE_TSCN = """\
 """
 
 CACHED_IMPORT_GD = """\
-extends RefCounted
+extends Node
 class_name CachedImport
 """
 
 # The authored content a link legitimately points at: a checkout that physically
 # lives OUTSIDE res:// and is reached through a directory link inside it. This is
-# the workflow the policy must not break — the ADR-0006 addressing gate already
-# treats such a file as inside the project because the engine walks the link.
+# the workflow the policy must not break — gda's own containment gate
+# (``src/gda/project.py``) already treats such a file as inside the project
+# because the engine walks the link.
 VENDORED_GD = """\
 extends Node
 class_name VendoredThing
@@ -240,6 +249,38 @@ def symlink_project(tmp_path):
     return project
 
 
+def _assert_class_name_unresolvable(project, *classes: str) -> None:
+    """Every named ``class_name`` must be unknown to the index (ADR-0032).
+
+    The index is the fifth consumer of the same walk, and the only one that
+    reports through another command. The planted cache scripts are Node-derived,
+    so a walk that admits one makes ``node add --type <class>`` **succeed** —
+    the assertion below then fails on the missing ``error`` key, not on wording.
+    The message half is asserted too, because it is the half that distinguishes
+    "no script declares this" from every other ``invalid_node_type``.
+    """
+    _result(project, "scene", "create", "res://host.tscn", "--root-type", "Node")
+    for name in classes:
+        proc = _gda(
+            project,
+            "node",
+            "add",
+            "res://host.tscn",
+            "--parent",
+            ".",
+            "--name",
+            "X",
+            "--type",
+            name,
+            "--json",
+        )
+        payload = json.loads(proc.stdout)
+        assert "error" in payload, f"{name} resolved through an alias: {payload}"
+        error = payload["error"]
+        assert error["code"] == "invalid_node_type", error
+        assert f"no .gd script declares class_name {name}" in error["message"], error
+
+
 def _walked_paths(project) -> set[str]:
     """Every path the four collectors reach, as one set.
 
@@ -284,28 +325,7 @@ def test_an_alias_cannot_re_admit_the_engine_cache(symlink_project):
 
     # And the class_name index, the fifth consumer of the same walk (ADR-0032):
     # both cache-declared classes were resolvable through their aliases before.
-    scene = symlink_project / "host.tscn"
-    _result(
-        symlink_project, "scene", "create", "res://host.tscn", "--root-type", "Node"
-    )
-    assert scene.exists()
-    for cache_class in ("RootCacheThing", "CachedImport"):
-        proc = _gda(
-            symlink_project,
-            "node",
-            "add",
-            "res://host.tscn",
-            "--parent",
-            ".",
-            "--name",
-            "X",
-            "--type",
-            cache_class,
-            "--json",
-        )
-        error = json.loads(proc.stdout)["error"]
-        assert error["code"] == "invalid_node_type", error
-        assert cache_class in error["message"]
+    _assert_class_name_unresolvable(symlink_project, "RootCacheThing", "CachedImport")
 
 
 @pytest.mark.e2e
@@ -332,9 +352,11 @@ def test_a_link_to_authored_content_is_still_walked(symlink_project):
     # AC1 (#760): the policy decides by WHERE a link leads, not by refusing
     # links. A vendored checkout that physically lives outside res:// and is
     # reached through a directory link is ordinary authored content — the engine
-    # loads through the link and the ADR-0006 addressing gate already calls such
-    # a file inside the project — so the walk enumerates it, and its `class_name`
-    # resolves at the instantiating call sites.
+    # loads through the link and gda's own containment gate already calls such a
+    # file inside the project — so the walk enumerates it, and its `class_name`
+    # resolves at the instantiating call sites. Enumerating it is not the same as
+    # letting it be NAMED as a target: that is the containment gate's question,
+    # not this walk's.
     walked = _walked_paths(symlink_project)
 
     assert "res://vendored/vendored.gd" in walked, walked
@@ -356,3 +378,169 @@ def test_a_link_to_authored_content_is_still_walked(symlink_project):
         "VendoredThing",
     )
     assert added["script_class"] == "VendoredThing", added
+
+
+# --- the SPELLING that reaches a link is not the directory it lives in --------
+#
+# The fixture above builds every link with an ABSOLUTE target and never nests one
+# link inside another, so it could not see the defect the first fix shipped with:
+# a RELATIVE target was joined onto the link's res:// spelling instead of onto the
+# directory the kernel reads it from, which is a different directory as soon as
+# the link's own parent is a link (#795 review). The two fixtures below carry the
+# missing shapes, one per direction of the same error.
+
+# A cache script under the VENDORED checkout's own `.godot`, not the project's.
+# #712 decided a nested cache is walked — it is usually authored content — so
+# this file must stay VISIBLE. It is the direction in which mistaking a spelling
+# for a real directory hides authored content instead of leaking cache content.
+VENDORED_SAMPLE_GD = """\
+extends Node
+class_name VendoredSample
+"""
+
+# How far below the engine cache the deep alias points. The ancestor climb used
+# to give up after SYMLINK_PROBE_MAX_STEPS components and answer "not the cache",
+# so an alias exactly this deep was admitted while one level shallower was not.
+CACHE_DEPTH_PAST_THE_OLD_STEP_BOUND = 32
+
+
+@pytest.fixture
+def aliased_spelling_project(tmp_path):
+    """One real directory reached under two ``res://`` spellings (#795 review).
+
+    ``sub/deep`` holds three ordinary RELATIVE links into the engine cache, and
+    ``link1`` is a second spelling of ``sub/deep`` itself, so ``res://link1/c``
+    and ``res://sub/deep/c`` are the same directory entry. ``L2`` adds a link
+    THROUGH a link, the shape that survives resolving only one more component.
+    """
+    project = tmp_path / "game"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(name="gda-alias-spelling-fixture"), encoding="utf-8"
+    )
+
+    cache = project / ".godot"
+    (cache / "imported").mkdir(parents=True)
+    (cache / "root_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
+    (cache / "root_cache.tscn").write_text(ROOT_CACHE_TSCN, encoding="utf-8")
+    (cache / "imported" / "cached.gd").write_text(CACHED_IMPORT_GD, encoding="utf-8")
+
+    (project / "real.gd").write_text(LEAF_GD, encoding="utf-8")
+    deep = project / "sub" / "deep"
+    deep.mkdir(parents=True)
+    (deep / "deep_leaf.gd").write_text(LEAF_GD, encoding="utf-8")
+    # Relative targets, as a checked-in repo writes them: a directory link AT the
+    # cache, one INTO a subdirectory of it, and a FILE link at a file inside it.
+    (deep / "c").symlink_to("../../.godot", target_is_directory=True)
+    (deep / "ci").symlink_to("../../.godot/imported", target_is_directory=True)
+    (deep / "f_alias.gd").symlink_to("../../.godot/root_cache.gd")
+    (project / "link1").symlink_to("sub/deep", target_is_directory=True)
+    (project / "L2").symlink_to("link1/c", target_is_directory=True)
+    return project
+
+
+@pytest.fixture
+def vendored_cache_project(tmp_path):
+    """A vendored checkout outside ``res://`` carrying a cache of its OWN."""
+    project = tmp_path / "game"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(name="gda-vendored-cache-fixture"), encoding="utf-8"
+    )
+    cache = project / ".godot"
+    cache.mkdir()
+    (cache / "root_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
+    (project / "real.gd").write_text(LEAF_GD, encoding="utf-8")
+
+    checkout = tmp_path / "checkout"
+    (checkout / ".godot").mkdir(parents=True)
+    (checkout / ".godot" / "vendored_sample.gd").write_text(
+        VENDORED_SAMPLE_GD, encoding="utf-8"
+    )
+    (checkout / "v").mkdir()
+    (checkout / "v" / "x").symlink_to("../.godot", target_is_directory=True)
+    (project / "vendored").symlink_to(checkout / "v", target_is_directory=True)
+    return project
+
+
+@pytest.mark.e2e
+def test_the_cache_stays_excluded_under_a_second_spelling_of_its_parent(
+    aliased_spelling_project,
+):
+    # AC2 (#760), the case the absolute-target fixture cannot build: the walk
+    # reads `sub/deep/c -> ../../.godot` against the directory the KERNEL reads
+    # it from, so `res://link1/c` — the same entry under a second spelling — is
+    # the cache too. Joining the target onto the spelling `res://link1` instead
+    # answered `res://link1/../../.godot`, which is not the cache, and every
+    # collector then enumerated the cache's contents under that name.
+    walked = _walked_paths(aliased_spelling_project)
+
+    leaked = {p for p in walked if p.startswith(("res://link1/c/", "res://L2/"))}
+    leaked |= {"res://link1/ci/cached.gd", "res://link1/f_alias.gd"} & walked
+    leaked |= {p for p in walked if p.startswith("res://sub/deep/c")}
+    leaked |= {"res://sub/deep/ci/cached.gd", "res://sub/deep/f_alias.gd"} & walked
+    assert not leaked, leaked
+
+    # The authored file in that same directory is still reported under BOTH of
+    # its real spellings — the rule excludes the cache, it does not refuse the
+    # link that renamed the directory.
+    assert {
+        "res://real.gd",
+        "res://sub/deep/deep_leaf.gd",
+        "res://link1/deep_leaf.gd",
+    } <= walked, walked
+
+    stats = _result(aliased_spelling_project, "project", "statistics")
+    assert stats["script_count"] == 3, stats
+    assert stats["scene_count"] == 0, stats
+
+    _assert_class_name_unresolvable(
+        aliased_spelling_project, "RootCacheThing", "CachedImport"
+    )
+
+
+@pytest.mark.e2e
+def test_a_vendored_checkouts_own_cache_is_not_taken_for_the_projects(
+    vendored_cache_project,
+):
+    # The same error in the other direction, and a regression the first fix
+    # introduced: `vendored/x -> ../.godot` is the CHECKOUT's cache, but joining
+    # that target onto the res:// spelling `res://vendored` produced
+    # `res://.godot`, which is_equivalent then confirmed against the project's own
+    # cache — so a nested cache #712 decided to walk was silently hidden.
+    scripts = {
+        s["path"] for s in _result(vendored_cache_project, "script", "list")["scripts"]
+    }
+
+    assert "res://vendored/x/vendored_sample.gd" in scripts, scripts
+    # The project's OWN cache is still excluded, under its own name and through
+    # the link — the fix widens nothing.
+    assert not {p for p in scripts if "root_cache" in p}, scripts
+    assert scripts == {"res://real.gd", "res://vendored/x/vendored_sample.gd"}
+
+
+@pytest.mark.e2e
+def test_a_cache_alias_is_excluded_however_deep_below_the_cache_it_points(tmp_path):
+    # The exclusion asks whether any ANCESTOR of the resolved path is the cache.
+    # That climb once ran on a step budget borrowed from the symlink bound, and
+    # exhausting it returned "not the cache" — so an alias exactly
+    # SYMLINK_PROBE_MAX_STEPS levels below `res://.godot` was admitted while a
+    # shallower one was excluded (#795 review). Path depth is not a symlink
+    # count; the climb now ends at the root instead.
+    project = tmp_path / "game"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(name="gda-deep-cache-fixture"), encoding="utf-8"
+    )
+    (project / "real.gd").write_text(LEAF_GD, encoding="utf-8")
+
+    deep = project / ".godot"
+    for level in range(CACHE_DEPTH_PAST_THE_OLD_STEP_BOUND):
+        deep = deep / f"d{level}"
+    deep.mkdir(parents=True)
+    (deep / "deep_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
+    (project / "alias_deep").symlink_to(deep, target_is_directory=True)
+
+    scripts = {s["path"] for s in _result(project, "script", "list")["scripts"]}
+    assert scripts == {"res://real.gd"}, scripts
+    _assert_class_name_unresolvable(project, "RootCacheThing")
