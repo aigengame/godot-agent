@@ -238,9 +238,10 @@ is RENDERED for a human instead — the code and its category on a head line, th
 message, each optional typed key as a labelled line, then `diagnostics` verbatim
 as real lines. Two renderings of ONE outcome, at one exit code, from one renderer
 that keys on no `Gda error code` — the `usage` refusals included, since they answer
-through this channel rather than through the parser's own error (#685). Where gda
-has no correction to add to a parser refusal it does not answer at all and the
-parser's message stands, which is silence rather than a second layout.
+through this channel rather than through the parser's own error (#685). One case falls
+outside it, by that channel's own rule: where gda has no correction to add AND no JSON
+was asked for, it says nothing and the parser's message stands — silence rather than a
+second gda layout.
 _Avoid_: error blob, failure JSON
 
 **Failure evidence**:

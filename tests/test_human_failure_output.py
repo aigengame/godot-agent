@@ -27,6 +27,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.error_codes import ERROR_CODES
 from gda.errors import make_failure
+from gda.exit_codes import EXIT_LIVE, EXIT_OPERATION
 from gda.headless import emit_failure
 from gda.models import (
     EnvironmentProbe,
@@ -148,6 +149,109 @@ def test_typed_evidence_renders_one_labelled_line_per_field_it_carries():
         "  script errors:",
         "    parse_error: res://t.gd:12: Identifier 'Foo' not declared.",
     ]
+
+
+def test_the_bounded_keys_all_precede_the_unbounded_diagnostics():
+    # The layout rule this slice leads with, asserted as the WHOLE sequence. Every
+    # other layout test here fixes one part in isolation, and the #798 review
+    # measured what that leaves open: moving `diagnostics` above `evidence` passed
+    # all 2277 tests. It must not — `diagnostics` is the only unbounded part (a
+    # `script run --strict` capture ran to 4,015 lines in that review), so anything
+    # printed after it is off the terminal, verdict included.
+    text = render_failure(
+        _error(
+            probe=EnvironmentProbe(name="CGSession", platform="darwin"),
+            hint="gda script run <path>",
+            evidence=FailureEvidence(exit_status=3),
+            diagnostics="--- script stderr ---\nSCRIPT ERROR: boom\n",
+        )
+    )
+
+    assert text.splitlines() == [
+        "error: script_failed (operation)",
+        "script run --strict: res://t.gd exited with status 3",
+        "probe: CGSession (darwin)",
+        "hint: gda script run <path>",
+        "evidence:",
+        "  exit status: 3",
+        "",
+        "--- script stderr ---",
+        "SCRIPT ERROR: boom",
+    ]
+
+
+# One sample value per `FailureEvidence` field, so a field the model grows has to be
+# given one here before this file will run. The renderer is a hand-written branch per
+# field rather than a loop over `model_fields` — each field is formatted differently
+# (a clock to two decimals, an enum by value, a list as a sub-block) — so the guard
+# below is what keeps the hand-written half exhaustive.
+_EVIDENCE_SAMPLES = {
+    "exit_status": 3,
+    "elapsed_seconds": 30.219,
+    "timeout_seconds": 30.0,
+    "termination_phase": TerminationPhase.OUTPUT_SEEN,
+    "script_errors": [
+        ScriptError(
+            kind=ScriptErrorKind.PARSE_ERROR,
+            message="Identifier 'Foo' not declared.",
+            path="res://t.gd",
+            line=12,
+        )
+    ],
+}
+
+
+def test_the_sample_table_covers_every_field_the_model_publishes():
+    # The half that reds when `FailureEvidence` grows a sixth field.
+    assert set(_EVIDENCE_SAMPLES) == set(FailureEvidence.model_fields)
+
+
+@pytest.mark.parametrize("field", sorted(_EVIDENCE_SAMPLES))
+def test_every_evidence_field_alone_reaches_the_human_block(field):
+    # The half that reds when the renderer drops one. `--json` enumerates the
+    # evidence from the model itself (`model_dump_json`), so a new field ships there
+    # whatever the renderer does; without this the human side could silently omit it
+    # and no test would notice (#798 review). Each field is rendered ALONE, so a
+    # missing branch cannot hide behind a neighbour's line.
+    text = render_failure(
+        _error(evidence=FailureEvidence(**{field: _EVIDENCE_SAMPLES[field]}))
+    )
+
+    assert text.splitlines()[2] == "evidence:", field
+    assert len(text.splitlines()) > 3, field
+
+
+def test_recognizing_no_script_error_is_reported_rather_than_read_as_absent():
+    # `script_errors` publishes THREE states, not two (`FailureEvidence`): absent
+    # means this failure's channel does not parse stderr, `[]` means it parsed and
+    # recognized none — itself a finding — and a list is what it found. The renderer
+    # used a truthiness test, which collapsed the first two, so a real
+    # `launch_timeout` shipped `"script_errors":[]` on `--json` and nothing at all to
+    # a human (#798 review). It gets a sentence rather than the bare header the
+    # layout rule forbids.
+    text = render_failure(_error(evidence=FailureEvidence(script_errors=[])))
+
+    assert text.splitlines()[2:] == ["evidence:", "  script errors: none recognized"]
+
+
+def test_an_evidence_object_that_parses_nothing_still_renders_no_section():
+    # The other side of that line: the ABSENT state stays absent. `None` is not a
+    # finding, so it must not grow a section — the tri-state must not become a
+    # two-state in the other direction.
+    text = render_failure(_error(evidence=FailureEvidence(script_errors=None)))
+
+    assert "evidence" not in text
+
+
+def test_a_crlf_diagnostics_stream_leaves_no_stray_carriage_return():
+    # The runner does no newline translation, so a Windows engine's stderr arrives
+    # CRLF-terminated. Stripping only "\n" left a bare "\r" on the last line, which a
+    # terminal renders by parking the cursor at column 0 (#798 review).
+    text = render_failure(_error(diagnostics="SCRIPT ERROR: boom\r\n"))
+
+    # Split on "\n" only: `str.splitlines` treats a lone "\r" as a line boundary too,
+    # so it would hide exactly the character under test.
+    assert text.split("\n")[-1] == "SCRIPT ERROR: boom"
 
 
 def test_evidence_that_carries_no_field_renders_no_section():
@@ -281,3 +385,97 @@ def test_a_usage_refusal_without_json_is_rendered_by_the_same_one_renderer():
         "structured node tree",
         "hint: gda scene get",
     ]
+
+
+# --- every call site, on the caller's channel -----------------------------------
+#
+# `emit_failure` has SIX call sites, and each one chooses the channel itself — the
+# keyword is required precisely so a new one cannot default back into JSON. Two of
+# them were already exercised in human mode above (`HeadlessCommand.run`, by the
+# `gda info` timeout; `hints._answer`, by the usage refusal); the #798 review measured
+# what the other four were worth and found that reverting any of them to always-JSON
+# passed the whole suite. One CLI case each closes that, all four engine-free.
+
+
+def _project(tmp_path):
+    """The minimum that makes a directory a Godot project (ADR-0006)."""
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_an_unresolvable_project_is_refused_in_lines_on_the_dispatch_tail(tmp_path):
+    # `dispatch._resolve_project_or_fail`, the shared project-resolution point: it
+    # refuses BEFORE any command runs, so the flag is the one the tail carries down.
+    result = CliRunner().invoke(
+        app, ["scene", "get", "res://a.tscn", "--project", str(tmp_path / "nope")]
+    )
+
+    assert result.exit_code == EXIT_OPERATION, result.stdout
+    assert result.stdout.splitlines()[0] == "error: project_not_found (operation)"
+    assert "no project.godot" in result.stdout.splitlines()[1]
+
+
+def test_a_recipe_failure_is_refused_in_lines_too(monkeypatch, tmp_path):
+    # `dispatch.dispatch_recipe`'s failure arm — the branch a recipe command takes
+    # instead of the sentinel pipeline (ADR-0023). An empty runtime dir means the
+    # real discovery finds no daemon, so no engine and no daemon are involved.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "capture",
+            "--output",
+            str(tmp_path / "shot.png"),
+            "--project",
+            str(_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout
+    assert result.stdout.splitlines()[0] == "error: daemon_not_running (live)"
+    assert "gda daemon start" in result.stdout.splitlines()[1]
+
+
+def test_the_params_json_conflict_is_refused_in_lines(tmp_path):
+    # `_SchemaCommand.invoke`'s first refusal. It runs inside the PARSER, before any
+    # dispatch tail exists, so it reads the channel off the click context
+    # (`json_in_effect`) rather than off a flag someone handed it.
+    result = CliRunner().invoke(
+        app,
+        [
+            "scene",
+            "create",
+            "--params-json",
+            '{"path": "res://a.tscn", "root_type": "Node2D"}',
+            "res://b.tscn",
+            "--project",
+            str(_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == EXIT_OPERATION, result.stdout
+    assert result.stdout.splitlines()[0] == "error: usage_error (operation)"
+    assert "mutually exclusive" in result.stdout.splitlines()[1]
+
+
+def test_an_invalid_params_json_object_is_refused_in_lines(tmp_path):
+    # `_SchemaCommand.invoke`'s second refusal, same context-read channel. The
+    # message is the shared clean-sentence extractor's, so what a human reads here is
+    # the sentence the argv path would have given, laid out rather than escaped.
+    result = CliRunner().invoke(
+        app,
+        [
+            "scene",
+            "create",
+            "--params-json",
+            "{}",
+            "--project",
+            str(_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == EXIT_OPERATION, result.stdout
+    assert result.stdout.splitlines()[0] == "error: invalid_params (operation)"
+    assert "path: Field required" in result.stdout.splitlines()[1]

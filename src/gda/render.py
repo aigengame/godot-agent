@@ -10,8 +10,9 @@ type-keyed dispatch table here; emission calls the descriptor's renderer.
 
 Since ADR-0040 a group's own renderers live in its ``gda.commands.<group>``
 module, beside the descriptors that bind them; what stays here are the helpers
-shared ACROSS groups — value-to-text, the node-tree outline, and the property
-read / set-echo lines. Two of them carry rationale worth stating here:
+shared ACROSS groups — value-to-text, the node-tree outline, the property
+read / set-echo lines, and the one failure layout. Three of them carry rationale
+worth stating here:
 
 - **Value-to-text.** A node property's ``value`` is arbitrary JSON (every Godot
   type carried uniformly, :class:`~gda.models.NodeProperty`). :func:`format_value`
@@ -79,6 +80,16 @@ def render_failure(error: GdaError) -> str:
     diagnostics is RAW engine stderr, where the curated list is the summary that makes
     the dump readable — and suppressing it per code is exactly the per-command layout
     this renderer exists to prevent.
+
+    A SECOND duplication is visible on a terminal and is disclosed rather than removed
+    (#798 review): :meth:`gda.headless.HeadlessCommand.execute` tees the child's stderr
+    to the process's own stderr, and for the classifiers whose ``diagnostics`` IS that
+    stderr the same bytes then arrive again on stdout, from here. Removing the tee is
+    not an in-slice change on either shape it could take — dropping it outright would
+    move ``--json``'s stderr bytes, the one property this slice is scoped by, and
+    dropping it only for a human failure would silently lose the tee for the
+    classifiers whose ``diagnostics`` is CURATED prose rather than the raw stream. The
+    honest fix is producer-side and belongs to a follow-up.
     """
     lines = [f"error: {error.code} ({error.category.value})", error.message]
     if error.probe is not None:
@@ -88,7 +99,7 @@ def render_failure(error: GdaError) -> str:
     if error.evidence is not None:
         lines.extend(_evidence_lines(error.evidence))
     if error.diagnostics.strip():
-        lines.extend(("", error.diagnostics.strip("\n")))
+        lines.extend(("", error.diagnostics.strip("\r\n")))
     return "\n".join(lines)
 
 
@@ -97,13 +108,32 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
 
     Every field of :class:`~gda.models.FailureEvidence` is individually optional and
     omitted rather than nulled (#687), so this enumerates them in the model's own
-    declaration order — one authority for what the evidence IS, read the same way by
-    both channels — and returns an empty list when none is set, rather than a header
+    declaration order and returns an empty list when none is set, rather than a header
     over nothing.
+
+    It is a HAND-WRITTEN branch per field, not a loop over ``model_fields``: each field
+    reads differently (a clock to two decimals, an enum by value, a list as a
+    sub-block), so a generic loop would print the model's key names at the reader. The
+    JSON channel is model-driven (``model_dump_json``), which means a sixth field would
+    ship there whatever this function does — so the model's field set is not an
+    authority this code inherits, it is one a TEST has to hold it to (#798 review).
+    ``tests/test_human_failure_output.py`` does that in two halves: a sample table
+    asserted equal to ``FailureEvidence.model_fields``, and one render per sample.
 
     The clock is rendered to two decimals, the same precision the ``launch_timeout``
     message already states it in, so the prose and the block cannot disagree about
     the same run; the full-precision value stays in the JSON channel.
+
+    Every field is read by ``is not None``, INCLUDING ``script_errors``, whose
+    published contract is three states rather than two (:class:`FailureEvidence`):
+    absent means this failure's channel does not parse stderr at all, ``[]`` means it
+    parsed and recognized none — itself a finding — and a non-empty list is what it
+    found. A truthiness test would collapse the first two and drop from a human the
+    one state the JSON channel reports (a real ``launch_timeout`` carries ``[]``), so
+    the empty list gets a sentence of its own instead of the bare header the layout
+    rule forbids. Uniform ``is not None`` is also what lets one test assert that the
+    fields read here are exactly ``FailureEvidence.model_fields``, which is the guard
+    against a sixth field shipping on ``--json`` and silently missing here.
     """
     body: list[str] = []
     if evidence.exit_status is not None:
@@ -114,11 +144,14 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
         body.append(f"  timeout: {evidence.timeout_seconds}s")
     if evidence.termination_phase is not None:
         body.append(f"  termination phase: {evidence.termination_phase.value}")
-    if evidence.script_errors:
-        body.append("  script errors:")
-        body.extend(
-            f"    {script_error_line(error)}" for error in evidence.script_errors
-        )
+    if evidence.script_errors is not None:
+        if evidence.script_errors:
+            body.append("  script errors:")
+            body.extend(
+                f"    {script_error_line(error)}" for error in evidence.script_errors
+            )
+        else:
+            body.append("  script errors: none recognized")
     return ["evidence:", *body] if body else []
 
 

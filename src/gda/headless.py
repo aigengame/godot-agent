@@ -159,10 +159,13 @@ def json_in_effect(ctx: ClickContext) -> bool:
        spelling, so leaving this reading out would answer most agents in prose.
 
     It lives HERE, beside :func:`ancestor_json` and the option that inherits it,
-    rather than with the near-miss refusal that introduced it (``gda.hints``, #670),
-    because :func:`emit_failure` in this module now asks the same question — and
-    ``gda.hints`` already imports this module for that channel, so keeping the
-    question there would need the import to run backwards (#685).
+    rather than with the near-miss refusal that introduced it (``gda.hints``, #670).
+    :func:`emit_failure` does NOT ask it — it takes ``json_output`` as a required
+    keyword and never reads a context; the askers in this module are the two
+    ``--params-json`` refusals in ``_SchemaCommand.invoke``, which hold a click
+    context and no flag. What settles the direction is the import: ``gda.hints``
+    already depends on this module for the failure channel, so a channel question
+    owned by ``hints`` would need that import to run backwards (#685).
     """
     if bool(ctx.params.get("json_output")):
         return True
