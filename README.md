@@ -67,13 +67,15 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
   and no editor — just a Godot binary. Live operations add real-time control of a running
   game over a Unix-domain-socket daemon, addressed by the same CLI grammar.
 - **🛡️ Fails loudly, never silently.** A missing or hung engine is bounded by a timeout
-  and mapped to a **stable non-zero exit code** plus a structured `{"error": {…}}`
-  envelope — so a shell or agent can branch on the failure category without parsing prose.
-  A command or option `gda` does not recognize is refused the same structured way, with a
-  `hint` naming the invocation to use instead. Where a failure computed evidence, that
-  evidence is on the envelope too — an optional `evidence` object carrying the elapsed
-  clock and the ceiling a timed-out run reached, the child's own exit status, the parsed
-  script errors — so an agent branches on numbers instead of parsing the message.
+  and mapped to a **stable non-zero exit code** plus an Error envelope carrying the
+  failure's category and code — so a shell or agent can branch on the failure without
+  parsing prose. Under `--json` that envelope is the `{"error": {…}}` object; without it
+  the same failure is laid out as readable lines, verdict first. A command or option
+  `gda` does not recognize is refused the same way, with a `hint` naming the invocation
+  to use instead. Where a failure computed evidence, that evidence rides the envelope too
+  — an optional `evidence` object carrying the elapsed clock and the ceiling a timed-out
+  run reached, the child's own exit status, the parsed script errors — so an agent
+  branches on numbers instead of parsing the message.
 
 ---
 
@@ -646,7 +648,7 @@ input event.
 
 | Flag       | Description                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. Accepted before the command too: `gda --json <group> <command>` and `gda <group> --json <command>` mean the same as passing it after the command. |
+| `--json`    | Emit the outcome as a single JSON object on stdout — the result on success, the `{"error": {…}}` envelope on failure. Without it, both are printed as a concise human-readable rendering instead. Accepted before the command too: `gda --json <group> <command>` and `gda <group> --json <command>` mean the same as passing it after the command. |
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |
