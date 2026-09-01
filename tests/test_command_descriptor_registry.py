@@ -104,10 +104,6 @@ _HELPER_RENDERERS = {
     "render_set_echo",  # the shared node/resource property-set echo line
     "render_script_metadata",  # the shared path/class_name/extends script surface
     "render_shader_metadata",  # the shared shader-metadata surface
-    # The one-line `<path>:<line>: <message>` form of a recognized script error,
-    # shared by `script run`'s passed-through diagnostics and `scene preflight`'s
-    # startup diagnostics (#664). Bound to no descriptor of its own.
-    "render_script_error_location",
     # The root `--version` one-liner (gda.provenance), imported into the meta module
     # and composed by `render_version` so the flag and the `gda version` command print
     # the same line (#670). Bound to no descriptor of its own.

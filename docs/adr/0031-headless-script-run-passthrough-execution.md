@@ -504,12 +504,17 @@ added incrementally under ADR-0025 if a concrete need appears.
 >   envelope, not only message prose — the asymmetry that argued for it is this ADR's
 >   own: the very same run WITHOUT `--strict` returns a typed `exit_status` on its
 >   success result, so opting into the flag used to cost the caller a parsed value.
-> - The **parsed `ScriptError[]`** rides every failure this channel decides from it —
->   the point-1 verdicts (`script_not_found` / `script_compile_failed` /
+> - The **parsed `ScriptError[]`** rides every failure of this channel — the point-1
+>   verdicts (`script_not_found` / `script_compile_failed` /
 >   `incompatible_script_type`), `--strict`'s `script_failed`, and both gda-ended
 >   runs — as the WHOLE list, not only the entry-load error that decided the verdict.
 >   The rest of the list is frequently the real cause (a dependency that would not
->   preload).
+>   preload). Note the set is wider than "failures decided from stderr": only the
+>   point-1 verdicts are decided that way, `script_failed` is decided from the exit
+>   status and the two gda-ended runs from the clock and the silence watch — they
+>   carry the parsed list because it exists, not because it decided anything. The
+>   records keep the same four keys they have on the success result, `path` / `line`
+>   null where the engine named neither.
 > - The **elapsed clock, the ceiling and the termination phase** are data on the two
 >   gda-ended envelopes, and `TerminationPhase` moved out of this command into the
 >   shared model: every launch-backed channel's `launch_timeout` reports it now, so it

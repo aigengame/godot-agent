@@ -46,10 +46,9 @@ from gda.parser import result_sentinel_start
 from gda.render import (
     format_value,
     render_node_tree,
-    render_script_error_location,
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch, sentinel_args
-from gda.script_errors import ScriptError, parse_script_errors
+from gda.script_errors import ScriptError, parse_script_errors, script_error_line
 
 
 def derive_scene_root_name(path: str) -> str:
@@ -931,9 +930,7 @@ def render_scene_preflight(preflight: "ScenePreflightResult") -> str:
         f"  project: {preflight.project_root or '(none resolved: projectless)'}",
     ]
     for diagnostic in preflight.diagnostics:
-        lines.append(
-            f"  {diagnostic.kind.value}: {render_script_error_location(diagnostic)}"
-        )
+        lines.append(f"  {script_error_line(diagnostic)}")
     return "\n".join(lines)
 
 
@@ -1096,6 +1093,15 @@ def _ended_before_the_verdict(
             diagnostics=diagnostics,
             project_root=str(root) if root is not None else None,
         )
+    # KNOWN, and deliberately not closed here (2026-09-01, #687 review): the parsed
+    # ``diagnostics`` above are in scope on this branch and are DISCARDED — the caller
+    # gets `raw.stderr` and has to re-parse it to learn which autoload called quit().
+    # Every clause of #687's criterion is met, so this qualifies for
+    # ``evidence.script_errors``. It is out of #687's recorded producer set anyway:
+    # that issue scoped to `script run` and #655's timeout envelope, and this is
+    # `scene preflight`. Widening the set is a follow-up with its own issue, not a
+    # review fix — see ADR-0004's `Amendment (2026-08-31, #687)`, which names the
+    # adopting producers and lists this among the discards left standing.
     return make_failure(
         "operation_failed",
         "the engine exited before the preflight could report: the scene, or an "

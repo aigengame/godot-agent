@@ -61,9 +61,8 @@ from gda.models import (
     TerminationPhase,
 )
 from gda.parser import parse_result
-from gda.render import render_script_error_location
 from gda.runner import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
-from gda.script_errors import ScriptError
+from gda.script_errors import ScriptError, script_error_line
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
 # features gda relies on exist. Resolved from the version gda info reports; the
@@ -384,10 +383,7 @@ def _recognized_errors_prose(errors: Sequence[ScriptError]) -> str:
     a stream itself. The prose stays because ``diagnostics`` is what a human reads
     and what every pre-#687 consumer already reads.
     """
-    return "".join(
-        f"gda:   {error.kind.value}: {render_script_error_location(error)}\n"
-        for error in errors
-    )
+    return "".join(f"gda:   {script_error_line(error)}\n" for error in errors)
 
 
 def launch_timeout_failure(raw: RunResult) -> Failure:

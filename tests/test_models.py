@@ -65,6 +65,7 @@ from gda.models import (
     ReferenceProjection,
     TextureProjection,
 )
+from gda.script_errors import ScriptError, ScriptErrorKind
 
 
 def test_validates_from_engine_get_version_info_dict():
@@ -178,6 +179,78 @@ def test_the_evidence_key_omits_its_own_unset_fields_too():
 
     assert emitted["evidence"] == {"exit_status": 3}
     assert set(emitted) == {"category", "code", "message", "diagnostics", "evidence"}
+
+
+def test_a_nested_script_error_reads_the_same_on_both_halves_of_the_contract():
+    # The #687 review's P1: `exclude_none` recurses, so the SAME record used to lose
+    # its null `path`/`line` inside `evidence` while keeping them on `script run`'s
+    # success `diagnostics` — two key sets for the one published `ScriptError`
+    # schema, whose field descriptions say "or null". An engine-side load failure
+    # carries no line, so this is the COMMON record, not an edge case.
+    #
+    # The omit-when-None rule is about the envelope's optional keys and evidence's
+    # own fields; it stops at a nested model that is also published on a success
+    # result. Measured as an equality between the two halves rather than as a key
+    # list, so the guard states the property instead of a snapshot.
+    record = ScriptError(
+        kind=ScriptErrorKind.SCRIPT_MISSING,
+        message="Attempt to open script 'res://absent.gd' resulted in error 'File not found'.",
+        path="res://absent.gd",
+    )
+    error = GdaError(
+        category=ErrorCategory.OPERATION,
+        code="script_failed",
+        message="script run --strict: res://t.gd exited with status 1",
+        diagnostics="",
+        evidence=FailureEvidence(exit_status=1, script_errors=[record]),
+    )
+
+    on_the_failure_half = json.loads(
+        GdaErrorEnvelope(error=error).model_dump_json(exclude_none=True)
+    )["error"]["evidence"]["script_errors"][0]
+    on_the_success_half = json.loads(record.model_dump_json())
+
+    assert on_the_failure_half == on_the_success_half
+    assert on_the_failure_half["line"] is None
+    # Evidence's OWN fields still follow the rule the amendment rests on: the four
+    # clocks this failure did not compute are absent, not null.
+    assert set(
+        json.loads(GdaErrorEnvelope(error=error).model_dump_json(exclude_none=True))[
+            "error"
+        ]["evidence"]
+    ) == {"exit_status", "script_errors"}
+
+
+def test_an_empty_script_errors_list_is_published_as_a_finding_not_as_absence():
+    # `script_errors` has THREE states, and the middle one is the reason the field
+    # is not collapsed to None when empty (#687 review): absent = this failure's
+    # channel does not parse stderr, so read `diagnostics`; `[]` = it parsed and
+    # recognized nothing, which is itself a finding (a run that died silently);
+    # non-empty = what it recognized. `[]` is not None, so `exclude_none` keeps it —
+    # this pins that, because collapsing it would erase the distinction the field
+    # description now publishes.
+    parsed_none = GdaError(
+        category=ErrorCategory.OPERATION,
+        code="script_failed",
+        message="script run --strict: res://t.gd exited with status 3",
+        diagnostics="",
+        evidence=FailureEvidence(exit_status=3, script_errors=[]),
+    )
+    does_not_parse = GdaError(
+        category=ErrorCategory.ENVIRONMENT,
+        code="launch_timeout",
+        message="Godot launched but did not return before the timeout",
+        diagnostics="",
+        evidence=FailureEvidence(elapsed_seconds=5.0),
+    )
+
+    def evidence_of(error: GdaError) -> dict[str, object]:
+        return json.loads(
+            GdaErrorEnvelope(error=error).model_dump_json(exclude_none=True)
+        )["error"]["evidence"]
+
+    assert evidence_of(parsed_none) == {"exit_status": 3, "script_errors": []}
+    assert "script_errors" not in evidence_of(does_not_parse)
 
 
 def test_every_evidence_field_is_optional_in_the_published_schema():

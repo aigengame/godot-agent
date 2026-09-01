@@ -42,7 +42,6 @@ from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023
     SCRIPT_RUN_COMMAND,
     SCRIPT_STDOUT_CAP,
     ScriptRunResult,
-    TerminationPhase,
     _CompletionMarkerWatch,
     run_script_run_operation,
 )
@@ -53,6 +52,7 @@ from gda.errors import (
     Failure,
 )
 from gda.execution import ExecutionKind
+from gda.models import TerminationPhase
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
 from gda.runner import LaunchFailure, LaunchWatch, RunResult
 

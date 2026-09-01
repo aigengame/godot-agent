@@ -245,12 +245,19 @@ per-operation variability lives INSIDE it, every field individually optional and
 omitted rather than null, so a timeout populates the clocks (`elapsed_seconds`,
 `timeout_seconds`, `termination_phase`) while a `script run --strict` failure
 populates the child's `exit_status`, and both carry the parsed `script_errors` where
-the channel has them. A fact qualifies only if it is ALREADY computed on the failure
-path, unrecoverable from the envelope without parsing prose, and changes what the
-caller does next — which is what keeps the caller's own inputs (a declared
-`Completion marker`, a silence window) and the captured streams (already in
-`diagnostics`) out. Third key on the axis `probe` and `hint` established, and
-CLI-side like `hint`: neither GDScript surface emits or reads it.
+the channel has them. The omitted-never-null rule governs the key and this object's
+own fields, and stops there: a model NESTED inside it that is also published on a
+success result keeps its full key set, so one record reads the same on both halves of
+the contract. **Not** the free-form `diagnostics` string beside it — the two ship
+together and say different things: `diagnostics` is the prose a human reads (the
+recognized-error lines and the captured streams), evidence is the same facts typed
+for a machine. That is why the streams are NOT duplicated here. ADR-0004's #687
+amendment is the authority for what may enter the object and for the producer set
+that carries it today; the short form is that a fact must already be computed on the
+failure path, be unrecoverable without parsing prose, and change what the caller does
+next. Third key on the axis that `probe` and `hint` established, and CLI-side like
+`hint`: neither the GDScript sentinel's `OperationError` nor the harness's `LiveError`
+emits or reads it.
 _Avoid_: diagnostics, error context, error details
 
 **Near-miss hint**:

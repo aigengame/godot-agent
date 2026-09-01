@@ -15,6 +15,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_serializer,
     model_validator,
 )
 
@@ -117,19 +118,20 @@ class TerminationPhase(str, Enum):
 # omitted when absent — so a timeout populates the clocks and a strict script failure
 # populates the status, without either being a different envelope.
 #
-# What may enter it (the criterion, stated once so a later field is added
-# deliberately): the fact must ALREADY be computed on the failure path, be
+# What may enter it: the fact must ALREADY be computed on the failure path, be
 # unrecoverable from the envelope without parsing prose, and change what the caller
 # does next. That is why the ``script run`` abort's silence window and declared
 # marker are NOT here — both are the caller's own inputs — while the parsed script
-# errors are: they existed and were thrown away (#651).
+# errors are: they existed and were thrown away (#651). ADR-0004's #687 amendment is
+# the AUTHORITY for that criterion and for the producer set it currently admits;
+# this restatement is the reader's copy beside the code, not a second rule.
 #
 # What it is NOT: a substitute for branching on ``code``. The verdict stays the code;
 # this is the evidence behind it. In particular a recognized error in
 # ``script_errors`` under a ``launch_timeout`` is ADVISORY and does not re-verdict the
 # timeout — the decision recorded in ADR-0002 for #716.
 class FailureEvidence(BaseModel):
-    """Typed evidence about a failure; each field is omitted when this run has none."""
+    """Typed evidence about a failure; a field this run cannot compute is omitted."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -159,10 +161,41 @@ class FailureEvidence(BaseModel):
         default=None,
         description=(
             "Engine/script errors recognized in this run's stderr, in emission "
-            "order — the same entries a successful run reports as 'diagnostics'. "
-            "Advisory: the verdict is 'code', never an entry here."
+            "order — the same records, with the same keys, a successful run "
+            "reports as 'diagnostics'. THREE states, not two: absent means this "
+            "failure's channel does not parse stderr at all, so read "
+            "'diagnostics'; [] means it parsed and recognized none, which is "
+            "itself a finding; a non-empty list is what it recognized. Advisory: "
+            "the verdict is 'code', never an entry here."
         ),
     )
+
+    @field_serializer("script_errors")
+    def _keep_the_published_script_error_shape(
+        self, errors: list[ScriptError] | None
+    ) -> list[dict[str, Any]] | None:
+        """Serialize the records with their FULL key set, nulls included (#687 review).
+
+        The failure envelope is emitted with ``exclude_none``
+        (:func:`gda.headless.emit_failure`), which recurses. Without this, a null
+        ``path`` / ``line`` would be dropped from the nested records and the SAME
+        script error would carry different keys depending on which half of the
+        contract a caller read it from — four keys on ``script run``'s success
+        ``diagnostics``, two or three here — while both halves are described by one
+        published ``ScriptError`` schema whose ``path`` / ``line`` say "or null".
+
+        The omit-when-None rule the amendment rests on is about the OPTIONAL KEYS of
+        the envelope (``probe`` / ``hint`` / ``evidence``) and this object's own
+        fields, which is where it buys byte-identity for failures that compute no
+        evidence. It was never a claim about the published shape of a model nested
+        under one. So the rule stops at this boundary, and any future nested model
+        that is also published on a success result gets the same treatment.
+        """
+        return (
+            None
+            if errors is None
+            else [error.model_dump(mode="json") for error in errors]
+        )
 
 
 class GdaError(BaseModel):
@@ -177,7 +210,10 @@ class GdaError(BaseModel):
     invocation to use instead, on the refusals gda recognizes as a near miss
     (#670); ``evidence`` is the typed evidence behind the verdict, on the failures
     that compute any (#687). All three optional keys are OMITTED when unset, never
-    null — at every depth, since the emit path filters recursively.
+    null, and so are ``evidence``'s own fields. The rule stops there: a model
+    NESTED inside one of them keeps its full published key set, so a record reads
+    the same on both halves of the contract (see
+    :meth:`FailureEvidence._keep_the_published_script_error_shape`).
     """
 
     category: ErrorCategory

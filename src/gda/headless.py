@@ -535,13 +535,20 @@ def emit_failure(failure: Failure) -> NoReturn:
     and the native-export command (``export run``), which classifies its own
     subprocess outcome but emits failures through this same channel.
 
-    ``exclude_none`` keeps the envelope's OPTIONAL context keys (``probe``, the
-    ADR-0004 amendment of #667) out of the JSON entirely when a failure has none,
-    rather than emitting them as ``null``. So adding such a key leaves every
-    failure that does not set it byte-identical — the property that makes the
-    optional-context axis additive for existing consumers. The required keys
+    ``exclude_none`` keeps the envelope's OPTIONAL context keys out of the JSON
+    entirely when a failure has none, rather than emitting them as ``null``. So
+    adding such a key leaves every failure that does not set it byte-identical —
+    the property that makes the optional-context axis additive for existing
+    consumers. Three keys ride it now, one per ADR-0004 amendment: ``probe``
+    (#667), ``hint`` (#670) and ``evidence`` (#687). The required keys
     (``category`` / ``code`` / ``message`` / ``diagnostics``) are never ``None``,
     so none of them can be dropped by this.
+
+    The filter RECURSES, which is what lets ``evidence`` carry one fixed shape
+    whose unset fields cost nothing. It stops at one boundary: a model nested
+    inside ``evidence`` that is ALSO published on a success result keeps its full
+    key set, so a record does not read differently depending on which half of the
+    contract carried it (:class:`gda.models.FailureEvidence`).
     """
     typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json(exclude_none=True))
     raise typer.Exit(code=failure.exit_code)

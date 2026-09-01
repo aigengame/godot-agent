@@ -1,5 +1,6 @@
 """ADR-0002 error-code registry drift checks."""
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -13,9 +14,11 @@ from gda.error_codes import (
     OPERATION_ERROR_CODES,
     ErrorCodeSource,
 )
+import gda.errors as errors_module
 from gda.errors import make_failure
 from gda.exit_codes import EXIT_LIVE
-from gda.models import ErrorCategory, GdaErrorEnvelope
+from gda.models import ErrorCategory, GdaErrorEnvelope, TerminationPhase
+from gda.runner import LaunchFailure, RunResult
 
 # The live execution channel's failure codes (ADR-0017 / ADR-0021). Registered
 # here as the first Phase-2 slice's error contract; emitted by the daemon IPC
@@ -226,6 +229,89 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
             "message",
             "diagnostics",
         }, spec.code
+
+
+#: The failure builders #687 admits to the evidence axis — the decision's recorded
+#: boundary, mirrored from ADR-0004's `Amendment (2026-08-31, #687)`. The tree still
+#: holds discards this decision did NOT adopt (`scene preflight`'s
+#: `_ended_before_the_verdict`, `engine_crashed`'s signal, `resource import`'s and
+#: `export run`'s child exit codes); the amendment records them as deliberately out of
+#: scope, and this set is what lets a later reader tell that from an oversight.
+_EVIDENCE_PRODUCERS = {
+    "launch_timeout_failure",
+    "script_did_not_run_failure",
+    "script_exit_status_failure",
+    "script_run_timeout_failure",
+    "script_run_aborted_failure",
+}
+
+
+def test_only_the_recorded_producers_put_evidence_on_the_envelope():
+    # A criterion in prose is not a boundary anyone can check (#687 review). Read out
+    # of the source rather than kept by hand, so a sixth builder cannot join the axis
+    # without this test — and the ADR paragraph it mirrors — being updated in the same
+    # change. `make_failure` itself is excluded by construction: this looks only at
+    # CALLS to it, and it is the one that forwards the parameter.
+    module = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
+
+    producers = {
+        node.name
+        for node in ast.walk(module)
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "make_failure"
+            and any(keyword.arg == "evidence" for keyword in call.keywords)
+            for call in ast.walk(node)
+        )
+    }
+
+    assert producers == _EVIDENCE_PRODUCERS
+
+
+def test_no_producer_can_emit_an_empty_evidence_object():
+    # The fourth state the amendment's argument does not cover: `FailureEvidence()`
+    # with every field unset serializes to `"evidence": {}` — a key that says nothing,
+    # on a failure that byte-identity says should carry no key at all. Unreachable
+    # through the five producers today, but only incidentally, so it is pinned rather
+    # than assumed. Each producer is called with the LEAST it can be given.
+    raw = RunResult(
+        stdout="", stderr="", exit_code=124, launch_failure=LaunchFailure.TIMEOUT
+    )
+    emitted = [
+        errors_module.launch_timeout_failure(raw),
+        errors_module.script_did_not_run_failure(
+            "script_not_found", "res://t.gd", "detail", "", []
+        ),
+        errors_module.script_exit_status_failure("res://t.gd", 3, "", "", []),
+        errors_module.script_run_timeout_failure(
+            "res://t.gd",
+            timeout=1.0,
+            elapsed=1.0,
+            phase=TerminationPhase.LAUNCHED,
+            script_errors=[],
+            stdout="",
+            stderr="",
+        ),
+        errors_module.script_run_aborted_failure(
+            "res://t.gd",
+            timeout=1.0,
+            elapsed=1.0,
+            silence=1.0,
+            marker="done",
+            phase=TerminationPhase.ABORTED_ON_ERROR,
+            script_errors=[],
+            stdout="",
+            stderr="",
+        ),
+    ]
+
+    for failure in emitted:
+        evidence = json.loads(
+            GdaErrorEnvelope(error=failure.error).model_dump_json(exclude_none=True)
+        )["error"]["evidence"]
+        assert evidence != {}, failure.error.code
 
 
 def test_failure_builder_rejects_unregistered_public_codes():

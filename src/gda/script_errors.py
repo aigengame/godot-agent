@@ -374,7 +374,26 @@ _ENTRY_FAILURE_PRECEDENCE = (
 # now rides the shared failure envelope, so every word here is repeated once per
 # command in `gda schema`. What each kind means in full is in the enum's comment
 # above and in `docs/command-catalog.md`; what stays here is what a caller has to
-# know to read a value it just received.
+# know to read a value it just received. Three reader's facts that used to be field
+# prose live here instead, for that reason:
+#
+# - ``path`` is canonical in :func:`canonical_res_path`'s sense — ``.``/``..``
+#   segments and duplicate slashes collapsed — so a value read here compares equal
+#   to the same resource named any other way.
+# - An engine-side LOAD error carries no script line at all, which is why ``line``
+#   is null far more often than a reader of a compile error expects.
+# - For a ``push_error`` the line is the call site the engine named in its GDScript
+#   backtrace — never a number gda synthesized.
+#
+# ONE wire shape, at both of the contract's halves (#687 review). This model is
+# published twice: on the success results of ``script run`` / ``scene preflight``,
+# and inside the failure envelope's ``evidence.script_errors``. The failure envelope
+# is emitted with ``exclude_none``, which would otherwise drop a null ``path`` /
+# ``line`` from the nested records and render the SAME error with two different key
+# sets depending on which half of the contract a caller read it from. The
+# omit-when-None rule is about the envelope's own optional keys, not about the
+# published shape of a model nested under one, so ``FailureEvidence`` keeps this
+# model's full key set — see the serializer in :mod:`gda.models`.
 class ScriptError(BaseModel):
     """One recognized script error read out of the engine's stderr (#651)."""
 
@@ -409,6 +428,38 @@ class ScriptError(BaseModel):
             "reported none."
         ),
     )
+
+
+def script_error_line(error: ScriptError) -> str:
+    """``<kind>: <path>:<line>: <message>``, dropping the parts the engine did not give.
+
+    The ONE text form of a recognized script error, so the four places that write
+    one — ``script run``'s passed-through diagnostics, ``scene preflight``'s startup
+    diagnostics, the ``diagnostics`` prose of the two gda-ended ``script run``
+    failures (:mod:`gda.errors`), and the human failure channel's ``evidence`` block
+    — cannot drift into four spellings of the same line. Each site adds only its own
+    indent or prefix.
+
+    It lives HERE rather than in :mod:`gda.render` (#687 review). It is a lexical
+    projection of a type this module owns, and one of its consumers is
+    :mod:`gda.errors`, which is core: an ``errors`` -> ``render`` edge would put the
+    presentation layer inside the core's import closure and invert ADR-0040 §5's
+    ``... -> errors / models -> foundation`` direction. This module imports only
+    :mod:`gda.engine_log`, so every consumer's edge points downward at it.
+
+    Its output is on the WIRE as well as on stdout — ``gda.errors`` embeds it in the
+    ``diagnostics`` string of the two gda-ended envelopes — so an edit here changes
+    published bytes, not only what a human reads.
+
+    An engine-side load failure carries no script line, and some errors name no path
+    at all, so each piece is included only when the engine reported it — never as an
+    empty ``:`` or a bare ``None``.
+    """
+    where = error.path or ""
+    if error.path is not None and error.line is not None:
+        where = f"{error.path}:{error.line}"
+    located = f"{where}: {error.message}" if where else error.message
+    return f"{error.kind.value}: {located}"
 
 
 def parse_script_errors(stderr: str) -> list[ScriptError]:

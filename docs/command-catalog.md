@@ -748,13 +748,17 @@ quietly is alive by construction. It does appear in the run's `diagnostics`, whi
 a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
 Every `script run` failure that computed evidence also carries it as DATA on the
 envelope's optional `evidence` key (#687): the child's own `exit_status` on `--strict`'s
-`script_failed`, the parsed `script_errors` on that and on the never-ran verdicts
-(`script_not_found` / `script_compile_failed` / `incompatible_script_type`) — the WHOLE
-parsed list, not only the error that decided the code — and `elapsed_seconds` /
-`timeout_seconds` / `termination_phase` on the two gda-ended envelopes. The key is
-omitted, never null, on a failure that computed none, and the prose above is unchanged:
-`diagnostics` still carries the same recognized-error lines and both labelled streams,
-rendered from the same single parse.
+`script_failed`; `elapsed_seconds` / `timeout_seconds` / `termination_phase` on the two
+gda-ended envelopes; and the parsed `script_errors` on ALL of them — the never-ran
+verdicts (`script_not_found` / `script_compile_failed` / `incompatible_script_type`),
+`--strict`'s `script_failed`, and both gda-ended envelopes — as the WHOLE parsed list,
+not only the error that decided the code. An entry carries the same four keys
+(`kind` / `message` / `path` / `line`) it has on a successful run's `diagnostics`, and
+the list distinguishes three states: absent (this channel does not parse stderr), `[]`
+(parsed, recognized none) and populated. The key itself is omitted, never null, on a
+failure that computed none, and the prose above is unchanged: `diagnostics` still
+carries the same recognized-error lines and both labelled streams, rendered from the
+same single parse.
 The script executes in full, within the trusted-project assumption (ADR-0009).
 
 ### `project`

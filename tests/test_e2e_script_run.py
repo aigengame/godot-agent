@@ -404,6 +404,18 @@ def test_script_run_missing_script_is_script_not_found(godot_project):
     assert err["code"] == "script_not_found"
     assert err["category"] == "operation"
     assert "res://no-such-script.gd" in err["message"]
+    # ONE `ScriptError` shape on both halves of the contract (#687 review), pinned on
+    # the REAL engine's most common record: a load failure carries NO line, so the
+    # failure half is exactly where the recursive `exclude_none` used to drop the key
+    # and leave an agent following the schema — or SKILL.md — with a KeyError. `line`
+    # must be present and null, the same four keys a successful run's `diagnostics`
+    # carries. Asserted as a key set, because the defect was a missing key, not a
+    # wrong value.
+    errors = err["evidence"]["script_errors"]
+    assert errors, err["evidence"]
+    for error in errors:
+        assert set(error) == {"kind", "message", "path", "line"}, error
+    assert any(error["line"] is None for error in errors), errors
 
 
 @pytest.mark.e2e
@@ -634,8 +646,15 @@ def test_script_run_strict_fails_on_an_explicit_non_zero_quit(godot_project):
     # still exits 4, because a script's quit(1) must not alias a registry exit code.
     assert err["evidence"]["exit_status"] == 1
     # And no key the run did not compute: a script that RAN has no launch clock and
-    # no termination phase, so those are absent rather than zeroed.
-    assert set(err["evidence"]) <= {"exit_status", "script_errors"}
+    # no termination phase, so those are absent rather than zeroed. An EQUALITY, not
+    # a subset (#687 review): `<=` could not tell a present `script_errors` from a
+    # missing one, which is the very distinction the line below pins.
+    assert set(err["evidence"]) == {"exit_status", "script_errors"}
+    # The middle of `script_errors`' three states, on a real engine: this channel DID
+    # parse the stderr and recognized nothing — a clean script that simply chose a
+    # non-zero status. `[]` says that, where an absent key would say "gda did not
+    # look". Collapsing the two would erase a distinction a caller acts on.
+    assert err["evidence"]["script_errors"] == []
 
 
 @pytest.mark.e2e

@@ -16,6 +16,9 @@ the renderer functions directly — the assertions (a renderer's exact text) are
 unchanged.
 """
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from gda.commands.node import (
@@ -429,3 +432,43 @@ def test_render_diag_errors_omits_a_callstack_block_for_a_bare_error():
     )
 
     assert rendered == "ERROR: boom"
+
+
+def test_only_the_group_layer_imports_the_presentation_module():
+    # ADR-0040 §5 fixes the chain as `cli -> commands/* -> dispatch -> headless ->
+    # runners / errors / models -> foundation`. `gda.render` is not on it: it is the
+    # presentation layer, reached DOWN into from group altitude and from nowhere else.
+    #
+    # #687 broke that without anyone noticing — `gda.errors` imported a renderer
+    # helper to build the `diagnostics` prose of two failure envelopes, which put the
+    # presentation module inside the core's import closure and gave one function two
+    # reasons to change, one of them a wire field. The helper moved to
+    # `gda.script_errors` (a foundation module: it imports only `gda.engine_log`), so
+    # both consumers now point downward at the type's owner.
+    #
+    # Read statically over the source rather than from `sys.modules`, so an edge is
+    # caught whether or not a test happens to import the module that adds it. Narrow
+    # on purpose: this pins the ONE direction this review found inverted, and is not
+    # a general import-boundary gate — that would be its own decision.
+    root = Path(__file__).resolve().parents[1] / "src" / "gda"
+
+    importers = set()
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            imports_render = (
+                isinstance(node, ast.ImportFrom) and node.module == "gda.render"
+            ) or (
+                isinstance(node, ast.Import)
+                and any(alias.name == "gda.render" for alias in node.names)
+            )
+            if imports_render:
+                importers.add(path.relative_to(root.parent).as_posix())
+
+    offenders = sorted(
+        name for name in importers if not name.startswith("gda/commands/")
+    )
+    assert not offenders, (
+        f"gda.render is the presentation layer (ADR-0040 §5): only gda.commands.* may "
+        f"import it, but these do: {offenders}"
+    )
