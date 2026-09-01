@@ -210,12 +210,10 @@ parser produces bounds the rule on both sides: the low-order drift is disclosed
 rather than refused, which the full-precision echo shows, and so is an OVERFLOW — a
 `--value` of `1e400` is stored as the `inf` the parser saturates it to, since that
 is the engine's number for the magnitude asked, not a different one put in its
-place. Two
-controls keep the shared projection safe on the live
-side: the whitelist bounds the Object classes whose storage properties the
-inline kind emits, and the texture kind is safe by construction — a fixed
-getter shape with its one expensive readback behind the explicit digest opt-in
-(ADR-0035).
+place. Two controls keep the shared projection safe on the live side: the
+whitelist bounds the Object classes whose storage properties the inline kind
+emits, and the texture kind is safe by construction — a fixed getter shape with
+its one expensive readback behind the explicit digest opt-in (ADR-0035).
 _Avoid_: value rendering, str dump, serialization, descriptor
 
 ### Failure reporting

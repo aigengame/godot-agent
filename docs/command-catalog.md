@@ -470,9 +470,8 @@ the direction the caller asked for, not a different number put in its place. `0e
 substitution this rule exists to stop. The overflow carries a residual of its own, disclosed
 here rather than refused: `inf` is stored but cannot be REPORTED, so the `set` echo and every
 later `node get` / `project get` read it as JSON `null`. A literal **below binary64's reach is
-refused**
-anyway — `1e-400` fails exactly as `1e-320` does, although zero is the correctly-rounded answer
-there; the coercion cannot tell a true underflow from the engine's −309 cliff without modelling
+refused** anyway — `1e-400` fails exactly as `1e-320` does, although zero is the
+correctly-rounded answer there; the coercion cannot tell a true underflow from the engine's −309 cliff without modelling
 the parser it asks instead, and a caller who means zero writes `0`. One path does not reach the
 check at all: a number nested inside a Dictionary or Array `--value` arrives through
 `JSON.parse_string` / `str_to_var`. `gda.live_numbers` records the measurement;
