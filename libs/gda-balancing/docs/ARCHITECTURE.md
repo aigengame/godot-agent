@@ -673,7 +673,7 @@ authority.
 
 - `interfaces` owns inbound protocol binding, integration contracts, and presentation. The
   `interfaces/cli` adapter owns Command descriptors, the immutable registry, schema and manifest
-  projection, argv binding, help, rendering, envelopes, and exit codes. The proposed Execution OHS
+  projection, argv binding, help, rendering, envelopes, and exit codes. The Execution OHS
   owns one Published Language for OHS-specific handles, selections, response framing, and shared OHS
   errors. It does not own or copy Standard Schema contracts. The current Resource-oriented HTTP
   adapter uses this language and calls the Application service directly. It owns routes, methods,
@@ -733,8 +733,9 @@ policy from domain-neutral storage mechanisms.
 
 The Execution OHS gives several downstream contexts one stable integration boundary. Its Published
 Language defines only concepts introduced at that boundary. Standard Schema values keep their
-Domain-owned schemas, identities, rules, semantics, and refusals. An adapter references those exact
-contracts instead of copying their fields into a transport-owned model.
+Domain-owned schemas, identities, rules, semantics, and refusals. An adapter passes those values
+without copying their fields into a transport-owned model. Domain applies the applicable
+authority-owned contracts.
 
 ```mermaid
 flowchart TB
@@ -1575,8 +1576,8 @@ owned through model/experiment operations, not independent user workflows.
 
 The ungrouped `serve` command starts the local companion host for the loopback-only,
 Resource-oriented HTTP adapter. It is a foreground operational command, not a new semantic command
-group. bADR-0026 owns its accepted `/v1` transport and lifecycle boundaries. Proposed bADR-0027
-extracts the shared Execution OHS and Published Language without changing the current HTTP protocol
+group. bADR-0026 owns its accepted `/v1` transport and lifecycle boundaries. Accepted bADR-0027
+owns the shared Execution OHS and Published Language without changing the current HTTP protocol
 contract.
 
 Each command has one structured **Command descriptor** that owns its parameters, defaults,
@@ -1616,7 +1617,7 @@ coverage from implementation proof.
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
 | Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | The current #546 authority, compatible package closure, and `RPG-STAT-01` path are rebuilt, and production and independent consumers agree on the new primitive and package vectors. Earlier non-RPG and Roguelike results do not carry automatically; their current-identity evidence, the public Extension Invariance Receipt, and broader mechanic breadth remain open |
-| Operability | Descriptor-derived CLI, local Execution HTTP adapter, proposed Execution OHS and Published Language, immutable artifacts, idempotent invocation, receipts | Local descriptor, HTTP, and publication paths were exercised; the shared OHS contract, production adapter extraction, and complete public surface remain open; additional transport adapters are deferred until a concrete consumer requires one |
+| Operability | Descriptor-derived CLI, local Execution HTTP adapter, Execution OHS and Published Language, immutable artifacts, idempotent invocation, receipts | Local descriptor, HTTP, and publication paths were exercised; the shared OHS contract is extracted, the HTTP adapter consumes it, and semantic parity is covered; additional transport adapters are deferred until a concrete consumer requires one |
 
 The current evidence supports these status statements:
 

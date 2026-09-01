@@ -2,9 +2,9 @@
 
 from collections.abc import Mapping
 import json
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, TypeVar, cast
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ValidationError
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -19,11 +19,10 @@ from gda_balancing.application.execution_sessions import (
     ExperimentRevisionNotFound,
 )
 from gda_balancing.domain.authority.context import packaged_authority_context
-from gda_balancing.infrastructure.distribution import distribution_version
 from gda_balancing.interfaces.execution_service_language import (
     AdmitExperimentRevisionRequest,
-    CreateExecutionSessionRequest,
-    ExecutionSessionDeletedResponse,
+    EstablishExecutionSessionRequest,
+    ExecutionSessionReleasedResponse,
     ReleaseExecutionSessionRequest,
     RunExperimentRequest,
     admit_experiment_revision_response,
@@ -45,7 +44,6 @@ from gda_balancing.interfaces.http.service_errors import (
     unsupported_media_type_response,
 )
 
-PROTOCOL_VERSION = "v1"
 _PROTOCOL_ENVELOPE_BYTES = 65_536
 RequestModel = TypeVar("RequestModel", bound=BaseModel)
 
@@ -101,37 +99,18 @@ async def _request_model(
         raise InvalidHttpRequest from error
 
 
-class StatusResponse(BaseModel):
-    """Technical status of one ready local service process."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    status: Literal["ready"] = "ready"
-    protocol: Literal["v1"] = PROTOCOL_VERSION
-    toolkit_version: str
-
-
 def create_api_v1() -> ASGIApp:
     """Create execution routes without local-host lifecycle or authentication."""
-    toolkit_version = distribution_version("gda-balancing")
     sessions = ExecutionSessions()
     max_source_bytes = cast(
         int,
         packaged_authority_context().language_bundle["resources"]["max_source_bytes"],
     )
 
-    async def status(request: Request) -> Response:
-        if request.method != "GET":
-            raise HTTPException(status_code=405, headers={"Allow": "GET"})
-        await require_empty_request(request)
-        return JSONResponse(
-            StatusResponse(toolkit_version=toolkit_version).model_dump(mode="json")
-        )
-
     async def create_execution_session(request: Request) -> Response:
         payload = await _request_model(
             request,
-            CreateExecutionSessionRequest,
+            EstablishExecutionSessionRequest,
             max_bytes=(2 * max_source_bytes) + _PROTOCOL_ENVELOPE_BYTES,
         )
         result = await run_in_threadpool(
@@ -190,7 +169,7 @@ def create_api_v1() -> ASGIApp:
         except ExecutionSessionNotFound as error:
             return _execution_service_error_response(error)
         return JSONResponse(
-            ExecutionSessionDeletedResponse(session_id=payload.session_id).model_dump(
+            ExecutionSessionReleasedResponse(session_id=payload.session_id).model_dump(
                 mode="json"
             )
         )
@@ -211,7 +190,6 @@ def create_api_v1() -> ASGIApp:
             Exception: unexpected_internal_error,
         },
         routes=[
-            Route("/v1/status", status, methods=["GET"]),
             Route(
                 "/v1/execution-sessions",
                 create_execution_session,

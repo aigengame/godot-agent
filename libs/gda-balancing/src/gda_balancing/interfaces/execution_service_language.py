@@ -1,8 +1,9 @@
 """Published Language for the Execution Open Host Service (bADR-0027).
 
 Revision 1 closes OHS envelopes only. Nested Model Source, Experiment, and
-artifact values remain opaque here; the exact Domain authority admits or
-produces them. This module publishes no combined Standard Schema.
+artifact values remain opaque here. Domain admits or produces them under the
+applicable authority-owned contracts. This module publishes no combined
+Standard Schema.
 """
 
 from copy import deepcopy
@@ -73,7 +74,7 @@ def execution_service_error_from_condition(
     return execution_service_error("unknown_experiment_revision")
 
 
-class CreateExecutionSessionRequest(BaseModel):
+class EstablishExecutionSessionRequest(BaseModel):
     """Complete authored values required to establish one session."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -82,7 +83,7 @@ class CreateExecutionSessionRequest(BaseModel):
     experiment_specification: dict[str, Any]
 
 
-class ExecutionSessionCreatedResponse(BaseModel):
+class ExecutionSessionEstablishedResponse(BaseModel):
     """Exact identities established by successful session admission."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -104,11 +105,11 @@ class RefusalResponse(BaseModel):
 
 def establish_session_response(
     result: ExecutionSessionCreated | Schema2RefusalReport,
-) -> ExecutionSessionCreatedResponse | RefusalResponse:
+) -> ExecutionSessionEstablishedResponse | RefusalResponse:
     """Frame one Application result for the establish-session capability."""
     if isinstance(result, Schema2RefusalReport):
         return RefusalResponse(refusal=result)
-    return ExecutionSessionCreatedResponse(
+    return ExecutionSessionEstablishedResponse(
         session_id=result.session_id,
         resolved_model_identity=result.resolved_model_identity,
         revision_id=result.revision_id,
@@ -205,7 +206,7 @@ def run_experiment_revision_response(
     )
 
 
-class ExecutionSessionDeletedResponse(BaseModel):
+class ExecutionSessionReleasedResponse(BaseModel):
     """Acknowledgement that one process-local session was released."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)

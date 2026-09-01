@@ -23,10 +23,10 @@ from gda_balancing.domain.publication_types import PublicationMember
 from gda_balancing.interfaces.execution_service_language import (
     EXECUTION_SERVICE_LANGUAGE_REVISION,
     AdmitExperimentRevisionRequest,
-    CreateExecutionSessionRequest,
+    EstablishExecutionSessionRequest,
     ExecutionServiceErrorCode,
-    ExecutionSessionCreatedResponse,
-    ExecutionSessionDeletedResponse,
+    ExecutionSessionEstablishedResponse,
+    ExecutionSessionReleasedResponse,
     ExperimentRevisionAdmittedResponse,
     RefusalResponse,
     ReleaseExecutionSessionRequest,
@@ -65,8 +65,8 @@ def test_establish_session_contract_is_closed() -> None:
         "experiment_specification": {"schema_version": "2.0.0"},
     }
 
-    request = CreateExecutionSessionRequest.model_validate(payload)
-    response = ExecutionSessionCreatedResponse(
+    request = EstablishExecutionSessionRequest.model_validate(payload)
+    response = ExecutionSessionEstablishedResponse(
         session_id="session-1",
         resolved_model_identity="sha256:resolved-model",
         revision_id="sha256:experiment",
@@ -81,7 +81,7 @@ def test_establish_session_contract_is_closed() -> None:
         "revision_id": "sha256:experiment",
     }
     with pytest.raises(ValidationError):
-        CreateExecutionSessionRequest.model_validate(
+        EstablishExecutionSessionRequest.model_validate(
             {**payload, "implicit_active_revision": True}
         )
 
@@ -97,7 +97,7 @@ def test_establish_session_results_are_framed() -> None:
     success = establish_session_response(created)
     refused = establish_session_response(refusal)
 
-    assert success == ExecutionSessionCreatedResponse(
+    assert success == ExecutionSessionEstablishedResponse(
         session_id="session-1",
         resolved_model_identity="sha256:resolved-model",
         revision_id="sha256:experiment",
@@ -220,7 +220,7 @@ def test_domain_refusal_contract_is_reused() -> None:
 
 
 def test_nested_standard_schema_values_remain_opaque_to_the_language() -> None:
-    request = CreateExecutionSessionRequest(
+    request = EstablishExecutionSessionRequest(
         model_source={"authority_owned_member": {"model": True}},
         experiment_specification={"authority_owned_member": {"experiment": True}},
     )
@@ -228,7 +228,7 @@ def test_nested_standard_schema_values_remain_opaque_to_the_language() -> None:
         artifacts={"result": {"authority_owned_member": {"artifact": True}}}
     )
 
-    request_schema = CreateExecutionSessionRequest.model_json_schema()["properties"]
+    request_schema = EstablishExecutionSessionRequest.model_json_schema()["properties"]
     response_schema = RunSuccessResponse.model_json_schema()["properties"]
 
     assert request.model_source["authority_owned_member"] == {"model": True}
@@ -269,7 +269,7 @@ def test_run_outcomes_share_one_artifact_shape() -> None:
 
 def test_release_session_contract_is_closed() -> None:
     request = ReleaseExecutionSessionRequest(session_id="session-1")
-    response = ExecutionSessionDeletedResponse(session_id="session-1")
+    response = ExecutionSessionReleasedResponse(session_id="session-1")
 
     assert request.model_dump(mode="json") == {"session_id": "session-1"}
     assert response.model_dump(mode="json") == {
@@ -277,7 +277,7 @@ def test_release_session_contract_is_closed() -> None:
         "session_id": "session-1",
     }
     with pytest.raises(ValidationError):
-        ExecutionSessionDeletedResponse.model_validate(
+        ExecutionSessionReleasedResponse.model_validate(
             {
                 "outcome": "success",
                 "session_id": "session-1",

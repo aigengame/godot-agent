@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from gda_balancing.infrastructure.distribution import distribution_version
 from gda_balancing.interfaces.http.service_errors import (
     HttpRequestTooLarge,
     InvalidHttpRequest,
@@ -27,6 +28,8 @@ from gda_balancing.interfaces.http.service_errors import (
     require_empty_request,
     service_error_response,
 )
+
+PROTOCOL_VERSION = "v1"
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,35 @@ class ShutdownResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: Literal["shutting-down"] = "shutting-down"
+
+
+class StatusResponse(BaseModel):
+    """Technical status of one ready local service process."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["ready"] = "ready"
+    protocol: Literal["v1"] = PROTOCOL_VERSION
+    toolkit_version: str
+
+
+class _StatusEndpoint:
+    """Bind the exact local-host method before the catch-all mount."""
+
+    def __init__(self, toolkit_version: str) -> None:
+        self._toolkit_version = toolkit_version
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        request = Request(scope, receive)
+        if request.method != "GET":
+            raise HTTPException(status_code=405, headers={"Allow": "GET"})
+        await require_empty_request(request)
+        response = JSONResponse(
+            StatusResponse(toolkit_version=self._toolkit_version).model_dump(
+                mode="json"
+            )
+        )
+        await response(scope, receive, send)
 
 
 class _ShutdownEndpoint:
@@ -150,6 +182,10 @@ def _local_companion_app(
             Exception: unexpected_internal_error,
         },
         routes=[
+            Route(
+                "/v1/status",
+                _StatusEndpoint(distribution_version("gda-balancing")),
+            ),
             Route("/v1/shutdown", _ShutdownEndpoint(request_shutdown)),
             Mount("/", app=execution_api),
         ],

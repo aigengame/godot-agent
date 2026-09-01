@@ -11,8 +11,12 @@ from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.interfaces.http.api_v1 import PROTOCOL_VERSION, create_api_v1
-from gda_balancing.interfaces.http.local_host import LocalHostReadiness, run_local_host
+from gda_balancing.interfaces.http.api_v1 import create_api_v1
+from gda_balancing.interfaces.http.local_host import (
+    PROTOCOL_VERSION,
+    LocalHostReadiness,
+    run_local_host,
+)
 
 
 class ServeInput(BaseModel):
