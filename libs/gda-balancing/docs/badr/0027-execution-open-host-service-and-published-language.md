@@ -1,14 +1,14 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Publish the Execution Open Host Service through one Published Language
 
 Issue #789 records the next integration boundary for gda-balancing. The existing local Execution
-HTTP API already reuses Application and Domain behavior, preserves exact identities, and supports
-several application-agnostic clients. Its integration contract still belongs to the HTTP adapter.
-Leaving that contract transport-owned would make HTTP an accidental owner of execution meaning and
-would force any later adapter either to copy the contract or to call HTTP.
+HTTP API already reused Application and Domain behavior, preserved exact identities, and supported
+several application-agnostic clients. Its integration contract still belonged to the HTTP adapter.
+Leaving that contract transport-owned would have made HTTP an accidental owner of execution meaning
+and forced any later adapter either to copy the contract or to call HTTP.
 
 ## Decision
 
@@ -39,15 +39,21 @@ would force any later adapter either to copy the contract or to call HTTP.
   explicit adapter migration. Compatible additions do not create another language or schema owner.
 - The Published Language does not become a Standard Schema authority. Kernel, LDB, Model,
   Experiment, Runtime, Evidence, and other accepted authorities continue to own their schemas,
-  rules, semantics, identities, and refusals. The Execution Service Language references their
-  exact normative contracts and versions. It does not copy their fields, emit a peer schema,
-  reinterpret them, or expose an implementation-private Domain model.
+  rules, semantics, identities, and refusals. The Execution Service Language carries their values
+  opaquely, and the Domain applies the applicable authority-owned contracts. The language does not
+  copy their fields, emit a peer schema, reinterpret them, or expose an implementation-private
+  Domain model.
 - The OHS-specific integration shapes have one executable owner outside transport adapters. JSON
   Schema and HTTP contract documentation for those shapes are derived projections. Any future
   adapter projection must derive from the same owner. A projection is not a second authority.
-- An integration schema refers to an authority-owned Standard Schema value instead of expanding a
-  duplicate definition. The first implementation slice must prove that a changed authority-owned
-  schema cannot leave a stale accepted copy in the Published Language.
+- Revision 1 closes only the OHS envelopes. Nested Model Source, Experiment, and artifact values
+  remain opaque to its Pydantic schemas. Domain validates or produces these values under the
+  applicable authority-owned contracts, so the Published Language cannot retain a stale accepted
+  copy of their internal shape.
+- Revision 1 does not publish a combined Standard Schema. If a later consumer requires one, its
+  projection must use resolvable references to authority-owned Standard Schema values instead of
+  expanding duplicate definitions. That need must not introduce a peer schema authority or an
+  otherwise unnecessary schema registry.
 - Human documentation defines lifecycle, identity, refusal, ordering, and evolution semantics that
   cannot be expressed by JSON Schema alone. It references the relevant bADR or specification rather
   than copying the normative algorithm or field inventory.
@@ -56,15 +62,16 @@ would force any later adapter either to copy the contract or to call HTTP.
 
 Execution Service Language revision 1 contains four execution capabilities. The following table
 maps the shared contract to the current Pydantic shapes and routes without copying their complete
-schemas. Model Source Packages, Experiment Specifications, artifact members, and
-`Schema2RefusalReport` remain references to their authority-owned contracts.
+schemas. Model Source Packages, Experiment Specifications, and artifact members remain opaque
+values governed by their authority-owned contracts. `Schema2RefusalReport` remains the reused
+authority-owned refusal contract.
 
 | Shared capability | Shared input and result | Current HTTP shape | Current route |
 | --- | --- | --- | --- |
-| `establish-session` | Input: one Model Source Package and initial Experiment Specification. Result: session handle, exact Resolved Model identity, and admitted revision identity, or an authority-owned admission refusal. | `CreateExecutionSessionRequest` to `ExecutionSessionCreatedResponse` or `RefusalResponse` | `POST /v1/execution-sessions` |
-| `admit-experiment-revision` | Input: session handle and complete Experiment Specification. Result: revision identity and whether it was newly admitted, an admission refusal, or `unknown_execution_session`. | Path `session_id` plus `AdmitExperimentRevisionRequest` to `ExperimentRevisionAdmittedResponse`, `RefusalResponse`, or the shared OHS error | `POST /v1/execution-sessions/{session_id}/experiment-revisions` |
-| `run-experiment-revision` | Input: session handle and exact revision identity. Result: authority-owned success, verdict, or refusal artifacts, `unknown_execution_session`, or `unknown_experiment_revision`. | Path `session_id` plus `RunExperimentRequest` to `RunSuccessResponse`, `RunVerdictResponse`, `RunRefusalResponse`, `unknown_execution_session`, or `unknown_experiment_revision` | `POST /v1/execution-sessions/{session_id}/runs` |
-| `release-session` | Input: session handle. Result: released session handle or `unknown_execution_session`. | Path `session_id` and an empty body to `ExecutionSessionDeletedResponse` or the shared OHS error | `DELETE /v1/execution-sessions/{session_id}` |
+| `establish-session` | Input: one Model Source Package and initial Experiment Specification. Result: session handle, exact Resolved Model identity, and admitted revision identity, or an authority-owned admission refusal. | `EstablishExecutionSessionRequest` to `ExecutionSessionEstablishedResponse` or `RefusalResponse` | `POST /v1/execution-sessions` |
+| `admit-experiment-revision` | Input: session handle and complete Experiment Specification. Result: revision identity and whether it was newly admitted, an admission refusal, or `unknown_execution_session`. | Path `session_id` and body `experiment_specification` project to `AdmitExperimentRevisionRequest`, then to `ExperimentRevisionAdmittedResponse`, `RefusalResponse`, or the shared OHS error | `POST /v1/execution-sessions/{session_id}/experiment-revisions` |
+| `run-experiment-revision` | Input: session handle and exact revision identity. Result: authority-owned success, verdict, or refusal artifacts, `unknown_execution_session`, or `unknown_experiment_revision`. | Path `session_id` and body `revision_id` project to `RunExperimentRequest`, then to `RunSuccessResponse`, `RunVerdictResponse`, `RunRefusalResponse`, `unknown_execution_session`, or `unknown_experiment_revision` | `POST /v1/execution-sessions/{session_id}/runs` |
+| `release-session` | Input: session handle. Result: released session handle or `unknown_execution_session`. | Path `session_id` and an empty body project to `ReleaseExecutionSessionRequest`, then to `ExecutionSessionReleasedResponse` or the shared OHS error | `DELETE /v1/execution-sessions/{session_id}` |
 
 `GET /v1/status` and `POST /v1/shutdown` are not OHS capabilities. They are local-companion-host
 operations. The former projects `StatusResponse`; the latter projects `ShutdownResponse`. Their
@@ -97,9 +104,9 @@ paths and response contracts remain unchanged during contract extraction.
 | Resource-oriented HTTP adapter | Routes, methods, media types, request bounds, HTTP status, and HTTP error projection | `invalid_request`, `request_too_large`, `unsupported_media_type`, `unknown_endpoint`, `method_not_allowed`, and `internal_error` |
 | Local companion host | Process capability authentication, readiness, status, shutdown, request-admission closure, and process fault lifecycle | `authentication_required` and `service_shutting_down`; a fatal fault uses the HTTP adapter's sanitized `internal_error` projection before process exit when possible |
 
-The current `ServiceErrorCode` union is a transport-local mixture of these categories. The first
-extraction splits ownership without changing its accepted `/v1` spelling or status mapping. A
-shared OHS error remains distinct from a Domain refusal and from an adapter parsing failure.
+The extraction separates the shared `ExecutionServiceErrorCode` values from transport-local and
+local-host errors without changing their accepted `/v1` spelling or status mapping. A shared OHS
+error remains distinct from a Domain refusal and from an adapter parsing failure.
 
 ### Resource-oriented HTTP and REST evolution
 
@@ -113,7 +120,7 @@ shared OHS error remains distinct from a Domain refusal and from an adapter pars
 - The product does not claim full REST conformance while required REST constraints remain absent.
   It does not add hypermedia, persistent Run resources, a generic Repository, background jobs, or
   other machinery only to obtain a REST label.
-- The first Published-Language extraction preserves the accepted `/v1` protocol behavior: routes,
+- The Published-Language extraction preserves the accepted `/v1` protocol behavior: routes,
   methods, normative headers, statuses, closed decoded JSON shapes and values, identities, error
   codes, ordering, authentication, and lifecycle. It does not freeze JSON key order, whitespace, or
   other serializer details unless an authority or demonstrated consumer requires byte stability.
@@ -166,37 +173,41 @@ shared OHS error remains distinct from a Domain refusal and from an adapter pars
 
 ## Consequences
 
-- The current HTTP Pydantic models will no longer be the permanent owner of shared OHS integration
-  shapes. The first implementation slice moves only the shared contract and preserves semantic HTTP
-  behavior.
+- The HTTP adapter no longer owns the shared OHS integration shapes. The implementation moves only
+  the shared contract and preserves semantic HTTP behavior.
 - The HTTP projection and any later adapter projection must derive from the one Published-Language
-  owner and must refer to authority-owned Standard Schema contracts.
+  owner. Revision 1 keeps nested Standard Schema values opaque. Domain validates or produces these
+  values under the applicable authority-owned contracts. A later combined schema must use
+  resolvable references if a demonstrated consumer requires that projection.
 - Existing playtests remain HTTP consumers. They gain no Kernel, LDB, or artifact awareness.
 - bADR-0026 remains accepted for the current local host and `/v1` behavior. This decision refines
   only the shared integration ownership and the rule for future adapters.
 
-## Validation and delivery gates
+## Validation and delivery evidence
 
-1. **Design acceptance**: reconcile this bADR, bADR-0026, `BALANCING-CONTEXT.md`,
-   `docs/ARCHITECTURE.md`, and issue #789. A human accepts the boundary before implementation.
-2. **Published-Language extraction**: move the OHS-specific contract to one protocol-neutral owner.
-   Start from before-change HTTP contract cases and preserve `/v1` routes, methods, normative
-   headers, statuses, closed decoded JSON shapes and values, identities, error codes, ordering,
-   authentication, lifecycle, and playtest use under Execution Service Language revision 1.
-3. **Authority conformance**: prove that integration schemas reference authority-owned Standard
-   Schema contracts and cannot retain a copied stale shape. Include positive, refusal, boundary,
-   and mutation cases.
-4. **HTTP adoption**: make the Resource-oriented HTTP adapter consume the shared contract. Retain
-   bADR-0026 lifecycle, security, failure, and source/wheel evidence.
-5. **Stop at the accepted scope**: add no MCP-specific production artifact or gate. Deeper REST,
-   asynchronous Runs, Runtime interaction, discovery, schema delivery, or another transport adapter
-   requires a concrete consumer and a separate approved delivery scope.
+1. **Design acceptance**: the maintainer accepted the reconciled boundary before implementation.
+   This bADR, bADR-0026, `BALANCING-CONTEXT.md`, `docs/ARCHITECTURE.md`, and issue #789 record the
+   same decision.
+2. **Published-Language extraction**: `interfaces/execution_service_language.py` owns the
+   OHS-specific contract. HTTP contract tests preserve `/v1` routes, methods, normative headers,
+   statuses, closed decoded JSON shapes and values, identities, error codes, ordering,
+   authentication, lifecycle, and playtest use under revision 1.
+3. **Authority conformance**: contract tests prove that the integration schemas close OHS
+   envelopes, leave nested authority-owned values opaque and unchanged, and let Domain validate or
+   produce those values under the applicable authority-owned contracts. Positive, refusal,
+   boundary, and mutation cases cover the current contract. A later combined schema must use
+   resolvable authority-owned references if a demonstrated consumer requires it.
+4. **HTTP adoption**: the Resource-oriented HTTP adapter consumes the shared contract and retains
+   bADR-0026 lifecycle, security, failure, and source/wheel evidence. The local companion host owns
+   status and shutdown outside the four OHS capabilities.
+5. **Accepted scope**: the implementation adds no MCP-specific production artifact or gate. Deeper
+   REST, asynchronous Runs, Runtime interaction, discovery, schema delivery, or another transport
+   adapter requires a concrete consumer and a separate approved delivery scope.
 
-While this bADR is Proposed, two load-bearing claims remain open: the Published Language can own the
-OHS-specific contract without copying Standard Schema contracts, and extraction can preserve the
-accepted semantic `/v1` protocol behavior. Mutation and conformance tests plus before/after HTTP
-contract cases close these claims during the ordered delivery gates. The reserved future-adapter
-seam is not implementation evidence.
+The implementation closes the two load-bearing claims: the Published Language owns the OHS-specific
+contract without copying Standard Schema contracts, and extraction preserves the accepted semantic
+`/v1` protocol behavior. Published-Language, HTTP, authority, mutation, CLI-parity, and wheel tests
+provide the evidence. The reserved future-adapter seam is not implementation evidence.
 
 The decision is falsified if the HTTP adapter must copy Standard Schema semantics to consume the
 Published Language or if extraction changes the accepted `/v1` protocol behavior. Such evidence

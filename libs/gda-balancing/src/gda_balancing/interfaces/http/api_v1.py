@@ -1,10 +1,10 @@
 """The versioned, application-agnostic local Execution HTTP API."""
 
-from copy import deepcopy
+from collections.abc import Mapping
 import json
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, TypeVar, cast
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ValidationError
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -14,20 +14,22 @@ from starlette.routing import Route
 from starlette.types import ASGIApp
 
 from gda_balancing.application.execution_sessions import (
-    ExecutionSessionCreated,
     ExecutionSessionNotFound,
     ExecutionSessions,
     ExperimentRevisionNotFound,
-    ExperimentRevisionAdmitted,
-)
-from gda_balancing.application.experiment_execution import (
-    ExperimentExecutionRefusal,
-    ExperimentExecutionSuccess,
-    ExperimentExecutionVerdict,
 )
 from gda_balancing.domain.authority.context import packaged_authority_context
-from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.infrastructure.distribution import distribution_version
+from gda_balancing.interfaces.execution_service_language import (
+    AdmitExperimentRevisionRequest,
+    EstablishExecutionSessionRequest,
+    ExecutionSessionReleasedResponse,
+    ReleaseExecutionSessionRequest,
+    RunExperimentRequest,
+    admit_experiment_revision_response,
+    establish_session_response,
+    execution_service_error_from_condition,
+    run_experiment_revision_response,
+)
 from gda_balancing.interfaces.http.service_errors import (
     SMALL_HTTP_REQUEST_BYTES,
     HttpRequestTooLarge,
@@ -39,17 +41,24 @@ from gda_balancing.interfaces.http.service_errors import (
     read_bounded_request_body,
     request_too_large_response,
     require_empty_request,
-    service_error_response,
     unsupported_media_type_response,
 )
 
-PROTOCOL_VERSION = "v1"
 _PROTOCOL_ENVELOPE_BYTES = 65_536
 RequestModel = TypeVar("RequestModel", bound=BaseModel)
 
 
 class _DuplicateObjectMember(ValueError):
     """A JSON object repeats a member name before schema admission."""
+
+
+def _execution_service_error_response(
+    condition: ExecutionSessionNotFound | ExperimentRevisionNotFound,
+) -> JSONResponse:
+    return JSONResponse(
+        execution_service_error_from_condition(condition).model_dump(mode="json"),
+        status_code=404,
+    )
 
 
 def _closed_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -66,6 +75,7 @@ async def _request_model(
     model: type[RequestModel],
     *,
     max_bytes: int,
+    bound_members: Mapping[str, Any] | None = None,
 ) -> RequestModel:
     media_type = request.headers.get("content-type", "").partition(";")[0].strip()
     if media_type.lower() != "application/json":
@@ -73,6 +83,12 @@ async def _request_model(
     body = await read_bounded_request_body(request, max_bytes=max_bytes)
     try:
         value = json.loads(body, object_pairs_hook=_closed_json_object)
+        if bound_members:
+            if not isinstance(value, dict) or any(
+                name in value for name in bound_members
+            ):
+                raise InvalidHttpRequest
+            value = {**value, **bound_members}
         return model.model_validate(value)
     except (
         _DuplicateObjectMember,
@@ -83,130 +99,18 @@ async def _request_model(
         raise InvalidHttpRequest from error
 
 
-class StatusResponse(BaseModel):
-    """Technical status of one ready local service process."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    status: Literal["ready"] = "ready"
-    protocol: Literal["v1"] = PROTOCOL_VERSION
-    toolkit_version: str
-
-
-class CreateExecutionSessionRequest(BaseModel):
-    """Complete authored values required to establish one session."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    model_source: dict[str, Any]
-    experiment_specification: dict[str, Any]
-
-
-class ExecutionSessionCreatedResponse(BaseModel):
-    """Exact identities established by successful session admission."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["success"] = "success"
-    session_id: str
-    resolved_model_identity: str
-    revision_id: str
-
-
-class RefusalResponse(BaseModel):
-    """Existing Domain refusal returned through the HTTP transport."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["refusal"] = "refusal"
-    refusal: Schema2RefusalReport
-
-
-class AdmitExperimentRevisionRequest(BaseModel):
-    """One complete Experiment value for an existing session."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    experiment_specification: dict[str, Any]
-
-
-class ExperimentRevisionAdmittedResponse(BaseModel):
-    """Identity and insertion state of an admitted revision."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["success"] = "success"
-    revision_id: str
-    created: bool
-
-
-class RunExperimentRequest(BaseModel):
-    """The exact immutable revision selected for one run."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    revision_id: str
-
-
-class RunSuccessResponse(BaseModel):
-    """A successful execution with its existing artifacts inline."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["success"] = "success"
-    artifacts: dict[str, dict[str, Any]]
-
-
-class RunVerdictResponse(BaseModel):
-    """A metric verdict with its existing artifacts inline."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["verdict"] = "verdict"
-    failed_metrics: list[str]
-    artifacts: dict[str, dict[str, Any]]
-
-
-class RunRefusalResponse(BaseModel):
-    """A typed refusal with any terminal-audit artifacts inline."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["refusal"] = "refusal"
-    refusal: Schema2RefusalReport
-    artifacts: dict[str, dict[str, Any]]
-
-
-class ExecutionSessionDeletedResponse(BaseModel):
-    """Acknowledgement that one process-local session was released."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    outcome: Literal["success"] = "success"
-    session_id: str
-
-
 def create_api_v1() -> ASGIApp:
     """Create execution routes without local-host lifecycle or authentication."""
-    toolkit_version = distribution_version("gda-balancing")
     sessions = ExecutionSessions()
     max_source_bytes = cast(
         int,
         packaged_authority_context().language_bundle["resources"]["max_source_bytes"],
     )
 
-    async def status(request: Request) -> Response:
-        if request.method != "GET":
-            raise HTTPException(status_code=405, headers={"Allow": "GET"})
-        await require_empty_request(request)
-        return JSONResponse(
-            StatusResponse(toolkit_version=toolkit_version).model_dump(mode="json")
-        )
-
     async def create_execution_session(request: Request) -> Response:
         payload = await _request_model(
             request,
-            CreateExecutionSessionRequest,
+            EstablishExecutionSessionRequest,
             max_bytes=(2 * max_source_bytes) + _PROTOCOL_ENVELOPE_BYTES,
         )
         result = await run_in_threadpool(
@@ -214,15 +118,7 @@ def create_api_v1() -> ASGIApp:
             payload.model_source,
             payload.experiment_specification,
         )
-        if isinstance(result, Schema2RefusalReport):
-            body = RefusalResponse(refusal=result)
-        else:
-            assert isinstance(result, ExecutionSessionCreated)
-            body = ExecutionSessionCreatedResponse(
-                session_id=result.session_id,
-                resolved_model_identity=result.resolved_model_identity,
-                revision_id=result.revision_id,
-            )
+        body = establish_session_response(result)
         return JSONResponse(body.model_dump(mode="json"))
 
     async def admit_experiment_revision(request: Request) -> Response:
@@ -230,27 +126,17 @@ def create_api_v1() -> ASGIApp:
             request,
             AdmitExperimentRevisionRequest,
             max_bytes=max_source_bytes + _PROTOCOL_ENVELOPE_BYTES,
+            bound_members={"session_id": request.path_params["session_id"]},
         )
         try:
             result = await run_in_threadpool(
                 sessions.admit_revision,
-                request.path_params["session_id"],
+                payload.session_id,
                 payload.experiment_specification,
             )
-        except ExecutionSessionNotFound:
-            return service_error_response(
-                code="unknown_execution_session",
-                message="the Execution session does not exist",
-                status_code=404,
-            )
-        if isinstance(result, Schema2RefusalReport):
-            body = RefusalResponse(refusal=result)
-        else:
-            assert isinstance(result, ExperimentRevisionAdmitted)
-            body = ExperimentRevisionAdmittedResponse(
-                revision_id=result.revision_id,
-                created=result.created,
-            )
+        except ExecutionSessionNotFound as error:
+            return _execution_service_error_response(error)
+        body = admit_experiment_revision_response(result)
         return JSONResponse(body.model_dump(mode="json"))
 
     async def run_experiment_revision(request: Request) -> Response:
@@ -258,56 +144,32 @@ def create_api_v1() -> ASGIApp:
             request,
             RunExperimentRequest,
             max_bytes=SMALL_HTTP_REQUEST_BYTES,
+            bound_members={"session_id": request.path_params["session_id"]},
         )
         try:
             result = await run_in_threadpool(
                 sessions.run,
-                request.path_params["session_id"],
+                payload.session_id,
                 payload.revision_id,
             )
-        except ExecutionSessionNotFound:
-            return service_error_response(
-                code="unknown_execution_session",
-                message="the Execution session does not exist",
-                status_code=404,
-            )
-        except ExperimentRevisionNotFound:
-            return service_error_response(
-                code="unknown_experiment_revision",
-                message="the Experiment revision does not exist",
-                status_code=404,
-            )
-        artifacts = {
-            name: deepcopy(member.value) for name, member in result.members.items()
-        }
-        if isinstance(result, ExperimentExecutionSuccess):
-            body = RunSuccessResponse(artifacts=artifacts)
-        elif isinstance(result, ExperimentExecutionVerdict):
-            body = RunVerdictResponse(
-                failed_metrics=list(result.failed_metrics),
-                artifacts=artifacts,
-            )
-        else:
-            assert isinstance(result, ExperimentExecutionRefusal)
-            body = RunRefusalResponse(
-                refusal=result.report,
-                artifacts=artifacts,
-            )
+        except ExecutionSessionNotFound as error:
+            return _execution_service_error_response(error)
+        except ExperimentRevisionNotFound as error:
+            return _execution_service_error_response(error)
+        body = run_experiment_revision_response(result)
         return JSONResponse(body.model_dump(mode="json"))
 
     async def delete_execution_session(request: Request) -> Response:
         await require_empty_request(request)
-        session_id = request.path_params["session_id"]
+        payload = ReleaseExecutionSessionRequest(
+            session_id=request.path_params["session_id"]
+        )
         try:
-            await run_in_threadpool(sessions.delete, session_id)
-        except ExecutionSessionNotFound:
-            return service_error_response(
-                code="unknown_execution_session",
-                message="the Execution session does not exist",
-                status_code=404,
-            )
+            await run_in_threadpool(sessions.delete, payload.session_id)
+        except ExecutionSessionNotFound as error:
+            return _execution_service_error_response(error)
         return JSONResponse(
-            ExecutionSessionDeletedResponse(session_id=session_id).model_dump(
+            ExecutionSessionReleasedResponse(session_id=payload.session_id).model_dump(
                 mode="json"
             )
         )
@@ -328,7 +190,6 @@ def create_api_v1() -> ASGIApp:
             Exception: unexpected_internal_error,
         },
         routes=[
-            Route("/v1/status", status, methods=["GET"]),
             Route(
                 "/v1/execution-sessions",
                 create_execution_session,

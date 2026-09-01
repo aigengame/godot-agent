@@ -25,6 +25,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_emit.py",
         "test_engine_parity.py",
         "test_envelope_schema.py",
+        "test_execution_service_language.py",
         "test_format_roundtrip.py",
         "test_formula_seam.py",
         "test_isolation.py",

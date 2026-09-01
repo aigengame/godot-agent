@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse, Response
 SMALL_HTTP_REQUEST_BYTES = 65_536
 
 
-ServiceErrorCode = Literal[
+HttpServiceErrorCode = Literal[
     "authentication_required",
     "internal_error",
     "invalid_request",
@@ -21,8 +21,6 @@ ServiceErrorCode = Literal[
     "service_shutting_down",
     "unsupported_media_type",
     "unknown_endpoint",
-    "unknown_execution_session",
-    "unknown_experiment_revision",
 ]
 
 
@@ -42,7 +40,7 @@ class ServiceError(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     category: Literal["service"] = "service"
-    code: ServiceErrorCode
+    code: HttpServiceErrorCode
     message: str
 
 
@@ -54,7 +52,7 @@ class ServiceErrorEnvelope(BaseModel):
 
 def service_error_response(
     *,
-    code: ServiceErrorCode,
+    code: HttpServiceErrorCode,
     message: str,
     status_code: int,
     headers: Mapping[str, str] | None = None,

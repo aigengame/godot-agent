@@ -11,12 +11,12 @@ filesystem-publication workflow is not a suitable coordination protocol for a ru
 new interface must reuse the existing Application and Domain behavior without creating another
 Model, Experiment, Runtime, artifact, identity, or refusal authority.
 
-> **Follow-up design:** proposed bADR-0027 extracts the shared Execution Open Host Service and its
-> Published Language from transport-specific ownership. Until that decision is accepted and
-> implemented, this bADR remains the authority for the current `/v1` protocol contract and local host.
-> The follow-up changes integration ownership, not the Standard Schema authorities or the accepted
-> HTTP behavior recorded here. It classifies `/v1/status`, like `/v1/shutdown`, as a local-host
-> operation rather than a shared OHS capability while preserving both routes and response shapes.
+> **Follow-up decision:** accepted bADR-0027 extracts the shared Execution Open Host Service and its
+> Published Language from transport-specific ownership. This bADR remains the authority for the
+> current `/v1` protocol contract and local host. The follow-up changes integration ownership, not
+> the Standard Schema authorities or the accepted HTTP behavior recorded here. It classifies
+> `/v1/status`, like `/v1/shutdown`, as a local-host operation rather than a shared OHS capability
+> while preserving both routes and response shapes.
 
 ## Decision
 
@@ -24,10 +24,10 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
 
 - The design separates two Interface responsibilities. The **Execution HTTP API** owns the
   application-agnostic execution protocol. The **local companion host** owns the in-process server
-  lifecycle, loopback binding, its process capability, readiness state, and shutdown. The owning
-  client remains responsible for executable discovery, child-process launch, and forced termination
-  after its own timeout. This separation does not add a framework or substitution interface; it
-  prevents local process control from becoming execution meaning.
+  lifecycle, loopback binding, its process capability, readiness state, status, and shutdown. The
+  owning client remains responsible for executable discovery, child-process launch, and forced
+  termination after its own timeout. This separation does not add a framework or substitution
+  interface; it prevents local process control from becoming execution meaning.
 - The service ships in the existing gda-balancing wheel and runs as a local foreground process. It
   is not a machine-wide daemon, remote multi-tenant service, or separately packaged application.
 - One client application starts and owns each service process, its capability token, and its
@@ -116,14 +116,13 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
 ### Versioned HTTP protocol
 
 - The application-agnostic Execution HTTP API contains exactly:
-  - `GET /v1/status`;
   - `POST /v1/execution-sessions`;
   - `POST /v1/execution-sessions/{session_id}/experiment-revisions`;
   - `POST /v1/execution-sessions/{session_id}/runs`;
   - `DELETE /v1/execution-sessions/{session_id}`.
-- The local companion host adds `POST /v1/shutdown` as its authenticated process-control endpoint.
-  It is versioned with the transport, but it is not an Experiment execution operation and a later
-  local host is not required to expose it.
+- The local companion host adds `GET /v1/status` and `POST /v1/shutdown`. They are versioned with the
+  transport, but they are not Experiment execution operations. A later local host is not required to
+  expose the same operational endpoints.
 - Session creation receives a complete Model Source Package and initial Experiment Specification.
   A run names one exact revision identifier. The first protocol has no session/revision listing,
   implicit revision, partial update, artifact query, progress, cancellation, or streaming endpoint.
@@ -133,8 +132,9 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
   unsupported methods, and undeclared trailing-slash variants use the same closed service-error
   envelope as other protocol failures. The first routes declare no query parameters and reject any
   non-empty query input.
-- Pydantic request and response models are the single executable source for the first HTTP schemas.
-  bADR-0026 and `docs/ARCHITECTURE.md` describe meaning and boundaries without copying every field.
+- The Execution Service Language models are the single executable source for shared OHS shapes. The
+  local companion host owns the status and shutdown models. bADR-0026, bADR-0027, and
+  `docs/ARCHITECTURE.md` describe meaning and boundaries without copying every field.
   The existing Command-descriptor `--schema` convention describes the `serve` command and readiness
   result only; the first protocol adds no `/v1/schema`, OpenAPI surface, schema registry, schema
   identity, client generator, or general negotiation framework.
@@ -189,12 +189,12 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
   command-registry owner. `interfaces/cli/serve` binds the operational descriptor, integrates the
   foreground runner, assembles the server components, emits the readiness record on standard
   output, and maps operational logs to standard error.
-- `interfaces/http/api_v1` owns the five Execution HTTP API routes, closed schemas, JSON transport,
+- `interfaces/http/api_v1` owns the four Execution OHS routes, JSON transport,
   and HTTP status mapping. `interfaces/http/local_host` owns the in-process ASGI server, loopback
-  binding, process-capability authentication, server lifecycle, the shutdown route, and the typed
-  readiness state consumed by `interfaces/cli/serve`. These names state responsibility boundaries;
-  they do not require an abstract interface or plugin mechanism. None of these modules owns
-  Standard Schema meaning.
+  binding, process-capability authentication, server lifecycle, the status and shutdown routes, and
+  the typed readiness state consumed by `interfaces/cli/serve`. These names state responsibility
+  boundaries; they do not require an abstract interface or plugin mechanism. None of these modules
+  owns Standard Schema meaning.
 - `application/execution_sessions` owns ephemeral session/revision coordination, idempotent
   admission order, per-session ordering, and the process-wide execution gate without knowing HTTP
   or CLI. `application/experiment_execution` coordinates the publication-independent use-case
@@ -206,8 +206,8 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
   construction, Evidence, identity, and refusal policy.
   Infrastructure receives only demonstrated domain-neutral mechanisms. This work adds no generic
   Repository, port hierarchy, dependency-injection container, service locator, or event bus.
-- The HTTP Interface uses Starlette to implement the five execution routes, the local control
-  route, middleware, JSON responses, and exception mapping. The local host owns readiness and
+- The HTTP Interface uses Starlette to implement the four execution routes, two local-host routes,
+  middleware, JSON responses, and exception mapping. The local host owns readiness, status, and
   shutdown directly, so ASGI lifespan handling is disabled. Uvicorn provides the single-worker ASGI
   server and graceful lifecycle. Existing Pydantic models define closed request and response
   schemas with unknown fields refused. Reload, WebSockets, proxy-header trust, CORS, and default

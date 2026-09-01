@@ -17,6 +17,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
+from starlette.applications import Starlette
+from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
 from gda_balancing.application.execution_sessions import (
@@ -81,6 +83,20 @@ def shared_execution_http_service() -> Iterator[ExecutionHttpTestService]:
     """Keep one real process for tests that exercise only session semantics."""
     with running_execution_http_service() as service:
         yield service
+
+
+def test_execution_api_factory_exposes_only_the_four_ohs_capabilities() -> None:
+    app = create_api_v1()
+
+    assert isinstance(app, Starlette)
+    routes = [route for route in app.routes if isinstance(route, Route)]
+    assert len(routes) == len(app.routes)
+    assert [route.path for route in routes] == [
+        "/v1/execution-sessions",
+        "/v1/execution-sessions/{session_id:str}/experiment-revisions",
+        "/v1/execution-sessions/{session_id:str}/runs",
+        "/v1/execution-sessions/{session_id:str}",
+    ]
 
 
 def test_serve_reports_status_and_shuts_down() -> None:
@@ -374,6 +390,30 @@ def test_closed_request_schema_rejects_unknown_members_before_application() -> N
                 "model_source": model_source,
                 "experiment_specification": experiment,
                 "implicit_active_revision": True,
+            },
+        )
+
+        assert status == 400
+        assert error == {
+            "error": {
+                "category": "service",
+                "code": "invalid_request",
+                "message": "the request does not match the closed HTTP schema",
+            }
+        }
+
+
+def test_http_body_cannot_repeat_the_path_owned_session_selection() -> None:
+    model_source, experiment = _roguelike_documents()
+
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
+        status, error = service.request_error(
+            f"/v1/execution-sessions/{created['session_id']}/experiment-revisions",
+            method="POST",
+            body={
+                "session_id": created["session_id"],
+                "experiment_specification": experiment,
             },
         )
 
@@ -723,6 +763,32 @@ def test_cli_publication_and_http_inline_execution_are_semantically_identical(
     }
 
 
+def test_cli_and_http_return_the_same_authority_owned_refusal(
+    tmp_path: Path,
+    shared_execution_http_service: ExecutionHttpTestService,
+) -> None:
+    model_source, experiment = _roguelike_documents()
+    model_source["unknown_member"] = True
+    source_path = tmp_path / "model-source.json"
+    source_path.write_text(json.dumps(model_source), encoding="utf-8")
+
+    cli_check = _run_console("model", "check", str(source_path))
+    http_result = shared_execution_http_service.create_session(
+        model_source,
+        experiment,
+    )
+
+    assert (cli_check.returncode, cli_check.stderr) == (2, "")
+    assert http_result["outcome"] == "refusal"
+    cli_refusal = json.loads(cli_check.stdout)["error"]
+    assert cli_refusal.pop("category") == "refusal"
+    assert {
+        name: value
+        for name, value in http_result["refusal"].items()
+        if value is not None
+    } == cli_refusal
+
+
 def test_aggregate_http_limit_preserves_the_model_source_ingress_refusal(
     shared_execution_http_service: ExecutionHttpTestService,
 ) -> None:
@@ -949,7 +1015,7 @@ def test_post_readiness_application_fault_stops_the_local_host() -> None:
         readiness = readiness_queue.get(timeout=10)
         try:
             request = Request(
-                f"http://{readiness.host}:{readiness.port}/v1/status",
+                f"http://{readiness.host}:{readiness.port}/v1/execution-sessions",
                 headers={
                     "Authorization": f"Bearer {readiness.capability_token}",
                 },
