@@ -3307,3 +3307,106 @@ def test_inline_projection_drops_a_storage_property_named_object_string(
     assert value["honest_field"] == 7
     assert "object_string" not in value
     assert "width" not in value and "digest" not in value
+
+
+# --- the script-binding reader reads attributes and property names whole -------
+#
+# `_scene_attached_external_scripts` is what catches a script Godot could not
+# materialize: the node still exists with no script, so walking the instantiated
+# tree alone cannot see the dependency. It reads the scene as TEXT, and every
+# read it makes is a whole-name one (#775) — the declaration's `type`, the
+# declaration's `path` under the one identity owner, and the assigned property
+# name. Each of the three is pinned below, on the mutating op where getting it
+# wrong is destructive or obstructive.
+
+BROKEN_SCRIPT_GD = """\
+extends Node2D
+
+const Projectile = preload("res://enemy_projectile.tscn")
+"""
+
+
+@pytest.mark.e2e
+def test_node_add_refuses_a_broken_script_behind_a_type_decoy(godot_project):
+    # A decoy attribute ENDING in `type` ahead of the real `type="Script"`. Read
+    # by substring the declaration answers "Resource", the binding is not seen,
+    # and the mutation reports clean success while re-saving a scene that has
+    # LOST its script — measured on the pre-#775 reader.
+    (godot_project / "enemy.gd").write_text(BROKEN_SCRIPT_GD, encoding="utf-8")
+    (godot_project / "main.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource subtype="Resource" type="Script" path="res://enemy.gd"'
+        ' id="1_enemy"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1_enemy")\n',
+        encoding="utf-8",
+    )
+    before = (godot_project / "main.tscn").read_text(encoding="utf-8")
+    gda = _gda_project(godot_project)
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--type", "Marker2D", "--name", "M", "--json"
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "res://enemy_projectile.tscn" in err["message"]
+    assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_add_refuses_a_broken_script_declared_by_a_relative_path(godot_project):
+    # The declaration spells the script relative to the scene's own directory,
+    # which is how the ENGINE resolves it. Folded through the one identity owner
+    # the binding is found; left unresolved it is dropped, and the mutation
+    # re-saves a scene whose script cannot load.
+    (godot_project / "enemy.gd").write_text(BROKEN_SCRIPT_GD, encoding="utf-8")
+    (godot_project / "scenes").mkdir()
+    (godot_project / "scenes" / "main.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="../enemy.gd" id="1_enemy"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1_enemy")\n',
+        encoding="utf-8",
+    )
+    before = (godot_project / "scenes" / "main.tscn").read_text(encoding="utf-8")
+    gda = _gda_project(godot_project)
+
+    added = gda(
+        "node",
+        "add",
+        "res://scenes/main.tscn",
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--json",
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "res://enemy_projectile.tscn" in err["message"]
+    assert (godot_project / "scenes" / "main.tscn").read_text(
+        encoding="utf-8"
+    ) == before
+
+
+@pytest.mark.e2e
+def test_node_add_does_not_read_a_script_prefixed_property_as_a_binding(godot_project):
+    # The mirror case: NO node carries the broken script — a property whose name
+    # merely STARTS with `script` names the declaration. A prefix match read that
+    # as a binding and refused a mutation there was nothing wrong with.
+    (godot_project / "enemy.gd").write_text(BROKEN_SCRIPT_GD, encoding="utf-8")
+    (godot_project / "main.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://enemy.gd" id="1_enemy"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script_owner = ExtResource("1_enemy")\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--type", "Marker2D", "--name", "M", "--json"
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert json.loads(added.stdout)["name"] == "M"

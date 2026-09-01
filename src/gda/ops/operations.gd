@@ -1160,12 +1160,34 @@ func _scene_ext_resource_nodes_by_path(text: String, base_dir: String) -> Dictio
 	return by_path
 
 
+# Whether one trimmed line OPENS the section named `tag_name` — the SINGLE owner
+# of section recognition for every reader of scene text (#720 recheck ×2, #775).
+#
+# The section NAME must be exactly `tag_name`: after the tag comes the closing
+# bracket or the whitespace before attributes, or a longer name passes a bare
+# prefix test. That is not hypothetical — `[gd_scenery]` reads as a scene header
+# and `[ext_resource_group …]` reads as a declaration, while the ENGINE refuses
+# both outright ("Unknown tag 'ext_resource_group' in file",
+# resource_format_text.cpp, measured on 4.6.3). Three askers used to spell the
+# rule three different ways — closed, bare prefix, and space-only — so the rule
+# is stated here once instead of respelled per section.
+#
+# `]`, " " and "\t" are the accepting characters because that is where the
+# engine's own tokenizer ends the tag name — VariantParser reads it as an
+# identifier, so any non-identifier character closes it.
+func _is_section_header_line(stripped: String, tag_name: String) -> bool:
+	var tag := "[" + tag_name
+	if not stripped.begins_with(tag) or stripped.length() <= tag.length():
+		return false
+	var next := stripped[tag.length()]
+	return next == "]" or next == " " or next == "\t"
+
+
 # Whether the text OPENS with a complete, CLOSED `[gd_scene …]` section header
 # (#720 recheck ×2). Two requirements, each defeating a real bypass:
 #
-# - the section NAME must be exactly "gd_scene" — after the tag comes the
-#   closing bracket or the whitespace before attributes, or "[gd_scenery]"
-#   would pass a bare prefix test;
+# - the section NAME must be exactly "gd_scene" (_is_section_header_line, the one
+#   owner of that rule), or "[gd_scenery]" would pass a bare prefix test;
 # - the header LINE must close with "]" — an unclosed "[gd_scene load_steps=2"
 #   is not a header, and the load cannot be relied on to catch it: when the
 #   dependency walk finds problems the load is deliberately skipped, so
@@ -1176,18 +1198,12 @@ func _scene_ext_resource_nodes_by_path(text: String, base_dir: String) -> Dictio
 # and the load has the final word only on that admitted case.
 func _has_scene_header(text: String) -> bool:
 	var stripped := text.lstrip(" \t\r\n" + String.chr(0xFEFF))
-	const TAG := "[gd_scene"
-	if not stripped.begins_with(TAG):
-		return false
 	var line_end := stripped.find("\n")
 	var line := stripped if line_end == -1 else stripped.substr(0, line_end)
 	line = line.strip_edges()
-	# The shortest admitted header is "[gd_scene]", so a line that closes always
-	# has a character after the tag.
-	if not line.ends_with("]") or line.length() <= TAG.length():
+	if not line.ends_with("]"):
 		return false
-	var next := line[TAG.length()]
-	return next == "]" or next == " " or next == "\t"
+	return _is_section_header_line(line, "gd_scene")
 
 
 # Whether a load produced a scene with a root — the two conditions _load_scene
@@ -4399,19 +4415,12 @@ func _outgoing_references_of(path: String) -> Array:
 
 
 # The res:// paths an [ext_resource ... path="res://..."] line names in a
-# .tscn/.tres file — the file's external dependencies. Read through the ONE
-# scene-text reader (_raw_ext_resource_entries_from_text, #775): which lines are
-# declarations, and how an attribute is pulled out of one, are decided there and
-# nowhere else, so this harvest cannot drift from the rest. What stays here is
-# the part that is its own — the graph identity of each harvested path.
+# .tscn/.tres file — the file's external dependencies, in line order.
 #
-# Returns res:// paths in line order, each under the ONE graph identity (#774) so
-# a file is one graph node however the line spells it: _resolve_ref_path anchors
-# a relative declaration to the DECLARING file's directory before it
-# canonicalizes, because the engine resolves it that way —
-# `path="../shared/leaf.tscn"` in res://scenes/main.tscn loads
-# res://shared/leaf.tscn (measured on 4.6.3). Canonicalizing without anchoring
-# left the relative spelling as its own graph node.
+# Two owners do the work and neither rule lives here: which lines are
+# declarations and how an attribute is pulled out of one belong to the scene-text
+# reader (_raw_ext_resource_entries_from_text, #775), and folding each harvested
+# path to its one graph identity belongs to _resolve_ref_path (#774).
 func _ext_resource_paths(path: String) -> Array[String]:
 	var out: Array[String] = []
 	var text := FileAccess.get_file_as_string(path)
@@ -4443,13 +4452,14 @@ func _script_outgoing_references(path: String) -> Array:
 # The ONE CANONICAL IDENTITY of a declared reference: the path every consumer
 # keys a referenced file by, whichever kind of declaration named it — an
 # [ext_resource] line, or a preload/load/extends argument. #774 left the two as
-# byte-identical twins under two names; #775 merged them, so the rule has one
-# place to be read and one place to be corrected.
+# twins under two names, identical but for a parameter name; #775 merged them, so
+# the rule has one place to be read and one place to be corrected.
 #
 # A relative address is joined onto the DECLARING file's base directory first,
-# because that is how the engine resolves it: "../shared/util.gd" in res://a/b.gd
-# loads res://shared/util.gd, and `path="../shared/leaf.tscn"` in
-# res://scenes/main.tscn loads res://shared/leaf.tscn (both measured on 4.6.3).
+# because that is how the engine resolves it — `preload("../shared/util.gd")` in
+# res://a/b.gd loads res://shared/util.gd, and an [ext_resource] line spelling the
+# same way resolves the same way (measured on 4.6.3; the graph-identity note in
+# the static-analysis section carries that measurement).
 # An ALREADY-prefixed address is canonicalized too, and that half is the #774
 # fix: it used to be returned verbatim, so preload("res://sub/../util.gd") and
 # preload("res://util.gd") — and `res://leaf.tscn` and `res://./leaf.tscn` — were
@@ -4679,9 +4689,9 @@ func _is_text_extension(ext: String) -> bool:
 # substring match reads an [ext_resource] line's uid as its id. The trap is open
 # on every attribute a longer name can end with — a `…_path="…"` attribute ahead
 # of the real `path="…"` hands back the wrong reference — so the rule is applied
-# ONCE, here, for every reader of scene text (#775) rather than relearned per
-# scan. A match is accepted only where the name starts a token: at the line
-# start, after whitespace, or right after the section-opening `[`.
+# ONCE, here, for every header attribute gda reads (#775) rather than relearned
+# per scan. A match is accepted only where the name starts a token: at the line
+# start, after a space or a tab, or right after a `[`.
 func _quoted_named_attr(line: String, attr_name: String) -> String:
 	var needle := attr_name + "="
 	var from := 0
@@ -5425,7 +5435,7 @@ func _scene_attached_external_scripts(scene_path: String) -> Dictionary:
 	var text := FileAccess.get_file_as_string(scene_path)
 	if text.is_empty():
 		return {}
-	var script_resources := _scene_script_ext_resources(text)
+	var script_resources := _scene_script_ext_resources(text, scene_path.get_base_dir())
 	var attached := {}
 	var current_node_path := ""
 	for line in text.split("\n"):
@@ -5435,7 +5445,13 @@ func _scene_attached_external_scripts(scene_path: String) -> Dictionary:
 			continue
 		if current_node_path.is_empty():
 			continue
-		if not stripped.begins_with("script") or stripped.find("ExtResource(") == -1:
+		if stripped.find("ExtResource(") == -1:
+			continue
+		# The assigned property must BE `script`, not merely start with it: a
+		# `script_owner = ExtResource("…")` property read as a script binding made
+		# a mutating op refuse over a script no node actually carries (#775).
+		var assign := stripped.find("=")
+		if assign == -1 or stripped.substr(0, assign).strip_edges() != "script":
 			continue
 		var resource_id := _first_quoted_after(stripped, stripped.find("ExtResource("))
 		if script_resources.has(resource_id):
@@ -5444,34 +5460,33 @@ func _scene_attached_external_scripts(scene_path: String) -> Dictionary:
 
 
 # The scene's Script-typed [ext_resource] declarations as {id -> res:// path},
-# read through the ONE scene-text reader (#775).
+# read through the ONE scene-text reader and folded through the ONE identity
+# owner (#775).
 #
-# The value carries the same canonical identity every other reader here
-# publishes, so a path harvested from scene text compares equal to the
-# resource_path the ENGINE reports for the same file whichever way the
-# declaration spelled it — _validate_scene_script_preload_dependencies makes
-# exactly that comparison. A relative declaration is left out: this reader is
-# handed text with no declaring directory to anchor against, and Godot writes a
-# script reference absolute.
-func _scene_script_ext_resources(text: String) -> Dictionary:
+# The value therefore compares equal to the resource_path the ENGINE reports for
+# the same file however the declaration spelled it — relative or aliased —
+# which is exactly the comparison _validate_scene_script_preload_dependencies
+# makes. A declaration that resolves outside res:// (a uid:// reference) is left
+# out: it names no path the engine would report back.
+func _scene_script_ext_resources(text: String, base_dir: String) -> Dictionary:
 	var resources := {}
 	for entry in _raw_ext_resource_entries_from_text(text):
 		if String(entry["type"]) != "Script":
 			continue
 		var resource_id := String(entry["id"])
-		var ref_path := String(entry["path"])
+		var ref_path := _resolve_ref_path(String(entry["path"]), base_dir)
 		if not resource_id.is_empty() and ref_path.begins_with("res://"):
-			resources[resource_id] = _canonical_resource_path(ref_path)
+			resources[resource_id] = ref_path
 	return resources
 
 
-# Whether one trimmed line OPENS a node block — the single owner of `[node …]`
-# recognition (#775). Three scans ask it: the node-to-ext_resource attribution,
-# the attached-script binding read, and the instance-path recovery. Each used to
-# spell the prefix for itself, which is one place per scan for the next header
-# rule to be learned in only two of three.
+# Whether one trimmed line OPENS a node block (#775). Three scans ask it: the
+# node-to-ext_resource attribution, the attached-script binding read, and the
+# instance-path recovery — each used to spell `[node ` for itself, so a header
+# rule learned in one was learned in none of the others. Section recognition
+# itself is _is_section_header_line's.
 func _is_node_header_line(stripped: String) -> bool:
-	return stripped.begins_with("[node ")
+	return _is_section_header_line(stripped, "node")
 
 
 # The root-relative NodePath a [node …] header declares, or "" when the header
@@ -5875,9 +5890,13 @@ func _scene_instance_paths_by_node_path(path: String) -> Dictionary:
 	var instance_paths := {}
 	for line in text.split("\n"):
 		var stripped := line.strip_edges()
-		if not _is_node_header_line(stripped) or stripped.find("instance=ExtResource(") == -1:
+		if not _is_node_header_line(stripped):
 			continue
-		var id := _first_quoted_after(stripped, stripped.find("instance=ExtResource("))
+		# `instance` is a header ATTRIBUTE, so it is read by NAME like every other
+		# one (#775): a substring scan for `instance=ExtResource(` answered a decoy
+		# `fallback_instance=ExtResource("…")` ahead of it, and `scene get` then
+		# reported the wrong instanced scene for the node.
+		var id := _quoted_named_attr(stripped, "instance")
 		if id.is_empty() or not ext_resources_by_id.has(id):
 			continue
 		var node_path := _scene_node_path_from_header(stripped)
@@ -6535,21 +6554,23 @@ func _restore_existing_ext_resource_ids(
 	return _replace_ext_resource_ids(saved_text, id_remap)
 
 
-# Whether one trimmed line DECLARES an external resource — the single owner of
-# `[ext_resource…]` recognition (#775). The entries reader below and the save-side
-# id substitution are its two askers; the substitution rewrites lines in place and
-# so cannot go through the reader, but it must agree with it on WHICH lines it may
-# touch.
+# Whether one trimmed line DECLARES an external resource (#775). The entries
+# reader below and the save-side id substitution are its two askers; the
+# substitution rewrites lines in place and so cannot go through the reader, but it
+# must agree with it on WHICH lines it may touch. Section recognition itself is
+# _is_section_header_line's, not respelled here.
 func _is_ext_resource_line(stripped: String) -> bool:
-	return stripped.begins_with("[ext_resource")
+	return _is_section_header_line(stripped, "ext_resource")
 
 
 # Every [ext_resource] declaration in one scene/resource text, as written — the
 # ONE reader of scene text (#775). Four more scans over these same lines lived
 # beside this one, and three of them still pulled the path out with a SUBSTRING
-# match — the trap this reader had already been fixed for on `uid=`/`id=`, never
-# propagated. Adapting them onto this reader ends the class: there is no shallow
-# scan left for the next attribute or alias bug to hide in.
+# match: this reader was BORN whole-name (#394 landed it together with
+# _quoted_named_attr), and the older scans it grew up beside never learned the
+# rule. Adapting them onto this reader ends the class for [ext_resource]
+# attributes; the ExtResource("…") CALL-SITE scan over property values
+# (_ext_resource_ids_in_line) is a separate read and is still a substring match.
 #
 # The entry is the line's own content, unresolved: `path` is the spelling the
 # declaration used, and anchoring it to a base directory is the caller's step
@@ -6582,8 +6603,11 @@ func _raw_ext_resource_entries_from_text(text: String) -> Array:
 
 # The ID-KEYED view of the same declarations, each resolved to its canonical
 # graph identity against the declaring file's directory. A declaration with no
-# `id` is left out: nothing here can reach it, because an ExtResource("…") names
-# a reference by id and every consumer of this view keys by one.
+# `id` is left out because the ENGINE refuses the whole file over it — "Parse
+# Error: Missing 'id' in external resource tag" (resource_format_text.cpp,
+# measured on 4.6.3), and `scene validate` answers not_a_scene. That is what
+# separates an id-less line from an unknown ATTRIBUTE, which Godot accepts and
+# this reader therefore must read correctly.
 func _ext_resource_entries_from_text(text: String, base_dir: String) -> Array:
 	var entries: Array = []
 	for entry in _raw_ext_resource_entries_from_text(text):

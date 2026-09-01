@@ -1484,15 +1484,21 @@ def test_a_deferred_depth_edge_does_not_suppress_a_later_cycle(
 
 
 # A hand-written scene whose [node] header carries a decoy attribute ending in
-# `name` ahead of the real one, and whose [ext_resource] line carries a decoy
-# ending in `type` (#775). Both are read WHOLE-NAME by the one owner of each
-# recognition, so the verdict names the node that really references the missing
-# file, and the class the line really declares. Read by substring, the header
-# attributes answer "Decoy" and the type answers "Resource".
+# `name` AHEAD of the real one (#775). The header is read WHOLE-NAME, so the
+# verdict names the node that really references the missing file; read by
+# substring, `instance_name=` answers first and the verdict says "Decoy".
+#
+# Only the header attributes are decoyed here, because only they were read by
+# substring on this path: `scene validate` already took `path` and `type` from
+# the whole-name entries reader. A decoy ending in `type` was measured on both
+# sides of this change and reported `"Script"` either way — it pinned nothing, so
+# it is not in the fixture. The `type=` substring read that DID exist lived in
+# the script-binding reader, and is pinned where it is observable
+# (test_e2e_node.py::test_node_add_refuses_a_broken_script_behind_a_type_decoy).
 DECOY_ATTR_TSCN = """\
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" subtype="Resource" path="res://gone.gd" id="1_gone"]
+[ext_resource type="Script" path="res://gone.gd" id="1_gone"]
 
 [node name="Root" type="Node2D"]
 
@@ -1517,8 +1523,9 @@ def test_a_problem_names_the_node_a_whole_name_header_read_finds(godot_project):
             "scene": "res://main.tscn",
             "path": "res://gone.gd",
             "type": "Script",
-            # "Decoy" before the [node] header was read by whole attribute name:
-            # an agent sent to fix the reference would open the wrong node.
+            # The header's real `name=` wins over the `instance_name=` decoy
+            # ahead of it: an agent sent to fix the reference by a substring read
+            # would open a node called "Decoy" that does not exist.
             "nodes": ["Sprite"],
             "message": "the referenced file does not exist",
         }
