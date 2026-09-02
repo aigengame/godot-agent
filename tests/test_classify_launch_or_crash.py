@@ -148,6 +148,73 @@ def test_an_unmeasured_timeout_still_reports_rather_than_crashing():
     assert "elapsed" not in failure.error.message
 
 
+def test_the_timeout_remediation_reads_caller_first():
+    # #717's decision, made observable: `launch_timeout` keeps its `environment`
+    # category (asserted above and pinned by the registry test), so the MESSAGE is
+    # the only place that can stop the category alone from sending an agent to
+    # retry/reinstall/another-host remedies for a ceiling it chose itself. The
+    # ORDER is the contract, not the prose: the caller's remedy must precede the
+    # host suspicion, and the host suspicion must carry the condition that earns it.
+    failure = classify_launch_or_crash(
+        RunResult(
+            stdout="",
+            stderr="",
+            exit_code=EXIT_TIMEOUT,
+            launch_failure=LaunchFailure.TIMEOUT,
+            elapsed_seconds=30.2,
+            timeout_bound=TimeoutBound("Godot import", 30.0),
+        ),
+        BINARY,
+    )
+
+    assert isinstance(failure, Failure)
+    message = failure.error.message
+    caller_remedy = message.index("read the captured output")
+    host_suspicion = message.index("suspect the binary or the machine")
+    assert caller_remedy < host_suspicion, message
+    assert "the capture shows the engine never started" in message
+
+    # The flag is named WITH its qualifier. Of the three channels on this builder
+    # only `resource import` exposes `--timeout` (the sentinel's 60s and the
+    # export's 600s are gda's own, fixed), so an unqualified "raise --timeout"
+    # here would name a flag most callers of this message do not have — the
+    # misfire #717 warned about.
+    assert "--timeout, where the command exposes one" in message
+
+    # ...and the two channels that qualifier EXCLUDES are then given their own next
+    # step rather than a dead end (PR #793 review). An agent on the sentinel's 60s
+    # or the export's 600s that has read the capture and seen the engine working has
+    # nothing to raise; naming what is still actionable there is what keeps the
+    # caller-first reading from running out before the host suspicion it withholds.
+    assert "Where the command exposes no --timeout" in message
+    assert "reduce the work or give the machine more headroom" in message
+
+
+def test_the_timeout_message_says_a_captured_error_is_advisory():
+    # #716's decision, made observable at the point of consumption: a recognized
+    # engine error inside the capture does NOT re-verdict this code into a #651
+    # entry-load failure, and the message says so, so a caller reading the
+    # diagnostics does not re-verdict on gda's behalf either.
+    failure = classify_launch_or_crash(
+        RunResult(
+            stdout="",
+            stderr="SCRIPT ERROR: Parse Error: something\n",
+            exit_code=EXIT_TIMEOUT,
+            launch_failure=LaunchFailure.TIMEOUT,
+            elapsed_seconds=60.1,
+            timeout_bound=TimeoutBound("Godot", 60.0),
+        ),
+        BINARY,
+    )
+
+    assert isinstance(failure, Failure)
+    assert failure.error.code == "launch_timeout"  # NOT re-verdicted
+    assert "advisory" in failure.error.message
+    assert "the verdict here is the timeout" in failure.error.message
+    # The error itself still reaches the caller as evidence, unchanged.
+    assert "Parse Error" in failure.error.diagnostics
+
+
 def test_signal_death_maps_to_engine_crashed_naming_the_signal():
     # subprocess reports a signal death as a negative return code: the engine ran
     # but was killed (e.g. SIGSEGV) — an operation-category crash, never a raw

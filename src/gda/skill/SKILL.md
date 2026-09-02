@@ -66,11 +66,18 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | `0`   | success |
 | `2`   | gda could not resolve what you asked for: `unknown_command`, `unknown_option` |
 | `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied`, `harness_install_permission_denied` |
-| `124` | engine timed out |
+| `124` | engine timed out: `launch_timeout` — gda ended a run that had not returned (read it as below) |
 | `3`   | engine version too old |
 | `4`   | operation-reported failure |
 | `5`   | could not parse the engine's output |
 | `6`   | live operation failed (e.g. `daemon_not_running`) |
+
+**Reading a `124`.** The `environment` category describes how the run ENDED, not the
+host. Read the captured partial output in `diagnostics` for how far the run got, then
+raise the ceiling with `--timeout` where the command exposes one; where it does not the
+ceiling is gda's own, so reduce the work or give the machine more headroom. Suspect the
+binary or the machine only when the capture shows the engine never started. Any engine
+error inside that capture is advisory — the verdict is the timeout.
 
 A command or option gda does not recognize is reported the same way — an
 `unknown_command` / `unknown_option` envelope at exit `2` — and when gda recognizes
@@ -145,7 +152,13 @@ alive) — success means live reads serve. This matters for the read-only diagno
 `logger tail` never launch a session themselves, so right after `daemon start` they report
 `engine_session_not_running` by design — expected, not a defect; run `wait-ready` first.
 A `live_timeout` discards the session (its late reply can no longer be attributed), so the
-next operation starts a fresh game and the runtime state you had set is gone.
+next operation starts a fresh game and the runtime state you had set is gone. Most often
+it means the game stopped returning to its main loop — look for a blocking loop or wait in
+game code. But the 30s bound is a wall clock while a multi-frame window (`--frames`,
+`--await-frames`) waits that many ENGINE frames, so on a slow-ticking game a window op
+outruns it with the loop running normally: ask for fewer frames when `gda logger tail`
+shows the log kept advancing. A paused `SceneTree` is NOT a cause; see "paused vs
+suspended" below.
 `screen capture` needs a windowed session
 (`gda daemon start --windowed`).
 
@@ -227,6 +240,18 @@ Live operations keep serving even while `SceneTree.paused` is true, but injected
 input still only reaches nodes whose process mode is `PROCESS_MODE_ALWAYS` or
 `PROCESS_MODE_WHEN_PAUSED` — a paused game's ordinary handlers will not see it, so
 drive resume through a pause-menu-style always-processing handler.
+
+**paused vs suspended.** That escape exists for `paused` only. No process mode ticks
+while the tree is SUSPENDED — the engine gates `Node::can_process()` on
+`!tree->is_suspended()` before it ever consults the process mode — so a suspended tree
+would stop the gda harness too, with no way back in (input injection is served by the
+loop that is not ticking) and nothing gda could detect or recover. You cannot cause this
+from game code: on Godot 4.6.3 `SceneTree`'s `set_suspend`/`is_suspended` are bound to
+neither GDScript nor ClassDB (`get_tree().suspended = true` is an invalid assignment),
+and the engine's only callers are the remote debugger's suspend/next-frame messages —
+the editor Game view's buttons, which do not reach a daemon-launched session. So for a
+freeze-frame in an agent session, use `paused`, which live operations survive; a
+`live_timeout` never means the game is paused — see the causes it does name, above.
 
 ### Structured logging from game code
 

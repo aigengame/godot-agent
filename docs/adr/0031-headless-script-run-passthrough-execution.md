@@ -472,3 +472,22 @@ added incrementally under ADR-0025 if a concrete need appears.
 > own timeout, since each carries something the shared branch cannot know (a termination
 > phase and the recognized script errors; a `timeout` STATUS that is the command's answer).
 > The `--- script stdout ---` labels, and every non-timeout envelope, keep their bytes.
+
+> **Outcome (2026-08-31, #716) — the "failure by another route" shape is decided, and
+> not here.** The #651 amendment at the top of this ADR records a `script run` whose
+> entry never loaded reaching `launch_timeout` rather than a #651 verdict — "a failure
+> by another route". Whether the captured stream should NARROW it is deferred a step
+> later, in point 3 of the 2026-08-17 (#655) amendment: "narrowing it is a separate
+> decision". Since #714 that shape belongs to four channels rather than one, so the
+> decision was taken where all four are governed: the captured stream stays ADVISORY
+> and never re-verdicts the timeout. The reasoning, and the
+> sibling decision that the code keeps its `environment` category, are in ADR-0002's
+> `Outcome (2026-08-31, #716 / #717)` note beside the `launch_timeout` registry row;
+> they are not restated here. `script_run_timeout_failure` is unchanged in verdict, in
+> code and in its three numbers; what it gained is one clause SAYING the rule, because
+> this is the channel where it matters most — its diagnostics open with "recognized
+> script errors seen before the timeout", so it is the one envelope that hands an agent
+> a parsed #651-shaped cause under a timeout verdict. (The shared builder for the other
+> three channels gained the same clause, plus the caller-first remediation order this
+> channel's message already had.) Typed delivery of those parsed errors — which serves
+> the same need better than a re-verdict would — remains #687's.

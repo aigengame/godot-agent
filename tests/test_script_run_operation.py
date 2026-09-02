@@ -823,6 +823,30 @@ def test_a_timeout_reflects_the_timeout_elapsed_and_phase_in_the_message():
     assert str(CAPTURED_OUTPUT_TAIL_CAP_BYTES) in outcome.error.message
 
 
+def test_a_timeout_says_its_recognized_script_errors_are_advisory():
+    # #716's decision, on the channel where it matters most: this envelope's
+    # diagnostics open with "recognized script errors seen before the timeout", so
+    # it is the one that hands an agent a parsed #651-shaped cause UNDER a timeout
+    # verdict. The code stays `launch_timeout` — the capture is tail-capped and was
+    # cut mid-flight, so a recognized line can be one the run survived — and the
+    # message says so, so a caller reading the diagnostics does not re-verdict on
+    # gda's behalf either. Recorded in ADR-0002 beside the registry row.
+    outcome, _ = _run(
+        _timed_out(stderr="SCRIPT ERROR: Parse Error: Identifier not declared\n"),
+        timeout=120.0,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "launch_timeout"  # NOT re-verdicted
+    assert "advisory" in outcome.error.message
+    assert "not an entry-load failure" in outcome.error.message
+    # The premise of the clause: this envelope really does carry the parsed cause.
+    assert (
+        "recognized script errors seen before the timeout" in outcome.error.diagnostics
+    )
+    assert "Identifier not declared" in outcome.error.diagnostics
+
+
 def test_a_timeout_carries_the_captured_partial_output_as_diagnostics():
     # THE #655 DEFECT (GDA-DF-012): the timeout envelope used to hold only the timeout
     # message, discarding the output the engine had already written. Both streams now

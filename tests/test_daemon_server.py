@@ -419,6 +419,53 @@ def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
         silent_harness.close()
 
 
+def test_the_live_timeout_message_hedges_its_causes_and_rules_out_a_pause(monkeypatch):
+    # #684's diagnosis hint, with its premise corrected twice over.
+    #
+    # The issue asked for a SUSPENDED SceneTree to be named as a likely cause; a
+    # project cannot reach that state — on Godot 4.6.3 `SceneTree.set_suspend`/
+    # `is_suspended` are bound to neither GDScript nor ClassDB, and the engine's
+    # only callers are the remote debugger's suspend/next-frame messages, which
+    # never reach a daemon-launched session. Naming it would send an agent after
+    # something its project cannot have done.
+    #
+    # The FIRST substitute made the same class of mistake in the other direction
+    # (PR #793 review): it asserted a stalled main loop as fact, and the review
+    # reproduced a counterexample on a real daemon — a game ticking steadily at
+    # 2.46 fps, `perf monitor --frames 100`, no gap anywhere in the heartbeat log.
+    # `OP_TIMEOUT` is a fixed wall clock; a `--frames` window is counted in ENGINE
+    # frames with no bound of its own, so the two cross on any slow-ticking game.
+    # So the guard pins the epistemics, not the prose: the stalled-loop cause is
+    # HEDGED, and every cause the message names is one the caller can act on and
+    # so arrives with its own remedy or check. An unparseable request frame is a
+    # third class in principle, but every reproduced value class is refused before
+    # the write (`RelayedLiveParams`), leaving residue with no caller remedy — it
+    # is why the message hedges, and it is deliberately not named: naming an
+    # unactionable class would repeat #684's mistake in a third direction.
+    monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
+    daemon_end, silent_harness = socket.socketpair()
+    session = EngineSession(cast(subprocess.Popen, _FakeProc()), daemon_end)
+    try:
+        reply = session.request("game-tree", {})
+    finally:
+        daemon_end.close()
+        silent_harness.close()
+
+    error = parse_result(reply["stdout"])["error"]
+    assert error["code"] == "live_timeout"
+    message = error["message"]
+    # Hedged, and hedged BEFORE the cause it used to state outright.
+    assert "Most often the game stopped returning to its main loop" in message
+    # The reproduced loop-still-running cause, with the remedy that resolves it.
+    assert "a multi-frame window counts ENGINE frames" in message
+    assert "ask for fewer frames (`--frames`, `--await-frames`)" in message
+    # Each named cause carries its own remedy or check; nothing is named that the
+    # caller cannot act on, which is why a suspended tree stays out.
+    assert "look for a blocking loop or wait in game code" in message
+    assert "A paused SceneTree is NOT a cause" in message
+    assert "gda diag errors" in message and "gda logger tail" in message
+
+
 def test_a_trickled_reply_cannot_outlast_the_relays_own_bound(monkeypatch):
     # The relay reads the reply in as many chunks as the harness sends, and a
     # socket timeout restarts on each one — so OP_TIMEOUT bounded INACTIVITY, not
