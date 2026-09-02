@@ -212,47 +212,51 @@ the standard build), and they never determine the outcome or a stable code.
 >   meant. This widens no cross-language contract: neither GDScript surface emits or
 >   reads `hint`, and `OperationErrorEnvelope` stays `extra="forbid"`.
 
-> **Outcome (2026-09-02, #685 / #798 / #803) — the HUMAN failure channel, adjudicated.**
+> **Outcome (2026-09-02, #685 / #798 / #803) — the human failure channel.**
 > Everything above specifies the envelope; until #685 that was the whole of what gda
 > emitted, because a caller who passed no `--json` got the serialized envelope anyway.
-> #685 gave the same outcome a second rendering, and the #798 round-1 review flagged
-> that this made the human channel a public output surface with no ADR behind it. This
-> note is the record. It also gives `CONTEXT.md`'s *Error envelope* entry — "Two
+> #685 gave the same outcome a second rendering, and the #798 round-1 review noted that
+> this made the human channel a public output surface with no ADR behind it. This note
+> is the record, and it is the one authority for the channel and child-stderr rules
+> below: the implementation sites state only their local behavior and reference this
+> note (#806 review). It also gives `CONTEXT.md`'s *Error envelope* entry — "Two
 > renderings of ONE outcome, at one exit code, from one renderer" — its ADR backing,
 > by reference rather than by restatement.
 >
-> - **Every gda-classified failure renders for a human on `stdout`, through the one
->   renderer** (`gda.render.render_failure`, reached only via `gda.headless.emit_failure`),
->   the `usage` refusals (`unknown_command` / `unknown_option`) included. Routing those
->   there is what made the one-renderer invariant TRUE rather than approximate, and what
->   made the `hint:` line reachable at all — it is set nowhere else, so before #798 a
->   human could never read it.
-> - **The recorded exception is click's own parse errors** (a missing argument, an
->   invalid value), which stay click-formatted on `stderr`: gda never classified them,
->   so it has no envelope to render. The same holds where gda recognizes a mistake but
->   has no correction to add and no `--json` was asked for — it declines to answer and
->   the parser's message stands. That is gda staying silent, not a second gda layout.
-> - **`--json` is untouched.** The envelope goes to `stdout` as it always did, byte for
->   byte; the flag chooses the rendering, never the stream.
-> - **Reversal was considered and declined**, twice over. Sending the `usage` refusals
->   back to `stderr` resurrects the defect #798 closed — two layouts for one category,
->   and `hint` as a dead branch. Moving ALL human rendering to `stderr` would buy
->   convention compliance at the cost of a cross-channel asymmetry with `--json`, plus a
+> - Every gda-classified failure renders for a human on `stdout`, through the one
+>   renderer (`gda.render.render_failure`, reached only via `gda.headless.emit_failure`).
+>   This includes the `usage` refusals (`unknown_command` / `unknown_option`). Routing
+>   them through the renderer makes the one-renderer statement exact and makes the
+>   `hint:` line reachable: it is set nowhere else, so before #798 a human could not
+>   read it.
+> - The recorded exception is click's own parse errors (a missing argument, an invalid
+>   value), which stay click-formatted on `stderr`: gda did not classify them, so it has
+>   no envelope to render. The same holds where gda recognizes a mistake but has no
+>   correction to add and no `--json` was asked for: gda declines to answer and the
+>   parser's message stands.
+> - `--json` is unchanged. The envelope goes to `stdout`, byte for byte; the flag
+>   chooses the rendering, never the stream.
+> - Two reversals were considered and declined. Sending the `usage` refusals back to
+>   `stderr` reintroduces the defect #798 closed (two layouts for one category, `hint`
+>   as a dead branch). Moving all human rendering to `stderr` buys convention
+>   compliance at the cost of a cross-channel asymmetry with `--json` plus a
 >   documentation and test resync, with no consumer evidence asking for it.
 >
-> One rule follows from the stream choice, and has ONE home
-> (`gda.headless.emit_failure`): a failed CHILD RUN's raw stderr is forwarded to gda's
-> own stderr, EXCEPT when the human channel is about to print those very bytes as
-> `diagnostics` — byte identity decides, so a curated or capped `diagnostics` keeps its
-> tee, and under `--json` the tee is unconditional. On a FAILURE producers attach the
-> stream to the `Failure` and never tee it for themselves; #803 brought the last one
-> that did — `scene preflight`, which reaches the launch primitive directly instead of
-> through the shared pipeline — under the rule. A SUCCESS is the other half and stays
-> with the producer: it carries no `diagnostics` for a tee to duplicate, so each
-> forwards the stream itself, at once, that copy being the reader's only one. The
-> rule's own recorded exception is `gda script run`, which tees nothing because its
-> success result IS the promoted `Raw run` (ADR-0031): there the child's streams are
-> the operation's published output, not a diagnostic copy of it.
+> The stream choice implies one child-stderr rule, recorded here:
+>
+> - On a failure, the producer that classified a child run attaches the raw stderr to
+>   the `Failure` (`child_stderr`) and does not print it. `emit_failure` forwards it to
+>   gda's own stderr, except when the human channel prints the same bytes as
+>   `diagnostics`; byte identity decides, and under `--json` the forward is
+>   unconditional.
+> - On a success, the producer forwards the stream immediately: a success carries no
+>   `diagnostics` block to duplicate, so that copy is the reader's only one.
+> - Producers today: `HeadlessCommand.execute` (the sentinel and live pipelines) and
+>   the `scene preflight` recipe, the last private tee, brought under the rule by #803.
+>   A launch-backed channel gda adds joins them by attaching rather than printing.
+> - Exception: `gda script run` neither attaches nor forwards. Its success result is
+>   the promoted `Raw run` (ADR-0031) — the child's streams are the published output —
+>   and its failures publish the captures as curated `diagnostics` sections.
 
 ## `GdaError.code` registry
 

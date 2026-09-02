@@ -656,7 +656,7 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     contract carried it (:class:`gda.models.FailureEvidence`).
 
     The child run's stderr (``failure.child_stderr``) is forwarded to this
-    process's stderr here, where the channel is known — EXCEPT when the human
+    process's stderr here, where the channel is known — except when the human
     channel is about to print the very same bytes as ``diagnostics``, which would
     say one stream twice across two streams (#798 review). Byte identity decides,
     not the error code: a curated or capped ``diagnostics`` (the labeled
@@ -665,20 +665,10 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     ``--json`` the tee is unconditional, keeping that channel's bytes exactly as
     they were.
 
-    This is the ONE home of gda's child-stderr policy, and the whole of it is
-    learnable here. The rule above is the FAILURE half: two producers attach the
-    field, and neither tees a failure's stream for itself —
-    :meth:`HeadlessCommand.execute` for the sentinel and live pipelines, and
-    ``scene preflight``'s recipe, which calls the launch primitive directly and so
-    had a private tee of its own until #803. A launch-backed channel gda adds joins
-    them by attaching rather than printing. On a SUCCESS both still tee at once, at
-    the producer, and must: a success carries no ``diagnostics`` block for the tee
-    to duplicate, so that copy is the reader's only one and never reaches this seam
-    (both are pinned — dropping either turns a test red). The recorded EXCEPTION is
-    ``gda script run``, which tees nothing and attaches nothing: its success result
-    IS the promoted ``Raw run`` (ADR-0031), so the child's streams are the
-    operation's own published output rather than a diagnostic copy of it, and its
-    failures publish the captures as curated ``diagnostics`` sections instead.
+    That is this function's whole part in the child-stderr rule. The rule itself —
+    the success half, the producer roster, and the ``gda script run`` exception —
+    is recorded once, in ADR-0002's #803 outcome note; the producers state their
+    own halves locally and reference it (#806 review).
     """
     if failure.child_stderr and (
         json_output or failure.error.diagnostics != failure.child_stderr

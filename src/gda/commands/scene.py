@@ -1048,9 +1048,9 @@ def run_scene_preflight_operation(
       CLI-resolved project added to the engine's answer.
 
     Those four outcomes are decided by :func:`_preflight_verdict` and returned
-    through the ONE tail below, which is what lets this channel answer to the same
-    stderr rule as every other one (#803): a failure carries the launch's stderr to
-    the emission point, a verdict forwards it here.
+    through the one tail below, which is what lets this channel answer to the
+    child-stderr rule of ADR-0002's #803 note: a failure carries the launch's
+    stderr to the emission point, a verdict forwards it here.
     """
     run_launch = make_launch or launch
     try:
@@ -1077,16 +1077,10 @@ def run_scene_preflight_operation(
         timeout_label="Godot scene preflight",
     )
     outcome = _preflight_verdict(raw, params, binary, root)
-    # The engine's own stream, forwarded once for a human — the same rule
-    # ``HeadlessCommand.execute`` follows since #798, which this recipe did not
-    # inherit because it does not go through it (#803). A preflight's stderr is
-    # where the booted scene's verbatim complaints are, so it must reach the reader;
-    # but a ``Failure`` classified from this run carries that stream as its
-    # ``diagnostics``, and teeing it HERE would say the same bytes twice, across two
-    # streams, for every op-reported refusal. So a failure carries it to
-    # ``emit_failure``, which alone knows the caller's channel and decides there; a
-    # verdict has no diagnostics block to duplicate, so its tee is immediate and
-    # this is the reader's only copy.
+    # A failure carries the launch's stderr to the emission seam, which alone knows
+    # the caller's channel; a verdict has no diagnostics block to duplicate, so its
+    # tee is immediate and this is the reader's only copy. The rule these two
+    # branches implement is ADR-0002's #803 outcome note (#806 review).
     if isinstance(outcome, Failure):
         outcome.child_stderr = raw.stderr
     elif raw.stderr:
