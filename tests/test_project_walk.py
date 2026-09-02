@@ -132,3 +132,74 @@ def test_the_static_analysis_note_names_only_helpers_that_exist():
         "_collect_all_file_paths",
         TRAVERSAL,
     } <= mentioned
+
+
+# The two branches of that traversal, and the predicate each must ask (#760).
+DESCEND_PREDICATE = "_should_descend"
+COLLECT_PREDICATE = "_should_collect"
+
+# The single owner of the engine-cache exclusion both predicates route through,
+# and the constant only it and the descent predicate's lexical fast path may name.
+CACHE_OWNER = "_is_in_engine_cache"
+CACHE_CONSTANT = "ENGINE_CACHE_DIR"
+
+
+def _enclosing_function(source: str, line_index: int) -> str | None:
+    """The name of the top-level ``func`` whose body holds ``line_index``."""
+    lines = source.splitlines()
+    for i in range(line_index, -1, -1):
+        line = lines[i]
+        if line.startswith("func "):
+            return line[len("func ") :].split("(")[0]
+        if line and not line.startswith(("\t", " ", "#")):
+            return None  # a top-level statement that is not a func: outside one
+    return None
+
+
+def test_the_symlink_policy_is_asked_on_both_branches_of_the_traversal():
+    # AC2 (#760): the aliasing rule has TWO touch points. `_should_descend` gates
+    # DIRECTORY descent only, so a symlinked FILE — `res://alias.gd` pointing at a
+    # file inside the engine cache — reaches the acceptance test without ever
+    # passing it, and re-admits by itself the content the descent rule keeps out.
+    # The traversal must therefore ask both, and this is the guard against a later
+    # change fixing only the half that is easy to see.
+    source = _source()
+    traversal = "\n".join(_function_body(source, TRAVERSAL))
+
+    for predicate in (DESCEND_PREDICATE, COLLECT_PREDICATE):
+        assert f"{predicate}(" in traversal, (
+            f"{TRAVERSAL} must ask {predicate}; the symlink policy covers both the "
+            f"directory branch and the file branch"
+        )
+        assert f"func {predicate}(" in source, f"{predicate} is asked but not defined"
+
+
+def test_the_engine_cache_exclusion_has_one_owner():
+    # The exclusion is one decision (#712) and stays one now that answering it
+    # means resolving filesystem identity (#760): both walk-side predicates route
+    # the question to `_is_in_engine_cache`, and nothing else compares against the
+    # cache path. A second comparison site is how the four collectors drifted the
+    # first time.
+    source = _source()
+
+    for predicate in (DESCEND_PREDICATE, COLLECT_PREDICATE):
+        body = "\n".join(_function_body(source, predicate))
+        assert f"{CACHE_OWNER}(" in body, (
+            f"{predicate} must ask {CACHE_OWNER} rather than test the cache itself"
+        )
+
+    users = set()
+    for index, line in enumerate(source.splitlines()):
+        stripped = line.strip()
+        if stripped.startswith("#") or CACHE_CONSTANT not in stripped:
+            continue
+        if stripped.startswith(f"const {CACHE_CONSTANT}"):
+            continue  # the value's own declaration
+        enclosing = _enclosing_function(source, index)
+        assert enclosing is not None, f"{CACHE_CONSTANT} used outside any function"
+        users.add(enclosing)
+
+    assert users == {DESCEND_PREDICATE, CACHE_OWNER}, (
+        f"{CACHE_CONSTANT} must be compared only in {DESCEND_PREDICATE}'s lexical "
+        f"fast path and in {CACHE_OWNER}; found it in {sorted(users)}"
+    )
