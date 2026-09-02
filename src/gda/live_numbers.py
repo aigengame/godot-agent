@@ -1,5 +1,5 @@
-"""The engine's NUMBER domain — what a JSON number survives on the way to and from
-Godot (#752, #771).
+"""The engine's NUMBER domain — what a number survives on the way to and from
+Godot (#752, #771, #772).
 
 Named for the live wire, which is where #752 measured it; the WRITER half is the
 engine's and belongs to both channels. #771 found ``ops/operations.gd`` framing every
@@ -45,8 +45,8 @@ A headless read needs no separate corpus and gets none: it is measured against t
 same rows and the same ``full_precision`` partition, re-derived from a real engine by
 ``tests/test_e2e_headless_number_reads.py``. Its REQUEST half is a different
 question from the live one — a headless ``--value`` is a STRING the operation coerces
-with ``String.to_float``, not a JSON number the parser reads — and it is owned by
-#772, so nothing here is claimed about it.
+with ``String.to_float``, not a JSON number the parser reads — and it is answered
+under **Write direction** below (#772).
 
 **The result path has TWO writers, and each float has exactly one of them.** The
 paragraph above is about the engine's: a value the game reports is stringified by
@@ -115,6 +115,68 @@ test_live_numbers.py`` pins it against the recorded engine verdicts, and
 ``tests/test_e2e_live_number_transport.py`` re-derives those verdicts from a real
 engine, in both directions. Note it answers only the FLATTENING question; the
 drift bands above are recorded, not predicted, because nothing branches on them.
+
+**Write direction — refused engine-side, by observation (#772).** A ``--value``
+string is a THIRD path to the parser above: ``node set``, ``resource set``,
+``project set`` and the live ``game set`` coerce it with ``String.to_float``, which
+is ``built_in_strtod`` reached through a string — the very function
+``JSON.parse_string`` calls for a number, so the arithmetic described above IS the
+arithmetic here. What differs is WHO spells the literal, and that decides how the
+question can be asked. On the wire gda spells it, so the scan above must PREDICT the
+outcome from the value; on a write the CALLER spells it and the engine has already
+answered by the time the coercion returns, so the ops OBSERVE the outcome instead.
+gda then draws #752's line in the same place: a literal the parser turned into
+``0.0`` while the caller wrote no zero, or into ``NaN``, is REFUSED — as the existing
+``uncoercible_value`` / ``live_uncoercible_value``, target untouched — and the
+low-order drift is disclosed.
+
+Observing rather than predicting is what lets ONE rule cover three mechanisms, each
+reproduced against Godot 4.6.3:
+
+- the −309 cliff above, unchanged: ``2.2250738585072014e-308`` and ``5e-324`` read
+  as ``0.0`` however they are spelled;
+- a FIXED-notation literal whose first 18 mantissa digits are all leading zeros
+  keeps no significant digit at all, because the cap counts them:
+  ``0.000000000000000001`` reads as ``0.0`` while ``1e-18`` is exact. That cliff sits
+  near ``1e-18``, not near ``1e-309``, and the live wire never meets it only because
+  ``json.dumps`` switches to scientific notation below ``1e-4``;
+- a zero mantissa scaled by an overflowed power is ``0.0 * inf``: ``0e600`` reads as
+  ``NaN``.
+
+The REMEDIES differ too, and only the measurement settles which applies. A write
+literal usually HAS a spelling that works, so the refusal names it, where the wire's
+message can only say that none does. The same asymmetry softens the disclosed drift:
+the two mantissa-cap rows — 31 and 105 doubles away as ``json.dumps`` spells them —
+come back EXACT as ``1.2345678901234567e-3`` and ``1.4285714285714284e-4``. What no
+spelling avoids is the 1-ULP rounding, disclosed and not refused for the reason it
+always was: refusing it would reject ordinary game values.
+
+The predicate itself lives in GDScript, not here, and deliberately so. It must run
+where the property's DECLARED TYPE is known — ``--value 1e-320`` on a String property
+is an ordinary string and must not be refused — and it asks the engine rather than
+modelling it, so there is nothing a Python twin could be a second opinion about. It is
+mirrored byte-identically in ``ops/operations.gd`` and ``harness/gda_harness.gd``
+(``tests/test_harness_coercion_mirror.py``), and
+``tests/test_e2e_write_value_fidelity.py`` re-derives the verdict from a real engine on
+both channels.
+
+Keying on what the parser PRODUCED draws two edges, named here so the contract is not
+read wider — or narrower — than it is. They are separated by what gets STORED, not by
+how loudly the result reads back: a stored ``NaN`` and a stored ``inf`` both report as
+JSON ``null``, so the reply cannot tell them apart. An OVERFLOW is not refused:
+``1e400`` reads as ``inf``, the correctly-rounded IEEE-754 answer for a magnitude past
+binary64's top — the engine's number for "larger than it can hold", in the direction
+the caller asked for, not a different number put in its place — and it is stored as
+``inf``. ``0e600`` reads as ``NaN``, which is not the value, not near it and not in
+its direction; that is the substitution the rule exists to stop. The accepted overflow
+carries its own residual, disclosed rather than refused: ``inf`` is stored but cannot
+be REPORTED, so the echo and every later read give JSON ``null``. A literal below
+binary64's reach IS refused, even where zero is the correctly-rounded answer a faithful parser would
+also give: ``1e-400`` is refused exactly as ``1e-320`` is, because nothing at the
+coercion site can tell a true underflow from the engine's −309 cliff without modelling
+the parser it deliberately asks instead — a caller who means zero writes ``0``. And one
+path does not reach the check at all: a number nested inside a Dictionary or Array
+``--value``, which arrives through ``JSON.parse_string`` / ``str_to_var``.
 
 A leaf module with no ``gda`` imports (the same discipline as
 ``gda.exit_codes`` / ``gda.execution``), so a command module, a params model and a

@@ -717,7 +717,8 @@ func _handle_game_set(params: Dictionary) -> String:
 		if coerced_position == null:
 			return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
 					"cannot coerce value " + raw_position.c_escape()
-					+ " to Vector2 for property position on node " + path)
+					+ " to Vector2 for property position on node " + path
+					+ _float_fidelity_note(raw_position, TYPE_VECTOR2))
 		var target_position: Vector2 = coerced_position
 		control.set_position(target_position)
 		var current_position: Variant = _jsonify(control.position)
@@ -745,7 +746,8 @@ func _handle_game_set(params: Dictionary) -> String:
 		return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
 				"cannot coerce value " + raw_value.c_escape()
 				+ " to " + _type_name(declared_type) + " for " + subject
-				+ " on node " + path)
+				+ " on node " + path
+				+ _float_fidelity_note(raw_value, declared_type))
 
 	node.set(prop_name, coerced)
 	var current: Variant = node.get(prop_name)
@@ -2115,11 +2117,129 @@ func _coerce_int(raw: String) -> Variant:
 	return trimmed.to_int()
 
 
+# --- Float fidelity: the WRITE side of the engine's number domain (#772) ---
+#
+# Godot reads a float literal with built_in_strtod (core/string/ustring.cpp),
+# reached from GDScript as String.to_float() and from JSON.parse_string alike.
+# ONE function, so the live wire's parser (#752) and this coercion do the same
+# arithmetic and differ only in WHO spells the literal. On the wire gda spells it
+# and must PREDICT the outcome (gda.live_numbers.wire_flattens_to_zero); here the
+# CALLER spells it and the engine has already answered by the time coercion runs,
+# so the policy OBSERVES the outcome instead. That is why one rule covers every
+# way the parser destroys a value, each measured on Godot 4.6.3:
+#   - an applied decimal exponent at or below -309 divides by an INFINITE power
+#     of ten: "2.2250738585072014e-308" and "5e-324" arrive as 0.0 (#752's class);
+#   - the parser keeps at most 18 mantissa digits COUNTING leading zeros, so a
+#     fixed-notation literal that spends all 18 on zeros keeps no significant
+#     digit at all: "0.000000000000000001" arrives as 0.0 while "1e-18" is exact.
+#     That cliff is far higher than the wire's, and the wire never meets it,
+#     because gda's own serializer writes scientific notation below 1e-4;
+#   - a zero mantissa times an overflowed power is 0.0 * INF: "0e600" is NaN.
+# A write PERSISTS — a .tscn, project.godot, a .tres, a running node's state — so
+# gda REFUSES these instead of storing a number the caller never sent. Same answer
+# as #752, reached from the same principle by a different route, and with a remedy
+# the wire cannot offer: the caller owns the spelling, so re-spelling can work.
+#
+# NOT refused: low-order drift. The parser lands ordinary values 1 ULP away, and a
+# full-precision literal between 1e-4 and 1e-2 up to 105 doubles away, because the
+# leading zeros spend the 18-digit budget. Refusing that would reject ordinary game
+# values, so it is DISCLOSED in the CLI contract instead, with its own remedy:
+# scientific notation restores both of those corpus rows exactly. The measurement
+# and the counts belong to `gda.live_numbers`, not to this comment.
+
+# Whether `literal`'s own digits are all zeros — the spellings that MEAN zero
+# ("0", "-0.0", "0.0000e5"), which the parser is right to read as 0.0.
+func _float_literal_names_zero(literal: String) -> bool:
+	var mantissa := literal.lstrip("+-")
+	var exponent_at := mantissa.to_lower().find("e")
+	if exponent_at >= 0:
+		mantissa = mantissa.left(exponent_at)
+	for character in mantissa:
+		if character != "0" and character != ".":
+			return false
+	return true
+
+
+# Whether the parser DESTROYS `literal` — turns the number the caller spelled into
+# a value that is not it at all. Asked of the literal the caller actually sent, and
+# answered by RUNNING the parser rather than by modelling its arithmetic, so a
+# mechanism this file does not know about is caught as well as the three it does.
+# False for a value that is merely not a float spelling: that is the ordinary
+# uncoercible failure, which this policy must not relabel.
+func _float_literal_is_destroyed(literal: String) -> bool:
+	if not literal.is_valid_float():
+		return false
+	var parsed := literal.to_float()
+	return is_nan(parsed) or (parsed == 0.0 and not _float_literal_names_zero(literal))
+
+
+# The literal whose destruction ACTUALLY refused this coercion, or "" when the
+# refusal was anything else. A note must never explain a failure it did not
+# diagnose, so this walks exactly what `_coerce_value` walks for `type`, in the
+# same order and behind the same gates: only TYPE_FLOAT, TYPE_VECTOR2 and
+# TYPE_COLOR reach `_coerce_float` at all — TYPE_INT, TYPE_VECTOR2I,
+# TYPE_DICTIONARY, TYPE_ARRAY and the rest refuse for reasons of their own and no
+# float spelling would help them; a wrong component count refuses on ARITY before
+# a component is parsed; a Color in hex form parses no float; and a component that
+# is not a float spelling at all is the ordinary uncoercible failure, which stops
+# the walk where `_coerce_float_list` stops.
+func _destroyed_float_literal(raw: String, type: int) -> String:
+	var components: PackedStringArray
+	match type:
+		TYPE_FLOAT:
+			components = PackedStringArray([raw])
+		TYPE_VECTOR2:
+			components = raw.split(",")
+			if components.size() != 2:
+				return ""
+		TYPE_COLOR:
+			var trimmed := raw.strip_edges()
+			if trimmed.begins_with("#"):
+				return ""
+			components = trimmed.split(",")
+			if components.size() != 3 and components.size() != 4:
+				return ""
+		_:
+			return ""
+	for part in components:
+		var literal := part.strip_edges()
+		if not literal.is_valid_float():
+			return ""
+		if _float_literal_is_destroyed(literal):
+			return literal
+	return ""
+
+
+# The explanation appended to an uncoercible_value message when `_coerce_float`
+# refused a destroyed literal, and "" for every OTHER coercion failure — so "abc"
+# on a float, any value on an int or a Dictionary, and a three-component Vector2
+# all keep the message they always had. `type` is the declared type the failed
+# `_coerce_value` was given; a list type names the ONE offending component rather
+# than the whole argument.
+func _float_fidelity_note(raw: String, type: int) -> String:
+	var literal := _destroyed_float_literal(raw, type)
+	if literal.is_empty():
+		return ""
+	var outcome := "NaN" if is_nan(literal.to_float()) else "0.0"
+	return " — Godot's own float parser reads " + literal.c_escape() + " as " \
+			+ outcome + ", so the write would store a number you did not send;" \
+			+ " gda refuses it instead of changing your value silently. Try the" \
+			+ " same value in scientific notation carrying only the digits it needs" \
+			+ " (1e-18, not 0.000000000000000001); if that reads as 0.0 too, the" \
+			+ " value is below this parser's reach and no decimal spelling delivers" \
+			+ " it — the live wire refuses that same class as well"
+
+
 func _coerce_float(raw: String) -> Variant:
 	var trimmed := raw.strip_edges()
 	# is_valid_float accepts integer spellings too, which is intended: "3" is a
 	# valid float value, and Godot stores it as 3.0.
 	if not trimmed.is_valid_float():
+		return null
+	# A literal the parser destroys is refused (#772). null is the same uncoercible
+	# signal a non-numeric value gives; _float_fidelity_note tells the caller which
+	# of the two it was, so the two failures do not need two codes.
+	if _float_literal_is_destroyed(trimmed):
 		return null
 	return trimmed.to_float()
 

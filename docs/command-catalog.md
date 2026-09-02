@@ -327,7 +327,10 @@ scene and reports the addressed node's **storage** properties (the ones that ser
 declared Godot type name and `value` is its JSON projection. `gda node set` takes the property's
 declared type as the coercion target and converts the CLI `--value` **string** to it; the value
 the node ends up holding is reported back in the same JSON projection `node get` uses, so a `set`
-round-trips through a `get`. An unknown property is `unknown_property`; a value that cannot be
+round-trips through a `get` — with one measured exception, the scene packer's elision, recorded
+under "Number coercion" below: a float value too close to the property's declared default is
+omitted from the `.tscn` altogether, so the `set` echo reports what was written and the following
+`get` reads the default. An unknown property is `unknown_property`; a value that cannot be
 coerced to the property's type is `uncoercible_value` (both exit 4, file untouched). `node get`
 reads but does not save, so it skips the re-save guard; `node set` is a mutating op and honors the
 mutation integrity boundary above. The supported target types and the string forms they accept:
@@ -426,13 +429,54 @@ the live harness uses, so it is measured against the same corpus and the same pa
 `gda.live_numbers` is the authority, and `tests/test_e2e_headless_number_reads.py` re-derives the
 verdict from a real engine.
 
-What a `--value` **string** becomes on the way IN is the other half and is **not** covered here:
-the ops coerce it with the engine's own parser (`String.to_float`), which drops the low decimal
-digits of a full-precision literal between `1e-4` and `1e-2` and reads a `DBL_MIN`-scale or
-subnormal literal as `0.0`. Unlike the live wire, headless does not refuse those — see
-[#772](https://github.com/aigengame/godot-agent/issues/772). So a `set` and a following `get`
-agree with each other on the value the project holds; that is what this catalog's round-trip
-claims mean, not that every literal survives coercion.
+**Number coercion** ([#772](https://github.com/aigengame/godot-agent/issues/772)) — the WRITE
+half, shared by every `--value` a command coerces to a float: `node set`, `resource set`,
+`project set` and the live `game set`. They coerce with the engine's own parser
+(`String.to_float`, which is `built_in_strtod` — the same function `JSON.parse_string` calls for
+a number), so the losses the live wire documents apply here too, and gda draws the same line,
+in two clauses: a literal that parser turns into `0.0` is REFUSED **when the literal does not
+denote zero**, and a literal it turns into `NaN` is REFUSED outright — `0e600` denotes zero and
+still falls, by the second clause (`uncoercible_value`, exit 4, headless; `live_uncoercible_value`,
+exit 6, live; target untouched); low-order drift is disclosed. Three classes are refused, each measured on a real engine: `2.2250738585072014e-308`
+and `5e-324`, which no decimal spelling delivers (the −309 cliff the live wire refuses); a
+FIXED-notation literal whose first 18 mantissa digits are leading zeros, because the parser's
+18-digit cap counts them — `0.000000000000000001` reads as `0.0` while `1e-18` is exact; and
+`0e600`, a zero mantissa scaled by an overflowed power, which reads as `NaN`. The refusal names
+its remedy, which exists here and not on the wire, because on a write the CALLER spells the
+literal: **scientific notation carrying only the digits the value needs** usually works. Not
+refused is the parser's low-order drift — 1 ULP at ordinary magnitudes, up to 105 doubles for a
+full-precision literal between `1e-4` and `1e-2`, where leading zeros spend that same 18-digit
+budget. Refusing that would reject ordinary game values, so it is disclosed instead, and the
+`set` echo reports at full binary64 precision what the target holds after the coercion (see
+"Number reporting" above). Scientific notation removes the cap loss as well:
+`1.2345678901234567e-3` stores exactly what `0.0012345678901234567` cannot.
+
+One caveat on the SCENE round-trip belongs to neither half and was measured while #772 was
+written: Godot's scene packer omits a property whose value is not "different" from the property's
+own default, and its difference test compares two floats **approximately, as float32**
+(`PropertyUtils::is_property_value_different` → `Math::is_equal_approx`, `packed_scene.cpp`). So a
+`node set` whose value lands within about `1e-5` of that default is elided from the `.tscn`: on a
+property declared `@export var v: float = 0.0`, `--value 1e-6` echoes `1e-6` and a following
+`node get` reads `0.0`. That is the packer's elision, not the parser's loss — no coercion refusal
+can see it, and `project set` (measured) is unaffected, so it is recorded here rather than
+folded into the rule above.
+
+The rule keys on what the parser PRODUCED, and the two edges it draws are separated by what
+gets STORED, not by how loudly the result reads back — a stored `NaN` and a stored `inf` both
+report as JSON `null`, so the reply cannot tell them apart. An **overflow is not refused**:
+`1e400` reads as `inf`, the correctly-rounded IEEE-754 answer for a magnitude past binary64's
+top, and the scene file records `inf` — the engine's number for "larger than it can hold", in
+the direction the caller asked for, not a different number put in its place. `0e600` reads as
+`NaN`, which is not the value, not near it and not in its direction, and that is the
+substitution this rule exists to stop. The overflow carries a residual of its own, disclosed
+here rather than refused: `inf` is stored but cannot be REPORTED, so the `set` echo and every
+later `node get` / `project get` read it as JSON `null`. A literal **below binary64's reach is
+refused** anyway — `1e-400` fails exactly as `1e-320` does, although zero is the
+correctly-rounded answer there; the coercion cannot tell a true underflow from the engine's −309 cliff without modelling
+the parser it asks instead, and a caller who means zero writes `0`. One path does not reach the
+check at all: a number nested inside a Dictionary or Array `--value` arrives through
+`JSON.parse_string` / `str_to_var`. `gda.live_numbers` records the measurement;
+`tests/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both channels.
 
 **Structural edits** (established by #56): three commands restructure the node tree within a
 scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the
@@ -846,9 +890,9 @@ established (#55; see "Property value coercion" under [`node`](#node)). It then 
 `project.godot` (`ProjectSettings.save()`) and reports the coerced value in the same JSON projection
 `project get` uses, so a **`set` round-trips through a `get`**: both report the value
 `ProjectSettings` now holds, at full binary64 precision (#771). The round-trip is of the STORED
-value — what the CLI string coerces to first is the engine's own parser, which can read a
-many-digit or `DBL_MIN`-scale literal as a different double (#772); see "Number reporting" under
-[`node`](#node). `set` edits an **existing** setting —
+value — what the CLI string coerces to first is the engine's own parser, which lands a
+many-digit literal up to 105 doubles away and refuses the literals it would turn into `0.0`
+when they do not denote zero, or into `NaN` (#772); see "Number coercion" under [`node`](#node). `set` edits an **existing** setting —
 an unknown key is `unknown_setting`, never a silent create, so the type to coerce to is always known.
 A value that cannot be coerced to the setting's type is `uncoercible_value` (exit 4, the #55 code,
 `project.godot` left untouched); a failed save is `save_failed`.
@@ -1123,9 +1167,13 @@ re-derives every verdict from a running engine.
   [`node`](#node)). The two channels are still documented separately: the live sentences
   are published per-field in help and `--schema` and name the WIRE, a leg a headless
   reply never crosses, so they stay on the live commands rather than moving onto the
-  property shape both share. What differs in substance is the WRITE side — the live wire
-  REFUSES a value its parser would flatten, while a headless `--value` string is coerced
-  by that parser with no refusal ([#772](https://github.com/aigengame/godot-agent/issues/772)).
+  property shape both share. The WRITE sides now agree in substance too: a `--value`
+  string is coerced by that same parser, and a literal it turns into `0.0` when the
+  literal does not denote zero, or into `NaN` at all, is REFUSED as `uncoercible_value`
+  ([#772](https://github.com/aigengame/godot-agent/issues/772)). The two refusals ask the
+  question differently for one reason — the wire PREDICTS the outcome because gda spells
+  the literal, a write OBSERVES it because the caller does. See "Number coercion" under
+  [`node`](#node).
 
 - **`game` (the running game's scene graph):** `game tree` reads the runtime scene
   tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `game get` /
