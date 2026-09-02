@@ -829,8 +829,8 @@ established (#55; see "Property value coercion" under [`node`](#node)). It then 
 `project get` uses, so a **`set` round-trips through a `get`**: both report the value
 `ProjectSettings` now holds, at full binary64 precision (#771). The round-trip is of the STORED
 value — what the CLI string coerces to first is the engine's own parser, which lands a
-many-digit literal up to 105 doubles away and refuses the literals it would turn into `0.0` or
-`NaN` (#772); see "Number coercion" under [`node`](#node). `set` edits an **existing** setting —
+many-digit literal up to 105 doubles away and refuses the literals it would turn into `0.0`
+when they do not denote zero, or into `NaN` (#772); see "Number coercion" under [`node`](#node). `set` edits an **existing** setting —
 an unknown key is `unknown_setting`, never a silent create, so the type to coerce to is always known.
 A value that cannot be coerced to the setting's type is `uncoercible_value` (exit 4, the #55 code,
 `project.godot` left untouched); a failed save is `save_failed`.
