@@ -601,17 +601,34 @@ body cannot be mistaken for the declaration. `script get` additionally returns t
 its `res://` path and the `class_name`/`extends` parsed from the **raw text** (no compilation,
 issue #30) — null when the source declares neither, so the listing names every `.gd` it found.
 Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
-`--project`); an empty project is a valid, empty listing, not an error. The walk excludes exactly
-one directory — the engine's own cache at `res://.godot`, whose contents are import artefacts no
-agent authored. The first test is **lexical**: the child's `res://` PATH is compared against that
-one path. Not the directory NAME, so a nested `.godot` is walked — it is usually authored content,
-and excluding it hid real scripts from the listing and let `script validate --all` report a valid
+`--project`); an empty project is a valid, empty listing, not an error. The walk excludes the same
+three kinds of directory the engine's own scan does (`EditorFileSystem::_should_skip_directory`,
+#804): the engine's cache at `res://.godot`, a directory holding a **`project.godot`** — another
+project inside this one — and a directory holding a **`.gdignore`**.
+
+The **cache** test is **lexical**: the child's `res://` PATH is compared against that one path.
+Not the directory NAME, so a nested `.godot` is walked — it is usually authored content, and
+excluding it hid real scripts from the listing and let `script validate --all` report a valid
 aggregate for a project holding an invalid script (#663 review). Sometimes it is not authored
 content — a vendored sub-project checked out under `res://` and opened once in an editor keeps an
 engine cache of its own, whose import artefacts then count in `project statistics` and become
 `find-unused-resources` candidates. That cost is accepted deliberately: gda cannot tell the two
-apart from the directory alone, and a false-valid aggregate is the worse failure. Hidden entries
-are otherwise enumerated as promised (#54). **This rule governs the four `res://` collectors in
+apart from the directory alone, and a false-valid aggregate is the worse failure. One residual
+stays: the engine reads this location from `application/config/project_data_dir_name` while gda
+hardcodes the default, so a project that renames its data directory has gda walk the renamed cache
+and exclude a `res://.godot` that is ordinary content (#804).
+
+The **two markers** are probed on the child directory itself, so what decides is what the
+directory HOLDS, not what it is called or how it was reached — a vendored checkout carrying its own
+`project.godot` is skipped whether it sits in the tree or is symlinked into it, exactly as the
+engine skips it. A `project.godot` is the distinction the cache rule above lacks: the sub-project
+declares itself, and its files' own `res://` references mean ITS root, so enumerating them here
+gave them the outer root — that is what made `script validate --all` compile a nested project's
+scripts against the outer root and report every one of their `res://` preloads as missing (#804,
+the gap ADR-0006 recorded). A `.gdignore` is the project's own instruction not to scan. The cost is
+two `FileAccess.file_exists` per child DIRECTORY — the two probes the engine's scan pays, on the
+same directories, never per file. Hidden entries are otherwise enumerated as promised (#54).
+**This rule governs the four `res://` collectors in
 `operations.gd`** — the `script list` walk, the `scene list` walk, and both static-analysis walks
 (the extension-filtered one behind `find-references`, `dependencies`, `find-unused-resources` and
 the `class_name` index, and the unfiltered one `project statistics` counts with) — so one project
@@ -623,8 +640,8 @@ compared case-sensitively — so each collector is now a single line: the shared
 acceptance test it passes. What they share is the traversal and the exclusion rule, **not** a file
 universe; the two static-analysis walks below still range over different files.
 
-The lexical test is the walk's first question, not its only one, because a link renames what it
-points at (#760). Comparing the path as written let an alias re-admit exactly what the rule
+The lexical cache test is the walk's first question, not its only one, because a link renames what
+it points at (#760). Comparing the path as written let an alias re-admit exactly what the rule
 excludes — `res://nested/.godot` pointing at the root cache made the cache's own scripts and
 scenes visible under a second name — and let a cycle (`sub/loop` -> `sub`) be descended until the
 OS refused another symlink hop, spelling one `.gd` 33 ways with a deepest path 174 characters
@@ -769,7 +786,8 @@ single path is a batch of one, so the shape never varies with the batch size. A 
 validated and reported once per occurrence — gda drops no input. `--all` needs a resolved project
 (`project_not_found` otherwise, as `script list` does), and an empty project is a vacuously valid
 empty batch. It enumerates through the same walk `script list` uses, so it sees the same set —
-including a nested `.godot` directory, and never the engine's own `res://.godot` cache.
+including a nested `.godot` directory, and never the engine's own `res://.godot` cache, a nested
+project's directory, or a `.gdignore`d one.
 
 A **`valid=false` result is a successful operation** — `validate` exits `0` with the aggregate
 `valid: false` for a batch in which any script does not compile. The op only *fails* (non-zero,
@@ -793,16 +811,16 @@ tells the two apart. A target the resolved project **does not own** is **refused
 with `target_outside_project`, naming both the file and the project, rather than emitting that
 false cascade. The check applies to **every** path in a batch, and the first offender in requested
 order refuses the whole call (#663): one call has one project, so one outsider makes the requested
-set unservable. `--all` carries no paths to check, and one KNOWN GAP: it enumerates through gda's own
-`res://` walk, which does not skip a directory holding a nested `project.godot`, while the
-engine's editor scan does (`EditorFileSystem::_should_skip_directory`). So `--all` still
-compiles a nested project's scripts against the outer root and can report the false cascade
-for them, where naming the same file explicitly is refused. That gap is one face of a layer
-boundary and not only a bug: the walk decides what the project can ADDRESS, by filesystem
-identity (see the exclusion passage above); this gate decides what a caller may NAME as a
-target, from the caller's own spelling. Closing it means changing the shared walk every
-collector uses; until then, read an `--all` verdict for a nested project's script as the
-artefact it is (ADR-0006 amendment, #697).
+set unservable. `--all` carries no paths to check, and needs none: it enumerates through gda's own
+`res://` walk, which skips a directory holding a nested `project.godot` exactly as the engine's
+editor scan does (`EditorFileSystem::_should_skip_directory`), so it never reaches a file this
+gate would refuse by name and the two selectors give the same file the same answer (#804). Before
+that, `--all` compiled a nested project's scripts against the outer root and reported the false
+cascade for them, where naming the same file explicitly was refused. The two are still different
+questions, and the layer boundary between them still stands: the walk decides what the project can
+ADDRESS (see the exclusion passage above); this gate decides what a caller may NAME as a target,
+from the caller's own spelling (ADR-0006 amendment, #697). What #804 removed is the case where
+they disagreed.
 
 "Does not own" is two questions (ADR-0006 amendment, #697). **Containment** follows the engine's
 own addressing: a relative path is anchored at the resolved project (not gda's cwd), an
@@ -1047,7 +1065,9 @@ file, classified against the explicit cache root: `cache_owned` (under `res://.g
 `source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
 file). `--dry-run` writes nothing and reports the decidable inventory: the per-asset
 states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
-stale assets the project-wide pass will re-import (invalid ones excluded; assets with no
+stale assets the project-wide pass will re-import (invalid ones excluded; assets under a
+nested project's or a `.gdignore`d directory excluded too, since the engine's scan never
+reaches them, #804; assets with no
 sidecar and generated `.uid` files are the engine's to decide, so the real run's `created`
 list is the authoritative inventory). Plain `gda script run` never triggers an import
 pass. A pass that outruns `--timeout` reports the shared `launch_timeout` envelope with

@@ -130,9 +130,12 @@ a nested `project.godot`, and with no project resolved too (`script run` and
 (`evidence.owning_project`) but never switches to it, and the message states the
 whole re-issue: `--project <owner>` AND the target respelled relative to that
 owner — a relative path anchors at the project, so your original spelling would
-not be found under the new one. One gap: `--all` does NOT apply that check, so a nested
-project's scripts can still show a false missing-`res://` cascade there — name them
-explicitly with their own `--project` to get the true verdict.
+not be found under the new one. `--all` needs no such check: every project-wide listing
+(`script list`, `scene list`, `script validate --all`, `project` analysis) walks the
+`res://` tree the way the engine's own scan does, skipping the engine cache, a directory
+holding a nested `project.godot`, and one holding a `.gdignore`. So `--all` reports only
+what the resolved project owns; to work on a nested project's files, run with
+`--project <that project>`.
 
 ## Discovery
 

@@ -1041,6 +1041,30 @@ def _project_files(project: Path) -> set[str]:
     return files
 
 
+def _engine_skips_directory_of(project: Path, rel: str) -> bool:
+    """Whether the engine's own scan never reaches ``rel`` (#804).
+
+    ``EditorFileSystem::_should_skip_directory`` (``editor/file_system/
+    editor_file_system.cpp`` at 4.6-stable) skips a directory that holds a
+    ``project.godot`` — another project inside this one — or a ``.gdignore``
+    marker, so a project-wide ``--import`` pass re-imports nothing beneath one.
+    Every directory ABOVE ``rel`` up to (but never including) the project root
+    is asked, because one marker hides the whole subtree.
+
+    The same rule engine-side is ``_should_descend`` in ``operations.gd``; this
+    is the half for the inventory that reads the project's files from Python
+    rather than through that walk.
+    """
+    parts = Path(rel).parent.parts
+    for depth in range(1, len(parts) + 1):
+        directory = project.joinpath(*parts[:depth])
+        if (directory / "project.godot").is_file():
+            return True
+        if (directory / ".gdignore").is_file():
+            return True
+    return False
+
+
 def _project_import_gaps(project: Path, requested: set[str]) -> list[str]:
     """Other assets the project-wide pass WILL re-import (#738 review).
 
@@ -1053,11 +1077,17 @@ def _project_import_gaps(project: Path, requested: set[str]) -> list[str]:
     predicted from here — the engine decides those — so the real run's
     ``created`` list stays the authoritative inventory, and the contract says
     so.
+
+    An asset the engine's scan never reaches is not a gap either (#804): the
+    pass skips a nested project's and a ``.gdignore``d directory's contents, so
+    predicting a re-import there promised work the engine will not do.
     """
     gaps: list[str] = []
     for sidecar in sorted(project.rglob("*.import")):
         rel = sidecar.relative_to(project).as_posix()
         if rel.startswith(".godot/") or rel.startswith(".git/"):
+            continue
+        if _engine_skips_directory_of(project, rel):
             continue
         res_path = "res://" + rel[: -len(".import")]
         if res_path in requested:

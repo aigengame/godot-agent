@@ -499,8 +499,9 @@ compiled against nothing. For the nested case the message states the whole re-is
 `--project` to pass and the target respelled relative to that owner, because a relative
 path anchors at the project and the original spelling would not be found under the new
 one. `script run` and `resource import` refuse the same way, under the
-same code. `--all` is the one selector that does not apply the ownership half yet, so a
-nested project's scripts can still show the false cascade there.
+same code. `--all` needs no such refusal: the project-wide walk skips a directory holding
+a nested `project.godot` (and one holding a `.gdignore`) exactly as the engine's own scan
+does, so it never enumerates a file the check would refuse by name.
 
 `script run` executes a named project script one-shot and **passes its run through**: the
 success result carries the script's own `exit_status` (a deliberate non-zero `quit()` is

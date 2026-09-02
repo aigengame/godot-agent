@@ -203,3 +203,41 @@ def test_the_engine_cache_exclusion_has_one_owner():
         f"{CACHE_CONSTANT} must be compared only in {DESCEND_PREDICATE}'s lexical "
         f"fast path and in {CACHE_OWNER}; found it in {sorted(users)}"
     )
+
+
+# The two directory markers the engine's own scan skips on (#804), named as
+# constants so the rule has one home; `_should_descend` must be their only user.
+SKIP_MARKER_CONSTANTS = ("NESTED_PROJECT_MARKER", "GDIGNORE_MARKER")
+
+
+def test_the_engine_skip_markers_are_asked_only_by_the_descent_predicate():
+    # AC1 (#804): a nested `project.godot` and a `.gdignore` are skipped by the ONE
+    # shared traversal's descent decision, not per collector. The guard is the same
+    # shape the cache exclusion has: the constants exist, `_should_descend` probes
+    # both, and no other function names them — a second site is exactly how the
+    # four collectors drifted apart in #712.
+    source = _source()
+    descend = "\n".join(_function_body(source, DESCEND_PREDICATE))
+
+    for marker in SKIP_MARKER_CONSTANTS:
+        assert f"const {marker} :=" in source, f"{marker} must be declared once"
+        assert f"FileAccess.file_exists(child.path_join({marker}))" in descend, (
+            f"{DESCEND_PREDICATE} must probe {marker} on the child directory"
+        )
+
+    users = set()
+    for index, line in enumerate(source.splitlines()):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        for marker in SKIP_MARKER_CONSTANTS:
+            if marker not in stripped or stripped.startswith(f"const {marker}"):
+                continue
+            enclosing = _enclosing_function(source, index)
+            assert enclosing is not None, f"{marker} used outside any function"
+            users.add(enclosing)
+
+    assert users == {DESCEND_PREDICATE}, (
+        f"the engine skip markers must be asked only in {DESCEND_PREDICATE}; "
+        f"found them in {sorted(users)}"
+    )
