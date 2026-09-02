@@ -688,9 +688,10 @@ class ScenePreflightResult(BaseModel):
     The ``timeout`` verdict carries a third thing, and only that verdict does:
     ``elapsed_seconds`` beside ``timeout_seconds`` (#787). They are the same pair of
     numbers the shared ``launch_timeout`` envelope reports on every other channel —
-    the launch measures both on every run it ends — so an agent can tell a scene
-    that was merely slow from one that was stuck WITHOUT the failure envelope this
-    command deliberately does not return. On every other verdict the two keys are
+    the launch measures both on every run it ends — so an agent reads the consumed
+    ceiling WITHOUT the failure envelope this command deliberately does not return.
+    The pair names that ceiling, not the cause: a stuck ``_ready`` and a healthy
+    ``--frames`` window overrunning the same bound report the same numbers. On every other verdict the two keys are
     omitted rather than null: nothing bounded that run, so there is no measurement
     to report, and their absence keeps a non-timeout verdict byte-identical to what
     it emitted before the pair existed.
@@ -736,9 +737,10 @@ class ScenePreflightResult(BaseModel):
             "the whole process. Present ONLY on the 'timeout' verdict, together "
             "with 'timeout_seconds'; both keys are omitted from every other verdict "
             "rather than reported as null, because no bound was reached on a run "
-            "the engine finished by itself. Read it against the ceiling: a run a "
-            "fraction over a tight ceiling was merely slow (raise --timeout), while "
-            "one that reached a generous ceiling is stuck (#787)."
+            "the engine finished by itself. The pair names the consumed ceiling, "
+            "not the cause — a stuck scene and a healthy --frames window that "
+            "outruns the same bound read alike — so choose a larger --timeout or "
+            "fewer --frames from what the scene should do, and rerun (#787)."
         ),
     )
     timeout_seconds: Optional[float] = Field(
@@ -990,7 +992,7 @@ def render_scene_preflight(preflight: "ScenePreflightResult") -> str:
     }.get(preflight.status, preflight.status.value)
     lines = [f"{headline} {preflight.path}"]
     # The timeout evidence, on the human channel too (#787), so nobody has to re-run
-    # with --json to learn whether the scene was slow or stuck. Both numbers are
+    # with --json to learn which ceiling the run consumed. Both numbers are
     # required, because the pair is set together and a half-set model can only be
     # hand-built; asking for both keeps a renderer from being the thing that raises.
     if preflight.elapsed_seconds is not None and preflight.timeout_seconds is not None:
@@ -1472,8 +1474,8 @@ def preflight_scene(
     the 'timeout' one included, because "it did not come up within the bound" is the
     answer this command was asked for. That verdict, and only that one, also carries
     'elapsed_seconds' and 'timeout_seconds': how long the run took and the --timeout
-    it reached, so a scene that was merely slow reads differently from one that was
-    stuck. Only what is not about the scene fails: an unlaunchable binary, a signal
+    it reached — the consumed ceiling to weigh against '--frames' before a rerun,
+    not the cause. Only what is not about the scene fails: an unlaunchable binary, a signal
     death, a missing file ('path_not_found'), a file that does not load as a scene
     ('not_a_scene'), or a scene the engine cannot instantiate at all
     ('missing_dependency').
