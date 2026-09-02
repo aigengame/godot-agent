@@ -42,6 +42,7 @@ from gda.errors import (
     script_run_aborted_failure,
     script_run_project_not_found_failure,
     script_run_timeout_failure,
+    termination_phase,
     unresolvable_binary_failure,
 )
 from gda.engine_log import lines as engine_log_lines
@@ -53,9 +54,13 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import CREATED_DIRS_DESC, NormalizedPath, ProjectRootedResult
+from gda.models import (
+    CREATED_DIRS_DESC,
+    NormalizedPath,
+    ProjectRootedResult,
+    TerminationPhase,
+)
 from gda.project import path_outside_project
-from gda.render import render_script_error_location
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
 from gda.script_errors import (
     ScriptError,
@@ -63,6 +68,7 @@ from gda.script_errors import (
     canonical_res_path,
     entry_load_failure,
     parse_script_errors,
+    script_error_line,
 )
 
 
@@ -751,9 +757,11 @@ class ScriptRunParams(BaseModel):
             "Treat a non-zero script exit status as a gda failure: emit the error "
             "envelope with code 'script_failed' and exit 4, instead of the default "
             "passthrough success. Opt-in, for shell '&&' chains and CI gates that "
-            "key on the process exit code. The envelope keeps the evidence: its "
-            "message names the exit status, and its 'diagnostics' string carries "
-            "BOTH of the script's streams under the fixed labels "
+            "key on the process exit code. The envelope keeps the evidence, typed "
+            "and as prose: 'evidence.exit_status' is the CHILD's status (gda's own "
+            "exit code stays 4) and 'evidence.script_errors' the parsed errors, "
+            "while the message names the status and the 'diagnostics' string "
+            "carries BOTH of the script's streams under the fixed labels "
             "'--- script stdout ---' and '--- script stderr ---'. A script that "
             "never ran fails either way (ADR-0031 amendment)."
         ),
@@ -776,8 +784,12 @@ class ScriptRunParams(BaseModel):
             "'output_seen' (it was alive and did not finish) — so a "
             "slow-but-live run is distinguishable from a hang. A run ended EARLY "
             "by the completion-marker rule below is not this envelope: it "
-            "reports 'script_aborted', whose phase is 'aborted_on_error'. "
-            "Reported as prose in the message, not as envelope fields (#655)."
+            "reports 'script_aborted', whose phase is 'aborted_on_error'. Both "
+            "carry 'elapsed_seconds' and 'termination_phase' as typed 'evidence' "
+            "fields as well as in the message, plus 'evidence.script_errors' — "
+            "advisory under a timeout (#687); 'timeout_seconds', the reached "
+            "ceiling, rides the timeout envelope only (an abort stops short of "
+            "its ceiling, which stays in the message)."
         ),
     )
     completion_marker: str | None = Field(
@@ -1251,35 +1263,12 @@ def _project_scoped_res_path(script: str) -> str | None:
     return canonical
 
 
-class TerminationPhase(str, Enum):
-    """How far a ``script run`` gda ENDED had got when gda ended it (#655).
-
-    Reported as PROSE in the failure message — never as an envelope field, which
-    would change ADR-0004's uniform failure ABI (**#687 owns that decision**;
-    ADR-0031's amendment records that this issue adopts its outcome). The enum
-    exists so the set is closed and the spelling cannot drift, not because the
-    envelope is typed here.
-
-    The set answers the question an agent asks of a run that did not finish: was it
-    working, or was it stuck? The issue's illustrative set named a third phase for
-    "killed at the timeout", which both timeout phases below already are — what a
-    reader cannot infer from the code is whether the run had got anywhere, so that
-    is what the phases distinguish.
-    """
-
-    #: gda ended the run at ``--timeout`` and the engine had written NOTHING to
-    #: either stream. Rare in practice and deliberately narrow: Godot prints its
-    #: version banner within ~0.1s of a normal spawn (measured), so this marks the
-    #: engine never reaching its own startup output — a wrapper that did not exec,
-    #: or a hang before stdio.
-    LAUNCHED = "launched"
-    #: gda ended the run at ``--timeout`` after output had appeared. The usual
-    #: timeout phase: the run was alive and did not finish, so the captured tail is
-    #: how far it got and ``--timeout`` is the knob.
-    OUTPUT_SEEN = "output_seen"
-    #: gda ended the run EARLY, before ``--timeout``: a script error appeared, the
-    #: declared completion marker did not, and the run went silent.
-    ABORTED_ON_ERROR = "aborted_on_error"
+# ``TerminationPhase`` moved to :mod:`gda.models` with the #687 ADR-0004 amendment:
+# it is projected into the shared failure envelope now (``evidence.termination_phase``)
+# and is reported by every launch-backed channel, not only by ``script run``, so it is
+# a property of the public contract rather than of this command. It is imported here
+# because this module USES it; ``gda.models`` is the one name to import it by
+# (ADR-0040's Considered Options rejected re-export facades).
 
 
 def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
@@ -1612,12 +1601,15 @@ def run_script_run_operation(
             script,
             did_not_run.message,
             raw.stderr,
+            diagnostics,
         )
 
     # The script RAN. Its own status is data by default (the ADR-0031 crux) and a
     # gda failure only when the caller opted in with --strict.
     if strict and raw.exit_code != 0:
-        return script_exit_status_failure(script, raw.exit_code, raw.stdout, raw.stderr)
+        return script_exit_status_failure(
+            script, raw.exit_code, raw.stdout, raw.stderr, diagnostics
+        )
 
     # The public promotion of the internal Raw run: the boundary DTO built by
     # dropping launch_failure (lifted into the Error envelope above) and renaming
@@ -1675,6 +1667,10 @@ def _classify_ended_run(
     shape as reaching a failure "by another route" and narrowing it is a separate
     decision.
     """
+    # ONE parse of the partial stderr serves both forms the envelope now carries
+    # (#687): the typed ``evidence.script_errors`` and the prose block in
+    # ``diagnostics``, which the builders render from this same list.
+    recognized = parse_script_errors(raw.stderr)
     if raw.launch_failure is LaunchFailure.ABORTED:
         # Only the watch produces this, and it can only abort with a marker declared,
         # so ``completion_marker`` is set in every reachable case. It is still passed
@@ -1688,8 +1684,8 @@ def _classify_ended_run(
             timeout=timeout,
             elapsed=_elapsed(raw, at_least=SCRIPT_RUN_ABORT_SILENCE_SECONDS),
             silence=SCRIPT_RUN_ABORT_SILENCE_SECONDS,
-            phase=TerminationPhase.ABORTED_ON_ERROR.value,
-            script_errors=_render_captured_errors(raw.stderr),
+            phase=TerminationPhase.ABORTED_ON_ERROR,
+            script_errors=recognized,
             stdout=raw.stdout,
             stderr=raw.stderr,
         )
@@ -1698,8 +1694,8 @@ def _classify_ended_run(
             script,
             timeout=timeout,
             elapsed=_elapsed(raw, at_least=timeout),
-            phase=_timeout_phase(raw).value,
-            script_errors=_render_captured_errors(raw.stderr),
+            phase=termination_phase(raw),
+            script_errors=recognized,
             stdout=raw.stdout,
             stderr=raw.stderr,
         )
@@ -1723,40 +1719,12 @@ def _elapsed(raw: RunResult, *, at_least: float) -> float:
     return raw.elapsed_seconds if raw.elapsed_seconds is not None else at_least
 
 
-def _timeout_phase(raw: RunResult) -> TerminationPhase:
-    """Which timeout phase a gda-ended run reached — see :class:`TerminationPhase`.
-
-    Keyed on whether the engine wrote ANYTHING, which is the only honest signal the
-    capture carries. It is not "did the script start": Godot prints its own version
-    banner to stdout within ~0.1s of a normal spawn (measured against 4.6.3), so
-    output arriving does not prove the entry script ran — only that the engine
-    reached its startup. That is still the distinction worth reporting, because its
-    absence means the engine never got that far.
-    """
-    return (
-        TerminationPhase.OUTPUT_SEEN
-        if raw.stdout or raw.stderr
-        else TerminationPhase.LAUNCHED
-    )
-
-
-def _render_captured_errors(stderr: str) -> str:
-    """The recognized script errors of a partial capture, as ``diagnostics`` lines.
-
-    Reuses :func:`gda.script_errors.parse_script_errors` and the SAME
-    ``<kind>: <path>:<line>: <message>`` layout the human renderer uses for a
-    successful run's structured diagnostics, so the curated high-signal lines read
-    identically whether they arrive typed (on a success) or as prose (on a
-    gda-ended run, where ADR-0004's ``diagnostics`` is a plain string). Empty when
-    the engine printed nothing this module recognizes.
-    """
-    errors = parse_script_errors(stderr)
-    if not errors:
-        return ""
-    return "".join(
-        f"gda:   {error.kind.value}: {render_script_error_location(error)}\n"
-        for error in errors
-    )
+# ``_timeout_phase`` and ``_render_captured_errors`` moved to :mod:`gda.errors` with
+# the #687 amendment, as ``termination_phase`` (public — this module still calls it)
+# and ``_recognized_errors_prose`` (private — only the builders render it now). The
+# phase is reported by every launch-backed channel's ``launch_timeout`` envelope, and
+# the prose is rendered from the SAME parsed list the envelope carries typed, so both
+# belong beside the builders that emit them.
 
 
 # A `SCRIPT ERROR: <message>` line and the `GDScript::reload (...:<line>)` frame
@@ -2068,7 +2036,7 @@ def render_script_run(ran: "ScriptRunResult") -> str:
     if ran.stderr:
         parts.append(ran.stderr.rstrip("\n"))
     for diag in ran.diagnostics:
-        parts.append(f"  {diag.kind.value}: {render_script_error_location(diag)}")
+        parts.append(f"  {script_error_line(diag)}")
     return "\n".join(parts)
 
 
@@ -2532,8 +2500,10 @@ def run_script(
         help=(
             "Fail when the script exits non-zero: emit the 'script_failed' error "
             "envelope and exit 4 instead of the default passthrough success. For "
-            "shell '&&' chains and CI gates. The envelope's message names the exit "
-            "status and its diagnostics carry both script streams, labelled "
+            "shell '&&' chains and CI gates. The envelope carries the child's "
+            "status as 'evidence.exit_status' and the parsed errors as "
+            "'evidence.script_errors'; its message names the status too, and its "
+            "diagnostics carry both script streams, labelled "
             "'--- script stdout ---' / '--- script stderr ---'. A script that never "
             "ran fails either way."
         ),
@@ -2547,8 +2517,9 @@ def run_script(
             "termination phase: 'launched' (the engine wrote nothing) or "
             "'output_seen' (alive but unfinished). A run ended early by "
             "--completion-marker reports 'script_aborted' (phase "
-            "'aborted_on_error') instead. Raise it for a suite that outgrew the "
-            "default; lower it to fail fast."
+            "'aborted_on_error') instead. Both put the clocks, the phase and the "
+            "parsed errors on the envelope's typed 'evidence' key. Raise it for a "
+            "suite that outgrew the default; lower it to fail fast."
         ),
     ),
     completion_marker: Optional[str] = typer.Option(
@@ -2623,7 +2594,10 @@ def run_script(
     A run gda has to END reports what it captured, not just that it stopped:
     ``--timeout`` sets the ceiling, and the ``launch_timeout`` envelope carries the
     captured partial output, the elapsed seconds and a termination phase, so a
-    suite that is merely slow is distinguishable from one that hung. For a script
+    suite that is merely slow is distinguishable from one that hung. Every failure
+    of this command that computed such facts also carries them TYPED, on the
+    envelope's optional ``evidence`` key (#687), so an agent branches on numbers
+    rather than on the message. For a script
     that DIES before its own ``quit()`` — a GDScript error aborts the function that
     raised it and the engine then idles — declare ``--completion-marker <line>``:
     gda ends that run within seconds and reports ``script_aborted`` with the error

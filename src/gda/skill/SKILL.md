@@ -86,6 +86,28 @@ the mistake the envelope carries a `hint` naming the invocation to run instead
 `hint`; when there is none, `gda schema` lists every command and
 `gda help <command>` describes one.
 
+A failure that computed evidence also carries it as DATA, under the envelope's
+optional `evidence` key — omitted, never null, on the failures that computed none.
+Read it instead of parsing the message: `elapsed_seconds` / `termination_phase`
+(`launched` = the engine wrote nothing at all, so suspect the binary or the host;
+`output_seen` = it was alive and did not finish, so raise the ceiling;
+`aborted_on_error`) on a run gda ended, plus `timeout_seconds` — the reached
+ceiling — on the timeout verdict only (an abort stopped short of its ceiling, so
+it omits the field; your own `--timeout` stays in the message), `exit_status`
+(the CHILD's, not gda's exit code) on `script run --strict`'s `script_failed`,
+and `script_errors` on the `script run` failures that parse the run's stderr —
+the never-ran verdicts, `--strict`'s `script_failed`, and both runs gda ended. Under a `launch_timeout` those errors
+stay ADVISORY — the verdict is the timeout, so branch on `code` and read
+`evidence` for the cause.
+
+Each `script_errors` entry is a `{kind, message, path, line}` record — the same
+four keys, always present, that a successful `script run` reports as
+`diagnostics`; `path` and `line` are `null` where the engine named neither, which
+is the normal case for a load error. The list itself has three states worth
+telling apart: absent means this failure's channel does not parse stderr at all,
+so read `diagnostics`; `[]` means it parsed and recognized nothing, which is
+itself a finding; a non-empty list is what it recognized.
+
 Some commands carry a verdict inside a successful result. For
 `gda script validate --json`, read the result's `valid` field: it is the AGGREGATE
 verdict over every script the call validated, `false` as soon as one of them fails.

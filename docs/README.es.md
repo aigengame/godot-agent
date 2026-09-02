@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6c11b5d19ab6c2261d2d6757a46b9d771ff4a74bdced94d057d6fe65332cce80 -->
+<!-- gda-readme-i18n: source=README.md sha256=5d4abe9c21590934b72f3ee5546b31f628d4de4d20ae7cff1eeb004af3a45da3 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -73,7 +73,11 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
   y se mapea a un **código de salida no nulo estable** más un sobre estructurado `{"error": {…}}`
   — de modo que un shell o un agente puede bifurcar según la categoría del fallo sin analizar prosa.
   Un comando o una opción que `gda` no reconoce se rechaza del mismo modo estructurado, con un
-  `hint` que nombra la invocación que debe usarse en su lugar.
+  `hint` que nombra la invocación que debe usarse en su lugar. Cuando un fallo calculó evidencia,
+  esa evidencia también viaja en el sobre — un objeto `evidence` opcional que lleva el reloj
+  transcurrido y el techo que alcanzó una ejecución agotada, el estado de salida propio del proceso
+  hijo, los errores de script ya analizados — para que un agente bifurque con números en vez de
+  analizar el mensaje.
 
 ---
 

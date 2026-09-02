@@ -269,25 +269,29 @@ def canonical_res_path(path: str) -> str:
     return _RES_PREFIX + posixpath.normpath(remainder)
 
 
+# WHY the prose below is a comment and not this enum's docstring (#687): a model
+# or enum docstring becomes its schema ``description``, and since the ADR-0004
+# amendment of #687 this enum is reachable from the SHARED failure envelope — which
+# `gda schema` repeats once per command (~76 times), on top of the two result models
+# that already carry it. The same rule `EnvironmentProbe` states in `gda.models`:
+# rationale lives beside the code, only the contract goes in the schema.
+#
+# A closed, public enum. Every kind except ``RUNTIME_ERROR``, ``PUSH_ERROR`` and
+# ``INCOMPATIBLE_SCRIPT`` reports that the named resource could NOT be loaded or
+# run; ``RUNTIME_ERROR`` reports an error raised by a script that was already
+# executing, ``PUSH_ERROR`` reports an invariant the project itself rejected while
+# running, and ``INCOMPATIBLE_SCRIPT`` reports a binding the engine refused — a
+# compiled script whose base cannot bind its object, or a bound value that is not a
+# Script at all (it names no resource either way).
+#
+# Whether such a failure ended the *run* depends on WHICH resource it names: a load
+# failure naming the entry script means the run never happened, while the same
+# failure naming something the running script merely tried to load does not.
+# :func:`entry_load_failure` is what applies that distinction; a ``kind`` alone does
+# not decide it. That sentence is the one branching rule an agent needs, so it — and
+# only it — survives into the ``kind`` field description below.
 class ScriptErrorKind(str, Enum):
-    """What a recognized engine error line says about the resource it names (#651).
-
-    A closed, public enum: it is projected into ``--schema`` through the results
-    that carry :class:`ScriptError`. Every kind except ``RUNTIME_ERROR``,
-    ``PUSH_ERROR`` and ``INCOMPATIBLE_SCRIPT`` reports that the named resource
-    could **not be loaded or run**; ``RUNTIME_ERROR`` reports an error raised by a
-    script that was already executing, ``PUSH_ERROR`` reports an invariant the
-    project itself rejected while running, and ``INCOMPATIBLE_SCRIPT`` reports a
-    binding the engine refused — a compiled script whose base cannot bind its
-    object, or a bound value that is not a Script at all (it names no resource
-    either way).
-
-    Whether such a failure ended the *run* depends on **which** resource it names:
-    a load failure naming the entry script means the run never happened, while the
-    same failure naming something the running script merely tried to load does
-    not. :func:`entry_load_failure` is what applies that distinction; a ``kind``
-    alone does not decide it.
-    """
+    """What a recognized engine error line says about the resource it names (#651)."""
 
     #: A compile failure in the named script (its own syntax error, or a
     #: dependency it preloads that does not resolve). That script never ran.
@@ -362,29 +366,46 @@ _ENTRY_FAILURE_PRECEDENCE = (
 )
 
 
+# Best-effort and advisory in the ADR-0002 sense — parsed from stderr, not from a
+# bound API — but unlike free-form diagnostics it is *classified*, so an agent can
+# branch on ``kind`` instead of matching engine prose.
+#
+# Its descriptions are TERSE for the reason stated above the enum (#687): this model
+# now rides the shared failure envelope, so every word here is repeated once per
+# command in `gda schema`. What each kind means in full is in the enum's comment
+# above and in `docs/command-catalog.md`; what stays here is what a caller has to
+# know to read a value it just received. Three reader's facts that used to be field
+# prose live here instead, for that reason:
+#
+# - ``path`` is canonical in :func:`canonical_res_path`'s sense — ``.``/``..``
+#   segments and duplicate slashes collapsed — so a value read here compares equal
+#   to the same resource named any other way.
+# - An engine-side LOAD error carries no script line at all, which is why ``line``
+#   is null far more often than a reader of a compile error expects.
+# - For a ``push_error`` the line is the call site the engine named in its GDScript
+#   backtrace — never a number gda synthesized.
+#
+# ONE wire shape, at both of the contract's halves (#687 review). This model is
+# published twice: on the success results of ``script run`` / ``scene preflight``,
+# and inside the failure envelope's ``evidence.script_errors``. The failure envelope
+# is emitted with ``exclude_none``, which would otherwise drop a null ``path`` /
+# ``line`` from the nested records and render the SAME error with two different key
+# sets depending on which half of the contract a caller read it from. The
+# omit-when-None rule is about the envelope's own optional keys, not about the
+# published shape of a model nested under one, so ``FailureEvidence`` keeps this
+# model's full key set — see the serializer in :mod:`gda.models`.
 class ScriptError(BaseModel):
-    """One recognized script error read out of the engine's stderr (#651).
-
-    Best-effort and advisory in the ADR-0002 sense — parsed from stderr, not from
-    a bound API — but unlike free-form diagnostics it is *classified*, so an agent
-    can branch on ``kind`` instead of matching engine prose.
-    """
+    """One recognized script error read out of the engine's stderr (#651)."""
 
     kind: ScriptErrorKind = Field(
         description=(
-            "Which known engine failure this line reports. Every kind except "
-            "'runtime_error', 'push_error' and 'incompatible_script' means the "
-            "named resource could not be loaded or run; 'runtime_error' means a "
-            "script was already executing when it raised; 'push_error' means the "
-            "PROJECT reported its own invariant violation with push_error() and "
-            "kept running; and 'incompatible_script' means "
-            "the engine refused a script binding — a compiled script whose base "
-            "cannot bind its object, or a bound value that is not a Script at "
-            "all (path is null: neither sentence names a file). Whether the RUN "
-            "failed "
-            "depends on whether 'path' is the entry script: a load failure naming "
-            "something the running script merely tried to load is not a failed "
-            "run."
+            "Which known engine failure this line reports. 'runtime_error' and "
+            "'push_error' say the script RAN (the second is the project's own "
+            "push_error(), which it survived); 'incompatible_script' is a binding "
+            "the engine refused and names no path; the rest say the named resource "
+            "could not be loaded or run. Whether the RUN failed depends on whether "
+            "'path' is the entry script: a load failure naming something the running "
+            "script merely tried to load is not a failed run."
         )
     )
     message: str = Field(
@@ -396,20 +417,49 @@ class ScriptError(BaseModel):
     path: str | None = Field(
         default=None,
         description=(
-            "The res:// resource this error is about, in canonical form ('.'/'..' "
-            "segments and duplicate slashes collapsed), or null when the engine "
-            "named none."
+            "The res:// resource this error is about, canonicalized, or null when "
+            "the engine named none."
         ),
     )
     line: int | None = Field(
         default=None,
         description=(
             "The 1-based line in 'path' the engine reported, or null when it "
-            "reported none (engine-side load errors carry no script line). For a "
-            "'push_error' this is the call site the engine named in its GDScript "
-            "backtrace, never a synthesized number."
+            "reported none."
         ),
     )
+
+
+def script_error_line(error: ScriptError) -> str:
+    """``<kind>: <path>:<line>: <message>``, dropping the parts the engine did not give.
+
+    The ONE text form of a recognized script error, so the four places that write
+    one — ``script run``'s passed-through diagnostics, ``scene preflight``'s startup
+    diagnostics, the ``diagnostics`` prose of the two gda-ended ``script run``
+    failures (:mod:`gda.errors`), and the human failure channel's ``evidence`` block
+    — cannot drift into four spellings of the same line. Each site adds only its own
+    indent or prefix.
+
+    It lives HERE rather than in :mod:`gda.render` (#687 review). It is a lexical
+    projection of a type this module owns, and one of its consumers is
+    :mod:`gda.errors`, which is core: an ``errors`` -> ``render`` edge would put the
+    presentation layer inside the core's import closure and invert ADR-0040 §5's
+    ``... -> errors / models -> foundation`` direction. This module imports only
+    :mod:`gda.engine_log`, so every consumer's edge points downward at it.
+
+    Its output is on the WIRE as well as on stdout — ``gda.errors`` embeds it in the
+    ``diagnostics`` string of the two gda-ended envelopes — so an edit here changes
+    published bytes, not only what a human reads.
+
+    An engine-side load failure carries no script line, and some errors name no path
+    at all, so each piece is included only when the engine reported it — never as an
+    empty ``:`` or a bare ``None``.
+    """
+    where = error.path or ""
+    if error.path is not None and error.line is not None:
+        where = f"{error.path}:{error.line}"
+    located = f"{where}: {error.message}" if where else error.message
+    return f"{error.kind.value}: {located}"
 
 
 def parse_script_errors(stderr: str) -> list[ScriptError]:

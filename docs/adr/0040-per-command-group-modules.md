@@ -153,3 +153,28 @@ src/gda/
 - Migration lands in reversible slices, each keeping ruff, pyright, and the
   fast suite green: extract `dispatch.py`; move the headless domain groups; move
   the live groups and `meta`; shrink the core files and drop the suppressions.
+
+> **Outcome (2026-09-01, #687):** the ADR-0004 amendment that put typed `evidence` on
+> the failure envelope moved two edges in the core, and §5's chain is the reason both
+> ended up where they did.
+>
+> - **`gda.models` -> `gda.script_errors` (new).** `FailureEvidence.script_errors` is a
+>   `list[ScriptError]`, so the models core now names a foundation module. Downward and
+>   consistent with §5, but not free: `script_errors` can never reach back for the
+>   shared field-description constants §4 assigns to `models.py` without closing a
+>   cycle. Accepted on cohesion — `ScriptError` is the parser's own published type and
+>   splitting it from the parser to satisfy an import would be worse.
+> - **`gda.errors` -> `gda.render` (added, then removed in the same PR's review).**
+>   Building the failure `diagnostics` prose from a renderer helper put the
+>   presentation layer inside the core's import closure, which §5's chain does not
+>   admit — `gda.render` is reached DOWN into from group altitude, and its symbols are
+>   imported nowhere else. It also gave one function two reasons to change, one of them
+>   a wire field: the same helper fed human stdout and a published `diagnostics`
+>   string. The form moved to `gda.script_errors` as `script_error_line()`, a lexical
+>   projection of the type that module owns, so `errors -> script_errors <- render` and
+>   both edges point downward. Pinned by
+>   `tests/test_render.py::test_only_the_group_layer_imports_the_presentation_module`.
+>
+> No general import-boundary gate was added. The one test above pins the single
+> direction this review found inverted; a repo-wide gate is a larger decision with its
+> own cost, and nothing yet shows the narrow pin is insufficient.

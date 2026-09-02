@@ -15,12 +15,14 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_serializer,
     model_validator,
 )
 
 from gda.execution import ExecutionKind
 from gda.live_numbers import find_unrepresentable
 from gda.project import is_engine_virtual_path
+from gda.script_errors import ScriptError
 
 
 class ErrorCategory(str, Enum):
@@ -79,6 +81,125 @@ class EnvironmentProbe(BaseModel):
     )
 
 
+# WHY this enum lives here and not beside ``script run`` (#687): it is projected
+# into the SHARED failure envelope through ``FailureEvidence.termination_phase``, so
+# it is now a property of the public contract rather than of one command. Prose is a
+# comment for the same reason the two models around it keep theirs out of the schema.
+#
+# The set answers the question an agent asks of a run that did not finish: was it
+# working, or was it stuck? An earlier draft named a third phase for "killed at the
+# timeout", which both timeout phases already are — what a reader cannot infer from
+# the code is whether the run had got anywhere, so that is what these distinguish.
+class TerminationPhase(str, Enum):
+    """How far a run gda ENDED had got when gda ended it (#655)."""
+
+    #: gda ended the run at its timeout and the engine had written NOTHING to
+    #: either stream. Rare and deliberately narrow: Godot prints its version banner
+    #: within ~0.1s of a normal spawn (measured), so this marks the engine never
+    #: reaching its own startup output — a wrapper that did not exec, or a hang
+    #: before stdio.
+    LAUNCHED = "launched"
+    #: gda ended the run at its timeout after output had appeared. The usual timeout
+    #: phase: the run was alive and did not finish, so the captured tail is how far
+    #: it got and the timeout is the knob.
+    OUTPUT_SEEN = "output_seen"
+    #: gda ended the run EARLY, before its timeout: a script error appeared, the
+    #: declared completion marker did not, and the run went silent (``script run``
+    #: only — it is the one channel with a Completion marker contract).
+    ABORTED_ON_ERROR = "aborted_on_error"
+
+
+# WHY this shape (kept as a comment, not a docstring — the schema cost rule the
+# models around it follow): #687 decided that the uniform failure ABI carries
+# optional TYPED evidence, and decided it as ONE universal fixed shape rather than a
+# per-command ``error`` schema, because ADR-0004 fixes the ``error`` half as "the one
+# shared GdaErrorEnvelope schema, identical for every command". The per-operation
+# variability lives INSIDE this object — every field is individually optional and
+# omitted when absent — so a timeout populates the clocks and a strict script failure
+# populates the status, without either being a different envelope.
+#
+# What may enter it: the fact must ALREADY be computed on the failure path, be
+# unrecoverable from the envelope without parsing prose, and change what the caller
+# does next. That is why the ``script run`` abort's silence window and declared
+# marker are NOT here — both are the caller's own inputs — while the parsed script
+# errors are: they existed and were thrown away (#651). ADR-0004's #687 amendment is
+# the AUTHORITY for that criterion and for the producer set it currently admits;
+# this restatement is the reader's copy beside the code, not a second rule.
+#
+# What it is NOT: a substitute for branching on ``code``. The verdict stays the code;
+# this is the evidence behind it. In particular a recognized error in
+# ``script_errors`` under a ``launch_timeout`` is ADVISORY and does not re-verdict the
+# timeout — the decision recorded in ADR-0002 for #716.
+class FailureEvidence(BaseModel):
+    """Typed evidence about a failure; a field this run cannot compute is omitted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    exit_status: int | None = Field(
+        default=None,
+        description=(
+            "The child process's own exit status, on a failure whose verdict IS "
+            "that status (script run --strict). Not the gda process exit code."
+        ),
+    )
+    elapsed_seconds: float | None = Field(
+        default=None,
+        description="Wall clock the run had used when gda ended it.",
+    )
+    timeout_seconds: float | None = Field(
+        default=None,
+        description=(
+            "The timeout ceiling this run reached. Set only on a timeout verdict, "
+            "naming the bound to raise before a rerun; a run gda ended short of "
+            "its ceiling (script_aborted) omits it — that --timeout is the "
+            "caller's own input."
+        ),
+    )
+    termination_phase: TerminationPhase | None = Field(
+        default=None,
+        description="How far the run gda ended had got.",
+    )
+    script_errors: list[ScriptError] | None = Field(
+        default=None,
+        description=(
+            "Engine/script errors recognized in this run's stderr, in emission "
+            "order — the same records, with the same keys, a successful run "
+            "reports as 'diagnostics'. THREE states, not two: absent means this "
+            "failure's channel does not parse stderr at all, so read "
+            "'diagnostics'; [] means it parsed and recognized none, which is "
+            "itself a finding; a non-empty list is what it recognized. Advisory: "
+            "the verdict is 'code', never an entry here."
+        ),
+    )
+
+    @field_serializer("script_errors")
+    def _keep_the_published_script_error_shape(
+        self, errors: list[ScriptError] | None
+    ) -> list[dict[str, Any]] | None:
+        """Serialize the records with their FULL key set, nulls included (#687 review).
+
+        The failure envelope is emitted with ``exclude_none``
+        (:func:`gda.headless.emit_failure`), which recurses. Without this, a null
+        ``path`` / ``line`` would be dropped from the nested records and the SAME
+        script error would carry different keys depending on which half of the
+        contract a caller read it from — four keys on ``script run``'s success
+        ``diagnostics``, two or three here — while both halves are described by one
+        published ``ScriptError`` schema whose ``path`` / ``line`` say "or null".
+
+        The omit-when-None rule the amendment rests on is about the OPTIONAL KEYS of
+        the envelope (``probe`` / ``hint`` / ``evidence``) and this object's own
+        fields, which is where it buys byte-identity for failures that compute no
+        evidence. It was never a claim about the published shape of a model nested
+        under one. So the rule stops at this boundary, and any future nested model
+        that is also published on a success result gets the same treatment.
+        """
+        return (
+            None
+            if errors is None
+            else [error.model_dump(mode="json") for error in errors]
+        )
+
+
 class GdaError(BaseModel):
     """A structured, stable failure of a ``gda`` operation (issue #3).
 
@@ -89,7 +210,12 @@ class GdaError(BaseModel):
     ``probe`` is optional context on the few environment failures gda decides by
     probing the host (ADR-0004 amendment, #667); ``hint`` is the supported
     invocation to use instead, on the refusals gda recognizes as a near miss
-    (#670). Both optional keys are OMITTED when unset, never null.
+    (#670); ``evidence`` is the typed evidence behind the verdict, on the failures
+    that compute any (#687). All three optional keys are OMITTED when unset, never
+    null, and so are ``evidence``'s own fields. The rule stops there: a model
+    NESTED inside one of them keeps its full published key set, so a record reads
+    the same on both halves of the contract (see
+    :meth:`FailureEvidence._keep_the_published_script_error_shape`).
     """
 
     category: ErrorCategory
@@ -99,9 +225,9 @@ class GdaError(BaseModel):
     # OMITTED — not ``null`` — from every failure that sets none: the emit path
     # (:func:`gda.headless.emit_failure`) serializes with ``exclude_none``, so each
     # other code's envelope JSON stays byte-identical to the pre-amendment contract.
-    # Deliberately the minimal axis — WHICH host call decided — never the
-    # operation-scoped typed EVIDENCE of a failure (parsed script errors, exit
-    # statuses), which is #687's separate decision (ADR-0004 amendment, #667).
+    # Deliberately the minimal axis — WHICH host call decided — never the typed
+    # EVIDENCE of a failure (parsed script errors, exit statuses), which #687 decided
+    # separately and carries in ``evidence`` below (ADR-0004 amendments, #667/#687).
     probe: EnvironmentProbe | None = Field(
         default=None,
         description=(
@@ -121,6 +247,17 @@ class GdaError(BaseModel):
         description=(
             "The supported invocation to run instead; the key is omitted (never "
             "null) when gda has no correction to offer."
+        ),
+    )
+    # The third optional key, on the axis ``probe`` and ``hint`` established (#687).
+    # Same rule, same emit path: omitted rather than null, so every failure that
+    # computes no evidence keeps its pre-#687 envelope bytes exactly.
+    evidence: FailureEvidence | None = Field(
+        default=None,
+        description=(
+            "Typed evidence behind this verdict (clocks, the child's exit status, "
+            "recognized script errors); the key is omitted (never null) on failures "
+            "that have none."
         ),
     )
 

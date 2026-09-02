@@ -30,6 +30,7 @@ They are the recipe's own test surface, complementary to the e2e round-trip in
 ``tests/test_e2e_script_run.py`` (real Godot).
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -41,7 +42,6 @@ from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023
     SCRIPT_RUN_COMMAND,
     SCRIPT_STDOUT_CAP,
     ScriptRunResult,
-    TerminationPhase,
     _CompletionMarkerWatch,
     run_script_run_operation,
 )
@@ -52,6 +52,7 @@ from gda.errors import (
     Failure,
 )
 from gda.execution import ExecutionKind
+from gda.models import TerminationPhase
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
 from gda.runner import LaunchFailure, LaunchWatch, RunResult
 
@@ -806,8 +807,9 @@ def test_the_default_timeout_is_still_the_documented_ceiling():
 
 def test_a_timeout_reflects_the_timeout_elapsed_and_phase_in_the_message():
     # AC: a run exceeding --timeout reports the ceiling it reached, the elapsed wall
-    # clock, and ONE enumerated termination phase. All prose — promoting them to
-    # envelope fields would change ADR-0004's failure ABI, which #687 owns.
+    # clock, and ONE enumerated termination phase. The MESSAGE keeps all three as
+    # prose, unchanged by #687 — the typed form beside it is additive, and the test
+    # below is what pins it.
     outcome, _ = _run(
         _timed_out(stdout="Godot Engine v4.6.3\nSUITE START\n", elapsed=30.25),
         timeout=30.0,
@@ -927,6 +929,145 @@ def test_an_aborted_run_is_the_registered_early_termination_verdict():
     # And it carries the same evidence a timeout does.
     assert "runtime_error: res://tests/logic.gd:6" in outcome.error.diagnostics
     assert "SUITE START" in outcome.error.diagnostics
+
+
+# --- #687: the same evidence, TYPED, on the envelope's optional `evidence` key.
+#
+# The ADR-0004 amendment made every fact these envelopes had been publishing as prose
+# available as data. What each test below pins is the DATA; the prose assertions above
+# are deliberately left intact, because the decision was additive — the message and
+# `diagnostics` are byte-for-byte what they were, and a consumer reading them is not
+# asked to migrate.
+
+
+def test_the_timeout_envelope_carries_its_three_numbers_and_the_parsed_cause():
+    # The three facts the message states in prose — the reached bound, the elapsed
+    # clock, how far the run got — are numbers an agent reads directly; they choose
+    # the next bound, not a slow-versus-stuck verdict. And the
+    # script errors under a timeout are the #716 case: the verdict stays the timeout,
+    # while the precise cause rides `evidence` instead of being thrown away.
+    outcome, _ = _run(
+        _timed_out(stdout="SUITE START\n", stderr=ABORTED_STDERR, elapsed=30.25),
+        timeout=30.0,
+    )
+
+    assert isinstance(outcome, Failure)
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    assert evidence.elapsed_seconds == 30.25
+    assert evidence.timeout_seconds == 30.0
+    assert evidence.termination_phase is TerminationPhase.OUTPUT_SEEN
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == ["runtime_error"]
+    assert evidence.script_errors[0].path == "res://tests/logic.gd"
+    assert evidence.script_errors[0].line == 6
+    # The verdict is still the code, never an entry in that list (ADR-0002, #716).
+    assert outcome.error.code == "launch_timeout"
+    # A timeout has no child exit status to report — the child never exited — so the
+    # field is absent rather than a stand-in number.
+    assert evidence.exit_status is None
+
+
+def test_the_narrower_timeout_phase_is_data_too():
+    # `launched` is the phase worth branching on: the engine never reached its own
+    # startup output, so this is the one timeout where suspecting the binary or the
+    # host is the right next step. Reading it off `evidence` is what spares an agent
+    # from matching that distinction in the message.
+    outcome, _ = _run(_timed_out(), timeout=30.0)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.evidence is not None
+    assert outcome.error.evidence.termination_phase is TerminationPhase.LAUNCHED
+    # No recognized error is an EMPTY list, not an absent key: the parse ran and
+    # found nothing, which is itself the diagnosis the prose states.
+    assert outcome.error.evidence.script_errors == []
+
+
+def test_the_abort_envelope_omits_the_ceiling_it_did_not_reach():
+    # An abort stops SHORT of its ceiling, so the `--timeout` value is not a fact
+    # this run measured — it is the caller's own input, the same ground that keeps
+    # the silence window and the declared marker out of `evidence` (ADR-0004). The
+    # message still names it; `timeout_seconds` stays the reached ceiling only.
+    outcome, _ = _run(
+        RunResult(
+            stdout="SUITE START\n",
+            stderr=ABORTED_STDERR,
+            exit_code=EXIT_OPERATION,
+            launch_failure=LaunchFailure.ABORTED,
+            elapsed_seconds=3.4,
+        ),
+        timeout=120.0,
+        completion_marker="SUITE DONE",
+    )
+
+    assert isinstance(outcome, Failure)
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    assert evidence.elapsed_seconds == 3.4
+    assert evidence.timeout_seconds is None
+    assert evidence.termination_phase is TerminationPhase.ABORTED_ON_ERROR
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == ["runtime_error"]
+
+
+def test_an_entry_load_verdict_carries_the_WHOLE_parsed_list():
+    # THE #651 DISCARD, closed. These errors were parsed to REACH this verdict and
+    # then thrown away, leaving the caller to re-parse `diagnostics` (raw stderr) to
+    # see the cascade. The whole list ships, not only the entry-load error the code
+    # names: the rest is what else the engine said, which is frequently the real
+    # cause of a compile failure.
+    outcome, _ = _run(RunResult(stdout="", stderr=PARSE_ERROR_STDERR, exit_code=0))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_compile_failed"
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == [
+        "parse_error",
+        "compile_failed",
+    ]
+    assert evidence.script_errors[0].line == 4
+    # A run that never started has no clock and no phase of its own: gda did not end
+    # it, the engine exited. Those fields are absent rather than zeroed.
+    assert evidence.elapsed_seconds is None
+    assert evidence.termination_phase is None
+
+
+def test_strict_reports_the_child_status_as_data_beside_the_parsed_cause():
+    # The asymmetry that argued for this: the SAME run without --strict returns a
+    # typed `exit_status` on its success result, so opting into the flag used to cost
+    # the caller a parsed value and force it to read a number out of a sentence.
+    outcome, _ = _run(
+        RunResult(stdout="1 failed\n", stderr=RUNTIME_ERROR_STDERR, exit_code=3),
+        strict=True,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_failed"
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    # The CHILD's status. gda's own process exit stays the registry's 4, because a
+    # script's quit(3) must not alias a gda exit code.
+    assert evidence.exit_status == 3
+    assert outcome.exit_code == EXIT_OPERATION
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == ["runtime_error"]
+
+
+def test_a_script_run_failure_decided_before_any_launch_carries_no_evidence():
+    # The scope of the amendment, at this channel's own edge: a refusal decided
+    # before a process exists has nothing to evidence, so the key is OMITTED and the
+    # envelope is byte-identical to its pre-#687 form. (The registry-wide version of
+    # this guard lives in tests/test_error_registry.py.)
+    outcome, _ = _run(
+        RunResult(stdout="", stderr="", exit_code=0), script="/abs/logic.gd"
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.evidence is None
+    emitted = json.loads(outcome.error.model_dump_json(exclude_none=True))
+    assert set(emitted) == {"category", "code", "message", "diagnostics"}
 
 
 def _drive(watch, steps):
@@ -1307,8 +1448,8 @@ def test_the_abort_envelope_names_the_condition_without_a_marker_string():
         timeout=120.0,
         elapsed=3.4,
         silence=SCRIPT_RUN_ABORT_SILENCE_SECONDS,
-        phase=TerminationPhase.ABORTED_ON_ERROR.value,
-        script_errors="",
+        phase=TerminationPhase.ABORTED_ON_ERROR,
+        script_errors=[],
         stdout="",
         stderr="",
     )

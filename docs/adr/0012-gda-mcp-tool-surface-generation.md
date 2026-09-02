@@ -129,3 +129,20 @@ does not decide for them.
 > changed (`inputSchema`/`outputSchema` → `input_schema`/`output_schema` on the
 > v2 wire models); this ADR's prose keeps the v1 names as its point-in-time
 > record.
+
+> **Outcome (2026-09-01, #687):** the aggregate's per-entry repetition of the shared
+> `error` schema is now the dominant term in the manifest's size. ADR-0004's #687
+> amendment added typed `evidence` to the one shared failure envelope, and because
+> each of the 76 entries carries its own copy of that envelope, one shared change
+> moved the dump from 675,342 to 979,618 bytes (+45%). Nothing about the transform
+> changed — gda-mcp still consumes the dump with zero per-command knowledge, and the
+> `error` half is still ONE schema, byte-identical across all 76 entries.
+>
+> That identity is what makes the obvious remedy mechanical: hoisting the shared
+> envelope to a manifest-level `$defs` and referencing it per entry would land the
+> document BELOW its pre-#687 size, because the repetition predates that amendment.
+> It changes the entry shape gda-mcp reads, so it is this ADR's contract to change,
+> not #687's, and it is not urgent — startup cost is one dump and one parse.
+> Recorded here so the next amendment to the shared envelope is priced against the
+> aggregate rather than against one entry. Recorded as a follow-up; not yet
+> tracked by an issue.

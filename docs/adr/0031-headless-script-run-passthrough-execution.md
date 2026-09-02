@@ -491,3 +491,40 @@ added incrementally under ADR-0025 if a concrete need appears.
 > three channels gained the same clause, plus the caller-first remediation order this
 > channel's message already had.) Typed delivery of those parsed errors — which serves
 > the same need better than a re-verdict would — remains #687's.
+
+> **Outcome (2026-08-31, #687) — the deferral above is settled: ADOPTED.** The two
+> amendments that named #687 promised this channel's envelope would adopt whatever it
+> decided; it decided to carry typed evidence, so the promise is now discharged rather
+> than left open. The shape, the criterion for what may enter it, and the boundaries
+> are recorded ONCE in
+> [ADR-0004's `Amendment (2026-08-31, #687)`](0004-schema-flag-self-description.md) and
+> are not restated here. What changes for `script run`:
+>
+> - The child's numeric **exit status** is data on `--strict`'s `script_failed`
+>   envelope, not only message prose — the asymmetry that argued for it is this ADR's
+>   own: the very same run WITHOUT `--strict` returns a typed `exit_status` on its
+>   success result, so opting into the flag used to cost the caller a parsed value.
+> - The **parsed `ScriptError[]`** rides every failure of this channel — the point-1
+>   verdicts (`script_not_found` / `script_compile_failed` /
+>   `incompatible_script_type`), `--strict`'s `script_failed`, and both gda-ended
+>   runs — as the WHOLE list, not only the entry-load error that decided the verdict.
+>   The rest of the list is frequently the real cause (a dependency that would not
+>   preload). Note the set is wider than "failures decided from stderr": only the
+>   point-1 verdicts are decided that way, `script_failed` is decided from the exit
+>   status and the two gda-ended runs from the clock and the silence watch — they
+>   carry the parsed list because it exists, not because it decided anything. The
+>   records keep the same four keys they have on the success result, `path` / `line`
+>   null where the engine named neither.
+> - The **elapsed clock, the ceiling and the termination phase** are data on the two
+>   gda-ended envelopes, and `TerminationPhase` moved out of this command into the
+>   shared model: every launch-backed channel's `launch_timeout` reports it now, so it
+>   is a property of the envelope rather than of `script run`.
+>
+> Two things deliberately did NOT change. The **prose is kept byte-for-byte** —
+> `diagnostics` still opens with the recognized errors and carries both labelled
+> streams, rendered from the same single parse the typed key carries — so this is
+> additive for every consumer that reads it. And the `launch_timeout` verdict is
+> **still not re-verdicted** by a recognized error in the capture: ADR-0002's
+> `Outcome (2026-08-31, #716 / #717)` note stands unchanged, and typed evidence is
+> what makes it comfortable to leave standing — the honest verdict now ships with the
+> precise cause attached.

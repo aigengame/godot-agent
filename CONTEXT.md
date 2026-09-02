@@ -236,6 +236,30 @@ The structured failure result that distinguishes a failed command from a
 successful result.
 _Avoid_: error blob, failure JSON
 
+**Failure evidence**:
+The typed facts BEHIND a verdict, carried on the `Error envelope`'s optional
+`evidence` key (ADR-0004 amendment, #687) — never a substitute for branching on the
+`Gda error code`, which stays the verdict. One fixed shape shared by every command,
+because ADR-0004 fixes the `error` half as one schema identical for all; the
+per-operation variability lives INSIDE it, every field individually optional and
+omitted rather than null, so a timeout populates the clocks (`elapsed_seconds`,
+`timeout_seconds`, `termination_phase`) while a `script run --strict` failure
+populates the child's `exit_status`, and both carry the parsed `script_errors` where
+the channel has them. The omitted-never-null rule governs the key and this object's
+own fields, and stops there: a model NESTED inside it that is also published on a
+success result keeps its full key set, so one record reads the same on both halves of
+the contract. **Not** the free-form `diagnostics` string beside it — the two ship
+together and say different things: `diagnostics` is the prose a human reads (the
+recognized-error lines and the captured streams), evidence is the same facts typed
+for a machine. That is why the streams are NOT duplicated here. ADR-0004's #687
+amendment is the authority for what may enter the object and for the producer set
+that carries it today; the short form is that a fact must already be computed on the
+failure path, be unrecoverable without parsing prose, and change what the caller does
+next. Third key on the axis that `probe` and `hint` established, and CLI-side like
+`hint`: neither the GDScript sentinel's `OperationError` nor the harness's `LiveError`
+emits or reads it.
+_Avoid_: diagnostics, error context, error details
+
 **Near-miss hint**:
 The corrected invocation gda returns when it RECOGNIZES a wrong one — an unknown
 command or option it holds a curated entry for (`gda scene inspect` → `gda scene

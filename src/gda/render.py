@@ -27,7 +27,6 @@ from collections.abc import Sequence
 from typing import Any, Protocol
 
 from gda.models import NodeProperty
-from gda.script_errors import ScriptError
 
 
 def format_value(value: Any) -> str:
@@ -39,28 +38,6 @@ def format_value(value: Any) -> str:
     ``[x, y]``), and this owns that projection for the human path.
     """
     return json.dumps(value)
-
-
-def render_script_error_location(diagnostic: ScriptError) -> str:
-    """``<path>:<line>: <message>`` for one script error, dropping the parts it lacks.
-
-    Two groups render recognized script errors now — ``script run``'s passed-through
-    diagnostics and ``scene preflight``'s startup diagnostics — so the one-line
-    location form lives here rather than in either group, and reads identically in
-    both. Typed against :class:`~gda.script_errors.ScriptError` directly, unlike the
-    structural :class:`NodeOutline` below: that one bridges several GROUP models,
-    while this is one model from a foundation module the presentation layer may name
-    (``gda.script_errors`` imports only ``gda.engine_log``), so a Protocol would buy
-    nothing here.
-
-    An engine-side load failure carries no script line, and some carry no path at
-    all, so each piece is included only when the engine reported it — never as an
-    empty ``:`` or a bare ``None``.
-    """
-    where = diagnostic.path or ""
-    if diagnostic.path is not None and diagnostic.line is not None:
-        where = f"{diagnostic.path}:{diagnostic.line}"
-    return f"{where}: {diagnostic.message}" if where else diagnostic.message
 
 
 class NodeOutline(Protocol):

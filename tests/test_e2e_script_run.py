@@ -404,6 +404,18 @@ def test_script_run_missing_script_is_script_not_found(godot_project):
     assert err["code"] == "script_not_found"
     assert err["category"] == "operation"
     assert "res://no-such-script.gd" in err["message"]
+    # ONE `ScriptError` shape on both halves of the contract (#687 review), pinned on
+    # the REAL engine's most common record: a load failure carries NO line, so the
+    # failure half is exactly where the recursive `exclude_none` used to drop the key
+    # and leave an agent following the schema — or SKILL.md — with a KeyError. `line`
+    # must be present and null, the same four keys a successful run's `diagnostics`
+    # carries. Asserted as a key set, because the defect was a missing key, not a
+    # wrong value.
+    errors = err["evidence"]["script_errors"]
+    assert errors, err["evidence"]
+    for error in errors:
+        assert set(error) == {"kind", "message", "path", "line"}, error
+    assert any(error["line"] is None for error in errors), errors
 
 
 @pytest.mark.e2e
@@ -432,6 +444,30 @@ def test_script_run_parse_error_dependency_is_script_compile_failed(godot_projec
     # The engine's stderr is preserved as secondary evidence, naming the dependency
     # the entry script could not preload.
     assert "broken_dep.gd" in err["diagnostics"]
+    # THE #651 DISCARD, closed end to end (#687): the errors gda parsed to REACH this
+    # verdict now ship as DATA rather than leaving the caller to re-parse the raw
+    # stderr. The WHOLE list, not only the entry the code names — pinned against what
+    # the REAL engine emits for a failed preload, which is two records about the ENTRY
+    # script (the engine attributes both to it; the dependency is named in the parse
+    # error's message, never as a path of its own).
+    errors = err["evidence"]["script_errors"]
+    kinds = [e["kind"] for e in errors]
+    # The CASCADE is what proves the whole list ships: this one failed preload makes
+    # the real engine emit several `parse_error` records and then the `compile_failed`
+    # that decided the code. Only the last of them is the verdict's own error; an
+    # envelope carrying that one alone would drop every record naming the cause.
+    assert kinds[-1] == "compile_failed"
+    assert kinds.count("parse_error") >= 1
+    assert len(errors) > 1, errors
+    # The engine attributes all of them to the ENTRY script — the dependency is named
+    # in the message, never as a path of its own — so a caller must read the message,
+    # not assume the path points at the culprit.
+    assert {e["path"] for e in errors} == {"res://suite.gd"}
+    # And the typed form carries what the raw stderr made the caller re-parse: the
+    # LINE of the failed preload, which is the caller's next stop.
+    preload_error = next(e for e in errors if "broken_dep.gd" in e["message"])
+    assert preload_error["kind"] == "parse_error"
+    assert preload_error["line"] == 3
 
 
 @pytest.mark.e2e
@@ -605,6 +641,20 @@ def test_script_run_strict_fails_on_an_explicit_non_zero_quit(godot_project):
     assert err["code"] == "script_failed"
     assert err["category"] == "operation"
     assert "status 1" in err["message"]
+    # #687 (the ADR-0004 amendment) end to end: the CHILD's status is data on the
+    # envelope, not only a number inside an English sentence — while the gda PROCESS
+    # still exits 4, because a script's quit(1) must not alias a registry exit code.
+    assert err["evidence"]["exit_status"] == 1
+    # And no key the run did not compute: a script that RAN has no launch clock and
+    # no termination phase, so those are absent rather than zeroed. An EQUALITY, not
+    # a subset (#687 review): `<=` could not tell a present `script_errors` from a
+    # missing one, which is the very distinction the line below pins.
+    assert set(err["evidence"]) == {"exit_status", "script_errors"}
+    # The middle of `script_errors`' three states, on a real engine: this channel DID
+    # parse the stderr and recognized nothing — a clean script that simply chose a
+    # non-zero status. `[]` says that, where an absent key would say "gda did not
+    # look". Collapsing the two would erase a distinction a caller acts on.
+    assert err["evidence"]["script_errors"] == []
 
 
 @pytest.mark.e2e
@@ -775,8 +825,9 @@ def test_script_run_returns_the_captured_error_of_an_aborted_run(godot_project):
 def test_script_run_timeout_returns_partial_output_elapsed_and_a_phase(godot_project):
     # THE #655 AC (GDA-DF-032): a run exceeding --timeout returns the captured partial
     # output with the cap stated, the elapsed seconds, and one enumerated termination
-    # phase — so a suite that is merely slow is no longer indistinguishable from a
-    # hang. No marker is declared here, so this is the plain timeout path.
+    # phase — how long it ran and how far it got are no longer discarded; the
+    # capture's progress, not the numbers alone, is what separates a busy suite from
+    # a silent hang. No marker is declared here, so this is the plain timeout path.
     (godot_project / "slow.gd").write_text(SLOW_BUT_HEALTHY_GD, encoding="utf-8")
 
     run = _run_gda(

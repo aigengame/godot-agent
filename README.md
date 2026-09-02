@@ -70,7 +70,10 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
   and mapped to a **stable non-zero exit code** plus a structured `{"error": {…}}`
   envelope — so a shell or agent can branch on the failure category without parsing prose.
   A command or option `gda` does not recognize is refused the same structured way, with a
-  `hint` naming the invocation to use instead.
+  `hint` naming the invocation to use instead. Where a failure computed evidence, that
+  evidence is on the envelope too — an optional `evidence` object carrying the elapsed
+  clock and the ceiling a timed-out run reached, the child's own exit status, the parsed
+  script errors — so an agent branches on numbers instead of parsing the message.
 
 ---
 

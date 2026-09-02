@@ -735,7 +735,9 @@ run ended, not the host: the remediation reads caller-first, so raise `--timeout
 the capture before suspecting the binary or the machine. And the recognized script errors
 the diagnostics carry are ADVISORY — they never re-verdict the timeout into an entry-load
 code, because the capture is tail-capped and was cut mid-flight, so a recognized line can be
-one the run survived. Typed delivery of those errors is #687's, not a re-verdict.
+one the run survived. Those errors are delivered TYPED instead (#687, the ADR-0004
+amendment), which is what makes the advisory rule workable: the honest verdict ships with
+the precise cause attached rather than instead of it.
 `--completion-marker <line>` declares a liveness contract — the script prints that line when
 its work is done — and a run that hit a recognized error attributable to the entry script, has
 not printed the marker, and then goes silent on both streams is ended in seconds and reported
@@ -744,6 +746,21 @@ arms that abort even though it is recognized (#722): it interrupts nothing — e
 continues at the next statement — so a script that reports an invariant and then computes
 quietly is alive by construction. It does appear in the run's `diagnostics`, which are advisory:
 a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
+Every `script run` failure that computed evidence also carries it as DATA on the
+envelope's optional `evidence` key (#687): the child's own `exit_status` on `--strict`'s
+`script_failed`; `elapsed_seconds` / `termination_phase` on the two gda-ended envelopes,
+with `timeout_seconds` — the reached ceiling — on the timeout one only (an abort stops
+short of its ceiling, so its `--timeout` stays in the message as the caller's own
+input); and the parsed `script_errors` on ALL of them — the never-ran
+verdicts (`script_not_found` / `script_compile_failed` / `incompatible_script_type`),
+`--strict`'s `script_failed`, and both gda-ended envelopes — as the WHOLE parsed list,
+not only the error that decided the code. An entry carries the same four keys
+(`kind` / `message` / `path` / `line`) it has on a successful run's `diagnostics`, and
+the list distinguishes three states: absent (this channel does not parse stderr), `[]`
+(parsed, recognized none) and populated. The key itself is omitted, never null, on a
+failure that computed none, and the prose above is unchanged: `diagnostics` still
+carries the same recognized-error lines and both labelled streams, rendered from the
+same single parse.
 The script executes in full, within the trusted-project assumption (ADR-0009).
 
 ### `project`
@@ -892,7 +909,10 @@ pass. A pass that outruns `--timeout` reports the shared `launch_timeout` envelo
 the pass's own captured output, the ceiling it reached and the elapsed clock — read it the
 caller-first way [`script run`](#script) describes: this is the one channel on that shared
 builder with a `--timeout` to raise (the sentinel's 60s and the export's 600s are gda's
-own, fixed). The pass executes engine importer code over project content — within the `Trusted
+own, fixed). The ceiling, the clock and the termination phase are also on the envelope's
+typed `evidence` key (#687) — the reached bound, the duration and how far the run got, as
+numbers rather than sentences; they support choosing the next bound, and do not by
+themselves name the cause. The pass executes engine importer code over project content — within the `Trusted
 project` assumption (ADR-0009), recorded on the Project-code execution surface (no new
 trust axis, per the issue's triage decision).
 

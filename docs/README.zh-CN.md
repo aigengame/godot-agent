@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6c11b5d19ab6c2261d2d6757a46b9d771ff4a74bdced94d057d6fe65332cce80 -->
+<!-- gda-readme-i18n: source=README.md sha256=5d4abe9c21590934b72f3ee5546b31f628d4de4d20ae7cff1eeb004af3a45da3 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -70,7 +70,9 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
 - **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错；引擎卡死则会触发超时处理。
   这些错误都会映射为一个**稳定的非零退出码**，并附带一个结构化的 `{"error": {…}}` 信封——这样 shell 或 agent
   无需解析自然语言文本，就能按失败类别分支处理。`gda` 不认识的命令或选项同样以结构化方式拒绝，
-  并在 `hint` 中给出应当改用的调用方式。
+  并在 `hint` 中给出应当改用的调用方式。若某个失败已经算出了证据，这些证据同样会随信封返回——
+  一个可选的 `evidence` 对象，携带超时运行已用的时钟与它触到的上限、子进程自身的退出状态、
+  解析出的脚本错误——于是 agent 可以按数值分支，而不必解析消息文本。
 
 ---
 
