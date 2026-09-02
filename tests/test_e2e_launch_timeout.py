@@ -250,9 +250,10 @@ def test_a_wedged_import_pass_reports_what_the_engine_printed(tmp_path):
     _assert_caller_first_remediation(error["message"])
     assert "PLUGIN WEDGED" in error["diagnostics"]
     # #687 (the ADR-0004 amendment) end to end, on a REAL wedged engine: the three
-    # facts the message states in prose also ride the envelope as DATA, so the
-    # comparison it asks for — slow versus stuck, started versus never started — is
-    # one an agent makes on numbers. Asserted here rather than only at the builder
+    # facts the message states in prose also ride the envelope as DATA, read as
+    # numbers — the reached bound, the clock, and started-versus-never-started via
+    # the phase (a slow-versus-stuck call needs more than these).
+    # Asserted here rather than only at the builder
     # because the clock and the phase are readings of a real process: a fake
     # RunResult would assert only the can.
     evidence = error["evidence"]

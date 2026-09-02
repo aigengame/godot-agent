@@ -910,8 +910,9 @@ the pass's own captured output, the ceiling it reached and the elapsed clock —
 caller-first way [`script run`](#script) describes: this is the one channel on that shared
 builder with a `--timeout` to raise (the sentinel's 60s and the export's 600s are gda's
 own, fixed). The ceiling, the clock and the termination phase are also on the envelope's
-typed `evidence` key (#687), so slow-versus-stuck is a comparison of numbers rather than
-of sentences. The pass executes engine importer code over project content — within the `Trusted
+typed `evidence` key (#687) — the reached bound, the duration and how far the run got, as
+numbers rather than sentences; they support choosing the next bound, and do not by
+themselves name the cause. The pass executes engine importer code over project content — within the `Trusted
 project` assumption (ADR-0009), recorded on the Project-code execution surface (no new
 trust axis, per the issue's triage decision).
 

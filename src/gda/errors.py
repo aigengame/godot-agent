@@ -399,9 +399,11 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
 
     What the envelope carries is the evidence the discard used to destroy: the
     partial output both streams held when gda ended the run, tail-capped with the
-    cap stated, plus the elapsed wall clock beside the ceiling — which is what tells
-    a run that was merely slow from one that was stuck (GDA-DF-012/GDA-DF-032, the
-    dogfooding pair that #655 fixed for ``script run`` and this closes for the rest).
+    cap stated, plus the elapsed wall clock beside the ceiling — the duration and
+    reached bound GDA-DF-012/GDA-DF-032 lacked (the dogfooding pair that #655 fixed
+    for ``script run`` and this closes for the rest). The numbers quantify the run
+    and pick the next bound; by themselves they do not tell a slow run from a stuck
+    one — the capture is what carries the progress.
 
     ``script run`` and ``scene preflight`` do NOT come here: each classifies its own
     timeout, because each has something to add this cannot know — a termination
@@ -438,9 +440,11 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     all four launch-backed channels and recorded in ADR-0002 beside the registry row.
 
     **The same three facts also ship as DATA** since #687: the ceiling, the elapsed
-    clock and the termination phase ride the envelope's ``evidence`` key, so the
-    comparison this message asks the caller to make in prose — slow versus stuck,
-    started versus never started — is one an agent makes on numbers. The prose is
+    clock and the termination phase ride the envelope's ``evidence`` key, so what
+    the message states in prose is read as numbers rather than by matching a
+    sentence. The phase does distinguish ``launched`` from ``output_seen``; none of
+    the three tells a slow run from a stuck one by itself — that would be the same
+    unearned inference the remediation above refuses. The prose is
     unchanged; the typed form is additive, and the streams stay in ``diagnostics``
     only, since duplicating two 16 KiB captures into the evidence object would
     double the payload to say the same thing twice.
@@ -931,8 +935,9 @@ def script_run_timeout_failure(
     So the message carries the three numbers a caller acts on — the ``--timeout``
     that was reached, the elapsed wall clock, and the termination ``phase`` — plus
     the stated output cap, and the diagnostics carry the captured tail. An agent
-    reading only ``message`` can already tell "raise ``--timeout``" from "this run
-    is stuck".
+    reading only ``message`` already has the reached bound, the duration and how
+    far the run got — enough to choose the next ``--timeout``, though not, on those
+    numbers alone, whether the run was slow or stuck.
 
     The message also states that the recognized errors are ADVISORY (#716). This is
     the channel where that matters most: the diagnostics here open with "recognized

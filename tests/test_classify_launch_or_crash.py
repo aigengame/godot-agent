@@ -90,7 +90,7 @@ def test_a_timeout_carries_the_captured_output_the_ceiling_and_the_clock():
     assert isinstance(failure, Failure)
     assert failure.error.code == "launch_timeout"
     # WHICH launch gave up, the ceiling it reached, and the wall clock it spent —
-    # the three numbers that tell a merely-slow run from a stuck one.
+    # the three numbers that name the consumed bound and what raising it buys.
     assert failure.error.message.startswith("Godot export launched but did not return")
     assert "timeout of 600.0s" in failure.error.message
     assert "elapsed 601.25s" in failure.error.message
@@ -219,9 +219,9 @@ def test_the_timeout_message_says_a_captured_error_is_advisory():
 def test_the_shared_timeout_envelope_carries_its_numbers_as_data():
     # #687 (the ADR-0004 amendment) on the SHARED builder, so this holds for all
     # three channels that reach it. The three facts #714 put in the message — the
-    # ceiling, the elapsed clock, and how far the run got — are now also DATA, so the
-    # slow-versus-stuck comparison the message asks for in prose is one an agent
-    # makes on numbers instead of by matching a sentence.
+    # ceiling, the elapsed clock, and how far the run got — are now also DATA, read
+    # as numbers instead of by matching a sentence; they support choosing the next
+    # bound, not a slow-versus-stuck verdict.
     failure = classify_launch_or_crash(
         RunResult(
             stdout="Godot Engine v4.6.3\n",

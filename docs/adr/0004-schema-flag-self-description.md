@@ -268,7 +268,7 @@ status: accepted
 > sentinel op knows it is not. That makes it the caller's own input, which is the same
 > ground the silence window and the declared completion marker are excluded on.
 > `timeout_seconds` still ships the ceiling's VALUE, which is not recoverable that way
-> and is what the slow-versus-stuck comparison needs; the remedy that follows from the
+> and is what choosing the next bound needs; the remedy that follows from the
 > provenance is in the message, which since #716/#717 names it for both cases.
 >
 > Facts that MEET the criterion and are still left in prose, so a later reader can

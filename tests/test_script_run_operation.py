@@ -941,8 +941,9 @@ def test_an_aborted_run_is_the_registered_early_termination_verdict():
 
 
 def test_the_timeout_envelope_carries_its_three_numbers_and_the_parsed_cause():
-    # The comparison the message asks a caller to make in prose — slow versus stuck,
-    # started versus never started — is one an agent now makes on numbers. And the
+    # The three facts the message states in prose — the reached bound, the elapsed
+    # clock, how far the run got — are numbers an agent reads directly; they choose
+    # the next bound, not a slow-versus-stuck verdict. And the
     # script errors under a timeout are the #716 case: the verdict stays the timeout,
     # while the precise cause rides `evidence` instead of being thrown away.
     outcome, _ = _run(

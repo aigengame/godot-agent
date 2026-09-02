@@ -825,8 +825,9 @@ def test_script_run_returns_the_captured_error_of_an_aborted_run(godot_project):
 def test_script_run_timeout_returns_partial_output_elapsed_and_a_phase(godot_project):
     # THE #655 AC (GDA-DF-032): a run exceeding --timeout returns the captured partial
     # output with the cap stated, the elapsed seconds, and one enumerated termination
-    # phase — so a suite that is merely slow is no longer indistinguishable from a
-    # hang. No marker is declared here, so this is the plain timeout path.
+    # phase — how long it ran and how far it got are no longer discarded; the
+    # capture's progress, not the numbers alone, is what separates a busy suite from
+    # a silent hang. No marker is declared here, so this is the plain timeout path.
     (godot_project / "slow.gd").write_text(SLOW_BUT_HEALTHY_GD, encoding="utf-8")
 
     run = _run_gda(
