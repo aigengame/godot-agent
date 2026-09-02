@@ -64,6 +64,7 @@ from gda.project import (
     RES_PREFIX,
     canonical_res_path,
     containment_refusal,
+    project_absolute,
     res_escape_remainder,
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
@@ -2180,7 +2181,11 @@ def _script_validate_recipe(
     built once by the caller, identical on the argv and ``--params-json`` paths
     (ADR-0015).
     """
-    root = None if project is None else project.expanduser().resolve()
+    # The SUCCESS path's root, normalized the way the refusal path's is (#807
+    # review): both sides of one verdict must reach the project by one reading, and
+    # the same call answering two spellings of one root is what #799 was.
+    # `project_absolute` differs only in staying total on an unresolvable `~user`.
+    root = None if project is None else project_absolute(project).resolve()
     for path in params.paths:
         # ONE call for both halves and their ordering (#802): the gate on ADR-0006's
         # path authority owns them, so this recipe states only WHICH targets it is

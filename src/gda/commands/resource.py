@@ -830,9 +830,11 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
         )
     # One coordinate system for BOTH sides before any comparison: a relative
     # --project must not meet an absolute candidate (#738 re-review 2 — the
-    # mixed comparison raised a bare ValueError on the lexical fallback). The
-    # gate below normalizes the same way; this local is for the res:// MAPPING
-    # further down, which needs the same absolute root.
+    # mixed comparison raised a bare ValueError on the lexical fallback). This
+    # local is for the res:// MAPPING further down, which needs the same absolute
+    # root the gate below reads. Not a two-places-must-agree coupling: there is one
+    # normalization RULE — `project_absolute` — and both sites call it, so the only
+    # cost of asking twice is a second `Path.cwd()` (#807 review).
     project_abs = project_absolute(project)
     # ONE call for ownership-then-containment and both refusal envelopes (#802).
     # What used to stand here — the two probes, their order, the four coordinates

@@ -525,26 +525,41 @@ def project_absolute(project: Path) -> Path:
 def containment_refusal(target: str, project: Path | None) -> "Failure | None":
     """The refusal when ``target`` does not belong to ``project`` — or ``None`` (#802).
 
-    THE gate behind ``target_outside_project``, and the whole of it: the one
+    THE gate behind ``target_outside_project`` once a project is RESOLVED: the one
     question "does this target belong to the resolved project?", asked in one
     order, answered in one pair of envelopes. Three commands ask it — ``script
     validate`` per batch entry, ``script run`` for its entry script, ``resource
     import`` per asset — and until #802 each wrote the composition by hand, so the
     ordering rule, the four coordinates and the ``.resolve()`` discipline were
-    interface cost every one of them paid. They had drifted once already (#763's
+    interface cost every one of them paid. They had drifted twice already (#763's
     postmortem, then #799's), which is why the cross-gate consistency test exists;
     it now guards this function's output rather than being the only thing holding
     three copies together.
 
-    **Ordering: ownership first, containment second.** Ownership is the more
-    specific diagnosis — it names the project that CAN serve the call and the
-    spelling to address the target by, so following the sentence verbatim works —
-    while containment can only say "not here, and I found no owner to send you
-    to". The two never both fire on one target (:func:`owning_project` answers
-    ``None`` for anything not inside the resolved tree, which is exactly what
-    :func:`path_outside_project` refuses), so the order is about which diagnosis a
-    caller gets, not about precedence between rival verdicts. Ownership is also
-    the only half a PROJECTLESS call can make: with no root there is nothing to be
+    One builder of that same code stays OUTSIDE this gate, deliberately:
+    :func:`gda.errors.script_escapes_project_failure`, ``script run``'s
+    pre-resolution address gate (ADR-0031). It decides on the spelling alone,
+    before there is a project to be outside OF, so it holds none of the four
+    coordinates a refusal from here reports; it reaches the same rule through
+    :func:`res_escape_remainder`, and the argument for keeping it apart is at the
+    builder. Everything downstream of a resolved project is here.
+
+    **Ordering: ownership first, containment second.** A real precedence rule, not
+    only a choice of wording, because the two halves CAN both fire on one target:
+    their bounds differ. :func:`owning_project` stops its walk by :func:`_within`,
+    which consults the lexical spelling unconditionally, while
+    :func:`path_outside_project` WITHHOLDS the lexical reading when either side
+    carries a ``..``. A file symlinked into the project from a tree that is itself
+    a project, addressed with a ``..``, therefore satisfies the walk's bound and
+    the containment refusal at once — the monorepo shared-addon layout
+    :func:`path_outside_project` exists for, plus a ``..`` in the spelling.
+    Ownership wins because it is the more specific diagnosis — it names the
+    project that CAN serve the call and the spelling to address the target by, so
+    following the sentence verbatim works — while containment can only say "not
+    here, and I found no owner to send you to". Swapping the two loses the
+    actionable half on exactly that layout, so the order is pinned by a test of
+    its own (#807 review) and not by this paragraph alone. Ownership is also the
+    only half a PROJECTLESS call can make: with no root there is nothing to be
     outside OF, so containment is skipped and a standalone file that no
     ``project.godot`` claims is served, as ADR-0006's projectless fallback
     promises.
@@ -567,7 +582,10 @@ def containment_refusal(target: str, project: Path | None) -> "Failure | None":
     # imports this module for `is_engine_virtual_path`, so a top-level import would
     # cycle. The dependency is genuinely one-way in every other direction — the
     # authority owns the RULE, the taxonomy owns the ENVELOPE — and this is the one
-    # place the two meet.
+    # place the two meet. Hosting the composition in `gda.errors` instead would need
+    # no lazy import (it already reaches this module through `gda.models`), and that
+    # is the alternative #802 weighed and declined: the rule belongs with the
+    # authority that owns it, and the deferred import is the price of the placement.
     from gda.errors import (
         target_outside_project_failure,
         target_owned_by_another_project_failure,

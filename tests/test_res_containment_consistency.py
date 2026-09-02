@@ -45,7 +45,12 @@ from gda.commands.script import (
     run_script_run_operation,
 )
 from gda.errors import Failure
-from gda.project import PROJECT_MARKER, path_outside_project
+from gda.project import (
+    PROJECT_MARKER,
+    containment_refusal,
+    owning_project,
+    path_outside_project,
+)
 
 # (spelling, contained) — the ONE verdict every gate must reach.
 CONTAINMENT = [
@@ -311,6 +316,13 @@ SCRIPT_RUN_SPELLINGS = [spelling for spelling, _ in CONTAINMENT] + [
     "res://bar.gd ",
     "res://ba\nr.gd",
     "user://x.gd",
+    # ...and the OTHER form the address gate accepts, which the claim below covers
+    # and this table did not (#807 review): a project-relative path, which
+    # `_project_scoped_res_path` lifts to `res://` before canonicalizing it. Plain,
+    # traversing-but-contained, and escaping.
+    "inner/main.gd",
+    "addons/lib/../lib/tool.gd",
+    "../outside.gd",
 ]
 
 
@@ -351,7 +363,10 @@ def test_every_gate_answers_a_relative_project_spelling_identically(
     # It does NOT discriminate between those two normalizations, and cannot: they
     # agree, which is the finding that let the gate adopt one of them. What it holds
     # is the agreement itself — a future normalization that anchored anywhere but the
-    # cwd, or resolved the project before the probes rather than after, fails here.
+    # cwd fails here. The other way to break the normalization, RESOLVING the project
+    # before the probes rather than after, is invisible to these rows and is pinned
+    # by `test_the_gate_reads_the_project_as_spelled_rather_than_pre_resolved`
+    # instead (#807 review).
     absolute = _envelopes(project, spelling)
 
     monkeypatch.chdir(project.parent)
@@ -362,6 +377,93 @@ def test_every_gate_answers_a_relative_project_spelling_identically(
     (project.parent / "alias").mkdir()
     assert _envelopes(Path(f"./{project.name}"), spelling) == absolute
     assert _envelopes(Path("alias") / ".." / project.name, spelling) == absolute
+
+
+@pytest.fixture
+def monorepo(project: Path) -> Path:
+    """``project`` with two sibling directories symlinked in (#807 review).
+
+    The shared-addon layout :func:`gda.project.path_outside_project`'s ``..`` guard
+    exists for, and the only input that can tell the gate's two halves — and its
+    two candidate normalizations — apart. ``addons/lib`` links to a tree that IS a
+    project, so ownership fires on it; ``addons/plain`` links to one that is not,
+    so ownership is silent and containment decides alone. Returns the sibling tree.
+    """
+    libs = project.parent / "libs"
+    (libs / "lib").mkdir(parents=True)
+    (libs / "lib" / PROJECT_MARKER).write_text("config_version=5\n", encoding="utf-8")
+    (libs / "lib" / "tool.gd").write_text("extends Node\n", encoding="utf-8")
+    (libs / "plain").mkdir()
+    (libs / "plain" / "tool.gd").write_text("extends Node\n", encoding="utf-8")
+    (project / "addons").mkdir()
+    (project / "addons" / "lib").symlink_to(Path("../../libs/lib"))
+    (project / "addons" / "plain").symlink_to(Path("../../libs/plain"))
+    return libs
+
+
+def test_ownership_wins_when_both_halves_of_the_gate_fire(project, monorepo):
+    # The ordering pin (#807 review). The gate's own docstring used to argue that
+    # the two halves never both fire; they can, because their bounds differ —
+    # `owning_project` stops its walk by a lexical reading it always consults, while
+    # `path_outside_project` withholds the lexical reading when either side carries
+    # a `..`. This target satisfies both at once: it is lexically inside `project`,
+    # it resolves into a sibling tree that is its OWN project, and the `..` in its
+    # spelling is what keeps containment from reading it lexically.
+    #
+    # Ownership must win, because it is the half that names the project to re-issue
+    # against and the spelling to use. Swapping the two halves in the gate answers
+    # the bare outside-root refusal on the two gates that take a filesystem path,
+    # while `script run` — whose canonical `res://` address makes the containment
+    # half inert — keeps answering ownership. So the assertions below are both
+    # halves of the same pin: the right diagnosis, and all three still agreeing.
+    target = "addons/lib/../lib/tool.gd"
+    assert owning_project(target, project) is not None, "ownership half fires"
+    assert path_outside_project(target, project) is not None, "containment half too"
+
+    envelopes = _envelopes(project, target)
+    for name, envelope in envelopes.items():
+        assert envelope["code"] == "target_outside_project", name
+        assert envelope["evidence"]["owning_project"] == str(
+            (monorepo / "lib").resolve()
+        ), name
+    values = list(envelopes.values())
+    assert values[1:] == values[:-1]
+
+
+def test_the_gate_reads_the_project_as_spelled_rather_than_pre_resolved(
+    project, monorepo
+):
+    # The other half of the normalization claim, which the spelling-equality rows
+    # above cannot carry (#807 review). `project_absolute` absolutizes the project
+    # but does NOT resolve it, because the double reading belongs to the probes:
+    # `path_outside_project` withholds its lexical reading when either side carries
+    # a `..`, so whether the PROJECT was spelled with one changes the verdict on a
+    # symlinked-in target. Pre-resolving here would strip the `..` before the probe
+    # ever reads it, re-enable the lexical reading, and turn this refusal into an
+    # acceptance — with every other assertion in this module still green.
+    #
+    # `script run` is absent for the reason its own inertness test states: it reaches
+    # the gate with a canonical `res://` address, which `path_outside_project`
+    # answers on the escape rule alone and never reads through the filesystem.
+    target = "addons/plain/tool.gd"
+    (project.parent / "alias").mkdir()
+    spelled = project.parent / "alias" / ".." / project.name
+
+    # Spelled without a `..`, the lexical reading stands and the target is inside...
+    assert containment_refusal(target, project) is None
+    assert _import_verdict(project, target) == "res://addons/plain/tool.gd"
+    # ...spelled through one, it is not, and both filesystem-path gates say so.
+    for name, outcome in (
+        (
+            "script validate",
+            _script_validate_recipe(
+                ScriptValidateParams(paths=[target]), project=spelled, godot=None
+            ),
+        ),
+        ("resource import", _import_verdict(spelled, target)),
+    ):
+        assert isinstance(outcome, Failure), name
+        assert outcome.error.code == "target_outside_project", name
 
 
 @pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
@@ -375,11 +477,19 @@ def test_the_three_gates_now_emit_ONE_envelope(project, nested, spelling):
     assert envelopes[1:] == envelopes[:-1]
 
 
-#: The two builders that construct a `target_outside_project` refusal. #802's first
-#: acceptance criterion is that no command module calls either: the gate owns the
-#: ordering AND the envelopes, so a command states only which target it is asking
-#: about. Named here rather than inferred, so adding a third builder is a change
-#: this test makes someone look at.
+#: The two builders that construct a `target_outside_project` refusal once a project
+#: is RESOLVED. #802's first acceptance criterion is that no command module calls
+#: either: the gate owns the ordering AND the envelopes, so a command states only
+#: which target it is asking about. Named here rather than inferred, so adding a
+#: builder is a change this test makes someone look at.
+#:
+#: `gda.errors.script_escapes_project_failure` is the recorded EXCLUSION, not an
+#: omission (#807 review): it builds the same code from `gda.commands.script`, and
+#: legitimately, because it is `script run`'s pre-resolution address gate (ADR-0031)
+#: — it decides on the spelling alone, before there is a project to be outside of,
+#: and so holds none of the coordinates the gate below reports. The set is therefore
+#: "the builders a command must route through the gate for", not "every builder of
+#: the code".
 CONTAINMENT_REFUSAL_BUILDERS = {
     "target_outside_project_failure",
     "target_owned_by_another_project_failure",
@@ -387,11 +497,21 @@ CONTAINMENT_REFUSAL_BUILDERS = {
 
 
 def _called_names(node: ast.AST) -> "set[str]":
-    return {
-        call.func.id
-        for call in ast.walk(node)
-        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
-    }
+    """Every name called under ``node``, plain or module-qualified.
+
+    `ast.Attribute` is read as well as `ast.Name` because the guard below is a
+    STRUCTURAL claim: `gda.errors.target_outside_project_failure(...)` is the same
+    fourth copy as the bare name, and it passed the name-only form (#807 review).
+    """
+    names: set[str] = set()
+    for call in ast.walk(node):
+        if not isinstance(call, ast.Call):
+            continue
+        if isinstance(call.func, ast.Name):
+            names.add(call.func.id)
+        elif isinstance(call.func, ast.Attribute):
+            names.add(call.func.attr)
+    return names
 
 
 def test_no_command_module_builds_a_containment_refusal_itself():
@@ -400,11 +520,12 @@ def test_no_command_module_builds_a_containment_refusal_itself():
     # how the copies drifted in the first place (#763, then #799). Read out of the
     # source, over the whole `gda.commands` package rather than the three modules
     # that used to do it, because a NEW command asking the same question is exactly
-    # the case that must route through the gate.
+    # the case that must route through the gate — recursively, so a future
+    # `gda/commands/<group>/` subpackage is scanned too (#807 review).
     package = Path(gda.commands.__file__).parent
     offenders = {
         module.name
-        for module in sorted(package.glob("*.py"))
+        for module in sorted(package.rglob("*.py"))
         if _called_names(ast.parse(module.read_text(encoding="utf-8")))
         & CONTAINMENT_REFUSAL_BUILDERS
     }
