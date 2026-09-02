@@ -655,15 +655,26 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     key set, so a record does not read differently depending on which half of the
     contract carried it (:class:`gda.models.FailureEvidence`).
 
-    The child run's stderr (``failure.child_stderr``, attached by
-    :meth:`HeadlessCommand.execute`) is forwarded to this process's stderr here,
-    where the channel is known — EXCEPT when the human channel is about to print
-    the very same bytes as ``diagnostics``, which would say one stream twice
-    across two streams (#798 review). Byte identity decides, not the error code:
-    a curated or capped ``diagnostics`` (the labeled ``--strict`` sections, a
-    timeout's tail-capped captures) differs from the raw stream, so its tee — the
-    only copy that is complete — survives. Under ``--json`` the tee is
-    unconditional, keeping that channel's bytes exactly as they were.
+    The child run's stderr (``failure.child_stderr``) is forwarded to this
+    process's stderr here, where the channel is known — EXCEPT when the human
+    channel is about to print the very same bytes as ``diagnostics``, which would
+    say one stream twice across two streams (#798 review). Byte identity decides,
+    not the error code: a curated or capped ``diagnostics`` (the labeled
+    ``--strict`` sections, a timeout's tail-capped captures) differs from the raw
+    stream, so its tee — the only copy that is complete — survives. Under
+    ``--json`` the tee is unconditional, keeping that channel's bytes exactly as
+    they were.
+
+    This is the ONE home of gda's child-stderr policy, and the whole of it is
+    learnable here. Two producers attach the field, and neither tees for itself:
+    :meth:`HeadlessCommand.execute` for the sentinel and live pipelines, and
+    ``scene preflight``'s recipe, which calls the launch primitive directly and so
+    had a private tee of its own until #803. A launch-backed channel gda adds
+    joins them by attaching rather than printing. The recorded EXCEPTION is
+    ``gda script run``, which tees nothing and attaches nothing: its success result
+    IS the promoted ``Raw run`` (ADR-0031), so the child's streams are the
+    operation's own published output rather than a diagnostic copy of it, and its
+    failures publish the captures as curated ``diagnostics`` sections instead.
     """
     if failure.child_stderr and (
         json_output or failure.error.diagnostics != failure.child_stderr

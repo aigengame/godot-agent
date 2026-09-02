@@ -212,6 +212,45 @@ the standard build), and they never determine the outcome or a stable code.
 >   meant. This widens no cross-language contract: neither GDScript surface emits or
 >   reads `hint`, and `OperationErrorEnvelope` stays `extra="forbid"`.
 
+> **Outcome (2026-09-02, #685 / #798 / #803) — the HUMAN failure channel, adjudicated.**
+> Everything above specifies the envelope; until #685 that was the whole of what gda
+> emitted, because a caller who passed no `--json` got the serialized envelope anyway.
+> #685 gave the same outcome a second rendering, and the #798 round-1 review flagged
+> that this made the human channel a public output surface with no ADR behind it. This
+> note is the record. It also gives `CONTEXT.md`'s *Error envelope* entry — "Two
+> renderings of ONE outcome, at one exit code, from one renderer" — its ADR backing,
+> by reference rather than by restatement.
+>
+> - **Every gda-classified failure renders for a human on `stdout`, through the one
+>   renderer** (`gda.render.render_failure`, reached only via `gda.headless.emit_failure`),
+>   the `usage` refusals (`unknown_command` / `unknown_option`) included. Routing those
+>   there is what made the one-renderer invariant TRUE rather than approximate, and what
+>   made the `hint:` line reachable at all — it is set nowhere else, so before #798 a
+>   human could never read it.
+> - **The recorded exception is click's own parse errors** (a missing argument, an
+>   invalid value), which stay click-formatted on `stderr`: gda never classified them,
+>   so it has no envelope to render. The same holds where gda recognizes a mistake but
+>   has no correction to add and no `--json` was asked for — it declines to answer and
+>   the parser's message stands. That is gda staying silent, not a second gda layout.
+> - **`--json` is untouched.** The envelope goes to `stdout` as it always did, byte for
+>   byte; the flag chooses the rendering, never the stream.
+> - **Reversal was considered and declined**, twice over. Sending the `usage` refusals
+>   back to `stderr` resurrects the defect #798 closed — two layouts for one category,
+>   and `hint` as a dead branch. Moving ALL human rendering to `stderr` would buy
+>   convention compliance at the cost of a cross-channel asymmetry with `--json`, plus a
+>   documentation and test resync, with no consumer evidence asking for it.
+>
+> One rule follows from the stream choice, and has ONE home
+> (`gda.headless.emit_failure`): a failed CHILD RUN's raw stderr is forwarded to gda's
+> own stderr, EXCEPT when the human channel is about to print those very bytes as
+> `diagnostics` — byte identity decides, so a curated or capped `diagnostics` keeps its
+> tee, and under `--json` the tee is unconditional. Producers attach the stream to the
+> `Failure` and never tee for themselves; #803 brought the last one that did — `scene
+> preflight`, which reaches the launch primitive directly instead of through the shared
+> pipeline — under the rule. Its own recorded exception is `gda script run`, which tees
+> nothing because its success result IS the promoted `Raw run` (ADR-0031): there the
+> child's streams are the operation's published output, not a diagnostic copy of it.
+
 ## `GdaError.code` registry
 
 `GdaError.code` values are a public ABI for agents. Their authoritative source is

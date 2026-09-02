@@ -40,7 +40,7 @@ from gda.models import (
 from gda.render import render_failure
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
 from gda.script_errors import ScriptError, ScriptErrorKind
-from tests.support import inject_runner
+from tests.support import error_sentinel, inject_runner, sentinel
 
 
 def _error(**overrides) -> GdaError:
@@ -543,3 +543,152 @@ def test_an_invalid_params_json_object_is_refused_in_lines(tmp_path):
     assert result.exit_code == EXIT_OPERATION, result.stdout
     assert result.stdout.splitlines()[0] == "error: invalid_params (operation)"
     assert "path: Field required" in result.stdout.splitlines()[1]
+
+
+# --- the launch-backed recipe channel -------------------------------------------
+#
+# `scene preflight` does not answer through `HeadlessCommand.execute` — it calls the
+# launch primitive itself, because it bifurcates on the launch's own outcome (#664).
+# It therefore did not inherit #798's rule and kept a private, unconditional tee at
+# the top of its recipe, so every op-reported refusal whose `diagnostics` IS the raw
+# stderr said those bytes twice, across two streams. What is pinned here is the rule
+# reaching this channel too — and, on the same four exit paths, the success-shaped
+# verdicts still forwarding the engine's stream, which is the only copy they have.
+
+_PREFLIGHT_STDERR = (
+    "gda: running operation: scene-preflight\n"
+    "ERROR: scene file not found: res://nope.tscn\n"
+)
+
+
+def _patch_preflight_launch(monkeypatch, result: RunResult) -> None:
+    """Swap the recipe's own launch seam (it does not go through the runner)."""
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        return result
+
+    monkeypatch.setattr("gda.commands.scene.launch", fake_launch)
+
+
+def _preflight(tmp_path, *extra: str):
+    return CliRunner().invoke(
+        app,
+        [
+            "scene",
+            "preflight",
+            "res://nope.tscn",
+            "--project",
+            str(_project(tmp_path)),
+            *extra,
+        ],
+    )
+
+
+def test_a_preflight_refusal_reaches_a_human_once_not_twice(monkeypatch, tmp_path):
+    # The red proof (#803): `path_not_found` is the reproduced case — the op reports
+    # a structured refusal, `classify_run` carries the raw stderr into `diagnostics`,
+    # and the human renderer lays those bytes out on stdout. The recipe's own tee
+    # said them again on stderr. Asserted per stream, not on a merged capture, since
+    # the defect IS the split across the two.
+    _patch_preflight_launch(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "path_not_found", "scene file not found: res://nope.tscn"
+            ),
+            stderr=_PREFLIGHT_STDERR,
+            exit_code=1,
+        ),
+    )
+
+    result = _preflight(tmp_path)
+
+    assert result.exit_code == EXIT_OPERATION, result.stdout + result.stderr
+    assert result.stdout.startswith("error: path_not_found (operation)\n")
+    assert "ERROR: scene file not found: res://nope.tscn" in result.stdout
+    assert _PREFLIGHT_STDERR not in result.stderr
+    both = result.stdout + result.stderr
+    assert both.count("ERROR: scene file not found: res://nope.tscn") == 1
+
+
+def test_the_same_preflight_refusal_under_json_keeps_its_stderr_tee(
+    monkeypatch, tmp_path
+):
+    # The scope boundary, identical to the sentinel channel's: `--json` is byte-for-
+    # byte what it was — the envelope alone on stdout, the child's stderr forwarded
+    # in full on stderr.
+    _patch_preflight_launch(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "path_not_found", "scene file not found: res://nope.tscn"
+            ),
+            stderr=_PREFLIGHT_STDERR,
+            exit_code=1,
+        ),
+    )
+
+    result = _preflight(tmp_path, "--json")
+
+    assert result.exit_code == EXIT_OPERATION, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "path_not_found"
+    assert result.stderr == _PREFLIGHT_STDERR
+
+
+def test_a_preflight_run_the_project_ended_says_its_stderr_once_too(
+    monkeypatch, tmp_path
+):
+    # The recipe's SECOND failure exit (`_ended_before_the_verdict`): a clean exit
+    # with no sentinel is the project's own `quit()`, and its `Failure` carries the
+    # same raw stderr as `diagnostics`. Funnelling the returns is what makes this
+    # path obey the rule as well as the classifier's.
+    _patch_preflight_launch(
+        monkeypatch,
+        RunResult(stdout="", stderr=_PREFLIGHT_STDERR, exit_code=0),
+    )
+
+    result = _preflight(tmp_path)
+
+    assert result.exit_code == EXIT_OPERATION, result.stdout + result.stderr
+    assert result.stdout.startswith("error: operation_failed (operation)\n")
+    assert _PREFLIGHT_STDERR not in result.stderr
+    both = result.stdout + result.stderr
+    assert both.count("ERROR: scene file not found: res://nope.tscn") == 1
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        pytest.param(
+            RunResult(
+                stdout=sentinel({"path": "res://nope.tscn", "status": "ready"}),
+                stderr=_PREFLIGHT_STDERR,
+                exit_code=0,
+            ),
+            id="the-verdict",
+        ),
+        pytest.param(
+            RunResult(
+                stdout="",
+                stderr=_PREFLIGHT_STDERR,
+                exit_code=124,
+                launch_failure=LaunchFailure.TIMEOUT,
+                elapsed_seconds=8.1,
+                timeout_bound=TimeoutBound("Godot scene preflight", 8.0),
+            ),
+            id="the-timeout-verdict",
+        ),
+    ],
+)
+def test_a_preflight_verdict_still_forwards_the_engines_stderr(
+    monkeypatch, tmp_path, run
+):
+    # The other two exits are SUCCESS-shaped, and a success has no `diagnostics`
+    # block to duplicate: the tee is the reader's only copy of what the engine
+    # printed, so removing the recipe's unconditional tee must not remove theirs.
+    _patch_preflight_launch(monkeypatch, run)
+
+    result = _preflight(tmp_path)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert result.stderr == _PREFLIGHT_STDERR
