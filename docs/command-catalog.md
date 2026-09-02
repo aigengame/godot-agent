@@ -433,10 +433,11 @@ verdict from a real engine.
 half, shared by every `--value` a command coerces to a float: `node set`, `resource set`,
 `project set` and the live `game set`. They coerce with the engine's own parser
 (`String.to_float`, which is `built_in_strtod` — the same function `JSON.parse_string` calls for
-a number), so the losses the live wire documents apply here too, and gda draws the same line: a
-literal that parser turns into `0.0` or `NaN` **when the caller wrote no zero** is REFUSED
-(`uncoercible_value` / `live_uncoercible_value`, exit 4, target untouched); low-order drift is
-disclosed. Three classes are refused, each measured on a real engine: `2.2250738585072014e-308`
+a number), so the losses the live wire documents apply here too, and gda draws the same line,
+in two clauses: a literal that parser turns into `0.0` is REFUSED **when the literal does not
+denote zero**, and a literal it turns into `NaN` is REFUSED outright — `0e600` denotes zero and
+still falls, by the second clause (`uncoercible_value`, exit 4, headless; `live_uncoercible_value`,
+exit 6, live; target untouched); low-order drift is disclosed. Three classes are refused, each measured on a real engine: `2.2250738585072014e-308`
 and `5e-324`, which no decimal spelling delivers (the −309 cliff the live wire refuses); a
 FIXED-notation literal whose first 18 mantissa digits are leading zeros, because the parser's
 18-digit cap counts them — `0.000000000000000001` reads as `0.0` while `1e-18` is exact; and
@@ -1067,8 +1068,8 @@ re-derives every verdict from a running engine.
   are published per-field in help and `--schema` and name the WIRE, a leg a headless
   reply never crosses, so they stay on the live commands rather than moving onto the
   property shape both share. The WRITE sides now agree in substance too: a `--value`
-  string is coerced by that same parser, and a literal it turns into `0.0` or `NaN` when
-  the caller wrote no zero is REFUSED as `uncoercible_value`
+  string is coerced by that same parser, and a literal it turns into `0.0` when the
+  literal does not denote zero, or into `NaN` at all, is REFUSED as `uncoercible_value`
   ([#772](https://github.com/aigengame/godot-agent/issues/772)). The two refusals ask the
   question differently for one reason — the wire PREDICTS the outcome because gda spells
   the literal, a write OBSERVES it because the caller does. See "Number coercion" under

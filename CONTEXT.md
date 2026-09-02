@@ -200,8 +200,9 @@ writer — the harness since #752, the headless operations payload since #771 �
 so a projected float is the exact binary64 the subject holds, on either
 channel, with one shared residual the engine decides before the writer is
 consulted: a negative zero reads back as `0.0`. The WRITE sides answer alike
-from one principle — a literal the engine's parser reads as `0.0` or `NaN` although
-no zero was written is REFUSED, never stored — but ask the question differently,
+from one principle, in two clauses — a literal the engine's parser reads as `0.0`
+when the literal does not denote zero, or as `NaN` at all, is REFUSED, never
+stored — but ask the question differently,
 because the two know the literal at different times: on the live wire gda spells it,
 so the refusal PREDICTS the outcome before the request is relayed (#752), while a
 `--value` string is spelled by the CALLER, so `node set` / `resource set` /
