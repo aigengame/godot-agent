@@ -1077,7 +1077,7 @@ def run_scene_preflight_operation(
         timeout_label="Godot scene preflight",
     )
     outcome = _preflight_verdict(raw, params, binary, root)
-    # The engine's own stream, forwarded on exactly ONE channel — the same rule
+    # The engine's own stream, forwarded once for a human — the same rule
     # ``HeadlessCommand.execute`` follows since #798, which this recipe did not
     # inherit because it does not go through it (#803). A preflight's stderr is
     # where the booted scene's verbatim complaints are, so it must reach the reader;

@@ -244,12 +244,15 @@ the standard build), and they never determine the outcome or a stable code.
 > (`gda.headless.emit_failure`): a failed CHILD RUN's raw stderr is forwarded to gda's
 > own stderr, EXCEPT when the human channel is about to print those very bytes as
 > `diagnostics` — byte identity decides, so a curated or capped `diagnostics` keeps its
-> tee, and under `--json` the tee is unconditional. Producers attach the stream to the
-> `Failure` and never tee for themselves; #803 brought the last one that did — `scene
-> preflight`, which reaches the launch primitive directly instead of through the shared
-> pipeline — under the rule. Its own recorded exception is `gda script run`, which tees
-> nothing because its success result IS the promoted `Raw run` (ADR-0031): there the
-> child's streams are the operation's published output, not a diagnostic copy of it.
+> tee, and under `--json` the tee is unconditional. On a FAILURE producers attach the
+> stream to the `Failure` and never tee it for themselves; #803 brought the last one
+> that did — `scene preflight`, which reaches the launch primitive directly instead of
+> through the shared pipeline — under the rule. A SUCCESS is the other half and stays
+> with the producer: it carries no `diagnostics` for a tee to duplicate, so each
+> forwards the stream itself, at once, that copy being the reader's only one. The
+> rule's own recorded exception is `gda script run`, which tees nothing because its
+> success result IS the promoted `Raw run` (ADR-0031): there the child's streams are
+> the operation's published output, not a diagnostic copy of it.
 
 ## `GdaError.code` registry
 

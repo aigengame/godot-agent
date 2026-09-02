@@ -205,6 +205,20 @@ def test_a_missing_scene_is_refused_not_reported_as_a_verdict(godot_project):
     assert preflighted.returncode == 4, preflighted.stdout + preflighted.stderr
     assert json.loads(preflighted.stdout)["error"]["code"] == "path_not_found"
 
+    # The same refusal for a human says the engine's bytes ONCE (#803, #806 review
+    # P3-3). What triggers the suppression is byte identity between `diagnostics`
+    # and the raw stream, and that identity is an ENGINE fact: the unit red proof
+    # authors both halves at the injected launch seam, so it cannot pin it. Equality
+    # rather than absence-of-a-substring, and it holds however talkative the engine
+    # is — extra stderr lands in `diagnostics` too, so the whole stream is still
+    # suppressed. Anything left on stderr here is gda saying it twice again.
+    human = gda("scene", "preflight", "res://nosuch.tscn")
+
+    assert human.returncode == 4, human.stdout + human.stderr
+    assert human.stdout.startswith("error: path_not_found (operation)\n")
+    assert "gda: running operation: scene-preflight" in human.stdout
+    assert human.stderr == ""
+
 
 # Hands off in _ready — a splash/bootstrap shape. The node is gone before the first
 # observed frame, so a verdict SAMPLED there would call it not_ready.

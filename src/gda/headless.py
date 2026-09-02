@@ -666,11 +666,15 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     they were.
 
     This is the ONE home of gda's child-stderr policy, and the whole of it is
-    learnable here. Two producers attach the field, and neither tees for itself:
+    learnable here. The rule above is the FAILURE half: two producers attach the
+    field, and neither tees a failure's stream for itself —
     :meth:`HeadlessCommand.execute` for the sentinel and live pipelines, and
     ``scene preflight``'s recipe, which calls the launch primitive directly and so
-    had a private tee of its own until #803. A launch-backed channel gda adds
-    joins them by attaching rather than printing. The recorded EXCEPTION is
+    had a private tee of its own until #803. A launch-backed channel gda adds joins
+    them by attaching rather than printing. On a SUCCESS both still tee at once, at
+    the producer, and must: a success carries no ``diagnostics`` block for the tee
+    to duplicate, so that copy is the reader's only one and never reaches this seam
+    (both are pinned — dropping either turns a test red). The recorded EXCEPTION is
     ``gda script run``, which tees nothing and attaches nothing: its success result
     IS the promoted ``Raw run`` (ADR-0031), so the child's streams are the
     operation's own published output rather than a diagnostic copy of it, and its

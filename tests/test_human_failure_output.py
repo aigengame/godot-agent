@@ -611,27 +611,46 @@ def test_a_preflight_refusal_reaches_a_human_once_not_twice(monkeypatch, tmp_pat
     assert both.count("ERROR: scene file not found: res://nope.tscn") == 1
 
 
-def test_the_same_preflight_refusal_under_json_keeps_its_stderr_tee(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize(
+    ("run", "code"),
+    [
+        pytest.param(
+            RunResult(
+                stdout=error_sentinel(
+                    "path_not_found", "scene file not found: res://nope.tscn"
+                ),
+                stderr=_PREFLIGHT_STDERR,
+                exit_code=1,
+            ),
+            "path_not_found",
+            id="the-classified-refusal",
+        ),
+        pytest.param(
+            RunResult(stdout="", stderr=_PREFLIGHT_STDERR, exit_code=0),
+            "operation_failed",
+            id="the-run-the-project-ended",
+        ),
+    ],
+)
+def test_either_preflight_failure_under_json_keeps_its_stderr_tee(
+    monkeypatch, tmp_path, run, code
 ):
     # The scope boundary, identical to the sentinel channel's: `--json` is byte-for-
     # byte what it was — the envelope alone on stdout, the child's stderr forwarded
     # in full on stderr.
-    _patch_preflight_launch(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "path_not_found", "scene file not found: res://nope.tscn"
-            ),
-            stderr=_PREFLIGHT_STDERR,
-            exit_code=1,
-        ),
-    )
+    #
+    # BOTH failure exits, because only this channel can see the attach (#806 review
+    # P3-2). In human mode a failure's `diagnostics` IS these bytes, so the seam
+    # suppresses the tee and an attach that never happened looks exactly like one
+    # that was suppressed — the human tests below cannot tell the two apart. Under
+    # `--json` the attach is the only thing that puts the stream on stderr, so
+    # dropping it on either exit is visible here and nowhere else.
+    _patch_preflight_launch(monkeypatch, run)
 
     result = _preflight(tmp_path, "--json")
 
     assert result.exit_code == EXIT_OPERATION, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "path_not_found"
+    assert json.loads(result.stdout)["error"]["code"] == code
     assert result.stderr == _PREFLIGHT_STDERR
 
 
