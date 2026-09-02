@@ -120,14 +120,14 @@ status: accepted
 > **another engine scheme** (`user://`, `uid://` — lifting one would splice a second scheme into a
 > res:// address and send the engine after a path nobody typed); a leading `~` (a filesystem HOME
 > reference, including an unresolvable one); a path naming the project **root** (`""`, `"."`,
-> `"sub/.."`, and the `res://` / `res://.` spellings — a directory, not a script); a path **escaping
-> above the root** (`".."`, `"../outside.gd"`, and their `res://` spellings); a canonical address
+> `"sub/.."`, and the `res://` / `res://.` spellings — a directory, not a script); a canonical address
 > ending in a code point at or below **U+0020**, which Godot removes before reporting the path; and a
 > canonical address containing any line boundary recognized by `gda.engine_log`'s line protocol.
 > The ABI edge below names "a non-`res://` **or absolute** script path"; only its first half is lifted
 > here.
 >
-> The root and escape shapes are refused for a reason beyond tidiness, and both were **verified**. The
+> The root and escape shapes are refused — the root as `invalid_path`, the escape as
+> `target_outside_project` — for a reason beyond tidiness, and both were **verified**. The
 > engine
 > answers a root or escape address with `Can't load script: res://.` / `res://..`, whose address the
 > error parser reads back with the sentence period stripped — so it never matches the entry, the
