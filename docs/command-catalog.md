@@ -688,18 +688,44 @@ gda ran projectless. It is **required and nullable**, and reported once per call
 script (ADR-0006 resolves one project per call), so every verdict carries the key. It exists
 because a script compiled against the wrong project reports every `res://` dependency as missing
 plus the type errors derived from them, which reads as a broken script; `project_root` is what
-tells the two apart. A target **outside** the resolved project is **refused before parsing** with
-`project_not_found` naming both the file and the project, rather than emitting that false cascade.
-The check applies to **every** path in a batch, and the first offender in requested order refuses
-the whole call (#663): one call has one project, so one outsider makes the requested set
-unservable. `--all` has nothing to check — the engine enumerates the resolved project's own tree.
-Containment follows the engine's own addressing: a relative path is anchored at the resolved
-project (not gda's cwd), an engine-virtual path (`res://`, `user://`, `uid://`) is inside by
-construction, and a file reached through a symlink into the project counts as inside — except when
-a `..` traversal could cross that symlink, where only the fully resolved location decides. gda
-never derives the project from the target path (ADR-0006), so a script under a project **nested
-inside** the resolved one is contained and not refused; `project_root` is what surfaces that
-mismatch, pending the ADR-0006 amendment tracked in #697.
+tells the two apart. A target the resolved project **does not own** is **refused before parsing**
+with `target_outside_project`, naming both the file and the project, rather than emitting that
+false cascade. The check applies to **every** path in a batch, and the first offender in requested
+order refuses the whole call (#663): one call has one project, so one outsider makes the requested
+set unservable. `--all` carries no paths to check, and one KNOWN GAP: it enumerates through gda's own
+`res://` walk, which does not skip a directory holding a nested `project.godot`, while the
+engine's editor scan does (`EditorFileSystem::_should_skip_directory`). So `--all` still
+compiles a nested project's scripts against the outer root and can report the false cascade
+for them, where naming the same file explicitly is refused. That gap is one face of a layer
+boundary and not only a bug: the walk decides what the project can ADDRESS, by filesystem
+identity (see the exclusion passage above); this gate decides what a caller may NAME as a
+target, from the caller's own spelling. Closing it means changing the shared walk every
+collector uses; until then, read an `--all` verdict for a nested project's script as the
+artefact it is (ADR-0006 amendment, #697).
+
+"Does not own" is two questions (ADR-0006 amendment, #697). **Containment** follows the engine's
+own addressing: a relative path is anchored at the resolved project (not gda's cwd), an
+engine-virtual path (`res://`, `user://`, `uid://`) is inside by construction — except a `res://`
+spelling that still climbs above the root once canonicalized, which is refused — and a file
+reached through a symlink into the project counts as inside, except when a `..` traversal could
+cross that symlink, where only the fully resolved location decides. **Ownership** asks whether the
+resolved project is the *nearest* `project.godot` at or above the target: a script under a project
+**nested inside** the resolved one is contained and still refused, because its own `res://`
+references mean the nested root. The walk reads the caller's SPELLING, so a **directory**
+symlink at a checkout that carries its own `project.godot` is refused (the marker is in the
+spelling) while a **file** symlink at a file inside another project is accepted (the
+directories above it are the resolved project's) — one rule, two cases, and only a directory
+can carry a marker in. gda names the owner it found and does not adopt it — deriving the
+project from the target stays rejected — so pass `--project <owner>` **with the target
+respelled relative to that owner**; the refusal states both, because a relative path anchors
+at the project and the caller's original spelling would not be found under the new one.
+`resource import` asks the same question, for the engine's own reason: its editor scan skips
+a nested project's directory, so an asset there cannot be imported into the outer project at
+all.
+Ownership is checked projectless too: a file that has an owner is refused rather than compiled against nothing, while a
+standalone script no project claims is still validated by filesystem path. The refusal carries
+`target_location`, `project_root` and `owning_project` as typed `evidence`, each present only when
+that refusal knows it.
 
 | Command | Description |
 | --- | --- |
@@ -746,6 +772,17 @@ arms that abort even though it is recognized (#722): it interrupts nothing — e
 continues at the next statement — so a script that reports an invariant and then computes
 quietly is alive by construction. It does appear in the run's `diagnostics`, which are advisory:
 a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
+`script run` takes the two portable script-path forms — a `res://` address and a
+project-relative path — and decides the whole path edge before any launch (ADR-0031). Six
+shapes are `invalid_path`: an absolute path, another engine scheme, a leading `~`, a path
+naming the project root, an address whose trailing code point Godot's `strip_edges`
+removes, and one carrying an engine-log line boundary. A path **escaping above the root**
+is the shared containment verdict instead, `target_outside_project` (ADR-0006 amendment,
+#697/#763) — the code `script validate` and `resource import` report for the same
+condition; it names no root, because this edge is decided ahead of the projectless check.
+The resolved project must also OWN the script: a nearer `project.godot` between the two is
+the same refusal, naming the owner to pass.
+
 Every `script run` failure that computed evidence also carries it as DATA on the
 envelope's optional `evidence` key (#687): the child's own `exit_status` on `--strict`'s
 `script_failed`; `elapsed_seconds` / `termination_phase` on the two gda-ended envelopes,
@@ -867,7 +904,14 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 **Scoped import surface** (shipped, #668, per the issue's revised contract): a clean
 worktree carries the sources and their committed `.import` sidecars but not the gitignored
 `.godot/` cache, so a one-shot run's `preload()` of e.g. a PNG fails with "no recognized
-resource loader" (GDA-DF-010). `resource import ASSETS... [--dry-run] [--timeout S]` reads
+resource loader" (GDA-DF-010). An asset is named as a `res://` address or a filesystem path
+inside the project; both go through ADR-0006's one containment check, so a spelling that
+still climbs above the root once canonicalized — `\` folded to `/` as the engine folds it —
+is `target_outside_project` (#763), while one that collapses back inside (`res://foo/../a.png`)
+is accepted, exactly as the script commands accept it. An asset a NESTED `project.godot`
+owns gets the same refusal, because the engine's own scan skips that directory
+(`EditorFileSystem::_should_skip_directory`) and would return `not_importable` after a
+wasted pass. `user://`/`uid://` name no project asset and stay `invalid_params`. `resource import ASSETS... [--dry-run] [--timeout S]` reads
 each requested asset's EVIDENCE STATE from the same project artifacts the engine's own
 reimport test reads: `cached` needs positive ARTIFACT-level evidence (a keep/skip
 importer, or the PATH-derived `.md5` receipt present with `source_md5`/`dest_md5`

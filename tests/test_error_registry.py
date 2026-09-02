@@ -237,12 +237,19 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
 #: `_ended_before_the_verdict`, `engine_crashed`'s signal, `resource import`'s and
 #: `export run`'s child exit codes); the amendment records them as deliberately out of
 #: scope, and this set is what lets a later reader tell that from an oversight.
+#:
+#: The last two arrive with #697/#763 and are the axis's first NON-run producers: the
+#: two `target_outside_project` refusals report a project-context mismatch gda decides
+#: before anything is launched, so their coordinates are the whole cause rather than a
+#: run's residue. ADR-0004's paragraph carries the same two names.
 _EVIDENCE_PRODUCERS = {
     "launch_timeout_failure",
     "script_did_not_run_failure",
     "script_exit_status_failure",
     "script_run_timeout_failure",
     "script_run_aborted_failure",
+    "target_outside_project_failure",
+    "target_owned_by_another_project_failure",
 }
 
 

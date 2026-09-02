@@ -267,6 +267,12 @@ def test_every_evidence_field_is_optional_in_the_published_schema():
         "timeout_seconds",
         "termination_phase",
         "script_errors",
+        # The three coordinates of a `target_outside_project` refusal
+        # (#697/#763): where the target is, which project gda used, and which
+        # one owns it.
+        "target_location",
+        "project_root",
+        "owning_project",
     }
 
 

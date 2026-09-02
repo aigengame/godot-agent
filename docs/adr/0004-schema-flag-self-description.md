@@ -250,12 +250,25 @@ status: accepted
 > anything gda knows how to read; a populated list is what it recognized. Collapsing
 > `[]` to absent would erase that distinction, so the emit path keeps it.
 >
-> **Who carries it today — this decision's recorded boundary.** Five builders in
+> **Who carries it today — this decision's recorded boundary.** Seven builders in
 > `gda.errors`: `launch_timeout_failure` (the shared one, so every launch-backed
 > channel), `script_did_not_run_failure`, `script_exit_status_failure`,
-> `script_run_timeout_failure` and `script_run_aborted_failure`. The set is asserted
-> in `tests/test_error_registry.py`, read out of the source, so a sixth producer
+> `script_run_timeout_failure`, `script_run_aborted_failure`, and — added by
+> [ADR-0006's 2026-08-31 amendment](0006-project-context-and-path-resolution.md)
+> (#697/#763) — `target_outside_project_failure` and
+> `target_owned_by_another_project_failure`. The set is asserted in
+> `tests/test_error_registry.py`, read out of the source, so a further producer
 > cannot join the axis without this paragraph being revisited in the same change.
+>
+> The last two are the axis's first producers that are **not** reporting on a run.
+> They pass the criterion on the same three clauses: gda has already computed the
+> target's location, the root it resolved and (for the owner half) the
+> `project.godot` it found, none of the three is recoverable from the message
+> without parsing prose, and together they are exactly what the caller re-issues
+> with. `script run`'s pre-launch escape (`script_escapes_project_failure`) reaches
+> the same verdict holding none of the three and therefore carries no evidence at
+> all, rather than a partially invented triple — which is the omitted-never-null
+> rule applied to a producer, not an exception to it.
 >
 > **Answering ADR-0002's open pointer (#717): the ceiling's PROVENANCE is declined, on
 > the criterion.** That note left the question here — whether a `launch_timeout`'s

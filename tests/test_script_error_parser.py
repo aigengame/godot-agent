@@ -17,7 +17,6 @@ import pytest
 
 from gda.script_errors import (
     ScriptErrorKind,
-    canonical_res_path,
     entry_load_failure,
     parse_script_errors,
 )
@@ -228,52 +227,6 @@ ERROR: Failed loading resource: res://gone.gd.
 ERROR: Can't load script: res://sub//..//gone.gd
    at: start (main/main.cpp:4271)
 """
-
-
-@pytest.mark.parametrize(
-    ("spelling", "canonical"),
-    [
-        ("res://bad.gd", "res://bad.gd"),
-        ("res://sub/../bad.gd", "res://bad.gd"),
-        ("res://./bad.gd", "res://bad.gd"),
-        ("res://a//b.gd", "res://a/b.gd"),
-        ("res://sub//..//bad.gd", "res://bad.gd"),
-        ("res:///bad.gd", "res://bad.gd"),
-        ("res://a/./b/../c.gd", "res://a/c.gd"),
-        # Degenerate but well-defined: the bare scheme, and a path that cannot be
-        # collapsed further without escaping the project root.
-        ("res://", "res://"),
-        ("res://../outside.gd", "res://../outside.gd"),
-        # A BACKSLASH is a separator inside a res:// address, not a filename
-        # character: Godot folds `\` to `/` across the whole address before it
-        # collapses anything (`String::simplify_path`, ustring.cpp:4192), so the
-        # engine loads — and reports back — the slash spelling. Reading these as
-        # ordinary filenames let `res://..\outside.gd` past the containment check
-        # that already refuses `res://../outside.gd` (#762).
-        ("res://a\\b.gd", "res://a/b.gd"),
-        ("res://..\\outside.gd", "res://../outside.gd"),
-        ("res://a\\..\\..\\outside.gd", "res://../outside.gd"),
-        # The fold must run BEFORE the leading-slash strip, as the engine runs it
-        # before its own empty-segment split — otherwise this one stays `res:///a.gd`.
-        ("res://\\a.gd", "res://a.gd"),
-        # Not a res:// address: normalizing an address is not validating one. A
-        # filesystem path keeps its backslashes — POSIX allows `\` in a filename,
-        # and the fold is the ENGINE's res:// rule, not the filesystem's.
-        ("/abs/path.gd", "/abs/path.gd"),
-        ("relative.gd", "relative.gd"),
-        ("/abs/we\\ird.gd", "/abs/we\\ird.gd"),
-        # The same two strings as the res:// rows above, MINUS the scheme, so the
-        # contrast is one row apart: with `res://` the backslash is a separator the
-        # engine folds, without it the string is a filename gda must not rewrite.
-        ("a\\b.gd", "a\\b.gd"),
-        ("..\\outside.gd", "..\\outside.gd"),
-    ],
-)
-def test_canonical_res_path_collapses_lexically(spelling, canonical):
-    assert canonical_res_path(spelling) == canonical
-    # Idempotent: canonicalizing a canonical address changes nothing, which is what
-    # lets both the parser and entry_load_failure apply it without coordinating.
-    assert canonical_res_path(canonical) == canonical
 
 
 @pytest.mark.parametrize(

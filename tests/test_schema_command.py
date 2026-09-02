@@ -79,6 +79,12 @@ def test_the_published_error_schema_declares_the_optional_evidence_key():
         "timeout_seconds",
         "termination_phase",
         "script_errors",
+        # The three coordinates of a `target_outside_project` refusal
+        # (#697/#763): where the target is, which project gda used, and which
+        # one owns it.
+        "target_location",
+        "project_root",
+        "owning_project",
     }
     assert doc["error"]["$defs"]["TerminationPhase"]["enum"] == [
         "launched",

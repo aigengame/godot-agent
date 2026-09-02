@@ -489,10 +489,18 @@ The result also reports `project_root`: the project the scripts were compiled ag
 which is the root their `res://` dependencies resolved to (`null` when no project was
 resolved). Read it before acting on a `valid: false` — a verdict full of missing
 `res://` dependencies, plus the type errors derived from them, usually means the wrong
-project rather than a broken script. A path *outside* the resolved project refuses the
-whole batch up front with `project_not_found`, naming both the file and the project,
+project rather than a broken script. A path the resolved project does not own refuses the
+whole batch up front with `target_outside_project`, naming both the file and the project,
 instead of reporting those false errors; pass `--project` for the project that owns the
-files.
+files. That covers two cases: a path outside the resolved project, and a path a *nested*
+`project.godot` owns — gda names the owner it found rather than switching to it, and the
+same check runs with no project resolved, so a script that belongs to a project is never
+compiled against nothing. For the nested case the message states the whole re-issue: the
+`--project` to pass and the target respelled relative to that owner, because a relative
+path anchors at the project and the original spelling would not be found under the new
+one. `script run` and `resource import` refuse the same way, under the
+same code. `--all` is the one selector that does not apply the ownership half yet, so a
+nested project's scripts can still show the false cascade there.
 
 `script run` executes a named project script one-shot and **passes its run through**: the
 success result carries the script's own `exit_status` (a deliberate non-zero `quit()` is

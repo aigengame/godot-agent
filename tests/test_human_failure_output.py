@@ -136,6 +136,9 @@ def test_typed_evidence_renders_one_labelled_line_per_field_it_carries():
                         line=12,
                     )
                 ],
+                target_location="/work/game/hero.gd",
+                project_root="/work/other",
+                owning_project="/work/game",
             ),
         )
     )
@@ -148,6 +151,9 @@ def test_typed_evidence_renders_one_labelled_line_per_field_it_carries():
         "  termination phase: output_seen",
         "  script errors:",
         "    parse_error: res://t.gd:12: Identifier 'Foo' not declared.",
+        "  target location: /work/game/hero.gd",
+        "  project root: /work/other",
+        "  owning project: /work/game",
     ]
 
 
@@ -198,6 +204,9 @@ _EVIDENCE_SAMPLES = {
             line=12,
         )
     ],
+    "target_location": "/tmp/outer/inner/main.gd",
+    "project_root": "/tmp/outer",
+    "owning_project": "/tmp/outer/inner",
 }
 
 

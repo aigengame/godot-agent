@@ -151,6 +151,12 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
             )
         else:
             body.append("  script errors: none recognized")
+    if evidence.target_location is not None:
+        body.append(f"  target location: {evidence.target_location}")
+    if evidence.project_root is not None:
+        body.append(f"  project root: {evidence.project_root}")
+    if evidence.owning_project is not None:
+        body.append(f"  owning project: {evidence.owning_project}")
     return ["evidence:", *body] if body else []
 
 

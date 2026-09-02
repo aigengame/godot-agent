@@ -171,6 +171,36 @@ class FailureEvidence(BaseModel):
             "the verdict is 'code', never an entry here."
         ),
     )
+    # The three coordinates of a `target_outside_project` refusal (#697/#763):
+    # where the target is, which project gda used, and which one owns it. Each is
+    # omitted when this particular refusal does not know it — `owning_project`
+    # whenever nothing above the target claims it, and both of the others on the
+    # one refusal decided before a project is resolved (`script run`'s pre-launch
+    # address gate). They are reported rather than acted on, which is the whole
+    # shape of ADR-0006's 2026-08-31 amendment: gda names the owner it found and
+    # refuses, instead of adopting it as the call's root.
+    target_location: str | None = Field(
+        default=None,
+        description=(
+            "Where the refused target really is, resolved — the coordinate for "
+            "finding which project owns it."
+        ),
+    )
+    project_root: str | None = Field(
+        default=None,
+        description=(
+            "The project gda resolved for this call, in its resolved form — the "
+            "same value a successful result reports as 'project_root'. Omitted "
+            "when no project resolved."
+        ),
+    )
+    owning_project: str | None = Field(
+        default=None,
+        description=(
+            "The Godot project that owns the refused target — the one to pass as "
+            "--project. Set only when gda found one above the target."
+        ),
+    )
 
     @field_serializer("script_errors")
     def _keep_the_published_script_error_shape(

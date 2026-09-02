@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=84081a1c36b0d7c66629b8f74054b432e5f1ef56497e68ce98097d0e6b699104 -->
+<!-- gda-readme-i18n: source=README.md sha256=9ee297b6943985d55526d9519c2e4bee7d4ce1c301aa05e0e834b9ed9640b3c0 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -505,9 +505,19 @@ scripts, es decir, la raíz a la que se resolvieron sus dependencias `res://` (`
 cuando no se resolvió ningún proyecto). Léelo antes de actuar sobre un `valid: false`:
 un veredicto lleno de dependencias `res://` inexistentes, más los errores de tipo
 derivados de ellas, suele significar el proyecto equivocado y no un script roto. Una
-ruta *fuera* del proyecto resuelto rechaza el lote entero de entrada con
-`project_not_found`, nombrando tanto el archivo como el proyecto, en lugar de informar
-esos errores falsos; pasa `--project` con el proyecto al que pertenecen los archivos.
+ruta que el proyecto resuelto no posee rechaza el lote entero de entrada con
+`target_outside_project`, nombrando tanto el archivo como el proyecto, en lugar de
+informar esos errores falsos; pasa `--project` con el proyecto al que pertenecen los
+archivos. Eso cubre dos casos: una ruta *fuera* del proyecto resuelto, y una ruta que
+pertenece a un `project.godot` *anidado* — gda nombra al propietario que encontró en vez
+de adoptarlo, y la misma comprobación se aplica sin proyecto resuelto, de modo que un
+script que pertenece a un proyecto nunca se compila contra nada. Para el caso anidado el
+mensaje indica la reemisión completa: el `--project` que hay que pasar y el objetivo
+reescrito relativo a ese propietario, porque una ruta relativa se ancla en el proyecto y
+la grafía original no se encontraría bajo el nuevo. `script run` y
+`resource import` rechazan igual, con el mismo código. `--all` es el único selector que
+todavía no aplica la mitad de propiedad, así que los scripts de un proyecto anidado
+pueden seguir mostrando esa cascada falsa.
 
 `script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución**:
 el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de

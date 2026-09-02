@@ -291,12 +291,6 @@ def test_script_run_absolute_path_is_invalid_path(godot_project):
         "sub/..",
         "user://x.gd",
         "uid://cabc123",
-        # Escapes above the project root, in both spellings.
-        "..",
-        "sub/../..",
-        "../outside.gd",
-        "res://..",
-        "res://../outside.gd",
         # Godot preserves the LF in its emitted path, but the line-oriented parser
         # splits the diagnostic and loses the entry identity. This used to return a
         # phantom exit-0 success for a script that never ran.
@@ -313,10 +307,9 @@ def test_script_run_non_project_scoped_paths_are_refused_before_launch(
     # res://.` parsed back as `res://` — no match, so a run that never happened
     # reported exit 0 SUCCESS (fixed at the parser level by #698; this refusal stays
     # regardless). `..` did the same one level up. The other-scheme cases spawned the
-    # engine against `res://user:/x.gd`, an address the caller never typed. And a
-    # RESOLVABLE escape (`../outside.gd`) actually executed a script outside the
-    # project — the ADR-0009 widening the amendment cites as its reason for refusing
-    # absolute paths, so it must not be reachable by the relative spelling either.
+    # engine against `res://user:/x.gd`, an address the caller never typed. The
+    # upward escapes moved to the containment arm below with #763 — same refusal,
+    # same pre-launch timing, the shared code.
     run = _run_gda(
         "script",
         "run",
@@ -334,6 +327,46 @@ def test_script_run_non_project_scoped_paths_are_refused_before_launch(
     err = data["error"]
     assert err["code"] == "invalid_path"
     assert err["category"] == "operation"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "script",
+    [
+        "..",
+        "sub/../..",
+        "../outside.gd",
+        "res://..",
+        "res://../outside.gd",
+        # The separator Godot folds across a res:// address before it collapses
+        # anything (ustring.cpp:4192): the same file, and a real 4.6.3 run LOADS it
+        # one directory above the project and reports it back as the slash spelling.
+        "res://..\\outside.gd",
+        "..\\outside.gd",
+    ],
+)
+def test_script_run_escapes_are_the_shared_containment_refusal(godot_project, script):
+    # Against the REAL engine because the stake is behavioural, not cosmetic: a
+    # RESOLVABLE escape (`../outside.gd`) actually EXECUTED a script outside the
+    # project, which is the ADR-0009 widening ADR-0031 cites as its reason for
+    # refusing absolute paths. #763 keeps the refusal and moves it onto the code
+    # every command reports this condition under.
+    run = _run_gda(
+        "script",
+        "run",
+        script,
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert "exit_status" not in data, "a refused path must never report a run"
+    assert data["error"]["code"] == "target_outside_project"
+    assert data["error"]["category"] == "operation"
 
 
 @pytest.mark.e2e
