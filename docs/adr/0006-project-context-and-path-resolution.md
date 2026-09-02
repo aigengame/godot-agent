@@ -228,21 +228,34 @@ is a literal path component, not shell-style home expansion.
 > the outer root and can produce the same class of cascade. Extending the rule is a
 > separate decision with its own surface, not something this one silently implies.
 >
-> **Not closed here.** One known gap, measured: a case-differing project spelling
-> (`--project …/Game` against on-disk `…/game`) is still refused on a case-insensitive
-> filesystem, because both readings compare strings and `Path.resolve()` does not
-> canonicalize case. A real fix needs a `samefile`-style walk and is independent of this
-> decision.
+> **Not closed here.** Two known gaps, both measured:
 >
-> The second gap this amendment recorded — `script validate --all` still producing the
-> cascade — is **closed (2026-09-02, #804)**. It enumerated through gda's own `res://`
-> walk, which descended into a directory holding a nested `project.godot` where the
-> engine's own scan skips it, so `--all` compiled a nested project's scripts against the
-> outer root and the same file got opposite answers depending on the selector. The walk
-> now answers `EditorFileSystem::_should_skip_directory`'s two marker clauses (a nested
-> `project.godot`, a `.gdignore`), so `--all` never reaches a file this gate would refuse
-> by name and the two selectors agree. The walk's full exclusion rule stays ADR-0032's to
-> state, not this one's.
+> - a case-differing project spelling (`--project …/Game` against on-disk `…/game`) is
+>   still refused on a case-insensitive filesystem: both readings compare strings and
+>   `Path.resolve()` does not canonicalize case. A real fix needs a `samefile`-style walk
+>   and is independent of this decision;
+> - `script validate --all` still produces the cascade. It enumerates through gda's OWN
+>   `res://` walk (`operations.gd`'s `_should_descend`), which does not skip a directory
+>   holding a nested `project.godot` — the engine's editor scan does (and skips a
+>   `.gdignore` one too) — so `--all` compiles nested-project scripts against the outer
+>   root and the same file gets opposite answers depending on the selector. Closing it
+>   means changing the shared walk every collector uses (`script list`, `scene list`,
+>   project analysis, the import gap listing), which is its own slice with its own blast
+>   radius. The walk's full exclusion rule is ADR-0032's to state, not this one's.
+
+> **Outcome (2026-09-02, #804):** the second gap above is **closed**. The shared `res://`
+> walk now answers `EditorFileSystem::_should_skip_directory`'s two marker clauses (a
+> nested `project.godot`, a `.gdignore`), so `--all` never enumerates a file this gate
+> would refuse by name, and the two selectors give the same file the same answer. The
+> layer boundary the gap named still stands — the walk decides what the project can
+> ADDRESS, this gate decides what a caller may NAME — and the walk's full exclusion rule
+> is still ADR-0032's to state.
+>
+> One correction to the record above: the "import gap listing" the bullet named among the
+> walk's collectors is not one. `resource import --dry-run`'s `pass_will_also_import`
+> reads the project's files from Python (`Path.rglob`) and never enters `operations.gd`,
+> so the same engine rule had to be stated a second time there
+> (`_engine_skips_directory_of`) rather than inherited from the walk.
 
 ## Considered options
 

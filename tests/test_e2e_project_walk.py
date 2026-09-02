@@ -807,3 +807,165 @@ def test_the_import_gap_listing_promises_nothing_in_a_skipped_directory(
     )
     assert predicted["engine_pass"] is True, predicted  # the request itself is stale
     assert predicted["pass_will_also_import"] == [], predicted
+
+
+# --- what the directory HOLDS is the whole rule (#808 review) -----------------
+#
+# The skip is claimed to be blind to two things the walk sees: the way a directory
+# was REACHED (a marker probe resolves a link) and what it is CALLED (a directory
+# named `project.godot` is not a marker FILE). Both claims held when measured, and
+# neither had a test — mutations that broke each left the added suite green. The
+# fixture below carries the two shapes plus the boundary #712's trade now sits on.
+
+LINKED_NESTED_GD = """\
+extends Node
+class_name LinkedNestedThing
+"""
+
+LINKED_IGNORED_GD = """\
+extends Node
+class_name LinkedIgnoredThing
+"""
+
+# The two nested-cache halves. An engine WRITES a `.gdignore` into every project
+# data directory it creates, so a nested cache that any engine produced carries the
+# marker; a `.godot` that is authored content does not.
+ENGINE_CACHE_GD = """\
+extends Node
+class_name EngineCacheThing
+"""
+
+AUTHORED_CACHE_GD = """\
+extends Node
+class_name AuthoredCacheThing
+"""
+
+
+@pytest.fixture
+def marker_reach_project(tmp_path):
+    """A project whose marked directories are reached and named every way (#808).
+
+    * ``linked_nested`` / ``linked_ignored`` — marked directories that live
+      OUTSIDE ``res://`` and are symlinked into it;
+    * ``dirmarker`` / ``dirignore`` — directories holding a sub-DIRECTORY called
+      ``project.godot`` / ``.gdignore``, which is not a marker file;
+    * ``vendored/.godot`` — a nested cache as an engine writes it, ``.gdignore``
+      inside;
+    * ``authored/.godot`` — a nested ``.godot`` that is authored content, with no
+      marker inside, which #712 decided to walk.
+    """
+    project = tmp_path / "game"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(name="gda-marker-reach-fixture"), encoding="utf-8"
+    )
+    (project / "outer.gd").write_text(OUTER_GD, encoding="utf-8")
+
+    outside_nested = tmp_path / "outside_nested"
+    outside_nested.mkdir()
+    (outside_nested / "project.godot").write_text(
+        project_godot(name="gda-marker-reach-inner"), encoding="utf-8"
+    )
+    (outside_nested / "out_script.gd").write_text(LINKED_NESTED_GD, encoding="utf-8")
+    (project / "linked_nested").symlink_to(outside_nested, target_is_directory=True)
+
+    outside_ignored = tmp_path / "outside_ignored"
+    outside_ignored.mkdir()
+    (outside_ignored / ".gdignore").write_text("", encoding="utf-8")
+    (outside_ignored / "out_ignored.gd").write_text(LINKED_IGNORED_GD, encoding="utf-8")
+    (project / "linked_ignored").symlink_to(outside_ignored, target_is_directory=True)
+
+    for directory, marker in (
+        ("dirmarker", "project.godot"),
+        ("dirignore", ".gdignore"),
+    ):
+        (project / directory / marker).mkdir(parents=True)
+        (project / directory / "held.gd").write_text(LEAF_GD, encoding="utf-8")
+
+    (project / "vendored" / ".godot").mkdir(parents=True)
+    (project / "vendored" / ".godot" / ".gdignore").write_text("", encoding="utf-8")
+    (project / "vendored" / ".godot" / "cached.gd").write_text(
+        ENGINE_CACHE_GD, encoding="utf-8"
+    )
+    (project / "vendored" / "real.gd").write_text(LEAF_GD, encoding="utf-8")
+
+    (project / "authored" / ".godot").mkdir(parents=True)
+    (project / "authored" / ".godot" / "sample.gd").write_text(
+        AUTHORED_CACHE_GD, encoding="utf-8"
+    )
+    return project
+
+
+@pytest.mark.e2e
+def test_a_marked_directory_is_skipped_however_it_is_reached_or_named(
+    marker_reach_project,
+):
+    # The probes run BEFORE the link tests, so a marked directory symlinked into
+    # the tree is skipped exactly as one sitting in it — the shape #760 exists
+    # because of, an alias re-admitting excluded content. Moving the probes behind
+    # the `is_link` fast path left every other test in this file green while
+    # res://linked_nested/out_script.gd came back.
+    #
+    # And the probe is `FileAccess.file_exists`, which answers false for a
+    # directory (FileAccessUnix::file_exists accepts S_IFREG/S_IFLNK only), so a
+    # directory merely CALLED `project.godot` skips nothing. Accepting a marker
+    # DIRECTORY too also left the suite green while dropping the two held scripts.
+    walked = _walked_paths(marker_reach_project)
+
+    linked = {
+        p
+        for p in walked
+        if p.startswith(("res://linked_nested/", "res://linked_ignored/"))
+    }
+    assert not linked, linked
+    assert {"res://dirmarker/held.gd", "res://dirignore/held.gd"} <= walked, walked
+
+    _assert_class_name_unresolvable(
+        marker_reach_project, "LinkedNestedThing", "LinkedIgnoredThing"
+    )
+
+
+@pytest.mark.e2e
+def test_an_engine_written_nested_cache_is_skipped_where_an_authored_one_is_walked(
+    marker_reach_project,
+):
+    # The second reversal #804 makes, which the amendment first written for it
+    # denied (#808 review). #712 accepted a cost — a vendored sub-project's own
+    # cache counting in `project statistics` and becoming a `find-unused-resources`
+    # candidate — because nothing in the PATH tells an engine cache from authored
+    # content. The CONTENT does: every engine that creates a project data directory
+    # writes a `.gdignore` into it (EditorPaths::create; gda's own import pass
+    # reports `res://.godot/.gdignore` in `created`), so the marker clause now
+    # skips a nested cache any engine produced. What #712's rule was actually for —
+    # a `.godot` no engine wrote — is still walked, and this pins both halves so
+    # the record cannot drift from the behaviour again.
+    walked = _walked_paths(marker_reach_project)
+
+    assert "res://authored/.godot/sample.gd" in walked, walked
+    assert not {p for p in walked if p.startswith("res://vendored/.godot/")}, walked
+
+    # Only the CACHE is skipped: the vendored tree around it carries no marker, so
+    # it is walked, as #712 and #760 decided.
+    assert "res://vendored/real.gd" in walked, walked
+
+    stats = _result(marker_reach_project, "project", "statistics")
+    by_ext = {e["extension"]: e["files"] for e in stats["by_extension"]}
+    assert "gdignore" not in by_ext, by_ext
+
+    # The class_name index is the same walk's fifth consumer, so it reverses with
+    # it: the engine-written cache's declaration is gone from the index while the
+    # authored one still resolves.
+    _assert_class_name_unresolvable(marker_reach_project, "EngineCacheThing")
+    added = _result(
+        marker_reach_project,
+        "node",
+        "add",
+        "res://host.tscn",  # created by the helper above
+        "--parent",
+        ".",
+        "--name",
+        "Authored",
+        "--type",
+        "AuthoredCacheThing",
+    )
+    assert added["script_class"] == "AuthoredCacheThing", added

@@ -1041,26 +1041,59 @@ def _project_files(project: Path) -> set[str]:
     return files
 
 
+# The two marker files the engine's scan skips a directory on. Named here, not
+# spelled inline, because the same two literals are declared a second time in
+# ``operations.gd`` (``NESTED_PROJECT_MARKER`` / ``GDIGNORE_MARKER``) for the walk
+# — one rule, two languages. ``test_the_two_spellings_of_the_skip_markers_agree``
+# reads both files and fails if they drift apart (#808 review).
+NESTED_PROJECT_MARKER = "project.godot"
+GDIGNORE_MARKER = ".gdignore"
+
+
 def _engine_skips_directory_of(project: Path, rel: str) -> bool:
     """Whether the engine's own scan never reaches ``rel`` (#804).
 
-    ``EditorFileSystem::_should_skip_directory`` (``editor/file_system/
-    editor_file_system.cpp`` at 4.6-stable) skips a directory that holds a
-    ``project.godot`` — another project inside this one — or a ``.gdignore``
-    marker, so a project-wide ``--import`` pass re-imports nothing beneath one.
+    Two clauses of ``EditorFileSystem``'s scan decide this, and the prediction
+    needs BOTH because the scan asks them in order:
+
+    * ``_scan_new_dir`` drops every **dot-prefixed directory** before it
+      consults the skip rule at all (``editor/file_system/
+      editor_file_system.cpp:1157-1168``, line numbers from the 4.6.3-stable
+      tag) — so ``res://.hidden/h.png`` is unreachable however ordinary it
+      looks. This clause subsumes the ``.godot`` cache and a ``.git`` checkout,
+      at any depth rather than at the project root alone;
+    * ``_should_skip_directory`` (same file, ``3460-3480``) then skips a
+      directory holding a ``project.godot`` — another project inside this one —
+      or a ``.gdignore`` marker.
+
     Every directory ABOVE ``rel`` up to (but never including) the project root
     is asked, because one marker hides the whole subtree.
 
-    The same rule engine-side is ``_should_descend`` in ``operations.gd``; this
-    is the half for the inventory that reads the project's files from Python
-    rather than through that walk.
+    **This is not the walk's rule, and must not be read as it.** The same two
+    markers gate ``_should_descend`` in ``operations.gd``, but that walk answers
+    a different question — what gda ENUMERATES — and deliberately keeps hidden
+    and dot-prefixed directories in (#54, #712). This predicate answers what the
+    ENGINE reaches, so it drops them. Two further divergences are known and
+    stated rather than chased: ``Path.rglob`` does not descend a symlinked
+    directory while the walk does (#760), so a stale asset behind a link is not
+    predicted — an omission, never a false promise, and the real run's
+    ``created`` list stays authoritative; and the OS "hidden" attribute the
+    engine also honours (``DirAccess::current_is_hidden``) has no portable
+    Python reading, so only the dot-prefix half of that clause is modelled.
+
+    Cost: the ancestors are re-probed per sidecar and memoized nowhere — 2000
+    sidecars at depth 4 cost ~16k ``stat`` calls, measured at 0.11 s. A cache
+    was declined for the same reason the walk declines one: the state would buy
+    nothing at this size.
     """
     parts = Path(rel).parent.parts
     for depth in range(1, len(parts) + 1):
-        directory = project.joinpath(*parts[:depth])
-        if (directory / "project.godot").is_file():
+        if parts[depth - 1].startswith("."):
             return True
-        if (directory / ".gdignore").is_file():
+        directory = project.joinpath(*parts[:depth])
+        if (directory / NESTED_PROJECT_MARKER).is_file():
+            return True
+        if (directory / GDIGNORE_MARKER).is_file():
             return True
     return False
 
@@ -1079,14 +1112,15 @@ def _project_import_gaps(project: Path, requested: set[str]) -> list[str]:
     so.
 
     An asset the engine's scan never reaches is not a gap either (#804): the
-    pass skips a nested project's and a ``.gdignore``d directory's contents, so
-    predicting a re-import there promised work the engine will not do.
+    pass skips a nested project's, a ``.gdignore``d and a dot-prefixed
+    directory's contents, so predicting a re-import there promised work the
+    engine will not do. That one predicate replaced the ``.godot``/``.git``
+    prefix test this loop used to make, which was the same clause spelled for
+    two directories at the project root only (#808 review).
     """
     gaps: list[str] = []
     for sidecar in sorted(project.rglob("*.import")):
         rel = sidecar.relative_to(project).as_posix()
-        if rel.startswith(".godot/") or rel.startswith(".git/"):
-            continue
         if _engine_skips_directory_of(project, rel):
             continue
         res_path = "res://" + rel[: -len(".import")]

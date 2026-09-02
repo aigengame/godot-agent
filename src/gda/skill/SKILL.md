@@ -132,8 +132,9 @@ whole re-issue: `--project <owner>` AND the target respelled relative to that
 owner — a relative path anchors at the project, so your original spelling would
 not be found under the new one. `--all` needs no such check: every project-wide listing
 (`script list`, `scene list`, `script validate --all`, `project` analysis) walks the
-`res://` tree the way the engine's own scan does, skipping the engine cache, a directory
-holding a nested `project.godot`, and one holding a `.gdignore`. So `--all` reports only
+`res://` tree with the engine's own skip rule, declining the engine cache, a directory
+holding a nested `project.godot`, and one holding a `.gdignore` (hidden and dot-prefixed
+directories gda still enumerates, unlike the engine). So `--all` reports only
 what the resolved project owns; to work on a nested project's files, run with
 `--project <that project>`.
 

@@ -175,10 +175,16 @@ const ENGINE_CACHE_DIR := "res://.godot"
 
 # The two MARKER files whose presence makes the engine's own scan skip a directory
 # (EditorFileSystem::_should_skip_directory, editor/file_system/
-# editor_file_system.cpp:3476-3496 at 4.6-stable): a `project.godot` marks a
-# NESTED project, whose files belong to a different res:// root, and a `.gdignore`
-# is the project's own explicit "do not scan this" marker. Values only — the
-# decision that uses them is _should_descend's alone (#804).
+# editor_file_system.cpp:3460-3480, line numbers from the 4.6.3-stable tag): a
+# `project.godot` marks a NESTED project, whose files belong to a different res://
+# root, and a `.gdignore` is the project's own explicit "do not scan this" marker.
+# Values only — the decision that uses them is _should_descend's alone (#804).
+#
+# The same two literals are spelled a second time in Python, in
+# `_engine_skips_directory_of` (src/gda/commands/resource.py), which predicts the
+# same rule for an inventory that never spawns the engine. The two spellings are
+# held together by `test_the_two_spellings_of_the_skip_markers_agree` (#808
+# review), not by derivation.
 const NESTED_PROJECT_MARKER := "project.godot"
 const GDIGNORE_MARKER := ".gdignore"
 
@@ -4313,8 +4319,9 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 # between them and a new walk inherits it by calling this.
 #
 # THE ENGINE'S OWN SKIP RULE (#804). EditorFileSystem::_should_skip_directory
-# (editor/file_system/editor_file_system.cpp:3476-3496 at 4.6-stable) skips three
-# kinds of directory, and this predicate now answers the same three:
+# (editor/file_system/editor_file_system.cpp:3460-3480, line numbers from the
+# 4.6.3-stable tag) skips three kinds of directory, and this predicate now answers
+# the same three:
 #
 #   - the project DATA path (the cache) — gda's ENGINE_CACHE_DIR clause below,
 #     with the hardcoded-vs-configurable residual stated at that constant;
@@ -4328,10 +4335,21 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 #     content the engine must not scan. gda honoured it nowhere, so a `.gdignore`d
 #     tree was listed, validated, counted and indexed.
 #
+# Answering that function is NOT full parity with the engine's scan, and is not
+# meant to be: _scan_new_dir discards every hidden entry and every dot-prefixed
+# DIRECTORY before it consults _should_skip_directory (editor_file_system.cpp:
+# 1157-1168, same tag). gda deliberately enumerates those (#54, #712), so a
+# `res://.hidden/x.gd` is still listed here where the engine's scan never reaches
+# it. What this predicate adopts is the marker rule, not the hidden-entry rule.
+#
 # Only a directory carrying one of those markers changes answer. The probes are
 # lexical joins onto the child's res:// path, never the directory NAME, so a
 # sub-directory merely CALLED `project.godot` (a directory, not a file) does not
-# skip anything: FileAccess.file_exists answers false for a directory.
+# skip anything: FileAccess.file_exists answers false for a directory
+# (FileAccessUnix::file_exists accepts S_IFREG/S_IFLNK only). Nor does the way the
+# directory was REACHED: a marked directory symlinked into the tree is skipped
+# too, because the probe resolves the link. Both edges are pinned e2e (#808
+# review), which is what keeps them from being claims alone.
 #
 # COST (#804, recorded so review does not re-litigate it): two extra
 # FileAccess.file_exists per child DIRECTORY — the same two probes the engine's
@@ -4345,9 +4363,20 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 # content (an addon vendoring a sample project, a fixture tree), and excluding it
 # hid real scripts from `script list` and let `script validate --all` report a
 # valid aggregate for a project holding an invalid script (#663 review). Sometimes
-# it is a vendored sub-project's own cache instead, whose artefacts then count in
-# `project statistics` and `find-unused-resources` — accepted deliberately, since
-# nothing in the path tells the two apart and a false-valid aggregate is worse.
+# it is a vendored sub-project's own cache instead, whose artefacts then counted in
+# `project statistics` and `find-unused-resources` — a cost #712 accepted, since
+# nothing in the PATH tells the two apart and a false-valid aggregate is worse.
+#
+# The marker clause above retires that cost wherever an ENGINE wrote the cache —
+# the case #712 named — and #712's own reasoning is why: nothing in the path tells
+# an engine cache from authored content, but the CONTENT does. Every engine that
+# creates a project data directory writes a `.gdignore` into it — the editor
+# (EditorPaths::create, editor/file_system/editor_paths.cpp:268-277) and gda's own
+# import pass, whose `created` list names `res://.godot/.gdignore`. So a nested
+# cache any engine produced now carries the marker and is skipped, while a
+# `.godot` that is genuinely authored content — no engine ever wrote it, so no
+# `.gdignore` inside — is still walked, which is the case #712's rule was FOR
+# (#808 review).
 #
 # Three of the four walks once compared the NAME, so one project answered two
 # ways: `script list` reported a script `project statistics` counted as zero

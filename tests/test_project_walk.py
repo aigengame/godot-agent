@@ -16,6 +16,8 @@ a real engine in ``test_e2e_project_walk.py``.
 import re
 from pathlib import Path
 
+from gda.commands import resource
+
 ROOT = Path(__file__).resolve().parents[1]
 OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
 
@@ -240,4 +242,40 @@ def test_the_engine_skip_markers_are_asked_only_by_the_descent_predicate():
     assert users == {DESCEND_PREDICATE}, (
         f"the engine skip markers must be asked only in {DESCEND_PREDICATE}; "
         f"found them in {sorted(users)}"
+    )
+
+
+def _const_value(source: str, name: str) -> str:
+    """The string literal a top-level ``const NAME := "…"`` declares."""
+    match = re.search(rf'^const {name} := "([^"]*)"$', source, re.MULTILINE)
+    assert match, f"expected a string const {name} in operations.gd"
+    return match.group(1)
+
+
+def test_the_two_spellings_of_the_skip_markers_agree():
+    # #808 review: the rule crossed the language seam. `_should_descend` decides
+    # it for the walk; `_engine_skips_directory_of` (src/gda/commands/resource.py)
+    # predicts the SAME engine behaviour for the import gap listing, which reads
+    # the project's files from Python and so genuinely cannot ask the walk. Two
+    # independently editable spellings of two literals is how a rule drifts, and
+    # the repo's answer to that shape is a source-anchored guard (see
+    # `test_the_engine_cache_exclusion_has_one_owner`, and the `hints.py` table
+    # re-resolved against the live command tree).
+    #
+    # It compares the MARKERS, not the predicates: the two answer deliberately
+    # different questions and are expected to differ elsewhere. The walk keeps
+    # hidden and dot-prefixed directories in (#54, #712) while the engine's scan
+    # drops them, `Path.rglob` does not descend a symlinked directory while the
+    # walk does (#760), and the cache clause is filesystem identity engine-side
+    # against a dot-prefix reading in Python. Those divergences are stated in
+    # `_engine_skips_directory_of`'s docstring; the marker names are the one thing
+    # that must be identical.
+    source = _source()
+
+    engine_side = {name: _const_value(source, name) for name in SKIP_MARKER_CONSTANTS}
+    python_side = {name: getattr(resource, name) for name in SKIP_MARKER_CONSTANTS}
+
+    assert engine_side == python_side, (
+        f"the skip markers must read the same on both sides of the seam; "
+        f"operations.gd says {engine_side}, resource.py says {python_side}"
     )

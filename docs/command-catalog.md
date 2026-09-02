@@ -602,21 +602,32 @@ its `res://` path and the `class_name`/`extends` parsed from the **raw text** (n
 issue #30) — null when the source declares neither, so the listing names every `.gd` it found.
 Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
 `--project`); an empty project is a valid, empty listing, not an error. The walk excludes the same
-three kinds of directory the engine's own scan does (`EditorFileSystem::_should_skip_directory`,
-#804): the engine's cache at `res://.godot`, a directory holding a **`project.godot`** — another
-project inside this one — and a directory holding a **`.gdignore`**.
+three kinds of directory `EditorFileSystem::_should_skip_directory` does (#804): the engine's cache
+at `res://.godot`, a directory holding a **`project.godot`** — another project inside this one —
+and a directory holding a **`.gdignore`**. That is the marker rule, not full parity with the
+engine's scan: `_scan_new_dir` additionally drops every hidden entry and every dot-prefixed
+directory before it consults that function, and gda deliberately keeps enumerating those (#54,
+#712), so `res://.hidden/x.gd` is listed here where the engine never reaches it.
 
 The **cache** test is **lexical**: the child's `res://` PATH is compared against that one path.
 Not the directory NAME, so a nested `.godot` is walked — it is usually authored content, and
 excluding it hid real scripts from the listing and let `script validate --all` report a valid
 aggregate for a project holding an invalid script (#663 review). Sometimes it is not authored
 content — a vendored sub-project checked out under `res://` and opened once in an editor keeps an
-engine cache of its own, whose import artefacts then count in `project statistics` and become
-`find-unused-resources` candidates. That cost is accepted deliberately: gda cannot tell the two
-apart from the directory alone, and a false-valid aggregate is the worse failure. One residual
-stays: the engine reads this location from `application/config/project_data_dir_name` while gda
-hardcodes the default, so a project that renames its data directory has gda walk the renamed cache
-and exclude a `res://.godot` that is ordinary content (#804).
+engine cache of its own, whose import artefacts then counted in `project statistics` and became
+`find-unused-resources` candidates. #712 accepted that cost deliberately, because gda cannot tell
+the two apart from the directory alone and a false-valid aggregate is the worse failure. **The
+marker clause below now covers exactly that case, so the cost is retired** (#804, recorded in the
+#808 review): every engine that creates a project data directory writes a `.gdignore` into it —
+the editor (`EditorPaths::create`) and gda's own `resource import` pass, whose `created` list
+names `res://.godot/.gdignore` — so a nested cache any engine produced holds the marker and is
+skipped, and its artefacts leave `statistics`, `find-unused-resources` and the `class_name` index.
+The tree AROUND that cache carries no marker and is still walked. What #712's rule was for is
+unchanged too: a `.godot` no engine wrote — an addon vendoring a sample tree, a fixture tree —
+holds no `.gdignore` and is still walked. One residual stays: the engine reads this location from
+`application/config/project_data_dir_name` while gda hardcodes the default, so a project that
+renames its data directory has gda walk the renamed cache and exclude a `res://.godot` that is
+ordinary content (#804).
 
 The **two markers** are probed on the child directory itself, so what decides is what the
 directory HOLDS, not what it is called or how it was reached — a vendored checkout carrying its own
@@ -625,9 +636,11 @@ engine skips it. A `project.godot` is the distinction the cache rule above lacks
 declares itself, and its files' own `res://` references mean ITS root, so enumerating them here
 gave them the outer root — that is what made `script validate --all` compile a nested project's
 scripts against the outer root and report every one of their `res://` preloads as missing (#804,
-the gap ADR-0006 recorded). A `.gdignore` is the project's own instruction not to scan. The cost is
+the gap ADR-0006 recorded). A `.gdignore` is the project's own instruction not to scan. Both probes
+are FILE tests, so a sub-directory merely *called* `project.godot` marks nothing. The cost is
 two `FileAccess.file_exists` per child DIRECTORY — the two probes the engine's scan pays, on the
-same directories, never per file. Hidden entries are otherwise enumerated as promised (#54).
+same directories, never per file. Hidden entries are still enumerated as promised (#54), which is
+the deliberate divergence from the engine's scan stated above.
 **This rule governs the four `res://` collectors in
 `operations.gd`** — the `script list` walk, the `scene list` walk, and both static-analysis walks
 (the extension-filtered one behind `find-references`, `dependencies`, `find-unused-resources` and
@@ -1066,10 +1079,20 @@ file, classified against the explicit cache root: `cache_owned` (under `res://.g
 file). `--dry-run` writes nothing and reports the decidable inventory: the per-asset
 states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
 stale assets the project-wide pass will re-import (invalid ones excluded; assets under a
-nested project's or a `.gdignore`d directory excluded too, since the engine's scan never
-reaches them, #804; assets with no
+nested project's, a `.gdignore`d or a **dot-prefixed** directory excluded too, since the
+engine's scan never reaches them, #804; assets with no
 sidecar and generated `.uid` files are the engine's to decide, so the real run's `created`
-list is the authoritative inventory). Plain `gda script run` never triggers an import
+list is the authoritative inventory). This prediction is a SECOND spelling of the walk's
+rule, not the walk: it reads the project's files from Python (`Path.rglob`), so it can
+never ask `operations.gd`, and the two are held together only by the marker names a test
+compares across the seam. Two divergences follow and are stated rather than chased (#808
+review): the prediction drops dot-prefixed directories where the walk enumerates them
+(that is the engine being modelled, not a drift), and `rglob` does not descend a symlinked
+directory where the walk does (#760) — so a stale asset behind a link is not predicted,
+which under-promises rather than over-promises and is what the authoritative `created`
+list is for. Its cost is unlike the walk's: the ancestors are re-probed per sidecar and
+memoized nowhere (2000 sidecars at depth 4 ≈ 16k `stat` calls, 0.11 s measured), and a
+cache was declined at that size. Plain `gda script run` never triggers an import
 pass. A pass that outruns `--timeout` reports the shared `launch_timeout` envelope with
 the pass's own captured output, the ceiling it reached and the elapsed clock — read it the
 caller-first way [`script run`](#script) describes: this is the one channel on that shared
