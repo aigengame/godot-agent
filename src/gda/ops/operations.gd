@@ -6660,13 +6660,24 @@ func _is_json_number_char(character: String) -> bool:
 #
 # Reading text needs one rule to be safe, and it is STRING-AWARENESS: a JSON
 # string's bytes are never a number, whatever they spell. That single rule disposes
-# of both ways a text scan can refuse a write the engine would have kept faithfully.
-# A value that merely LOOKS numeric is one — `{"a": "1e-320"}` stores the
-# six-character string, and no float is parsed anywhere in it. A KEY is the other —
-# every JSON key is a string, so `{"1e-320": 1.0}` names a member and the `1.0`
-# beside it is the only number present. Escapes are honoured while skipping, so a
-# quote INSIDE a string (`{"a\": 1e-320 fake": 1.0}`, valid JSON whose key holds
-# that text) does not end it early and leak its bytes into the scan.
+# of the two ways ORDINARY input invites a text scan to refuse a write the engine
+# would have kept faithfully. A value that merely LOOKS numeric is one — `{"a":
+# "1e-320"}` stores the six-character string, and no float is parsed anywhere in
+# it. A KEY is the other — every JSON key is a string, so `{"1e-320": 1.0}` names a
+# member and the `1.0` beside it is the only number present. Escapes are honoured
+# while skipping, so a quote INSIDE a string (`{"a\": 1e-320 fake": 1.0}`, valid
+# JSON whose key holds that text) does not end it early and leak its bytes into the
+# scan.
+#
+# A third way is left open, ACCEPTED rather than closed: a member the parser then
+# DISCARDS. Godot's JSON keeps the LAST value of a repeated key (measured on 4.6.3:
+# `{"a": 1e-320, "a": 2.0}` parses to `{"a": 2.0}`), but the scan reads the text and
+# sees the discarded literal too, so that write is refused although nothing
+# destroyed would have been stored. Telling a discarded token from a kept one needs
+# the key-and-position bookkeeping of a real parser — the second opinion about the
+# engine's grammar this scan avoids by construction — while the over-refusal is in
+# the safe direction: nothing wrong is written, and the remedy is to spell the key
+# once.
 #
 # Outside strings, valid JSON spells only structure, `true`/`false`/`null`, and
 # numbers, so a maximal run of number characters IS a number token — with the one
@@ -6723,6 +6734,12 @@ func _destroyed_json_number(raw: String) -> String:
 # stops. The container arms repeat their coercion's JSON gate for the same reason:
 # text that is not JSON — or is JSON of the OTHER container type — was refused by
 # the gate, not by the float parser, so it keeps the plain message.
+#
+# For the SCALAR arms that second walk re-derives a different shape (split, arity,
+# hex form), and that independence is what keeps the note honest. For the container
+# arms it re-derives nothing — gate plus scan, twice — which is affordable at two
+# arms and is the trigger to watch: if a THIRD container-shaped type ever reaches
+# this rule, stop walking and have `_coerce_value` hand back the reason it refused.
 func _destroyed_float_literal(raw: String, type: int) -> String:
 	var components: PackedStringArray
 	match type:

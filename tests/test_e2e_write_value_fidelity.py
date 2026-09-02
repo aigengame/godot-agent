@@ -684,12 +684,27 @@ def test_the_note_explains_only_the_refusal_it_diagnosed(probe_project):
     assert json.loads(stored.stdout)["value"] == "1e-320"
 
 
+# The container rows restated for the OTHER two headless commands. `node set`
+# above drives the full corpus; what these pin is that the container half travels
+# with the SHARED coercion rather than with one command (#805 review). Four rows,
+# one per thing that can go wrong: the two refusal classes (a literal destroyed to
+# `0.0` in a Dictionary, to `NaN` in an Array), the trap the scan must not refuse,
+# and an exact value. `note` is the phrase a refusal must carry; `stored` is what
+# an acceptance must echo — exactly one of the two is set.
+CONTAINER_PER_COMMAND = [
+    ("d", '{"a": 1e-320}', "reads 1e-320 as 0.0", None),
+    ("a", "[0e600]", "reads 0e600 as NaN", None),
+    ("d", '{"a": "1e-320"}', None, {"a": "1e-320"}),
+    ("a", "[1e-300]", None, [1e-300]),
+]
+
+
 @pytest.mark.e2e
 def test_project_set_shares_the_refusal(probe_project):
     """The policy is the shared coercion's, not `node set`'s (the mirror's point)."""
     (probe_project / "project.godot").write_text(
         (probe_project / "project.godot").read_text(encoding="utf-8")
-        + "\n[gda]\n\nprobe/value=1.5\n",
+        + '\n[gda]\n\nprobe/value=1.5\nprobe/dict={"a": 1.0}\nprobe/arr=[1.0]\n',
         encoding="utf-8",
     )
     run = _headless_runner(probe_project)
@@ -707,6 +722,76 @@ def test_project_set_shares_the_refusal(probe_project):
     accepted = run("project", "set", "gda/probe/value", "--value", "1e-18")
     assert accepted.returncode == 0, accepted.stdout + accepted.stderr
     assert value_bits(json.loads(accepted.stdout)["value"]) == value_bits(1e-18)
+
+    # ...and the container half reaches this command too — a setting's declared
+    # type is whatever it already holds, so a Dictionary/Array setting takes the
+    # same JSON `--value` a Dictionary/Array property does.
+    setting = {"d": "gda/probe/dict", "a": "gda/probe/arr"}
+    for kind, value, note, stored in CONTAINER_PER_COMMAND:
+        result = run("project", "set", setting[kind], "--value", value)
+        if note is not None:
+            assert result.returncode == 4, (value, result.stdout, result.stderr)
+            error = json.loads(result.stdout)["error"]
+            assert error["code"] == "uncoercible_value", value
+            assert note in error["message"], value
+            continue
+        assert result.returncode == 0, (value, result.stdout, result.stderr)
+        assert json.loads(result.stdout)["value"] == stored, value
+
+
+# A script-backed Resource with the same two container fields the scene probe
+# declares. Hand-written rather than built with `resource create`: the .tres names
+# the script as an ExtResource, which loads without the project's class registry,
+# so this needs no `--import` pass.
+RESOURCE_PROBE_GD = (
+    "extends Resource\n\n@export var d: Dictionary = {}\n@export var a: Array = []\n"
+)
+RESOURCE_PROBE_TRES = (
+    '[gd_resource type="Resource" load_steps=2 format=3]\n\n'
+    '[ext_resource type="Script" path="res://probe_res.gd" id="1"]\n\n'
+    "[resource]\n"
+    'script = ExtResource("1")\n'
+)
+
+
+@pytest.mark.e2e
+def test_resource_set_shares_the_refusal(probe_project):
+    """The fourth coercing command: same rule, same code, same message (#805)."""
+    (probe_project / "probe_res.gd").write_text(RESOURCE_PROBE_GD, encoding="utf-8")
+    resource = probe_project / "probe.tres"
+    resource.write_text(RESOURCE_PROBE_TRES, encoding="utf-8")
+    run = _headless_runner(probe_project)
+
+    # The scalar rule first, so a container failure below cannot be a `resource
+    # set` that never had the rule at all.
+    refused = run(
+        "resource",
+        "set",
+        str(resource),
+        "--property",
+        "d",
+        "--value",
+        '{"a": 1e-320, "b": 2.0}',
+    )
+    assert refused.returncode == 4, refused.stdout + refused.stderr
+    error = json.loads(refused.stdout)["error"]
+    assert error["code"] == "uncoercible_value"
+    assert "reads 1e-320 as 0.0" in error["message"]
+    # A refusal leaves the file exactly as written: the set never happened.
+    assert resource.read_text(encoding="utf-8") == RESOURCE_PROBE_TRES
+
+    for kind, value, note, stored in CONTAINER_PER_COMMAND:
+        result = run(
+            "resource", "set", str(resource), "--property", kind, "--value", value
+        )
+        if note is not None:
+            assert result.returncode == 4, (value, result.stdout, result.stderr)
+            failure = json.loads(result.stdout)["error"]
+            assert failure["code"] == "uncoercible_value", value
+            assert note in failure["message"], value
+            continue
+        assert result.returncode == 0, (value, result.stdout, result.stderr)
+        assert json.loads(result.stdout)["value"] == stored, value
 
 
 # --- the command tier: live `game set` through a real daemon -------------------
