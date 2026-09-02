@@ -31,8 +31,6 @@ from gda.errors import (
     Failure,
     classify_launch_or_crash,
     make_failure,
-    target_outside_project_failure,
-    target_owned_by_another_project_failure,
 )
 from gda.execution import ExecutionKind
 from gda.headless import (
@@ -52,12 +50,10 @@ from gda.models import (
 from gda.project import (
     RES_PREFIX,
     canonical_res_path,
+    containment_refusal,
     is_engine_virtual_path,
-    owner_relative_target,
-    owning_project,
-    path_outside_project,
+    project_absolute,
     project_anchored,
-    target_location,
 )
 from gda.render import render_property_lines, render_set_echo
 from gda.runner import launch
@@ -834,28 +830,17 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
         )
     # One coordinate system for BOTH sides before any comparison: a relative
     # --project must not meet an absolute candidate (#738 re-review 2 — the
-    # mixed comparison raised a bare ValueError on the lexical fallback).
-    project_abs = project.expanduser()
-    if not project_abs.is_absolute():
-        project_abs = Path.cwd() / project_abs
-    # The checks read the project as SPELLED (the double reading is theirs to make);
-    # the refusals report it RESOLVED, which is what `FailureEvidence.project_root`
-    # publishes ("in its resolved form — the same value a successful result
-    # reports") and what the two sibling gates already did. Reporting `project_abs`
-    # itself made this one command answer `/tmp/...` where `script validate`
-    # answered `/private/tmp/...` for the same call (#799 review).
-    root = project_abs.resolve()
-    owner = owning_project(raw, project_abs)
-    if owner is not None:
-        return target_owned_by_another_project_failure(
-            target_location(raw, project_abs),
-            owner.resolve(),
-            root,
-            owner_relative_target(raw, project_abs, owner),
-        )
-    outside = path_outside_project(raw, project_abs)
-    if outside is not None:
-        return target_outside_project_failure(outside, root)
+    # mixed comparison raised a bare ValueError on the lexical fallback). The
+    # gate below normalizes the same way; this local is for the res:// MAPPING
+    # further down, which needs the same absolute root.
+    project_abs = project_absolute(project)
+    # ONE call for ownership-then-containment and both refusal envelopes (#802).
+    # What used to stand here — the two probes, their order, the four coordinates
+    # and the resolved root each refusal reports — now lives on ADR-0006's path
+    # authority, so this gate keeps only what is genuinely about ASSETS.
+    refusal = containment_refusal(raw, project)
+    if refusal is not None:
+        return refusal
     if raw.startswith(RES_PREFIX):
         # Already in the engine's namespace: canonicalize the spelling and stop.
         # Reading it lexically is what the engine does too — a symlink inside the

@@ -22,12 +22,21 @@ The gates, at the level where each makes the decision (no engine needed):
 What is deliberately NOT uniform is stated as such below: ``script run`` refuses a
 few shapes the other two accept, and those refusals are its own — verdict-matching
 rules about how the engine echoes an address back on stderr, not containment.
+
+Since #802 the three gates are one function
+(:func:`gda.project.containment_refusal`), so this module is no longer the only
+thing holding three copies together: it is the OUTER guard over the one gate's
+output, driven through each command's own entry point so a call site cannot quietly
+stop routing through it. The last section pins that structurally as well.
 """
 
+import ast
 from pathlib import Path
 
 import pytest
 
+import gda.commands
+import gda.project as project_module
 from gda.commands.resource import _asset_res_path
 from gda.commands.script import (
     ScriptValidateParams,
@@ -271,3 +280,149 @@ def test_every_gate_states_the_same_reissue(project, nested, spelling):
             f"--project {nested.resolve()} and address the target as 'main.gd'"
             in outcome.error.message
         ), name
+
+
+# --- The one gate (#802) -----------------------------------------------------
+#
+# Three call sites used to WRITE the composition above — ask ownership, build the
+# four-coordinate refusal, ask containment, build the outside-root refusal — and
+# the assertions before this point checked the three answers coordinate by
+# coordinate. They now check the output of one function. What this section adds is
+# what folding the three into it had to be checked FOR: that the site whose copy
+# was ownership-only is unchanged by gaining the containment half, that the
+# normalization the gate adopted answers the same on a relative `--project`, and
+# that no command module can grow a fourth copy.
+
+
+def _envelopes(project: Path, spelling: str) -> "dict[str, dict]":
+    """The three gates' refusal envelopes for one target, keyed by command."""
+    envelopes = {}
+    for name, outcome in _ownership_refusals(project, spelling):
+        assert isinstance(outcome, Failure), name
+        envelopes[name] = outcome.error.model_dump()
+    return envelopes
+
+
+# Every spelling `script run`'s address gate is asked about anywhere in this
+# module: the shared containment table plus the shapes that stay its own.
+SCRIPT_RUN_SPELLINGS = [spelling for spelling, _ in CONTAINMENT] + [
+    "res://",
+    "res://.",
+    "res://bar.gd ",
+    "res://ba\nr.gd",
+    "user://x.gd",
+]
+
+
+@pytest.mark.parametrize("spelling", SCRIPT_RUN_SPELLINGS)
+def test_the_containment_half_script_run_folded_in_is_inert(project, spelling):
+    # #802's fold, VERIFIED rather than assumed. `script run`'s copy asked ownership
+    # only, because its address gate has already decided containment; folding it
+    # into the whole gate adds the containment half, and the claim is that the
+    # addition can never fire. That is exactly this assertion: whatever address
+    # survives `_project_scoped_res_path` — it returns only a canonical `res://`
+    # whose `res_escape_remainder` is None, refusing every other spelling first —
+    # is one `path_outside_project` reads through its lexical `res://` branch and
+    # answers None for. So the folded gate can only ever return what the
+    # ownership-only copy returned, which is what makes the fold behavior-identical
+    # and not merely equivalent on the cases someone thought to try.
+    #
+    # The answer is lexical, so it does not depend on the fixture holding the file;
+    # the project is here only because the gate takes one.
+    address = _project_scoped_res_path(spelling)
+    if isinstance(address, Failure):
+        # Refused at the address gate, before the shared gate is reached at all.
+        return
+    assert path_outside_project(address, project) is None, address
+
+
+@pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
+def test_every_gate_answers_a_relative_project_spelling_identically(
+    project, nested, spelling, monkeypatch
+):
+    # The row the #802 normalization needs. The gate adopts `resource import`'s
+    # cwd-absolutized form (#738) for all three sites, where the two script sites
+    # used to hand `owning_project` / `path_outside_project` the project AS SPELLED.
+    # The two spellings were measured to agree on a relative `--project` — every
+    # probe the gate makes anchors a relative path at the cwd, `Path.resolve()` and
+    # `os.path.abspath` alike — and this is that measurement kept executable,
+    # against the ABSOLUTE spelling's own answer rather than a restated expectation.
+    #
+    # It does NOT discriminate between those two normalizations, and cannot: they
+    # agree, which is the finding that let the gate adopt one of them. What it holds
+    # is the agreement itself — a future normalization that anchored anywhere but the
+    # cwd, or resolved the project before the probes rather than after, fails here.
+    absolute = _envelopes(project, spelling)
+
+    monkeypatch.chdir(project.parent)
+    assert _envelopes(Path(project.name), spelling) == absolute
+    # ...and the two spellings a relative one can also carry, which the two
+    # normalizations reach by different routes (`Path("./game")` drops the `.`
+    # before the join; `alias/../game` keeps a `..` both readings then see).
+    (project.parent / "alias").mkdir()
+    assert _envelopes(Path(f"./{project.name}"), spelling) == absolute
+    assert _envelopes(Path("alias") / ".." / project.name, spelling) == absolute
+
+
+@pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
+def test_the_three_gates_now_emit_ONE_envelope(project, nested, spelling):
+    # The sharpest form of the invariant, and the one only #802 makes checkable: the
+    # three commands do not merely agree on the code and the coordinates, they emit
+    # the same envelope — because one function builds it. `script run` reaches the
+    # gate with the canonical `res://` address rather than the caller's spelling, so
+    # this is also the statement that the anchoring makes the two forms one target.
+    envelopes = list(_envelopes(project, spelling).values())
+    assert envelopes[1:] == envelopes[:-1]
+
+
+#: The two builders that construct a `target_outside_project` refusal. #802's first
+#: acceptance criterion is that no command module calls either: the gate owns the
+#: ordering AND the envelopes, so a command states only which target it is asking
+#: about. Named here rather than inferred, so adding a third builder is a change
+#: this test makes someone look at.
+CONTAINMENT_REFUSAL_BUILDERS = {
+    "target_outside_project_failure",
+    "target_owned_by_another_project_failure",
+}
+
+
+def _called_names(node: ast.AST) -> "set[str]":
+    return {
+        call.func.id
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+    }
+
+
+def test_no_command_module_builds_a_containment_refusal_itself():
+    # The structural half of "one gate". The behavioural tests above would still
+    # pass if a command grew a fourth copy that happened to agree today — which is
+    # how the copies drifted in the first place (#763, then #799). Read out of the
+    # source, over the whole `gda.commands` package rather than the three modules
+    # that used to do it, because a NEW command asking the same question is exactly
+    # the case that must route through the gate.
+    package = Path(gda.commands.__file__).parent
+    offenders = {
+        module.name
+        for module in sorted(package.glob("*.py"))
+        if _called_names(ast.parse(module.read_text(encoding="utf-8")))
+        & CONTAINMENT_REFUSAL_BUILDERS
+    }
+
+    assert offenders == set()
+
+
+def test_the_gate_is_where_both_refusals_are_built():
+    # The other side of the same claim: the builders did not simply lose their
+    # callers. `gda.project.containment_refusal` is the one function that calls both,
+    # so the ordering rule its docstring records is the ordering every command gets.
+    source = ast.parse(Path(project_module.__file__).read_text(encoding="utf-8"))
+    gate = next(
+        node
+        for node in ast.walk(source)
+        if isinstance(node, ast.FunctionDef) and node.name == "containment_refusal"
+    )
+
+    assert _called_names(gate) & CONTAINMENT_REFUSAL_BUILDERS == (
+        CONTAINMENT_REFUSAL_BUILDERS
+    )
