@@ -614,7 +614,21 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     inside ``evidence`` that is ALSO published on a success result keeps its full
     key set, so a record does not read differently depending on which half of the
     contract carried it (:class:`gda.models.FailureEvidence`).
+
+    The child run's stderr (``failure.child_stderr``, attached by
+    :meth:`HeadlessCommand.execute`) is forwarded to this process's stderr here,
+    where the channel is known — EXCEPT when the human channel is about to print
+    the very same bytes as ``diagnostics``, which would say one stream twice
+    across two streams (#798 review). Byte identity decides, not the error code:
+    a curated or capped ``diagnostics`` (the labeled ``--strict`` sections, a
+    timeout's tail-capped captures) differs from the raw stream, so its tee — the
+    only copy that is complete — survives. Under ``--json`` the tee is
+    unconditional, keeping that channel's bytes exactly as they were.
     """
+    if failure.child_stderr and (
+        json_output or failure.error.diagnostics != failure.child_stderr
+    ):
+        print(failure.child_stderr, end="", file=sys.stderr)
     if json_output:
         typer.echo(
             GdaErrorEnvelope(error=failure.error).model_dump_json(exclude_none=True)
@@ -750,17 +764,27 @@ class HeadlessCommand(Generic[M]):
         runner = make_runner(binary, project)  # pyright: ignore[reportArgumentType]
         result = runner.run(self.operation, params.model_dump())
 
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-
         if self.classify is not None:
-            return self.classify(result, binary)  # pyright: ignore[reportArgumentType]
+            outcome = self.classify(result, binary)  # pyright: ignore[reportArgumentType]
         # No declared classifier: the channel picks it. LIVE gets ``classify_live``
         # — ``classify_run`` plus the LIVE error envelope (ADR-0017's reuse) — so a
         # live command declares its channel once, in ``kind``.
-        if self.kind is ExecutionKind.LIVE:
-            return classify_live(result, binary, self.output_model)
-        return classify_run(result, binary, self.output_model)
+        elif self.kind is ExecutionKind.LIVE:
+            outcome = classify_live(result, binary, self.output_model)
+        else:
+            outcome = classify_run(result, binary, self.output_model)
+
+        # The child's stderr is teed AFTER classification, because on a failure it
+        # rides the ``Failure`` to the emission point instead: whether printing it
+        # here would repeat the bytes ``diagnostics`` is about to carry depends on
+        # the caller's channel, which this method does not know (#798 review). A
+        # success has no diagnostics to duplicate, so its tee stays immediate.
+        if isinstance(outcome, Failure):
+            outcome.child_stderr = result.stderr
+            return outcome
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        return outcome
 
     def run(
         self,

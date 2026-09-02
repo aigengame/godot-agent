@@ -72,10 +72,19 @@ MIN_GODOT_VERSION = (4, 4)
 
 @dataclass
 class Failure:
-    """A classified failure: the stable error shape plus its process exit code."""
+    """A classified failure: the stable error shape plus its process exit code.
+
+    ``child_stderr`` is the raw stderr of the child run this failure classifies,
+    attached by :meth:`gda.headless.HeadlessCommand.execute` instead of being teed
+    there — whether printing it would say the same bytes twice depends on the
+    caller's channel, which only the emission point knows (#798 review). It stays
+    ``""`` on every failure no child run produced, and it is not part of the
+    serialized envelope.
+    """
 
     error: GdaError
     exit_code: int
+    child_stderr: str = ""
 
 
 def make_failure(
