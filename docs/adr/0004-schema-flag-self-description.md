@@ -236,7 +236,10 @@ status: accepted
 > launch-backed channel now reports it), and `script_errors` (the parsed
 > `ScriptError[]` of #651). The criterion is what keeps `script run`'s silence window
 > and declared completion marker OUT: both are the caller's own inputs, so neither
-> tells it anything it did not already know. The captured streams stay in
+> tells it anything it did not already know. The same ground keeps the UNREACHED
+> ceiling off `script_aborted`: an abort stops short of its `--timeout`, so that value
+> is the caller's own input, not a fact the run measured — `timeout_seconds` ships
+> only where the ceiling was reached and is the verdict. The captured streams stay in
 > `diagnostics` alone for the same kind of reason — copying two 16 KiB captures into
 > the object would double the payload to say the same thing twice.
 >
@@ -280,8 +283,8 @@ status: accepted
 > not zero per-command PAYLOAD: the one shared `error` schema is repeated once per
 > command in the aggregate manifest, so a richer envelope multiplies by the surface.
 > Publishing `FailureEvidence` (with `TerminationPhase` and `ScriptError`) takes the
-> shared `error` schema from 3,719 to 7,825 bytes, and `gda schema` from 675,342 to
-> 972,433 bytes (+44%) across **76** commands.
+> shared `error` schema from 3,719 to 7,921 bytes, and `gda schema` from 675,342 to
+> 979,618 bytes (+45%) across **76** commands.
 >
 > It was reduced where it could be, and the reduction is worth naming exactly rather
 > than gesturing at: the `ScriptError` prose that is a reader's explanation moved into

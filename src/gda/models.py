@@ -149,8 +149,10 @@ class FailureEvidence(BaseModel):
     timeout_seconds: float | None = Field(
         default=None,
         description=(
-            "The timeout ceiling this run reached. Compare with elapsed_seconds to "
-            "tell a run that was merely slow from one that was stuck."
+            "The timeout ceiling this run reached. Set only on a timeout verdict, "
+            "naming the bound to raise before a rerun; a run gda ended short of "
+            "its ceiling (script_aborted) omits it — that --timeout is the "
+            "caller's own input."
         ),
     )
     termination_phase: TerminationPhase | None = Field(

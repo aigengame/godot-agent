@@ -785,9 +785,11 @@ class ScriptRunParams(BaseModel):
             "slow-but-live run is distinguishable from a hang. A run ended EARLY "
             "by the completion-marker rule below is not this envelope: it "
             "reports 'script_aborted', whose phase is 'aborted_on_error'. Both "
-            "carry the three as typed 'evidence' fields (timeout_seconds, "
-            "elapsed_seconds, termination_phase) as well as in the message, plus "
-            "'evidence.script_errors' — advisory under a timeout (#687)."
+            "carry 'elapsed_seconds' and 'termination_phase' as typed 'evidence' "
+            "fields as well as in the message, plus 'evidence.script_errors' — "
+            "advisory under a timeout (#687); 'timeout_seconds', the reached "
+            "ceiling, rides the timeout envelope only (an abort stops short of "
+            "its ceiling, which stays in the message)."
         ),
     )
     completion_marker: str | None = Field(

@@ -134,7 +134,7 @@ does not decide for them.
 > `error` schema is now the dominant term in the manifest's size. ADR-0004's #687
 > amendment added typed `evidence` to the one shared failure envelope, and because
 > each of the 76 entries carries its own copy of that envelope, one shared change
-> moved the dump from 675,342 to 972,433 bytes (+44%). Nothing about the transform
+> moved the dump from 675,342 to 979,618 bytes (+45%). Nothing about the transform
 > changed — gda-mcp still consumes the dump with zero per-command knowledge, and the
 > `error` half is still ONE schema, byte-identical across all 76 entries.
 >
@@ -144,4 +144,5 @@ does not decide for them.
 > It changes the entry shape gda-mcp reads, so it is this ADR's contract to change,
 > not #687's, and it is not urgent — startup cost is one dump and one parse.
 > Recorded here so the next amendment to the shared envelope is priced against the
-> aggregate rather than against one entry. Tracked as a follow-up.
+> aggregate rather than against one entry. Recorded as a follow-up; not yet
+> tracked by an issue.

@@ -1021,11 +1021,11 @@ def script_run_aborted_failure(
         _ended_run_diagnostics("the abort", script_errors, stdout, stderr),
         evidence=FailureEvidence(
             elapsed_seconds=elapsed,
-            # The ceiling this run did NOT reach, which is the point: read beside
-            # elapsed_seconds it shows the abort saved the difference. The silence
-            # window and the declared marker stay prose — both are the caller's own
-            # inputs, so neither tells it anything it did not already know.
-            timeout_seconds=timeout,
+            # No timeout_seconds: this run stopped SHORT of its ceiling, so the
+            # --timeout value is not a fact the run measured — it is the caller's
+            # own input, the same ground that keeps the silence window and the
+            # declared marker out of evidence (ADR-0004's criterion). The message
+            # names it; the field stays the reached ceiling only.
             termination_phase=phase,
             script_errors=list(script_errors),
         ),

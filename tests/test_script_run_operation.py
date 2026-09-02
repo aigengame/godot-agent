@@ -982,10 +982,11 @@ def test_the_narrower_timeout_phase_is_data_too():
     assert outcome.error.evidence.script_errors == []
 
 
-def test_the_abort_envelope_carries_the_ceiling_it_did_NOT_reach():
-    # The point of reporting the ceiling on an abort: read beside the elapsed clock
-    # it shows what the completion-marker contract saved (3.4s against 120s). The
-    # silence window and the marker stay prose — both are the caller's own inputs.
+def test_the_abort_envelope_omits_the_ceiling_it_did_not_reach():
+    # An abort stops SHORT of its ceiling, so the `--timeout` value is not a fact
+    # this run measured — it is the caller's own input, the same ground that keeps
+    # the silence window and the declared marker out of `evidence` (ADR-0004). The
+    # message still names it; `timeout_seconds` stays the reached ceiling only.
     outcome, _ = _run(
         RunResult(
             stdout="SUITE START\n",
@@ -1002,7 +1003,7 @@ def test_the_abort_envelope_carries_the_ceiling_it_did_NOT_reach():
     evidence = outcome.error.evidence
     assert evidence is not None
     assert evidence.elapsed_seconds == 3.4
-    assert evidence.timeout_seconds == 120.0
+    assert evidence.timeout_seconds is None
     assert evidence.termination_phase is TerminationPhase.ABORTED_ON_ERROR
     assert evidence.script_errors is not None
     assert [e.kind.value for e in evidence.script_errors] == ["runtime_error"]

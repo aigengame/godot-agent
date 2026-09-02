@@ -748,8 +748,10 @@ quietly is alive by construction. It does appear in the run's `diagnostics`, whi
 a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
 Every `script run` failure that computed evidence also carries it as DATA on the
 envelope's optional `evidence` key (#687): the child's own `exit_status` on `--strict`'s
-`script_failed`; `elapsed_seconds` / `timeout_seconds` / `termination_phase` on the two
-gda-ended envelopes; and the parsed `script_errors` on ALL of them — the never-ran
+`script_failed`; `elapsed_seconds` / `termination_phase` on the two gda-ended envelopes,
+with `timeout_seconds` — the reached ceiling — on the timeout one only (an abort stops
+short of its ceiling, so its `--timeout` stays in the message as the caller's own
+input); and the parsed `script_errors` on ALL of them — the never-ran
 verdicts (`script_not_found` / `script_compile_failed` / `incompatible_script_type`),
 `--strict`'s `script_failed`, and both gda-ended envelopes — as the WHOLE parsed list,
 not only the error that decided the code. An entry carries the same four keys

@@ -88,13 +88,15 @@ the mistake the envelope carries a `hint` naming the invocation to run instead
 
 A failure that computed evidence also carries it as DATA, under the envelope's
 optional `evidence` key — omitted, never null, on the failures that computed none.
-Read it instead of parsing the message: `elapsed_seconds` / `timeout_seconds` /
-`termination_phase` (`launched` = the engine wrote nothing at all, so suspect the
-binary or the host; `output_seen` = it was alive and did not finish, so raise the
-ceiling; `aborted_on_error`) on a run gda ended, `exit_status` (the CHILD's, not
-gda's exit code) on `script run --strict`'s `script_failed`, and `script_errors`
-on every `script run` failure — the never-ran verdicts, `--strict`'s
-`script_failed`, and both runs gda ended. Under a `launch_timeout` those errors
+Read it instead of parsing the message: `elapsed_seconds` / `termination_phase`
+(`launched` = the engine wrote nothing at all, so suspect the binary or the host;
+`output_seen` = it was alive and did not finish, so raise the ceiling;
+`aborted_on_error`) on a run gda ended, plus `timeout_seconds` — the reached
+ceiling — on the timeout verdict only (an abort stopped short of its ceiling, so
+it omits the field; your own `--timeout` stays in the message), `exit_status`
+(the CHILD's, not gda's exit code) on `script run --strict`'s `script_failed`,
+and `script_errors` on the `script run` failures that parse the run's stderr —
+the never-ran verdicts, `--strict`'s `script_failed`, and both runs gda ended. Under a `launch_timeout` those errors
 stay ADVISORY — the verdict is the timeout, so branch on `code` and read
 `evidence` for the cause.
 
