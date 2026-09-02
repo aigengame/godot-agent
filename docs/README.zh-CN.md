@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5d4abe9c21590934b72f3ee5546b31f628d4de4d20ae7cff1eeb004af3a45da3 -->
+<!-- gda-readme-i18n: source=README.md sha256=84081a1c36b0d7c66629b8f74054b432e5f1ef56497e68ce98097d0e6b699104 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -68,8 +68,9 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
   只要一个 Godot 二进制文件。Live 操作则通过一个基于 Unix 域套接字的 daemon，为正在运行的游戏
   加上实时控制能力，用的还是同一套 CLI 语法。
 - **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错；引擎卡死则会触发超时处理。
-  这些错误都会映射为一个**稳定的非零退出码**，并附带一个结构化的 `{"error": {…}}` 信封——这样 shell 或 agent
-  无需解析自然语言文本，就能按失败类别分支处理。`gda` 不认识的命令或选项同样以结构化方式拒绝，
+  这些错误都会映射为一个**稳定的非零退出码**，并附带一个带有失败类别与代码的 Error 信封——这样 shell 或
+  agent 无需解析自然语言文本，就能按失败分支处理。加上 `--json` 时该信封就是 `{"error": {…}}` 对象；不加时
+  同一个失败会被排布成可读的文本行，判定结果排在最前。`gda` 不认识的命令或选项同样以这种方式拒绝，
   并在 `hint` 中给出应当改用的调用方式。若某个失败已经算出了证据，这些证据同样会随信封返回——
   一个可选的 `evidence` 对象，携带超时运行已用的时钟与它触到的上限、子进程自身的退出状态、
   解析出的脚本错误——于是 agent 可以按数值分支，而不必解析消息文本。
@@ -614,7 +615,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 
 | Flag       | 说明                                                               |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出。不加它时，命令会打印一份简洁的、供人阅读的渲染结果。命令之前同样接受该 flag：`gda --json <group> <command>` 与 `gda <group> --json <command>` 都与写在命令之后含义相同。 |
+| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出——成功时是结果，失败时是 `{"error": {…}}` 信封。不加它时，两者都会改为打印一份简洁的、供人阅读的渲染结果。命令之前同样接受该 flag：`gda --json <group> <command>` 与 `gda <group> --json <command>` 都与写在命令之后含义相同。 |
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
 | `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |

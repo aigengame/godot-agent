@@ -108,6 +108,11 @@ _HELPER_RENDERERS = {
     # and composed by `render_version` so the flag and the `gda version` command print
     # the same line (#670). Bound to no descriptor of its own.
     "render_version_line",
+    # The human layout of the shared FAILURE envelope (#685). Bound to no descriptor
+    # by construction: a descriptor's `render` takes that command's own RESULT model,
+    # while the error half is one schema identical for every command (ADR-0004), so
+    # its rendering is one function the failure channel calls — not a per-command one.
+    "render_failure",
 }
 
 

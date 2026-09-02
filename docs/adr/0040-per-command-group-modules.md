@@ -173,8 +173,29 @@ src/gda/
 >   string. The form moved to `gda.script_errors` as `script_error_line()`, a lexical
 >   projection of the type that module owns, so `errors -> script_errors <- render` and
 >   both edges point downward. Pinned by
->   `tests/test_render.py::test_only_the_group_layer_imports_the_presentation_module`.
+>   `tests/test_render.py::test_the_core_never_imports_the_presentation_module`.
 >
 > No general import-boundary gate was added. The one test above pins the single
 > direction this review found inverted; a repo-wide gate is a larger decision with its
 > own cost, and nothing yet shows the narrow pin is insufficient.
+
+> **Outcome (2026-09-01, #685):** giving the failure channel a human rendering adds
+> one importer of `gda.render` from below group altitude — `gda.headless`, for
+> `render_failure` alone.
+>
+> The direction §5 fixes still holds. `gda.render` imports `gda.models` and
+> `gda.script_errors` and nothing else, which places it on the same tier as
+> `gda.errors`, so `headless -> render` is the chain's own
+> `headless -> runners / errors / models` step and closes no cycle. What #687's
+> review found was the OPPOSITE edge — the core reaching UP into presentation, with
+> a wire field on the other end of it.
+>
+> The edge cannot be removed by injection the way the success channel's is.
+> `emit_result` takes a renderer as an argument because the group binds `render=` on
+> its own descriptor (ADR-0023); `render_failure` is ONE layout for every registered
+> code precisely so a command cannot grow a private one, so no group owns it and
+> none can supply it. Nor may the edge widen: the allowance is pinned to that single
+> symbol by
+> `tests/test_render.py::test_the_failure_channel_takes_only_the_renderer_no_group_can_supply`,
+> so headless cannot become a general consumer of presentation. The guard test the
+> #687 note names was renamed and widened to state both halves.

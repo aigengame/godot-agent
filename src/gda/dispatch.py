@@ -127,7 +127,9 @@ def _emit(
     )
 
 
-def _resolve_project_or_fail(project: Optional[str]) -> Optional[Path]:
+def _resolve_project_or_fail(
+    project: Optional[str], *, json_output: bool
+) -> Optional[Path]:
     """Resolve ``--project`` (ADR-0006), or emit a structured ``project_not_found``
     and exit — never leak the raise as a traceback (#353).
 
@@ -136,14 +138,20 @@ def _resolve_project_or_fail(project: Optional[str]) -> Optional[Path]:
     project-resolution point on the CLI dispatch path, so converting the raise here
     gives every channel — sentinel (:func:`dispatch_domain`) and recipe
     (:func:`dispatch_recipe`) — the structured envelope in a single place.
+
+    ``json_output`` is the caller's channel, carried down from the dispatch tail that
+    already holds it (#685): this refusal happens BEFORE any command runs, so there is
+    nothing else here to read it off.
     """
     try:
         return resolve_project_dir(project)
     except ValueError as exc:
-        emit_failure(invalid_project_failure(str(exc)))
+        emit_failure(invalid_project_failure(str(exc)), json_output=json_output)
 
 
-def _project_context(cmd: HeadlessCommand[M], project: Optional[str]) -> Optional[Path]:
+def _project_context(
+    cmd: HeadlessCommand[M], project: Optional[str], *, json_output: bool
+) -> Optional[Path]:
     """The project ``cmd`` runs against, resolved once per dispatch (ADR-0006).
 
     One rule, shared by all three tails. A command with ``inherits_project=False``
@@ -156,7 +164,7 @@ def _project_context(cmd: HeadlessCommand[M], project: Optional[str]) -> Optiona
     """
     if not cmd.inherits_project and project is None:
         return None
-    return _resolve_project_or_fail(project)
+    return _resolve_project_or_fail(project, json_output=json_output)
 
 
 def dispatch_domain(
@@ -182,7 +190,7 @@ def dispatch_domain(
         params,
         json_output=json_output,
         godot=godot,
-        project=_project_context(cmd, project),
+        project=_project_context(cmd, project, json_output=json_output),
     )
 
 
@@ -207,7 +215,7 @@ def dispatch_meta(
         params,
         json_output=json_output,
         godot=godot,
-        project=_project_context(cmd, project),
+        project=_project_context(cmd, project, json_output=json_output),
     )
 
 
@@ -241,9 +249,13 @@ def dispatch_recipe(
     # is emitted before it runs); a non-inheriting meta recipe receives None and
     # never touches ``resolve_project_dir``.
     assert cmd.recipe is not None
-    outcome = cmd.recipe(params, project=_project_context(cmd, project), godot=godot)
+    outcome = cmd.recipe(
+        params,
+        project=_project_context(cmd, project, json_output=json_output),
+        godot=godot,
+    )
     if isinstance(outcome, Failure):
-        emit_failure(outcome)
+        emit_failure(outcome, json_output=json_output)
     emit_result(outcome, json_output, cmd.render)
 
 

@@ -32,7 +32,7 @@ def test_scene_get_missing_file_maps_to_stable_path_not_found_code(monkeypatch):
         ),
     )
 
-    result = CliRunner().invoke(app, ["scene", "get", "/x/missing.tscn"])
+    result = CliRunner().invoke(app, ["scene", "get", "/x/missing.tscn", "--json"])
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -57,7 +57,7 @@ def test_scene_get_unloadable_file_maps_to_stable_not_a_scene_code(monkeypatch):
         ),
     )
 
-    result = CliRunner().invoke(app, ["scene", "get", "/x/notes.txt"])
+    result = CliRunner().invoke(app, ["scene", "get", "/x/notes.txt", "--json"])
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -81,7 +81,9 @@ def test_scene_get_exports_missing_file_maps_to_stable_path_not_found_code(monke
         ),
     )
 
-    result = CliRunner().invoke(app, ["scene", "get-exports", "/x/missing.tscn"])
+    result = CliRunner().invoke(
+        app, ["scene", "get-exports", "/x/missing.tscn", "--json"]
+    )
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -105,7 +107,7 @@ def test_scene_get_exports_unloadable_file_maps_to_stable_not_a_scene_code(monke
         ),
     )
 
-    result = CliRunner().invoke(app, ["scene", "get-exports", "/x/notes.txt"])
+    result = CliRunner().invoke(app, ["scene", "get-exports", "/x/notes.txt", "--json"])
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -128,7 +130,7 @@ def test_scene_create_unknown_root_type_maps_to_stable_invalid_root_type_code(
     )
 
     result = CliRunner().invoke(
-        app, ["scene", "create", "/x/main.tscn", "--root-type", "Foo"]
+        app, ["scene", "create", "/x/main.tscn", "--root-type", "Foo", "--json"]
     )
 
     assert result.exit_code == 4
@@ -156,7 +158,7 @@ def test_scene_create_save_failure_maps_to_stable_save_failed_code(monkeypatch):
     )
 
     result = CliRunner().invoke(
-        app, ["scene", "create", "/x/demo/main.tscn", "--root-type", "Node2D"]
+        app, ["scene", "create", "/x/demo/main.tscn", "--root-type", "Node2D", "--json"]
     )
 
     assert result.exit_code == 4
@@ -175,7 +177,7 @@ def test_scene_get_broken_sentinel_maps_to_parse_error(monkeypatch):
         RunResult(stdout="no sentinel here\n", stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(app, ["scene", "get", "/x/main.tscn"])
+    result = CliRunner().invoke(app, ["scene", "get", "/x/main.tscn", "--json"])
 
     assert result.exit_code == 5
     err = json.loads(result.stdout)["error"]
@@ -198,7 +200,7 @@ def test_scene_delete_missing_file_maps_to_stable_path_not_found_code(monkeypatc
         ),
     )
 
-    result = CliRunner().invoke(app, ["scene", "delete", "/x/missing.tscn"])
+    result = CliRunner().invoke(app, ["scene", "delete", "/x/missing.tscn", "--json"])
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -222,7 +224,7 @@ def test_scene_delete_non_scene_file_maps_to_stable_not_a_scene_code(monkeypatch
         ),
     )
 
-    result = CliRunner().invoke(app, ["scene", "delete", "/x/notes.txt"])
+    result = CliRunner().invoke(app, ["scene", "delete", "/x/notes.txt", "--json"])
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -249,7 +251,7 @@ def test_scene_delete_unlink_failure_maps_to_stable_delete_failed_code(monkeypat
         ),
     )
 
-    result = CliRunner().invoke(app, ["scene", "delete", "/x/main.tscn"])
+    result = CliRunner().invoke(app, ["scene", "delete", "/x/main.tscn", "--json"])
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -275,7 +277,7 @@ def test_scene_list_without_project_maps_to_stable_project_not_found_code(monkey
         ),
     )
 
-    result = CliRunner().invoke(app, ["scene", "list"])
+    result = CliRunner().invoke(app, ["scene", "list", "--json"])
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -298,7 +300,7 @@ def test_scene_create_missing_binary_maps_to_environment_error(monkeypatch):
     )
 
     result = CliRunner().invoke(
-        app, ["scene", "create", "/x/main.tscn", "--root-type", "Node2D"]
+        app, ["scene", "create", "/x/main.tscn", "--root-type", "Node2D", "--json"]
     )
 
     assert result.exit_code == 127

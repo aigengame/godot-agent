@@ -87,7 +87,10 @@ def test_headless_command_emit_owns_structured_failure_output(capsys):
             InfoParams(),
             godot="/tmp/missing",
             project=None,
-            json_output=False,
+            # The envelope this asserts on is the JSON channel's rendering, so the
+            # invocation asks for it. Before #685 the flag decided the SUCCESS
+            # channel only and a failure was JSON either way; now it decides both.
+            json_output=True,
             make_runner=make_runner,
         )
 
@@ -116,7 +119,7 @@ def test_empty_godot_path_maps_to_structured_binary_not_found(capsys):
             InfoParams(),
             godot="",
             project=None,
-            json_output=False,
+            json_output=True,
             make_runner=make_runner,
         )
 

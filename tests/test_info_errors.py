@@ -31,7 +31,7 @@ def test_binary_not_found_maps_to_environment_error(monkeypatch):
         ),
     )
 
-    result = CliRunner().invoke(app, ["info"])
+    result = CliRunner().invoke(app, ["info", "--json"])
 
     assert result.exit_code == 127
     err = json.loads(result.stdout)["error"]
@@ -59,7 +59,7 @@ def test_launch_timeout_maps_to_environment_error_distinct_from_not_found(monkey
         ),
     )
 
-    result = CliRunner().invoke(app, ["info"])
+    result = CliRunner().invoke(app, ["info", "--json"])
 
     assert result.exit_code == 124
     err = json.loads(result.stdout)["error"]
@@ -86,7 +86,7 @@ def test_operation_failure_maps_to_operation_error_distinct_from_environment(
         ),
     )
 
-    result = CliRunner().invoke(app, ["info"])
+    result = CliRunner().invoke(app, ["info", "--json"])
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -106,7 +106,7 @@ def test_engine_signal_crash_maps_to_operation_error_distinct_from_clean_exit(
         RunResult(stdout="", stderr="", exit_code=-11),
     )
 
-    result = CliRunner().invoke(app, ["info"])
+    result = CliRunner().invoke(app, ["info", "--json"])
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
@@ -129,7 +129,7 @@ def test_missing_sentinel_maps_to_parse_error_distinct_from_operation(monkeypatc
         ),
     )
 
-    result = CliRunner().invoke(app, ["info"])
+    result = CliRunner().invoke(app, ["info", "--json"])
 
     assert result.exit_code == 5
     err = json.loads(result.stdout)["error"]
@@ -152,7 +152,7 @@ def test_wrong_shape_sentinel_payload_maps_to_parse_error(monkeypatch):
         ),
     )
 
-    result = CliRunner().invoke(app, ["info"])
+    result = CliRunner().invoke(app, ["info", "--json"])
 
     # A clean exit (SystemExit via typer.Exit), NOT an escaped ValidationError.
     assert isinstance(result.exception, SystemExit)
@@ -189,7 +189,7 @@ def test_version_below_minimum_maps_to_version_error_distinct_from_environment(
         RunResult(stdout=_version_payload(4, 3), stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(app, ["info"])
+    result = CliRunner().invoke(app, ["info", "--json"])
 
     assert result.exit_code == 3
     err = json.loads(result.stdout)["error"]
@@ -226,7 +226,7 @@ def test_malformed_sentinel_json_maps_to_parse_error(monkeypatch):
         ),
     )
 
-    result = CliRunner().invoke(app, ["info"])
+    result = CliRunner().invoke(app, ["info", "--json"])
 
     assert result.exit_code == 5
     err = json.loads(result.stdout)["error"]

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5d4abe9c21590934b72f3ee5546b31f628d4de4d20ae7cff1eeb004af3a45da3 -->
+<!-- gda-readme-i18n: source=README.md sha256=84081a1c36b0d7c66629b8f74054b432e5f1ef56497e68ce98097d0e6b699104 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -70,9 +70,11 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
   ni editor — solo un binario de Godot. Las operaciones live añaden control en tiempo real de un juego
   en ejecución a través de un daemon sobre socket de dominio Unix, direccionadas con la misma gramática de la CLI.
 - **🛡️ Falla de forma ruidosa, nunca en silencio.** Un motor ausente o colgado queda acotado por un timeout
-  y se mapea a un **código de salida no nulo estable** más un sobre estructurado `{"error": {…}}`
-  — de modo que un shell o un agente puede bifurcar según la categoría del fallo sin analizar prosa.
-  Un comando o una opción que `gda` no reconoce se rechaza del mismo modo estructurado, con un
+  y se mapea a un **código de salida no nulo estable** más un sobre de error que lleva la categoría
+  y el código del fallo — de modo que un shell o un agente puede bifurcar según el fallo sin analizar
+  prosa. Con `--json` ese sobre es el objeto `{"error": {…}}`; sin él, el mismo fallo se dispone como
+  líneas legibles, con el veredicto primero.
+  Un comando o una opción que `gda` no reconoce se rechaza del mismo modo, con un
   `hint` que nombra la invocación que debe usarse en su lugar. Cuando un fallo calculó evidencia,
   esa evidencia también viaja en el sobre — un objeto `evidence` opcional que lleva el reloj
   transcurrido y el techo que alcanzó una ejecución agotada, el estado de salida propio del proceso
@@ -664,7 +666,7 @@ de entrada.
 
 | Flag       | Descripción                                                        |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emite el resultado como un único objeto JSON en stdout. Sin él, los comandos imprimen una representación concisa y legible para humanos. También se acepta antes del comando: `gda --json <group> <command>` y `gda <group> --json <command>` significan lo mismo que pasarlo después del comando. |
+| `--json`    | Emite el desenlace como un único objeto JSON en stdout: el resultado si hay éxito, el sobre `{"error": {…}}` si hay fallo. Sin él, ambos se imprimen como una representación concisa y legible para humanos. También se acepta antes del comando: `gda --json <group> <command>` y `gda <group> --json <command>` significan lo mismo que pasarlo después del comando. |
 | `--schema`  | Emite el contrato JSON Schema de entrada/salida del comando (sin lanzar Godot). |
 | `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT` y el valor por defecto). |
 | `--project` | Directorio del proyecto de Godot para la resolución de `res://` (anula `$GDA_PROJECT`; por defecto, el directorio actual si es un proyecto). Solo comandos de dominio. Resolver un proyecto ejecuta el código de ese proyecto — consulta [Ejecución del código del proyecto](#configuration). |

@@ -53,7 +53,9 @@ commands (no group).
 
 ## Structured output & errors
 
-Always pass `--json`. A success is the operation's result object. A failure is
+Always pass `--json`. It selects the channel for BOTH outcomes: without it a
+failure prints as human-readable lines instead of the envelope. A success is the
+operation's result object. A failure is
 
 ```json
 {"error": {"category": "...", "code": "...", "message": "..."}}
