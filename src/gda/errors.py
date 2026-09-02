@@ -61,6 +61,7 @@ from gda.models import (
     TerminationPhase,
 )
 from gda.parser import parse_result
+from gda.project import ForeignOwnerViolation, containment_violation
 from gda.runner import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
 from gda.script_errors import ScriptError, script_error_line
 
@@ -885,6 +886,38 @@ def target_owned_by_another_project_failure(
             owning_project=str(owner),
         ),
     )
+
+
+def containment_refusal(target: str, project: Path | None) -> Failure | None:
+    """The refusal when ``target`` does not belong to ``project`` — or ``None`` (#802).
+
+    THE gate the three path-taking commands call — ``script validate`` per batch
+    entry, ``script run`` for its entry script, ``resource import`` per asset. The
+    DECISION is not made here: :func:`gda.project.containment_violation` owns the
+    ordering (ownership first), the normalization, and the four coordinates; this
+    function maps each half of its answer to the envelope the taxonomy owns. The
+    split follows ADR-0040 §5 — the taxonomy reaches DOWN to the path authority,
+    never the reverse; the composition briefly lived whole on ``gda.project`` and
+    needed a deferred import of this module to hide the inverted edge (#807
+    review).
+
+    One builder of the same code stays outside the gate, deliberately:
+    :func:`script_escapes_project_failure`, ``script run``'s pre-resolution address
+    gate (ADR-0031). It decides on the spelling alone, before there is a project to
+    be outside OF, so it holds none of the four coordinates a refusal from here
+    reports; the argument for keeping it apart is at that builder.
+    """
+    violation = containment_violation(target, project)
+    if violation is None:
+        return None
+    if isinstance(violation, ForeignOwnerViolation):
+        return target_owned_by_another_project_failure(
+            violation.location,
+            violation.owner,
+            violation.root,
+            violation.owner_relative,
+        )
+    return target_outside_project_failure(violation.outside, violation.root)
 
 
 def script_escapes_project_failure(script: str) -> Failure:

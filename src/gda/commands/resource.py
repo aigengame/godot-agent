@@ -28,8 +28,9 @@ from pydantic import BaseModel, Field, model_validator
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
-    Failure,
     classify_launch_or_crash,
+    containment_refusal,
+    Failure,
     make_failure,
 )
 from gda.execution import ExecutionKind
@@ -50,7 +51,6 @@ from gda.models import (
 from gda.project import (
     RES_PREFIX,
     canonical_res_path,
-    containment_refusal,
     is_engine_virtual_path,
     project_absolute,
     project_anchored,

@@ -28,25 +28,22 @@ they are pure lexical address rules, so they belong beside
 :data:`ENGINE_VIRTUAL_PREFIXES` and :func:`_lexical_abs` rather than in the
 stderr parser that first needed one (:mod:`gda.script_errors`, now a consumer).
 
-Since #802 the authority owns the **gate** as well as the primitives:
-:func:`containment_refusal` is the whole ordered composition — normalize the
-project, ask ownership, ask containment, build whichever refusal fired — so a
-command module states only WHICH target it is asking about. Before it, three call
-sites wrote that orchestration by hand and the ordering rule, the argument shapes
-and the ``.resolve()`` discipline were interface cost each of them paid.
+Since #802 the authority owns the **decision** as well as the primitives:
+:func:`containment_violation` is the whole ordered composition — normalize the
+project, ask ownership, ask containment, report whichever half fired with its
+coordinates. The ENVELOPES stay with the taxonomy: `gda.errors.containment_refusal`
+maps the decision to the two refusals, so a command module states only WHICH
+target it is asking about while the dependency direction stays
+``errors -> foundation`` (ADR-0040 §5; #807 review — the composition briefly
+lived here whole and needed a deferred ``gda.errors`` import to hide the
+inverted edge).
 """
 
 import os
 import posixpath
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    # `gda.errors` imports `gda.models`, which imports THIS module, so the two
-    # refusal builders `containment_refusal` needs can only be imported inside
-    # it (see the note there). The name is still needed at type-check time.
-    from gda.errors import Failure
 
 GDA_PROJECT_ENV = "GDA_PROJECT"
 
@@ -522,27 +519,39 @@ def project_absolute(project: Path) -> Path:
     return absolute
 
 
-def containment_refusal(target: str, project: Path | None) -> "Failure | None":
-    """The refusal when ``target`` does not belong to ``project`` — or ``None`` (#802).
+@dataclass(frozen=True)
+class ForeignOwnerViolation:
+    """The ownership half of the containment decision: a nearer project owns it."""
 
-    THE gate behind ``target_outside_project`` once a project is RESOLVED: the one
-    question "does this target belong to the resolved project?", asked in one
-    order, answered in one pair of envelopes. Three commands ask it — ``script
-    validate`` per batch entry, ``script run`` for its entry script, ``resource
-    import`` per asset — and until #802 each wrote the composition by hand, so the
-    ordering rule, the four coordinates and the ``.resolve()`` discipline were
-    interface cost every one of them paid. They had drifted twice already (#763's
-    postmortem, then #799's), which is why the cross-gate consistency test exists;
-    it now guards this function's output rather than being the only thing holding
-    three copies together.
+    location: Path
+    owner: Path
+    root: Path | None
+    owner_relative: str
 
-    One builder of that same code stays OUTSIDE this gate, deliberately:
-    :func:`gda.errors.script_escapes_project_failure`, ``script run``'s
-    pre-resolution address gate (ADR-0031). It decides on the spelling alone,
-    before there is a project to be outside OF, so it holds none of the four
-    coordinates a refusal from here reports; it reaches the same rule through
-    :func:`res_escape_remainder`, and the argument for keeping it apart is at the
-    builder. Everything downstream of a resolved project is here.
+
+@dataclass(frozen=True)
+class OutsideRootViolation:
+    """The containment half of the decision: the target escapes the root."""
+
+    outside: Path
+    root: Path
+
+
+def containment_violation(
+    target: str, project: Path | None
+) -> ForeignOwnerViolation | OutsideRootViolation | None:
+    """The ordered containment decision for ``target`` under ``project`` (#802).
+
+    The one question "does this target belong to the resolved project?", asked in
+    one order, answered with the fired half and its coordinates — no envelope is
+    built here. `gda.errors.containment_refusal` maps the decision to the two
+    refusals and is what the three commands call (``script validate`` per batch
+    entry, ``script run`` for its entry script, ``resource import`` per asset);
+    until #802 each wrote this composition by hand, so the ordering rule, the four
+    coordinates and the ``.resolve()`` discipline were interface cost every one of
+    them paid. They had drifted twice already (#763's postmortem, then #799's),
+    which is why the cross-gate consistency test exists; it now guards the gate's
+    output rather than being the only thing holding three copies together.
 
     **Ordering: ownership first, containment second.** A real precedence rule, not
     only a choice of wording, because the two halves CAN both fire on one target:
@@ -578,19 +587,6 @@ def containment_refusal(target: str, project: Path | None) -> "Failure | None":
     ``project`` is the already-resolved directory (resolution stays CLI-side,
     ADR-0006); ``None`` means projectless.
     """
-    # Imported here, not at module scope: `gda.errors` imports `gda.models`, which
-    # imports this module for `is_engine_virtual_path`, so a top-level import would
-    # cycle. The dependency is genuinely one-way in every other direction — the
-    # authority owns the RULE, the taxonomy owns the ENVELOPE — and this is the one
-    # place the two meet. Hosting the composition in `gda.errors` instead would need
-    # no lazy import (it already reaches this module through `gda.models`), and that
-    # is the alternative #802 weighed and declined: the rule belongs with the
-    # authority that owns it, and the deferred import is the price of the placement.
-    from gda.errors import (
-        target_outside_project_failure,
-        target_owned_by_another_project_failure,
-    )
-
     if project is None:
         anchor = root = None
     else:
@@ -598,18 +594,18 @@ def containment_refusal(target: str, project: Path | None) -> "Failure | None":
         root = anchor.resolve()
     owner = owning_project(target, anchor)
     if owner is not None:
-        return target_owned_by_another_project_failure(
-            target_location(target, anchor),
-            owner.resolve(),
-            root,
-            owner_relative_target(target, anchor, owner),
+        return ForeignOwnerViolation(
+            location=target_location(target, anchor),
+            owner=owner.resolve(),
+            root=root,
+            owner_relative=owner_relative_target(target, anchor, owner),
         )
     # `root` is set exactly when `anchor` is; both are named so the narrowing stays
     # local to the branch that uses them.
     if anchor is not None and root is not None:
         outside = path_outside_project(target, anchor)
         if outside is not None:
-            return target_outside_project_failure(outside, root)
+            return OutsideRootViolation(outside=outside, root=root)
     return None
 
 

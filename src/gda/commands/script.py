@@ -31,9 +31,10 @@ from gda import dispatch
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
-    Failure,
     classify_launch_or_crash,
     classify_run,
+    containment_refusal,
+    Failure,
     make_failure,
     script_did_not_run_failure,
     script_escapes_project_failure,
@@ -63,7 +64,6 @@ from gda.models import (
 from gda.project import (
     RES_PREFIX,
     canonical_res_path,
-    containment_refusal,
     project_absolute,
     res_escape_remainder,
 )
@@ -2147,7 +2147,7 @@ def _script_validate_recipe(
 
     The refusal has TWO halves since ADR-0006's 2026-08-31 amendment (#697), and
     the second is why a *projectless* call is now checked too. Both are asked by
-    ONE call to :func:`~gda.project.containment_refusal` (#802), which owns their
+    ONE call to :func:`~gda.errors.containment_refusal` (#802), which owns their
     ordering and builds whichever envelope fires; this recipe only chooses the
     targets. Containment (:func:`~gda.project.path_outside_project`) asks whether
     the target is in the resolved project's tree, which only a resolved project

@@ -23,8 +23,9 @@ What is deliberately NOT uniform is stated as such below: ``script run`` refuses
 few shapes the other two accept, and those refusals are its own — verdict-matching
 rules about how the engine echoes an address back on stderr, not containment.
 
-Since #802 the three gates are one function
-(:func:`gda.project.containment_refusal`), so this module is no longer the only
+Since #802 the three gates are one function — the decision on ``gda.project``
+(:func:`gda.project.containment_violation`), its envelopes mapped by
+:func:`gda.errors.containment_refusal` (ADR-0040 §5, #807 review) — so this module is no longer the only
 thing holding three copies together: it is the OUTER guard over the one gate's
 output, driven through each command's own entry point so a call site cannot quietly
 stop routing through it. The last section pins that structurally as well.
@@ -36,7 +37,7 @@ from pathlib import Path
 import pytest
 
 import gda.commands
-import gda.project as project_module
+import gda.errors as errors_module
 from gda.commands.resource import _asset_res_path
 from gda.commands.script import (
     ScriptValidateParams,
@@ -44,10 +45,9 @@ from gda.commands.script import (
     _script_validate_recipe,
     run_script_run_operation,
 )
-from gda.errors import Failure
+from gda.errors import Failure, containment_refusal
 from gda.project import (
     PROJECT_MARKER,
-    containment_refusal,
     owning_project,
     path_outside_project,
 )
@@ -466,6 +466,24 @@ def test_the_gate_reads_the_project_as_spelled_rather_than_pre_resolved(
         assert outcome.error.code == "target_outside_project", name
 
 
+def test_a_project_directory_literally_named_like_a_home_reference_is_served(tmp_path):
+    # #807 review: the gate normalizes with the module's total `_expand_user`, so a
+    # project directory literally named `~<no-such-user>` stays literal. At the
+    # merge base the same call leaked `RuntimeError: Could not determine home
+    # directory` (exit 1) out of the per-entry composition; the issue widened to
+    # accept the structured refusal as the pinned behavior.
+    project = tmp_path / "~gda_no_such_user_802"
+    project.mkdir()
+    (project / PROJECT_MARKER).write_text("", encoding="utf-8")
+    outside = tmp_path / "outside.gd"
+    outside.write_text("extends Node\n", encoding="utf-8")
+
+    refusal = containment_refusal(str(outside), project)
+
+    assert refusal is not None
+    assert refusal.error.code == "target_outside_project"
+
+
 @pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
 def test_the_three_gates_now_emit_ONE_envelope(project, nested, spelling):
     # The sharpest form of the invariant, and the one only #802 makes checkable: the
@@ -535,9 +553,10 @@ def test_no_command_module_builds_a_containment_refusal_itself():
 
 def test_the_gate_is_where_both_refusals_are_built():
     # The other side of the same claim: the builders did not simply lose their
-    # callers. `gda.project.containment_refusal` is the one function that calls both,
-    # so the ordering rule its docstring records is the ordering every command gets.
-    source = ast.parse(Path(project_module.__file__).read_text(encoding="utf-8"))
+    # callers. `gda.errors.containment_refusal` is the one function that calls both
+    # (the DECISION it maps is `gda.project.containment_violation`'s, ADR-0040 §5),
+    # so the ordering the decision's docstring records is what every command gets.
+    source = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
     gate = next(
         node
         for node in ast.walk(source)
@@ -547,3 +566,7 @@ def test_the_gate_is_where_both_refusals_are_built():
     assert _called_names(gate) & CONTAINMENT_REFUSAL_BUILDERS == (
         CONTAINMENT_REFUSAL_BUILDERS
     )
+    # And the gate builds NOTHING itself beyond mapping the decision: the only
+    # gda.project name it calls is the decision function, so ordering and
+    # coordinates cannot quietly grow a second home here.
+    assert "containment_violation" in _called_names(gate)
