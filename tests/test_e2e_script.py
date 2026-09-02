@@ -742,10 +742,16 @@ def test_script_set_missing_file_yields_path_not_found(godot_project):
 @pytest.mark.e2e
 def test_script_validate_valid_script_reports_valid_true_no_diagnostics(godot_project):
     # The mechanism gate (issue #118): a self-contained `extends Node` script
-    # compiles (GDScript.reload() == OK) projectless, so validate reports valid=
-    # true, no error_string, no diagnostics — exit 0.
+    # compiles (GDScript.reload() == OK), so validate reports valid=true, no
+    # error_string, no diagnostics — exit 0.
+    #
+    # Bound to its project since ADR-0006's 2026-08-31 amendment (#697): the script
+    # lives in one, so validating it without naming it is now refused. The genuinely
+    # projectless arm — a loose `.gd` no project.godot claims — is
+    # `tests/test_e2e_res_containment.py`.
+    gda = _gda_project(godot_project)
     script_path = godot_project / "ok.gd"
-    _gda(
+    gda(
         "script",
         "create",
         str(script_path),
@@ -754,7 +760,7 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(godot_pr
         "--json",
     )
 
-    validated = _gda("script", "validate", str(script_path), "--json")
+    validated = gda("script", "validate", str(script_path), "--json")
 
     assert validated.returncode == 0, validated.stdout + validated.stderr
     data = json.loads(validated.stdout)
@@ -789,9 +795,10 @@ def test_script_validate_broken_script_is_success_with_a_real_diagnostic(godot_p
     # op (exit 0) reporting valid=false, and at least one diagnostic with a real
     # `line` and non-empty `message` — proving the stderr-parsing regex against
     # the REAL engine output, not a fixture.
+    gda = _gda_project(godot_project)
     script_path = godot_project / "broken.gd"
     # `var x =` with no initializer is a parse error the engine reports on its line.
-    _gda(
+    gda(
         "script",
         "create",
         str(script_path),
@@ -800,7 +807,7 @@ def test_script_validate_broken_script_is_success_with_a_real_diagnostic(godot_p
         "--json",
     )
 
-    validated = _gda("script", "validate", str(script_path), "--json")
+    validated = gda("script", "validate", str(script_path), "--json")
 
     assert validated.returncode == 0, validated.stdout + validated.stderr
     data = json.loads(validated.stdout)
@@ -900,10 +907,14 @@ def test_script_validate_broken_script_under_project_still_reports_diagnostics(
 @pytest.mark.e2e
 def test_script_validate_missing_file_yields_path_not_found(godot_project):
     # validate only op-fails for op errors: a missing file is path_not_found, NOT
-    # a valid=false success.
+    # a valid=false success. Named with its project (#697) so the op-level answer is
+    # what the call reaches — a path inside an UNNAMED project is refused for the
+    # project context first, which is a different (and equally true) verdict.
     missing = godot_project / "nope.gd"
 
-    validated = _gda("script", "validate", str(missing), "--json")
+    validated = _gda_project(godot_project)(
+        "script", "validate", str(missing), "--json"
+    )
 
     err = _assert_operation_error(validated, "path_not_found")
     assert str(missing) in err["message"]
@@ -914,7 +925,7 @@ def test_script_validate_wrong_extension_yields_invalid_path(godot_project):
     notes = godot_project / "notes.txt"
     notes.write_text("not a script\n", encoding="utf-8")
 
-    validated = _gda("script", "validate", str(notes), "--json")
+    validated = _gda_project(godot_project)("script", "validate", str(notes), "--json")
 
     err = _assert_operation_error(validated, "invalid_path")
     assert ".gd" in err["message"]
@@ -1125,7 +1136,7 @@ def test_script_validate_refuses_a_batch_that_spans_two_projects(tmp_path):
         "--json",
     )
 
-    err = _assert_operation_error(validated, "project_not_found")
+    err = _assert_operation_error(validated, "target_outside_project")
     assert str(outsider) in err["message"]
     assert str(project) in err["message"]
     assert other_project.exists()
@@ -1166,16 +1177,19 @@ def _nested_project_script(root):
 
 
 @pytest.mark.e2e
-def test_script_validate_verdict_is_root_dependent_and_names_the_root(tmp_path):
-    # The #658 regression, against the real engine: the SAME script under a nested
-    # project, validated from an ancestor directory, gets opposite verdicts
-    # depending on which project it was compiled against — and `project_root` says
-    # which one produced each. That is the reading GDA-DF-035 lacked: from the
-    # ancestor, `res://scripts/card.gd` is missing and a type-inference error is
-    # DERIVED from that miss, on a script that is perfectly valid in its own
-    # project. gda resolves no project from the target path (ADR-0006), so the
-    # ancestor run stays projectless — `project_root: null` is the signal that the
-    # dependency errors are about the missing project context, not the source.
+def test_script_validate_from_an_ancestor_is_refused_and_names_the_owner(tmp_path):
+    # THE dogfooded invocation (GDA-DF-035 reading 1), and the pin that moved with
+    # ADR-0006's 2026-08-31 amendment (#697). A game project inside a larger
+    # repository, validated from the repository root: nothing resolves, so the
+    # script used to be compiled by a PROJECTLESS engine, where `res://scripts/
+    # card.gd` is missing and a type-inference error is derived from that miss — a
+    # cascade of false errors on a script that is perfectly valid in its own
+    # project, with `project_root: null` as the only clue.
+    #
+    # gda now refuses instead and names the project to pass. It still does not
+    # DERIVE it: the owner is reported, resolution is untouched, and the true
+    # verdict is one flag away — which the second half proves is the same verdict
+    # as before.
     workspace, project, script = _nested_project_script(tmp_path)
 
     from_ancestor = subprocess.run(
@@ -1193,16 +1207,11 @@ def test_script_validate_verdict_is_root_dependent_and_names_the_root(tmp_path):
         cwd=workspace,
     )
 
-    assert from_ancestor.returncode == 0, from_ancestor.stdout + from_ancestor.stderr
-    wrong_root = json.loads(from_ancestor.stdout)
-    assert wrong_root["project_root"] is None
-    assert wrong_root["valid"] is False
-    # The false cascade the issue reports: the preload miss plus at least one
-    # error derived from it.
-    assert any(
-        "res://scripts/card.gd" in diag["message"]
-        for diag in wrong_root["scripts"][0]["diagnostics"]
-    )
+    _assert_operation_error(from_ancestor, "target_outside_project")
+    evidence = json.loads(from_ancestor.stdout)["error"]["evidence"]
+    assert evidence["owning_project"] == str(project.resolve())
+    # No engine ran, so the false cascade does not exist to be misread.
+    assert '"valid"' not in from_ancestor.stdout
 
     with_owning_project = _gda(
         "script", "validate", str(script), "--project", str(project), "--json"
@@ -1235,7 +1244,7 @@ def test_script_validate_refuses_a_script_outside_the_resolved_project(tmp_path)
         "script", "validate", str(script), "--project", str(other), "--json"
     )
 
-    err = _assert_operation_error(validated, "project_not_found")
+    err = _assert_operation_error(validated, "target_outside_project")
     assert str(script) in err["message"]
     assert str(other) in err["message"]
     # Refused BEFORE parsing: no engine ran, so no diagnostic about the file.
@@ -1299,7 +1308,7 @@ def test_script_validate_accepts_a_file_symlinked_into_the_project(tmp_path):
         "--json",
     )
 
-    _assert_operation_error(from_outside, "project_not_found")
+    _assert_operation_error(from_outside, "target_outside_project")
 
 
 @pytest.mark.e2e
@@ -1383,7 +1392,7 @@ def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_
         "--json",
     )
 
-    err = _assert_operation_error(validated, "project_not_found")
+    err = _assert_operation_error(validated, "target_outside_project")
     # The refusal names where the target REALLY is, not the collapsed spelling.
     assert str((outside / "deck.gd").resolve()) in err["message"]
     # Nothing was compiled: no verdict, and no engine diagnostic about the file.
@@ -1413,7 +1422,7 @@ def test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme(
         "script", "validate", f"{odd}//deck.gd", "--project", str(project), "--json"
     )
 
-    _assert_operation_error(validated, "project_not_found")
+    _assert_operation_error(validated, "target_outside_project")
     assert '"valid"' not in validated.stdout
 
 

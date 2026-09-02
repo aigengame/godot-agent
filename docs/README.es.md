@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ff68f26d3fed2c1ef1d07cfd235ba93a282a5a9a6aecb560c6858a90794343e3 -->
+<!-- gda-readme-i18n: source=README.md sha256=9ee297b6943985d55526d9519c2e4bee7d4ce1c301aa05e0e834b9ed9640b3c0 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -70,10 +70,16 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
   ni editor — solo un binario de Godot. Las operaciones live añaden control en tiempo real de un juego
   en ejecución a través de un daemon sobre socket de dominio Unix, direccionadas con la misma gramática de la CLI.
 - **🛡️ Falla de forma ruidosa, nunca en silencio.** Un motor ausente o colgado queda acotado por un timeout
-  y se mapea a un **código de salida no nulo estable** más un sobre estructurado `{"error": {…}}`
-  — de modo que un shell o un agente puede bifurcar según la categoría del fallo sin analizar prosa.
-  Un comando o una opción que `gda` no reconoce se rechaza del mismo modo estructurado, con un
-  `hint` que nombra la invocación que debe usarse en su lugar.
+  y se mapea a un **código de salida no nulo estable** más un sobre de error que lleva la categoría
+  y el código del fallo — de modo que un shell o un agente puede bifurcar según el fallo sin analizar
+  prosa. Con `--json` ese sobre es el objeto `{"error": {…}}`; sin él, el mismo fallo se dispone como
+  líneas legibles, con el veredicto primero.
+  Un comando o una opción que `gda` no reconoce se rechaza del mismo modo, con un
+  `hint` que nombra la invocación que debe usarse en su lugar. Cuando un fallo calculó evidencia,
+  esa evidencia también viaja en el sobre — un objeto `evidence` opcional que lleva el reloj
+  transcurrido y el techo que alcanzó una ejecución agotada, el estado de salida propio del proceso
+  hijo, los errores de script ya analizados — para que un agente bifurque con números en vez de
+  analizar el mensaje.
 
 ---
 
@@ -499,9 +505,19 @@ scripts, es decir, la raíz a la que se resolvieron sus dependencias `res://` (`
 cuando no se resolvió ningún proyecto). Léelo antes de actuar sobre un `valid: false`:
 un veredicto lleno de dependencias `res://` inexistentes, más los errores de tipo
 derivados de ellas, suele significar el proyecto equivocado y no un script roto. Una
-ruta *fuera* del proyecto resuelto rechaza el lote entero de entrada con
-`project_not_found`, nombrando tanto el archivo como el proyecto, en lugar de informar
-esos errores falsos; pasa `--project` con el proyecto al que pertenecen los archivos.
+ruta que el proyecto resuelto no posee rechaza el lote entero de entrada con
+`target_outside_project`, nombrando tanto el archivo como el proyecto, en lugar de
+informar esos errores falsos; pasa `--project` con el proyecto al que pertenecen los
+archivos. Eso cubre dos casos: una ruta *fuera* del proyecto resuelto, y una ruta que
+pertenece a un `project.godot` *anidado* — gda nombra al propietario que encontró en vez
+de adoptarlo, y la misma comprobación se aplica sin proyecto resuelto, de modo que un
+script que pertenece a un proyecto nunca se compila contra nada. Para el caso anidado el
+mensaje indica la reemisión completa: el `--project` que hay que pasar y el objetivo
+reescrito relativo a ese propietario, porque una ruta relativa se ancla en el proyecto y
+la grafía original no se encontraría bajo el nuevo. `script run` y
+`resource import` rechazan igual, con el mismo código. `--all` es el único selector que
+todavía no aplica la mitad de propiedad, así que los scripts de un proyecto anidado
+pueden seguir mostrando esa cascada falsa.
 
 `script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución**:
 el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de
@@ -660,7 +676,7 @@ de entrada.
 
 | Flag       | Descripción                                                        |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emite el resultado como un único objeto JSON en stdout. Sin él, los comandos imprimen una representación concisa y legible para humanos. También se acepta antes del comando: `gda --json <group> <command>` y `gda <group> --json <command>` significan lo mismo que pasarlo después del comando. |
+| `--json`    | Emite el desenlace como un único objeto JSON en stdout: el resultado si hay éxito, el sobre `{"error": {…}}` si hay fallo. Sin él, ambos se imprimen como una representación concisa y legible para humanos. También se acepta antes del comando: `gda --json <group> <command>` y `gda <group> --json <command>` significan lo mismo que pasarlo después del comando. |
 | `--schema`  | Emite el contrato JSON Schema de entrada/salida del comando (sin lanzar Godot). |
 | `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT` y el valor por defecto). |
 | `--project` | Directorio del proyecto de Godot para la resolución de `res://` (anula `$GDA_PROJECT`; por defecto, el directorio actual si es un proyecto). Solo comandos de dominio. Resolver un proyecto ejecuta el código de ese proyecto — consulta [Ejecución del código del proyecto](#configuration). |
@@ -761,11 +777,19 @@ para que un shell o un agente pueda bifurcar según la **categoría del fallo si
 | `0`       | —             | Éxito.                                                               |
 | `2`       | `usage`       | `gda` no pudo resolver lo que se le pidió — un comando o una opción que no reconoce. Un caso cercano reconocido lleva en el `hint` del sobre la invocación que debe usarse. |
 | `127`     | `environment` | No se pudo lanzar el binario de Godot (convención de shell: no encontrado). |
-| `124`     | `environment` | Godot se lanzó pero no retornó antes del timeout del runner (convención de shell: tiempo agotado). |
+| `124`     | `environment` | Godot se lanzó pero no retornó antes del timeout del runner (convención de shell: tiempo agotado) — ver **Cómo leer un `124`** más abajo. |
 | `3`       | `version`     | La versión de Godot detectada está por debajo del mínimo soportado.   |
 | `4`       | `operation`   | El motor se ejecutó pero la operación falló — un error de operación registrado, una caída del motor o una salida no nula no estructurada. |
 | `5`       | `parse`       | El proceso declaró éxito pero violó el contrato de salida estructurada. |
 | `6`       | `live`        | Una operación live falló — p. ej. no hay daemon/sesión en ejecución, o un timeout live. |
+
+**Cómo leer un `124`.** La categoría `environment` describe cómo TERMINÓ la ejecución, no
+el estado del host. Lee la salida parcial capturada en `diagnostics` para ver hasta dónde
+llegó la ejecución; luego sube el límite con `--timeout` en los comandos que lo exponen.
+Donde no lo exponen, el límite es propio de gda: reduce el trabajo o dale más margen a la
+máquina. Sospecha del binario o de la máquina solo cuando la captura muestre que el motor
+nunca arrancó. Cualquier error del motor dentro de esa captura es informativo — el
+veredicto es el timeout.
 
 Estos valores son la ABI pública; su fuente autoritativa es
 [`src/gda/exit_codes.py`](../src/gda/exit_codes.py). El sobre `{"error": {category, code, …}}`

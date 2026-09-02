@@ -97,18 +97,37 @@ status: accepted
 > otherwise the accepted form and the form every failure message quotes would differ with nothing to
 > connect them. This is a schema addition in ADR-0004's sense, moving with the implementation.
 >
+> **Amendment (2026-08-31, #697 / #763) — the upward escape leaves this ABI edge for the
+> shared containment code, and the resolved project must OWN the script.** Two changes, both
+> from ADR-0006's amendment of the same date.
+>
+> The path gate below refuses seven shapes as `invalid_path`. Six are questions about the
+> FORM of an address and stay exactly as recorded. The seventh — a path **escaping above the
+> root** — is not a spelling question but the containment question every path-taking command
+> asks, so it now reports `target_outside_project`, the code `script validate` and
+> `resource import` report for the same condition, and it reaches that verdict through the
+> shared rule (`gda.project.res_escape_remainder`) instead of a copy of it. The gate itself
+> returns the refusal rather than `None`, so each shape carries its own code. Because the
+> whole path edge is decided ahead of the projectless check, this one refusal names no
+> resolved root and carries no typed evidence — it has neither.
+>
+> Second: after the project resolves, `script run` also requires it to be the script's OWNER
+> — no nearer `project.godot` between the two. The lexical gate cannot see one, and running
+> against the outer root would resolve the script's own `res://` references against a root
+> that is not its own. One rule, two commands, one code.
+>
 > **What stays refused**, all decided before any launch as `invalid_path`: an **absolute** path;
 > **another engine scheme** (`user://`, `uid://` — lifting one would splice a second scheme into a
 > res:// address and send the engine after a path nobody typed); a leading `~` (a filesystem HOME
 > reference, including an unresolvable one); a path naming the project **root** (`""`, `"."`,
-> `"sub/.."`, and the `res://` / `res://.` spellings — a directory, not a script); a path **escaping
-> above the root** (`".."`, `"../outside.gd"`, and their `res://` spellings); a canonical address
+> `"sub/.."`, and the `res://` / `res://.` spellings — a directory, not a script); a canonical address
 > ending in a code point at or below **U+0020**, which Godot removes before reporting the path; and a
 > canonical address containing any line boundary recognized by `gda.engine_log`'s line protocol.
 > The ABI edge below names "a non-`res://` **or absolute** script path"; only its first half is lifted
 > here.
 >
-> The root and escape shapes are refused for a reason beyond tidiness, and both were **verified**. The
+> The root and escape shapes are refused — the root as `invalid_path`, the escape as
+> `target_outside_project` — for a reason beyond tidiness, and both were **verified**. The
 > engine
 > answers a root or escape address with `Can't load script: res://.` / `res://..`, whose address the
 > error parser reads back with the sentence period stripped — so it never matches the entry, the
@@ -472,3 +491,59 @@ added incrementally under ADR-0025 if a concrete need appears.
 > own timeout, since each carries something the shared branch cannot know (a termination
 > phase and the recognized script errors; a `timeout` STATUS that is the command's answer).
 > The `--- script stdout ---` labels, and every non-timeout envelope, keep their bytes.
+
+> **Outcome (2026-08-31, #716) — the "failure by another route" shape is decided, and
+> not here.** The #651 amendment at the top of this ADR records a `script run` whose
+> entry never loaded reaching `launch_timeout` rather than a #651 verdict — "a failure
+> by another route". Whether the captured stream should NARROW it is deferred a step
+> later, in point 3 of the 2026-08-17 (#655) amendment: "narrowing it is a separate
+> decision". Since #714 that shape belongs to four channels rather than one, so the
+> decision was taken where all four are governed: the captured stream stays ADVISORY
+> and never re-verdicts the timeout. The reasoning, and the
+> sibling decision that the code keeps its `environment` category, are in ADR-0002's
+> `Outcome (2026-08-31, #716 / #717)` note beside the `launch_timeout` registry row;
+> they are not restated here. `script_run_timeout_failure` is unchanged in verdict, in
+> code and in its three numbers; what it gained is one clause SAYING the rule, because
+> this is the channel where it matters most — its diagnostics open with "recognized
+> script errors seen before the timeout", so it is the one envelope that hands an agent
+> a parsed #651-shaped cause under a timeout verdict. (The shared builder for the other
+> three channels gained the same clause, plus the caller-first remediation order this
+> channel's message already had.) Typed delivery of those parsed errors — which serves
+> the same need better than a re-verdict would — remains #687's.
+
+> **Outcome (2026-08-31, #687) — the deferral above is settled: ADOPTED.** The two
+> amendments that named #687 promised this channel's envelope would adopt whatever it
+> decided; it decided to carry typed evidence, so the promise is now discharged rather
+> than left open. The shape, the criterion for what may enter it, and the boundaries
+> are recorded ONCE in
+> [ADR-0004's `Amendment (2026-08-31, #687)`](0004-schema-flag-self-description.md) and
+> are not restated here. What changes for `script run`:
+>
+> - The child's numeric **exit status** is data on `--strict`'s `script_failed`
+>   envelope, not only message prose — the asymmetry that argued for it is this ADR's
+>   own: the very same run WITHOUT `--strict` returns a typed `exit_status` on its
+>   success result, so opting into the flag used to cost the caller a parsed value.
+> - The **parsed `ScriptError[]`** rides every failure of this channel — the point-1
+>   verdicts (`script_not_found` / `script_compile_failed` /
+>   `incompatible_script_type`), `--strict`'s `script_failed`, and both gda-ended
+>   runs — as the WHOLE list, not only the entry-load error that decided the verdict.
+>   The rest of the list is frequently the real cause (a dependency that would not
+>   preload). Note the set is wider than "failures decided from stderr": only the
+>   point-1 verdicts are decided that way, `script_failed` is decided from the exit
+>   status and the two gda-ended runs from the clock and the silence watch — they
+>   carry the parsed list because it exists, not because it decided anything. The
+>   records keep the same four keys they have on the success result, `path` / `line`
+>   null where the engine named neither.
+> - The **elapsed clock, the ceiling and the termination phase** are data on the two
+>   gda-ended envelopes, and `TerminationPhase` moved out of this command into the
+>   shared model: every launch-backed channel's `launch_timeout` reports it now, so it
+>   is a property of the envelope rather than of `script run`.
+>
+> Two things deliberately did NOT change. The **prose is kept byte-for-byte** —
+> `diagnostics` still opens with the recognized errors and carries both labelled
+> streams, rendered from the same single parse the typed key carries — so this is
+> additive for every consumer that reads it. And the `launch_timeout` verdict is
+> **still not re-verdicted** by a recognized error in the capture: ADR-0002's
+> `Outcome (2026-08-31, #716 / #717)` note stands unchanged, and typed evidence is
+> what makes it comfortable to leave standing — the honest verdict now ships with the
+> precise cause attached.

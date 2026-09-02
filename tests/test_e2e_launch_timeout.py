@@ -127,6 +127,30 @@ def _assert_bounded(elapsed: float) -> None:
     assert elapsed < CEILING_SECONDS + 20, f"the run overran its bound: {elapsed:.1f}s"
 
 
+def _assert_caller_first_remediation(message: str) -> None:
+    """The remediation a real timeout publishes reads caller-first (#716, #717).
+
+    Asserted on the REAL envelope rather than only at the builder, because this is
+    the sentence an agent acts on and its ORDER is the contract: the caller's remedy
+    precedes the host suspicion, and the host suspicion carries the condition that
+    earns it. The advisory clause is #716's decision made legible at the point of
+    consumption — the capture beside it is partial by construction, so a recognized
+    line in it must not be read as a different verdict.
+    """
+    caller_remedy = message.index("read the captured output")
+    host_suspicion = message.index("suspect the binary or the machine")
+    assert caller_remedy < host_suspicion, message
+    assert "the capture shows the engine never started" in message
+    # The flag is named with its qualifier: only `resource import` of these three
+    # channels has a `--timeout` (the sentinel's 60s and the export's 600s are
+    # gda's own, fixed).
+    assert "--timeout, where the command exposes one" in message
+    # The channels that qualifier excludes still get a next step (PR #793 review).
+    assert "Where the command exposes no --timeout" in message
+    assert "reduce the work or give the machine more headroom" in message
+    assert "any engine error in it is advisory" in message
+
+
 def _assert_timeout_envelope(
     failure: Failure, label: str, *, expect: list[str]
 ) -> None:
@@ -137,6 +161,7 @@ def _assert_timeout_envelope(
     assert f"timeout of {CEILING_SECONDS}s" in error.message
     assert "elapsed 4." in error.message, error.message
     assert "16384 UTF-8 bytes (16 KiB)" in error.message
+    _assert_caller_first_remediation(error.message)
     for expected in expect:
         assert expected in error.diagnostics, error.diagnostics
 
@@ -222,4 +247,26 @@ def test_a_wedged_import_pass_reports_what_the_engine_printed(tmp_path):
     assert error["message"].startswith("Godot import launched but did not return")
     assert f"timeout of {CEILING_SECONDS}s" in error["message"]
     assert "elapsed 4." in error["message"]
+    _assert_caller_first_remediation(error["message"])
     assert "PLUGIN WEDGED" in error["diagnostics"]
+    # #687 (the ADR-0004 amendment) end to end, on a REAL wedged engine: the three
+    # facts the message states in prose also ride the envelope as DATA, read as
+    # numbers — the reached bound, the clock, and started-versus-never-started via
+    # the phase (a slow-versus-stuck call needs more than these).
+    # Asserted here rather than only at the builder
+    # because the clock and the phase are readings of a real process: a fake
+    # RunResult would assert only the can.
+    evidence = error["evidence"]
+    assert evidence["timeout_seconds"] == CEILING_SECONDS
+    assert evidence["elapsed_seconds"] >= CEILING_SECONDS
+    # The engine printed before it wedged, so it reached its own startup: this is the
+    # phase that says raise the ceiling, not the one that says suspect the binary.
+    assert evidence["termination_phase"] == "output_seen"
+    # The captured streams stay in `diagnostics` alone — copying two 16 KiB captures
+    # into the evidence object would double the payload to say the same thing twice —
+    # and this builder does not parse them, so no key it could not fill is present.
+    assert set(evidence) == {
+        "elapsed_seconds",
+        "timeout_seconds",
+        "termination_phase",
+    }

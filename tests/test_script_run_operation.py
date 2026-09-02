@@ -30,6 +30,7 @@ They are the recipe's own test surface, complementary to the e2e round-trip in
 ``tests/test_e2e_script_run.py`` (real Godot).
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -41,7 +42,6 @@ from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023
     SCRIPT_RUN_COMMAND,
     SCRIPT_STDOUT_CAP,
     ScriptRunResult,
-    TerminationPhase,
     _CompletionMarkerWatch,
     run_script_run_operation,
 )
@@ -52,6 +52,7 @@ from gda.errors import (
     Failure,
 )
 from gda.execution import ExecutionKind
+from gda.models import TerminationPhase
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
 from gda.runner import LaunchFailure, LaunchWatch, RunResult
 
@@ -286,26 +287,6 @@ def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
         "sub/..",
         "res://",
         "res://.",
-        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded before
-        # #698 fixed the parser (the engine's `Can't load script: res://..` used to
-        # parse back as `res://.`), and `../outside.gd` actually EXECUTED a script
-        # outside the project — refused regardless of the parser's own fix.
-        "..",
-        "sub/../..",
-        "../outside.gd",
-        "res://..",
-        "res://../outside.gd",
-        "../../etc/passwd",
-        # The SAME escape spelled with the engine's other separator. Godot folds
-        # `\\` to `/` across a res:// address before it collapses anything
-        # (`String::simplify_path`, ustring.cpp:4192), and this gate lifts a
-        # project-relative path onto a res:// address first, so both of these
-        # named the file one level above the project and were LAUNCHED — the
-        # widest form of the containment bypass PR #766's round-2 review found,
-        # closed here by the shared canonicalizer learning the fold.
-        "res://..\\outside.gd",
-        "..\\outside.gd",
-        "res://a\\..\\..\\outside.gd",
         # A leading `~` is a HOME reference — a filesystem address form. It reaches
         # the operation unexpanded only when the shared normalizer could not resolve
         # the user (#699); a resolvable `~/x.gd` arrives already expanded to an
@@ -338,16 +319,15 @@ def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
 )
 def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
     # The path ABI edge (ADR-0031, narrowed by #675): accepting the project-relative
-    # form must not accept everything ELSE that is merely non-absolute. The root and
-    # escape cases are load-bearing — the engine answers `Can't load script: res://.`
-    # / `res://..`, and before #698 fixed the parser that address came back with the
+    # form must not accept everything ELSE that is merely non-absolute. The root
+    # cases are load-bearing — the engine answers `Can't load script: res://.` /
+    # `res://..`, and before #698 fixed the parser that address came back with the
     # sentence period stripped, so it never matched the entry and the run reported a
-    # PHANTOM SUCCESS (exit 0). This refusal stays regardless of the parser's own fix
-    # — a resolvable escape is worse: `../outside.gd` RAN a script outside the
-    # project, which is exactly the ADR-0009 widening the amendment cites as its
-    # reason for refusing absolute paths. The trailing-engine-trim and embedded-line-
-    # boundary cases are the same phantom-success failure mode through two other
-    # identity-loss mechanisms — see #698 / PR #756.
+    # PHANTOM SUCCESS (exit 0). The trailing-engine-trim and embedded-line-boundary
+    # cases are the same phantom-success failure mode through two other
+    # identity-loss mechanisms — see #698 / PR #756. Every shape here is a question
+    # about the FORM of an address; the upward escape is the shared containment
+    # question and moved to the code below (#763).
     outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
 
     assert isinstance(outcome, Failure)
@@ -358,6 +338,98 @@ def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
     assert repr(script) in outcome.error.message
     assert "project-relative" in outcome.error.message
     assert "res://" in outcome.error.message
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded before
+        # #698 fixed the parser (the engine's `Can't load script: res://..` used to
+        # parse back as `res://.`), and `../outside.gd` actually EXECUTED a script
+        # outside the project — refused regardless of the parser's own fix, because
+        # running a script outside the project is precisely the ADR-0009 widening
+        # the ADR-0031 amendment cites for refusing absolute paths.
+        "..",
+        "sub/../..",
+        "../outside.gd",
+        "res://..",
+        "res://../outside.gd",
+        "../../etc/passwd",
+        # The SAME escape spelled with the engine's other separator. Godot folds
+        # `\\` to `/` across a res:// address before it collapses anything
+        # (`String::simplify_path`, ustring.cpp:4192), and this gate lifts a
+        # project-relative path onto a res:// address first, so both of these
+        # named the file one level above the project and were LAUNCHED — the
+        # widest form of the containment bypass PR #766's round-2 review found,
+        # closed by the shared canonicalizer learning the fold.
+        "res://..\\outside.gd",
+        "..\\outside.gd",
+        "res://a\\..\\..\\outside.gd",
+    ],
+)
+def test_an_escape_above_the_root_is_the_shared_containment_refusal(script):
+    # #763: this gate no longer decides containment for itself. It asks
+    # `gda.project.res_escape_remainder` — the lexical half of the authority
+    # `script validate` and `resource import` reach through
+    # (`path_outside_project`) — and reports the verdict under the code THEY report
+    # it under. Before, one condition had three codes across the three commands
+    # (`project_not_found` / `invalid_path` / `invalid_params`), so an agent could
+    # not branch on it once.
+    outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "target_outside_project"
+    assert not launch.calls, "no engine launch on an escaping path"
+    assert repr(script) in outcome.error.message
+    # No typed evidence: this gate runs BEFORE the projectless check (ADR-0031), so
+    # it holds neither the target's real location nor a resolved root, and it says
+    # so by omitting the key rather than by naming a project the call may not have.
+    assert outcome.error.evidence is None
+
+
+def test_a_script_a_nested_project_owns_is_refused_before_any_launch(tmp_path):
+    # ADR-0006's 2026-08-31 amendment, second command (#697): ONE rule, applied by
+    # `script validate` and `script run` alike. The address gate is lexical, so it
+    # cannot see a `project.godot` between the resolved root and the script;
+    # launched anyway, the script's own `res://` references would resolve against a
+    # root that is not its own — GDA-DF-035 in the executing form, where the wrong
+    # answer is a run that did something rather than a verdict that read wrong.
+    outer = tmp_path / "outer"
+    inner = outer / "inner"
+    inner.mkdir(parents=True)
+    (outer / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    (inner / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+
+    outcome, launch = _run(
+        RunResult(stdout="", stderr="", exit_code=0),
+        script="inner/main.gd",
+        project=outer,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "target_outside_project"
+    assert not launch.calls, "no engine launch on a script another project owns"
+    assert outcome.error.evidence is not None
+    assert outcome.error.evidence.owning_project == str(inner.resolve())
+
+
+def test_a_script_the_resolved_project_owns_still_launches(tmp_path):
+    # The boundary of the probe: the ordinary call. Every existing `script run`
+    # test uses a project directory that holds no marker at all, so this is the one
+    # that would catch a probe reading the resolved root's OWN marker as a foreign
+    # owner and refusing every correct invocation.
+    project = tmp_path / "game"
+    (project / "tests").mkdir(parents=True)
+    (project / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+
+    outcome, launch = _run(
+        RunResult(stdout="ok\n", stderr="", exit_code=0),
+        script="tests/logic.gd",
+        project=project,
+    )
+
+    assert isinstance(outcome, ScriptRunResult), getattr(outcome, "error", None)
+    assert launch.calls, "an owned script must reach the engine"
 
 
 def test_no_resolved_project_is_project_not_found_before_any_launch():
@@ -806,8 +878,9 @@ def test_the_default_timeout_is_still_the_documented_ceiling():
 
 def test_a_timeout_reflects_the_timeout_elapsed_and_phase_in_the_message():
     # AC: a run exceeding --timeout reports the ceiling it reached, the elapsed wall
-    # clock, and ONE enumerated termination phase. All prose — promoting them to
-    # envelope fields would change ADR-0004's failure ABI, which #687 owns.
+    # clock, and ONE enumerated termination phase. The MESSAGE keeps all three as
+    # prose, unchanged by #687 — the typed form beside it is additive, and the test
+    # below is what pins it.
     outcome, _ = _run(
         _timed_out(stdout="Godot Engine v4.6.3\nSUITE START\n", elapsed=30.25),
         timeout=30.0,
@@ -821,6 +894,30 @@ def test_a_timeout_reflects_the_timeout_elapsed_and_phase_in_the_message():
     assert TerminationPhase.OUTPUT_SEEN.value in outcome.error.message
     # The cap is STATED, so a reader knows the output was truncated and by how much.
     assert str(CAPTURED_OUTPUT_TAIL_CAP_BYTES) in outcome.error.message
+
+
+def test_a_timeout_says_its_recognized_script_errors_are_advisory():
+    # #716's decision, on the channel where it matters most: this envelope's
+    # diagnostics open with "recognized script errors seen before the timeout", so
+    # it is the one that hands an agent a parsed #651-shaped cause UNDER a timeout
+    # verdict. The code stays `launch_timeout` — the capture is tail-capped and was
+    # cut mid-flight, so a recognized line can be one the run survived — and the
+    # message says so, so a caller reading the diagnostics does not re-verdict on
+    # gda's behalf either. Recorded in ADR-0002 beside the registry row.
+    outcome, _ = _run(
+        _timed_out(stderr="SCRIPT ERROR: Parse Error: Identifier not declared\n"),
+        timeout=120.0,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "launch_timeout"  # NOT re-verdicted
+    assert "advisory" in outcome.error.message
+    assert "not an entry-load failure" in outcome.error.message
+    # The premise of the clause: this envelope really does carry the parsed cause.
+    assert (
+        "recognized script errors seen before the timeout" in outcome.error.diagnostics
+    )
+    assert "Identifier not declared" in outcome.error.diagnostics
 
 
 def test_a_timeout_carries_the_captured_partial_output_as_diagnostics():
@@ -903,6 +1000,145 @@ def test_an_aborted_run_is_the_registered_early_termination_verdict():
     # And it carries the same evidence a timeout does.
     assert "runtime_error: res://tests/logic.gd:6" in outcome.error.diagnostics
     assert "SUITE START" in outcome.error.diagnostics
+
+
+# --- #687: the same evidence, TYPED, on the envelope's optional `evidence` key.
+#
+# The ADR-0004 amendment made every fact these envelopes had been publishing as prose
+# available as data. What each test below pins is the DATA; the prose assertions above
+# are deliberately left intact, because the decision was additive — the message and
+# `diagnostics` are byte-for-byte what they were, and a consumer reading them is not
+# asked to migrate.
+
+
+def test_the_timeout_envelope_carries_its_three_numbers_and_the_parsed_cause():
+    # The three facts the message states in prose — the reached bound, the elapsed
+    # clock, how far the run got — are numbers an agent reads directly; they choose
+    # the next bound, not a slow-versus-stuck verdict. And the
+    # script errors under a timeout are the #716 case: the verdict stays the timeout,
+    # while the precise cause rides `evidence` instead of being thrown away.
+    outcome, _ = _run(
+        _timed_out(stdout="SUITE START\n", stderr=ABORTED_STDERR, elapsed=30.25),
+        timeout=30.0,
+    )
+
+    assert isinstance(outcome, Failure)
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    assert evidence.elapsed_seconds == 30.25
+    assert evidence.timeout_seconds == 30.0
+    assert evidence.termination_phase is TerminationPhase.OUTPUT_SEEN
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == ["runtime_error"]
+    assert evidence.script_errors[0].path == "res://tests/logic.gd"
+    assert evidence.script_errors[0].line == 6
+    # The verdict is still the code, never an entry in that list (ADR-0002, #716).
+    assert outcome.error.code == "launch_timeout"
+    # A timeout has no child exit status to report — the child never exited — so the
+    # field is absent rather than a stand-in number.
+    assert evidence.exit_status is None
+
+
+def test_the_narrower_timeout_phase_is_data_too():
+    # `launched` is the phase worth branching on: the engine never reached its own
+    # startup output, so this is the one timeout where suspecting the binary or the
+    # host is the right next step. Reading it off `evidence` is what spares an agent
+    # from matching that distinction in the message.
+    outcome, _ = _run(_timed_out(), timeout=30.0)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.evidence is not None
+    assert outcome.error.evidence.termination_phase is TerminationPhase.LAUNCHED
+    # No recognized error is an EMPTY list, not an absent key: the parse ran and
+    # found nothing, which is itself the diagnosis the prose states.
+    assert outcome.error.evidence.script_errors == []
+
+
+def test_the_abort_envelope_omits_the_ceiling_it_did_not_reach():
+    # An abort stops SHORT of its ceiling, so the `--timeout` value is not a fact
+    # this run measured — it is the caller's own input, the same ground that keeps
+    # the silence window and the declared marker out of `evidence` (ADR-0004). The
+    # message still names it; `timeout_seconds` stays the reached ceiling only.
+    outcome, _ = _run(
+        RunResult(
+            stdout="SUITE START\n",
+            stderr=ABORTED_STDERR,
+            exit_code=EXIT_OPERATION,
+            launch_failure=LaunchFailure.ABORTED,
+            elapsed_seconds=3.4,
+        ),
+        timeout=120.0,
+        completion_marker="SUITE DONE",
+    )
+
+    assert isinstance(outcome, Failure)
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    assert evidence.elapsed_seconds == 3.4
+    assert evidence.timeout_seconds is None
+    assert evidence.termination_phase is TerminationPhase.ABORTED_ON_ERROR
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == ["runtime_error"]
+
+
+def test_an_entry_load_verdict_carries_the_WHOLE_parsed_list():
+    # THE #651 DISCARD, closed. These errors were parsed to REACH this verdict and
+    # then thrown away, leaving the caller to re-parse `diagnostics` (raw stderr) to
+    # see the cascade. The whole list ships, not only the entry-load error the code
+    # names: the rest is what else the engine said, which is frequently the real
+    # cause of a compile failure.
+    outcome, _ = _run(RunResult(stdout="", stderr=PARSE_ERROR_STDERR, exit_code=0))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_compile_failed"
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == [
+        "parse_error",
+        "compile_failed",
+    ]
+    assert evidence.script_errors[0].line == 4
+    # A run that never started has no clock and no phase of its own: gda did not end
+    # it, the engine exited. Those fields are absent rather than zeroed.
+    assert evidence.elapsed_seconds is None
+    assert evidence.termination_phase is None
+
+
+def test_strict_reports_the_child_status_as_data_beside_the_parsed_cause():
+    # The asymmetry that argued for this: the SAME run without --strict returns a
+    # typed `exit_status` on its success result, so opting into the flag used to cost
+    # the caller a parsed value and force it to read a number out of a sentence.
+    outcome, _ = _run(
+        RunResult(stdout="1 failed\n", stderr=RUNTIME_ERROR_STDERR, exit_code=3),
+        strict=True,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_failed"
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    # The CHILD's status. gda's own process exit stays the registry's 4, because a
+    # script's quit(3) must not alias a gda exit code.
+    assert evidence.exit_status == 3
+    assert outcome.exit_code == EXIT_OPERATION
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == ["runtime_error"]
+
+
+def test_a_script_run_failure_decided_before_any_launch_carries_no_evidence():
+    # The scope of the amendment, at this channel's own edge: a refusal decided
+    # before a process exists has nothing to evidence, so the key is OMITTED and the
+    # envelope is byte-identical to its pre-#687 form. (The registry-wide version of
+    # this guard lives in tests/test_error_registry.py.)
+    outcome, _ = _run(
+        RunResult(stdout="", stderr="", exit_code=0), script="/abs/logic.gd"
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.evidence is None
+    emitted = json.loads(outcome.error.model_dump_json(exclude_none=True))
+    assert set(emitted) == {"category", "code", "message", "diagnostics"}
 
 
 def _drive(watch, steps):
@@ -1283,8 +1519,8 @@ def test_the_abort_envelope_names_the_condition_without_a_marker_string():
         timeout=120.0,
         elapsed=3.4,
         silence=SCRIPT_RUN_ABORT_SILENCE_SECONDS,
-        phase=TerminationPhase.ABORTED_ON_ERROR.value,
-        script_errors="",
+        phase=TerminationPhase.ABORTED_ON_ERROR,
+        script_errors=[],
         stdout="",
         stderr="",
     )

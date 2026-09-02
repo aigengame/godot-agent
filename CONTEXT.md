@@ -199,17 +199,22 @@ gda's engine-side payloads frame their reply with Godot's full-precision JSON
 writer — the harness since #752, the headless operations payload since #771 —
 so a projected float is the exact binary64 the subject holds, on either
 channel, with one shared residual the engine decides before the writer is
-consulted: a negative zero reads back as `0.0`. The WRITE sides still differ.
-On the live wire it is a refusal: a float Godot's parser would read as `0.0` is
-rejected before a request is relayed to the harness, no decimal literal being
-able to deliver it (#752). Headless there is no refusal — a `--value` string is
-coerced by that same parser, which still drops the low digits of a
-many-digit literal and reads a `DBL_MIN`-scale one as `0.0` (#772). Two
-controls keep the shared projection safe on the live
-side: the whitelist bounds the Object classes whose storage properties the
-inline kind emits, and the texture kind is safe by construction — a fixed
-getter shape with its one expensive readback behind the explicit digest opt-in
-(ADR-0035).
+consulted: a negative zero reads back as `0.0`. The WRITE sides answer alike
+from one principle, in two clauses — a literal the engine's parser reads as `0.0`
+when the literal does not denote zero, or as `NaN` at all, is REFUSED, never
+stored — but ask the question differently,
+because the two know the literal at different times: on the live wire gda spells it,
+so the refusal PREDICTS the outcome before the request is relayed (#752), while a
+`--value` string is spelled by the CALLER, so `node set` / `resource set` /
+`project set` and the live `game set` OBSERVE what that parser did (#772). What the
+parser produces bounds the rule on both sides: the low-order drift is disclosed
+rather than refused, which the full-precision echo shows, and so is an OVERFLOW — a
+`--value` of `1e400` is stored as the `inf` the parser saturates it to, since that
+is the engine's number for the magnitude asked, not a different one put in its
+place. Two controls keep the shared projection safe on the live side: the
+whitelist bounds the Object classes whose storage properties the inline kind
+emits, and the texture kind is safe by construction — a fixed getter shape with
+its one expensive readback behind the explicit digest opt-in (ADR-0035).
 _Avoid_: value rendering, str dump, serialization, descriptor
 
 ### Failure reporting
@@ -233,15 +238,48 @@ _Avoid_: wrapper error code, Python error code
 
 **Error envelope**:
 The structured failure result that distinguishes a failed command from a
-successful result.
+successful result. It is what `--json` emits; without that flag the same failure
+is RENDERED for a human instead — the code and its category on a head line, the
+message, each optional typed key as a labelled line, then `diagnostics` verbatim
+as real lines. Two renderings of ONE outcome, at one exit code, from one renderer
+that keys on no `Gda error code` — the `usage` refusals included, since they answer
+through this channel rather than through the parser's own error (#685). One case falls
+outside it, by that channel's own rule: where gda has no correction to add AND no JSON
+was asked for, it says nothing and the parser's message stands — silence rather than a
+second gda layout.
 _Avoid_: error blob, failure JSON
+
+**Failure evidence**:
+The typed facts BEHIND a verdict, carried on the `Error envelope`'s optional
+`evidence` key (ADR-0004 amendment, #687) — never a substitute for branching on the
+`Gda error code`, which stays the verdict. One fixed shape shared by every command,
+because ADR-0004 fixes the `error` half as one schema identical for all; the
+per-operation variability lives INSIDE it, every field individually optional and
+omitted rather than null, so a timeout populates the clocks (`elapsed_seconds`,
+`timeout_seconds`, `termination_phase`) while a `script run --strict` failure
+populates the child's `exit_status`, and both carry the parsed `script_errors` where
+the channel has them. The omitted-never-null rule governs the key and this object's
+own fields, and stops there: a model NESTED inside it that is also published on a
+success result keeps its full key set, so one record reads the same on both halves of
+the contract. **Not** the free-form `diagnostics` string beside it — the two ship
+together and say different things: `diagnostics` is the prose a human reads (the
+recognized-error lines and the captured streams), evidence is the same facts typed
+for a machine. That is why the streams are NOT duplicated here. ADR-0004's #687
+amendment is the authority for what may enter the object and for the producer set
+that carries it today; the short form is that a fact must already be computed on the
+failure path, be unrecoverable without parsing prose, and change what the caller does
+next. Third key on the axis that `probe` and `hint` established, and CLI-side like
+`hint`: neither the GDScript sentinel's `OperationError` nor the harness's `LiveError`
+emits or reads it.
+_Avoid_: diagnostics, error context, error details
 
 **Near-miss hint**:
 The corrected invocation gda returns when it RECOGNIZES a wrong one — an unknown
 command or option it holds a curated entry for (`gda scene inspect` → `gda scene
 get`, `gda --schema` → `gda schema`). It rides the `Error envelope` as the optional
-`hint` key, so an agent re-issues the corrected command without parsing prose; the
-human error carries the same correction in its message. Curated, never a
+`hint` key, so an agent re-issues the corrected command without parsing prose; both
+of that envelope's renderings carry it — the human one as its own `hint:` line,
+beside the same correction in the message. Curated, never a
 string-similarity guess: similarity is silent whenever the spelling is not close
 and the nearest string can be a different — even opposite — operation. One table
 (`src/gda/hints.py`) is the authority, kept honest by a test that re-resolves every

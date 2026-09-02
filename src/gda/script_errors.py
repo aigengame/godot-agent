@@ -54,8 +54,10 @@ canonicalizes a ``res://`` path before reporting it, so an entry script invoked 
 spelling against the caller's raw one silently missed the match and reported a
 phantom success, so every ``path`` this module produces — and every path
 :func:`entry_load_failure` compares against — is put through
-:func:`canonical_res_path` first. Lexical only: no filesystem access, no symlink
-resolution, so it stays a pure function.
+:func:`gda.project.canonical_res_path` first. Lexical only: no filesystem access,
+no symlink resolution, so it stays a pure function. It is ADR-0006's path
+authority that owns that canonicalizer (#763); this module imports it, as the
+command gates do.
 
 The recognized sentences, verbatim from Godot 4.6.3::
 
@@ -80,7 +82,6 @@ sentence is whatever the project wrote (#722)::
            [1] _ready (res://probe.gd:5)
 """
 
-import posixpath
 import re
 from collections.abc import Sequence
 from enum import Enum
@@ -89,10 +90,14 @@ from pydantic import BaseModel, Field
 
 from gda.engine_log import parse_errors
 
-# The res:// scheme prefix. A diagnostic's ``path`` is only ever a res:// address:
-# the engine's own ``at:`` frame for an engine-side error names a C++ source file
+# The res:// scheme prefix and the canonicalizer, both owned by ADR-0006's path
+# authority (:mod:`gda.project`, #763) and imported here rather than defined here:
+# they are lexical address rules with several consumers, and this module is the
+# stderr parser — one consumer among them. A diagnostic's ``path`` is only ever a
+# res:// address, which is why the prefix matters at all here: the engine's own
+# ``at:`` frame for an engine-side error names a C++ source file
 # (``modules/gdscript/gdscript.cpp``), which is gda-irrelevant noise.
-_RES_PREFIX = "res://"
+from gda.project import RES_PREFIX, canonical_res_path
 
 # The engine's ``SCRIPT ERROR:`` records carry the compile failure as a message
 # prefixed ``Parse Error:``; every other SCRIPT ERROR is a runtime failure raised
@@ -211,83 +216,29 @@ _CANNOT_OPEN_FILE = re.compile(r"^Cannot open file '(?P<path>[^']*)'")
 _FAILED_LOADING_RESOURCE = re.compile(r"^Failed loading resource: (?P<path>.+)\.$")
 
 
-def canonical_res_path(path: str) -> str:
-    """The canonical lexical form of a ``res://`` address (#651 review claim 1).
-
-    ONE resource identity, used on both sides of every comparison and for the argv
-    gda hands the engine. Godot canonicalizes internally before it reports a path,
-    so ``res://dir/../bad.gd`` comes back as ``res://bad.gd``; comparing the
-    engine's spelling against the caller's raw one missed the match and let a
-    failed run report success.
-
-    Purely lexical — no filesystem access — so it is safe on a path that does not
-    exist, which is exactly the missing-entry-script case. A non-``res://`` string
-    is returned unchanged: this normalizes an address, it does not validate one.
-
-    **Against ``String::simplify_path``** (``core/string/ustring.cpp:4149-4233``,
-    Godot ``4.6-stable-3260-g070dc9897e``), the engine function every ``res://``
-    address passes through before the engine resolves or reports it
-    (``ProjectSettings::localize_path``, ``core/config/project_settings.cpp:158``).
-    Which of its steps this reproduces, in the engine's own order:
-
-    - **scheme extraction** (4153-4168: first ``://`` whose prefix is all ASCII
-      alphanumerics becomes the "drive") — reproduced NARROWLY, for an exact
-      ``res://`` prefix only. The engine's other two drive branches (network share,
-      Windows ``C:``) are deliberately NOT reproduced: they are unreachable once the
-      scheme branch matched, and a non-``res://`` string leaves here untouched anyway.
-    - **``\\`` → ``/`` across the whole remainder** (4192) — reproduced, and it must
-      run BEFORE the leading-slash strip below, exactly as the engine runs it before
-      its own empty-segment split: ``res://\\a.gd`` folds to ``res://a.gd``, which is
-      no longer possible once the strip has already passed over a backslash. Without
-      this step ``res://..\\outside.gd`` read as an ordinary in-project filename
-      while the engine loaded the file one directory ABOVE the project and reported
-      it back as ``res://../outside.gd`` (#762).
-    - **repeated-``//`` collapse and ``split("/", false)``** (4193-4201) — reproduced
-      by the leading-slash strip plus ``posixpath.normpath``, which collapses runs of
-      separators and drops a trailing one. The strip is what covers POSIX's one
-      divergence: it gives exactly two leading slashes a special meaning (``//a``
-      stays ``//a``), so ``res:////a.gd`` would otherwise stay uncanonicalized.
-    - **``.``/``..`` collapse with the leading-``..`` strip DISABLED for ``res://``**
-      (4204-4221) — reproduced: ``normpath`` on a RELATIVE remainder keeps a leading
-      ``..`` for the same reason the engine keeps it, and that is what lets a caller
-      of this function see an escape at all rather than have it silently swallowed.
-
-    One stated gap, in the join (4223-4232): when every segment collapses away the
-    engine yields the bare ``res://`` while ``normpath`` yields ``.``, so
-    ``res://a/..`` canonicalizes here to ``res://.``. Both spellings name the project
-    root and every consumer already treats the pair alike — ``script run``'s gate
-    tests the pair explicitly (``_ROOT_REMAINDERS``) and a ``.`` is not an upward
-    escape — so closing it would only churn a deliberate accommodation that #763
-    owns reconciling.
-    """
-    if not path.startswith(_RES_PREFIX):
-        return path
-    remainder = path[len(_RES_PREFIX) :].replace("\\", "/").lstrip("/")
-    if not remainder:
-        return _RES_PREFIX
-    # normpath("") is ".", so the empty case is handled above rather than here.
-    return _RES_PREFIX + posixpath.normpath(remainder)
-
-
+# WHY the prose below is a comment and not this enum's docstring (#687): a model
+# or enum docstring becomes its schema ``description``, and since the ADR-0004
+# amendment of #687 this enum is reachable from the SHARED failure envelope — which
+# `gda schema` repeats once per command (~76 times), on top of the two result models
+# that already carry it. The same rule `EnvironmentProbe` states in `gda.models`:
+# rationale lives beside the code, only the contract goes in the schema.
+#
+# A closed, public enum. Every kind except ``RUNTIME_ERROR``, ``PUSH_ERROR`` and
+# ``INCOMPATIBLE_SCRIPT`` reports that the named resource could NOT be loaded or
+# run; ``RUNTIME_ERROR`` reports an error raised by a script that was already
+# executing, ``PUSH_ERROR`` reports an invariant the project itself rejected while
+# running, and ``INCOMPATIBLE_SCRIPT`` reports a binding the engine refused — a
+# compiled script whose base cannot bind its object, or a bound value that is not a
+# Script at all (it names no resource either way).
+#
+# Whether such a failure ended the *run* depends on WHICH resource it names: a load
+# failure naming the entry script means the run never happened, while the same
+# failure naming something the running script merely tried to load does not.
+# :func:`entry_load_failure` is what applies that distinction; a ``kind`` alone does
+# not decide it. That sentence is the one branching rule an agent needs, so it — and
+# only it — survives into the ``kind`` field description below.
 class ScriptErrorKind(str, Enum):
-    """What a recognized engine error line says about the resource it names (#651).
-
-    A closed, public enum: it is projected into ``--schema`` through the results
-    that carry :class:`ScriptError`. Every kind except ``RUNTIME_ERROR``,
-    ``PUSH_ERROR`` and ``INCOMPATIBLE_SCRIPT`` reports that the named resource
-    could **not be loaded or run**; ``RUNTIME_ERROR`` reports an error raised by a
-    script that was already executing, ``PUSH_ERROR`` reports an invariant the
-    project itself rejected while running, and ``INCOMPATIBLE_SCRIPT`` reports a
-    binding the engine refused — a compiled script whose base cannot bind its
-    object, or a bound value that is not a Script at all (it names no resource
-    either way).
-
-    Whether such a failure ended the *run* depends on **which** resource it names:
-    a load failure naming the entry script means the run never happened, while the
-    same failure naming something the running script merely tried to load does
-    not. :func:`entry_load_failure` is what applies that distinction; a ``kind``
-    alone does not decide it.
-    """
+    """What a recognized engine error line says about the resource it names (#651)."""
 
     #: A compile failure in the named script (its own syntax error, or a
     #: dependency it preloads that does not resolve). That script never ran.
@@ -362,29 +313,46 @@ _ENTRY_FAILURE_PRECEDENCE = (
 )
 
 
+# Best-effort and advisory in the ADR-0002 sense — parsed from stderr, not from a
+# bound API — but unlike free-form diagnostics it is *classified*, so an agent can
+# branch on ``kind`` instead of matching engine prose.
+#
+# Its descriptions are TERSE for the reason stated above the enum (#687): this model
+# now rides the shared failure envelope, so every word here is repeated once per
+# command in `gda schema`. What each kind means in full is in the enum's comment
+# above and in `docs/command-catalog.md`; what stays here is what a caller has to
+# know to read a value it just received. Three reader's facts that used to be field
+# prose live here instead, for that reason:
+#
+# - ``path`` is canonical in :func:`canonical_res_path`'s sense — ``.``/``..``
+#   segments and duplicate slashes collapsed — so a value read here compares equal
+#   to the same resource named any other way.
+# - An engine-side LOAD error carries no script line at all, which is why ``line``
+#   is null far more often than a reader of a compile error expects.
+# - For a ``push_error`` the line is the call site the engine named in its GDScript
+#   backtrace — never a number gda synthesized.
+#
+# ONE wire shape, at both of the contract's halves (#687 review). This model is
+# published twice: on the success results of ``script run`` / ``scene preflight``,
+# and inside the failure envelope's ``evidence.script_errors``. The failure envelope
+# is emitted with ``exclude_none``, which would otherwise drop a null ``path`` /
+# ``line`` from the nested records and render the SAME error with two different key
+# sets depending on which half of the contract a caller read it from. The
+# omit-when-None rule is about the envelope's own optional keys, not about the
+# published shape of a model nested under one, so ``FailureEvidence`` keeps this
+# model's full key set — see the serializer in :mod:`gda.models`.
 class ScriptError(BaseModel):
-    """One recognized script error read out of the engine's stderr (#651).
-
-    Best-effort and advisory in the ADR-0002 sense — parsed from stderr, not from
-    a bound API — but unlike free-form diagnostics it is *classified*, so an agent
-    can branch on ``kind`` instead of matching engine prose.
-    """
+    """One recognized script error read out of the engine's stderr (#651)."""
 
     kind: ScriptErrorKind = Field(
         description=(
-            "Which known engine failure this line reports. Every kind except "
-            "'runtime_error', 'push_error' and 'incompatible_script' means the "
-            "named resource could not be loaded or run; 'runtime_error' means a "
-            "script was already executing when it raised; 'push_error' means the "
-            "PROJECT reported its own invariant violation with push_error() and "
-            "kept running; and 'incompatible_script' means "
-            "the engine refused a script binding — a compiled script whose base "
-            "cannot bind its object, or a bound value that is not a Script at "
-            "all (path is null: neither sentence names a file). Whether the RUN "
-            "failed "
-            "depends on whether 'path' is the entry script: a load failure naming "
-            "something the running script merely tried to load is not a failed "
-            "run."
+            "Which known engine failure this line reports. 'runtime_error' and "
+            "'push_error' say the script RAN (the second is the project's own "
+            "push_error(), which it survived); 'incompatible_script' is a binding "
+            "the engine refused and names no path; the rest say the named resource "
+            "could not be loaded or run. Whether the RUN failed depends on whether "
+            "'path' is the entry script: a load failure naming something the running "
+            "script merely tried to load is not a failed run."
         )
     )
     message: str = Field(
@@ -396,20 +364,49 @@ class ScriptError(BaseModel):
     path: str | None = Field(
         default=None,
         description=(
-            "The res:// resource this error is about, in canonical form ('.'/'..' "
-            "segments and duplicate slashes collapsed), or null when the engine "
-            "named none."
+            "The res:// resource this error is about, canonicalized, or null when "
+            "the engine named none."
         ),
     )
     line: int | None = Field(
         default=None,
         description=(
             "The 1-based line in 'path' the engine reported, or null when it "
-            "reported none (engine-side load errors carry no script line). For a "
-            "'push_error' this is the call site the engine named in its GDScript "
-            "backtrace, never a synthesized number."
+            "reported none."
         ),
     )
+
+
+def script_error_line(error: ScriptError) -> str:
+    """``<kind>: <path>:<line>: <message>``, dropping the parts the engine did not give.
+
+    The ONE text form of a recognized script error, so the four places that write
+    one — ``script run``'s passed-through diagnostics, ``scene preflight``'s startup
+    diagnostics, the ``diagnostics`` prose of the two gda-ended ``script run``
+    failures (:mod:`gda.errors`), and the human failure channel's ``evidence`` block
+    — cannot drift into four spellings of the same line. Each site adds only its own
+    indent or prefix.
+
+    It lives HERE rather than in :mod:`gda.render` (#687 review). It is a lexical
+    projection of a type this module owns, and one of its consumers is
+    :mod:`gda.errors`, which is core: an ``errors`` -> ``render`` edge would put the
+    presentation layer inside the core's import closure and invert ADR-0040 §5's
+    ``... -> errors / models -> foundation`` direction. This module imports only
+    :mod:`gda.engine_log`, so every consumer's edge points downward at it.
+
+    Its output is on the WIRE as well as on stdout — ``gda.errors`` embeds it in the
+    ``diagnostics`` string of the two gda-ended envelopes — so an edit here changes
+    published bytes, not only what a human reads.
+
+    An engine-side load failure carries no script line, and some errors name no path
+    at all, so each piece is included only when the engine reported it — never as an
+    empty ``:`` or a bare ``None``.
+    """
+    where = error.path or ""
+    if error.path is not None and error.line is not None:
+        where = f"{error.path}:{error.line}"
+    located = f"{where}: {error.message}" if where else error.message
+    return f"{error.kind.value}: {located}"
 
 
 def parse_script_errors(stderr: str) -> list[ScriptError]:
@@ -505,7 +502,7 @@ def _script_error(record: dict, message: str) -> ScriptError:
     file = record.get("file")
     path = (
         canonical_res_path(file)
-        if isinstance(file, str) and file.startswith(_RES_PREFIX)
+        if isinstance(file, str) and file.startswith(RES_PREFIX)
         else None
     )
     return ScriptError(
@@ -567,7 +564,7 @@ def _first_script_frame(callstack: object) -> tuple[str, int | None] | None:
         if not isinstance(frame, dict):
             continue
         file = frame.get("file")
-        if isinstance(file, str) and file.startswith(_RES_PREFIX):
+        if isinstance(file, str) and file.startswith(RES_PREFIX):
             line = frame.get("line")
             return file, line if isinstance(line, int) else None
     return None

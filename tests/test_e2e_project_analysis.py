@@ -918,3 +918,199 @@ def test_find_unused_resources_never_lists_an_aliased_reference(alias_project):
             _gda(alias_project, "project", "find-references", path, "--json").stdout
         )["references"]
         assert refs == [], f"{path} reported unused but has references {refs}"
+
+
+# --- one reader for scene text (#775) ----------------------------------------
+#
+# An `[ext_resource]` attribute is read by NAME, never by substring. The reader
+# these commands now share learned that rule once, on the pair the engine really
+# writes: `uid="uid://…"` contains the substring `id=`, so a substring match reads
+# a line's uid as its id. The rescans this issue removed never learned it — each
+# pulled the reference out with `find("path=")`, which any longer attribute ending
+# in `path` answers first.
+#
+# No attribute Godot 4.6.3 emits triggers it today, and this fixture does not
+# pretend otherwise: it is hand-written `.tscn` text, which is admissible input
+# (gda parses scenes as text precisely so it can read files it did not author) and
+# the form an agent or a third-party tool can produce. The rule is pinned here so
+# the graph reads keep it however the declaration is spelled.
+
+ONE_READER_PROJECT_GODOT = project_godot(name="gda-one-reader-fixture")
+
+# The decoy attribute ends in `path`, so a substring match hands back
+# res://decoy.png — a dependency on a file the scene does not use, and no
+# dependency on the file it does.
+ONE_READER_MAIN_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Texture2D" fallback_path="res://decoy.png" path="res://real.png" id="1_real"]
+
+[node name="Main" type="Sprite2D"]
+texture = ExtResource("1_real")
+"""
+
+
+@pytest.fixture
+def one_reader_project(tmp_path):
+    """A project whose one scene declares a reference behind a decoy attribute."""
+    (tmp_path / "project.godot").write_text(ONE_READER_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(ONE_READER_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "real.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    (tmp_path / "decoy.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    return tmp_path
+
+
+@pytest.mark.e2e
+def test_dependencies_reads_the_named_path_attribute_not_a_substring(
+    one_reader_project,
+):
+    proc = _gda(one_reader_project, "project", "dependencies", "--json")
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    by_source = {
+        row["path"]: row["depends_on"]
+        for row in json.loads(proc.stdout)["dependencies"]
+    }
+
+    assert by_source["res://main.tscn"] == [
+        {"path": "res://real.png", "kind": "ext_resource"}
+    ]
+
+
+@pytest.mark.e2e
+def test_find_references_reads_the_named_path_attribute_not_a_substring(
+    one_reader_project,
+):
+    real = _gda(
+        one_reader_project, "project", "find-references", "res://real.png", "--json"
+    )
+    decoy = _gda(
+        one_reader_project, "project", "find-references", "res://decoy.png", "--json"
+    )
+
+    assert real.returncode == 0, real.stdout + real.stderr
+    assert decoy.returncode == 0, decoy.stdout + decoy.stderr
+    assert [(r["path"], r["kind"]) for r in json.loads(real.stdout)["references"]] == [
+        ("res://main.tscn", "ext_resource")
+    ]
+    # The decoy value is not a reference: nothing loads it.
+    assert json.loads(decoy.stdout)["references"] == []
+    # The context is still the line as written, now that it comes from the shared
+    # reader rather than from the scan's own copy of the line.
+    assert (
+        'path="res://real.png"' in json.loads(real.stdout)["references"][0]["context"]
+    )
+
+
+@pytest.mark.e2e
+def test_find_unused_resources_agrees_with_the_named_path_attribute(
+    one_reader_project,
+):
+    proc = _gda(one_reader_project, "project", "find-unused-resources", "--json")
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    unused = json.loads(proc.stdout)["unused"]
+
+    # The destructive half: real.png is the file the scene loads, so it is not
+    # deletable — and decoy.png, which nothing loads, is.
+    assert "res://real.png" not in unused
+    assert "res://decoy.png" in unused
+
+
+# --- section recognition is closed, not a prefix (#775 review) ----------------
+#
+# `[ext_resource` as a bare prefix admits `[ext_resource_group …]`, which the
+# ENGINE refuses outright: loading the scene below reports "Parse Error: Unknown
+# tag 'ext_resource_group' in file" (resource_format_text.cpp, measured on
+# 4.6.3) and `gda scene get` answers not_a_scene. Reading a dependency out of a
+# tag the engine will not accept invents a reference no run can ever make — the
+# same bypass `[gd_scenery]` opens on the scene header, one section deeper. The
+# reader now applies the scene header's own closed-tag rule.
+
+UNKNOWN_TAG_PROJECT_GODOT = project_godot(name="gda-unknown-tag-fixture")
+
+UNKNOWN_TAG_MAIN_TSCN = """\
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Texture2D" path="res://real.png" id="1_real"]
+[ext_resource_group type="Texture2D" path="res://ghost.png" id="9_ghost"]
+
+[node name="Main" type="Sprite2D"]
+texture = ExtResource("1_real")
+"""
+
+
+@pytest.fixture
+def unknown_tag_project(tmp_path):
+    """A project whose one scene carries a tag that only PREFIX-matches a declaration."""
+    (tmp_path / "project.godot").write_text(UNKNOWN_TAG_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(UNKNOWN_TAG_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "real.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    (tmp_path / "ghost.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    return tmp_path
+
+
+@pytest.mark.e2e
+def test_an_unknown_section_tag_is_not_an_ext_resource_declaration(
+    unknown_tag_project,
+):
+    deps = _gda(unknown_tag_project, "project", "dependencies", "--json")
+    ghost = _gda(
+        unknown_tag_project, "project", "find-references", "res://ghost.png", "--json"
+    )
+
+    assert deps.returncode == 0, deps.stdout + deps.stderr
+    assert ghost.returncode == 0, ghost.stdout + ghost.stderr
+    by_source = {
+        row["path"]: row["depends_on"]
+        for row in json.loads(deps.stdout)["dependencies"]
+    }
+    # Only the real declaration is a dependency; the prefix-matching tag is not.
+    assert by_source["res://main.tscn"] == [
+        {"path": "res://real.png", "kind": "ext_resource"}
+    ]
+    assert json.loads(ghost.stdout)["references"] == []
+
+
+# --- a directory-shaped query no longer matches a path-less declaration -------
+#
+# `find-references` never checks that its target exists, so a directory-shaped
+# query is ordinary input. An [ext_resource] line with no `path=` used to fold to
+# its DECLARING file's own directory, which such a query then matched: a fixed
+# false positive, not a theoretical one. The reader drops a declaration that
+# names no path, so the query answers empty.
+
+PATHLESS_DECL_PROJECT_GODOT = project_godot(name="gda-pathless-decl-fixture")
+
+PATHLESS_DECL_MAIN_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Texture2D" id="1_nopath"]
+
+[node name="Main" type="Node2D"]
+"""
+
+
+@pytest.fixture
+def pathless_decl_project(tmp_path):
+    """A project whose one scene declares an [ext_resource] with no ``path``."""
+    (tmp_path / "project.godot").write_text(
+        PATHLESS_DECL_PROJECT_GODOT, encoding="utf-8"
+    )
+    (tmp_path / "scenes").mkdir()
+    (tmp_path / "scenes" / "main.tscn").write_text(
+        PATHLESS_DECL_MAIN_TSCN, encoding="utf-8"
+    )
+    return tmp_path
+
+
+@pytest.mark.e2e
+def test_find_references_does_not_match_a_directory_through_a_pathless_declaration(
+    pathless_decl_project,
+):
+    found = _gda(
+        pathless_decl_project, "project", "find-references", "res://scenes", "--json"
+    )
+
+    assert found.returncode == 0, found.stdout + found.stderr
+    assert json.loads(found.stdout)["references"] == []

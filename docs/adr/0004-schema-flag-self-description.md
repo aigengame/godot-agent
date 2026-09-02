@@ -166,6 +166,173 @@ status: accepted
 > aggregate entry the `argv` key is required, its list possibly empty — the same
 > "key always present" guarantee `constraints` has.
 
+> **Amendment (2026-08-31, #687) — ADOPTED: the failure envelope carries typed
+> EVIDENCE, as a THIRD optional key of one universal shape.** This is the decision
+> the #667 and #670 notes above reserved for #687, and it is decided the way they
+> framed it rather than the way #687's first triage recommendation proposed.
+>
+> **What was wrong before.** On a failure gda had already computed the facts a caller
+> needs and then published only prose. `script run --strict` parsed the run's
+> `ScriptError[]`, used it to decide the verdict, and threw it away — the same run
+> WITHOUT `--strict` returns those errors typed on its success result, so opting into
+> the flag cost the caller the parsed cause and forced it to read the child's exit
+> status out of an English sentence (#651, and #651's own scope-reconciliation
+> comment). A `launch_timeout` names its ceiling, its elapsed clock and its
+> termination phase in a sentence and asks the caller to compare them (#655, #714).
+> Both facts existed as values; neither could be branched on without parsing prose.
+>
+> **The shape: ONE key on the ONE shared envelope, not a per-command `error`
+> schema.** `GdaError` gains `evidence`, a `FailureEvidence` object. The variability
+> that a per-operation shape was reaching for lives INSIDE that object — every field
+> is individually optional and omitted when absent, so a timeout populates the clocks
+> and phase while a strict script failure populates the child's status, without
+> either being a different `error` schema. A per-command `error` was rejected as out
+> of scope and wrong: this ADR fixes `error` as "the one shared `GdaErrorEnvelope`
+> schema, identical for every command", which is what lets a consumer learn the
+> failure shape once; overturning it is a far larger decision than #687 was scoped to
+> make, and it would silently undo the property the three-key contract bought.
+>
+> Additive on exactly the three properties #667 and #670 established:
+>
+> - **Optional and OMITTED, never `null`.** The same `exclude_none` emit path, and
+>   recursive — the fields inside `evidence` are dropped by the same rule — so every
+>   failure that computes no evidence emits byte-identically to its pre-#687 bytes. A
+>   regression test builds a failure for EVERY registered code through the shared
+>   builder and requires the four-key envelope, so the property is pinned across the
+>   registry rather than sampled.
+>
+>   **The rule stops one level down, at a nested model that is also published on a
+>   success result** (added by this PR's review). `evidence.script_errors` carries
+>   `ScriptError`, the same model `script run` returns as its success `diagnostics`
+>   and whose published `path` / `line` say "or null". Letting the filter recurse into
+>   the records rendered the SAME error with two different key sets depending on which
+>   half of the contract a caller read it from — four keys on success, two or three
+>   inside `evidence` — while one `$defs/ScriptError` describes both. The
+>   omitted-never-null rule exists to buy byte-identity for the failures that compute
+>   NO evidence; it was never a claim about a nested model's published shape, so the
+>   nested records keep their full key set and a record reads the same everywhere. Any
+>   future nested model that is also published on a success result gets the same
+>   treatment.
+> - **The stable trio is untouched.** `category` / `code` / `message` (and
+>   `diagnostics`) keep their contract. `evidence` is the evidence BEHIND a verdict,
+>   never a substitute for branching on `code` — in particular a recognized error
+>   carried under a `launch_timeout` stays ADVISORY and does not re-verdict the
+>   timeout, which is the rule [ADR-0002's 2026-08-31 note](0002-headless-structured-output-contract.md)
+>   records for #716. That note deferred "the cause as DATA" to this decision; this
+>   is what makes the rule workable rather than merely stated, because the honest
+>   verdict now ships WITH the precise cause rather than instead of it.
+> - **Schema-derived, zero per-command cost** — still the one shared
+>   `GdaErrorEnvelope` schema, changed once for all; `gda-mcp` passes the envelope
+>   through to its `is_error` channel unchanged and needs no adapter work (ADR-0012).
+>
+> **What may enter it.** This paragraph is the AUTHORITY for the criterion; the
+> restatements beside the code (`gda.models`) and in `CONTEXT.md` are reader's copies
+> that point back here. The fact must ALREADY be computed on the failure path, be
+> unrecoverable from the envelope without parsing prose, and change what the caller
+> does next. The first five fields are `exit_status` (the CHILD's status on `script
+> run --strict`, never gda's own registry exit code), `elapsed_seconds`,
+> `timeout_seconds`, `termination_phase` (`launched` / `output_seen` /
+> `aborted_on_error` — a closed enum promoted out of `script run` because every
+> launch-backed channel now reports it), and `script_errors` (the parsed
+> `ScriptError[]` of #651). The criterion is what keeps `script run`'s silence window
+> and declared completion marker OUT: both are the caller's own inputs, so neither
+> tells it anything it did not already know. The same ground keeps the UNREACHED
+> ceiling off `script_aborted`: an abort stops short of its `--timeout`, so that value
+> is the caller's own input, not a fact the run measured — `timeout_seconds` ships
+> only where the ceiling was reached and is the verdict. The captured streams stay in
+> `diagnostics` alone for the same kind of reason — copying two 16 KiB captures into
+> the object would double the payload to say the same thing twice.
+>
+> `script_errors` has **three** states, not two, and the middle one is deliberate:
+> ABSENT means this failure's channel does not parse stderr at all (the shared
+> `launch_timeout` builder), so the caller reads `diagnostics`; `[]` means it parsed
+> and recognized nothing, which is itself a finding — a run that died without saying
+> anything gda knows how to read; a populated list is what it recognized. Collapsing
+> `[]` to absent would erase that distinction, so the emit path keeps it.
+>
+> **Who carries it today — this decision's recorded boundary.** Seven builders in
+> `gda.errors`: `launch_timeout_failure` (the shared one, so every launch-backed
+> channel), `script_did_not_run_failure`, `script_exit_status_failure`,
+> `script_run_timeout_failure`, `script_run_aborted_failure`, and — added by
+> [ADR-0006's 2026-08-31 amendment](0006-project-context-and-path-resolution.md)
+> (#697/#763) — `target_outside_project_failure` and
+> `target_owned_by_another_project_failure`. The set is asserted in
+> `tests/test_error_registry.py`, read out of the source, so a further producer
+> cannot join the axis without this paragraph being revisited in the same change.
+>
+> The last two are the axis's first producers that are **not** reporting on a run.
+> They pass the criterion on the same three clauses: gda has already computed the
+> target's location, the root it resolved and (for the owner half) the
+> `project.godot` it found, none of the three is recoverable from the message
+> without parsing prose, and together they are exactly what the caller re-issues
+> with. `script run`'s pre-launch escape (`script_escapes_project_failure`) reaches
+> the same verdict holding none of the three and therefore carries no evidence at
+> all, rather than a partially invented triple — which is the omitted-never-null
+> rule applied to a producer, not an exception to it.
+>
+> **Answering ADR-0002's open pointer (#717): the ceiling's PROVENANCE is declined, on
+> the criterion.** That note left the question here — whether a `launch_timeout`'s
+> ceiling was the caller's `--timeout` or one of gda's own fixed bounds "belongs on
+> #687's evidence object" if it is ever wanted as data. It does not enter. The fact
+> fails the criterion's second clause: it is recoverable without reading anything, from
+> the invocation the caller itself made — of the shared builder's channels only
+> `resource import` and `script run` expose a `--timeout` at all, so a caller that
+> passed one knows the ceiling is its own, and a caller that ran `export run` or a
+> sentinel op knows it is not. That makes it the caller's own input, which is the same
+> ground the silence window and the declared completion marker are excluded on.
+> `timeout_seconds` still ships the ceiling's VALUE, which is not recoverable that way
+> and is what choosing the next bound needs; the remedy that follows from the
+> provenance is in the message, which since #716/#717 names it for both cases.
+>
+> Facts that MEET the criterion and are still left in prose, so a later reader can
+> tell a decision from an oversight: `scene preflight`'s
+> `_ended_before_the_verdict` discards a parsed `ScriptError[]` it already holds;
+> `engine_crashed` names the signal only in its message; `resource import` and
+> `export run` name the child's exit code only in theirs. #687 scoped to `script run`
+> and #655's timeout envelope, and widening the set is a follow-up with its own issue,
+> not a silent extension of this one.
+>
+> **The cost this decision does pay, measured.** "Zero per-command maintenance" is
+> not zero per-command PAYLOAD: the one shared `error` schema is repeated once per
+> command in the aggregate manifest, so a richer envelope multiplies by the surface.
+> Publishing `FailureEvidence` (with `TerminationPhase` and `ScriptError`) takes the
+> shared `error` schema from 3,719 to 7,921 bytes, and `gda schema` from 675,342 to
+> 979,618 bytes (+45%) across **76** commands.
+>
+> It was reduced where it could be, and the reduction is worth naming exactly rather
+> than gesturing at: the `ScriptError` prose that is a reader's explanation moved into
+> comments beside the code, leaving only the branching rules an agent needs in the
+> schema `description`s. Without that, the same manifest measures 1,103,083 bytes —
+> so the slimming removes **31%** of the growth this decision would otherwise have
+> cost.
+>
+> Two disclosures about what the slimming took with it. First, it is not confined to
+> the failure envelope: `ScriptErrorKind` and `ScriptError` are published on the
+> SUCCESS results of `script run` and `scene preflight` too, so those two schemas lost
+> description text as well — `ScriptErrorKind` 1,288 → 314 bytes (its multi-paragraph
+> `description` reduced to its one-line summary), `ScriptError` 1,962 → 1,249. #687
+> does not otherwise touch those commands; the reduction is a deliberate price for
+> repeating the model 76 more times, not an incidental edit. Second, three reader's
+> facts left the schema entirely and now live only in the code comment above
+> `ScriptError`: that `path` is canonical in `canonical_res_path`'s sense, that an
+> engine-side load error carries no script line at all, and that a `push_error`'s line
+> is the engine's own backtrace call site rather than a synthesized number.
+>
+> The multiplication itself is structural, and the alternative that would remove it
+> (emitting the shared envelope ONCE in the manifest and referencing it per entry) is
+> a change to ADR-0012's aggregate contract, not this decision's to make. Recorded so
+> the next key on this axis is priced before it is added, not after.
+>
+> Two boundaries. It is **CLI-side**, like `hint`: the GDScript sentinel's
+> `OperationError` stays strict, `extra="forbid"` and evidence-less — a GDScript
+> operation reports its own code and message and has no launch clock to report — and
+> the live `LiveError` is unchanged, since no live failure computes any of these
+> facts today. And the prose is **kept, not superseded**: `diagnostics` still carries
+> the recognized errors and both labelled streams, rendered from the SAME single
+> parse the typed key carries, because `diagnostics` is what a human reads and what
+> every pre-#687 consumer already reads. The typed key is additive on the wire and in
+> the reading.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 
@@ -179,8 +346,8 @@ semantics here, and deliberately scope out an overloaded interpretation.
   (The three-key shape is the original decision. The outcome notes above have
   since grown the object to six top-level keys — `{input, output, error, kind,
   constraints, argv}`: `kind` from #230, `constraints` from #233, `argv` from
-  #669. The #667 and #670 amendments evolve fields *nested inside* the `error`
-  envelope — `probe` and `hint` — and add no top-level key.)
+  #669. The #667, #670 and #687 amendments evolve fields *nested inside* the
+  `error` envelope — `probe`, `hint` and `evidence` — and add no top-level key.)
 
 - **`output` describes only the success result; `error` describes the failure
   envelope** (#43). `output` is the command's own success result model, exactly as

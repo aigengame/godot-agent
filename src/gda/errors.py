@@ -40,6 +40,7 @@ the shell-convention codes 124/127; version/operation/parse get distinct small
 codes so a shell consumer can tell categories apart without parsing the JSON error.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -53,12 +54,15 @@ from gda.error_codes import (
 )
 from gda.models import (
     EnvironmentProbe,
+    FailureEvidence,
     GdaError,
     LiveErrorEnvelope,
     OperationErrorEnvelope,
+    TerminationPhase,
 )
 from gda.parser import parse_result
 from gda.runner import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
+from gda.script_errors import ScriptError, script_error_line
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
 # features gda relies on exist. Resolved from the version gda info reports; the
@@ -68,10 +72,19 @@ MIN_GODOT_VERSION = (4, 4)
 
 @dataclass
 class Failure:
-    """A classified failure: the stable error shape plus its process exit code."""
+    """A classified failure: the stable error shape plus its process exit code.
+
+    ``child_stderr`` is the raw stderr of the child run this failure classifies,
+    attached by :meth:`gda.headless.HeadlessCommand.execute` instead of being teed
+    there — whether printing it would say the same bytes twice depends on the
+    caller's channel, which only the emission point knows (#798 review). It stays
+    ``""`` on every failure no child run produced, and it is not part of the
+    serialized envelope.
+    """
 
     error: GdaError
     exit_code: int
+    child_stderr: str = ""
 
 
 def make_failure(
@@ -80,6 +93,7 @@ def make_failure(
     stderr: str,
     probe: EnvironmentProbe | None = None,
     hint: str | None = None,
+    evidence: FailureEvidence | None = None,
 ) -> Failure:
     """Build a ``Failure`` from the parts that actually vary per failure.
 
@@ -100,6 +114,11 @@ def make_failure(
     where gda RECOGNIZES the mistake — today the curated near-miss table behind an
     unknown command or option (``gda.hints``). Like ``probe`` it is omitted from
     the emitted JSON when unset.
+
+    ``evidence`` is the optional :class:`FailureEvidence` behind the verdict
+    (ADR-0004 amendment, #687) — clocks, the child's own exit status, the parsed
+    script errors. Third key on the same axis, third time omitted when unset, so a
+    failure that computes none is byte-identical to its pre-#687 envelope.
     """
     spec = ERROR_CODE_BY_CODE.get(code)
     if spec is None:
@@ -112,6 +131,7 @@ def make_failure(
             diagnostics=stderr,
             probe=probe,
             hint=hint,
+            evidence=evidence,
         ),
         exit_code=spec.exit_code,
     )
@@ -335,6 +355,46 @@ def _tail(stream: str) -> str:
     return encoded[-CAPTURED_OUTPUT_TAIL_CAP_BYTES:].decode("utf-8", errors="ignore")
 
 
+def termination_phase(raw: RunResult) -> TerminationPhase:
+    """Which timeout phase a gda-ended run reached — see :class:`TerminationPhase`.
+
+    Keyed on whether the engine wrote ANYTHING, which is the only honest signal the
+    capture carries. It is not "did the script start": Godot prints its own version
+    banner to stdout within ~0.1s of a normal spawn (measured against 4.6.3), so
+    output arriving does not prove the entry ran — only that the engine reached its
+    startup. That is still the distinction worth reporting, because its absence
+    means the engine never got that far.
+
+    Shared by every channel that ends a run rather than owned by ``script run``
+    (#687): the same two-way distinction is what the ``launch_timeout`` message asks
+    a caller to make from prose ("suspect the binary or the machine only when the
+    capture shows the engine never started"), so it is the same fact and must be
+    computed once. ``ABORTED_ON_ERROR`` is not reachable from here — it is a verdict
+    of the completion-marker watch, not a reading of the streams.
+    """
+    return (
+        TerminationPhase.OUTPUT_SEEN
+        if raw.stdout or raw.stderr
+        else TerminationPhase.LAUNCHED
+    )
+
+
+def _recognized_errors_prose(errors: Sequence[ScriptError]) -> str:
+    """Recognized script errors as ``diagnostics`` lines, or ``""`` when there are none.
+
+    The SAME ``<kind>: <path>:<line>: <message>`` layout the human renderer uses for
+    a successful run's structured diagnostics, so the curated high-signal lines read
+    identically whether they arrive typed or as prose.
+
+    Since #687 both forms ship together — the typed list in
+    :class:`~gda.models.FailureEvidence` and this prose in ``diagnostics`` — from ONE
+    parse of the stderr, which is why this renders a parsed list rather than parsing
+    a stream itself. The prose stays because ``diagnostics`` is what a human reads
+    and what every pre-#687 consumer already reads.
+    """
+    return "".join(f"gda:   {script_error_line(error)}\n" for error in errors)
+
+
 def launch_timeout_failure(raw: RunResult) -> Failure:
     """The ``launch_timeout`` envelope for a run gda stopped waiting for (#714).
 
@@ -348,9 +408,11 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
 
     What the envelope carries is the evidence the discard used to destroy: the
     partial output both streams held when gda ended the run, tail-capped with the
-    cap stated, plus the elapsed wall clock beside the ceiling — which is what tells
-    a run that was merely slow from one that was stuck (GDA-DF-012/GDA-DF-032, the
-    dogfooding pair that #655 fixed for ``script run`` and this closes for the rest).
+    cap stated, plus the elapsed wall clock beside the ceiling — the duration and
+    reached bound GDA-DF-012/GDA-DF-032 lacked (the dogfooding pair that #655 fixed
+    for ``script run`` and this closes for the rest). The numbers quantify the run
+    and pick the next bound; by themselves they do not tell a slow run from a stuck
+    one — the capture is what carries the progress.
 
     ``script run`` and ``scene preflight`` do NOT come here: each classifies its own
     timeout, because each has something to add this cannot know — a termination
@@ -360,6 +422,41 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     Both optional inputs degrade rather than crash. A hand-built ``RunResult`` at a
     test seam carries neither bound nor clock, and reporting a timeout is a better
     answer to that than an assertion that would kill the command.
+
+    **The remediation reads caller-first (#717).** ``launch_timeout`` keeps its
+    registered ``environment`` category — the code also fires for a genuinely
+    environmental hang, and the category is public ABI a consumer keys on — but the
+    category alone sends an agent to environment remedies (retry, reinstall, another
+    host) when the ceiling was frequently ITS OWN choice. So the sentence leads with
+    what the caller can act on: read the capture, then raise the ceiling. The flag is
+    named WITH its qualifier, because only ``resource import`` of this builder's three
+    channels exposes ``--timeout`` (the sentinel's 60s and the export's 600s are gda's
+    own, fixed); telling every caller to raise a flag most of them do not have was the
+    misfire #717 warned about. Those two fixed-ceiling channels then get their OWN next
+    step rather than a dead end (PR #793 review): the qualifier alone leaves a caller
+    who has read the capture and seen the engine working with nothing left to do, so
+    the message names what is still actionable there — less work, or more machine
+    headroom. It stops short of calling such a run stuck: that would be the same
+    unearned inference this PR's other half refuses. Environment suspicion comes last,
+    and with the condition that earns it — a capture showing the engine never started.
+
+    **What the capture is NOT is a verdict (#716).** A recognized engine or script
+    error inside the captured stream stays ADVISORY: it never re-verdicts this code
+    into a #651 entry-load failure. gda observed one thing — that it stopped waiting —
+    and inferred nothing; the stream is partial by construction (tail-capped, cut
+    mid-flight), so a recognized line can be stale or half-written, and a silent
+    misattribution is the worst shape for an agent branching on ``code``. Decided for
+    all four launch-backed channels and recorded in ADR-0002 beside the registry row.
+
+    **The same three facts also ship as DATA** since #687: the ceiling, the elapsed
+    clock and the termination phase ride the envelope's ``evidence`` key, so what
+    the message states in prose is read as numbers rather than by matching a
+    sentence. The phase does distinguish ``launched`` from ``output_seen``; none of
+    the three tells a slow run from a stuck one by itself — that would be the same
+    unearned inference the remediation above refuses. The prose is
+    unchanged; the typed form is additive, and the streams stay in ``diagnostics``
+    only, since duplicating two 16 KiB captures into the evidence object would
+    double the payload to say the same thing twice.
     """
     bound = raw.timeout_bound
     label = bound.label if bound is not None else DEFAULT_TIMEOUT_LABEL
@@ -370,14 +467,30 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     return make_failure(
         "launch_timeout",
         f"{label} launched but did not return before the timeout"
-        f"{ceiling}{elapsed}. The captured output is in diagnostics, truncated to "
+        f"{ceiling}{elapsed}. Reaching the ceiling is not by itself an engine or "
+        f"host fault: read the captured output in diagnostics for how far the run "
+        f"got, and raise the ceiling (--timeout, where the command exposes one) for "
+        f"a run that was merely slow — suspect the binary or the machine only when "
+        f"the capture shows the engine never started. Where the command exposes no "
+        f"--timeout the ceiling is gda's own and cannot be raised: reduce the work "
+        f"or give the machine more headroom. The capture is truncated to "
         f"the last {CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each "
-        f"stream.",
+        f"stream, and any engine error in it is advisory: the verdict here is the "
+        f"timeout.",
         _labelled_output(
             _tail(raw.stdout),
             _tail(raw.stderr),
             stdout_header=CAPTURED_STDOUT_HEADER,
             stderr_header=CAPTURED_STDERR_HEADER,
+        ),
+        evidence=FailureEvidence(
+            # Both clocks degrade to omitted rather than to a made-up number, on the
+            # same reasoning the prose above degrades: a hand-built RunResult at a
+            # test seam carries neither, and an absent key is honest where a zero
+            # would read as "instant".
+            elapsed_seconds=raw.elapsed_seconds,
+            timeout_seconds=None if bound is None else bound.seconds,
+            termination_phase=termination_phase(raw),
         ),
     )
 
@@ -670,36 +783,142 @@ def script_run_project_not_found_failure() -> Failure:
     )
 
 
-def script_outside_project_failure(location: Path, project: Path) -> Failure:
-    """The ``project_not_found`` refusal for a target outside the resolved project (#658).
+def target_outside_project_failure(location: Path, project: Path) -> Failure:
+    """The ``target_outside_project`` refusal for a target outside the resolved project (#658, #697).
 
     ADR-0006 resolves ONE project per call (``--project`` > ``$GDA_PROJECT`` >
-    cwd) and deliberately does not derive it from the target path. A target that
-    lies outside that project would still be compiled against it, so every
-    ``res://`` dependency it names resolves against the wrong root: the engine
-    reports a cascade of missing-file and derived type errors for a file that is
-    perfectly valid in its own project, and the single project-context mistake is
-    buried under them. gda therefore refuses *before* the target is parsed and
-    reports the mismatch itself, naming both sides so the reader can see which
-    one is wrong.
+    cwd) and — as of its 2026-08-31 amendment, deliberately and now explicitly —
+    does not derive one from the target path. A target that lies outside that
+    project would still be compiled against it, so every ``res://`` dependency it
+    names resolves against the wrong root: the engine reports a cascade of
+    missing-file and derived type errors for a file that is perfectly valid in
+    its own project, and the single project-context mistake is buried under them.
+    gda therefore refuses *before* the target is parsed and reports the mismatch
+    itself, naming both sides so the reader can see which one is wrong.
 
-    It reuses ``project_not_found`` rather than minting a code: the failure is
-    that no project usable for this target was resolved, and the remedy is the
-    project context (``--project``) — the same class of mistake, and the same
-    branch an agent takes, as ``script run``'s projectless edge (ADR-0031).
+    The two commands that hold a resolved project when they ask the containment
+    question share this builder — ``script validate``'s recipe and ``resource
+    import``'s asset gate — so one condition reports one code, one message and one
+    pair of typed coordinates (#763). The message says what is true of BOTH: a
+    target gda addresses through the project's ``res://`` namespace has no place
+    in that namespace. Why that matters differs per command — a compile resolves
+    the target's own dependencies, an import writes into the project's cache — and
+    that belongs in each command's docs, not in a sentence trying to be both.
+    ``script run``'s pre-launch address gate reaches the same verdict from the same
+    rule but before project resolution, so it carries the lexical sibling below.
+
+    Until #697 this reused ``project_not_found``, which was true of neither the
+    condition nor the remedy: a project WAS resolved, and the fix is to name a
+    DIFFERENT one (or a different target), not to supply one. The amendment mints
+    the sibling code on the trigger it had already stated — a second producer of
+    the class — which the convergence of #763 satisfies three times over.
+
+    The location and the resolved root also ride as typed evidence (#687), because
+    they are what a caller derives for itself the derivation gda refuses to do for
+    it: walk up from the location to its own ``project.godot``, and re-issue with
+    that ``--project`` and the target respelled relative to it. Unlike the owner
+    refusal below, this one cannot state that re-issue outright — it found no owner
+    to state it against, which is the condition — so it names the direction only.
     """
     return make_failure(
-        "project_not_found",
-        f"{location} is outside the resolved Godot project {project}: its res:// "
-        "dependencies would resolve against the wrong root, so nothing was "
-        "parsed. Pass --project for the project that owns this file, or name a "
-        "file inside the resolved one.",
+        "target_outside_project",
+        f"{location} is outside the resolved Godot project {project}: gda "
+        "addresses a target through that project's res:// namespace, and this "
+        "one has no place in it, so nothing was run. Pass --project for the "
+        "project that owns this file, or name one inside the resolved project.",
+        "",
+        evidence=FailureEvidence(
+            target_location=str(location), project_root=str(project)
+        ),
+    )
+
+
+def target_owned_by_another_project_failure(
+    location: Path, owner: Path, project: Path | None, reissue_target: str
+) -> Failure:
+    """The ``target_outside_project`` refusal for a target a NEARER project owns (#697).
+
+    The other half of the containment question, and the one
+    :func:`gda.project.path_outside_project` cannot see: the target sits inside the
+    resolved project's tree (or inside no project gda resolved at all), yet a
+    ``project.godot`` between it and that root claims it. Compiled or run against
+    the resolved root, every ``res://`` reference the target makes then resolves
+    against a root that is not its own — dogfooding GDA-DF-035, where the same file
+    reads valid or invalid depending only on which ancestor was named.
+
+    ADR-0006's 2026-08-31 amendment decides that this refuses rather than derives,
+    and this message is where the decision is visible to the caller: gda names the
+    owner it found and hands the call back, instead of quietly re-rooting the call
+    on it. The owner rides typed as well (#687).
+
+    The message names BOTH operands of the re-issue, because the owner alone does
+    not make one (#799 review). A relative target anchors at the resolved project,
+    so re-issuing the caller's own spelling under the owner's ``--project`` reaches
+    a file that is not there; and ``script run`` refuses the absolute
+    ``target_location`` this same refusal reports, by ADR-0031's one-address rule.
+    ``reissue_target`` is the target relative to the owner
+    (:func:`gda.project.owner_relative_target`) — the one spelling all three
+    refusing commands accept — so following the sentence verbatim under any of
+    them runs the call the caller meant.
+
+    It is stated in the message rather than added as a fourth evidence field: the
+    respelling is DERIVABLE from the two coordinates already published
+    (``target_location`` relative to ``owning_project``), which is exactly the
+    second clause of ADR-0004's criterion for what may enter that object.
+
+    ``project`` is ``None`` for a projectless run — the second GDA-DF-035 reading,
+    which produced the same false cascade with no root to attribute it to.
+    """
+    resolved = (
+        f"the resolved project {project}" if project is not None else "no project"
+    )
+    return make_failure(
+        "target_outside_project",
+        f"{location} belongs to the Godot project {owner}, but this call resolved "
+        f"{resolved}: its own res:// references would resolve against the wrong "
+        f"root, so nothing was run. Pass --project {owner} and address the target "
+        f"as {reissue_target!r} to work on it in the project that owns it.",
+        "",
+        evidence=FailureEvidence(
+            target_location=str(location),
+            project_root=str(project) if project is not None else None,
+            owning_project=str(owner),
+        ),
+    )
+
+
+def script_escapes_project_failure(script: str) -> Failure:
+    """The ``target_outside_project`` refusal ``script run`` makes lexically (#675, #697).
+
+    The same verdict, from the same rule (:func:`gda.project.res_escape_remainder`),
+    for the one gate that asks the containment question BEFORE a project is
+    resolved: ``script run`` decides its whole path ABI edge on the spelling alone,
+    ahead of the projectless check (ADR-0031). So this names no location and no
+    root — it has neither, and carries no evidence rather than inventing a project
+    the call may not even have — while still reporting the condition under the code
+    every other command reports it under, which is what an agent branches on.
+
+    Kept apart from :func:`target_outside_project_failure` rather than folded into
+    it behind two optional arguments: the difference is not a formatting variant
+    but WHICH facts the caller holds, and a builder whose message silently drops
+    half of itself is the kind of seam that later grows a wrong default.
+    """
+    return make_failure(
+        "target_outside_project",
+        f"script {script!r} escapes above the project root: script run addresses "
+        "only files inside the project it runs against, so nothing was launched. "
+        "Pass --project for the project that owns this file, or name a path "
+        "inside the project.",
         "",
     )
 
 
 def script_did_not_run_failure(
-    code: str, script: str, detail: str, stderr: str
+    code: str,
+    script: str,
+    detail: str,
+    stderr: str,
+    script_errors: Sequence[ScriptError],
 ) -> Failure:
     """The ``script run`` verdict for an entry script that never ran (#651).
 
@@ -713,18 +932,31 @@ def script_did_not_run_failure(
     (:func:`gda.script_errors.entry_load_failure`) rather than on the exit code.
 
     ``code`` is the registered verdict (``script_not_found`` /
-    ``script_compile_failed``), ``detail`` the engine's own sentence, kept in the
-    message so the agent sees WHY without parsing ``diagnostics``.
+    ``script_compile_failed`` / ``incompatible_script_type``), ``detail`` the
+    engine's own sentence, kept in the message so the agent sees WHY without parsing
+    ``diagnostics``.
+
+    ``script_errors`` is the WHOLE parsed list, not just the entry-load error that
+    decided the verdict (#687). This is the discard #651 recorded: the run's errors
+    were parsed to reach this verdict and then thrown away, leaving the caller to
+    re-parse ``diagnostics`` — which here is the raw stderr — to see the cascade. The
+    deciding error is the list entry the code names; the rest is what else the engine
+    said, which is frequently the real cause (a dependency that would not preload).
     """
     return make_failure(
         code,
         f"script run: {script} did not run — {detail}",
         stderr,
+        evidence=FailureEvidence(script_errors=list(script_errors)),
     )
 
 
 def script_exit_status_failure(
-    script: str, exit_status: int, stdout: str, stderr: str
+    script: str,
+    exit_status: int,
+    stdout: str,
+    stderr: str,
+    script_errors: Sequence[ScriptError],
 ) -> Failure:
     """The ``script run --strict`` verdict for a non-zero script exit (#651).
 
@@ -739,41 +971,52 @@ def script_exit_status_failure(
     The evidence the caller needs is preserved: the status stays readable in the
     message, and ``diagnostics`` carries BOTH of the script's streams under fixed
     labels. Carrying stderr alone would defeat the flag's own use case — a GDScript
-    test runner reports through ``print()``. The status survives only as message
-    prose; a structured status field on the failure channel would need an ADR-0004
-    envelope change, deferred to that decision (#655).
+    test runner reports through ``print()``.
+
+    Since #687 the status is also DATA (``evidence.exit_status``), which is the
+    change #651 deferred to the ADR-0004 decision, and the parsed script errors come
+    with it. The asymmetry that argued for both: the very same run without
+    ``--strict`` returns those errors typed on the success result, so opting into the
+    flag used to cost the caller the parsed cause and force a re-read of the status
+    out of an English sentence. ``exit_status`` is the CHILD's status — the gda
+    process still exits ``4``, since a script's ``quit(3)`` must not alias a registry
+    exit code.
     """
     return make_failure(
         "script_failed",
         f"script run --strict: {script} exited with status {exit_status}",
         _labelled_script_output(stdout, stderr),
+        evidence=FailureEvidence(
+            exit_status=exit_status,
+            script_errors=list(script_errors),
+        ),
     )
 
 
 def _ended_run_diagnostics(
-    what: str, script_errors: str, stdout: str, stderr: str
+    what: str, script_errors: Sequence[ScriptError], stdout: str, stderr: str
 ) -> str:
     """The ``diagnostics`` prose shared by the two gda-ended ``script run`` verdicts.
 
-    ADR-0004's ``GdaError.diagnostics`` is a free-form ``str``, so everything a
-    failure reports about a run gda ended is PROSE: the recognized script errors,
-    then both streams under the same fixed labels ``--- script stdout ---`` /
-    ``--- script stderr ---`` that ``--strict`` already uses, so one consumer split
-    reads every ``script run`` failure. Promoting the elapsed time, the termination
-    phase and these error lines to structured envelope FIELDS would change the
-    uniform failure ABI; **#687 owns that decision** and ADR-0031's amendment
-    already records that this issue's envelope adopts its outcome. String
-    diagnostics are the deliberate first step, not an oversight — do not add
-    envelope fields here.
+    ADR-0004's ``GdaError.diagnostics`` is a free-form ``str``, so what this renders
+    is prose: the recognized script errors, then both streams under the same fixed
+    labels ``--- script stdout ---`` / ``--- script stderr ---`` that ``--strict``
+    already uses, so one consumer split reads every ``script run`` failure.
+
+    It is no longer the ONLY form (#687): the same parsed errors now also ride the
+    envelope's ``evidence.script_errors`` as data, from this one parse. The prose is
+    kept byte-for-byte because it is what a human reads and what every pre-#687
+    consumer reads — the typed key is additive, not a replacement.
 
     ``what`` names the moment ("the timeout", "the abort") so the error block reads
     as a statement about this run. A run with no recognized errors says so
     explicitly: the ABSENCE is itself the diagnosis — a hang with a clean error
     stream is an unfinished run, not a broken script.
     """
+    rendered = _recognized_errors_prose(script_errors)
     header = (
-        f"gda: recognized script errors seen before {what}:\n{script_errors}"
-        if script_errors
+        f"gda: recognized script errors seen before {what}:\n{rendered}"
+        if rendered
         else f"gda: no recognized script errors appeared before {what}\n"
     )
     return header + _labelled_script_output(_tail(stdout), _tail(stderr))
@@ -784,8 +1027,8 @@ def script_run_timeout_failure(
     *,
     timeout: float,
     elapsed: float,
-    phase: str,
-    script_errors: str,
+    phase: TerminationPhase,
+    script_errors: Sequence[ScriptError],
     stdout: str,
     stderr: str,
 ) -> Failure:
@@ -803,18 +1046,37 @@ def script_run_timeout_failure(
     So the message carries the three numbers a caller acts on — the ``--timeout``
     that was reached, the elapsed wall clock, and the termination ``phase`` — plus
     the stated output cap, and the diagnostics carry the captured tail. An agent
-    reading only ``message`` can already tell "raise ``--timeout``" from "this run
-    is stuck".
+    reading only ``message`` already has the reached bound, the duration and how
+    far the run got — enough to choose the next ``--timeout``, though not, on those
+    numbers alone, whether the run was slow or stuck.
+
+    The message also states that the recognized errors are ADVISORY (#716). This is
+    the channel where that matters most: the diagnostics here open with "recognized
+    script errors seen before the timeout", so it is the one envelope that hands an
+    agent a parsed #651-shaped cause under a timeout verdict. gda does not re-verdict
+    on it and neither should the caller — see ADR-0002's `Outcome (2026-08-31, #716 /
+    #717)` note beside the ``launch_timeout`` registry row for why. #687 is what makes
+    that rule workable rather than merely stated: the parsed errors ride ``evidence``
+    as DATA under the honest timeout verdict, so an agent gets the precise cause
+    without gda having to infer one from a partial capture.
     """
     return make_failure(
         "launch_timeout",
         f"script run: {script} did not return before the --timeout of {timeout}s "
-        f"(elapsed {elapsed:.2f}s, termination phase '{phase}'). The captured "
+        f"(elapsed {elapsed:.2f}s, termination phase '{phase.value}'). The captured "
         f"output is in diagnostics, truncated to the last "
         f"{CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; raise "
         f"--timeout for a run that is merely slow, or declare "
-        f"--completion-marker to end an aborted run early.",
+        f"--completion-marker to end an aborted run early. Any recognized script "
+        f"errors in the diagnostics are advisory: the verdict here is the timeout, "
+        f"not an entry-load failure.",
         _ended_run_diagnostics("the timeout", script_errors, stdout, stderr),
+        evidence=FailureEvidence(
+            elapsed_seconds=elapsed,
+            timeout_seconds=timeout,
+            termination_phase=phase,
+            script_errors=list(script_errors),
+        ),
     )
 
 
@@ -825,8 +1087,8 @@ def script_run_aborted_failure(
     timeout: float,
     elapsed: float,
     silence: float,
-    phase: str,
-    script_errors: str,
+    phase: TerminationPhase,
+    script_errors: Sequence[ScriptError],
     stdout: str,
     stderr: str,
 ) -> Failure:
@@ -871,8 +1133,18 @@ def script_run_aborted_failure(
         f"The --timeout of {timeout}s was not reached. The captured "
         f"output is in diagnostics, truncated to the last "
         f"{CAPTURED_OUTPUT_TAIL_CAP_BYTES} UTF-8 bytes (16 KiB) of each stream; "
-        f"termination phase '{phase}'.",
+        f"termination phase '{phase.value}'.",
         _ended_run_diagnostics("the abort", script_errors, stdout, stderr),
+        evidence=FailureEvidence(
+            elapsed_seconds=elapsed,
+            # No timeout_seconds: this run stopped SHORT of its ceiling, so the
+            # --timeout value is not a fact the run measured — it is the caller's
+            # own input, the same ground that keeps the silence window and the
+            # declared marker out of evidence (ADR-0004's criterion). The message
+            # names it; the field stays the reached ceiling only.
+            termination_phase=phase,
+            script_errors=list(script_errors),
+        ),
     )
 
 

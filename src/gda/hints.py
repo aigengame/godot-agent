@@ -31,10 +31,13 @@ surfaces from the leaf's parser, which runs inside its parent group's
 :meth:`GdaGroup.invoke`. So no command module — and no leaf command class — carries
 a line of this.
 
-**Which channel answers.** With ``--json`` in effect the refusal is the structured
-envelope on stdout; otherwise it is the human usage error, carrying the same
-correction in its message. Both exit ``2``, the code a usage error already exited
-with, so nothing that keyed on the exit changes.
+**Which channel answers.** Whichever the invocation asked for, through the ONE
+public failure channel (``gda.headless.emit_failure``): the structured envelope
+under ``--json``, else the same failure rendered as human lines, correction
+included (#685). Both exit ``2``, the code a usage error already exited with, so
+nothing that keyed on the exit changes. What does NOT go through it is the case
+where gda has no advice and no JSON was asked for — there the parser's own message
+is left untouched, which is gda declining to answer rather than a second layout.
 """
 
 from dataclasses import dataclass
@@ -44,18 +47,23 @@ import typer
 from typer.core import TyperGroup
 
 # Typer 0.26 VENDORS click (``typer._click``), so a Typer parser raises
-# ``typer._click.exceptions.*`` — NOT the identically named classes in the top-level
-# ``click`` package, which are a DIFFERENT class object. Catching click's would leave
-# every interception below silently dead, so the vendored classes are what is
-# imported here. ``typer`` re-exports only ``BadParameter`` from that hierarchy, and
-# a test pins that these classes are the ones it is built on, so a future Typer that
-# moves them fails loudly instead of quietly disabling the refusal.
+# ``typer._click.exceptions.*`` — NOT the identically named class in the top-level
+# ``click`` package, which is a DIFFERENT class object. Catching click's would leave
+# every interception below silently dead, so the vendored class is what is imported
+# here. ``typer`` re-exports only ``BadParameter`` from that hierarchy, and a test
+# pins that this class is in the one it is built on, so a future Typer that moves it
+# fails loudly instead of quietly disabling the refusal.
 from typer._click import Context as ClickContext
-from typer._click.exceptions import NoSuchOption, UsageError
+from typer._click.exceptions import NoSuchOption
 from typer._click.globals import get_current_context
 
 from gda.errors import Failure, make_failure
-from gda.headless import ancestor_json, emit_failure
+from gda.headless import (
+    emit_failure,
+    json_in_effect,
+    remember_argv,
+    walk_mounted_groups,
+)
 
 # The two registered codes this module reports (ADR-0002, the `usage` category).
 UNKNOWN_COMMAND = "unknown_command"
@@ -167,41 +175,6 @@ def _context_path(ctx: ClickContext) -> tuple[str, ...]:
     return tuple(reversed(names))
 
 
-# The context-meta key the root parser records its raw argv under. ``ctx.meta`` is one
-# dict shared by every context in the tree, so what the root records is readable from
-# wherever the refusal is finally decided — including a leaf command's parser, whose
-# own tokens are a slice of it.
-RAW_ARGV_META_KEY = "gda.raw_argv"
-
-
-def _remember_argv(ctx: ClickContext, args: list[str]) -> None:
-    """Record the tokens the ROOT parser was handed (first writer wins)."""
-    ctx.meta.setdefault(RAW_ARGV_META_KEY, list(args))
-
-
-def _json_in_effect(ctx: ClickContext) -> bool:
-    """Whether this invocation asked for JSON, in three ordered readings.
-
-    1. The command's OWN resolved flag, when the refusal is decided after its parse —
-       which is the case for ``gda help <unknown>``. It already carries an inherited
-       ancestor ``--json`` (``gda.headless._inherit_ancestor_json``), so it answers
-       for every spelling wherever it exists.
-    2. The ancestor ``--json``, recorded when the root callback (#671) or a group's
-       (#683) bound it — the reading available at parse time, before any command's
-       params exist.
-    3. The literal token in the recorded argv. A ``--json`` written AFTER the
-       offending token never parses, because the command or option it would have
-       belonged to does not exist, so the token itself is the only evidence of the
-       intent — and it is read as exactly that. The Skill teaches the trailing
-       spelling, so leaving this reading out would answer most agents in prose.
-    """
-    if bool(ctx.params.get("json_output")):
-        return True
-    if ancestor_json(ctx):
-        return True
-    return "--json" in ctx.meta.get(RAW_ARGV_META_KEY, ())
-
-
 def _sentence(message: str, hit: Optional[NearMiss], fallback: str) -> str:
     """The refusal's message: what was wrong, then what to do about it."""
     if hit is None:
@@ -268,14 +241,25 @@ def unknown_option(path: tuple[str, ...], token: str, *, on_group: bool) -> Refu
 def _answer(ctx: ClickContext, refusal: Refusal) -> NoReturn:
     """Answer ``refusal`` in the channel the caller asked for. Never returns.
 
-    The ONE answering path, so the JSON and human channels stay two renderings of one
-    refusal: with ``--json`` in effect it is the ADR-0002 envelope through
-    :func:`gda.headless.emit_failure` (the single public failure channel), otherwise
-    the usage error click renders — carrying the same sentence, at the same exit code.
+    Through :func:`gda.headless.emit_failure`, the single public failure channel, so
+    a usage refusal gets the SAME two renderings as every other failure gda reports:
+    the ADR-0002 envelope under ``--json``, else the human lines of
+    :func:`gda.render.render_failure` (#685).
+
+    Until the #798 review the human arm raised click's own ``UsageError`` instead,
+    which was a SECOND private layout for the whole ``usage`` category — no head
+    line, no code, no category, and no ``hint`` line — printed on stderr while its
+    own ``--json`` twin already went to stdout. Routing it here removes the split in
+    both: the two renderings of one refusal now differ only in shape, and the human
+    ``usage`` failure lands on the stream every other human failure uses. The
+    sentence and the exit code are what they always were, so the ``Usage:`` synopsis
+    click added is the only thing lost — and the sentence carries the remedy that
+    synopsis pointed at, either the curated invocation or the ``--help`` to run.
+
+    It is also what makes the renderer TOTAL over the envelope rather than partly
+    dead: ``hint`` is set nowhere else, so before this it could never reach a human.
     """
-    if _json_in_effect(ctx):
-        emit_failure(refusal.failure())
-    raise UsageError(refusal.message, ctx)
+    emit_failure(refusal.failure(), json_output=json_in_effect(ctx))
 
 
 def _refuse(ctx: ClickContext, refusal: Refusal) -> None:
@@ -290,10 +274,15 @@ def _refuse(ctx: ClickContext, refusal: Refusal) -> None:
     - When gda has no advice AND no JSON was asked for, it returns so Typer's own
       message — its did-you-mean guess included — is left exactly as it was. gda
       speaks up only where it has something to add.
+
+    That second rule is gda declining to ANSWER, not a second gda layout: the
+    message a human then reads is the parser's, unchanged, and says nothing about
+    gda. Every refusal gda does answer goes through :func:`_answer` and its one
+    renderer.
     """
     if ctx.resilient_parsing:
         return
-    if refusal.hint is None and not _json_in_effect(ctx):
+    if refusal.hint is None and not json_in_effect(ctx):
         return
     _answer(ctx, refusal)
 
@@ -309,8 +298,8 @@ def refuse_unknown_command(path: tuple[str, ...], token: str) -> NoReturn:
 
     The context is taken from click's ambient stack because a descriptor recipe is
     handed its params, not its context (ADR-0023) — and the channel question
-    (:func:`_json_in_effect`) is a property of the invocation, which is exactly what
-    that stack holds.
+    (:func:`gda.headless.json_in_effect`) is a property of the invocation, which is
+    exactly what that stack holds.
     """
     _answer(get_current_context(), unknown_command(path, token))
 
@@ -333,7 +322,7 @@ class GdaGroup(TyperGroup):
         """Parse this group's own arguments; refuse an option it does not have."""
         # The ROOT's call is the first parse of the invocation, so this is where the
         # whole argv is recorded for every later refusal to read.
-        _remember_argv(ctx, args)
+        remember_argv(ctx, args)
         try:
             return super().parse_args(ctx, args)
         except NoSuchOption as exc:
@@ -388,17 +377,25 @@ def adopt(app: typer.Typer) -> None:
     Applied once, in the composition root, AFTER every group has mounted itself — so a
     group module declares no dispatch behaviour and a group added later inherits the
     refusal by being mounted, which is the registration ADR-0040 already relies on.
-    The walk RECURSES rather than reading only the root's own groups: gda's tree is two
-    levels deep today, and a sub-group mounted on a sub-app would otherwise escape the
-    interception silently. A test walks the live tree, recursively, to pin it.
+    Reaching every group, a sub-group of a group included, is the shared walk's job
+    (``gda.headless.walk_mounted_groups``), which also states that ordering
+    requirement once for both of its visitors. A test walks the live tree,
+    recursively, to pin the outcome here.
+
+    The class is written onto the REGISTRATION record rather than onto the sub-app,
+    which is why this visitor reads no ``typer_instance``: a group registered without
+    one is never built into a command by Typer, so it is neither reached nor missed.
     """
     app.info.cls = GdaGroup
-    _adopt_groups(app)
-
-
-def _adopt_groups(app: typer.Typer) -> None:
-    """Set the class on every group of ``app``, and on their groups in turn."""
-    for group in app.registered_groups:
+    # No counterpart here to the callback refusal the other visitor raises, for two
+    # reasons. It replaces nothing a gda group declares: Typer leaves a group's `cls`
+    # a default placeholder unless `add_typer` was given one, and none is — while the
+    # option adoption would drop a real callback a group had written. And the class is
+    # exactly what gda IMPOSES on the whole surface: a group opting out of it would
+    # lose the structured refusal silently, so refusing to overwrite would protect the
+    # failure this adoption exists to prevent. Nor could such a guard be hoisted into
+    # the shared walk to cover both: `adopt_group_json` runs FIRST (`gda.cli`) and
+    # gives every group a callback, so a callback check applied to this walk too would
+    # fire on the entire tree.
+    for group in walk_mounted_groups(app):
         group.cls = GdaGroup
-        if group.typer_instance is not None:
-            _adopt_groups(group.typer_instance)

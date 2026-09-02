@@ -67,10 +67,15 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
   and no editor — just a Godot binary. Live operations add real-time control of a running
   game over a Unix-domain-socket daemon, addressed by the same CLI grammar.
 - **🛡️ Fails loudly, never silently.** A missing or hung engine is bounded by a timeout
-  and mapped to a **stable non-zero exit code** plus a structured `{"error": {…}}`
-  envelope — so a shell or agent can branch on the failure category without parsing prose.
-  A command or option `gda` does not recognize is refused the same structured way, with a
-  `hint` naming the invocation to use instead.
+  and mapped to a **stable non-zero exit code** plus an Error envelope carrying the
+  failure's category and code — so a shell or agent can branch on the failure without
+  parsing prose. Under `--json` that envelope is the `{"error": {…}}` object; without it
+  the same failure is laid out as readable lines, verdict first. A command or option
+  `gda` does not recognize is refused the same way, with a `hint` naming the invocation
+  to use instead. Where a failure computed evidence, that evidence rides the envelope too
+  — an optional `evidence` object carrying the elapsed clock and the ceiling a timed-out
+  run reached, the child's own exit status, the parsed script errors — so an agent
+  branches on numbers instead of parsing the message.
 
 ---
 
@@ -484,10 +489,18 @@ The result also reports `project_root`: the project the scripts were compiled ag
 which is the root their `res://` dependencies resolved to (`null` when no project was
 resolved). Read it before acting on a `valid: false` — a verdict full of missing
 `res://` dependencies, plus the type errors derived from them, usually means the wrong
-project rather than a broken script. A path *outside* the resolved project refuses the
-whole batch up front with `project_not_found`, naming both the file and the project,
+project rather than a broken script. A path the resolved project does not own refuses the
+whole batch up front with `target_outside_project`, naming both the file and the project,
 instead of reporting those false errors; pass `--project` for the project that owns the
-files.
+files. That covers two cases: a path outside the resolved project, and a path a *nested*
+`project.godot` owns — gda names the owner it found rather than switching to it, and the
+same check runs with no project resolved, so a script that belongs to a project is never
+compiled against nothing. For the nested case the message states the whole re-issue: the
+`--project` to pass and the target respelled relative to that owner, because a relative
+path anchors at the project and the original spelling would not be found under the new
+one. `script run` and `resource import` refuse the same way, under the
+same code. `--all` is the one selector that does not apply the ownership half yet, so a
+nested project's scripts can still show the false cascade there.
 
 `script run` executes a named project script one-shot and **passes its run through**: the
 success result carries the script's own `exit_status` (a deliberate non-zero `quit()` is
@@ -643,7 +656,7 @@ input event.
 
 | Flag       | Description                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. Accepted before the command too: `gda --json <group> <command>` and `gda <group> --json <command>` mean the same as passing it after the command. |
+| `--json`    | Emit the outcome as a single JSON object on stdout — the result on success, the `{"error": {…}}` envelope on failure. Without it, both are printed as a concise human-readable rendering instead. Accepted before the command too: `gda --json <group> <command>` and `gda <group> --json <command>` mean the same as passing it after the command. |
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |
@@ -743,11 +756,18 @@ or agent can branch on the failure **category without parsing the JSON error**:
 | `0`       | —             | Success.                                                              |
 | `2`       | `usage`       | `gda` could not resolve what was asked for — an unrecognized command or option. A recognized near miss carries the invocation to use instead in the envelope's `hint`. |
 | `127`     | `environment` | The Godot binary could not be launched (shell convention: not found). |
-| `124`     | `environment` | Godot launched but did not return before the runner timeout (shell convention: timed out). |
+| `124`     | `environment` | Godot launched but did not return before the runner timeout (shell convention: timed out) — see **Reading a `124`** below. |
 | `3`       | `version`     | The detected Godot version is below the supported minimum.            |
 | `4`       | `operation`   | The engine ran but the operation failed — a registered operation error, an engine crash, or an unstructured non-zero exit. |
 | `5`       | `parse`       | The process claimed success but violated the structured-output contract. |
 | `6`       | `live`        | A live operation failed — e.g. no running daemon/session, or a live timeout. |
+
+**Reading a `124`.** The `environment` category describes how the run ENDED, not the
+host. Read the captured partial output in `diagnostics` for how far the run got, then
+raise the ceiling with `--timeout` where the command exposes one; where it does not the
+ceiling is gda's own, so reduce the work or give the machine more headroom. Suspect the
+binary or the machine only when the capture shows the engine never started. Any engine
+error inside that capture is advisory — the verdict is the timeout.
 
 These values are the public ABI; their authoritative source is
 [`src/gda/exit_codes.py`](src/gda/exit_codes.py). The `{"error": {category, code, …}}`

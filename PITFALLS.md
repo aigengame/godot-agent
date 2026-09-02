@@ -125,6 +125,24 @@ another environment can have different capabilities._
   the first failure as environment evidence rather than a product defect.
 - **Last verified:** 2026-08-27 with Godot 4.6.3 in a managed environment.
 
+## `GDA_USER_DATA_ROOT` exported for a whole e2e run
+
+- **Applies when:** `GDA_USER_DATA_ROOT` (or a repeated `--user-data-root`) is exported
+  for a batch of e2e tests rather than set per invocation.
+- **Symptom:** Unrelated suites fail — notably
+  `test_e2e_export_run.py::test_templates_installed_is_true_when_host_templates_are_on_disk`,
+  which reports `templates_installed=false` while the host's
+  `export_templates/<version>/` directory is present and correct.
+- **Cause:** The setting relocates the platform application-data variable, and Godot's
+  export templates live under that same directory. Redirecting it hides templates that
+  are installed in the real one.
+- **Prevention:** Scope the redirect to the invocations that need a private `user://`
+  or a writable data directory. Do not export it for a whole suite run.
+- **Recovery:** Re-run the failing test with the variable unset before treating the
+  result as a product defect.
+- **Last verified:** 2026-08-31 with Godot 4.6.3 on macOS, against this repository's
+  e2e suite.
+
 ## Rendered Godot validation in a restricted environment
 
 - **Applies when:** A sandbox or remote execution environment does not provide the

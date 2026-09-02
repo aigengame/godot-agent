@@ -42,7 +42,7 @@ def test_gda_info_missing_binary_yields_structured_error_end_to_end():
     # point is that the path does NOT exist. The runner synthesizes exit 127,
     # the CLI emits a structured JSON error on stdout.
     proc = subprocess.run(
-        [*GDA_CMD, "info", "--godot", "/nonexistent/Godot"],
+        [*GDA_CMD, "info", "--godot", "/nonexistent/Godot", "--json"],
         capture_output=True,
         text=True,
     )

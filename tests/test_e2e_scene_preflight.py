@@ -477,3 +477,47 @@ def test_a_non_script_binding_is_not_a_clean_start(godot_project):
     assert data["started"] is False
     kinds = [diag["kind"] for diag in data["diagnostics"]]
     assert "incompatible_script" in kinds
+
+
+@pytest.mark.e2e
+def test_the_timeout_verdict_carries_the_elapsed_clock_and_the_configured_ceiling(
+    godot_project,
+):
+    # #787, against the real engine: only a genuinely blocked scene produces the
+    # numbers, because they are measured around a process that really did refuse to
+    # come back. `elapsed_seconds` must be AT LEAST the ceiling — gda waited the
+    # whole bound out and then tore the engine down — and `timeout_seconds` must be
+    # exactly what this caller configured, not the 30s default the run did not use.
+    # Together they are what tells this scene (stuck) from one that was merely slow.
+    _scene(godot_project, "stuck.tscn", "stuck.gd", BLOCKING_READY_SCRIPT)
+    gda = _gda_project(godot_project)
+
+    preflighted = gda(
+        "scene", "preflight", "res://stuck.tscn", "--timeout", "3", "--json"
+    )
+
+    assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
+    data = json.loads(preflighted.stdout)
+    assert data["status"] == "timeout"
+    assert data["timeout_seconds"] == 3.0
+    assert data["elapsed_seconds"] >= 3.0, data
+    # Measured, not a constant: the clock is the real wall time of a run gda ended,
+    # so it sits just past the ceiling rather than on it.
+    assert data["elapsed_seconds"] < 25, data
+
+
+@pytest.mark.e2e
+def test_a_scene_that_comes_up_carries_no_timeout_evidence(godot_project):
+    # The invariance, on a real engine: nothing bounded this run, so the pair is
+    # absent rather than null or zero. A `ready` verdict is byte-identical to what it
+    # was before #787 added the keys.
+    _scene(godot_project, "hero.tscn", "hero.gd", READY_SCRIPT)
+    gda = _gda_project(godot_project)
+
+    preflighted = gda("scene", "preflight", "res://hero.tscn", "--json")
+
+    assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
+    data = json.loads(preflighted.stdout)
+    assert data["status"] == "ready"
+    assert "elapsed_seconds" not in data
+    assert "timeout_seconds" not in data

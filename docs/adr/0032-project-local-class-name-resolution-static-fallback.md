@@ -46,10 +46,27 @@ instantiation (and the Node-vs-Resource base-class check) remains **split per si
 > declaration there can make a name `ambiguous_class_name` that was unambiguous before. The trade
 > is accepted deliberately — a nested `.godot` is usually authored content (an addon vendoring a
 > sample tree), and nothing in the path distinguishes it from a vendored sub-project's own engine
-> cache, whose scripts then enter the index too. The comparison being lexical, it does not resolve
-> filesystem targets: an alias that leads to `res://.godot` is walked and the cache's own scripts
-> are indexed through it. Symlink policy for the `res://` walk is undecided and tracked in #760;
-> it is not decided here.
+> cache, whose scripts then enter the index too. The comparison being lexical, it did not resolve
+> filesystem targets: an alias that leads to `res://.godot` was walked and the cache's own scripts
+> were indexed through it. Symlink policy for the `res://` walk was undecided and tracked in #760.
+
+> **Amendment (2026-08-31, #760) — the boundary is the cache's filesystem IDENTITY, not its
+> spelling.** #760 decided the symlink policy the amendment above left open, for the whole `res://`
+> walk and therefore for this index. The walk follows a link as the engine does, but identifies what
+> it reaches with the engine's own `DirAccess.is_equivalent`, so the cache is excluded however it is
+> aliased — a directory link at it, a directory link into one of its subdirectories, or a file link
+> at a file inside it — and a link that leads back up the descent chain is not re-entered, so a
+> symlink cycle no longer floods the index with paths that name one script many times. For this ADR
+> the boundary is now: a `class_name` declared in a script inside the ROOT engine cache does not
+> resolve, whatever path reaches it (the #760 repro resolved `RootCacheThing` through an alias); a
+> `class_name` under a NESTED `.godot`, or in a vendored checkout reached through a link, still
+> resolves — for ENUMERATION and this index. Whether that same file may be NAMED as an operation's
+> target is a different question, owned by ADR-0006's addressing gate rather than by this ADR: the
+> walk decides what the project can address by filesystem identity, the gate decides what a caller
+> may operate on from the caller's own spelling. A file link at an authored script is indexed under
+> both its paths, so a `class_name` it declares is `ambiguous_class_name` — the same report this ADR
+> already gives a name declared in two files. The full rule and its rationale live with the walk, in
+> `docs/command-catalog.md`'s exclusion passage.
 
 **Explicit contract edges:**
 
@@ -103,9 +120,9 @@ gda's existing boundary); its resolution would need a different mechanism and is
 - **Consistency restored** across the three sites: they now agree on `class_name` resolution in a
   never-opened project, rather than `find-references` reporting "no such class" while a repaired
   `resource create` resolves it.
-- **Scan boundary (amended 2026-08-28, #712).** What the scan skips is the root cache **path**, not
-  every directory named `.godot` — see the Decision amendment for the boundary, the accepted
-  nested-cache trade, and the open symlink question.
+- **Scan boundary (amended 2026-08-28 #712, 2026-08-31 #760).** What the scan skips is the root
+  cache **identity**, not every directory named `.godot` and not the path as written — see the
+  Decision amendments for the boundary, the accepted nested-cache trade, and the symlink policy.
 - **Cost.** A never-opened-project miss walks the whole `res://` tree and parses every `.gd`; this is
   acceptable for one-shot ops and is **not** backed by a persistent gda-owned cache — a gda-owned
   cache would re-introduce the very ".godot ownership" complexity the editor-scan option was rejected

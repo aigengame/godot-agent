@@ -55,6 +55,44 @@ def test_info_error_schema_is_the_uniform_failure_envelope():
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
 
 
+def test_the_published_error_schema_declares_the_optional_evidence_key():
+    # #687 (the ADR-0004 amendment): the typed evidence must be DISCOVERABLE, not
+    # only present at runtime — this repo's reviews have repeatedly caught a runtime
+    # rule the machine contract did not carry. Pinned on the emitted document rather
+    # than on the model, since the emitted document is what an agent reads.
+    result = CliRunner().invoke(app, ["info", "--schema"])
+
+    doc = json.loads(result.stdout)
+    error = doc["error"]["$defs"]["GdaError"]
+    assert "evidence" in error["properties"]
+    # OPTIONAL, on the axis `probe` and `hint` established: a consumer must not be
+    # made to expect a key that most failures never carry. (`diagnostics` has a
+    # default and so is not required either; the three that ARE are the stable trio
+    # ADR-0004 fixes.)
+    assert set(error["required"]) == {"category", "code", "message"}
+    # And its value shape is published inline, so the fields are discoverable too —
+    # a bare `object` would leave an agent guessing which facts it may find.
+    evidence = doc["error"]["$defs"]["FailureEvidence"]
+    assert set(evidence["properties"]) == {
+        "exit_status",
+        "elapsed_seconds",
+        "timeout_seconds",
+        "termination_phase",
+        "script_errors",
+        # The three coordinates of a `target_outside_project` refusal
+        # (#697/#763): where the target is, which project gda used, and which
+        # one owns it.
+        "target_location",
+        "project_root",
+        "owning_project",
+    }
+    assert doc["error"]["$defs"]["TerminationPhase"]["enum"] == [
+        "launched",
+        "output_seen",
+        "aborted_on_error",
+    ]
+
+
 def test_emitted_schemas_are_valid_json_schema():
     result = CliRunner().invoke(app, ["info", "--schema"])
 

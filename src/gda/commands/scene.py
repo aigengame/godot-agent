@@ -17,7 +17,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 import typer
-from pydantic import BaseModel, Field, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from gda import dispatch
 from gda.binary import resolve_godot_binary
@@ -46,10 +52,9 @@ from gda.parser import result_sentinel_start
 from gda.render import (
     format_value,
     render_node_tree,
-    render_script_error_location,
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch, sentinel_args
-from gda.script_errors import ScriptError, parse_script_errors
+from gda.script_errors import ScriptError, parse_script_errors, script_error_line
 
 
 def derive_scene_root_name(path: str) -> str:
@@ -610,7 +615,9 @@ class SceneStartupStatus(str, Enum):
     NOT_READY = "not_ready"
     #: gda ended the launch at ``--timeout``: the engine never reported a verdict,
     #: which is what a ``_ready`` that does not return looks like from outside. The
-    #: captured ``diagnostics`` are whatever the engine had already printed.
+    #: captured ``diagnostics`` are whatever the engine had already printed, and
+    #: ``elapsed_seconds``/``timeout_seconds`` say how long the run took and which
+    #: ceiling ended it — the only verdict that carries either (#787).
     TIMEOUT = "timeout"
 
 
@@ -676,6 +683,17 @@ class ScenePreflightResult(BaseModel):
     the boot got, the second what the engine complained about while it did. A scene
     can reach ``ready`` and still be broken — that is the case static validation
     misses and this command exists for — so ``started`` requires both.
+
+    The ``timeout`` verdict carries a third thing, and only that verdict does:
+    ``elapsed_seconds`` beside ``timeout_seconds`` (#787). They are the same pair of
+    numbers the shared ``launch_timeout`` envelope reports on every other channel —
+    the launch measures both on every run it ends — so an agent reads the consumed
+    ceiling WITHOUT the failure envelope this command deliberately does not return.
+    The pair names that ceiling, not the cause: a stuck ``_ready`` and a healthy
+    ``--frames`` window overrunning the same bound report the same numbers. On every other verdict the two keys are
+    omitted rather than null: nothing bounded that run, so there is no measurement
+    to report, and their absence keeps a non-timeout verdict byte-identical to what
+    it emitted before the pair existed.
     """
 
     path: str
@@ -711,6 +729,47 @@ class ScenePreflightResult(BaseModel):
             "dependencies and the project's autoloads both need the right root."
         ),
     )
+    elapsed_seconds: Optional[float] = Field(
+        default=None,
+        description=(
+            "How long the launch actually ran, in seconds, measured by gda around "
+            "the whole process. Present ONLY on the 'timeout' verdict, together "
+            "with 'timeout_seconds'; both keys are omitted from every other verdict "
+            "rather than reported as null, because no bound was reached on a run "
+            "the engine finished by itself. The pair names the consumed ceiling, "
+            "not the cause — a stuck scene and a healthy --frames window that "
+            "outruns the same bound read alike — so choose a larger --timeout or "
+            "fewer --frames from what the scene should do, and rerun (#787)."
+        ),
+    )
+    timeout_seconds: Optional[float] = Field(
+        default=None,
+        description=(
+            "The --timeout ceiling this run reached, in seconds — the bound gda "
+            "ended it at, reported by the launch itself rather than re-derived. "
+            "Present ONLY on the 'timeout' verdict, together with "
+            "'elapsed_seconds'. It is the same pair of numbers the 'launch_timeout' "
+            "envelope reports on every other channel; this command reports them on "
+            "a successful verdict instead, because 'it did not come up within the "
+            "bound' is the answer it was asked for (#787)."
+        ),
+    )
+
+    @model_serializer(mode="wrap")
+    def _omit_the_evidence_that_does_not_apply(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        # OMITTED, never null (the convention gda.provenance states for the same
+        # reason): a null here would claim gda measured a bound on a run nothing
+        # bounded. Dropping the pair is also what keeps every non-timeout verdict
+        # byte-identical to what it emitted before #787 — the invariance that issue
+        # names as a regression if it breaks. Only these two keys are considered:
+        # 'project_root' is required-but-nullable and its null MEANS projectless.
+        serialized = handler(self)
+        for key in ("elapsed_seconds", "timeout_seconds"):
+            if serialized.get(key) is None:
+                serialized.pop(key, None)
+        return serialized
 
 
 class _ScenePreflightPayload(BaseModel):
@@ -915,6 +974,10 @@ def render_scene_preflight(preflight: "ScenePreflightResult") -> str:
     errors``, not as ``ready``. A clean start stays the one short line; the project
     only ever explains a failure, so it appears only with one (the shape ``script
     validate`` uses).
+
+    A ``timeout`` verdict states its two numbers directly under the headline, in the
+    wording the timeout envelopes use (#787): the ceiling that was reached and the
+    elapsed wall clock. Every other verdict renders exactly the lines it always did.
     """
     if preflight.started:
         return f"{preflight.status.value} {preflight.path}"
@@ -926,14 +989,21 @@ def render_scene_preflight(preflight: "ScenePreflightResult") -> str:
         SceneStartupStatus.NOT_READY: "not ready",
         SceneStartupStatus.TIMEOUT: "timeout",
     }.get(preflight.status, preflight.status.value)
-    lines = [
-        f"{headline} {preflight.path}",
-        f"  project: {preflight.project_root or '(none resolved: projectless)'}",
-    ]
-    for diagnostic in preflight.diagnostics:
+    lines = [f"{headline} {preflight.path}"]
+    # The timeout evidence, on the human channel too (#787), so nobody has to re-run
+    # with --json to learn which ceiling the run consumed. Both numbers are
+    # required, because the pair is set together and a half-set model can only be
+    # hand-built; asking for both keeps a renderer from being the thing that raises.
+    if preflight.elapsed_seconds is not None and preflight.timeout_seconds is not None:
         lines.append(
-            f"  {diagnostic.kind.value}: {render_script_error_location(diagnostic)}"
+            f"  --timeout {preflight.timeout_seconds}s reached "
+            f"(elapsed {preflight.elapsed_seconds:.2f}s)"
         )
+    lines.append(
+        f"  project: {preflight.project_root or '(none resolved: projectless)'}"
+    )
+    for diagnostic in preflight.diagnostics:
+        lines.append(f"  {script_error_line(diagnostic)}")
     return "\n".join(lines)
 
 
@@ -1010,12 +1080,35 @@ def run_scene_preflight_operation(
 
     diagnostics = parse_script_errors(raw.stderr)
     if raw.launch_failure is LaunchFailure.TIMEOUT:
+        # The evidence the launch already measured, which this verdict used to drop
+        # (#787): without it, "timeout" cannot tell a run a fraction over a tight
+        # ceiling from one stuck for an hour — the GDA-DF-032 ambiguity every other
+        # timeout surface closed. Both numbers are read off the RUN rather than
+        # re-derived from the params: the primitive times every launch and records
+        # the ceiling it reached on the result (``TimeoutBound``, #714), which is the
+        # single home of that fact. The fallbacks cover a hand-built result at the
+        # injected launch seam, and are truthful rather than a guess — the ceiling
+        # gda passed IS ``params.timeout``, and a run gda ended AT the ceiling ran at
+        # least that long, so an unmeasured clock reports its lower bound instead of
+        # a 0.0 that would read as "ended instantly".
+        bound = raw.timeout_bound
         return ScenePreflightResult(
             path=params.path,
             started=False,
             status=SceneStartupStatus.TIMEOUT,
             diagnostics=diagnostics,
             project_root=str(root) if root is not None else None,
+            # Both fallbacks read the SAME source when the clock is missing (#791
+            # review P3-2): a seam-injected result carrying a bound but no clock
+            # would otherwise render the self-contradictory pair
+            # "--timeout 8.0s reached (elapsed 5.00s)". Production never takes
+            # either arm — the streaming launch always fills both.
+            elapsed_seconds=(
+                raw.elapsed_seconds
+                if raw.elapsed_seconds is not None
+                else (bound.seconds if bound is not None else params.timeout)
+            ),
+            timeout_seconds=bound.seconds if bound is not None else params.timeout,
         )
     ended_early = _ended_before_the_verdict(raw, params, diagnostics, root)
     if ended_early is not None:
@@ -1096,6 +1189,15 @@ def _ended_before_the_verdict(
             diagnostics=diagnostics,
             project_root=str(root) if root is not None else None,
         )
+    # KNOWN, and deliberately not closed here (2026-09-01, #687 review): the parsed
+    # ``diagnostics`` above are in scope on this branch and are DISCARDED — the caller
+    # gets `raw.stderr` and has to re-parse it to learn which autoload called quit().
+    # Every clause of #687's criterion is met, so this qualifies for
+    # ``evidence.script_errors``. It is out of #687's recorded producer set anyway:
+    # that issue scoped to `script run` and #655's timeout envelope, and this is
+    # `scene preflight`. Widening the set is a follow-up with its own issue, not a
+    # review fix — see ADR-0004's `Amendment (2026-08-31, #687)`, which names the
+    # adopting producers and lists this among the discards left standing.
     return make_failure(
         "operation_failed",
         "the engine exited before the preflight could report: the scene, or an "
@@ -1376,10 +1478,13 @@ def preflight_scene(
 
     A scene that does not start is a SUCCESSFUL operation — exit 0 with the verdict,
     the 'timeout' one included, because "it did not come up within the bound" is the
-    answer this command was asked for. Only what is not about the scene fails: an
-    unlaunchable binary, a signal death, a missing file ('path_not_found'), a file
-    that does not load as a scene ('not_a_scene'), or a scene the engine cannot
-    instantiate at all ('missing_dependency').
+    answer this command was asked for. That verdict, and only that one, also carries
+    'elapsed_seconds' and 'timeout_seconds': how long the run took and the --timeout
+    it reached — the consumed ceiling to weigh against '--frames' before a rerun,
+    not the cause. Only what is not about the scene fails: an unlaunchable binary, a signal
+    death, a missing file ('path_not_found'), a file that does not load as a scene
+    ('not_a_scene'), or a scene the engine cannot instantiate at all
+    ('missing_dependency').
 
     It RUNS the project's code by construction — every script in the scene plus the
     autoloads — which stays inside gda's trusted-project assumption (ADR-0009) but

@@ -8,7 +8,7 @@ classification, failure output, and JSON rendering.
 """
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, NoReturn, Optional, TypeVar
@@ -17,6 +17,7 @@ import typer
 from pydantic import BaseModel, ValidationError
 from typer._click import Context as ClickContext
 from typer.core import TyperCommand
+from typer.models import TyperInfo
 
 from gda.binary import resolve_godot_binary
 from gda.errors import (
@@ -36,6 +37,7 @@ from gda.models import (
     GdaErrorEnvelope,
     LiveStackConstraints,
 )
+from gda.render import render_failure
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
@@ -124,6 +126,55 @@ def ancestor_json(ctx: ClickContext) -> bool:
     return bool(ctx.meta.get(ANCESTOR_JSON_META_KEY, False))
 
 
+# The context-meta key the root parser records its raw argv under. ``ctx.meta`` is one
+# dict shared by every context in the tree, so what the root records is readable from
+# wherever the channel is finally decided — including a leaf command's parser, whose
+# own tokens are a slice of it.
+RAW_ARGV_META_KEY = "gda.raw_argv"
+
+
+def remember_argv(ctx: ClickContext, args: list[str]) -> None:
+    """Record the tokens the ROOT parser was handed (first writer wins).
+
+    The write half of the third reading :func:`json_in_effect` makes. Called from
+    the group class the composition root mounts (``gda.hints.GdaGroup``), which is
+    where the root's first parse happens.
+    """
+    ctx.meta.setdefault(RAW_ARGV_META_KEY, list(args))
+
+
+def json_in_effect(ctx: ClickContext) -> bool:
+    """Whether this invocation asked for JSON, in three ordered readings.
+
+    1. The command's OWN resolved flag, when the question is asked after its parse —
+       the case for a dispatched command and for ``gda help <unknown>``. It already
+       carries an inherited ancestor ``--json`` (:func:`_inherit_ancestor_json`), so
+       it answers for every spelling wherever it exists.
+    2. The ancestor ``--json``, recorded when the root callback (#671) or a group's
+       (#683) bound it — the reading available at parse time, before any command's
+       params exist.
+    3. The literal token in the recorded argv. A ``--json`` written AFTER an
+       offending token never parses, because the command or option it would have
+       belonged to does not exist, so the token itself is the only evidence of the
+       intent — and it is read as exactly that. The Skill teaches the trailing
+       spelling, so leaving this reading out would answer most agents in prose.
+
+    It lives HERE, beside :func:`ancestor_json` and the option that inherits it,
+    rather than with the near-miss refusal that introduced it (``gda.hints``, #670).
+    :func:`emit_failure` does NOT ask it — it takes ``json_output`` as a required
+    keyword and never reads a context; the askers in this module are the two
+    ``--params-json`` refusals in ``_SchemaCommand.invoke``, which hold a click
+    context and no flag. What settles the direction is the import: ``gda.hints``
+    already depends on this module for the failure channel, so a channel question
+    owned by ``hints`` would need that import to run backwards (#685).
+    """
+    if bool(ctx.params.get("json_output")):
+        return True
+    if ancestor_json(ctx):
+        return True
+    return "--json" in ctx.meta.get(RAW_ARGV_META_KEY, ())
+
+
 def _inherit_ancestor_json(
     ctx: typer.Context, param: typer.CallbackParam, value: bool
 ) -> bool:
@@ -193,6 +244,42 @@ def _group_json(
     """
 
 
+def walk_mounted_groups(app: typer.Typer) -> Iterator[TyperInfo]:
+    """Every command group mounted below ``app``, at any depth (#788).
+
+    The ONE walk over the mounted-group tree, so a cross-cutting group behavior is
+    written as a visitor over this rather than as another copy of the recursion. Two
+    visitors today: the shared ``--json`` option (:func:`adopt_group_json`, below) and
+    the refusal class (``gda.hints.adopt``). It walks the REGISTRATION-time tree — the
+    ``TyperInfo`` records ``add_typer`` leaves behind — because that is the only
+    representation that exists before Typer builds the click tree, and so the only one
+    a composition-time adopter can install anything onto. The BUILT click tree is a
+    different walk for a different purpose — reading a finished surface
+    (``gda.surface``).
+
+    **The ordering precondition, stated here once for every visitor:** the walk reports
+    what is mounted AT THE MOMENT IT RUNS, so the composition root (``gda.cli``) mounts
+    the whole tree first and adopts afterwards. A group mounted after an adoption is
+    never visited by it and silently keeps none of what it installs.
+
+    What is yielded is the registration record, not the sub-app: it is the wider handle
+    — the group's ``name`` and ``cls`` as well as its ``typer_instance`` — and one
+    visitor writes to the record itself. Typer types that instance as optional, so the
+    RECURSION skips a group without one: it carries no groups to descend into, and
+    Typer refuses to build such a group into a command at all. A visitor that needs the
+    instance says so itself; the walk does not decide that for it.
+    """
+    # Snapshot, so the docstring's "what is mounted at the moment it runs" is
+    # literally true: a visitor that mounts a group MID-WALK is excluded rather
+    # than lazily swept in (#792 review P3-2 — no visitor does this today; the
+    # snapshot makes the documented boundary the actual one).
+    for group in list(app.registered_groups):
+        yield group
+        instance = group.typer_instance
+        if instance is not None:
+            yield from walk_mounted_groups(instance)
+
+
 def adopt_group_json(app: typer.Typer) -> None:
     """Give every group mounted below ``app`` the shared ``--json`` option (#683).
 
@@ -202,16 +289,20 @@ def adopt_group_json(app: typer.Typer) -> None:
     a line an agent composes naturally. Applied once from the composition root,
     AFTER every group has mounted itself, for the reason ``gda.hints.adopt`` is: it
     is one property of the WHOLE surface, so a group added later inherits the option
-    by being mounted rather than by remembering to declare it. The walk RECURSES for
-    the same reason that one does — a sub-group of a group would otherwise be missed
-    silently.
+    by being mounted rather than by remembering to declare it. Reaching a sub-group of
+    a group — which would otherwise be missed silently — is the shared walk's job
+    (:func:`walk_mounted_groups`), including the ordering precondition it states.
 
     Installing the option means installing the callback that carries it, so a group
     that declares a callback of its own is refused rather than silently replaced:
-    such a group must declare the shared option on that callback itself.
+    such a group must declare the shared option on that callback itself. That refusal
+    stays a property of THIS visitor, not of the walk it rides: it guards the one slot
+    this adoption writes, and the other visitor overwrites no such slot.
     """
-    for group in app.registered_groups:
+    for group in walk_mounted_groups(app):
         instance = group.typer_instance
+        # A group registered without a sub-app has no callback to carry the option;
+        # the walk's own contract leaves that reading to each visitor.
         if instance is None:
             continue
         if instance.registered_callback is not None:
@@ -221,7 +312,6 @@ def adopt_group_json(app: typer.Typer) -> None:
                 "gda.headless.adopt_group_json replace it."
             )
         instance.callback()(_group_json)
-        adopt_group_json(instance)
 
 
 def godot_option() -> Optional[str]:
@@ -495,7 +585,10 @@ def schema_command_class(
                     name not in _GLOBAL_OPTION_NAMES and _from_command_line(ctx, name)
                     for name in ctx.params
                 ):
-                    emit_failure(conflicting_params_input_failure())
+                    emit_failure(
+                        conflicting_params_input_failure(),
+                        json_output=json_in_effect(ctx),
+                    )
                 raw = ctx.params["params_json"]
                 # ``-`` reads the object from stdin so large payloads avoid OS
                 # argv length limits and process-listing leakage (ADR-0015).
@@ -512,7 +605,8 @@ def schema_command_class(
                     # caller's OTHER field values (e.g. a large --content payload) back
                     # into the structured envelope's message.
                     emit_failure(
-                        invalid_params_json_failure(validation_error_message(exc))
+                        invalid_params_json_failure(validation_error_message(exc)),
+                        json_output=json_in_effect(ctx),
                     )
                 if _params_json_dispatch is None:  # pragma: no cover - misconfig
                     raise RuntimeError(
@@ -526,29 +620,62 @@ def schema_command_class(
     return _SchemaCommand
 
 
-def emit_failure(failure: Failure) -> NoReturn:
-    """Emit a structured error envelope to stdout and exit non-zero.
+def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
+    """Emit a failure on the channel the caller asked for, and exit non-zero.
 
-    The single home for the public failure channel (ADR-0002): a ``Failure``
-    becomes the ``{"error": {...}}`` envelope on stdout and selects the process
-    exit code. Shared by the sentinel-pipeline commands (via :meth:`HeadlessCommand.run`)
-    and the native-export command (``export run``), which classifies its own
-    subprocess outcome but emits failures through this same channel.
+    The single home for the public failure channel (ADR-0002), and — like
+    :func:`emit_result` for the success channel — TWO renderings of one outcome: a
+    ``Failure`` becomes the ``{"error": {...}}`` envelope under ``--json``, else the
+    human lines of :func:`gda.render.render_failure`. Either way it selects the
+    process exit code, which is the same on both channels. Shared by the
+    sentinel-pipeline commands (via :meth:`HeadlessCommand.run`), the native-export
+    command (``export run``), the CLI dispatch tails, and the near-miss refusal
+    (``gda.hints``).
 
-    ``exclude_none`` keeps the envelope's OPTIONAL context keys (``probe``, the
-    ADR-0004 amendment of #667) out of the JSON entirely when a failure has none,
-    rather than emitting them as ``null``. So adding such a key leaves every
-    failure that does not set it byte-identical — the property that makes the
-    optional-context axis additive for existing consumers. The required keys
+    ``json_output`` is REQUIRED and keyword-only: until #685 this function had no
+    channel to choose, so every call site emitted JSON whether or not the caller had
+    asked for it, and a human read a labelled ``script run --strict`` capture as one
+    escaped line. Making it explicit is what keeps that from silently returning: a
+    new call site cannot default its way back into the wrong channel. Where the
+    caller holds a click context rather than the flag, :func:`json_in_effect`
+    answers it.
+
+    ``exclude_none`` keeps the envelope's OPTIONAL context keys out of the JSON
+    entirely when a failure has none, rather than emitting them as ``null``. So
+    adding such a key leaves every failure that does not set it byte-identical —
+    the property that makes the optional-context axis additive for existing
+    consumers. Three keys ride it now, one per ADR-0004 amendment: ``probe``
+    (#667), ``hint`` (#670) and ``evidence`` (#687). The required keys
     (``category`` / ``code`` / ``message`` / ``diagnostics``) are never ``None``,
     so none of them can be dropped by this.
+
+    The filter RECURSES, which is what lets ``evidence`` carry one fixed shape
+    whose unset fields cost nothing. It stops at one boundary: a model nested
+    inside ``evidence`` that is ALSO published on a success result keeps its full
+    key set, so a record does not read differently depending on which half of the
+    contract carried it (:class:`gda.models.FailureEvidence`).
+
+    The child run's stderr (``failure.child_stderr``, attached by
+    :meth:`HeadlessCommand.execute`) is forwarded to this process's stderr here,
+    where the channel is known — EXCEPT when the human channel is about to print
+    the very same bytes as ``diagnostics``, which would say one stream twice
+    across two streams (#798 review). Byte identity decides, not the error code:
+    a curated or capped ``diagnostics`` (the labeled ``--strict`` sections, a
+    timeout's tail-capped captures) differs from the raw stream, so its tee — the
+    only copy that is complete — survives. Under ``--json`` the tee is
+    unconditional, keeping that channel's bytes exactly as they were.
     """
-    typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json(exclude_none=True))
+    if failure.child_stderr and (
+        json_output or failure.error.diagnostics != failure.child_stderr
+    ):
+        print(failure.child_stderr, end="", file=sys.stderr)
+    if json_output:
+        typer.echo(
+            GdaErrorEnvelope(error=failure.error).model_dump_json(exclude_none=True)
+        )
+    else:
+        typer.echo(render_failure(failure.error))
     raise typer.Exit(code=failure.exit_code)
-
-
-# Backwards-compatible private alias for in-module call sites.
-_fail = emit_failure
 
 
 def emit_result(
@@ -677,38 +804,55 @@ class HeadlessCommand(Generic[M]):
         runner = make_runner(binary, project)  # pyright: ignore[reportArgumentType]
         result = runner.run(self.operation, params.model_dump())
 
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-
         if self.classify is not None:
-            return self.classify(result, binary)  # pyright: ignore[reportArgumentType]
+            outcome = self.classify(result, binary)  # pyright: ignore[reportArgumentType]
         # No declared classifier: the channel picks it. LIVE gets ``classify_live``
         # — ``classify_run`` plus the LIVE error envelope (ADR-0017's reuse) — so a
         # live command declares its channel once, in ``kind``.
-        if self.kind is ExecutionKind.LIVE:
-            return classify_live(result, binary, self.output_model)
-        return classify_run(result, binary, self.output_model)
+        elif self.kind is ExecutionKind.LIVE:
+            outcome = classify_live(result, binary, self.output_model)
+        else:
+            outcome = classify_run(result, binary, self.output_model)
+
+        # The child's stderr is teed AFTER classification, because on a failure it
+        # rides the ``Failure`` to the emission point instead: whether printing it
+        # here would repeat the bytes ``diagnostics`` is about to carry depends on
+        # the caller's channel, which this method does not know (#798 review). A
+        # success has no diagnostics to duplicate, so its tee stays immediate.
+        if isinstance(outcome, Failure):
+            outcome.child_stderr = result.stderr
+            return outcome
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        return outcome
 
     def run(
         self,
         params: BaseModel,
         *,
         godot: Optional[str],
+        json_output: bool,
         project: Optional[Path] = None,
         make_runner: RunnerFactory = make_subprocess_runner,
     ) -> M:
         """Run the command and return its typed success model.
 
-        Diagnostics are forwarded to stderr. Failures are emitted as the public
-        structured error envelope and terminate via Typer's exit path. The
-        outcome is produced by :meth:`execute`; this method adds the
-        emit-and-exit-on-failure behavior shared by every CLI command.
+        Diagnostics are forwarded to stderr. Failures are emitted on the caller's
+        channel — the structured envelope under ``--json``, else the rendered lines —
+        and terminate via Typer's exit path. The outcome is produced by
+        :meth:`execute`; this method adds the emit-and-exit-on-failure behavior
+        shared by every CLI command.
+
+        It therefore takes ``json_output`` for the same reason :meth:`emit` does:
+        emitting is a PUBLIC-channel act, and since #685 there are two channels.
+        A caller that wants the outcome rather than the emission calls
+        :meth:`execute`, which chooses nothing and returns the ``Failure``.
         """
         outcome = self.execute(
             params, godot=godot, project=project, make_runner=make_runner
         )
         if isinstance(outcome, Failure):
-            _fail(outcome)
+            emit_failure(outcome, json_output=json_output)
         return outcome
 
     def emit(
@@ -726,5 +870,11 @@ class HeadlessCommand(Generic[M]):
         renderer, ADR-0023) — the descriptor is in hand here, so there is no
         type-keyed table to consult.
         """
-        result = self.run(params, godot=godot, project=project, make_runner=make_runner)
+        result = self.run(
+            params,
+            godot=godot,
+            project=project,
+            json_output=json_output,
+            make_runner=make_runner,
+        )
         emit_result(result, json_output, self.render)

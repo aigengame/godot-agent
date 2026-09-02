@@ -53,7 +53,9 @@ commands (no group).
 
 ## Structured output & errors
 
-Always pass `--json`. A success is the operation's result object. A failure is
+Always pass `--json`. It selects the channel for BOTH outcomes: without it a
+failure prints as human-readable lines instead of the envelope. A success is the
+operation's result object. A failure is
 
 ```json
 {"error": {"category": "...", "code": "...", "message": "..."}}
@@ -66,11 +68,18 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | `0`   | success |
 | `2`   | gda could not resolve what you asked for: `unknown_command`, `unknown_option` |
 | `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied`, `harness_install_permission_denied` |
-| `124` | engine timed out |
+| `124` | engine timed out: `launch_timeout` — gda ended a run that had not returned (read it as below) |
 | `3`   | engine version too old |
 | `4`   | operation-reported failure |
 | `5`   | could not parse the engine's output |
 | `6`   | live operation failed (e.g. `daemon_not_running`) |
+
+**Reading a `124`.** The `environment` category describes how the run ENDED, not the
+host. Read the captured partial output in `diagnostics` for how far the run got, then
+raise the ceiling with `--timeout` where the command exposes one; where it does not the
+ceiling is gda's own, so reduce the work or give the machine more headroom. Suspect the
+binary or the machine only when the capture shows the engine never started. Any engine
+error inside that capture is advisory — the verdict is the timeout.
 
 A command or option gda does not recognize is reported the same way — an
 `unknown_command` / `unknown_option` envelope at exit `2` — and when gda recognizes
@@ -78,6 +87,28 @@ the mistake the envelope carries a `hint` naming the invocation to run instead
 (`{"error": {"code": "unknown_command", "hint": "gda scene get", …}}`). Re-issue the
 `hint`; when there is none, `gda schema` lists every command and
 `gda help <command>` describes one.
+
+A failure that computed evidence also carries it as DATA, under the envelope's
+optional `evidence` key — omitted, never null, on the failures that computed none.
+Read it instead of parsing the message: `elapsed_seconds` / `termination_phase`
+(`launched` = the engine wrote nothing at all, so suspect the binary or the host;
+`output_seen` = it was alive and did not finish, so raise the ceiling;
+`aborted_on_error`) on a run gda ended, plus `timeout_seconds` — the reached
+ceiling — on the timeout verdict only (an abort stopped short of its ceiling, so
+it omits the field; your own `--timeout` stays in the message), `exit_status`
+(the CHILD's, not gda's exit code) on `script run --strict`'s `script_failed`,
+and `script_errors` on the `script run` failures that parse the run's stderr —
+the never-ran verdicts, `--strict`'s `script_failed`, and both runs gda ended. Under a `launch_timeout` those errors
+stay ADVISORY — the verdict is the timeout, so branch on `code` and read
+`evidence` for the cause.
+
+Each `script_errors` entry is a `{kind, message, path, line}` record — the same
+four keys, always present, that a successful `script run` reports as
+`diagnostics`; `path` and `line` are `null` where the engine named neither, which
+is the normal case for a load error. The list itself has three states worth
+telling apart: absent means this failure's channel does not parse stderr at all,
+so read `diagnostics`; `[]` means it parsed and recognized nothing, which is
+itself a finding; a non-empty list is what it recognized.
 
 Some commands carry a verdict inside a successful result. For
 `gda script validate --json`, read the result's `valid` field: it is the AGGREGATE
@@ -92,7 +123,16 @@ before you act on a `valid=false`: it names the project the scripts were compile
 against, and a verdict full of missing-`res://` errors (plus the type errors derived
 from them) usually means the wrong project, not a broken script — `null` means no
 project was resolved at all. Pass `--project` for the project that owns the files
-and re-read the verdict.
+and re-read the verdict. gda refuses up front, with `target_outside_project`, when
+the resolved project plainly does not own a path — outside its tree, or claimed by
+a nested `project.godot`, and with no project resolved too (`script run` and
+`resource import` refuse the same way). It names the owner it found
+(`evidence.owning_project`) but never switches to it, and the message states the
+whole re-issue: `--project <owner>` AND the target respelled relative to that
+owner — a relative path anchors at the project, so your original spelling would
+not be found under the new one. One gap: `--all` does NOT apply that check, so a nested
+project's scripts can still show a false missing-`res://` cascade there — name them
+explicitly with their own `--project` to get the true verdict.
 
 ## Discovery
 
@@ -123,7 +163,7 @@ JSON — use `gda help <command> --json` for a structured payload), and the flag
 
 | Group | Commands |
 | ----- | -------- |
-| `scene` | `create`, `get`, `list`, `get-exports`, `delete`, `validate`, `preflight` (`.tscn` files; `validate` is the STATIC verdict `get` does not give — a scene loads fine with its script and texture missing, so check dependencies resolve and attached scripts compile before trusting it; invalid exits 0 with `valid: false` plus one problem per problem file — COMPOSED over the sub-scenes it references — normally the ones it instances, but a reference is followed when its path ends in `.tscn`/`.scn` OR its `[ext_resource]` line declares `type="PackedScene"`, a union because Godot loads every `[ext_resource]` whatever it is called while `ResourceSaver` will put a PackedScene in a plain `.res` (one saved under a non-scene extension AND declared as something else stays outside) — so a parent whose child is broken is invalid too and every problem carries `scene`, the file it was found in, in the same canonical spelling as the result's `path` (read its `path`/`nodes` against THAT file); three kinds of edge are reported instead of followed — `cyclic_instance` for a cycle, `unreadable_sub_scene` for a scene that loads but carries no `[gd_scene]` text to walk (a binary `.scn`, or a PackedScene in a `.res`), and `instance_depth_exceeded` for a scene no route reaches within 16 levels of sub-scenes; the last two say that subtree is UNCHECKED, not sound (validate it directly, or re-save it as `.tscn`, for its own verdict), and the depth bound is on the shortest route so the verdict does not depend on declaration order, and it covers gda's walk only, not the engine's own load of the chain; staged: unresolved dependencies suppress the script compile/binding pass, so repair them and rerun for the rest. `preflight` is the DYNAMIC one: it boots the scene headless, waits for `_ready`, and reports `status` (`ready`/`not_ready`/`timeout`) plus the script errors seen during startup — read `started`. Passing `validate` is not "it works": check both) |
+| `scene` | `create`, `get`, `list`, `get-exports`, `delete`, `validate`, `preflight` (`.tscn` files; `validate` is the STATIC verdict `get` does not give — a scene loads fine with its script and texture missing, so check dependencies resolve and attached scripts compile before trusting it; invalid exits 0 with `valid: false` plus one problem per problem file — COMPOSED over the sub-scenes it references — normally the ones it instances, but a reference is followed when its path ends in `.tscn`/`.scn` OR its `[ext_resource]` line declares `type="PackedScene"`, a union because Godot loads every `[ext_resource]` whatever it is called while `ResourceSaver` will put a PackedScene in a plain `.res` (one saved under a non-scene extension AND declared as something else stays outside) — so a parent whose child is broken is invalid too and every problem carries `scene`, the file it was found in, in the same canonical spelling as the result's `path` (read its `path`/`nodes` against THAT file); three kinds of edge are reported instead of followed — `cyclic_instance` for a cycle, `unreadable_sub_scene` for a scene that loads but carries no `[gd_scene]` text to walk (a binary `.scn`, or a PackedScene in a `.res`), and `instance_depth_exceeded` for a scene no route reaches within 16 levels of sub-scenes; the last two say that subtree is UNCHECKED, not sound (validate it directly, or re-save it as `.tscn`, for its own verdict), and the depth bound is on the shortest route so the verdict does not depend on declaration order, and it covers gda's walk only, not the engine's own load of the chain; staged: unresolved dependencies suppress the script compile/binding pass, so repair them and rerun for the rest. `preflight` is the DYNAMIC one: it boots the scene headless, waits for `_ready`, and reports `status` (`ready`/`not_ready`/`timeout`) plus the script errors seen during startup — read `started`; a `timeout` verdict also carries `elapsed_seconds` and `timeout_seconds` (the `--timeout` it reached), the same evidence pair the `launch_timeout` envelope gives elsewhere — it names the consumed ceiling, not the cause: a stuck scene and a healthy one whose `--frames` window outruns the same ceiling read alike, so pick a larger `--timeout` or fewer `--frames` from what the scene should do, and rerun — both keys are on that verdict only and omitted from every other. Passing `validate` is not "it works": check both) |
 | `node` | `add`, `get`, `list`, `set`, `remove`, `duplicate`, `move`, `connect-signal`, `disconnect-signal` (nodes within a scene) |
 | `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `validate` takes SEVERAL paths at once — one engine launch for the whole batch, one aggregate `valid` plus a per-file entry under `scripts` — or `--all` for every script in the project; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — `stdout` above 64 KiB is truncated to its leading bytes with the COMPLETE stream spilled to the file named in `stdout_file` (`stdout_bytes`/`stdout_truncated` disclose it; a spill gda cannot write is the typed `stdout_spill_failed`, never an unbounded result), and a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails; `--timeout <s>` sets the ceiling (default 120) and a run that reaches it fails with `launch_timeout` carrying the captured partial output, the elapsed seconds and a termination phase; add `--completion-marker <line>` naming a line your script prints when its work is done — a caller-declared liveness contract, not a death detector: gda ends the run once it observes a recognized error attributable to the entry script, no marker line yet, and then silence on both streams — `script_aborted` (exit 4) with the captured error, in seconds rather than at the ceiling; declaring the marker asserts the script keeps printing until that line, so have it print progress during quiet stretches longer than ~3s, or omit the marker) |
 | `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
@@ -132,7 +172,7 @@ JSON — use `gda help <command> --json` for a structured payload), and the flag
 | `shader` | `create`, `get`, `set` (`.gdshader` files) |
 | `theme` | `create` (a loadable `.tres` Theme) |
 
-Every headless reply carries its floats at full binary64 precision, so a value read back through `node get`, `scene get-exports`, `project get`/`project list`, `resource get`, or the echo of a `set` is the exact number the project holds — `1e-300` reads back as `1e-300`, not `0.0`; the one residual belongs to the ENGINE's writer — a negative zero reads back as `0.0` (#771). The `--value` string you send IN is a separate matter and is NOT bounded the way the live wire is: the engine's own parser coerces it, dropping the low digits of a full-precision literal between `1e-4` and `1e-2` and reading a `DBL_MIN`-scale or subnormal literal as `0.0`, with no refusal (#772). Read the `set` echo when the exact bits matter.
+Every headless reply carries its floats at full binary64 precision, so a value read back through `node get`, `scene get-exports`, `project get`/`project list`, `resource get`, or the echo of a `set` is the exact number the project holds — `1e-300` reads back as `1e-300`, not `0.0`; the one residual belongs to the ENGINE's writer — a negative zero reads back as `0.0` (#771). The `--value` string you send IN is coerced by the engine's own parser, and gda refuses what that parser would destroy: a literal it reads as `0.0` when you did not write zero, or as `NaN` at all, fails with `uncoercible_value` (exit 4, target untouched) instead of writing a number you never sent — `2.2250738585072014e-308` and `5e-324`, and also `0.000000000000000001`, whose 18 leading zeros fill the parser's whole mantissa window (`1e-18` is exact). So spell a small or many-digit value in SCIENTIFIC notation carrying only the digits it needs: that also avoids the low-digit loss the parser inflicts on a full-precision literal between `1e-4` and `1e-2`, which is disclosed rather than refused (#772). Read the `set` echo when the exact bits matter.
 
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 
@@ -145,7 +185,13 @@ alive) — success means live reads serve. This matters for the read-only diagno
 `logger tail` never launch a session themselves, so right after `daemon start` they report
 `engine_session_not_running` by design — expected, not a defect; run `wait-ready` first.
 A `live_timeout` discards the session (its late reply can no longer be attributed), so the
-next operation starts a fresh game and the runtime state you had set is gone.
+next operation starts a fresh game and the runtime state you had set is gone. Most often
+it means the game stopped returning to its main loop — look for a blocking loop or wait in
+game code. But the 30s bound is a wall clock while a multi-frame window (`--frames`,
+`--await-frames`) waits that many ENGINE frames, so on a slow-ticking game a window op
+outruns it with the loop running normally: ask for fewer frames when `gda logger tail`
+shows the log kept advancing. A paused `SceneTree` is NOT a cause; see "paused vs
+suspended" below.
 `screen capture` needs a windowed session
 (`gda daemon start --windowed`).
 
@@ -180,7 +226,7 @@ already-running daemon's lazy Engine-session launch; only the outer
 
 Every live reply carries its floats at full binary64 precision, so a value read back through `game get`, `game call`, `perf`, or a monitored timeline equals the value the running game holds; the one residual belongs to the ENGINE's writer — a negative zero it wrote reads back as `0.0` (#752). A number gda produces CLI-side meets no Godot writer and so does not carry that residual: `perf monitors --frames` reports its `mean` and every budget-verdict number (the bounds copied from your own budget file) exactly, negative zero included. Each live result field says which of the two it is.
 
-In the other direction the wire is narrower, and EVERY live command RELAYED to the game applies the same rule — not just `game call`; the three the daemon answers itself (`diag errors`, `logger tail`, `daemon wait-ready`) send no number to the engine and are outside it. A number gda cannot send unchanged is refused before the request leaves: a float whose wire literal Godot's parser reads as `0.0` (`DBL_MIN`, any subnormal, many-digit values such as `1.2345678901234567e-300`) and a JSON integer beyond ±(2^53−1). It is a usage error on the argv path and `invalid_params` on `--params-json`, decided without a running daemon, and it reaches nested values — a sequence event's `x`, a `game call` argument inside a dictionary. A float the parser DOES read still arrives changed in its low-order bits: 1 ULP at ordinary magnitudes, tens of doubles for a full-precision literal between `1e-4` and `1e-2`. That residual is disclosed, not refused (#752).
+In the other direction the wire is narrower, and EVERY live command RELAYED to the game applies the same rule — not just `game call`; the three the daemon answers itself (`diag errors`, `logger tail`, `daemon wait-ready`) send no number to the engine and are outside it. A number gda cannot send unchanged is refused before the request leaves: a float whose wire literal Godot's parser reads as `0.0` (`DBL_MIN`, any subnormal, many-digit values such as `1.2345678901234567e-300`) and a JSON integer beyond ±(2^53−1). It is a usage error on the argv path and `invalid_params` on `--params-json`, decided without a running daemon, and it reaches nested values — a sequence event's `x`, a `game call` argument inside a dictionary. A float the parser DOES read still arrives changed in its low-order bits: 1 ULP at ordinary magnitudes, tens of doubles for a full-precision literal between `1e-4` and `1e-2`. That residual is disclosed, not refused (#752). `game set --value` is OUTSIDE that rule — the value travels as a STRING, so the wire never sees a number — and has a refusal of its own, decided in the session by the harness: the string is coerced with the engine's own parser and a literal it reads as `0.0` when you did not write zero, or as `NaN` at all, fails with `live_uncoercible_value` (exit 6, the running game untouched), the same rule headless `--value` follows (#772).
 
 For a UI activation, use the gesture commands, not a lone event. Godot activates a
 `Button` on the RELEASE, so a bare press never emits `pressed`; and a focused UI
@@ -227,6 +273,18 @@ Live operations keep serving even while `SceneTree.paused` is true, but injected
 input still only reaches nodes whose process mode is `PROCESS_MODE_ALWAYS` or
 `PROCESS_MODE_WHEN_PAUSED` — a paused game's ordinary handlers will not see it, so
 drive resume through a pause-menu-style always-processing handler.
+
+**paused vs suspended.** That escape exists for `paused` only. No process mode ticks
+while the tree is SUSPENDED — the engine gates `Node::can_process()` on
+`!tree->is_suspended()` before it ever consults the process mode — so a suspended tree
+would stop the gda harness too, with no way back in (input injection is served by the
+loop that is not ticking) and nothing gda could detect or recover. You cannot cause this
+from game code: on Godot 4.6.3 `SceneTree`'s `set_suspend`/`is_suspended` are bound to
+neither GDScript nor ClassDB (`get_tree().suspended = true` is an invalid assignment),
+and the engine's only callers are the remote debugger's suspend/next-frame messages —
+the editor Game view's buttons, which do not reach a daemon-launched session. So for a
+freeze-frame in an agent session, use `paused`, which live operations survive; a
+`live_timeout` never means the game is paused — see the causes it does name, above.
 
 ### Structured logging from game code
 

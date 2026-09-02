@@ -342,6 +342,46 @@ def test_scene_get_marks_instanced_child_and_resolves_its_root_type(godot_projec
     assert hud["instance_status"] == "resolved"
 
 
+# A host whose [node] header carries a decoy attribute ENDING in `instance`
+# ahead of the real one (#775 review). `instance` is a header attribute, so it is
+# read by whole name like `name` and `parent`; a substring scan for
+# `instance=ExtResource(` matched `fallback_instance=` first and reported the
+# wrong instanced scene.
+HOST_WITH_DECOYED_INSTANCE_ATTR_TSCN = """\
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="1_hud"]
+[ext_resource type="PackedScene" path="res://scenes/decoy.tscn" id="2_decoy"]
+
+[node name="Main" type="Node2D"]
+
+[node name="Hud" parent="." fallback_instance=ExtResource("2_decoy") instance=ExtResource("1_hud")]
+"""
+
+
+@pytest.mark.e2e
+def test_scene_get_reads_the_instance_attribute_by_whole_name(godot_project):
+    (godot_project / "scenes").mkdir()
+    (godot_project / "scenes" / "hud.tscn").write_text(
+        INSTANCED_HUD_TSCN, encoding="utf-8"
+    )
+    (godot_project / "scenes" / "decoy.tscn").write_text(
+        INSTANCED_HUD_TSCN, encoding="utf-8"
+    )
+    (godot_project / "main.tscn").write_text(
+        HOST_WITH_DECOYED_INSTANCE_ATTR_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    got = gda("scene", "get", "res://main.tscn", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    hud = json.loads(got.stdout)["root"]["children"][0]
+    # The scene the node really instances, not the decoy attribute's value.
+    assert hud["instance_path"] == "res://scenes/hud.tscn"
+    assert hud["instance_status"] == "resolved"
+
+
 @pytest.mark.e2e
 def test_scene_get_marks_missing_instanced_child_reference(godot_project):
     # issue #400: when the referenced scene is missing, the static read must

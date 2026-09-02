@@ -115,7 +115,11 @@ the standard build), and they never determine the outcome or a stable code.
 >   `launch_timeout` envelope every other launch-backed channel reports. The
 >   difference is what the timeout MEANS: elsewhere it means gda could not get you
 >   an answer, while here the question was whether this scene completes its
->   preflight within the bound — so the bound being reached IS the answer. Scoped
+>   preflight within the bound — so the bound being reached IS the answer. *(#787
+>   note, 2026-09-01: the SHAPE difference stands, but the numeric EVIDENCE is now
+>   at parity — the timeout verdict carries `elapsed_seconds` and `timeout_seconds`
+>   read off the same launch measurement the `launch_timeout` envelope publishes.)*
+>   Scoped
 >   to this command: an
 >   unlaunchable binary, an unusable user-data placement, a signal death, and the
 >   op's own structured refusals stay the shared envelope.
@@ -250,7 +254,8 @@ operation, and parse codes the CLI assigns).
 | `save_failed` | `operation` | `operation` | `4` | A scene could not be packed or saved. |
 | `delete_failed` | `operation` | `operation` | `4` | A file could not be removed from disk. |
 | `file_changed_externally` | `operation` | `operation` | `4` | A read-modify-write operation's target file changed on disk between the read and the write, so the write was refused to avoid clobbering the external edit. |
-| `project_not_found` | `operation` | `operation` | `4` | gda has no resolved Godot project usable for the requested target: an operation needed one and none was resolved, or an explicit `--project` was empty, or a `--project`/`$GDA_PROJECT` does not name a Godot project (no `project.godot`), or the target lies outside the resolved project (whose `res://` dependencies would then resolve against the wrong root). |
+| `project_not_found` | `operation` | `operation` | `4` | gda has no resolved Godot project usable for the requested target: an operation needed one and none was resolved, or an explicit `--project` was empty, or a `--project`/`$GDA_PROJECT` does not name a Godot project (no `project.godot`). |
+| `target_outside_project` | `operation` | `classifier` | `4` | A requested target does not belong to the resolved Godot project, so gda refused before running the engine rather than resolving the target's `res://` references against the wrong root. gda does not derive a project from the target: pass `--project` naming the project that owns it, or name a target inside the resolved one (ADR-0006 amendment, #697). |
 | `path_not_found` | `operation` | `operation` | `4` | A requested file does not exist. |
 | `not_a_scene` | `operation` | `operation` | `4` | A requested file cannot be loaded as a `PackedScene`. |
 | `parent_not_found` | `operation` | `operation` | `4` | A requested parent node path does not resolve to a node in the scene. |
@@ -324,6 +329,54 @@ operation, and parse codes the CLI assigns).
 | `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed Engine session was requested (`gda daemon start --windowed`) but the host has no usable DisplayServer (no on-console GUI session / no `$DISPLAY`), so the session cannot come up; refused before spawning Godot (Phase 2, #345). |
 | `live_windowed_permission_denied` | `environment` | `classifier` | `127` | A windowed Engine session was requested (`gda daemon start --windowed`) but this process is denied the window-server lookup (e.g. a sandbox), so gda cannot tell whether the host has one; re-run outside the restriction to find out rather than recording the host as display-less (Phase 2, #667). |
 | `harness_install_permission_denied` | `environment` | `classifier` | `127` | The gda harness install (`gda daemon start` — including a repeat start's self-sync — or `gda daemon install`) was REFUSED access to the project's filesystem: the OS denied the permission, or the filesystem is read-only. The message names the path that was refused, and any partial write is rolled back where the filesystem still allows it. A filesystem failure that is NOT a refusal — a full disk, a missing or malformed path, an I/O error — does not carry this code; it propagates as before: after the same rollback when a snapshot exists, and directly when the failure came from the pre-install snapshot read itself, which has written nothing to roll back. (Phase 2, #700) |
+
+> **Outcome (2026-08-31, #716 / #717) — `launch_timeout` keeps its category, and a
+> timed-out run's captured stream stays advisory.** Both questions are about the one
+> row above, and #714 is what reopened them: it put the run's captured partial output,
+> the ceiling it reached and its elapsed wall clock on the envelope for EVERY
+> launch-backed channel. They are decided once, here, because this row is where all
+> four are governed — the sentinel dispatch, the native export and the `resource
+> import` pass through the shared builder, and `script run` through its own builder
+> under the same code.
+>
+> - **The captured stream does not re-verdict (#716).** A recognized entry-load error
+>   inside the capture — one that would satisfy a #651 verdict on a run that had
+>   finished — stays an advisory diagnostic under `launch_timeout`; the code is
+>   unchanged. Only one of the two facts is gda's own: it OBSERVED that it stopped
+>   waiting, and would have to INFER the entry-load cause from bytes the child happened
+>   to have written by then. That inference is unsound by construction — the capture is
+>   tail-capped and was cut mid-flight, so a recognized line can be an earlier phase's
+>   error the run survived, or half a line — and the misattribution would be silent,
+>   which is the worst shape for an agent branching on `code`. The need a re-verdict
+>   was meant to serve is the cause as DATA, and #687 owns that: typed evidence on the
+>   envelope keeps the honest verdict AND carries what the channel can prove instead of
+>   the capture. Its reach is BOUNDED, and this decision does not assume otherwise: a
+>   PARSED cause exists only where a channel parses one, which today is `script run`
+>   alone. The other three carry how the run ended — the ceiling it reached and its
+>   elapsed clock — and keep the capture in `diagnostics` as prose, which is what the
+>   advisory rule above governs. What this decision needs from #687 is that the capture
+>   stops being the only evidence, not that every channel end up with the same evidence.
+>   The failure message states the rule in one clause, so a caller reading the
+>   diagnostics does not re-verdict on gda's behalf either.
+> - **The category stays `environment` (#717).** Reaching a ceiling the caller chose is
+>   a normal outcome of probing a slow suite, and `environment` points an agent at
+>   retry / reinstall / another-host remedies — but the same code also fires for a
+>   genuinely environmental hang, so no other category is true of the whole row, and
+>   `category` is public ABI every consumer keys on. A second code for the
+>   caller-configured case would double the branch surface to carry a provenance fact
+>   that does not change what to do next; that fact, if it is ever wanted as data,
+>   belongs on #687's evidence object. What was actually wrong was the REMEDIATION
+>   ORDER, so the message now leads with the caller's remedy — read the capture, then
+>   raise the ceiling — and puts binary/host suspicion last, under the condition that
+>   earns it (a capture showing the engine never started). `--timeout` is named WITH
+>   its qualifier, because of the shared builder's three channels only `resource
+>   import` exposes it: the sentinel's 60s and the export's 600s are gda's own, fixed.
+>   No registry, category, exit-code or schema change follows — the equality-pinned
+>   registry test is untouched, which is what proves the scope.
+>
+> `scene preflight` is an exception to neither half: it does not report this code at
+> all. Its bound IS its answer, recorded in the 2026-08-19 (#664) scope note above —
+> read that note rather than re-deriving the difference by diffing the two commands.
 
 ## Considered options
 

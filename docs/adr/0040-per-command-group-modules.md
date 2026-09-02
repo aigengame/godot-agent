@@ -153,3 +153,49 @@ src/gda/
 - Migration lands in reversible slices, each keeping ruff, pyright, and the
   fast suite green: extract `dispatch.py`; move the headless domain groups; move
   the live groups and `meta`; shrink the core files and drop the suppressions.
+
+> **Outcome (2026-09-01, #687):** the ADR-0004 amendment that put typed `evidence` on
+> the failure envelope moved two edges in the core, and §5's chain is the reason both
+> ended up where they did.
+>
+> - **`gda.models` -> `gda.script_errors` (new).** `FailureEvidence.script_errors` is a
+>   `list[ScriptError]`, so the models core now names a foundation module. Downward and
+>   consistent with §5, but not free: `script_errors` can never reach back for the
+>   shared field-description constants §4 assigns to `models.py` without closing a
+>   cycle. Accepted on cohesion — `ScriptError` is the parser's own published type and
+>   splitting it from the parser to satisfy an import would be worse.
+> - **`gda.errors` -> `gda.render` (added, then removed in the same PR's review).**
+>   Building the failure `diagnostics` prose from a renderer helper put the
+>   presentation layer inside the core's import closure, which §5's chain does not
+>   admit — `gda.render` is reached DOWN into from group altitude, and its symbols are
+>   imported nowhere else. It also gave one function two reasons to change, one of them
+>   a wire field: the same helper fed human stdout and a published `diagnostics`
+>   string. The form moved to `gda.script_errors` as `script_error_line()`, a lexical
+>   projection of the type that module owns, so `errors -> script_errors <- render` and
+>   both edges point downward. Pinned by
+>   `tests/test_render.py::test_the_core_never_imports_the_presentation_module`.
+>
+> No general import-boundary gate was added. The one test above pins the single
+> direction this review found inverted; a repo-wide gate is a larger decision with its
+> own cost, and nothing yet shows the narrow pin is insufficient.
+
+> **Outcome (2026-09-01, #685):** giving the failure channel a human rendering adds
+> one importer of `gda.render` from below group altitude — `gda.headless`, for
+> `render_failure` alone.
+>
+> The direction §5 fixes still holds. `gda.render` imports `gda.models` and
+> `gda.script_errors` and nothing else, which places it on the same tier as
+> `gda.errors`, so `headless -> render` is the chain's own
+> `headless -> runners / errors / models` step and closes no cycle. What #687's
+> review found was the OPPOSITE edge — the core reaching UP into presentation, with
+> a wire field on the other end of it.
+>
+> The edge cannot be removed by injection the way the success channel's is.
+> `emit_result` takes a renderer as an argument because the group binds `render=` on
+> its own descriptor (ADR-0023); `render_failure` is ONE layout for every registered
+> code precisely so a command cannot grow a private one, so no group owns it and
+> none can supply it. Nor may the edge widen: the allowance is pinned to that single
+> symbol by
+> `tests/test_render.py::test_the_failure_channel_takes_only_the_renderer_no_group_can_supply`,
+> so headless cannot become a general consumer of presentation. The guard test the
+> #687 note names was renamed and widened to state both halves.

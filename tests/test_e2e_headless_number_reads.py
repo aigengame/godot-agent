@@ -14,9 +14,9 @@ itself a decimal literal, which is exactly the lossy thing under test. Values su
 as ``DBL_MIN`` and ``5e-324`` cannot be spelled at all for this engine's parser
 (``gda.live_numbers``), so no literal-authored scene could hold them to be read.
 
-What the write path does to a ``--value`` STRING is a separate question, owned by
-[#772](https://github.com/aigengame/godot-agent/issues/772); nothing here claims
-anything about it.
+What the write path does to a ``--value`` STRING is the other question, answered by
+#772 and measured in ``tests/test_e2e_write_value_fidelity.py``; nothing here
+claims anything about it.
 """
 
 import json

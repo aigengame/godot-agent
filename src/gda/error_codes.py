@@ -240,7 +240,22 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "gda has no resolved Godot project usable for the requested target: an operation needed one and none was resolved, or an explicit --project was empty, or a --project/$GDA_PROJECT does not name a Godot project (no project.godot), or the target lies outside the resolved project (whose res:// dependencies would then resolve against the wrong root).",
+        "gda has no resolved Godot project usable for the requested target: an operation needed one and none was resolved, or an explicit --project was empty, or a --project/$GDA_PROJECT does not name a Godot project (no project.godot).",
+    ),
+    # The sibling `project_not_found` carried until #697: a project WAS resolved,
+    # it just does not own the target. It is CLASSIFIER-source and so not
+    # GDScript-mirrored, because ADR-0006 keeps project resolution — and therefore
+    # this refusal — entirely CLI-side; no operation can report it.
+    ErrorCodeSpec(
+        "target_outside_project",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A requested target does not belong to the resolved Godot project, so gda"
+        " refused before running the engine rather than resolving the target's"
+        " res:// references against the wrong root. gda does not derive a project"
+        " from the target: pass --project naming the project that owns it, or name"
+        " a target inside the resolved one (ADR-0006 amendment, #697).",
     ),
     ErrorCodeSpec(
         "path_not_found",

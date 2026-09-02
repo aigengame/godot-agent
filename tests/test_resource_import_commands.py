@@ -703,16 +703,101 @@ def test_non_res_engine_virtual_schemes_are_refused(tmp_path):
         assert "not a project asset" in data["error"]["message"], scheme_path
 
 
-def test_res_scheme_cannot_escape_the_project(tmp_path):
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "res://../outside-668.png",
+        # The separator spelling, and the Windows gap this gate carried until #763:
+        # it split with `PurePosixPath`, so `..\\x` was ONE segment holding no `..`
+        # at all and the `..`-in-parts check never fired. On POSIX the later
+        # `is_file()` check happened to stop it; on native Windows `\\` IS a
+        # separator and the join reaches the parent directory. The shared
+        # canonicalizer folds `\\` to `/` the way `String::simplify_path` does
+        # (ustring.cpp:4192), so the escape is now refused by the rule rather than
+        # by a platform accident — identically on every platform.
+        "res://..\\outside-668.png",
+        "res://a\\..\\..\\outside-668.png",
+    ],
+)
+def test_res_scheme_cannot_escape_the_project(tmp_path, spelling):
     # #738 review [P2]: res://../ must go through the same canonical
-    # containment gate as filesystem input.
+    # containment gate as filesystem input — which since #763 is literally the
+    # ADR-0006 authority, not a second rule that agreed with it by coincidence.
     project = _project(tmp_path)
     (tmp_path.parent / "outside-668.png").write_bytes(b"x")
 
-    data = json.loads(_run(project, "res://../outside-668.png", "--dry-run").stdout)
+    data = json.loads(_run(project, spelling, "--dry-run").stdout)
 
-    assert data["error"]["code"] == "invalid_params"
-    assert "escapes the res:// namespace" in data["error"]["message"]
+    assert data["error"]["code"] == "target_outside_project"
+    assert "outside the resolved Godot project" in data["error"]["message"]
+
+
+def test_an_asset_a_nested_project_owns_is_refused_before_the_pass(tmp_path):
+    # #697 re-review: the engine's own scan SKIPS a directory holding a nested
+    # `project.godot` (`EditorFileSystem::_should_skip_directory`,
+    # editor/file_system/editor_file_system.cpp:3482 — "Skip if another project
+    # inside this"), so an asset in one cannot be imported into the outer project
+    # at all. gda used to accept the request, spend an engine pass, and return
+    # `not_importable`, while `--dry-run` predicted a sidecar that would never
+    # appear. It now refuses up front and names the project that CAN import it.
+    project = _project(tmp_path)
+    nested = project / "vendor"
+    nested.mkdir()
+    (nested / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    (nested / "pic.png").write_bytes(b"\x89PNG")
+
+    data = json.loads(_run(project, "res://vendor/pic.png", "--dry-run").stdout)
+
+    assert data["error"]["code"] == "target_outside_project"
+    assert data["error"]["evidence"]["owning_project"] == str(nested.resolve())
+    # The same file named by its filesystem spelling gets the same answer.
+    other = json.loads(_run(project, str(nested / "pic.png"), "--dry-run").stdout)
+    assert other["error"]["code"] == "target_outside_project"
+
+
+def test_a_res_path_that_collapses_back_inside_is_accepted(tmp_path):
+    # The divergence #763 exists to reconcile, decided in the authority's favour:
+    # `res://foo/../pic.png` collapses net-INSIDE and names an address the engine
+    # resolves happily, so it is accepted here exactly as `script validate` and
+    # `script run` accept it. This gate used to refuse ANY literal `..`, so one
+    # input had two verdicts depending on which command read it.
+    project = _project(tmp_path)
+    (project / "pic.png").write_bytes(b"\x89PNG")
+
+    data = json.loads(_run(project, "res://foo/../pic.png", "--dry-run").stdout)
+
+    assert "error" not in data, data
+    assert data["assets"][0]["path"] == "res://pic.png"
+
+
+def test_a_res_path_with_a_leading_slash_is_accepted_as_the_engine_reads_it(tmp_path):
+    # The same reconciliation, second spelling: `res:///pic.png` was refused here
+    # (`PurePosixPath("/pic.png").is_absolute()`) with a message about a `..` the
+    # path does not contain, while both script commands accepted it. Godot's
+    # `split("/", false)` drops the empty segment, so the engine reads it as
+    # `res://pic.png` — and so does gda now, in one place.
+    project = _project(tmp_path)
+    (project / "pic.png").write_bytes(b"\x89PNG")
+
+    data = json.loads(_run(project, "res:///pic.png", "--dry-run").stdout)
+
+    assert "error" not in data, data
+    assert data["assets"][0]["path"] == "res://pic.png"
+
+
+def test_both_spellings_of_the_project_root_normalize_to_the_bare_scheme(tmp_path):
+    # The root-collapse parity gap PR #766 documented and #763 closes: the engine
+    # joins an empty segment vector back to the bare `res://`, while `normpath`
+    # yields `.`. This gate handed the bogus `res://.` on to the existence check,
+    # which then named it in the refusal. The root is still refused — it is a
+    # directory, not an asset — but by its one real address, and identically from
+    # the res:// and the filesystem spelling.
+    project = _project(tmp_path)
+
+    for spelling in ("res://", "res://foo/..", ".", "foo/.."):
+        data = json.loads(_run(project, spelling, "--dry-run").stdout)
+        assert data["error"]["code"] == "invalid_params", spelling
+        assert "asset res:// does not exist" in data["error"]["message"], spelling
 
 
 def test_symlinked_in_asset_is_accepted_like_the_engine_walks_it(tmp_path):
@@ -754,14 +839,23 @@ def test_dry_run_lists_what_the_pass_will_also_reimport(tmp_path):
 # --- request validation --------------------------------------------------------
 
 
-def test_asset_outside_the_project_is_invalid_params(tmp_path):
+def test_asset_outside_the_project_is_the_shared_containment_refusal(tmp_path):
+    # #763: one condition, one code. This used to be a generic `invalid_params`
+    # while `script validate` reported `project_not_found` and `script run`
+    # `invalid_path` for the very same "this target is not in the resolved
+    # project" — three answers an agent could not branch on once.
     project = _project(tmp_path)
     outside = tmp_path.parent / "elsewhere.png"
 
     data = json.loads(_run(project, str(outside)).stdout)
 
-    assert data["error"]["code"] == "invalid_params"
-    assert "outside the project" in data["error"]["message"]
+    assert data["error"]["code"] == "target_outside_project"
+    assert "outside the resolved Godot project" in data["error"]["message"]
+    # The pair rides typed, as it does for `script validate` (#687).
+    assert data["error"]["evidence"] == {
+        "target_location": str(outside.resolve()),
+        "project_root": str(project.resolve()),
+    }
 
 
 def test_absent_asset_is_invalid_params(tmp_path):
