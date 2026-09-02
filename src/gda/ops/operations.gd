@@ -6576,7 +6576,15 @@ func _coerce_int(raw: String) -> Variant:
 	return trimmed.to_int()
 
 
-# --- Float fidelity: the WRITE side of the engine's number domain (#772) ---
+# --- Float fidelity: the WRITE side of the engine's number domain (#772, #805) ---
+#
+# The rule below is about a LITERAL, not about a property type, so it reaches every
+# float a write can spell: the scalar `--value` and the components of a Vector2 or a
+# Color, which `_coerce_float` parses one at a time, and the JSON numbers inside a
+# Dictionary or an Array value, which no per-element step parses at all and which
+# `_destroyed_json_number` therefore reads from the raw text (#805). Until that was
+# added the container was the one path where a destroyed float still landed
+# silently — `--value '{"a": 1e-320}'` reported success and stored `{"a": 0.0}`.
 #
 # Godot reads a float literal with built_in_strtod (core/string/ustring.cpp),
 # reached from GDScript as String.to_float() and from JSON.parse_string alike.
@@ -6632,16 +6640,89 @@ func _float_literal_is_destroyed(literal: String) -> bool:
 	return is_nan(parsed) or (parsed == 0.0 and not _float_literal_names_zero(literal))
 
 
+# Whether `character` can appear inside a JSON number token. Deliberately a
+# CHARACTER class and not a number grammar: the scan below runs only on text the
+# JSON parser already accepted, so the grammar has been checked once, by the
+# engine, and re-implementing it here would be a second opinion about it.
+func _is_json_number_char(character: String) -> bool:
+	return character == "-" or character == "+" or character == "." \
+			or character == "e" or character == "E" \
+			or (character >= "0" and character <= "9")
+
+
+# The first JSON number literal in `raw` that the parser DESTROYS, or "" — the
+# container half of the #772 rule (#805).
+#
+# A container's coercion is `JSON.parse_string` as the gate plus one atomic
+# `str_to_var(raw)`; there is no per-element step to hook, and by the time a float
+# exists inside the parsed value its literal is gone. So the literals are read from
+# the RAW text, which is the only place they still are.
+#
+# Reading text needs one rule to be safe, and it is STRING-AWARENESS: a JSON
+# string's bytes are never a number, whatever they spell. That single rule disposes
+# of both ways a text scan can refuse a write the engine would have kept faithfully.
+# A value that merely LOOKS numeric is one — `{"a": "1e-320"}` stores the
+# six-character string, and no float is parsed anywhere in it. A KEY is the other —
+# every JSON key is a string, so `{"1e-320": 1.0}` names a member and the `1.0`
+# beside it is the only number present. Escapes are honoured while skipping, so a
+# quote INSIDE a string (`{"a\": 1e-320 fake": 1.0}`, valid JSON whose key holds
+# that text) does not end it early and leak its bytes into the scan.
+#
+# Outside strings, valid JSON spells only structure, `true`/`false`/`null`, and
+# numbers, so a maximal run of number characters IS a number token — with the one
+# exception of the lone "e" the two keyword spellings contribute, which is not a
+# float spelling and which `_float_literal_is_destroyed` therefore answers false
+# for. Nothing else needs excluding, because the text is already valid JSON.
+#
+# That "already valid JSON" is also what closes the third edge. `str_to_var`
+# accepts richer Variant syntax than JSON, and `{"a": Vector2(1e-320, 0)}` really
+# does build a zeroed Vector2 through it — but that text is NOT JSON (measured on
+# Godot 4.6.3: the parse fails with "Expected 'true', 'false', or 'null', got
+# 'Vector'"), so the gate refuses it before `str_to_var` is reached and a
+# constructor is unreachable through this coercion. This scan deliberately does not
+# try to read one: it would be reading text the gate has already rejected, and
+# would blame the float parser for a syntax refusal.
+func _destroyed_json_number(raw: String) -> String:
+	var index := 0
+	var length := raw.length()
+	while index < length:
+		var character := raw[index]
+		if character == "\"":
+			index += 1
+			while index < length:
+				if raw[index] == "\\":
+					index += 2
+					continue
+				if raw[index] == "\"":
+					index += 1
+					break
+				index += 1
+			continue
+		if not _is_json_number_char(character):
+			index += 1
+			continue
+		var start := index
+		while index < length and _is_json_number_char(raw[index]):
+			index += 1
+		var literal := raw.substr(start, index - start)
+		if _float_literal_is_destroyed(literal):
+			return literal
+	return ""
+
+
 # The literal whose destruction ACTUALLY refused this coercion, or "" when the
 # refusal was anything else. A note must never explain a failure it did not
 # diagnose, so this walks exactly what `_coerce_value` walks for `type`, in the
-# same order and behind the same gates: only TYPE_FLOAT, TYPE_VECTOR2 and
-# TYPE_COLOR reach `_coerce_float` at all — TYPE_INT, TYPE_VECTOR2I,
-# TYPE_DICTIONARY, TYPE_ARRAY and the rest refuse for reasons of their own and no
-# float spelling would help them; a wrong component count refuses on ARITY before
-# a component is parsed; a Color in hex form parses no float; and a component that
-# is not a float spelling at all is the ordinary uncoercible failure, which stops
-# the walk where `_coerce_float_list` stops.
+# same order and behind the same gates: only TYPE_FLOAT, TYPE_VECTOR2, TYPE_COLOR
+# (through `_coerce_float`) and TYPE_DICTIONARY / TYPE_ARRAY (through the raw-text
+# scan) refuse on a destroyed literal at all — TYPE_INT, TYPE_VECTOR2I and the rest
+# refuse for reasons of their own and no float spelling would help them; a wrong
+# component count refuses on ARITY before a component is parsed; a Color in hex
+# form parses no float; and a component that is not a float spelling at all is the
+# ordinary uncoercible failure, which stops the walk where `_coerce_float_list`
+# stops. The container arms repeat their coercion's JSON gate for the same reason:
+# text that is not JSON — or is JSON of the OTHER container type — was refused by
+# the gate, not by the float parser, so it keeps the plain message.
 func _destroyed_float_literal(raw: String, type: int) -> String:
 	var components: PackedStringArray
 	match type:
@@ -6658,6 +6739,10 @@ func _destroyed_float_literal(raw: String, type: int) -> String:
 			components = trimmed.split(",")
 			if components.size() != 3 and components.size() != 4:
 				return ""
+		TYPE_DICTIONARY, TYPE_ARRAY:
+			if typeof(JSON.parse_string(raw)) != type:
+				return ""
+			return _destroyed_json_number(raw)
 		_:
 			return ""
 	for part in components:
@@ -6669,12 +6754,13 @@ func _destroyed_float_literal(raw: String, type: int) -> String:
 	return ""
 
 
-# The explanation appended to an uncoercible_value message when `_coerce_float`
-# refused a destroyed literal, and "" for every OTHER coercion failure — so "abc"
-# on a float, any value on an int or a Dictionary, and a three-component Vector2
-# all keep the message they always had. `type` is the declared type the failed
-# `_coerce_value` was given; a list type names the ONE offending component rather
-# than the whole argument.
+# The explanation appended to an uncoercible_value message when a destroyed
+# literal is what refused the coercion, and "" for every OTHER coercion failure —
+# so "abc" on a float, any value on an int, a non-JSON value on a Dictionary, and a
+# three-component Vector2 all keep the message they always had. `type` is the
+# declared type the failed `_coerce_value` was given; a list type names the ONE
+# offending component, and a container the ONE offending JSON number, rather than
+# the whole argument.
 func _float_fidelity_note(raw: String, type: int) -> String:
 	var literal := _destroyed_float_literal(raw, type)
 	if literal.is_empty():
@@ -6759,6 +6845,12 @@ func _coerce_dictionary(raw: String, current: Variant = null) -> Variant:
 	var parsed: Variant = JSON.parse_string(raw)
 	if not (parsed is Dictionary):
 		return null
+	# A number the parser destroys is refused here exactly as `_coerce_float`
+	# refuses a scalar one (#805): same code, same note, same reason — the write
+	# would store a value the caller never sent. Scanned on the raw text, and only
+	# now that the gate has accepted it (see `_destroyed_json_number`).
+	if not _destroyed_json_number(raw).is_empty():
+		return null
 	var variant: Variant = str_to_var(raw)
 	if not (variant is Dictionary):
 		return null
@@ -6778,6 +6870,9 @@ func _coerce_dictionary(raw: String, current: Variant = null) -> Variant:
 func _coerce_array(raw: String, current: Variant = null) -> Variant:
 	var parsed: Variant = JSON.parse_string(raw)
 	if not (parsed is Array):
+		return null
+	# Same refusal as `_coerce_dictionary`'s, for the same reason (#805).
+	if not _destroyed_json_number(raw).is_empty():
 		return null
 	var variant: Variant = str_to_var(raw)
 	if not (variant is Array):

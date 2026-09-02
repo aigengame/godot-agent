@@ -468,6 +468,24 @@ property declared `@export var v: float = 0.0`, `--value 1e-6` echoes `1e-6` and
 can see it, and `project set` (measured) is unaffected, so it is recorded here rather than
 folded into the rule above.
 
+**This qualification is the contract, not a placeholder**
+([#805](https://github.com/aigengame/godot-agent/issues/805)): the round-trip claim is published
+with the exception named, and gda adds no mechanism to detect or disclose the elision per write.
+Four reasons, in the order they bind. It is the ENGINE's serializer policy, applied to any write
+the engine makes, and the value gda coerced was exact — so a gda-side refusal or annotation would
+blame the wrong stage. gda also cannot ANSWER the question at coercion time without either a
+write-then-read-back engine round-trip on every write — disproportionate to a band this narrow,
+and out of scope by decision — or a re-implementation of
+`PropertyUtils::is_property_value_different`, which would be a second opinion about an engine
+function, exactly what the refusal rule above avoids by RUNNING the parser instead of modelling
+it. The loss is also not the one the rule exists to stop: the file records nothing, so the
+property keeps the default its own source declares, rather than holding a number nobody sent. And
+the disclosure would not be free — a result-level field touches the result models, `--schema` and
+the README family for a rare, engine-owned band. If that field is ever wanted, it is a separate
+issue with its own trigger: a case where an agent acted on the `set` echo and the elision made the
+action wrong. Until then the remedy is the one the round-trip claim already names — read it back
+with `node get` when the exact stored value matters.
+
 The rule keys on what the parser PRODUCED, and the two edges it draws are separated by what
 gets STORED, not by how loudly the result reads back — a stored `NaN` and a stored `inf` both
 report as JSON `null`, so the reply cannot tell them apart. An **overflow is not refused**:
@@ -480,10 +498,31 @@ here rather than refused: `inf` is stored but cannot be REPORTED, so the `set` e
 later `node get` / `project get` read it as JSON `null`. A literal **below binary64's reach is
 refused** anyway — `1e-400` fails exactly as `1e-320` does, although zero is the
 correctly-rounded answer there; the coercion cannot tell a true underflow from the engine's −309 cliff without modelling
-the parser it asks instead, and a caller who means zero writes `0`. One path does not reach the
-check at all: a number nested inside a Dictionary or Array `--value` arrives through
-`JSON.parse_string` / `str_to_var`. `gda.live_numbers` records the measurement;
-`tests/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both channels.
+the parser it asks instead, and a caller who means zero writes `0`. `gda.live_numbers` records the
+measurement; `tests/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both
+channels.
+
+A number nested inside a **Dictionary or Array `--value`** is refused by the same rule, with the
+same code and the same message ([#805](https://github.com/aigengame/godot-agent/issues/805)) —
+`--value '{"a": 1e-320}'` fails as `uncoercible_value` naming `1e-320`, where before it succeeded
+and stored `{"a": 0.0}`. It reaches the rule by a different route, because a container has no
+per-element coercion to hook: `JSON.parse_string` gates the text and one atomic `str_to_var(raw)`
+builds the value, so by the time a float exists its literal is gone. gda therefore reads the JSON
+number literals out of the **raw `--value` text**, and only after the gate has accepted it. Three
+consequences follow from that scanning rule, each a deliberate disposition:
+
+- **A string value that looks numeric is NOT refused.** The scan skips the contents of every JSON
+  string, honouring escapes, so `--value '{"a": "1e-320"}'` stores the six-character string it
+  always did. Nothing is parsed as a float there, so nothing can be destroyed.
+- **Keys are never scanned**, for the same reason — every JSON key is a string. `--value
+  '{"1e-320": 1.0}'` writes that member unchanged.
+- **A Variant constructor is unreachable, so it is not scanned for.** `str_to_var` accepts richer
+  syntax than JSON and would build `Vector2(1e-320, 0)` as a zeroed vector — but that text is not
+  JSON, so the gate refuses it first (measured: the parse fails with `Expected 'true', 'false', or
+  'null', got 'Vector'`). It stays the plain `uncoercible_value` it has always been: the JSON gate
+  refused it, not the float parser, so the fidelity note would name a false cause. The same
+  attribution rule keeps the note off a `--value` that is not a container at all, and off JSON of
+  the OTHER container type (`'[1e-320]'` on a `Dictionary` property fails on the type).
 
 **Structural edits** (established by #56): three commands restructure the node tree within a
 scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the

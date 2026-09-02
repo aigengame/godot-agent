@@ -174,9 +174,20 @@ be REPORTED, so the echo and every later read give JSON ``null``. A literal belo
 binary64's reach IS refused, even where zero is the correctly-rounded answer a faithful parser would
 also give: ``1e-400`` is refused exactly as ``1e-320`` is, because nothing at the
 coercion site can tell a true underflow from the engine's −309 cliff without modelling
-the parser it deliberately asks instead — a caller who means zero writes ``0``. And one
-path does not reach the check at all: a number nested inside a Dictionary or Array
-``--value``, which arrives through ``JSON.parse_string`` / ``str_to_var``.
+the parser it deliberately asks instead — a caller who means zero writes ``0``.
+
+A number nested inside a Dictionary or Array ``--value`` is refused by that same rule,
+with the same code and message (#805), but it REACHES the rule by a different route,
+because a container has no per-element coercion to hook: ``JSON.parse_string`` gates the
+text and one atomic ``str_to_var(raw)`` builds the value, so by the time a float exists
+its literal is gone. The literals are therefore read out of the raw ``--value`` text,
+and only after that gate has accepted it. The scan skips the contents of every JSON
+string (escapes honoured), which is what keeps it from refusing a write the engine would
+have kept: a numeric-looking VALUE (``{"a": "1e-320"}`` stores a string) and a KEY
+(every JSON key is a string) are both left alone. And gating first is what makes a
+Variant constructor unreachable rather than something to scan for: ``str_to_var`` would
+build ``Vector2(1e-320, 0)`` as a zeroed vector, but that text is not JSON, so the gate
+refuses it — as a plain uncoercible failure, since the float parser never saw it.
 
 A leaf module with no ``gda`` imports (the same discipline as
 ``gda.exit_codes`` / ``gda.execution``), so a command module, a params model and a

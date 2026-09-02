@@ -273,13 +273,17 @@ def test_the_published_partition_is_what_this_engine_produces(tmp_path):
 # not the parser's, so this module keeps it out of the way instead of measuring it
 # (`docs/command-catalog.md` records it under "Number coercion").
 # The extra properties are the note-attribution controls: a type that never
-# reaches `_coerce_float` (`n`, `d`), one that takes the literal verbatim (`s`),
-# and a list type whose ARITY can fail before any component is parsed (`pos2`).
+# reaches the float parser at all (`n`), one that takes the literal verbatim (`s`),
+# and a list type whose ARITY can fail before any component is parsed (`pos2`) —
+# plus the two containers (`d`, `a`), which reach the SAME rule by a different
+# route: no per-element coercion, so their numbers are read from the raw text
+# (#805).
 PROBE_GD = (
     "extends Node2D\n\n"
     "@export var v: float = 1.0\n"
     "@export var n: int = 0\n"
     "@export var d: Dictionary = {}\n"
+    "@export var a: Array = []\n"
     '@export var s: String = ""\n'
     "@export var pos2: Vector2 = Vector2.ZERO\n"
 )
@@ -486,16 +490,153 @@ def test_the_refusal_is_narrow_and_names_its_remedy(probe_project):
     assert "v = inf" in scene.read_text(encoding="utf-8")
 
 
+# The container corpus (#805). A number inside a JSON `--value` reaches the write
+# rule by the only route it can — read out of the RAW text after the JSON gate
+# accepts it — so these rows are the corpus classes above, restated where no
+# per-element coercion exists to catch them.
+CONTAINER_REFUSED = [
+    ("d", '{"a": 1e-320}', "reads 1e-320 as 0.0"),
+    ("d", '{"a": 1e-320, "b": 0.000000000000000001}', "reads 1e-320 as 0.0"),
+    # Nesting is not a hiding place: the scan is over the whole text.
+    ("d", '{"a": {"b": [0e600]}}', "reads 0e600 as NaN"),
+    ("a", "[1.0, 5e-324]", "reads 5e-324 as 0.0"),
+    ("a", "[[2.2250738585072014e-308]]", "reads 2.2250738585072014e-308 as 0.0"),
+    ("a", "[-1.2345678901234567e-300]", "reads -1.2345678901234567e-300 as 0.0"),
+]
+
+# What the scan must NOT refuse — the two traps a raw-text scan invites, plus the
+# ordinary values whose exactness the rule exists to protect.
+CONTAINER_ACCEPTED = [
+    # A STRING value that looks like a number IS a string: no float is parsed
+    # anywhere in it, so there is nothing for the parser to destroy.
+    ("d", '{"a": "1e-320"}', {"a": "1e-320"}),
+    # Every JSON key is a string, so a key is never a number token either.
+    ("d", '{"1e-320": 1.0}', {"1e-320": 1.0}),
+    # ...and an ESCAPED quote must not end a string early, or the scan would read
+    # this key's own text as though it sat outside one and refuse a valid write.
+    ("d", '{"a\\": 1e-320 fake": 1.0}', {'a": 1e-320 fake': 1.0}),
+    # Exact values still store exactly, the spellings that MEAN zero included, and
+    # the non-numbers pass through untouched. `-0.0` reads back as `0.0`: the
+    # engine writer's disclosed residual, decided before the value is seen.
+    (
+        "d",
+        '{"a": 1e-18, "b": 2.5, "c": 0.0, "d": -0.0, "z": 0,'
+        ' "t": true, "f": false, "n": null}',
+        {
+            "a": 1e-18,
+            "b": 2.5,
+            "c": 0.0,
+            "d": 0.0,
+            "z": 0,
+            "t": True,
+            "f": False,
+            "n": None,
+        },
+    ),
+    ("a", "[1e-308, 0.0000e5, 3]", [1e-308, 0.0, 3]),
+]
+
+# Refused, but NOT by the float parser — so each keeps the plain message. The
+# first is the `str_to_var` edge: it would build a zeroed `Vector2` from that
+# text, but the text is not JSON, so the gate refuses it before `str_to_var` runs.
+CONTAINER_PLAIN_REFUSAL = [
+    ("d", '{"a": Vector2(1e-320, 0)}', "Dictionary"),
+    ("d", "[1e-320]", "Dictionary"),
+    ("a", '{"x": 1e-320}', "Array"),
+]
+
+
+@pytest.mark.e2e
+def test_node_set_refuses_a_destroyed_number_inside_a_container(probe_project):
+    """The container half of the rule (#805): the last path that stored silently.
+
+    Before this, ``--value '{"a": 1e-320}'`` returned exit 0 and wrote
+    ``{"a": 0.0}`` into the scene — the exact failure shape #772 refuses for a
+    scalar, alive on the one path its per-component walk could not reach.
+    """
+    scene = probe_project / "main.tscn"
+    run = _headless_runner(probe_project)
+
+    for prop, value, note in CONTAINER_REFUSED:
+        before = scene.read_text(encoding="utf-8")
+        result = run(
+            "node",
+            "set",
+            str(scene),
+            "--node",
+            ".",
+            "--property",
+            prop,
+            "--value",
+            value,
+        )
+        assert result.returncode == 4, (value, result.stdout, result.stderr)
+        error = json.loads(result.stdout)["error"]
+        assert error["code"] == "uncoercible_value", value
+        # The same code AND the same message family as the scalar path, naming the
+        # ONE offending literal rather than the whole argument.
+        assert "Godot's own float parser reads" in error["message"], value
+        assert note in error["message"], value
+        assert scene.read_text(encoding="utf-8") == before, value
+
+    for prop, value, expected in CONTAINER_ACCEPTED:
+        result = run(
+            "node",
+            "set",
+            str(scene),
+            "--node",
+            ".",
+            "--property",
+            prop,
+            "--value",
+            value,
+        )
+        assert result.returncode == 0, (value, result.stdout, result.stderr)
+        assert json.loads(result.stdout)["value"] == expected, value
+
+        # ...and a following read reports what the echo did.
+        read = run("node", "get", str(scene), "--node", ".")
+        assert read.returncode == 0, read.stdout + read.stderr
+        properties = json.loads(read.stdout)["properties"]
+        stored = next(entry["value"] for entry in properties if entry["name"] == prop)
+        assert stored == expected, value
+
+    for prop, value, type_name in CONTAINER_PLAIN_REFUSAL:
+        result = run(
+            "node",
+            "set",
+            str(scene),
+            "--node",
+            ".",
+            "--property",
+            prop,
+            "--value",
+            value,
+        )
+        assert result.returncode == 4, (value, result.stdout, result.stderr)
+        error = json.loads(result.stdout)["error"]
+        assert error["code"] == "uncoercible_value", value
+        # The message the failure always had — no float explanation, because the
+        # float parser did not decide it (the argument is quoted through
+        # `c_escape`, so only the suffix is compared literally).
+        assert "Godot's own float parser reads" not in error["message"], value
+        assert error["message"].endswith(
+            f" to {type_name} for property {prop} on node ."
+        ), value
+
+
 @pytest.mark.e2e
 def test_the_note_explains_only_the_refusal_it_diagnosed(probe_project):
     """The note belongs to the FLOAT coercion, not to every uncoercible failure.
 
     A destroyed literal in the argument text is not the same fact as a coercion
-    that refused BECAUSE of it. An `int`, a `Dictionary` and a wrong-arity
-    `Vector2` never reach `_coerce_float`, so the parser did not decide their
-    failure and no re-spelling would fix it — attaching the fidelity explanation
+    that refused BECAUSE of it. An `int`, a `Dictionary` given a value that is not
+    JSON, and a wrong-arity `Vector2` are refused by something other than the float
+    parser, so no re-spelling would fix them — attaching the fidelity explanation
     to them names a false cause and an unreachable remedy. Each of these carried
-    the note before this test existed.
+    the note before this test existed. (A container given valid JSON is the case
+    where the parser DOES decide, and it carries the note — see
+    `test_node_set_refuses_a_destroyed_number_inside_a_container`.)
     """
     scene = probe_project / "main.tscn"
     run = _headless_runner(probe_project)
@@ -512,8 +653,9 @@ def test_the_note_explains_only_the_refusal_it_diagnosed(probe_project):
     assert message("--property", "n", "--value", "1e-320") == (
         "cannot coerce value 1e-320 to int for property n on node ."
     )
-    # A Dictionary property: refused by the JSON/`str_to_var` parse, not by
-    # `String.to_float`.
+    # A Dictionary property given a value that is not a JSON object: refused by
+    # the JSON gate, not by `String.to_float`, so the note stays off it even
+    # though the argument text spells a destroyed literal (#805).
     assert message("--property", "d", "--value", "0.000000000000000001") == (
         "cannot coerce value 0.000000000000000001 to Dictionary"
         " for property d on node ."
@@ -569,7 +711,7 @@ def test_project_set_shares_the_refusal(probe_project):
 
 # --- the command tier: live `game set` through a real daemon -------------------
 
-LIVE_MAIN_GD = "extends Node2D\n\nvar v := 1.5\nvar n := 0\n"
+LIVE_MAIN_GD = 'extends Node2D\n\nvar v := 1.5\nvar n := 0\nvar d := {"seed": 1.0}\nvar a := [1.0]\n'
 LIVE_MAIN_TSCN = (
     "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://live_main.gd" id="1"]\n\n'
@@ -642,5 +784,30 @@ def test_game_set_refuses_the_same_literals_against_a_real_daemon(
         assert error["message"] == (
             "cannot coerce value 1e-320 to int for script variable n on node /root/Main"
         ), misattributed.stdout
+
+        # The container half is the harness copy's too (#805) — the mirrored block
+        # is what makes that true, and this is where it is exercised rather than
+        # inferred from the drift test.
+        for prop, value, note in (
+            ("d", '{"a": 1e-320}', "reads 1e-320 as 0.0"),
+            ("a", "[0e600]", "reads 0e600 as NaN"),
+        ):
+            refused = run(
+                "game", "set", "/root/Main", "--property", prop, "--value", value
+            )
+            assert refused.returncode != 0, (value, refused.stdout, refused.stderr)
+            error = json.loads(refused.stdout)["error"]
+            assert error["code"] == "live_uncoercible_value", value
+            assert note in error["message"], value
+
+        # ...and the traps a raw-text scan invites are not refused live either: a
+        # numeric-looking string VALUE, and a numeric-looking KEY.
+        for value, expected in (
+            ('{"a": "1e-320"}', {"a": "1e-320"}),
+            ('{"1e-320": 1.0}', {"1e-320": 1.0}),
+        ):
+            kept = run("game", "set", "/root/Main", "--property", "d", "--value", value)
+            assert kept.returncode == 0, (value, kept.stdout, kept.stderr)
+            assert json.loads(kept.stdout)["value"] == expected, value
     finally:
         run("daemon", "stop")
