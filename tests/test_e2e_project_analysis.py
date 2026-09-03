@@ -14,16 +14,12 @@ acceptance criterion: the same reference graph backs both).
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from tests.support import Gda, import_project
 
 from .conftest import project_godot
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
 
 
 # A project.godot with an autoload, a main scene, and an enabled editor plugin —
@@ -140,17 +136,9 @@ def refgraph_project(tmp_path):
     return tmp_path
 
 
-def _gda(project, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
-        capture_output=True,
-        text=True,
-    )
-
-
 @pytest.mark.e2e
 def test_dependencies_maps_each_scene_to_its_ext_resources(refgraph_project):
-    proc = _gda(refgraph_project, "project", "dependencies", "--json")
+    proc = Gda(refgraph_project)("project", "dependencies", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
@@ -169,8 +157,8 @@ def test_dependencies_maps_each_scene_to_its_ext_resources(refgraph_project):
 
 @pytest.mark.e2e
 def test_find_references_to_a_script_finds_every_referencing_site(refgraph_project):
-    proc = _gda(
-        refgraph_project, "project", "find-references", "res://util.gd", "--json"
+    proc = Gda(refgraph_project)(
+        "project", "find-references", "res://util.gd", "--json"
     )
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -183,8 +171,8 @@ def test_find_references_to_a_script_finds_every_referencing_site(refgraph_proje
 
 @pytest.mark.e2e
 def test_find_references_to_a_scene_finds_the_ext_resource(refgraph_project):
-    proc = _gda(
-        refgraph_project, "project", "find-references", "res://hero.tscn", "--json"
+    proc = Gda(refgraph_project)(
+        "project", "find-references", "res://hero.tscn", "--json"
     )
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -197,8 +185,8 @@ def test_find_references_to_a_scene_finds_the_ext_resource(refgraph_project):
 def test_find_references_to_the_main_scene_includes_the_project_level_reference(
     refgraph_project,
 ):
-    proc = _gda(
-        refgraph_project, "project", "find-references", "res://main.tscn", "--json"
+    proc = Gda(refgraph_project)(
+        "project", "find-references", "res://main.tscn", "--json"
     )
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -209,8 +197,8 @@ def test_find_references_to_the_main_scene_includes_the_project_level_reference(
 
 @pytest.mark.e2e
 def test_find_references_to_an_unreferenced_resource_is_empty(refgraph_project):
-    proc = _gda(
-        refgraph_project, "project", "find-references", "res://orphan.tres", "--json"
+    proc = Gda(refgraph_project)(
+        "project", "find-references", "res://orphan.tres", "--json"
     )
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -221,7 +209,7 @@ def test_find_references_to_an_unreferenced_resource_is_empty(refgraph_project):
 def test_find_unused_resources_reports_the_orphan_and_is_consistent_with_find_references(
     refgraph_project,
 ):
-    proc = _gda(refgraph_project, "project", "find-unused-resources", "--json")
+    proc = Gda(refgraph_project)("project", "find-unused-resources", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     unused = json.loads(proc.stdout)["unused"]
@@ -238,13 +226,13 @@ def test_find_unused_resources_reports_the_orphan_and_is_consistent_with_find_re
     # find-references for it returns empty, and a referenced one returns non-empty.
     for path in unused:
         refs = json.loads(
-            _gda(refgraph_project, "project", "find-references", path, "--json").stdout
+            Gda(refgraph_project)("project", "find-references", path, "--json").stdout
         )["references"]
         assert refs == [], f"{path} reported unused but has references {refs}"
 
     hero_refs = json.loads(
-        _gda(
-            refgraph_project, "project", "find-references", "res://hero.tscn", "--json"
+        Gda(refgraph_project)(
+            "project", "find-references", "res://hero.tscn", "--json"
         ).stdout
     )["references"]
     assert hero_refs != []  # referenced, hence not in unused
@@ -256,8 +244,8 @@ def test_find_references_skips_decoding_binary_artifacts(refgraph_project):
     # dispatch on extension BEFORE reading, so the binary is never UTF-8-decoded
     # — no engine "Unicode parsing error" on stderr (issue #378) — while the
     # references over the text formats stay byte-for-byte unchanged.
-    proc = _gda(
-        refgraph_project, "project", "find-references", "res://util.gd", "--json"
+    proc = Gda(refgraph_project)(
+        "project", "find-references", "res://util.gd", "--json"
     )
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -275,7 +263,7 @@ def test_find_unused_resources_skips_decoding_but_keeps_binary_graph_nodes(
     # for DECODING — they stay enumerated as graph nodes, so the unreferenced
     # binary asset (orphan.png) and the build artifact are still unused
     # candidates.
-    proc = _gda(refgraph_project, "project", "find-unused-resources", "--json")
+    proc = Gda(refgraph_project)("project", "find-unused-resources", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "Unicode parsing error" not in proc.stderr, proc.stderr
@@ -286,7 +274,7 @@ def test_find_unused_resources_skips_decoding_but_keeps_binary_graph_nodes(
 
 @pytest.mark.e2e
 def test_statistics_reports_counts_autoloads_and_plugins(refgraph_project):
-    proc = _gda(refgraph_project, "project", "statistics", "--json")
+    proc = Gda(refgraph_project)("project", "statistics", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
@@ -314,8 +302,8 @@ def test_statistics_reports_counts_autoloads_and_plugins(refgraph_project):
 def test_find_references_bad_target_is_invalid_target(refgraph_project):
     # A target that is neither a res:// path nor a registered class_name is a
     # structured invalid_target operation error (exit 4), not an empty result.
-    proc = _gda(
-        refgraph_project, "project", "find-references", "/abs/not/a/target", "--json"
+    proc = Gda(refgraph_project)(
+        "project", "find-references", "/abs/not/a/target", "--json"
     )
 
     assert proc.returncode == 4, proc.stdout + proc.stderr
@@ -370,18 +358,6 @@ func sigh() -> void:
 """
 
 
-def _import_project(project) -> None:
-    # class_name registration lives in the project's global class list, which only
-    # a project scan produces — run the engine's headless import step the way a CI
-    # pipeline would before resolving a find-references target by class_name.
-    imported = subprocess.run(
-        [str(GODOT), "--headless", "--path", str(project), "--import"],
-        capture_output=True,
-        text=True,
-    )
-    assert imported.returncode == 0, imported.stdout + imported.stderr
-
-
 @pytest.fixture
 def classname_project(tmp_path):
     """A project where a class is referenced only by its class_name token."""
@@ -390,7 +366,10 @@ def classname_project(tmp_path):
     (tmp_path / "villain.gd").write_text(VILLAIN_GD, encoding="utf-8")
     (tmp_path / "spawner.gd").write_text(SPAWNER_GD, encoding="utf-8")
     (tmp_path / "lonely.gd").write_text(LONELY_GD, encoding="utf-8")
-    _import_project(tmp_path)
+    # class_name registration lives in the project's global class list, which only
+    # a project scan produces — the precondition for resolving a find-references
+    # target by class_name.
+    import_project(tmp_path)
     return tmp_path
 
 
@@ -402,7 +381,7 @@ def test_find_references_to_a_class_name_excludes_its_own_declaration(
     # `var x: Hero` annotation, Hero.new()) but NEVER hero.gd's own
     # `class_name Hero` declaration line — that is the definition site, not a
     # reference (issue #116 review: false positive).
-    proc = _gda(classname_project, "project", "find-references", "Hero", "--json")
+    proc = Gda(classname_project)("project", "find-references", "Hero", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
@@ -428,7 +407,7 @@ def test_find_references_to_a_class_name_excludes_its_own_declaration(
 def test_find_references_to_an_unreferenced_class_name_is_empty(classname_project):
     # A class declared via class_name that NOTHING consumes returns an empty
     # reference set — its own declaration line must not count as a reference.
-    proc = _gda(classname_project, "project", "find-references", "Lonely", "--json")
+    proc = Gda(classname_project)("project", "find-references", "Lonely", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert json.loads(proc.stdout)["references"] == []
@@ -453,7 +432,7 @@ def test_statistics_counts_binary_assets_as_files_but_not_lines(tmp_path):
         b"\x89PNG\r\n\x1a\n" + (b"\n" * 50) + b"\x00\xff\x10binary\n"
     )
 
-    proc = _gda(tmp_path, "project", "statistics", "--json")
+    proc = Gda(tmp_path)("project", "statistics", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
@@ -475,12 +454,7 @@ def test_statistics_counts_binary_assets_as_files_but_not_lines(tmp_path):
 def test_dependencies_without_project_is_project_not_found(tmp_path):
     # Run projectless (no --project, cwd is not a project): the res:// scan has no
     # tree to walk, so it refuses with the registered project_not_found code.
-    proc = subprocess.run(
-        [*GDA_CMD, "project", "dependencies", "--godot", str(GODOT), "--json"],
-        capture_output=True,
-        text=True,
-        cwd=str(tmp_path),
-    )
+    proc = Gda()("project", "dependencies", "--json", cwd=tmp_path)
 
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
@@ -540,9 +514,9 @@ def test_project_walks_agree_on_a_nested_dot_godot_directory(tmp_path):
         CACHED_THING_GD, encoding="utf-8"
     )
 
-    scene_proc = _gda(project, "scene", "list", "--json")
-    script_proc = _gda(project, "script", "list", "--json")
-    stats_proc = _gda(project, "project", "statistics", "--json")
+    scene_proc = Gda(project)("scene", "list", "--json")
+    script_proc = Gda(project)("script", "list", "--json")
+    stats_proc = Gda(project)("project", "statistics", "--json")
 
     assert scene_proc.returncode == 0, scene_proc.stdout + scene_proc.stderr
     assert script_proc.returncode == 0, script_proc.stdout + script_proc.stderr
@@ -566,14 +540,14 @@ def test_project_walks_agree_on_a_nested_dot_godot_directory(tmp_path):
 
     # The class_name index rides the resource walk, so node/resource creation
     # resolves the nested declaration `script list` reports...
-    added = _gda(
-        project, "node", "add", "res://top.tscn", "--type", "NestedThing", "--json"
+    added = Gda(project)(
+        "node", "add", "res://top.tscn", "--type", "NestedThing", "--json"
     )
     assert added.returncode == 0, added.stdout + added.stderr
     assert json.loads(added.stdout)["script_class"] == "NestedThing"
     # ...and still does not resolve one authored into the engine's own cache.
-    cached = _gda(
-        project, "node", "add", "res://top.tscn", "--type", "CachedThing", "--json"
+    cached = Gda(project)(
+        "node", "add", "res://top.tscn", "--type", "CachedThing", "--json"
     )
     assert cached.returncode == 4, cached.stdout + cached.stderr
     assert json.loads(cached.stdout)["error"]["code"] == "invalid_node_type"
@@ -582,11 +556,11 @@ def test_project_walks_agree_on_a_nested_dot_godot_directory(tmp_path):
     # add, which wrote an [ext_resource] to the nested script into
     # `res://top.tscn` — so the nested content is a real reference target here,
     # not just an enumerated path.
-    deps_proc = _gda(project, "project", "dependencies", "--json")
-    refs_proc = _gda(
-        project, "project", "find-references", "res://nested/.godot/hidden.gd", "--json"
+    deps_proc = Gda(project)("project", "dependencies", "--json")
+    refs_proc = Gda(project)(
+        "project", "find-references", "res://nested/.godot/hidden.gd", "--json"
     )
-    unused_proc = _gda(project, "project", "find-unused-resources", "--json")
+    unused_proc = Gda(project)("project", "find-unused-resources", "--json")
 
     assert deps_proc.returncode == 0, deps_proc.stdout + deps_proc.stderr
     assert refs_proc.returncode == 0, refs_proc.stdout + refs_proc.stderr
@@ -759,7 +733,7 @@ def alias_project(tmp_path):
 
 @pytest.mark.e2e
 def test_dependencies_keys_an_aliased_declaration_canonically(alias_project):
-    proc = _gda(alias_project, "project", "dependencies", "--json")
+    proc = Gda(alias_project)("project", "dependencies", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     by_source = {
@@ -796,11 +770,11 @@ def test_dependencies_keys_an_aliased_declaration_canonically(alias_project):
 def test_find_references_matches_an_aliased_declaration_from_a_canonical_query(
     alias_project,
 ):
-    scene = _gda(
-        alias_project, "project", "find-references", "res://leaf.tscn", "--json"
+    scene = Gda(alias_project)(
+        "project", "find-references", "res://leaf.tscn", "--json"
     )
-    script = _gda(
-        alias_project, "project", "find-references", "res://helper.gd", "--json"
+    script = Gda(alias_project)(
+        "project", "find-references", "res://helper.gd", "--json"
     )
 
     assert scene.returncode == 0, scene.stdout + scene.stderr
@@ -819,13 +793,12 @@ def test_find_references_matches_a_relative_declaration(alias_project):
     # the engine loads res://shared/deep.tscn, so a query for that path must find
     # the declaring site. Reported empty before the declaring file's directory was
     # used to anchor the spelling.
-    deep = _gda(
-        alias_project, "project", "find-references", "res://shared/deep.tscn", "--json"
+    deep = Gda(alias_project)(
+        "project", "find-references", "res://shared/deep.tscn", "--json"
     )
     # And the prefix-less relative form, declared `scenes/nested.tscn` from the
     # project root — a spelling with no `..` in it at all.
-    nested = _gda(
-        alias_project,
+    nested = Gda(alias_project)(
         "project",
         "find-references",
         "res://scenes/nested.tscn",
@@ -851,8 +824,7 @@ def test_find_references_matches_a_relative_declaration(alias_project):
 def test_find_references_matches_a_canonical_declaration_from_an_aliased_query(
     alias_project,
 ):
-    proc = _gda(
-        alias_project,
+    proc = Gda(alias_project)(
         "project",
         "find-references",
         "res://sub/../icon.png",
@@ -872,11 +844,11 @@ def test_find_references_matches_a_canonical_declaration_from_an_aliased_query(
 def test_find_references_matches_an_aliased_project_level_entry(alias_project):
     # project.godot is a harvest site too: its main scene and autoloads name a
     # resource by path the way an ext_resource line does.
-    main = _gda(
-        alias_project, "project", "find-references", "res://parent.tscn", "--json"
+    main = Gda(alias_project)(
+        "project", "find-references", "res://parent.tscn", "--json"
     )
-    autoload = _gda(
-        alias_project, "project", "find-references", "res://hud.tscn", "--json"
+    autoload = Gda(alias_project)(
+        "project", "find-references", "res://hud.tscn", "--json"
     )
 
     assert main.returncode == 0, main.stdout + main.stderr
@@ -891,7 +863,7 @@ def test_find_references_matches_an_aliased_project_level_entry(alias_project):
 
 @pytest.mark.e2e
 def test_find_unused_resources_never_lists_an_aliased_reference(alias_project):
-    proc = _gda(alias_project, "project", "find-unused-resources", "--json")
+    proc = Gda(alias_project)("project", "find-unused-resources", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     unused = json.loads(proc.stdout)["unused"]
@@ -915,7 +887,7 @@ def test_find_unused_resources_never_lists_an_aliased_reference(alias_project):
     # exactly "find-references returns empty".
     for path in unused:
         refs = json.loads(
-            _gda(alias_project, "project", "find-references", path, "--json").stdout
+            Gda(alias_project)("project", "find-references", path, "--json").stdout
         )["references"]
         assert refs == [], f"{path} reported unused but has references {refs}"
 
@@ -964,7 +936,7 @@ def one_reader_project(tmp_path):
 def test_dependencies_reads_the_named_path_attribute_not_a_substring(
     one_reader_project,
 ):
-    proc = _gda(one_reader_project, "project", "dependencies", "--json")
+    proc = Gda(one_reader_project)("project", "dependencies", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     by_source = {
@@ -981,11 +953,11 @@ def test_dependencies_reads_the_named_path_attribute_not_a_substring(
 def test_find_references_reads_the_named_path_attribute_not_a_substring(
     one_reader_project,
 ):
-    real = _gda(
-        one_reader_project, "project", "find-references", "res://real.png", "--json"
+    real = Gda(one_reader_project)(
+        "project", "find-references", "res://real.png", "--json"
     )
-    decoy = _gda(
-        one_reader_project, "project", "find-references", "res://decoy.png", "--json"
+    decoy = Gda(one_reader_project)(
+        "project", "find-references", "res://decoy.png", "--json"
     )
 
     assert real.returncode == 0, real.stdout + real.stderr
@@ -1006,7 +978,7 @@ def test_find_references_reads_the_named_path_attribute_not_a_substring(
 def test_find_unused_resources_agrees_with_the_named_path_attribute(
     one_reader_project,
 ):
-    proc = _gda(one_reader_project, "project", "find-unused-resources", "--json")
+    proc = Gda(one_reader_project)("project", "find-unused-resources", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     unused = json.loads(proc.stdout)["unused"]
@@ -1054,9 +1026,9 @@ def unknown_tag_project(tmp_path):
 def test_an_unknown_section_tag_is_not_an_ext_resource_declaration(
     unknown_tag_project,
 ):
-    deps = _gda(unknown_tag_project, "project", "dependencies", "--json")
-    ghost = _gda(
-        unknown_tag_project, "project", "find-references", "res://ghost.png", "--json"
+    deps = Gda(unknown_tag_project)("project", "dependencies", "--json")
+    ghost = Gda(unknown_tag_project)(
+        "project", "find-references", "res://ghost.png", "--json"
     )
 
     assert deps.returncode == 0, deps.stdout + deps.stderr
@@ -1108,8 +1080,8 @@ def pathless_decl_project(tmp_path):
 def test_find_references_does_not_match_a_directory_through_a_pathless_declaration(
     pathless_decl_project,
 ):
-    found = _gda(
-        pathless_decl_project, "project", "find-references", "res://scenes", "--json"
+    found = Gda(pathless_decl_project)(
+        "project", "find-references", "res://scenes", "--json"
     )
 
     assert found.returncode == 0, found.stdout + found.stderr
