@@ -15,10 +15,9 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.scene import SceneProblemKind, SceneStartupStatus
-from gda.runner import RunResult
 from tests.support import (
     assert_operation_error,
-    inject_runner,
+    invoke_cli,
     minimal_project,
     sentinel,
 )
@@ -79,13 +78,10 @@ VALID_PAYLOAD = {"path": "res://main.tscn", "valid": True, "problems": []}
 
 def test_valid_scene_reports_the_verdict_and_exits_zero(monkeypatch, tmp_path):
     project = minimal_project(tmp_path)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(VALID_PAYLOAD), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         ["scene", "validate", "res://main.tscn", "--project", str(project), "--json"],
+        stdout=sentinel(VALID_PAYLOAD),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -106,13 +102,10 @@ def test_invalid_scene_is_a_successful_operation_with_problems(monkeypatch, tmp_
     # the result, never from the process status (the script validate contract, applied
     # to scenes).
     project = minimal_project(tmp_path)
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(INVALID_PAYLOAD), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_cli(
+        monkeypatch,
         ["scene", "validate", "res://main.tscn", "--project", str(project), "--json"],
+        stdout=sentinel(INVALID_PAYLOAD),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -134,11 +127,11 @@ def test_projectless_run_reports_a_null_project_root(monkeypatch, tmp_path):
     # present so an agent reads it unconditionally.
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GDA_PROJECT", raising=False)
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(VALID_PAYLOAD), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["scene", "validate", "/tmp/loose.tscn", "--json"],
+        stdout=sentinel(VALID_PAYLOAD),
     )
-
-    result = CliRunner().invoke(app, ["scene", "validate", "/tmp/loose.tscn", "--json"])
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["project_root"] is None
@@ -146,12 +139,8 @@ def test_projectless_run_reports_a_null_project_root(monkeypatch, tmp_path):
 
 def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):
     project = minimal_project(tmp_path)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(VALID_PAYLOAD), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "scene",
             "validate",
@@ -161,6 +150,7 @@ def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):
             str(project),
             "--json",
         ],
+        stdout=sentinel(VALID_PAYLOAD),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -170,12 +160,10 @@ def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):
 
 def test_human_output_leads_with_the_verdict_then_the_evidence(monkeypatch, tmp_path):
     project = minimal_project(tmp_path)
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(INVALID_PAYLOAD), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["scene", "validate", "res://main.tscn", "--project", str(project)]
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["scene", "validate", "res://main.tscn", "--project", str(project)],
+        stdout=sentinel(INVALID_PAYLOAD),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -197,14 +185,10 @@ def test_a_composed_verdict_attributes_each_problem_to_the_scene_it_was_found_in
     # parent's, and each problem's `nodes` — relative to the scene that owns
     # them — resolve against the wrong tree.
     project = minimal_project(tmp_path)
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(COMPOSED_PAYLOAD), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         ["scene", "validate", "res://parent.tscn", "--project", str(project), "--json"],
+        stdout=sentinel(COMPOSED_PAYLOAD),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -221,13 +205,10 @@ def test_a_composed_verdict_attributes_each_problem_to_the_scene_it_was_found_in
 
 def test_human_output_names_the_sub_scene_a_problem_was_found_in(monkeypatch, tmp_path):
     project = minimal_project(tmp_path)
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(COMPOSED_PAYLOAD), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["scene", "validate", "res://parent.tscn", "--project", str(project)]
+        ["scene", "validate", "res://parent.tscn", "--project", str(project)],
+        stdout=sentinel(COMPOSED_PAYLOAD),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -246,12 +227,10 @@ def test_human_output_stays_silent_about_the_scene_the_command_was_given(
     # The `in` line is attribution, not decoration: an ordinary single-file verdict
     # would only be made longer by repeating the path already in its headline.
     project = minimal_project(tmp_path)
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(INVALID_PAYLOAD), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["scene", "validate", "res://main.tscn", "--project", str(project)]
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["scene", "validate", "res://main.tscn", "--project", str(project)],
+        stdout=sentinel(INVALID_PAYLOAD),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -265,13 +244,11 @@ def test_an_operation_failure_is_still_an_error_envelope(monkeypatch, tmp_path):
     payload = {
         "error": {"code": "path_not_found", "message": "scene file does not exist"}
     }
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=1)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_cli(
+        monkeypatch,
         ["scene", "validate", "res://gone.tscn", "--project", str(project), "--json"],
+        stdout=sentinel(payload),
+        exit_code=1,
     )
 
     assert_operation_error(result, "path_not_found")
@@ -325,9 +302,7 @@ def test_the_rendered_help_keeps_the_bracketed_scene_file_tokens():
     # style tags, so an unescaped docstring RENDERS without them — the published
     # help read "no complete  header" (#720 recheck ×2). Pin the rendered output,
     # not the source: the escape is load-bearing.
-    from typer.testing import CliRunner
 
-    from gda.cli import app
     from tests.support import plain_text
 
     result = CliRunner().invoke(app, ["scene", "validate", "--help"])

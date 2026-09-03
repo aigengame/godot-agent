@@ -26,7 +26,6 @@ from tests.support import (
     PATH_TO_UID_RESULT,
     UID,
     UID_TO_PATH_RESULT,
-    inject_runner,
     invoke_cli,
     minimal_project,
     recording_runner,
@@ -77,12 +76,8 @@ def test_resource_set_dispatches_path_property_value_and_round_trips(monkeypatch
 
 
 def test_resource_set_human_output_is_set_path_property_type_value(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_cli(
+        monkeypatch,
         [
             "resource",
             "set",
@@ -92,6 +87,7 @@ def test_resource_set_human_output_is_set_path_property_type_value(monkeypatch):
             "--value",
             "1",
         ],
+        stdout=sentinel(SET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -104,12 +100,10 @@ def test_resource_set_human_output_is_set_path_property_type_value(monkeypatch):
 def test_resource_set_requires_value(monkeypatch):
     # --value is required: a set with no value is a usage error (exit 2), not a
     # silent no-op or an empty write.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "set", "/tmp/proj/palette.tres", "--property", "x"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "set", "/tmp/proj/palette.tres", "--property", "x"],
+        stdout=sentinel(SET_RESULT),
     )
 
     assert result.exit_code == 2
@@ -117,12 +111,8 @@ def test_resource_set_requires_value(monkeypatch):
 
 
 def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "resource",
             "set",
@@ -133,6 +123,7 @@ def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
             "1",
             "--json",
         ],
+        stdout=sentinel(SET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -162,23 +153,21 @@ def test_resource_delete_dispatches_path_and_reports_removed(monkeypatch):
 
 
 def test_resource_delete_human_output_names_path_and_type(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(DELETE_RESULT), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["resource", "delete", "/tmp/proj/palette.tres"],
+        stdout=sentinel(DELETE_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["resource", "delete", "/tmp/proj/palette.tres"])
 
     assert result.exit_code == 0
     assert result.stdout.strip() == "deleted /tmp/proj/palette.tres (Gradient)"
 
 
 def test_resource_delete_res_path_passes_through_untouched(monkeypatch):
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(DELETE_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "delete", "res://palette.tres", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "delete", "res://palette.tres", "--json"],
+        stdout=sentinel(DELETE_RESULT),
     )
 
     assert result.exit_code == 0
@@ -216,12 +205,10 @@ def test_resource_create_json_maps_success_to_json_object_and_exit_zero(monkeypa
 
 
 def test_resource_create_human_output_reports_path_and_type(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "create", "/tmp/proj/palette.tres", "--type", "Gradient"]
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["resource", "create", "/tmp/proj/palette.tres", "--type", "Gradient"],
+        stdout=sentinel(CREATE_RESULT),
     )
 
     assert result.exit_code == 0
@@ -249,11 +236,11 @@ def test_resource_get_json_maps_success_to_json_object_and_exit_zero(monkeypatch
 
 
 def test_resource_get_human_output_lists_typed_properties(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["resource", "get", "/tmp/proj/palette.tres"],
+        stdout=sentinel(GET_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["resource", "get", "/tmp/proj/palette.tres"])
 
     assert result.exit_code == 0
     # The header names the resource and its type; each property is a typed line.
@@ -264,12 +251,10 @@ def test_resource_get_human_output_lists_typed_properties(monkeypatch):
 def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
     # A filesystem path gets ~ expanded at the CLI layer (issue #32); res://
     # virtual paths pass through untouched. Exercise the expansion seam.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "create", "~/palette.tres", "--type", "Gradient", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "create", "~/palette.tres", "--type", "Gradient", "--json"],
+        stdout=sentinel(CREATE_RESULT),
     )
 
     assert result.exit_code == 0
@@ -279,12 +264,10 @@ def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
 
 
 def test_resource_get_res_path_passes_through_untouched(monkeypatch):
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "get", "res://palette.tres", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "get", "res://palette.tres", "--json"],
+        stdout=sentinel(GET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -353,13 +336,10 @@ def test_resource_uid_expands_tilde_for_a_filesystem_target(monkeypatch, tmp_pat
     # A filesystem path target gets ~ expanded at the CLI layer so a literal ~
     # works without a shell (issue #32); a uid:// / res:// target is untouched.
     minimal_project(tmp_path)
-    fake = inject_runner(
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(PATH_TO_UID_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "uid", "~/data.tres", "--project", str(tmp_path), "--json"]
+        ["resource", "uid", "~/data.tres", "--project", str(tmp_path), "--json"],
+        stdout=sentinel(PATH_TO_UID_RESULT),
     )
 
     assert result.exit_code == 0
@@ -377,13 +357,10 @@ def test_resource_uid_human_output_renders_uid_arrow_path(monkeypatch, tmp_path)
     # Without --json, a resolved mapping renders as `<uid> -> <path>`, the same
     # for both directions since the result shape is identical.
     minimal_project(tmp_path)
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(UID_TO_PATH_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "uid", UID, "--project", str(tmp_path)]
+        ["resource", "uid", UID, "--project", str(tmp_path)],
+        stdout=sentinel(UID_TO_PATH_RESULT),
     )
 
     assert result.exit_code == 0

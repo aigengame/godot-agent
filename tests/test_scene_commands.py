@@ -16,7 +16,6 @@ from tests.support import (
     SCENE_DELETE_RESULT as DELETE_RESULT,
     SCENE_GET_RESULT as GET_RESULT,
     SCENE_LIST_RESULT as LIST_RESULT,
-    inject_runner,
     invoke_cli,
     minimal_project,
     recording_runner,
@@ -58,10 +57,8 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
     stdout = sentinel(
         {**CREATE_RESULT, "path": "/tmp/proj/level.v2.tscn", "root_name": "LevelV2"}
     )
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "scene",
             "create",
@@ -72,6 +69,7 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
             "LevelV2",
             "--json",
         ],
+        stdout=stdout,
     )
 
     assert result.exit_code == 0
@@ -124,11 +122,11 @@ def test_scene_get_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
 def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
     # Path normalization lives at the CLI layer (issue #32): a filesystem path
     # gets ~ expanded; an engine-resolved res:// path passes through untouched.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    _, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "get", "~/game/main.tscn", "--json"],
+        stdout=sentinel(GET_RESULT),
     )
-
-    CliRunner().invoke(app, ["scene", "get", "~/game/main.tscn", "--json"])
     assert "~" not in fake.calls[0][1]["path"]
     assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
 
@@ -216,12 +214,11 @@ def test_scene_get_exports_expands_user_home_in_filesystem_path_but_not_res(
 ):
     # Path normalization at the CLI layer (issue #32) applies to get-exports too:
     # a filesystem path gets ~ expanded; a res:// path passes through untouched.
-    fake = inject_runner(
+    _, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(GET_EXPORTS_RESULT), stderr="", exit_code=0),
+        ["scene", "get-exports", "~/game/main.tscn", "--json"],
+        stdout=sentinel(GET_EXPORTS_RESULT),
     )
-
-    CliRunner().invoke(app, ["scene", "get-exports", "~/game/main.tscn", "--json"])
     assert "~" not in fake.calls[0][1]["path"]
     assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
 
@@ -234,10 +231,10 @@ def test_scene_get_exports_empty_scene_is_a_valid_empty_listing(monkeypatch):
     # A scene with no exported variables anywhere is a successful, empty listing
     # (nodes == []), not a failure.
     stdout = sentinel({"path": "/tmp/proj/bare.tscn", "nodes": []})
-    inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app, ["scene", "get-exports", "/tmp/proj/bare.tscn", "--json"]
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["scene", "get-exports", "/tmp/proj/bare.tscn", "--json"],
+        stdout=stdout,
     )
 
     assert result.exit_code == 0
@@ -309,11 +306,11 @@ def test_scene_delete_json_reports_what_was_removed_and_exit_zero(monkeypatch):
 def test_scene_delete_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
     # Path normalization at the CLI layer (issue #32) applies to delete too: a
     # filesystem path gets ~ expanded; a res:// path passes through untouched.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(DELETE_RESULT), stderr="", exit_code=0)
+    _, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "delete", "~/game/old.tscn", "--json"],
+        stdout=sentinel(DELETE_RESULT),
     )
-
-    CliRunner().invoke(app, ["scene", "delete", "~/game/old.tscn", "--json"])
     assert "~" not in fake.calls[0][1]["path"]
     assert fake.calls[0][1]["path"].endswith("/game/old.tscn")
 

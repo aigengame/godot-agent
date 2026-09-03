@@ -16,7 +16,6 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.script import ScriptSetMode
-from gda.runner import RunResult
 from tests.support import (
     NODE_ADD_RESULT,
     NODE_GET_RESULT,
@@ -26,7 +25,7 @@ from tests.support import (
     SCRIPT_CREATE_RESULT,
     SCRIPT_SET_RESULT,
     SHADER_CREATE_RESULT,
-    inject_runner,
+    invoke_cli,
     minimal_project,
     sentinel,
 )
@@ -37,19 +36,15 @@ def test_scene_create_params_json_dispatches_like_argv(monkeypatch):
     # through the SAME runner seam as the argv path, applying the same
     # normalization (~ expanded, root_name derived from the filename). Proves the
     # central mechanism end-to-end and the argv/JSON parity in one shot.
-    fake = inject_runner(
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCENE_CREATE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "scene",
             "create",
             "--params-json",
             '{"path": "~/proj/main.tscn", "root_type": "Node2D"}',
         ],
+        stdout=sentinel(SCENE_CREATE_RESULT),
     )
 
     assert result.exit_code == 0, result.stdout
@@ -71,13 +66,8 @@ def test_params_json_conflicting_with_individual_args_is_a_structured_usage_erro
     # Mutual exclusivity (ADR-0015): --params-json alongside an individual arg is a
     # registered usage_error (ADR-0002), emitted as a structured GdaError envelope
     # on a non-zero exit — never an ad-hoc message.
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCENE_CREATE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "scene",
             "create",
@@ -86,6 +76,7 @@ def test_params_json_conflicting_with_individual_args_is_a_structured_usage_erro
             '{"path": "/tmp/proj/main.tscn", "root_type": "Node2D"}',
             "--json",
         ],
+        stdout=sentinel(SCENE_CREATE_RESULT),
     )
 
     assert result.exit_code != 0
@@ -96,13 +87,10 @@ def test_params_json_conflicting_with_individual_args_is_a_structured_usage_erro
 
 def test_invalid_json_params_is_a_structured_error(monkeypatch):
     # Malformed JSON → a registered invalid_params GdaError, not a traceback.
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCENE_CREATE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["scene", "create", "--params-json", "{not json", "--json"]
+        ["scene", "create", "--params-json", "{not json", "--json"],
+        stdout=sentinel(SCENE_CREATE_RESULT),
     )
 
     assert result.exit_code != 0
@@ -113,13 +101,8 @@ def test_invalid_json_params_is_a_structured_error(monkeypatch):
 
 def test_schema_invalid_params_object_is_a_structured_error(monkeypatch):
     # Valid JSON but missing a required field (root_type) → invalid_params.
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCENE_CREATE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "scene",
             "create",
@@ -127,6 +110,7 @@ def test_schema_invalid_params_object_is_a_structured_error(monkeypatch):
             '{"path": "/tmp/proj/main.tscn"}',
             "--json",
         ],
+        stdout=sentinel(SCENE_CREATE_RESULT),
     )
 
     assert result.exit_code != 0
@@ -160,13 +144,8 @@ def test_schema_takes_precedence_over_params_json(monkeypatch):
 def test_json_output_composes_with_params_json(monkeypatch):
     # --json (a result projection) composes with --params-json (an input source):
     # the success result is emitted as a single JSON object.
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCENE_CREATE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "scene",
             "create",
@@ -174,6 +153,7 @@ def test_json_output_composes_with_params_json(monkeypatch):
             '{"path": "/tmp/proj/main.tscn", "root_type": "Node2D"}',
             "--json",
         ],
+        stdout=sentinel(SCENE_CREATE_RESULT),
     )
 
     assert result.exit_code == 0, result.stdout
@@ -185,15 +165,11 @@ def test_json_output_composes_with_params_json(monkeypatch):
 def test_params_json_dash_reads_the_object_from_stdin(monkeypatch):
     # `--params-json -` reads the JSON object from stdin, so large payloads
     # (script/shader content) avoid argv length limits (ADR-0015).
-    fake = inject_runner(
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCENE_CREATE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         ["scene", "create", "--params-json", "-"],
-        input='{"path": "/tmp/proj/level.tscn", "root_type": "Node2D"}',
+        stdout=sentinel(SCENE_CREATE_RESULT),
+        stdin='{"path": "/tmp/proj/level.tscn", "root_type": "Node2D"}',
     )
 
     assert result.exit_code == 0, result.stdout
@@ -218,13 +194,8 @@ def test_wrong_typed_path_is_a_structured_error_not_a_traceback(monkeypatch):
     # A non-string NormalizedPath value must surface as structured invalid_params,
     # not a TypeError traceback: NormalizedPath uses AfterValidator, so the value is
     # validated as a str FIRST (ADR-0015). Regression for the BeforeValidator crash.
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCENE_CREATE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "scene",
             "create",
@@ -232,6 +203,7 @@ def test_wrong_typed_path_is_a_structured_error_not_a_traceback(monkeypatch):
             '{"path": 123, "root_type": "Node2D"}',
             "--json",
         ],
+        stdout=sentinel(SCENE_CREATE_RESULT),
     )
 
     assert result.exit_code != 0
@@ -243,18 +215,15 @@ def test_wrong_typed_path_is_a_structured_error_not_a_traceback(monkeypatch):
 def test_node_add_params_json_derives_default_name_like_argv(monkeypatch):
     # Parity: omitting name derives it from the type model-side, exactly like the
     # argv path (which used to do this in the CLI body).
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(NODE_ADD_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "node",
             "add",
             "--params-json",
             '{"path": "/tmp/proj/main.tscn", "type": "Sprite2D"}',
         ],
+        stdout=sentinel(NODE_ADD_RESULT),
     )
 
     assert result.exit_code == 0, result.stdout
@@ -266,13 +235,8 @@ def test_node_add_params_json_derives_default_name_like_argv(monkeypatch):
 def test_script_create_params_json_rejects_content_and_extends(monkeypatch):
     # The content/extends mutual exclusivity is enforced model-side, so
     # --params-json cannot bypass it (it is rejected, not silently resolved).
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCRIPT_CREATE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "script",
             "create",
@@ -280,6 +244,7 @@ def test_script_create_params_json_rejects_content_and_extends(monkeypatch):
             '{"path": "/tmp/proj/hero.gd", "content": "extends Node\\n", "extends_type": "Node2D"}',
             "--json",
         ],
+        stdout=sentinel(SCRIPT_CREATE_RESULT),
     )
 
     assert result.exit_code != 0
@@ -287,13 +252,8 @@ def test_script_create_params_json_rejects_content_and_extends(monkeypatch):
 
 
 def test_shader_create_params_json_rejects_content_and_shader_type(monkeypatch):
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "shader",
             "create",
@@ -301,6 +261,7 @@ def test_shader_create_params_json_rejects_content_and_shader_type(monkeypatch):
             '{"path": "/tmp/proj/wave.gdshader", "content": "shader_type spatial;", "shader_type": "spatial"}',
             "--json",
         ],
+        stdout=sentinel(SHADER_CREATE_RESULT),
     )
 
     assert result.exit_code != 0
@@ -310,13 +271,8 @@ def test_shader_create_params_json_rejects_content_and_shader_type(monkeypatch):
 def test_script_set_params_json_rejects_inconsistent_edit_fields(monkeypatch):
     # The edit-mode rule is enforced model-side: a half-specified mode (search
     # without replace) is invalid_params via --params-json, not a silent dispatch.
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCRIPT_SET_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "script",
             "set",
@@ -324,6 +280,7 @@ def test_script_set_params_json_rejects_inconsistent_edit_fields(monkeypatch):
             '{"path": "/tmp/proj/hero.gd", "search": "a"}',
             "--json",
         ],
+        stdout=sentinel(SCRIPT_SET_RESULT),
     )
 
     assert result.exit_code != 0
@@ -399,19 +356,15 @@ def test_perf_monitor_params_json_rejects_frames_below_range(monkeypatch):
 def test_script_set_params_json_derives_mode_like_argv(monkeypatch):
     # Parity: the edit mode is derived from the supplied fields model-side, so a
     # --params-json caller need not (and should not) supply it.
-    fake = inject_runner(
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCRIPT_SET_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "script",
             "set",
             "--params-json",
             '{"path": "/tmp/proj/hero.gd", "content": "extends Node\\n"}',
         ],
+        stdout=sentinel(SCRIPT_SET_RESULT),
     )
 
     assert result.exit_code == 0, result.stdout
@@ -555,25 +508,6 @@ def test_an_unexpandable_tilde_is_structured_on_a_sibling_command(
     # Both channels, because the argv body builds the params model DIRECTLY: a
     # normalizer that raised would still crash here even though --params-json caught it.
     minimal_project(tmp_path)
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                {
-                    "valid": True,
-                    "scripts": [
-                        {
-                            "path": _UNEXPANDABLE,
-                            "valid": True,
-                            "error_string": None,
-                        }
-                    ],
-                }
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     argv = ["script", "validate"]
     argv += (
         [_UNEXPANDABLE]
@@ -581,7 +515,18 @@ def test_an_unexpandable_tilde_is_structured_on_a_sibling_command(
         else ["--params-json", json.dumps({"paths": [_UNEXPANDABLE]})]
     )
 
-    result = CliRunner().invoke(app, [*argv, "--project", str(tmp_path), "--json"])
+    result, _ = invoke_cli(
+        monkeypatch,
+        [*argv, "--project", str(tmp_path), "--json"],
+        stdout=sentinel(
+            {
+                "valid": True,
+                "scripts": [
+                    {"path": _UNEXPANDABLE, "valid": True, "error_string": None}
+                ],
+            }
+        ),
+    )
 
     assert "Traceback" not in (result.stderr or ""), result.stderr
     assert result.exception is None or result.exit_code != 1, result.exception
@@ -601,16 +546,12 @@ def test_argv_and_params_json_dispatch_identically(
     # logical input (a `~/…` path that normalization must expand), dispatch the
     # IDENTICAL (operation, params) call. Proves argv ≡ JSON parity and catches
     # any path-bearing field that did not get NormalizedPath.
-    argv_fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(canned), stderr="", exit_code=0)
-    )
-    CliRunner().invoke(app, argv)
+    _, argv_fake = invoke_cli(monkeypatch, argv, stdout=sentinel(canned))
 
-    json_fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(canned), stderr="", exit_code=0)
-    )
-    CliRunner().invoke(
-        app, [argv[0], argv[1], "--params-json", json.dumps(params_object)]
+    _, json_fake = invoke_cli(
+        monkeypatch,
+        [argv[0], argv[1], "--params-json", json.dumps(params_object)],
+        stdout=sentinel(canned),
     )
 
     assert argv_fake.calls == json_fake.calls, case_id

@@ -121,7 +121,10 @@ def test_scene_get_broken_sentinel_maps_to_parse_error(monkeypatch):
     # was violated — the shared parse classification applies to scene commands
     # exactly as it does to info.
     result, _ = invoke_cli(
-        monkeypatch, ["scene", "get", "/x/main.tscn", "--json"], stdout="no sentinel\n"
+        monkeypatch,
+        ["scene", "get", "/x/main.tscn", "--json"],
+        stdout="no sentinel here\n",
+        banner=False,
     )
 
     assert result.exit_code == 5
@@ -197,6 +200,9 @@ def test_scene_list_without_project_maps_to_stable_project_not_found_code(monkey
 def test_scene_create_missing_binary_maps_to_environment_error(monkeypatch):
     # The runner's synthetic exit 127 flows through the same shared environment
     # branch for scene commands as for info.
+    # Staged as a whole raw run, not through `invoke_cli`: the LAUNCH FAILURE
+    # this run carries is the input under test, and the invoker stages only the
+    # three canned streams.
     inject_runner(
         monkeypatch,
         RunResult(

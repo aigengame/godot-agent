@@ -36,6 +36,7 @@ from tests.support import (
     ENGINE_BANNER,
     FakeExportRunner,
     inject_runner,
+    invoke_cli,
     minimal_project,
     plain_text,
     sentinel,
@@ -612,29 +613,18 @@ def test_export_run_unknown_preset_reuses_export_get_error(monkeypatch, tmp_path
     # An unknown preset surfaces export-get's clean export_preset_not_found,
     # reused verbatim — and no native export is attempted.
     minimal_project(tmp_path)
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                {
-                    "error": {
-                        "code": "export_preset_not_found",
-                        "message": "no such preset",
-                    }
-                }
-            ),
-            stderr="",
-            exit_code=4,
-        ),
-    )
     export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
     monkeypatch.setattr(
         "gda.dispatch.make_export_runner", lambda binary, project=None: export_runner
     )
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_cli(
+        monkeypatch,
         ["export", "run", "--preset", "Nope", "--project", str(tmp_path), "--json"],
+        stdout=sentinel(
+            {"error": {"code": "export_preset_not_found", "message": "no such preset"}}
+        ),
+        exit_code=4,
     )
 
     assert result.exit_code == 4

@@ -17,7 +17,6 @@ from gda.runner import RunResult
 from tests.support import (
     EXPORT_GET_RESULT as GET_RESULT,
     EXPORT_LIST_RESULT as LIST_RESULT,
-    inject_runner,
     invoke_cli,
     minimal_project,
     recording_runner,
@@ -90,11 +89,9 @@ def test_export_get_json_reports_preset_details_and_template_status(monkeypatch)
 def test_export_get_missing_preset_flag_is_a_usage_error(monkeypatch):
     # --preset is required: export get always needs a preset to address. Its
     # absence is a usage error (exit 2) that fires before any dispatch.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch, ["export", "get", "--json"], stdout=sentinel(GET_RESULT)
     )
-
-    result = CliRunner().invoke(app, ["export", "get", "--json"])
 
     assert result.exit_code == 2
     assert fake.calls == []

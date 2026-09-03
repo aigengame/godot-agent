@@ -7,10 +7,9 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.runner import RunResult
 from tests.support import (
-    ENGINE_BANNER,
     VERSION_INFO,
     assert_operation_error,
-    inject_runner,
+    invoke_cli,
     minimal_project,
     recording_runner,
     sentinel,
@@ -19,12 +18,12 @@ from tests.support import (
 
 def test_info_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner / warnings around the sentinel, plus diagnostics on stderr.
-    stdout = ENGINE_BANNER + "WARNING: benign\n" + sentinel(VERSION_INFO)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["info", "--json"],
+        stdout="WARNING: benign\n" + sentinel(VERSION_INFO),
+        stderr="engine diagnostic\n",
     )
-
-    result = CliRunner().invoke(app, ["info", "--json"])
 
     assert result.exit_code == 0
     # stdout carries ONLY the result payload — a single valid JSON object.

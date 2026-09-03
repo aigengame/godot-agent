@@ -8,10 +8,7 @@ parse → typed model → JSON — with canned engine output, no real Godot.
 
 import json
 
-from typer.testing import CliRunner
 
-from gda.cli import app
-from gda.runner import RunResult
 from tests.support import (
     NODE_ADD_RESULT as ADD_RESULT,
     NODE_CONNECT_RESULT as CONNECT_RESULT,
@@ -21,7 +18,6 @@ from tests.support import (
     NODE_MOVE_RESULT as MOVE_RESULT,
     NODE_REMOVE_RESULT as REMOVE_RESULT,
     NODE_SET_RESULT as SET_RESULT,
-    inject_runner,
     invoke_cli,
     sentinel,
 )
@@ -86,12 +82,8 @@ def test_node_add_type_and_instance_together_is_a_usage_error(monkeypatch):
     # them is a usage error (exit 2) that fires before any dispatch — the
     # engine is never reached. The rule lives model-side (ADR-0015), so the
     # --params-json path surfaces the same violation as invalid_params.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(ADD_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "node",
             "add",
@@ -102,6 +94,7 @@ def test_node_add_type_and_instance_together_is_a_usage_error(monkeypatch):
             "res://hud.tscn",
             "--json",
         ],
+        stdout=sentinel(ADD_RESULT),
     )
 
     assert result.exit_code == 2
@@ -111,11 +104,11 @@ def test_node_add_type_and_instance_together_is_a_usage_error(monkeypatch):
 def test_node_add_without_type_or_instance_is_a_usage_error(monkeypatch):
     # No mode at all is a usage error too: add always needs exactly one of
     # --type/--instance.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(ADD_RESULT), stderr="", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["node", "add", "/tmp/proj/main.tscn", "--json"],
+        stdout=sentinel(ADD_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["node", "add", "/tmp/proj/main.tscn", "--json"])
 
     assert result.exit_code == 2
     assert fake.calls == []
@@ -173,10 +166,8 @@ def test_node_add_index_dispatches_destination_index(monkeypatch):
     # operation owns range validation because the valid upper bound depends on
     # the resolved parent at runtime.
     stdout = sentinel({**ADD_RESULT, "path": "Level", "name": "Level"})
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "node",
             "add",
@@ -189,6 +180,7 @@ def test_node_add_index_dispatches_destination_index(monkeypatch):
             "1",
             "--json",
         ],
+        stdout=stdout,
     )
 
     assert result.exit_code == 0
@@ -257,10 +249,8 @@ def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
     # to the property's declared type, saves, and echoes the coerced property —
     # the result an agent asserts (and which round-trips via node get).
     stdout = sentinel(SET_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "node",
             "set",
@@ -273,6 +263,7 @@ def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
             "3,4",
             "--json",
         ],
+        stdout=stdout,
     )
 
     assert result.exit_code == 0
@@ -412,11 +403,10 @@ def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
     # scene root ('.'), and omitting --name names the node after its type —
     # mirroring how the Godot editor names a freshly added node.
     stdout = sentinel({**ADD_RESULT, "path": "Sprite2D", "name": "Sprite2D"})
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         ["node", "add", "/tmp/proj/main.tscn", "--type", "Sprite2D", "--json"],
+        stdout=stdout,
     )
 
     assert result.exit_code == 0
@@ -482,10 +472,8 @@ def test_node_disconnect_signal_json_dispatches_the_four_part_connection(monkeyp
     # node disconnect-signal is the unwire half of issue #57: same four-part
     # addressing, dispatched by its own operation name.
     stdout = sentinel(CONNECT_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "node",
             "disconnect-signal",
@@ -500,6 +488,7 @@ def test_node_disconnect_signal_json_dispatches_the_four_part_connection(monkeyp
             "on_timeout",
             "--json",
         ],
+        stdout=stdout,
     )
 
     assert result.exit_code == 0
@@ -523,12 +512,8 @@ def test_node_connect_signal_requires_all_four_connection_flags(monkeypatch):
     # The four connection flags are mandatory (no sensible default for any part
     # of a connection): omitting one is a usage error (exit 2), surfaced before
     # any engine path so no Godot process is spawned.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(CONNECT_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "node",
             "connect-signal",
@@ -542,6 +527,7 @@ def test_node_connect_signal_requires_all_four_connection_flags(monkeypatch):
             # --method omitted
             "--json",
         ],
+        stdout=sentinel(CONNECT_RESULT),
     )
 
     assert result.exit_code == 2
