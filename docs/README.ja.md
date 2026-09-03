@@ -1,12 +1,18 @@
-<!-- gda-readme-i18n: source=README.md sha256=465ec4f02a22747e675bfbee6bdba48edd474a3da79ec654943c9741a747c302 -->
+<!-- gda-readme-i18n: source=README.md sha256=f16edb8309c514c091979325f1561031d92fe21fbe3c82c7cb9e7c7fa37ebe7c -->
 
-# godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
+# gda — AI エージェント向け Godot オートメーション
 
-![godot-agent title image](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)
+[![gda — AI エージェント向け Godot オートメーション](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)](https://aigengame.xyz/)
 
 **他の言語:** [English](../README.md) · [简体中文](README.zh-CN.md) · [Español](README.es.md) · **日本語**
 
-> **`gda` は、あなたの AI コーディングエージェント — あるいはシェルスクリプトや CI — に、[Godot Engine](https://godotengine.org) を構造化された機械可読な形で制御する手段を与えます。** シーンの作成、ノードやスクリプトの編集、ビルドのエクスポートを Headless で行い、さらに *実行中の* ゲームを Live で操作します。ランタイムツリー、入力、スクリーンショット、パフォーマンス — 単一のコマンド体系を、3 つの入口から。
+[製品概要](https://aigengame.xyz/) ·
+[CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/) ·
+[PyPI](https://pypi.org/project/gda/)
+
+> **AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
+> `gda` は、CLI、同梱の Agent Skill、MCP サーバーを通じて同じ Godot ネイティブな
+> 操作体系を提供し、エージェントがそのまま処理できる構造化結果を返します。
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
@@ -16,19 +22,15 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-AI エージェントは GDScript を書くのは得意ですが、*何が起きたかを見る* のはとても苦手です。`gda`
-はそのループを閉じます。エージェントは 1 つの操作を発行すると、そのまま処理に使える 1 つの
-クリーンな JSON 結果を受け取ります — かき集める必要のあるエンジンログではなく。`gda` は **2 つの
-モード** で動作します。
+ファイルを編集しただけでは、ゲームの変更を検証したことにはなりません。`gda` は、
+次の 2 つの相補的なモードで変更から検証までのループを閉じます。
 
-- **Headless** — ワンショットかつステートレスで、セットアップ不要。エディタプラグインもデーモンも、
-  プロジェクトにインストールするものは何もありません。シーン、ノード、スクリプト、リソース、
-  シェーダー、テーマの作成と編集、プロジェクトの解析、ビルドのエクスポートが行えます。
-- **Live** — バックグラウンドのデーモンを通じて *実行中の* ゲームを操作し、ライブのエンジンでしか
-  できないことすべてを行います。ランタイムのシーンツリーの読み取り、ランタイムプロパティの取得・
-  設定、入力のシミュレート、スクリーンショットの取得、パフォーマンスのサンプリングなど。
+- **Headless** — エディタプラグインやデーモンを使わずに、プロジェクト内容の作成・編集、
+  スクリプトのコンパイル、シーンの検証と起動、プロジェクトの検査、ビルドのエクスポートを行います。
+- **Live** — プロジェクトごとのデーモンを通じて実行中のゲームを検査・操作します。
+  ランタイムツリーと状態、入力シミュレーション、フレーム取得、ログ、エラー、パフォーマンスを扱えます。
 
-> `gda` は **pre-1.0** です。現時点ですべてのコマンドがエンドツーエンドで動作しますが、CLI の
+> `gda` は **pre-1.0** です。現時点ですべてのコマンドがエンドツーエンドで動作しますが、
 > コマンド体系は 1.0 までにまだ変わる可能性があります。
 
 ---
@@ -51,40 +53,35 @@ AI エージェントは GDScript を書くのは得意ですが、*何が起き
 <a id="why-gda"></a>
 ## なぜ `gda`？
 
-- **🤖 エージェントのために設計された構造化出力。** すべてのコマンドは stdout に **ちょうど 1 つ**
-  の JSON オブジェクトを出力します (`--json`)。エンジンのバナー、警告、`print()` は stderr に
-  流れます。エージェントが解析するのは大量のログではなく、1 つの結果だけです。
-- **📐 型付き、かつ自己記述的。** すべてのコマンドの入力と出力は型付きモデルであり、それが機械
-  可読な `--schema`(JSON Schema による契約)の裏付けにもなっています。そのためエージェントは、
-  推測ではなくプログラム的にコマンド体系全体を発見し検証できます。
-- **🔀 CLI、Skill、MCP — エージェントが選べる。** 生の `gda` CLI を使ってターミナルや CI から Godot を
-  操作する、CLI の使い方とタイミングを教える同梱の **Skill**(`gda skill`)をエージェントに渡す、
-  あるいは同じ操作を **MCP** ツール(`gda-mcp`、CLI 自身のスキーマから生成)として公開する。
-  単一のコマンド体系を 3 つの入口から — エージェントが対応している方法を選んでください。
-- **🧩 Godot ネイティブなコマンド。** Godot のオブジェクトごとにグループ化され(`gda scene create`、
-  `gda node add`、`gda game set`)、小さく一貫した動詞の語彙を使います。すでに Godot を知っていれば
-  学習コストはゼロです。
-- **⚡ デフォルトは Headless、必要なときに Live。** Headless 操作にデーモンもエディタも不要で、
-  必要なのは Godot バイナリだけです。Live 操作は、Unix ドメインソケットのデーモンを介して実行中
-  ゲームのリアルタイム制御を加え、同じ CLI の文法で指定できます。
-- **🛡️ 静かに失敗せず、はっきり失敗する。** エンジンが見つからなければ即座に、ハングしていればタイムアウトで
-  失敗し、どちらも **安定した非ゼロの終了コード** と Error エンベロープになります。エンベロープには失敗の
-  カテゴリとコード、算出できた場合は型付きの証拠が含まれるので、シェルやエージェントは文章を解析せずに
-  失敗の種類ごとに処理を分けられます。`gda` が認識しないコマンドも同じ形で拒否され、代わりに使うべき
-  呼び出しが `hint` に入ります。
+- **ファイル編集を超える検証。** Headless 検証はプロジェクトが実行可能な状態かを確認し、
+  Live 操作は実際の挙動に関するランタイム証拠を返します。
+- **構造化結果と参照可能なスキーマ。** `--json` を使うと、各コマンドは stdout に結果
+  オブジェクトを 1 つだけ出力します。型付きの入出力モデルは、`--schema` と生成される
+  MCP ツール体系にも使われます。
+- **Godot ネイティブな操作。** `gda scene create`、`gda node add`、`gda game get`
+  のように、Godot のオブジェクトと用語に沿ったコマンドを提供します。
+- **相補的な 3 つのアクセス方法。** エージェント、シェル、CI から CLI を直接実行する、
+  再利用可能なガイダンスとして同梱の Agent Skill をインストールする、または同じ操作を
+  MCP ツールとして公開できます。設定方法と違いは
+  [CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/)を参照してください。
+- **範囲を制御でき、失敗後に対応できる自動化。** タイムアウト、出力上限、型付きの失敗、
+  診断情報、変更レポートにより、エージェントは何が起きたかと復旧方法を判断できます。
+
+これらの機能は、[実際のゲーム制作で行った公開 dogfooding の記録](https://github.com/aigengame/godot-agent/milestone/10)
+を通じて改善されました。
 
 ---
 
 <a id="capabilities-at-a-glance"></a>
 ## ひと目でわかる機能
 
-| やりたいこと | 使うもの |
-| --- | --- |
-| エージェントやスクリプトからプロジェクトファイルを構築する | `scene` / `node` / `script` / `resource` / `shader` / `theme` — Headless で作成・編集 |
-| エンジンログをかき集めず、結果を解析する | `--json`(1 つのクリーンなオブジェクト)と `--schema`(JSON Schema による契約) |
-| エージェントに Godot のツールを渡す | 同梱の **Skill**(`gda skill`)または **`gda-mcp`** サーバー |
-| CI、エクスポート、プロジェクト解析を自動化する | Headless コマンド — エディタもプラグインも不要、必要なのは Godot バイナリだけ |
-| *実行中の* ゲームのランタイム挙動をデバッグする | `gda daemon start`、その後 `game` / `diag` / `logger` / `perf` / `input` / `screen` |
+| 目的 | `gda` が提供するもの | 最初に使うもの |
+| --- | --- | --- |
+| Godot プロジェクトの内容を構築する（Headless） | シーン、ノード、スクリプト、リソース、プロジェクト設定、シェーダー、テーマの作成と編集 | `scene` / `node` / `script` / `resource` / `project` / `shader` / `theme` |
+| プロジェクトの実行準備を検証する（Headless） | スクリプトのコンパイル、依存関係の検証、時間制限付き preflight でのシーン起動、プロジェクトの検査、ビルドのエクスポート | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
+| ランタイム挙動を検証する（Live） | ランタイム状態の読み取り、宣言済みメソッドの呼び出し、入力シミュレーション、フレーム取得、ログとエラーの収集、パフォーマンス計測 | `gda daemon start`、その後 `game` / `input` / `screen` / `diag` / `logger` / `perf` |
+| AI コーディングエージェントを接続する | CLI の直接実行、Agent Skill の再利用可能なガイダンス、または MCP ツールの検出と呼び出し | `gda` / `gda skill` / `gda-mcp` |
+| 自動化環境で安定して実行する | 構造化結果、型付きのスキーマと失敗、範囲を制御した実行、分離されたログ、復旧に使える診断情報 | `--json` / `--schema` / `--user-data-root` / タイムアウト |
 
 ---
 
