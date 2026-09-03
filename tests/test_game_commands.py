@@ -25,12 +25,8 @@ from tests.support import (
     inject_live_runner,
     panel_text,
     sentinel,
+    minimal_project,
 )
-
-
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
 
 
 def test_game_tree_emits_runtime_tree_json_through_the_live_channel(
@@ -42,7 +38,7 @@ def test_game_tree_emits_runtime_tree_json_through_the_live_channel(
     )
 
     result = CliRunner().invoke(
-        app, ["game", "tree", "--project", str(_project(tmp_path)), "--json"]
+        app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -59,7 +55,7 @@ def test_game_tree_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_pa
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
     result = CliRunner().invoke(
-        app, ["game", "tree", "--project", str(_project(tmp_path)), "--json"]
+        app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -95,7 +91,7 @@ def test_game_tree_on_non_unix_reports_live_unsupported_platform(monkeypatch, tm
     monkeypatch.setattr("gda.live_runner._is_unix", lambda: False)
 
     result = CliRunner().invoke(
-        app, ["game", "tree", "--project", str(_project(tmp_path)), "--json"]
+        app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]
     )
 
     assert result.exit_code != 0, result.stdout
@@ -120,7 +116,7 @@ def test_game_get_emits_runtime_properties_through_the_live_channel(
             "get",
             "/root/Main/Player",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -157,7 +153,7 @@ def test_game_get_passes_the_property_filter_through_the_live_channel(
             "--property",
             "position",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -196,7 +192,7 @@ def test_game_get_threads_the_texture_digest_opt_in(monkeypatch, tmp_path):
             "sprite_texture",
             "--texture-digest",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -265,7 +261,7 @@ def test_game_get_missing_node_reports_live_node_not_found(monkeypatch, tmp_path
             "get",
             "/root/Main/Ghost",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -295,7 +291,7 @@ def test_game_get_unknown_property_reports_live_unknown_property(monkeypatch, tm
             "--property",
             "nope",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -316,7 +312,7 @@ def test_game_get_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_pat
             "get",
             "/root/Main/Player",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -352,7 +348,7 @@ def test_game_rect_emits_rendered_control_rect_through_the_live_channel(
             "rect",
             "/root/Main/HUD/Stats",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -380,7 +376,7 @@ def test_game_rect_non_control_reports_live_not_control(monkeypatch, tmp_path):
             "rect",
             "/root/Main/Player",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -408,7 +404,7 @@ def test_game_rect_missing_node_reports_live_node_not_found(monkeypatch, tmp_pat
             "rect",
             "/root/Main/Ghost",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -441,7 +437,7 @@ def test_game_set_mutates_and_echoes_coerced_value_through_the_live_channel(
             "--value",
             "10,20",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -484,7 +480,7 @@ def test_game_set_missing_node_reports_live_node_not_found(monkeypatch, tmp_path
             "--value",
             "1,2",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -516,7 +512,7 @@ def test_game_set_unknown_property_reports_live_unknown_property(monkeypatch, tm
             "--value",
             "1",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -550,7 +546,7 @@ def test_game_set_uncoercible_value_reports_live_uncoercible_value(
             "--value",
             "not-a-vector",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -575,7 +571,7 @@ def test_game_set_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_pat
             "--value",
             "1,2",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -617,7 +613,7 @@ def test_game_call_invokes_the_method_and_projects_its_return(monkeypatch, tmp_p
             "--method",
             "qa_current_state_contract",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -662,7 +658,7 @@ def test_game_call_threads_json_args_as_values(monkeypatch, tmp_path):
             "--args",
             '[2, "peak", {"deep": [1]}]',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -700,7 +696,7 @@ def test_game_call_non_json_args_is_refused_before_the_wire(monkeypatch, tmp_pat
             "--args",
             "not json",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -731,7 +727,7 @@ def test_game_call_undeclared_method_reports_not_allowlisted(monkeypatch, tmp_pa
             "--method",
             "undeclared_secret",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -763,7 +759,7 @@ def test_game_call_distinguishes_missing_from_undeclared_and_bad_args(
                 "--method",
                 "whatever",
                 "--project",
-                str(_project(tmp_path)),
+                str(minimal_project(tmp_path)),
                 "--json",
             ],
         )
@@ -788,7 +784,7 @@ def test_game_call_human_render_names_the_method_and_value(monkeypatch, tmp_path
             "--method",
             "qa_current_state_contract",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
         ],
     )
 
@@ -903,7 +899,7 @@ def test_game_call_refuses_non_finite_args_on_both_paths(monkeypatch, tmp_path):
     # bound, gets live_timeout, and the session is retired (state lost). The
     # params model is the one authority both paths share (ADR-0015), so both
     # are refused structurally, before the wire.
-    project = str(_project(tmp_path))
+    project = str(minimal_project(tmp_path))
     for argv in (
         ["--method", "m", "--args", "[NaN]"],
         ["--method", "m", "--args", '[{"deep": [Infinity]}]'],
@@ -962,7 +958,7 @@ def test_game_call_accepts_finite_nested_json_args(monkeypatch, tmp_path):
             "--args",
             '[1, 2.5, {"a": [3.5, "x"]}]',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -973,7 +969,7 @@ def test_game_call_accepts_finite_nested_json_args(monkeypatch, tmp_path):
 
 def test_game_call_accepts_large_finite_float_args_on_both_paths(monkeypatch, tmp_path):
     """High-range floats already are binary64 and do not inherit the int bound."""
-    project = str(_project(tmp_path))
+    project = str(minimal_project(tmp_path))
     expected = [1e17, 2.5e17, {"deep": [1e300]}]
 
     invocations = (
@@ -1018,7 +1014,7 @@ def test_game_call_refuses_integers_beyond_the_exact_json_range(monkeypatch, tmp
     # nested positions are covered; the boundary value still rides through.
     from gda.commands.game import MAX_EXACT_JSON_INT
 
-    project = str(_project(tmp_path))
+    project = str(minimal_project(tmp_path))
     for argv in (
         ["--method", "m", "--args", f"[{MAX_EXACT_JSON_INT + 2}]"],
         ["--method", "m", "--args", f"[-{MAX_EXACT_JSON_INT + 2}]"],

@@ -14,12 +14,12 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
-from tests.support import inject_live_runner, sentinel
-
-
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
+from tests.support import (
+    assert_operation_error,
+    inject_live_runner,
+    minimal_project,
+    sentinel,
+)
 
 
 READY = {"pid": 4242, "launched": True}
@@ -31,7 +31,8 @@ def test_wait_ready_reports_the_established_session_as_json(monkeypatch, tmp_pat
     )
 
     result = CliRunner().invoke(
-        app, ["daemon", "wait-ready", "--project", str(_project(tmp_path)), "--json"]
+        app,
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -54,7 +55,7 @@ def test_wait_ready_passes_the_caller_bound_through(monkeypatch, tmp_path):
             "--timeout",
             "10",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -69,7 +70,7 @@ def test_wait_ready_human_output_names_the_launch_state(monkeypatch, tmp_path):
     )
 
     result = CliRunner().invoke(
-        app, ["daemon", "wait-ready", "--project", str(_project(tmp_path))]
+        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -87,7 +88,7 @@ def test_wait_ready_human_output_reports_an_already_serving_session(
     )
 
     result = CliRunner().invoke(
-        app, ["daemon", "wait-ready", "--project", str(_project(tmp_path))]
+        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -99,7 +100,8 @@ def test_wait_ready_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_p
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
     result = CliRunner().invoke(
-        app, ["daemon", "wait-ready", "--project", str(_project(tmp_path)), "--json"]
+        app,
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -112,7 +114,7 @@ def test_wait_ready_refuses_an_out_of_range_bound_on_argv(monkeypatch, tmp_path)
     # The params model owns the (0, 50] bound (ADR-0015): the argv path
     # translates its refusal into the Click usage error. 50 caps the wait under
     # the live channel's 60s client-side round-trip bound.
-    project = str(_project(tmp_path))
+    project = str(minimal_project(tmp_path))
     for bad in ("0", "60", "inf", "nan"):
         result = CliRunner().invoke(
             app, ["daemon", "wait-ready", "--timeout", bad, "--project", project]
@@ -130,10 +132,9 @@ def test_wait_ready_refuses_an_out_of_range_bound_on_params_json(monkeypatch, tm
             "--params-json",
             json.dumps({"timeout": 60}),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
 
-    assert result.exit_code == 4, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert_operation_error(result, "invalid_params")

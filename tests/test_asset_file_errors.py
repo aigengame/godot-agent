@@ -10,51 +10,24 @@ no_search_match / invalid_line_range) rather than minting parallel ones, exactly
 as the script group did.
 """
 
-import json
+from tests.support import assert_operation_error, operation_error_invoker
 
-from typer.testing import CliRunner
+_shader_create = operation_error_invoker(
+    ["shader", "create", "/x/wave.gdshader", "--json"], "shader-create"
+)
 
-from gda.cli import app
-from gda.runner import RunResult
-from tests.support import error_sentinel, inject_runner
+_shader_get = operation_error_invoker(
+    ["shader", "get", "/x/wave.gdshader", "--json"], "shader-get"
+)
 
+_shader_set = operation_error_invoker(
+    ["shader", "set", "/x/wave.gdshader", "--search", "a", "--replace", "b", "--json"],
+    "shader-set",
+)
 
-def _invoke(monkeypatch, argv, code, message, op):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr=f"gda: running operation: {op}\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(app, argv)
-
-
-def _create_argv():
-    return ["shader", "create", "/x/wave.gdshader", "--json"]
-
-
-def _get_argv():
-    return ["shader", "get", "/x/wave.gdshader", "--json"]
-
-
-def _set_argv():
-    return [
-        "shader",
-        "set",
-        "/x/wave.gdshader",
-        "--search",
-        "a",
-        "--replace",
-        "b",
-        "--json",
-    ]
-
-
-def _theme_argv():
-    return ["theme", "create", "/x/ui.tres", "--json"]
+_theme_create = operation_error_invoker(
+    ["theme", "create", "/x/ui.tres", "--json"], "theme-create"
+)
 
 
 # --- shader create: path collision (no-clobber) + wrong extension ----------
@@ -64,95 +37,61 @@ def test_shader_create_collision_reuses_stable_already_exists_code(monkeypatch):
     # No-clobber: a create whose target already exists reuses the registered
     # already_exists code (the same one scene/script create use), leaving the
     # file untouched — the shader group mints no parallel collision code.
-    result = _invoke(
-        monkeypatch,
-        _create_argv(),
-        "already_exists",
-        "shader target already exists: /x/wave.gdshader",
-        "shader-create",
+    result = _shader_create(
+        monkeypatch, "already_exists", "shader target already exists: /x/wave.gdshader"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "already_exists"
-    assert "/x/wave.gdshader" in err["message"]
-    assert err["diagnostics"] == "gda: running operation: shader-create\n"
+    assert_operation_error(
+        result,
+        "already_exists",
+        "/x/wave.gdshader",
+        diagnostics="gda: running operation: shader-create\n",
+    )
 
 
 def test_shader_create_wrong_extension_reuses_stable_invalid_path_code(monkeypatch):
-    result = _invoke(
-        monkeypatch,
-        _create_argv(),
-        "invalid_path",
-        "shader path must end in .gdshader: /x/wave.txt",
-        "shader-create",
+    result = _shader_create(
+        monkeypatch, "invalid_path", "shader path must end in .gdshader: /x/wave.txt"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "invalid_path"
-    assert ".gdshader" in err["message"]
+    assert_operation_error(result, "invalid_path", ".gdshader")
 
 
 def test_shader_create_unwritable_target_reuses_stable_save_failed_code(monkeypatch):
-    result = _invoke(
-        monkeypatch,
-        _create_argv(),
-        "save_failed",
-        "failed to save shader to /x/wave.gdshader",
-        "shader-create",
+    result = _shader_create(
+        monkeypatch, "save_failed", "failed to save shader to /x/wave.gdshader"
     )
 
-    assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "save_failed"
+    assert_operation_error(result, "save_failed")
 
 
 # --- shader get/set: file not found + wrong extension ----------------------
 
 
 def test_shader_get_missing_file_reuses_stable_path_not_found_code(monkeypatch):
-    result = _invoke(
-        monkeypatch,
-        _get_argv(),
-        "path_not_found",
-        "shader file does not exist: /x/wave.gdshader",
-        "shader-get",
+    result = _shader_get(
+        monkeypatch, "path_not_found", "shader file does not exist: /x/wave.gdshader"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "path_not_found"
-    assert "/x/wave.gdshader" in err["message"]
+    assert_operation_error(result, "path_not_found", "/x/wave.gdshader")
 
 
 def test_shader_get_wrong_extension_reuses_stable_invalid_path_code(monkeypatch):
-    result = _invoke(
-        monkeypatch,
-        _get_argv(),
-        "invalid_path",
-        "shader path must end in .gdshader: /x/notes.txt",
-        "shader-get",
+    result = _shader_get(
+        monkeypatch, "invalid_path", "shader path must end in .gdshader: /x/notes.txt"
     )
 
-    assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_path"
+    assert_operation_error(result, "invalid_path")
 
 
 def test_shader_set_missing_file_reuses_stable_path_not_found_code(monkeypatch):
     # set edits an existing shader; a missing target is path_not_found, never a
     # silent create (the same rule as script set).
-    result = _invoke(
-        monkeypatch,
-        _set_argv(),
-        "path_not_found",
-        "shader file does not exist: /x/wave.gdshader",
-        "shader-set",
+    result = _shader_set(
+        monkeypatch, "path_not_found", "shader file does not exist: /x/wave.gdshader"
     )
 
-    assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "path_not_found"
+    assert_operation_error(result, "path_not_found")
 
 
 # --- shader set: bad edit range / no search-replace match (reused codes) ----
@@ -162,80 +101,47 @@ def test_shader_set_no_search_match_maps_to_stable_no_search_match_code(monkeypa
     # search-replace mode: a search string the source does not contain is the
     # registered no_search_match code (reused from script set), so an agent
     # learns the edit landed nowhere rather than parsing prose.
-    result = _invoke(
-        monkeypatch,
-        _set_argv(),
-        "no_search_match",
-        'search string not found in shader: "xyzzy"',
-        "shader-set",
+    result = _shader_set(
+        monkeypatch, "no_search_match", 'search string not found in shader: "xyzzy"'
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "no_search_match"
-    assert "xyzzy" in err["message"]
+    assert_operation_error(result, "no_search_match", "xyzzy")
 
 
 def test_shader_set_invalid_line_range_maps_to_stable_invalid_line_range_code(
     monkeypatch,
 ):
-    result = _invoke(
+    result = _shader_set(
         monkeypatch,
-        _set_argv(),
         "invalid_line_range",
         "line range 5..9 is outside the shader's bounds (1..3) or ends before it starts",
-        "shader-set",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "invalid_line_range"
-    assert "1..3" in err["message"]
+    assert_operation_error(result, "invalid_line_range", "1..3")
 
 
 # --- theme create: path collision + wrong extension ------------------------
 
 
 def test_theme_create_collision_reuses_stable_already_exists_code(monkeypatch):
-    result = _invoke(
-        monkeypatch,
-        _theme_argv(),
-        "already_exists",
-        "theme target already exists: /x/ui.tres",
-        "theme-create",
+    result = _theme_create(
+        monkeypatch, "already_exists", "theme target already exists: /x/ui.tres"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "already_exists"
-    assert "/x/ui.tres" in err["message"]
+    assert_operation_error(result, "already_exists", "/x/ui.tres")
 
 
 def test_theme_create_wrong_extension_reuses_stable_invalid_path_code(monkeypatch):
-    result = _invoke(
-        monkeypatch,
-        _theme_argv(),
-        "invalid_path",
-        "theme path must end in .tres: /x/ui.txt",
-        "theme-create",
+    result = _theme_create(
+        monkeypatch, "invalid_path", "theme path must end in .tres: /x/ui.txt"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "invalid_path"
-    assert ".tres" in err["message"]
+    assert_operation_error(result, "invalid_path", ".tres")
 
 
 def test_theme_create_unwritable_target_reuses_stable_save_failed_code(monkeypatch):
-    result = _invoke(
-        monkeypatch,
-        _theme_argv(),
-        "save_failed",
-        "failed to save theme to /x/ui.tres",
-        "theme-create",
+    result = _theme_create(
+        monkeypatch, "save_failed", "failed to save theme to /x/ui.tres"
     )
 
-    assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "save_failed"
+    assert_operation_error(result, "save_failed")

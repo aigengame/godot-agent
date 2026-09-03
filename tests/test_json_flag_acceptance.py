@@ -36,11 +36,10 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.commands.meta import read_skill_text
 from gda.headless import adopt_group_json
-from gda.runner import RunResult
 from tests.support import (
     SCENE_GET_RESULT,
     GDA_CMD,
-    inject_runner,
+    invoke_cli,
     panel_text,
     plain_text,
     sentinel,
@@ -137,18 +136,16 @@ def test_both_spellings_together_are_not_a_conflict():
 def test_root_json_reaches_a_domain_command(monkeypatch):
     # Not just the meta commands: the inherited flag rides the shared sentinel
     # dispatch tail, so a domain command emits its JSON result too.
-    inject_runner(
+    root_spelling, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCENE_GET_RESULT), stderr="", exit_code=0),
+        ["--json", "scene", "get", "/tmp/x.tscn"],
+        stdout=sentinel(SCENE_GET_RESULT),
     )
-    root_spelling = CliRunner().invoke(app, ["--json", "scene", "get", "/tmp/x.tscn"])
 
-    inject_runner(
+    command_spelling, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(SCENE_GET_RESULT), stderr="", exit_code=0),
-    )
-    command_spelling = CliRunner().invoke(
-        app, ["scene", "get", "/tmp/x.tscn", "--json"]
+        ["scene", "get", "/tmp/x.tscn", "--json"],
+        stdout=sentinel(SCENE_GET_RESULT),
     )
 
     assert root_spelling.exit_code == 0, root_spelling.stdout
@@ -176,11 +173,7 @@ def _scene_get(monkeypatch, args: list[str]):
     default: a flag that parsed but did not reach the command would show up here as
     that text, which is the failure mode acceptance alone would hide.
     """
-    inject_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(SCENE_GET_RESULT), stderr="", exit_code=0),
-    )
-    return CliRunner().invoke(app, args)
+    return invoke_cli(monkeypatch, args, stdout=sentinel(SCENE_GET_RESULT))[0]
 
 
 def test_group_json_is_equivalent_to_the_commands_own_json(monkeypatch):

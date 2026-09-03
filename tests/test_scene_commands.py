@@ -16,22 +16,20 @@ from tests.support import (
     SCENE_DELETE_RESULT as DELETE_RESULT,
     SCENE_GET_RESULT as GET_RESULT,
     SCENE_LIST_RESULT as LIST_RESULT,
-    FakeRunner,
-    inject_runner,
+    invoke_cli,
+    minimal_project,
+    recording_runner,
     sentinel,
 )
 
 
 def test_scene_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(CREATE_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         ["scene", "create", "/tmp/proj/main.tscn", "--root-type", "Node2D", "--json"],
+        stdout=sentinel(CREATE_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -59,10 +57,8 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
     stdout = sentinel(
         {**CREATE_RESULT, "path": "/tmp/proj/level.v2.tscn", "root_name": "LevelV2"}
     )
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "scene",
             "create",
@@ -73,6 +69,7 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
             "LevelV2",
             "--json",
         ],
+        stdout=stdout,
     )
 
     assert result.exit_code == 0
@@ -90,10 +87,11 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
 
 
 def test_scene_get_json_emits_structured_node_tree_and_exit_zero(monkeypatch):
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(GET_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(app, ["scene", "get", "/tmp/proj/main.tscn", "--json"])
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "get", "/tmp/proj/main.tscn", "--json"],
+        stdout=sentinel(GET_RESULT),
+    )
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -108,33 +106,27 @@ def test_scene_get_json_emits_structured_node_tree_and_exit_zero(monkeypatch):
 def test_scene_get_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
     # --project resolves to a project dir and is handed to the runner (which
     # turns it into the engine's --path so res:// resolves there, issue #32).
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    seen: dict = {}
-
-    def record(binary, project):
-        seen["project"] = project
-        return FakeRunner(
-            RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
-        )
-
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    minimal_project(tmp_path)
+    projects = recording_runner(
+        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app, ["scene", "get", "res://main.tscn", "--project", str(tmp_path), "--json"]
     )
 
     assert result.exit_code == 0
-    assert seen["project"] == tmp_path
+    assert projects[0] == tmp_path
 
 
 def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
     # Path normalization lives at the CLI layer (issue #32): a filesystem path
     # gets ~ expanded; an engine-resolved res:// path passes through untouched.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    _, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "get", "~/game/main.tscn", "--json"],
+        stdout=sentinel(GET_RESULT),
     )
-
-    CliRunner().invoke(app, ["scene", "get", "~/game/main.tscn", "--json"])
     assert "~" not in fake.calls[0][1]["path"]
     assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
 
@@ -191,13 +183,11 @@ def test_scene_get_exports_json_emits_per_node_exports_and_exit_zero(monkeypatch
     # scene get-exports loads a scene and reports, per node (by node path), the
     # @export properties its attached script declares (issue #58): each export's
     # name, declared type, hint/hint_string, and value as typed JSON.
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(GET_EXPORTS_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["scene", "get-exports", "/tmp/proj/main.tscn", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "get-exports", "/tmp/proj/main.tscn", "--json"],
+        stdout=sentinel(GET_EXPORTS_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -224,12 +214,11 @@ def test_scene_get_exports_expands_user_home_in_filesystem_path_but_not_res(
 ):
     # Path normalization at the CLI layer (issue #32) applies to get-exports too:
     # a filesystem path gets ~ expanded; a res:// path passes through untouched.
-    fake = inject_runner(
+    _, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(GET_EXPORTS_RESULT), stderr="", exit_code=0),
+        ["scene", "get-exports", "~/game/main.tscn", "--json"],
+        stdout=sentinel(GET_EXPORTS_RESULT),
     )
-
-    CliRunner().invoke(app, ["scene", "get-exports", "~/game/main.tscn", "--json"])
     assert "~" not in fake.calls[0][1]["path"]
     assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
 
@@ -242,10 +231,10 @@ def test_scene_get_exports_empty_scene_is_a_valid_empty_listing(monkeypatch):
     # A scene with no exported variables anywhere is a successful, empty listing
     # (nodes == []), not a failure.
     stdout = sentinel({"path": "/tmp/proj/bare.tscn", "nodes": []})
-    inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app, ["scene", "get-exports", "/tmp/proj/bare.tscn", "--json"]
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["scene", "get-exports", "/tmp/proj/bare.tscn", "--json"],
+        stdout=stdout,
     )
 
     assert result.exit_code == 0
@@ -256,12 +245,11 @@ def test_scene_list_json_enumerates_project_scenes_and_exit_zero(monkeypatch, tm
     # scene list enumerates the resolved project's .tscn files (issue #54):
     # each entry carries its res:// path plus the root name/type read cheaply
     # from the scene's stored state.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(LIST_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app, ["scene", "list", "--project", str(tmp_path), "--json"]
+    minimal_project(tmp_path)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "list", "--project", str(tmp_path), "--json"],
+        stdout=sentinel(LIST_RESULT),
     )
 
     assert result.exit_code == 0
@@ -280,36 +268,28 @@ def test_scene_list_json_enumerates_project_scenes_and_exit_zero(monkeypatch, tm
 def test_scene_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
     # scene list enumerates res:// in the resolved project, so --project must
     # reach the runner (which hands it to the engine as --path, issue #32).
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    seen: dict = {}
-
-    def record(binary, project):
-        seen["project"] = project
-        return FakeRunner(
-            RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
-        )
-
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    minimal_project(tmp_path)
+    projects = recording_runner(
+        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app, ["scene", "list", "--project", str(tmp_path), "--json"]
     )
 
     assert result.exit_code == 0
-    assert seen["project"] == tmp_path
+    assert projects[0] == tmp_path
 
 
 def test_scene_delete_json_reports_what_was_removed_and_exit_zero(monkeypatch):
     # scene delete removes a scene file and names what it deleted (issue #54):
     # the path plus the removed scene's root name/type, so the result names the
     # content, not just the file.
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(DELETE_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["scene", "delete", "/tmp/proj/old.tscn", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "delete", "/tmp/proj/old.tscn", "--json"],
+        stdout=sentinel(DELETE_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -326,11 +306,11 @@ def test_scene_delete_json_reports_what_was_removed_and_exit_zero(monkeypatch):
 def test_scene_delete_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
     # Path normalization at the CLI layer (issue #32) applies to delete too: a
     # filesystem path gets ~ expanded; a res:// path passes through untouched.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(DELETE_RESULT), stderr="", exit_code=0)
+    _, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "delete", "~/game/old.tscn", "--json"],
+        stdout=sentinel(DELETE_RESULT),
     )
-
-    CliRunner().invoke(app, ["scene", "delete", "~/game/old.tscn", "--json"])
     assert "~" not in fake.calls[0][1]["path"]
     assert fake.calls[0][1]["path"].endswith("/game/old.tscn")
 

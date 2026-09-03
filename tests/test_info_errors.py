@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
 from tests.support import inject_runner as _inject
-from tests.support import raw_sentinel, sentinel
+from tests.support import assert_operation_error, raw_sentinel, sentinel
 
 
 def test_binary_not_found_maps_to_environment_error(monkeypatch):
@@ -88,10 +88,7 @@ def test_operation_failure_maps_to_operation_error_distinct_from_environment(
 
     result = CliRunner().invoke(app, ["info", "--json"])
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "operation_failed"
+    assert_operation_error(result, "operation_failed")
     assert "unknown operation" in result.stderr
 
 
@@ -108,12 +105,8 @@ def test_engine_signal_crash_maps_to_operation_error_distinct_from_clean_exit(
 
     result = CliRunner().invoke(app, ["info", "--json"])
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "engine_crashed"
     # The signal number is surfaced for diagnosis.
-    assert "11" in err["message"]
+    assert_operation_error(result, "engine_crashed", "11")
 
 
 def test_missing_sentinel_maps_to_parse_error_distinct_from_operation(monkeypatch):

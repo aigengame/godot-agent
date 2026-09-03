@@ -40,6 +40,7 @@ from tests.support import (
     screen_capture_reply,
     screen_frames_reply,
     usage_error_text,
+    minimal_project,
 )
 
 # A 1x1 transparent PNG (valid, decodes to real bytes) so a written file starts
@@ -47,11 +48,6 @@ from tests.support import (
 # tests.support, which the live-contract guard's capture probe reads too.
 _PNG_B64 = PNG_1X1_B64
 _PNG_1X1 = base64.b64decode(_PNG_B64)
-
-
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
 
 
 # --- input contract: output paths are params, not CLI-only (#222, PR #248) ----
@@ -79,7 +75,7 @@ def test_screen_capture_params_json_supplies_the_output_path(monkeypatch, tmp_pa
             "--params-json",
             payload,
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -100,7 +96,7 @@ def test_screen_capture_params_json_without_output_is_invalid_params(tmp_path):
             "--params-json",
             "{}",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -129,7 +125,7 @@ def test_screen_frames_params_json_supplies_the_output_dir(monkeypatch, tmp_path
             "--params-json",
             payload,
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -180,7 +176,7 @@ def test_screen_capture_writes_a_png_and_returns_its_path(monkeypatch, tmp_path)
             "--output",
             str(out),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -220,7 +216,7 @@ def test_screen_capture_inline_embeds_the_base64(monkeypatch, tmp_path):
             "--output",
             str(out),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -248,7 +244,7 @@ def test_screen_capture_with_no_daemon_reports_daemon_not_running(
             "--output",
             str(tmp_path / "shot.png"),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -285,7 +281,7 @@ def test_screen_capture_on_headless_session_reports_live_display_unavailable(
             "--output",
             str(out),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -343,7 +339,7 @@ def test_screen_frames_writes_each_png_and_returns_paths(monkeypatch, tmp_path):
             "--output-dir",
             str(out_dir),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -378,7 +374,7 @@ def test_screen_frames_with_no_daemon_reports_daemon_not_running(monkeypatch, tm
             "--output-dir",
             str(tmp_path / "frames"),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -407,7 +403,7 @@ def test_screen_frames_argv_frames_over_range_is_a_usage_error(monkeypatch, tmp_
             "--output-dir",
             str(tmp_path / "frames"),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -453,7 +449,7 @@ def test_screen_frames_params_json_over_range_frames_is_invalid_params(
             "screen",
             "frames",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
             "--params-json",
             payload,
@@ -529,7 +525,7 @@ def test_await_predicate_rides_the_wire_with_the_default_ceiling(monkeypatch, tm
     )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _await_argv(out, _project(tmp_path)))
+    result = CliRunner().invoke(app, _await_argv(out, minimal_project(tmp_path)))
 
     assert result.exit_code == 0, result.stdout + result.stderr
     # One op, the SAME screen-capture op — the predicate is params, not a new
@@ -571,7 +567,12 @@ def test_await_events_ride_the_same_window_and_report_surfaces(monkeypatch, tmp_
     result = CliRunner().invoke(
         app,
         _await_argv(
-            out, _project(tmp_path), "--await-frames", "30", "--await-events", events
+            out,
+            minimal_project(tmp_path),
+            "--await-frames",
+            "30",
+            "--await-events",
+            events,
         ),
     )
 
@@ -612,7 +613,7 @@ def test_await_bare_word_value_is_a_string_predicate(monkeypatch, tmp_path):
         app,
         _capture_argv(
             out,
-            _project(tmp_path),
+            minimal_project(tmp_path),
             "--await-node",
             "/root/Main/VFX",
             "--await-property",
@@ -642,7 +643,7 @@ def test_await_render_carries_the_predicate_line(monkeypatch, tmp_path):
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
     )
     out = tmp_path / "shot.png"
-    argv = _await_argv(out, _project(tmp_path))
+    argv = _await_argv(out, minimal_project(tmp_path))
     argv.remove("--json")
 
     result = CliRunner().invoke(app, argv)
@@ -668,7 +669,7 @@ def test_await_unmet_predicate_is_the_typed_live_error(monkeypatch, tmp_path):
     out = tmp_path / "shot.png"
 
     result = CliRunner().invoke(
-        app, _await_argv(out, _project(tmp_path), "--await-frames", "30")
+        app, _await_argv(out, minimal_project(tmp_path), "--await-frames", "30")
     )
 
     assert result.exit_code == EXIT_LIVE
@@ -699,7 +700,7 @@ def test_await_trio_is_all_or_none(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(
         app,
-        _capture_argv(out, _project(tmp_path), "--await-node", "/root/Main/VFX"),
+        _capture_argv(out, minimal_project(tmp_path), "--await-node", "/root/Main/VFX"),
     )
 
     message = _usage_error_message(result)
@@ -713,7 +714,7 @@ def test_await_value_null_is_refused_with_the_trio_message(monkeypatch, tmp_path
         app,
         _capture_argv(
             out,
-            _project(tmp_path),
+            minimal_project(tmp_path),
             "--await-node",
             "/root/Main/VFX",
             "--await-property",
@@ -734,7 +735,7 @@ def test_await_events_need_the_predicate(monkeypatch, tmp_path):
         app,
         _capture_argv(
             out,
-            _project(tmp_path),
+            minimal_project(tmp_path),
             "--await-events",
             '[{"type": "key", "key": "Right"}]',
         ),
@@ -751,7 +752,7 @@ def test_await_events_refuse_the_physics_clock(monkeypatch, tmp_path):
         app,
         _await_argv(
             out,
-            _project(tmp_path),
+            minimal_project(tmp_path),
             "--await-events",
             '[{"type": "key", "key": "Right", "physics_frame": 1}]',
         ),
@@ -782,7 +783,7 @@ def test_out_of_window_event_offset_is_accepted_and_rides_the_wire(
         app,
         _await_argv(
             out,
-            _project(tmp_path),
+            minimal_project(tmp_path),
             "--await-frames",
             "10",
             "--await-events",
@@ -815,7 +816,7 @@ def test_await_event_offset_must_fit_the_shared_total_window(monkeypatch, tmp_pa
         app,
         _await_argv(
             out,
-            _project(tmp_path),
+            minimal_project(tmp_path),
             "--await-frames",
             "10",
             "--await-events",
@@ -841,7 +842,7 @@ def test_await_frames_needs_the_predicate(monkeypatch, tmp_path):
     out = tmp_path / "shot.png"
 
     result = CliRunner().invoke(
-        app, _capture_argv(out, _project(tmp_path), "--await-frames", "30")
+        app, _capture_argv(out, minimal_project(tmp_path), "--await-frames", "30")
     )
 
     message = _usage_error_message(result)
@@ -870,7 +871,7 @@ def test_await_params_json_path_rejects_identically(monkeypatch, tmp_path):
             "--params-json",
             params,
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -913,7 +914,9 @@ def _await_capture(monkeypatch, tmp_path, reply, *extra):
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
     )
     out = tmp_path / "shot.png"
-    result = CliRunner().invoke(app, _await_argv(out, _project(tmp_path), *extra))
+    result = CliRunner().invoke(
+        app, _await_argv(out, minimal_project(tmp_path), *extra)
+    )
     return result, out
 
 
@@ -992,7 +995,7 @@ def test_plain_capture_with_unsolicited_predicate_is_contract_violation(
     )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
 
     _assert_contract_violation(result, out, "declared no --await predicate")
 
@@ -1018,7 +1021,7 @@ def test_capture_receipt_surfaces_with_the_written_file_hash(monkeypatch, tmp_pa
     )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
 
     assert result.exit_code == 0, result.stdout + result.stderr
     receipt = json.loads(result.stdout)["receipt"]
@@ -1044,7 +1047,7 @@ def test_gated_capture_receipt_echoes_the_predicate_evidence(monkeypatch, tmp_pa
     )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _await_argv(out, _project(tmp_path)))
+    result = CliRunner().invoke(app, _await_argv(out, minimal_project(tmp_path)))
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
@@ -1067,7 +1070,7 @@ def test_capture_reply_without_a_receipt_is_contract_violation(monkeypatch, tmp_
     )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
 
     data = json.loads(result.stdout)
     assert data["error"]["code"] == "contract_violation"
@@ -1086,7 +1089,7 @@ def test_receipt_missing_a_nullable_key_is_contract_violation(monkeypatch, tmp_p
     )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
 
     assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
     assert not out.exists()
@@ -1105,7 +1108,7 @@ def test_plain_capture_receipt_with_unsolicited_echo_is_contract_violation(
     )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, _project(tmp_path)))
+    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
 
     data = json.loads(result.stdout)
     assert data["error"]["code"] == "contract_violation"
@@ -1145,7 +1148,7 @@ def test_capture_render_carries_the_receipt_line(monkeypatch, tmp_path):
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
     )
     out = tmp_path / "shot.png"
-    argv = _capture_argv(out, _project(tmp_path))
+    argv = _capture_argv(out, minimal_project(tmp_path))
     argv.remove("--json")
 
     result = CliRunner().invoke(app, argv)
@@ -1444,7 +1447,7 @@ def test_frames_summary_returns_the_aggregate_and_still_writes_files(
             "--output-dir",
             str(out_dir),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1487,7 +1490,7 @@ def test_frames_default_form_is_unchanged_and_summary_null(monkeypatch, tmp_path
             "--output-dir",
             str(out_dir),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1519,7 +1522,7 @@ def test_frames_summary_rides_params_json_identically(monkeypatch, tmp_path):
             "--params-json",
             payload,
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1593,7 +1596,7 @@ def test_frames_reply_count_mismatch_is_contract_violation(monkeypatch, tmp_path
             "--output-dir",
             str(out_dir),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1628,7 +1631,7 @@ def test_frames_summary_reports_null_dims_for_a_nonuniform_sequence(
             "--output-dir",
             str(out_dir),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1664,7 +1667,7 @@ def test_frames_budget_mismatch_is_contract_violation(monkeypatch, tmp_path):
             "--output-dir",
             str(out_dir),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1741,7 +1744,7 @@ def test_nonuniform_summary_renders_the_varied_size_state(monkeypatch, tmp_path)
             "--output-dir",
             str(out_dir),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
         ],
     )
 
@@ -1812,7 +1815,7 @@ def test_frames_summary_render_is_one_aggregate_line(monkeypatch, tmp_path):
             "--output-dir",
             str(out_dir),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
         ],
     )
 

@@ -40,6 +40,7 @@ from gda.runner import RunResult
 from tests.support import (
     PNG_1X1_B64,
     inject_live_runner,
+    minimal_project,
     panel_text,
     screen_capture_reply,
     sentinel,
@@ -626,7 +627,7 @@ def test_the_classify_path_hands_back_the_engines_own_floats(monkeypatch, tmp_pa
     # values Godot's DEFAULT writer would have lost (1e-300 flattens, and
     # 3.141592653589793 loses its last digits), so the assertion would also fail
     # if anything CLI-side re-rendered the value.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     reply = {
         "path": "/root/Main/Player",
         "name": "Player",

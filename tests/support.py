@@ -12,12 +12,22 @@ between modules or imported test-module-to-test-module (issue #39).
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
+from typer.testing import CliRunner, Result
+
+from gda.cli import app
 from gda.runner import RunResult
+
+if TYPE_CHECKING:  # the daemon imports stay deferred; the annotation does not
+    from gda.daemon.server import DaemonServer
 
 # Typer renders help and usage errors through Rich, which colorizes when it
 # believes it is on a terminal — under GitHub Actions it does, while a local
@@ -146,6 +156,14 @@ class FakeExportRunner:
         return self.output
 
 
+# The line every real engine run writes before anything a command cares about.
+# A canned stdout carries it so the fake run looks like a real one and the
+# sentinel parser has the same preamble to skip. Spelled ONCE: the version in it
+# is arbitrary fixture data, and 65 hand-typed copies made it read like a version
+# each test depended on (issue #816).
+ENGINE_BANNER = "Godot Engine v4.6.3.stable.official\n"
+
+
 def sentinel(payload: dict) -> str:
     """Wrap ``payload`` in the ADR-0002 result sentinels, as operations.gd emits."""
     return raw_sentinel(json.dumps(payload))
@@ -201,6 +219,197 @@ def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
         "gda.dispatch.make_live_runner", lambda binary, project=None: fake
     )
     return fake
+
+
+def recording_runner(monkeypatch, result: RunResult) -> list[Path | None]:
+    """Swap the runner seam for one that RECORDS the project it was built with.
+
+    :func:`inject_runner` throws the factory's arguments away; this keeps them.
+    The seam ``gda.dispatch.make_runner(binary, project)`` is where the resolved
+    ``--project`` becomes visible to a test, because the runner turns it into the
+    engine's ``--path`` (issue #32). Returns the list the factory appends to — one
+    entry per runner built, in order — so a caller reads the project it expects,
+    or the whole list where the number of builds is the point.
+    """
+    projects: list[Path | None] = []
+
+    def record(binary, project=None):
+        projects.append(project)
+        return FakeRunner(result)
+
+    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    return projects
+
+
+def minimal_project(directory: Path) -> Path:
+    """Make ``directory`` the minimum a Godot project needs, and return it.
+
+    A ``project.godot`` holding a ``config_version`` is all that makes a directory
+    a project (ADR-0006), so this is what a command test needs whenever the CLI
+    must resolve one. The directory is created when it does not exist, so a test
+    can name a subdirectory of ``tmp_path`` in one call.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    return directory
+
+
+def invoke_cli(
+    monkeypatch,
+    argv: list[str],
+    *,
+    stdout: str = "",
+    stderr: str = "",
+    exit_code: int = 0,
+    banner: bool = True,
+    stdin: str | None = None,
+) -> tuple[Result, FakeRunner]:
+    """Run ``argv`` through the CLI against ONE canned engine run.
+
+    The invocation ritual every headless command test repeats: prefix the
+    :data:`ENGINE_BANNER` to the canned ``stdout``, swap the runner seam for a
+    :class:`FakeRunner` that replays it, and invoke the Typer app. Returns the
+    ``CliRunner`` result and the fake, so a test that only reads the result
+    writes ``result, _ = invoke_cli(...)`` and one that also checks what was
+    dispatched keeps the fake.
+
+    ``banner=False`` stages the ``stdout`` bytes ALONE. A real run always writes
+    the banner, so the default is what a test wants — except where the staged
+    stdout is itself the input under test (a frame with no result sentinel, a
+    malformed one), and adding a preamble would change the subject rather than
+    make the fixture faithful.
+
+    ``stdin`` is the text the CLI reads from standard input, for the one channel
+    that takes its payload there (``--params-json -``).
+    """
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=(ENGINE_BANNER + stdout) if banner else stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+        ),
+    )
+    return CliRunner().invoke(app, argv, input=stdin), fake
+
+
+def invoke_operation_error(
+    monkeypatch,
+    argv: list[str],
+    code: str,
+    message: str,
+    operation: str | None = None,
+) -> Result:
+    """Run ``argv`` against an engine run that REPORTED ``code``/``message``.
+
+    The failure twin of :func:`invoke_cli`: the canned run carries an ADR-0002
+    operation-error envelope instead of a result payload, exits non-zero, and
+    writes the runner's own progress notice on stderr — which the envelope then
+    echoes as ``diagnostics``. ``operation`` names the operation in that notice;
+    leave it out where the notice names none.
+    """
+    named = f": {operation}" if operation else ""
+    return invoke_cli(
+        monkeypatch,
+        argv,
+        stdout=error_sentinel(code, message),
+        stderr=f"gda: running operation{named}\n",
+        exit_code=1,
+    )[0]
+
+
+def operation_error_invoker(
+    argv: list[str] | Callable[..., list[str]], operation: str | None = None
+) -> Callable[..., Result]:
+    """Bind one command to :func:`invoke_operation_error`.
+
+    An error-test module states a command's argv and operation name ONCE and gets
+    back an ``invoke(monkeypatch, code, message)`` its tests call, so each test
+    names only the failure it stages. ``argv`` may instead be a callable that
+    BUILDS the command line — the form a command needs whose argv varies per test
+    (a node path, a uid target); the bound invoker forwards its extra keywords to
+    that callable.
+    """
+
+    def invoke(monkeypatch, code: str, message: str, **argv_kwargs):
+        command = argv(**argv_kwargs) if callable(argv) else argv
+        return invoke_operation_error(monkeypatch, command, code, message, operation)
+
+    return invoke
+
+
+def assert_operation_error(
+    result: Result, code: str, needle: str | None = None, diagnostics: str | None = None
+) -> dict:
+    """Assert ``result`` is the operation-category failure for ``code``, and return it.
+
+    The read side of :func:`invoke_operation_error`, and the one place the ADR-0002
+    operation-failure contract is spelled: exit 4 for the category, the
+    ``operation`` category on the envelope, and the stable code an agent branches
+    on. ``needle`` additionally asserts a fragment of the message; ``diagnostics``
+    asserts the raw stderr the envelope carries, and is always passed EXPLICITLY —
+    a module that checks it says so at the call site rather than inheriting it.
+    Returns the parsed error, so a caller asserts anything further on it.
+    """
+    assert result.exit_code == 4, result.stdout
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == code
+    if needle is not None:
+        assert needle in err["message"]
+    if diagnostics is not None:
+        assert err["diagnostics"] == diagnostics
+    return err
+
+
+class FakeProc:
+    """A stand-in ``subprocess.Popen``: ``poll()`` returns ``returncode``.
+
+    ``None`` means alive, so a test flips liveness by assigning ``returncode``.
+    One double for every daemon test that needs an engine process without
+    spawning one — the session only ever polls it and reads its pid.
+
+    ``pid`` is gda's OWN pid, deliberately: teardown reads the pid to find the
+    process group it owns, and the own-group guard then resolves this stand-in to
+    no group at all. An invented pid would instead resolve to whichever real
+    process holds it — which a test would then signal.
+
+    NOT :class:`RecordingSpawn`'s ``_CannedProcess``: this one answers liveness and
+    nothing else, and no test reads a stream from it. Reach for the other when the
+    subject is a SPAWN — an argv, a cwd, an environment, and real readable streams
+    for the launch primitive to drain.
+    """
+
+    pid = os.getpid()
+
+    def __init__(self, returncode: int | None = None) -> None:
+        self.returncode = returncode
+
+    def poll(self):
+        return self.returncode
+
+
+def server_with_session(
+    tmp_path: Path, log_file: Path, alive: bool = True
+) -> "DaemonServer":
+    """A ``DaemonServer`` holding a stand-in :class:`FakeProc` session.
+
+    The fixture the log-backed live reads need (``diag errors``, ``logger tail``,
+    #224/#281): the server serves them from the session's remembered log file, so
+    the test writes a log and asks the server, with no engine and no socket.
+    ``alive`` decides whether the session's process still polls as running.
+    """
+    from gda.daemon.discovery import daemon_paths
+    from gda.daemon.server import DaemonServer
+    from gda.daemon.session import EngineSession
+
+    server = DaemonServer(daemon_paths(minimal_project(tmp_path)), godot="godot")
+    server._session = EngineSession(
+        cast(subprocess.Popen, FakeProc(None if alive else 0)),
+        conn=None,
+        log_file=log_file,
+    )
+    return server
 
 
 def capture_receipt_reply(**overrides) -> dict:
@@ -1046,7 +1255,12 @@ class RecordingSpawn:
 
 
 class _CannedProcess:
-    """The child :class:`RecordingSpawn` hands back — see its docstring."""
+    """The child :class:`RecordingSpawn` hands back — see its docstring.
+
+    The heavier of the two process doubles: real readable streams, a wait that can
+    time out, a terminate that ends it. A daemon test that only needs the session
+    to answer "still alive?" wants :class:`FakeProc` instead.
+    """
 
     def __init__(
         self, stdout: bytes, stderr: bytes, returncode: int, *, alive: bool

@@ -61,6 +61,12 @@ def _unavailable(
 
 
 def _project(tmp_path):
+    """Not support.minimal_project: the payload reports the application NAME.
+
+    The daemon lifecycle payload echoes the project name it read, so this suite
+    needs a project.godot that carries one — a different file, not the shared
+    minimum plus a second write of the same path.
+    """
     (tmp_path / "project.godot").write_text(
         'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
     )

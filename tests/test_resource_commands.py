@@ -26,8 +26,9 @@ from tests.support import (
     PATH_TO_UID_RESULT,
     UID,
     UID_TO_PATH_RESULT,
-    FakeRunner,
-    inject_runner,
+    invoke_cli,
+    minimal_project,
+    recording_runner,
     sentinel,
 )
 
@@ -36,13 +37,8 @@ from tests.support import (
 
 
 def test_resource_set_dispatches_path_property_value_and_round_trips(monkeypatch):
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(SET_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "resource",
             "set",
@@ -53,6 +49,8 @@ def test_resource_set_dispatches_path_property_value_and_round_trips(monkeypatch
             "1",
             "--json",
         ],
+        stdout=sentinel(SET_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -78,12 +76,8 @@ def test_resource_set_dispatches_path_property_value_and_round_trips(monkeypatch
 
 
 def test_resource_set_human_output_is_set_path_property_type_value(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_cli(
+        monkeypatch,
         [
             "resource",
             "set",
@@ -93,6 +87,7 @@ def test_resource_set_human_output_is_set_path_property_type_value(monkeypatch):
             "--value",
             "1",
         ],
+        stdout=sentinel(SET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -105,11 +100,10 @@ def test_resource_set_human_output_is_set_path_property_type_value(monkeypatch):
 def test_resource_set_requires_value(monkeypatch):
     # --value is required: a set with no value is a usage error (exit 2), not a
     # silent no-op or an empty write.
-    fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
-
-    result = CliRunner().invoke(
-        app, ["resource", "set", "/tmp/proj/palette.tres", "--property", "x"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "set", "/tmp/proj/palette.tres", "--property", "x"],
+        stdout=sentinel(SET_RESULT),
     )
 
     assert result.exit_code == 2
@@ -117,11 +111,8 @@ def test_resource_set_requires_value(monkeypatch):
 
 
 def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
-    fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "resource",
             "set",
@@ -132,6 +123,7 @@ def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
             "1",
             "--json",
         ],
+        stdout=sentinel(SET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -144,13 +136,11 @@ def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
 
 
 def test_resource_delete_dispatches_path_and_reports_removed(monkeypatch):
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(DELETE_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "delete", "/tmp/proj/palette.tres", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "delete", "/tmp/proj/palette.tres", "--json"],
+        stdout=sentinel(DELETE_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -163,22 +153,21 @@ def test_resource_delete_dispatches_path_and_reports_removed(monkeypatch):
 
 
 def test_resource_delete_human_output_names_path_and_type(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(DELETE_RESULT), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["resource", "delete", "/tmp/proj/palette.tres"],
+        stdout=sentinel(DELETE_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["resource", "delete", "/tmp/proj/palette.tres"])
 
     assert result.exit_code == 0
     assert result.stdout.strip() == "deleted /tmp/proj/palette.tres (Gradient)"
 
 
 def test_resource_delete_res_path_passes_through_untouched(monkeypatch):
-    fake = FakeRunner(RunResult(stdout=sentinel(DELETE_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
-
-    result = CliRunner().invoke(
-        app, ["resource", "delete", "res://palette.tres", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "delete", "res://palette.tres", "--json"],
+        stdout=sentinel(DELETE_RESULT),
     )
 
     assert result.exit_code == 0
@@ -187,13 +176,8 @@ def test_resource_delete_res_path_passes_through_untouched(monkeypatch):
 
 def test_resource_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(CREATE_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "resource",
             "create",
@@ -202,6 +186,8 @@ def test_resource_create_json_maps_success_to_json_object_and_exit_zero(monkeypa
             "Gradient",
             "--json",
         ],
+        stdout=sentinel(CREATE_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -219,12 +205,10 @@ def test_resource_create_json_maps_success_to_json_object_and_exit_zero(monkeypa
 
 
 def test_resource_create_human_output_reports_path_and_type(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "create", "/tmp/proj/palette.tres", "--type", "Gradient"]
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["resource", "create", "/tmp/proj/palette.tres", "--type", "Gradient"],
+        stdout=sentinel(CREATE_RESULT),
     )
 
     assert result.exit_code == 0
@@ -234,11 +218,10 @@ def test_resource_create_human_output_reports_path_and_type(monkeypatch):
 
 
 def test_resource_get_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(GET_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app, ["resource", "get", "/tmp/proj/palette.tres", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "get", "/tmp/proj/palette.tres", "--json"],
+        stdout=sentinel(GET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -253,11 +236,11 @@ def test_resource_get_json_maps_success_to_json_object_and_exit_zero(monkeypatch
 
 
 def test_resource_get_human_output_lists_typed_properties(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["resource", "get", "/tmp/proj/palette.tres"],
+        stdout=sentinel(GET_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["resource", "get", "/tmp/proj/palette.tres"])
 
     assert result.exit_code == 0
     # The header names the resource and its type; each property is a typed line.
@@ -268,11 +251,10 @@ def test_resource_get_human_output_lists_typed_properties(monkeypatch):
 def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
     # A filesystem path gets ~ expanded at the CLI layer (issue #32); res://
     # virtual paths pass through untouched. Exercise the expansion seam.
-    fake = FakeRunner(RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
-
-    result = CliRunner().invoke(
-        app, ["resource", "create", "~/palette.tres", "--type", "Gradient", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "create", "~/palette.tres", "--type", "Gradient", "--json"],
+        stdout=sentinel(CREATE_RESULT),
     )
 
     assert result.exit_code == 0
@@ -282,11 +264,10 @@ def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
 
 
 def test_resource_get_res_path_passes_through_untouched(monkeypatch):
-    fake = FakeRunner(RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
-
-    result = CliRunner().invoke(
-        app, ["resource", "get", "res://palette.tres", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "get", "res://palette.tres", "--json"],
+        stdout=sentinel(GET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -296,14 +277,12 @@ def test_resource_get_res_path_passes_through_untouched(monkeypatch):
 def test_resource_uid_resolves_uid_to_path_json_and_exit_zero(monkeypatch, tmp_path):
     # Given a uid://, the command reports the res:// path it resolves to. Engine
     # banner noise around the sentinel, diagnostics on stderr (ADR-0002).
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(UID_TO_PATH_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "uid", UID, "--project", str(tmp_path), "--json"]
+    minimal_project(tmp_path)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "uid", UID, "--project", str(tmp_path), "--json"],
+        stdout=sentinel(UID_TO_PATH_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -320,12 +299,11 @@ def test_resource_uid_resolves_uid_to_path_json_and_exit_zero(monkeypatch, tmp_p
 def test_resource_uid_resolves_path_to_uid_json_and_exit_zero(monkeypatch, tmp_path):
     # Given a res:// path, the command reports its assigned uid://. The result is
     # the same shape; only `queried` distinguishes which side was the target.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(PATH_TO_UID_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app, ["resource", "uid", PATH, "--project", str(tmp_path), "--json"]
+    minimal_project(tmp_path)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["resource", "uid", PATH, "--project", str(tmp_path), "--json"],
+        stdout=sentinel(PATH_TO_UID_RESULT),
     )
 
     assert result.exit_code == 0
@@ -340,36 +318,28 @@ def test_resource_uid_resolves_path_to_uid_json_and_exit_zero(monkeypatch, tmp_p
 def test_resource_uid_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
     # Resolution queries the project's UID cache, so --project must reach the
     # runner (which hands it to the engine as --path, issue #32).
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    seen: dict = {}
-
-    def record(binary, project):
-        seen["project"] = project
-        return FakeRunner(
-            RunResult(stdout=sentinel(UID_TO_PATH_RESULT), stderr="", exit_code=0)
-        )
-
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    minimal_project(tmp_path)
+    projects = recording_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(UID_TO_PATH_RESULT), stderr="", exit_code=0),
+    )
 
     result = CliRunner().invoke(
         app, ["resource", "uid", UID, "--project", str(tmp_path), "--json"]
     )
 
     assert result.exit_code == 0
-    assert seen["project"] == tmp_path
+    assert projects[0] == tmp_path
 
 
 def test_resource_uid_expands_tilde_for_a_filesystem_target(monkeypatch, tmp_path):
     # A filesystem path target gets ~ expanded at the CLI layer so a literal ~
     # works without a shell (issue #32); a uid:// / res:// target is untouched.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    fake = inject_runner(
+    minimal_project(tmp_path)
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(PATH_TO_UID_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "uid", "~/data.tres", "--project", str(tmp_path), "--json"]
+        ["resource", "uid", "~/data.tres", "--project", str(tmp_path), "--json"],
+        stdout=sentinel(PATH_TO_UID_RESULT),
     )
 
     assert result.exit_code == 0
@@ -386,14 +356,11 @@ def test_resource_uid_expands_tilde_for_a_filesystem_target(monkeypatch, tmp_pat
 def test_resource_uid_human_output_renders_uid_arrow_path(monkeypatch, tmp_path):
     # Without --json, a resolved mapping renders as `<uid> -> <path>`, the same
     # for both directions since the result shape is identical.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    inject_runner(
+    minimal_project(tmp_path)
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(UID_TO_PATH_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["resource", "uid", UID, "--project", str(tmp_path)]
+        ["resource", "uid", UID, "--project", str(tmp_path)],
+        stdout=sentinel(UID_TO_PATH_RESULT),
     )
 
     assert result.exit_code == 0

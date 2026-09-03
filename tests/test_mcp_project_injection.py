@@ -12,7 +12,6 @@ engine-free. The real MCP -> gda -> engine chain is the L4 e2e gate.
 
 import json
 import sys
-from pathlib import Path
 
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server, dispatch
@@ -24,14 +23,7 @@ from tests.mcp_support import (
     roots_changed_call,
     schema_then,
 )
-from tests.support import SCENE_CREATE_RESULT
-
-
-def _project(dir_path: Path) -> Path:
-    """Mark ``dir_path`` a Godot project (a ``project.godot`` is all that counts)."""
-    dir_path.mkdir(parents=True, exist_ok=True)
-    (dir_path / "project.godot").write_text("", encoding="utf-8")
-    return dir_path
+from tests.support import SCENE_CREATE_RESULT, minimal_project
 
 
 def test_no_tool_inputschema_carries_a_project_field():
@@ -88,7 +80,7 @@ def test_server_resolves_gda_project_env_and_injects_it_on_dispatch(
 ):
     # The full env -> resolve -> inject glue: GDA_PROJECT points at a real project,
     # so every tool call dispatches gda against it (here observed at the seam).
-    proj = _project(tmp_path)
+    proj = minimal_project(tmp_path)
     monkeypatch.setenv("GDA_PROJECT", str(proj))
     runner = FakeGdaRunner(
         schema_then(lambda args, stdin: gda_result(json.dumps(SCENE_CREATE_RESULT)))
@@ -109,7 +101,7 @@ def _scene_create_runner():
 
 def test_client_root_resolves_project_when_gda_project_unset(tmp_path, monkeypatch):
     monkeypatch.delenv("GDA_PROJECT", raising=False)
-    proj = _project(tmp_path / "game")
+    proj = minimal_project(tmp_path / "game")
     runner = _scene_create_runner()
     server = build_server(runner)
 
@@ -125,8 +117,8 @@ def test_client_root_resolves_project_when_gda_project_unset(tmp_path, monkeypat
 
 
 def test_gda_project_env_beats_client_roots(tmp_path, monkeypatch):
-    pinned = _project(tmp_path / "pinned")
-    other = _project(tmp_path / "other")
+    pinned = minimal_project(tmp_path / "pinned")
+    other = minimal_project(tmp_path / "other")
     monkeypatch.setenv("GDA_PROJECT", str(pinned))
     runner = _scene_create_runner()
     server = build_server(runner)
@@ -146,7 +138,7 @@ def test_invalid_client_roots_skipped_first_valid_used(tmp_path, monkeypatch):
     monkeypatch.delenv("GDA_PROJECT", raising=False)
     not_a_project = tmp_path / "plain"
     not_a_project.mkdir()
-    proj = _project(tmp_path / "game")
+    proj = minimal_project(tmp_path / "game")
     runner = _scene_create_runner()
     server = build_server(runner)
 
@@ -169,8 +161,8 @@ def test_project_is_snapshotted_on_first_call_then_cached(tmp_path, monkeypatch)
     # snapshot. (Re-resolution on a roots/list_changed notification — a different
     # trigger — is exercised by the two tests below.)
     monkeypatch.delenv("GDA_PROJECT", raising=False)
-    first = _project(tmp_path / "first")
-    second = _project(tmp_path / "second")
+    first = minimal_project(tmp_path / "first")
+    second = minimal_project(tmp_path / "second")
     runner = _scene_create_runner()
     server = build_server(runner)
 
@@ -196,8 +188,8 @@ def test_roots_list_changed_reresolves_to_the_new_active_project(tmp_path, monke
     # gda-mcp invalidates its cached project so the NEXT tool call re-runs the
     # ADR-0014 precedence against the now-current roots.
     monkeypatch.delenv("GDA_PROJECT", raising=False)
-    first = _project(tmp_path / "first")
-    second = _project(tmp_path / "second")
+    first = minimal_project(tmp_path / "first")
+    second = minimal_project(tmp_path / "second")
     runner = _scene_create_runner()
     server = build_server(runner)
 
@@ -216,8 +208,8 @@ def test_roots_list_changed_reresolves_to_the_new_active_project(tmp_path, monke
 def test_roots_list_changed_does_not_override_pinned_gda_project(tmp_path, monkeypatch):
     # #209: an explicitly pinned GDA_PROJECT wins regardless of a roots change —
     # resolve_project_dir reads env first, so re-resolution returns the pin.
-    pinned = _project(tmp_path / "pinned")
-    other = _project(tmp_path / "other")
+    pinned = minimal_project(tmp_path / "pinned")
+    other = minimal_project(tmp_path / "other")
     monkeypatch.setenv("GDA_PROJECT", str(pinned))
     runner = _scene_create_runner()
     server = build_server(runner)
@@ -261,7 +253,7 @@ def test_stateless_connection_degrades_to_no_project_without_error(
     # projectless (no NoBackChannelError escapes the server), landing on the
     # env→cwd tail of the ADR-0014 precedence.
     monkeypatch.delenv("GDA_PROJECT", raising=False)
-    unreachable = _project(tmp_path / "game")
+    unreachable = minimal_project(tmp_path / "game")
     runner = _scene_create_runner()
     server = build_server(runner)
 
@@ -282,7 +274,7 @@ def test_gda_project_env_resolves_on_stateless_connection(tmp_path, monkeypatch)
     # ADR-0039 promotes GDA_PROJECT to the durable anchor: on a 2026-07-28
     # connection (no roots signal at all) the env pin must keep resolving exactly
     # as it does for legacy clients.
-    proj = _project(tmp_path)
+    proj = minimal_project(tmp_path)
     monkeypatch.setenv("GDA_PROJECT", str(proj))
     runner = _scene_create_runner()
     server = build_server(runner)

@@ -33,8 +33,11 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.runner import RunResult
 from tests.support import (
+    ENGINE_BANNER,
     FakeExportRunner,
-    FakeRunner,
+    inject_runner,
+    invoke_cli,
+    minimal_project,
     plain_text,
     sentinel,
 )
@@ -52,15 +55,9 @@ GET_RESULT = {
 
 def _inject(monkeypatch, *, get=GET_RESULT, export=None):
     """Wire both seams: the sentinel runner for export-get, the export runner."""
-    get_runner = FakeRunner(
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n" + sentinel(get),
-            stderr="",
-            exit_code=0,
-        )
-    )
-    monkeypatch.setattr(
-        "gda.dispatch.make_runner", lambda binary, project=None: get_runner
+    get_runner = inject_runner(
+        monkeypatch,
+        RunResult(stdout=ENGINE_BANNER + sentinel(get), stderr="", exit_code=0),
     )
     if export is None:
         export = RunResult(stdout="", stderr="", exit_code=0)
@@ -84,7 +81,7 @@ def test_export_run_params_json_drives_the_native_export_runner(monkeypatch, tmp
     # sentinel pipeline. --params-json (ADR-0015) must drive that SAME recipe, so
     # the export runner is actually invoked — a regression guard against the
     # generic dispatch hook routing it through the wrong (sentinel) path.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     _, export_runner = _inject(monkeypatch)
 
     result = CliRunner().invoke(
@@ -114,7 +111,7 @@ def test_export_run_json_reports_configured_path_and_exit_zero(monkeypatch, tmp_
     # acceptance behavior) and reports the result (preset, platform, mode,
     # output_path, warnings) as typed JSON. The mode is always release in #121; an
     # agent's template-readiness check via export get is now also gda's preflight.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     _, export_runner = _inject(monkeypatch)
 
     result = CliRunner().invoke(
@@ -149,7 +146,7 @@ def test_export_run_json_reports_configured_path_and_exit_zero(monkeypatch, tmp_
 def test_export_run_json_keeps_native_progress_on_stderr(monkeypatch, tmp_path):
     # issue #431: the native export phase gets a progress line, but JSON stdout
     # remains exactly one machine-readable result object.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     _, export_runner = _inject(monkeypatch)
 
     result = CliRunner().invoke(
@@ -187,7 +184,7 @@ def test_export_run_default_mode_is_release(monkeypatch, tmp_path):
     # #170 adds --mode but keeps release the default: omitting --mode runs the
     # native --export-release invocation and reports mode == "release", the #121
     # behavior preserved.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     _, export_runner = _inject(monkeypatch)
 
     result = CliRunner().invoke(
@@ -214,7 +211,7 @@ def test_export_run_mode_selects_export_flavor(monkeypatch, tmp_path):
     # --mode (issue #170) selects the export flavor, reflected in BOTH the native
     # invocation (the mode string the runner is asked to export) and the result's
     # `mode` field. Each of debug/pack flows end-to-end through the pipeline.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     for mode in ("debug", "pack"):
         _, export_runner = _inject(monkeypatch)
 
@@ -245,7 +242,7 @@ def test_export_run_mode_selects_export_flavor(monkeypatch, tmp_path):
 def test_export_run_rejects_unknown_mode(monkeypatch, tmp_path):
     # --mode is a closed set (release/debug/pack); an unrecognized value is a
     # Typer usage error (exit 2) and spawns no engine.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
 
     def _boom(*args, **kwargs):
         raise AssertionError("a rejected --mode must not spawn any engine")
@@ -275,7 +272,7 @@ def test_export_run_output_overrides_configured_path(monkeypatch, tmp_path):
     # native export is driven to the override, NOT the configured "build/game.x86_64",
     # and the result's output_path reports the effective destination.
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     _, export_runner = _inject(monkeypatch)
 
     result = CliRunner().invoke(
@@ -309,7 +306,7 @@ def test_export_run_relative_output_resolves_against_invoker_cwd(monkeypatch, tm
     # reaches Godot. The JSON result reports the same absolute artifact path.
     project = tmp_path / "project"
     project.mkdir()
-    (project / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(project)
     invoker_cwd = tmp_path / "caller"
     invoker_cwd.mkdir()
     monkeypatch.chdir(invoker_cwd)
@@ -344,7 +341,7 @@ def test_export_run_output_expands_leading_tilde(monkeypatch, tmp_path):
     # the artifact lands in $HOME, not a literal "~" directory.
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     _, export_runner = _inject(monkeypatch)
 
     result = CliRunner().invoke(
@@ -376,7 +373,7 @@ def test_export_run_output_overrides_unset_configured_path(monkeypatch, tmp_path
     # is empty: the export_path_unset preflight no longer fires (there IS a place to
     # write), and the export runs to the override.
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     get = {**GET_RESULT, "export_path": ""}
     _, export_runner = _inject(monkeypatch, get=get)
 
@@ -407,7 +404,7 @@ def test_export_run_surfaces_advisory_warnings(monkeypatch, tmp_path):
     # A clean export (exit 0) that still emits engine WARNING lines surfaces them
     # advisorily on the success result (ADR-0002: stderr is advisory for success),
     # not as a failure — the export succeeded.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     _inject(
         monkeypatch,
         export=RunResult(
@@ -451,7 +448,7 @@ def test_export_run_missing_templates_is_structured_preflight(monkeypatch, tmp_p
     # templates_installed=False, so gda fails with export_templates_missing BEFORE
     # spawning any native export — no stderr string-matching (ADR-0002), no native
     # run. The message names the templates_version the agent must install.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     get = {
         **GET_RESULT,
         "templates_installed": False,
@@ -487,7 +484,7 @@ def test_export_run_pack_skips_template_preflight_when_missing(monkeypatch, tmp_
     # templates_installed=False, pack must NOT emit export_templates_missing — it
     # proceeds straight to the native runner. (release/debug, which DO need
     # templates, still fail fast — asserted by the parametric test below.)
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     get = {
         **GET_RESULT,
         "templates_installed": False,
@@ -523,7 +520,7 @@ def test_export_run_release_debug_still_require_templates_when_missing(
     # The counterpart guard: release and debug DO need platform templates, so with
     # templates_installed=False they still fail fast with export_templates_missing
     # before any native run — only pack is exempt (#170).
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     for mode in ("release", "debug"):
         get = {
             **GET_RESULT,
@@ -557,7 +554,7 @@ def test_export_run_release_debug_still_require_templates_when_missing(
 def test_export_run_generic_failure_is_structured(monkeypatch, tmp_path):
     # A non-zero export with no recognized stderr signature is the generic
     # export_failed code; the engine's stderr is preserved as diagnostics.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     _inject(
         monkeypatch,
         export=RunResult(
@@ -589,7 +586,7 @@ def test_export_run_unset_path_is_structured(monkeypatch, tmp_path):
     # A preset whose configured export_path is empty is the export_path_unset
     # failure — reported BEFORE the native export runs (no --output to fall back
     # on; that override is deferred to #170).
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     get = {**GET_RESULT, "export_path": ""}
     _, export_runner = _inject(monkeypatch, get=get)
 
@@ -615,32 +612,19 @@ def test_export_run_unset_path_is_structured(monkeypatch, tmp_path):
 def test_export_run_unknown_preset_reuses_export_get_error(monkeypatch, tmp_path):
     # An unknown preset surfaces export-get's clean export_preset_not_found,
     # reused verbatim — and no native export is attempted.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    get_runner = FakeRunner(
-        RunResult(
-            stdout=sentinel(
-                {
-                    "error": {
-                        "code": "export_preset_not_found",
-                        "message": "no such preset",
-                    }
-                }
-            ),
-            stderr="",
-            exit_code=4,
-        )
-    )
-    monkeypatch.setattr(
-        "gda.dispatch.make_runner", lambda binary, project=None: get_runner
-    )
+    minimal_project(tmp_path)
     export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
     monkeypatch.setattr(
         "gda.dispatch.make_export_runner", lambda binary, project=None: export_runner
     )
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_cli(
+        monkeypatch,
         ["export", "run", "--preset", "Nope", "--project", str(tmp_path), "--json"],
+        stdout=sentinel(
+            {"error": {"code": "export_preset_not_found", "message": "no such preset"}}
+        ),
+        exit_code=4,
     )
 
     assert result.exit_code == 4
@@ -699,7 +683,7 @@ def test_export_run_help_documents_output_resolution():
 
 def test_export_run_human_output_echoes_artifact(monkeypatch, tmp_path):
     # Without --json the command renders a human line naming the artifact.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     _inject(monkeypatch)
 
     result = CliRunner().invoke(

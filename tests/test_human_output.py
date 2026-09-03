@@ -22,11 +22,8 @@ These run engine-free (FakeRunner) under ``-m "not e2e"``.
 """
 
 import pytest
-from typer.testing import CliRunner
 
-from gda.cli import app
-from gda.runner import RunResult
-from tests.support import inject_runner, sentinel
+from tests.support import invoke_cli, sentinel
 
 # Each case: (id, argv-without-`--json`, success-payload, expected-stdout-text).
 # The payload is wrapped in the result sentinel as operations.gd emits it; the
@@ -498,11 +495,7 @@ def test_human_mode_cli_output_is_exactly_the_rendered_text(
     # with a fake runner, and assert the exact stdout: the renderer's text plus
     # the single trailing newline typer.echo adds. This pins #139's render
     # dispatch + #140's gda.render end-to-end, per command.
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(app, argv)
+    result, _ = invoke_cli(monkeypatch, argv, stdout=sentinel(payload))
 
     assert result.exit_code == 0
     assert result.stdout == expected + "\n"

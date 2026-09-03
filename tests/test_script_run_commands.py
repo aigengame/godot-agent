@@ -15,13 +15,13 @@ SAME recipe (ADR-0015), not the wrong runner.
 """
 
 import json
-from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
+from tests.support import assert_operation_error, minimal_project
 
 
 def _patch_launch(monkeypatch, result: RunResult) -> list:
@@ -41,13 +41,8 @@ def _patch_launch(monkeypatch, result: RunResult) -> list:
     return calls
 
 
-def _project(tmp_path: Path) -> Path:
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
-
-
 def test_clean_run_emits_the_passthrough_result(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="hi\n", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -83,7 +78,7 @@ def test_non_zero_script_exit_is_success_process_exits_zero(monkeypatch, tmp_pat
     # THE CRUX at the CLI boundary: a script quit(1) is a SUCCESS — the JSON carries
     # exit_status=1 but the gda PROCESS exits 0 (not an error envelope). This is the
     # one command where success != zero exit_status.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(monkeypatch, RunResult(stdout="fail\n", stderr="", exit_code=1))
 
     result = CliRunner().invoke(
@@ -105,7 +100,7 @@ def test_strict_makes_the_process_exit_the_registered_operation_code(
     # the JSON — the process exits 4, the registered operation code. Not 1: the
     # child's own status is never propagated verbatim, or a script's quit(3) would
     # alias EXIT_VERSION and a quit(124) the runner's timeout.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(monkeypatch, RunResult(stdout="fail\n", stderr="", exit_code=1))
 
     result = CliRunner().invoke(
@@ -121,16 +116,13 @@ def test_strict_makes_the_process_exit_the_registered_operation_code(
         ],
     )
 
-    assert result.exit_code == 4, result.stdout + result.stderr
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "script_failed"
-    assert err["category"] == "operation"
+    assert_operation_error(result, "script_failed")
 
 
 def test_strict_is_reachable_through_params_json(monkeypatch, tmp_path):
     # --strict is a params field, not an argv-only flag (ADR-0015), so gda-mcp and
     # any JSON caller can opt in exactly as argv does.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=2))
 
     result = CliRunner().invoke(
@@ -146,14 +138,13 @@ def test_strict_is_reachable_through_params_json(monkeypatch, tmp_path):
         ],
     )
 
-    assert result.exit_code == 4, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "script_failed"
+    assert_operation_error(result, "script_failed")
 
 
 def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):
     # --params-json (ADR-0015) must drive the SAME recipe — a regression guard that
     # the generic dispatch hook does not route script run through the wrong runner.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="ok\n", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -179,7 +170,7 @@ def test_both_path_forms_are_accepted_at_the_cli(monkeypatch, tmp_path, form):
     # AC of #675 at the CLI boundary: ONE script-path representation now serves both
     # `script validate` and `script run`. Whichever form the caller types, the launch
     # gets the canonical res:// address and the result reports it back.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="ok\n", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -197,7 +188,7 @@ def test_params_json_accepts_the_project_relative_form_too(monkeypatch, tmp_path
     # ADR-0015: the argv and --params-json paths must agree on the new form as well,
     # since the acceptance rides on the model's shared NormalizedPath plus the one
     # operation-side lift — not on argv-only handling.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="ok\n", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -240,7 +231,7 @@ def test_a_non_project_scoped_path_emits_invalid_path_envelope(
     # reached the engine and came back a phantom exit-0 success before this guard.
     # These are ADDRESS-FORM refusals; the upward escapes moved to the shared
     # containment code below (#763).
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -263,7 +254,7 @@ def test_an_escaping_path_emits_the_shared_containment_code(
     # one containment answer instead of a per-command spelling. It stays a
     # pre-launch refusal, and it names no resolved root, because this whole path
     # edge is decided ahead of the projectless check (ADR-0031).
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -271,9 +262,7 @@ def test_an_escaping_path_emits_the_shared_containment_code(
         ["script", "run", script, "--project", str(project), "--json"],
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "target_outside_project"
+    err = assert_operation_error(result, "target_outside_project")
     assert "evidence" not in err
     assert not calls, "no engine launch on an escaping path"
 
@@ -282,7 +271,7 @@ def test_a_tilde_path_is_refused_as_the_absolute_path_it_means(monkeypatch, tmp_
     # The shared NormalizedPath is what makes this honest (#675): `~/logic.gd` expands
     # to an absolute path and is refused as one, instead of being lifted into a
     # nonsense `res://~/logic.gd` naming a directory called `~` inside the project.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -365,7 +354,7 @@ def test_an_unexpandable_tilde_keeps_the_structured_refusal(
     # Both channels because they FAIL DIFFERENTLY: --params-json wraps model
     # construction (it would have reported invalid_params), while the argv body builds
     # the model directly and had nothing to catch the raise at all.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
     tilde = "~nosuchuser_gda_test/x.gd"
     argv = ["script", "run"]
@@ -375,10 +364,7 @@ def test_an_unexpandable_tilde_keeps_the_structured_refusal(
 
     result = CliRunner().invoke(app, [*argv, "--project", str(project), "--json"])
 
-    assert result.exit_code == 4, result.stdout + (result.stderr or "")
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "invalid_path"
-    assert err["category"] == "operation"
+    err = assert_operation_error(result, "invalid_path")
     # The message names the path the caller gave, tilde intact.
     assert tilde in err["message"]
     assert not calls, "no engine launch on an invalid path"
@@ -391,7 +377,7 @@ def test_an_unexpandable_tilde_keeps_the_structured_refusal(
 
 
 def test_timeout_reaches_the_launch_from_argv(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -418,7 +404,7 @@ def test_timeout_reaches_the_launch_from_argv(monkeypatch, tmp_path):
 def test_timeout_and_marker_reach_the_launch_through_params_json(monkeypatch, tmp_path):
     # ADR-0015: both are params fields, so a JSON/MCP caller opts in exactly as argv
     # does — a fixed ceiling with no JSON route would leave gda-mcp on the old defect.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -460,7 +446,7 @@ def test_a_non_positive_timeout_is_a_usage_error_not_a_launch(
     # A zero or negative ceiling would end every run instantly. It is refused before
     # any spawn — as a usage error on argv, where Click's exit 2 is the ergonomic
     # answer, mirroring how `script set` handles a contradictory edit.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -489,7 +475,7 @@ def test_a_non_positive_timeout_is_structured_through_params_json(
     # The same rule on the JSON path surfaces as the structured `invalid_params`
     # envelope rather than a Click usage error, because the model enforces it
     # (ADR-0015) — one rule, two idiomatic reports.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -515,7 +501,7 @@ def test_an_empty_completion_marker_is_refused(monkeypatch, tmp_path):
     # An empty marker would match every line, disarming the abort while looking
     # declared — the same class of mistake as an empty --godot, so it is refused
     # rather than silently ignored.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -545,7 +531,7 @@ def test_a_non_finite_timeout_is_refused_on_argv(monkeypatch, tmp_path, value):
     # exact opposite of what the option is for, and reached by an ordinary CLI string
     # because Click parses these through float(). `nan` fails the same way, comparing
     # false against everything. `1e400` overflows to inf without ever spelling it.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -576,7 +562,7 @@ def test_a_non_finite_timeout_is_refused_through_params_json(
     # decoder accepts the `Infinity`/`NaN` extensions, and a plain overflowing literal
     # needs no extension at all. Enforced by the shared params model, so it surfaces as
     # the structured `invalid_params` envelope (ADR-0015).
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -603,7 +589,7 @@ def test_a_blank_completion_marker_is_refused_on_argv(monkeypatch, tmp_path, mar
     # The marker is compared as a stripped whole LINE, so a blank one would equal every
     # blank line the run prints and arm the abort on nothing. Refused rather than
     # silently ignored — the same treatment an empty --godot gets.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -629,7 +615,7 @@ def test_a_blank_completion_marker_is_refused_on_argv(monkeypatch, tmp_path, mar
 def test_a_blank_completion_marker_is_refused_through_params_json(
     monkeypatch, tmp_path
 ):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
