@@ -1,15 +1,18 @@
-<!-- gda-readme-i18n: source=README.md sha256=4a9280269cf9d3736b7e026aaeec5a30cec96824f74faa65a01b6e14b8eb4aac -->
+<!-- gda-readme-i18n: source=README.md sha256=ae73125c3874a073c1517d361baca2995e4caa1d4ac167ef753c6bf7d32f133b -->
 
-# godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
+# gda — 面向 AI Agent 的 Godot 自动化
 
-![godot-agent title image](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)
+[![gda — 面向 AI Agent 的 Godot 自动化](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)](https://aigengame.xyz/zh/)
 
 **其他语言:** [English](../README.md) · **简体中文** · [Español](README.es.md) · [日本語](README.ja.md)
 
-> **`gda` 让你的 AI 编程 agent——或者你的 shell 脚本和 CI——以结构化、机器可读的方式
-> 操控 [Godot Engine](https://godotengine.org)。** 以 Headless 方式创建场景、编辑节点和脚本、
-> 导出构建产物，然后实时操控*正在运行*的游戏：运行时树、输入、
-> 截图、性能——一套命令界面，三种接入方式。
+[产品概览](https://aigengame.xyz/zh/) ·
+[CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/) ·
+[PyPI](https://pypi.org/project/gda/)
+
+> **让 Coding Agent、Shell 脚本与 CI 构建并验证 Godot 项目。**
+> `gda` 通过 CLI、随包附带的 Agent Skill 和 MCP server 提供同一套遵循 Godot
+> 语义的操作，并返回 Agent 可直接处理的结构化结果。
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
@@ -19,17 +22,14 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你补上这一环：你的 agent
-发出一个操作，拿回一个干净的 JSON 结果就能据此行动——无需费力查找引擎日志。
-它有**两种模式**：
+文件修改完成，不代表游戏改动已经通过验证。`gda` 用两种互补模式补上验证环节：
 
-- **Headless（无头）** — 一次性、无状态、零配置。无需编辑器插件、无需 daemon，
-  无需往你的项目里安装任何东西。创建和编辑场景、节点、脚本、资源、着色器和主题；
-  分析项目；导出构建产物。
-- **Live（实时）** — 通过一个后台 daemon 操控*正在运行*的游戏，完成所有只有运行中的引擎才能做的事：
-  读取运行时场景树、读写运行时属性、模拟输入、捕获截图、采样性能。
+- **Headless** — 无需编辑器插件或 daemon，即可创建和编辑项目内容、编译脚本、
+  校验并启动场景、检查项目以及导出构建产物。
+- **Live** — 通过项目级 daemon 检查并操控运行中的游戏：读取运行时场景树与状态、
+  模拟输入、捕获画面、收集日志和错误以及测量性能。
 
-> `gda` 处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前 CLI 界面
+> `gda` 处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前命令界面
 > 仍可能变化。
 
 ---
@@ -52,38 +52,33 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
 <a id="why-gda"></a>
 ## 为什么选择 `gda`？
 
-- **🤖 结构化输出，为 agent 而生。** 每条命令在 stdout 上只输出**恰好一个** JSON
-  对象（`--json`）；引擎横幅、警告和 `print()` 都走 stderr。你的 agent 解析的是一个结果，
-  而不是被大量日志淹没。
-- **📐 带类型、可自描述。** 每条命令的输入和输出都是带类型的模型，它们同时提供一份机器可读的
-  `--schema`（JSON-Schema 契约），让 agent 能以编程方式发现并校验整个命令界面，而不必猜测。
-- **🔀 CLI、Skill、MCP——交给你的 agent 自选。** 用原生的 `gda` CLI 从终端或 CI 操控 Godot，
-  把随包附带的 **Skill**（`gda skill`）交给你的 agent、教它何时以及如何使用 CLI，或者把同一套操作以
-  **MCP** 工具的形式暴露出来（`gda-mcp`，由 CLI 自身的 schema 生成）。一套命令界面，三种接入方式——
-  你的 agent 支持哪种就用哪种。
-- **🧩 Godot 原生命令。** 按 Godot 对象分组（`gda scene create`、
-  `gda node add`、`gda game set`），配上一套精简、统一的动词——只要你懂 Godot，
-  就几乎没有学习成本。
-- **⚡ 默认 Headless，需要时再 Live。** Headless 操作不需要 daemon、也不需要编辑器——
-  只要一个 Godot 二进制文件。Live 操作则通过一个基于 Unix 域套接字的 daemon，为正在运行的游戏
-  加上实时控制能力，用的还是同一套 CLI 语法。
-- **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错，引擎卡死则由超时兜底；两者都会返回一个
-  **稳定的非零退出码**和一个 Error envelope（错误封装），其中包含失败类别、错误码，以及（如有）已计算出的类型化证据——
-  shell 或 agent 据此分支处理即可，不必解析文本。`gda` 不认识的命令同样以这种方式拒绝，并在 `hint`
-  中给出应当改用的调用方式。
+- **验证不止于文件修改。** Headless 校验确认项目已具备运行条件；Live 操作则以运行时
+  证据验证实际行为。
+- **结构化结果与可发现的 Schema。** 使用 `--json` 时，每条命令只在 stdout 输出一个
+  结果对象。带类型的输入和输出模型同时支撑 `--schema` 与自动生成的 MCP 工具界面。
+- **遵循 Godot 语义的操作。** 命令沿用 Godot 的对象和术语，例如
+  `gda scene create`、`gda node add` 和 `gda game get`。
+- **三种互补接入方式。** Agent、Shell 或 CI 可直接运行 CLI；需要可复用的操作指导时安装
+  随包附带的 Agent Skill；需要工具发现与调用时，将同一套操作暴露为 MCP 工具。
+  接入方式的对比与取舍详见 [CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/)。
+- **边界明确，失败后可恢复。** 超时、输出上限、类型化失败、诊断信息和变更报告，能帮助
+  Agent 判断发生了什么以及如何恢复。
+
+这些能力经过[真实游戏制作中的公开 dogfooding](https://github.com/aigengame/godot-agent/milestone/10)
+持续验证与打磨。
 
 ---
 
 <a id="capabilities-at-a-glance"></a>
 ## 能力速览
 
-| 你的需求 | 用这个 |
-| --- | --- |
-| 从 agent 或脚本生成项目文件 | `scene` / `node` / `script` / `resource` / `shader` / `theme`——以 Headless 方式创建和编辑 |
-| 解析结果，而不是查找引擎日志 | `--json`（一个干净的对象）和 `--schema`（JSON-Schema 契约） |
-| 把 Godot 工具交给 agent | 随包附带的 **Skill**（`gda skill`）或 **`gda-mcp`** 服务器 |
-| 自动化 CI、导出和项目分析 | Headless 命令——无需编辑器、无需插件，只要一个 Godot 二进制文件 |
-| 调试*正在运行*的游戏的运行时行为 | `gda daemon start`，然后用 `game` / `diag` / `logger` / `perf` / `input` / `screen` |
+| 目标 | `gda` 提供 | 从这里开始 |
+| --- | --- | --- |
+| 构建 Godot 项目内容（Headless） | 创建和编辑场景、节点、脚本、资源、项目设置、着色器与主题 | `scene` / `node` / `script` / `resource` / `project` / `shader` / `theme` |
+| 验证项目就绪状态（Headless） | 编译脚本、校验依赖、在限定时间内启动场景、检查项目以及导出构建产物 | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
+| 验证运行时行为（Live） | 读取运行时状态、调用已声明的方法、模拟输入、捕获画面、收集日志和错误以及测量性能 | `gda daemon start`，然后使用 `game` / `input` / `screen` / `diag` / `logger` / `perf` |
+| 接入 Coding Agent | 使用 CLI 直接执行、Agent Skill 可复用指导，或 MCP 工具发现与调用 | `gda` / `gda skill` / `gda-mcp` |
+| 在自动化环境中可靠运行 | 获得结构化结果、带类型的 Schema 与失败信息、明确的执行边界、隔离日志和可直接处理的诊断信息 | `--json` / `--schema` / `--user-data-root` / 超时设置 |
 
 ---
 
