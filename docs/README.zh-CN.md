@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ffb56660e6d1f4ed1cfc3356e705ad60a33f7dce864aad11c405c798ca4c946e -->
+<!-- gda-readme-i18n: source=README.md sha256=2f73af925ffb8d67ddb2bdb786a7969c6f3915323aeeb0e2c21c472fc62f9c73 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -398,16 +398,12 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `node add` | 在某个父节点下添加一个节点，可用 `--index` 指定位置：内置类型、带 `class_name` 的脚本，或用 `--instance` 将另一个场景实例化为子节点。 |
 | `node get` | 按节点路径读取一个节点的属性，输出带类型的 JSON。 |
 | `node list` | 列出一个场景的节点树，并给出每个节点相对于根的路径。 |
-| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。 |
+| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。对 `Control`，`position` 会写入四个 offset；`Container` 的子节点由布局管理，请直接设置它们的 offset。 |
 | `node remove` | 按节点路径移除一个节点（及其子树）。 |
 | `node duplicate` | 在父节点下复制一个节点（及其子树）。 |
 | `node move` | 把一个节点（及其子树）重新挂到新的父节点下，或用 `--index` 调整同级顺序。 |
 | `node connect-signal` | 把源节点的信号接到目标节点的方法上。 |
 | `node disconnect-signal` | 断开一个已有的「信号→方法」连接。 |
-
-对于 `Control` 节点，`node set --property position` 会写入底层的
-`offset_left` / `offset_top` / `offset_right` / `offset_bottom`，同时保留尺寸。
-`Container` 的直接子节点由布局管理，因此应显式设置这些 offset 属性。
 
 **`script`** — GDScript 文件（`.gd`）
 
@@ -478,12 +474,12 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话会在第一个需要它的操作时启动（`screen` 截图需加 `--windowed`）。 |
-| `daemon wait-ready` | 建立惰性启动的引擎会话，使 Live 读取可服务。`--timeout` 是 daemon 端由启动等待和新工作决策共享的预算；正在执行的同步启动调用可能延后过期状态的观察。这是显式触发会话启动的规范做法：只读的 `diag`/`logger` 读取从不启动会话，所以 `daemon start` 之后的第一次 `diag errors` 按设计会报 `engine_session_not_running`。 |
+| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话惰性启动，在第一个需要它的操作时才起（`screen` 截图需加 `--windowed`）。 |
+| `daemon wait-ready` | 立即启动引擎会话并等待它就绪，最多等 `--timeout`。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
-| `daemon install` | 在不启动 daemon 的情况下把游戏内 `gda` harness 安装进项目，并报告它创建的每个路径与配置段。幂等，并会把旧版 `gda` 装下的 harness 同步为当前版本。`daemon start` 自己就会执行这一步，因此只有在你想显式地做出这次 `project.godot` 改动（例如便于审阅或提交）时才需要它。 |
-| `daemon uninstall` | 从项目中移除游戏内 `gda` harness（autoload 条目 + 文件）——一次显式的开发工具卸载；`gda export run` 在导出产物时已经会自动剥离它。 |
+| `daemon install` | 在不启动 daemon 的情况下安装游戏内 harness，并报告写入了什么。幂等；`daemon start` 自己就会做这一步，因此只在想单独审阅或提交那次 `project.godot` 改动时使用。 |
+| `daemon uninstall` | 移除游戏内 harness——autoload 条目、harness 文件、`.uid` 附属文件——还原 `project.godot`，并报告移除了什么。仅用于开发工具卸载：`gda export run` 已经会自动从导出产物中剥离 harness。 |
 
 **`game`** — 正在运行的游戏的运行时场景图
 
@@ -528,8 +524,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放。 |
 | `input sequence` | 注入一条跨多帧的事件时间线。 |
 
-鼠标事件会在 `event.position` 中携带注入的视口坐标。Godot 在 daemon 会话中可能让
-`get_mouse_position()` / `get_global_mouse_position()` 一直返回过期数据，因此游戏代码应从输入事件读取注入的鼠标坐标。
+注入的鼠标坐标请从 `event.position` 读取——daemon 会话中 `get_mouse_position()` 可能一直是过期值。
 
 **`screen`** — 视口捕获
 

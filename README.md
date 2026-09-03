@@ -401,17 +401,12 @@ names the file, and only `preflight` catches a first-frame failure.
 | `node add` | Add a node under a parent, optionally at `--index`: a built-in type, a `class_name` script, or `--instance` to compose another scene as an instanced child. |
 | `node get` | Read a node's properties (by node path) as typed JSON. |
 | `node list` | List a scene's node tree with each node's path relative to the root. |
-| `node set` | Set a node property, coercing the value to its declared Godot type. |
+| `node set` | Set a node property, coercing the value to its declared Godot type. On a `Control`, `position` writes the four offsets; a `Container`'s children are layout-managed, so set their offsets directly. |
 | `node remove` | Remove a node (and its subtree) by node path. |
 | `node duplicate` | Duplicate a node (and its subtree) under its parent. |
 | `node move` | Reparent a node (and its subtree) under a new parent, or reorder it with `--index`. |
 | `node connect-signal` | Wire a source node's signal to a target node's method. |
 | `node disconnect-signal` | Unwire an existing signal→method connection. |
-
-For `Control` nodes, `node set --property position` writes the underlying
-`offset_left` / `offset_top` / `offset_right` / `offset_bottom` values while
-preserving size. Direct children of a `Container` are layout-managed, so set the
-offset properties explicitly instead.
 
 **`script`** — GDScript files (`.gd`)
 
@@ -482,12 +477,12 @@ offset properties explicitly instead.
 
 | Command | What it does |
 | ------- | ------------ |
-| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first operation that requires one (`--windowed` for `screen` capture). |
-| `daemon wait-ready` | Establish the lazily-launched engine session so live reads serve. Its `--timeout` is the daemon-side budget shared by launch waits and new-work decisions; a synchronous launch call can delay when expiry is observed. This is the documented way to trigger the session launch, since the read-only `diag`/`logger` reads never launch one and a first `diag errors` right after `daemon start` reports `engine_session_not_running` by design. |
+| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches lazily, on the first operation that needs one (`--windowed` for `screen` capture). |
+| `daemon wait-ready` | Launch the engine session now and wait for it, up to `--timeout`. Read-only `diag` / `logger` tails never launch one, so run this first when such a read is your first live command. |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
-| `daemon install` | Install the in-game `gda` harness into the project without starting a daemon, reporting every path and section it created. Idempotent, and re-syncs a harness from an older `gda`. `daemon start` does this itself, so run it only to make that `project.godot` change deliberately — to review or commit it. |
-| `daemon uninstall` | Remove the in-game `gda` harness from the project — the autoload entry, the harness files and its `.uid` sidecar, plus an `[autoload]` section left with no keys, so `project.godot` returns to its pre-install bytes (for files Godot's own writer produces); the result enumerates every path and section removed. An explicit dev-tooling teardown; `gda export run` already strips the harness from exported artifacts automatically. |
+| `daemon install` | Install the in-game harness without starting a daemon, and report what it wrote. Idempotent; `daemon start` does this itself, so use it only to review or commit the `project.godot` change on its own. |
+| `daemon uninstall` | Remove the in-game harness — autoload entry, harness files, `.uid` sidecar — restoring `project.godot`, and report what was removed. Dev-tooling teardown only: `gda export run` already strips the harness from exported builds. |
 
 **`game`** — the running game's runtime scene graph
 
@@ -532,10 +527,8 @@ offset properties explicitly instead.
 | `input tap` | Tap one key or action: press, hold, release across frames. |
 | `input sequence` | Inject a multi-frame event timeline. |
 
-Mouse events report the injected viewport coordinate through `event.position`.
-Godot may leave `get_mouse_position()` / `get_global_mouse_position()` stale in
-daemon sessions, so game code should read injected mouse coordinates from the
-input event.
+Read injected mouse coordinates from `event.position` — in a daemon session
+`get_mouse_position()` can stay stale.
 
 **`screen`** — viewport capture
 

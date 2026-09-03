@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ffb56660e6d1f4ed1cfc3356e705ad60a33f7dce864aad11c405c798ca4c946e -->
+<!-- gda-readme-i18n: source=README.md sha256=2f73af925ffb8d67ddb2bdb786a7969c6f3915323aeeb0e2c21c472fc62f9c73 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -412,17 +412,12 @@ el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 | `node add` | Añade un nodo bajo un padre, opcionalmente en `--index`: un tipo integrado, un script con `class_name`, o `--instance` para componer otra escena como hijo instanciado. |
 | `node get` | Lee las propiedades de un nodo (por ruta de nodo) como JSON tipado. |
 | `node list` | Lista el árbol de nodos de una escena con la ruta de cada nodo relativa a la raíz. |
-| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. |
+| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; los hijos de un `Container` están gestionados por layout, así que define sus offsets directamente. |
 | `node remove` | Elimina un nodo (y su subárbol) por ruta de nodo. |
 | `node duplicate` | Duplica un nodo (y su subárbol) bajo su padre. |
 | `node move` | Reasigna un nodo (y su subárbol) a un nuevo padre, o lo reordena con `--index`. |
 | `node connect-signal` | Conecta la señal de un nodo origen al método de un nodo destino. |
 | `node disconnect-signal` | Desconecta una conexión señal→método existente. |
-
-Para nodos `Control`, `node set --property position` escribe los valores
-subyacentes `offset_left` / `offset_top` / `offset_right` / `offset_bottom`
-preservando el tamaño. Los hijos directos de un `Container` están gestionados por
-layout, así que define esas propiedades offset explícitamente.
 
 **`script`** — archivos GDScript (`.gd`)
 
@@ -493,12 +488,12 @@ layout, así que define esas propiedades offset explícitamente.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza en la primera operación que la requiere (`--windowed` para la captura de `screen`). |
-| `daemon wait-ready` | Establece la sesión del motor de lanzamiento perezoso para que las lecturas live respondan. `--timeout` es el presupuesto del daemon compartido por las esperas de lanzamiento y las decisiones de iniciar trabajo nuevo; una llamada de lanzamiento síncrona en curso puede retrasar la detección del vencimiento. Es la forma documentada de disparar ese lanzamiento explícitamente: las lecturas de solo lectura `diag`/`logger` nunca lanzan una sesión, así que un primer `diag errors` justo después de `daemon start` informa `engine_session_not_running` por diseño. |
+| `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza de forma perezosa, en la primera operación que la necesita (`--windowed` para la captura de `screen`). |
+| `daemon wait-ready` | Lanza la sesión del motor ahora y espera a que esté lista, hasta `--timeout`. Las lecturas de solo lectura `diag` / `logger` nunca lanzan una, así que ejecútalo primero cuando una de ellas sea tu primer comando live. |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
-| `daemon install` | Instala el harness `gda` dentro del proyecto sin iniciar un daemon, informando cada ruta y sección que creó. Idempotente, y resincroniza un harness de un `gda` anterior. `daemon start` ya lo hace por su cuenta, así que ejecútalo solo para realizar ese cambio en `project.godot` de forma deliberada — para revisarlo o confirmarlo. |
-| `daemon uninstall` | Elimina el harness `gda` dentro del juego (entrada de autoload + archivos) del proyecto — un desmontaje explícito de herramientas de desarrollo; `gda export run` ya lo elimina automáticamente de los artefactos exportados. |
+| `daemon install` | Instala el harness dentro del juego sin iniciar un daemon e informa qué escribió. Idempotente; `daemon start` ya lo hace por su cuenta, así que úsalo solo para revisar o confirmar por separado el cambio en `project.godot`. |
+| `daemon uninstall` | Elimina el harness dentro del juego — entrada de autoload, archivos del harness, sidecar `.uid` — restaurando `project.godot`, e informa qué se eliminó. Solo desmontaje de herramientas de desarrollo: `gda export run` ya elimina el harness de las builds exportadas. |
 
 **`game`** — el grafo de escena en runtime del juego en ejecución
 
@@ -543,11 +538,8 @@ layout, así que define esas propiedades offset explícitamente.
 | `input tap` | Toca una tecla o acción: pulsa, mantiene y suelta a lo largo de varios frames. |
 | `input sequence` | Inyecta una línea de tiempo de eventos de varios frames. |
 
-Los eventos de ratón informan la coordenada inyectada del viewport mediante
-`event.position`. Godot puede dejar `get_mouse_position()` /
-`get_global_mouse_position()` desactualizados en sesiones del daemon, por lo que
-el código del juego debe leer las coordenadas de ratón inyectadas desde el evento
-de entrada.
+Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesión del daemon
+`get_mouse_position()` puede quedarse desactualizado.
 
 **`screen`** — captura del viewport
 

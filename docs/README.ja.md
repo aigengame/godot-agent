@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ffb56660e6d1f4ed1cfc3356e705ad60a33f7dce864aad11c405c798ca4c946e -->
+<!-- gda-readme-i18n: source=README.md sha256=2f73af925ffb8d67ddb2bdb786a7969c6f3915323aeeb0e2c21c472fc62f9c73 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -415,17 +415,12 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `node add` | 親の下にノードを追加します。必要なら `--index` で位置を指定できます: 組み込みタイプ、`class_name` スクリプト、または `--instance` で別のシーンをインスタンス化した子として合成します。 |
 | `node get` | ノードのプロパティを(ノードパスで指定して)型付き JSON として読み取ります。 |
 | `node list` | シーンのノードツリーを、各ノードのルートからの相対パスとともに一覧します。 |
-| `node set` | ノードのプロパティを設定します。値は宣言された Godot の型に変換されます。 |
+| `node set` | ノードのプロパティを設定します。値は宣言された Godot の型に変換されます。`Control` では `position` が 4 つの offset を書き込みます。`Container` の子はレイアウト管理下にあるため、offset を直接設定してください。 |
 | `node remove` | ノード(およびそのサブツリー)をノードパスで指定して削除します。 |
 | `node duplicate` | ノード(およびそのサブツリー)を親の下に複製します。 |
 | `node move` | ノード(およびそのサブツリー)を新しい親の下に付け替えるか、`--index` で兄弟順を並べ替えます。 |
 | `node connect-signal` | ソースノードのシグナルをターゲットノードのメソッドに接続します。 |
 | `node disconnect-signal` | 既存のシグナル → メソッド接続を解除します。 |
-
-`Control` ノードでは、`node set --property position` はサイズを保ったまま
-基礎となる `offset_left` / `offset_top` / `offset_right` / `offset_bottom` を
-書き込みます。`Container` の直接の子はレイアウト管理下にあるため、これらの
-offset プロパティを明示的に設定してください。
 
 **`script`** — GDScript ファイル(`.gd`)
 
@@ -496,12 +491,12 @@ offset プロパティを明示的に設定してください。
 
 | コマンド | 機能 |
 | ------- | ------------ |
-| `daemon start` | プロジェクトごとのデーモンを起動し、ゲーム内ハーネスをインストールします。エンジンセッションは、それを必要とする最初の操作で起動します(`screen` キャプチャには `--windowed`)。 |
-| `daemon wait-ready` | 遅延起動されるエンジンセッションを確立し、Live 読み取りを応答可能にします。`--timeout` は、デーモン側の起動待機と新しい処理の開始判断で共有する予算です。実行中の同期起動呼び出しにより、期限切れの検出が遅れることがあります。これはセッション起動を明示的にトリガーする正規の方法です。読み取り専用の `diag`/`logger` はセッションを起動しないため、`daemon start` 直後の最初の `diag errors` は設計上 `engine_session_not_running` を報告します。 |
+| `daemon start` | プロジェクトごとのデーモンを起動し、ゲーム内ハーネスをインストールします。エンジンセッションは遅延起動で、それを必要とする最初の操作で立ち上がります(`screen` キャプチャには `--windowed`)。 |
+| `daemon wait-ready` | エンジンセッションを今すぐ起動し、`--timeout` を上限に準備完了まで待ちます。読み取り専用の `diag` / `logger` はセッションを起動しないため、それが最初の Live コマンドになるときは先にこれを実行してください。 |
 | `daemon stop` | プロジェクトのデーモンと、実行中のエンジンセッションを停止します。 |
 | `daemon status` | デーモンの状態(実行中か、ウィンドウモードか、セッション)を報告します。 |
-| `daemon install` | デーモンを起動せずにゲーム内 `gda` harness をプロジェクトへインストールし、作成したパスとセクションをすべて報告します。冪等で、古い `gda` の harness は現行版に再同期されます。`daemon start` 自身がこれを行うため、その `project.godot` の変更を意図的に(レビューやコミットのために)行いたいときにだけ実行します。 |
-| `daemon uninstall` | ゲーム内の `gda` ハーネス(オートロードのエントリ + ファイル)をプロジェクトから削除します — 明示的な開発ツールの撤去です。`gda export run` はエクスポート済み成果物からこれをすでに自動で取り除きます。 |
+| `daemon install` | デーモンを起動せずにゲーム内ハーネスをインストールし、何を書き込んだかを報告します。冪等です。`daemon start` 自身がこれを行うため、`project.godot` の変更だけをレビューまたはコミットしたいときにだけ使います。 |
+| `daemon uninstall` | ゲーム内ハーネス——オートロードのエントリ、ハーネスのファイル、`.uid` サイドカー——を削除して `project.godot` を元に戻し、削除した内容を報告します。開発ツールの撤去専用です。`gda export run` はエクスポート済みビルドからハーネスをすでに自動で取り除きます。 |
 
 **`game`** — 実行中ゲームのランタイムシーングラフ
 
@@ -546,9 +541,8 @@ offset プロパティを明示的に設定してください。
 | `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行)。 |
 | `input sequence` | 複数フレームにわたるイベントのタイムラインを注入します。 |
 
-マウスイベントは、注入されたビューポート座標を `event.position` で報告します。
-Godot は daemon セッション内で `get_mouse_position()` /
-`get_global_mouse_position()` を古い値のままにする場合があるため、ゲームコードは注入されたマウス座標を入力イベントから読み取ってください。
+注入されたマウス座標は `event.position` から読み取ってください——daemon セッションでは
+`get_mouse_position()` が古い値のままになることがあります。
 
 **`screen`** — ビューポートのキャプチャ
 
