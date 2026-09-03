@@ -1,7 +1,7 @@
 [project]
 name = "gda"
 version = "0.13.0"
-description = "Godot AI agent CLI, Skill, and MCP server with structured JSON/schema output — headless scene/script/export automation plus live runtime control."
+description = "Godot automation for AI agents through a CLI, Agent Skill, and MCP server, with structured results, headless validation, and live runtime control."
 readme = "README.md"
 authors = [
     { name = "haihong.qin", email = "haihongqin@gmail.com" }
@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/aigengame/godot-agent"
+Homepage = "https://aigengame.xyz/"
 Repository = "https://github.com/aigengame/godot-agent"
 Issues = "https://github.com/aigengame/godot-agent/issues"
 Changelog = "https://github.com/aigengame/godot-agent/blob/main/CHANGELOG.md"

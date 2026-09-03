@@ -19,10 +19,11 @@ The marker format is mirrored in ``scripts/update_readme_i18n.py``; keep them in
 sync if it ever changes.
 """
 
-import hashlib
 import re
 import unicodedata
 from pathlib import Path
+
+from scripts.update_readme_i18n import _normalized_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
@@ -39,7 +40,7 @@ MARKER_RE = re.compile(
 
 
 def _english_hash() -> str:
-    return hashlib.sha256(README.read_bytes()).hexdigest()
+    return _normalized_hash(README)
 
 
 def _recorded_hash(text: str) -> str | None:
@@ -70,6 +71,15 @@ def test_all_translations_present():
         "Create docs/README.<lang>.md for each, then run "
         "`uv run python scripts/update_readme_i18n.py`."
     )
+
+
+def test_readme_hash_is_independent_of_platform_line_endings(tmp_path: Path):
+    lf = tmp_path / "lf.md"
+    crlf = tmp_path / "crlf.md"
+    lf.write_bytes(b"first\nsecond\n")
+    crlf.write_bytes(b"first\r\nsecond\r\n")
+
+    assert _normalized_hash(lf) == _normalized_hash(crlf)
 
 
 def test_translations_are_in_sync_with_english_readme():

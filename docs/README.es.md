@@ -1,15 +1,18 @@
-<!-- gda-readme-i18n: source=README.md sha256=465ec4f02a22747e675bfbee6bdba48edd474a3da79ec654943c9741a747c302 -->
+<!-- gda-readme-i18n: source=README.md sha256=2e633d09b48794d0d129d4ec85bd48d23cec200fab96ad0803f0c5727e8ec6a5 -->
 
-# godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
+# gda — Automatización de Godot para agentes de IA
 
-![godot-agent title image](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)
+[![gda — Automatización de Godot para agentes de IA](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)](https://aigengame.xyz/)
 
 **Otros idiomas:** [English](../README.md) · [简体中文](README.zh-CN.md) · **Español** · [日本語](README.ja.md)
 
-> **`gda` da a tu agente de programación con IA — o a tus scripts de shell y a tu CI — control
-> estructurado y legible por máquina del [Godot Engine](https://godotengine.org).** Crea escenas, edita nodos y scripts,
-> y exporta builds en modo headless; luego controla un juego *en ejecución* en vivo: árbol de runtime, entrada,
-> capturas de pantalla, rendimiento — una sola superficie de comandos, tres formas de entrar.
+[Descripción del producto](https://aigengame.xyz/) ·
+[¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·
+[PyPI](https://pypi.org/project/gda/)
+
+> **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
+> `gda` ofrece el mismo conjunto de operaciones nativas de Godot mediante una CLI, una
+> Agent Skill incluida y un servidor MCP, con resultados estructurados que los agentes pueden usar.
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
@@ -19,18 +22,15 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-Los agentes de IA son excelentes escribiendo GDScript y pésimos *viendo qué pasó*. `gda`
-cierra ese ciclo: tu agente emite una operación y recibe a cambio un único resultado JSON
-limpio sobre el que actuar — nunca registros del motor que tenga que rascar. Funciona en **dos modos**:
+Editar un archivo no significa que el cambio en el juego esté verificado. `gda` cierra
+ese ciclo con dos modos complementarios:
 
-- **Headless** — de una sola pasada y sin estado, sin configuración. Sin plugin de editor, sin daemon,
-  nada que instalar en tu proyecto. Crea y edita escenas, nodos, scripts, recursos,
-  shaders y temas; analiza el proyecto; exporta builds.
-- **Live** — controla un juego *en ejecución* a través de un daemon en segundo plano para todo lo que solo
-  un motor en vivo puede hacer: leer el árbol de escena de runtime, leer/escribir propiedades de runtime, simular
-  entrada, capturar pantallas y muestrear el rendimiento.
+- **Headless** — crea y edita contenido del proyecto, compila scripts, valida e inicia
+  escenas, inspecciona proyectos y exporta builds sin plugin de editor ni daemon.
+- **Live** — inspecciona y controla el juego en ejecución mediante un daemon por proyecto:
+  árbol y estado de runtime, simulación de entrada, captura de frames, registros, errores y rendimiento.
 
-> `gda` está en **pre-1.0**: hoy cada comando funciona de extremo a extremo, pero la superficie de la CLI
+> `gda` está en **pre-1.0**: hoy cada comando funciona de extremo a extremo, pero la superficie de comandos
 > todavía puede cambiar antes de 1.0.
 
 ---
@@ -53,40 +53,37 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
 <a id="why-gda"></a>
 ## ¿Por qué `gda`?
 
-- **🤖 Salida estructurada, pensada para agentes.** Cada comando emite **exactamente un** objeto JSON
-  en stdout (`--json`); los banners del motor, las advertencias y `print()` van a stderr. Tu
-  agente analiza un único resultado, no un muro de registros.
-- **📐 Tipado y autodescriptivo.** La entrada y la salida de cada comando son modelos tipados que
-  además respaldan un `--schema` legible por máquina (un contrato JSON-Schema), de modo que un agente puede
-  descubrir y validar toda la superficie de forma programática en lugar de adivinar.
-- **🔀 CLI, Skill y MCP — la elección de tu agente.** Controla Godot desde una terminal o tu CI con la
-  CLI `gda` directa, entrega a tu agente una **Skill** incluida (`gda skill`) que le enseña cómo y cuándo
-  usar la CLI, o expón las mismas operaciones como herramientas **MCP** (`gda-mcp`, generadas a partir de
-  los propios esquemas de la CLI). Una sola superficie de comandos, tres formas de entrar — elige la que tu agente admita.
-- **🧩 Comandos nativos de Godot.** Agrupados por objeto de Godot (`gda scene create`,
-  `gda node add`, `gda game set`) con un vocabulario de verbos minúsculo y consistente — curva de aprendizaje
-  nula si ya conoces Godot.
-- **⚡ Headless por defecto, en vivo cuando lo necesites.** Las operaciones headless no requieren daemon
-  ni editor — solo un binario de Godot. Las operaciones live añaden control en tiempo real de un juego
-  en ejecución a través de un daemon sobre socket de dominio Unix, direccionadas con la misma gramática de la CLI.
-- **🛡️ Errores claros, nunca silenciosos.** Si falta el motor, `gda` falla de inmediato; si el motor se bloquea,
-  falla al agotarse el timeout. En ambos casos devuelve un **código de salida no nulo estable** y un objeto de
-  error con la categoría del fallo, su código y la evidencia tipada que se haya calculado — de modo que
-  un shell o un agente puede actuar según el tipo de fallo en vez de analizar prosa. Un comando que `gda` no reconoce
-  se rechaza del mismo modo, con un `hint` que nombra la invocación que debe usarse en su lugar.
+- **Verificación más allá de la edición de archivos.** La validación Headless confirma
+  que el proyecto está listo; las operaciones Live aportan evidencia del comportamiento real.
+- **Resultados estructurados y esquemas consultables.** Con `--json`, cada comando emite
+  exactamente un objeto de resultado en stdout. Los modelos tipados de entrada y salida
+  también sustentan `--schema` y la superficie de herramientas MCP generada.
+- **Operaciones nativas de Godot.** Los comandos siguen los objetos y el vocabulario de
+  Godot, como `gda scene create`, `gda node add` y `gda game get`.
+- **Tres vías de acceso complementarias.** Ejecuta la CLI directamente desde un agente,
+  shell o CI; instala la Agent Skill incluida para obtener orientación reutilizable; o
+  expón las mismas operaciones como herramientas MCP. Consulta
+  [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) para comparar las
+  opciones y sus diferencias.
+- **Automatización acotada y fallos útiles.** Los timeouts, los límites de salida, los
+  fallos tipados, los diagnósticos y los informes de cambios ayudan al agente a saber qué
+  ocurrió y cómo recuperarse.
+
+Estas capacidades se perfeccionaron mediante un
+[registro público de uso en la producción de un juego real](https://github.com/aigengame/godot-agent/milestone/10).
 
 ---
 
 <a id="capabilities-at-a-glance"></a>
 ## Capacidades de un vistazo
 
-| Lo que necesitas | Usa |
-| --- | --- |
-| Construir archivos del proyecto desde un agente o script | `scene` / `node` / `script` / `resource` / `shader` / `theme` — crear y editar en modo headless |
-| Analizar resultados en lugar de rascar registros del motor | `--json` (un objeto limpio) y `--schema` (un contrato JSON-Schema) |
-| Entregar a un agente herramientas de Godot | la **Skill** incluida (`gda skill`) o el servidor **`gda-mcp`** |
-| Automatizar CI, exportaciones y análisis del proyecto | comandos headless — sin editor, sin plugin, solo un binario de Godot |
-| Depurar el comportamiento en runtime de un juego *en ejecución* | `gda daemon start`, luego `game` / `diag` / `logger` / `perf` / `input` / `screen` |
+| Objetivo | Lo que ofrece `gda` | Empieza por |
+| --- | --- | --- |
+| Crear contenido de proyectos Godot (Headless) | Crear y editar escenas, nodos, scripts, recursos, ajustes del proyecto, shaders y temas | `scene` / `node` / `script` / `resource` / `project` / `shader` / `theme` |
+| Verificar que el proyecto está listo (Headless) | Compilar scripts, validar dependencias, iniciar escenas con un preflight acotado, inspeccionar proyectos y exportar builds | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
+| Verificar el comportamiento en runtime (Live) | Leer el estado de runtime, llamar a métodos declarados, simular entradas, capturar frames, recopilar registros y errores, y medir el rendimiento | `gda daemon start`, luego `game` / `input` / `screen` / `diag` / `logger` / `perf` |
+| Conectar un agente de programación con IA | Usar la CLI directamente, la orientación reutilizable de Agent Skill o el descubrimiento y las llamadas de herramientas MCP | `gda` / `gda skill` / `gda-mcp` |
+| Ejecutar automatización de forma fiable | Recibir resultados estructurados, esquemas y fallos tipados, ejecución acotada, registros aislados y diagnósticos útiles | `--json` / `--schema` / `--user-data-root` / timeouts |
 
 ---
 
