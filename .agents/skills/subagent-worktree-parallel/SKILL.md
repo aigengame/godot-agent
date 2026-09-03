@@ -39,9 +39,11 @@ the cost/benefit table).
   **dependent follow-up slices**. A foundation slice establishes the smallest shared
   contract or scaffold that its follow-ups require; parallel follow-ups before it lands
   duplicate that foundation and collide.
-- **Small batches (≤ ~5), merge before the next wave.** Each rebase then lands on a
-  stable base; large waves create a merge *treadmill* (every merge re-conflicts the
-  rest) and raise the odds a subagent is truncated at a run limit.
+- **Small batches (≤ ~5 by default), merge before the next wave.** Each rebase then
+  lands on a stable base; large waves create a merge *treadmill* (every merge
+  re-conflicts the rest) and raise the odds a subagent is truncated at a run limit.
+  Bigger waves are workable only with the REFERENCE §2 lifting discipline (owned
+  hotspots with pre-tested resolutions, wave-batched reviews, one serial merge pass).
 - **The real integration boundary is part of Definition of Done.** A fast tier that stubs
   that boundary can pass on a broken merge. Run every locally reproducible gate that covers
   the change, including the real integration/e2e/compile/parse path and relevant non-test
@@ -115,9 +117,10 @@ choose mode/permissions → decompose + dependency analysis → plan waves
    base → independent groups can merge in any order; a *clean* rebase still gets the
    applicable integration gate — including re-running the consuming slice's tests on the
    rebased tree, because two independently-green slices can collide only there (one changes
-   what a shared function guarantees, the other adds a caller relying on the old guarantee). Re-poll mergeability after each merge. For stacked changes,
+   what a shared function guarantees, the other adds a caller relying on the old
+   guarantee). Re-poll mergeability after each merge. For stacked changes,
    retarget followers after the base lands and update stale descriptions, completion
-   semantics, or verification text before merging. Watch for the two marker-free conflict traps.
+   semantics, or verification text before merging. Watch for the marker-free conflict traps.
    (REFERENCE §4, §5)
 
 This path is **not one-shot**: independent review sends merged-ready slices back, and
