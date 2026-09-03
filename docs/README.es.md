@@ -69,10 +69,10 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
 - **⚡ Headless por defecto, en vivo cuando lo necesites.** Las operaciones headless no requieren daemon
   ni editor — solo un binario de Godot. Las operaciones live añaden control en tiempo real de un juego
   en ejecución a través de un daemon sobre socket de dominio Unix, direccionadas con la misma gramática de la CLI.
-- **🛡️ Falla de forma ruidosa, nunca en silencio.** Un motor ausente falla de inmediato y uno colgado
-  al agotarse el timeout; ambos se traducen en un **código de salida no nulo estable** más un sobre de
+- **🛡️ Errores claros, nunca silenciosos.** Si falta el motor, `gda` falla de inmediato; si el motor se bloquea,
+  falla al agotarse el timeout. En ambos casos devuelve un **código de salida no nulo estable** y un objeto de
   error con la categoría del fallo, su código y la evidencia tipada que se haya calculado — de modo que
-  un shell o un agente decide según el fallo en vez de analizar prosa. Un comando que `gda` no reconoce
+  un shell o un agente puede actuar según el tipo de fallo en vez de analizar prosa. Un comando que `gda` no reconoce
   se rechaza del mismo modo, con un `hint` que nombra la invocación que debe usarse en su lugar.
 
 ---
@@ -214,12 +214,12 @@ de modo que cualquier agente MCP (Claude Code, Codex, Cursor, …) puede manejar
 uvx --from "gda[mcp]" gda-mcp
 ```
 
-El servidor resuelve dos piezas de contexto — qué **proyecto** de Godot manejar y qué **binario** de Godot
-ejecutar (MCP no puede pasar flags por llamada):
+El servidor necesita saber qué **proyecto** de Godot debe manejar y qué **binario** de Godot debe
+ejecutar (MCP no permite pasar flags en cada llamada):
 
-- **Proyecto** — define `GDA_PROJECT`. Sin él, `gda-mcp` usa los **roots** de workspace que envía el
-  cliente (la carpeta que tienes abierta) — pero la revisión MCP 2026-07-28 marca los roots como obsoletos, así
-  que fijar `GDA_PROJECT` es la configuración que sigue funcionando. Consulta [Configuración](#configuration).
+- **Proyecto** — define `GDA_PROJECT`. Sin él, `gda-mcp` usa los **roots** del workspace que envía el
+  cliente (la carpeta que tienes abierta). Sin embargo, la revisión MCP 2026-07-28 marca los roots como obsoletos;
+  fija `GDA_PROJECT` para que la configuración siga funcionando cuando actualices el cliente. Consulta [Configuración](#configuration).
 - **Motor** — define `GDA_GODOT` con tu binario de Godot, p. ej. `"GDA_GODOT": "/path/to/Godot"`.
 
 `gda-mcp` es compatible con ambas generaciones del protocolo — el MCP anterior a 2026 y la **revisión
@@ -390,11 +390,11 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `scene list` | Enumera las escenas `.tscn` del proyecto resuelto. |
 | `scene get-exports` | Lista las propiedades `@export` que declaran los scripts de los nodos de una escena. |
 | `scene delete` | Elimina un archivo de escena e informa qué se eliminó. |
-| `scene validate` | Comprueba una escena **estáticamente** — las dependencias se resuelven y los scripts vinculados compilan, subescenas incluidas — sin instanciarla (los autoloads del proyecto siguen arrancando, como en todo comando `--project`); una escena rota es un veredicto (`valid: false`, salida `0`), no un error. |
-| `scene preflight` | Comprueba una escena **dinámicamente** — la arranca en headless, ejecuta `_ready` e informa `started` más los errores de script vistos; un arranque fallido es un veredicto, no un error. |
+| `scene validate` | Comprueba una escena **de forma estática** — resuelve sus dependencias y compila los scripts vinculados, incluidas las subescenas — sin instanciarla (los autoloads del proyecto siguen arrancando, como en todo comando `--project`); si encuentra problemas, los devuelve como resultado (`valid: false`, salida `0`) en lugar de producir un error. |
+| `scene preflight` | Comprueba una escena **de forma dinámica** — la arranca en headless, ejecuta `_ready` e informa de `started` y de los errores de script detectados; si no puede arrancar, lo indica en el resultado en lugar de producir un error. |
 
-Ejecuta ambas comprobaciones — `scene get` lee como sana una escena sin su script, solo `validate` nombra
-el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
+Ejecuta ambas comprobaciones: `scene get` puede leer sin problemas una escena cuyo script falta; solo `validate`
+identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma.
 
 **`node`** — nodos dentro de un archivo de escena
 
@@ -420,7 +420,7 @@ el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 | `script set` | Edita un script mediante buscar-reemplazar, rango de líneas o sobrescritura completa. |
 | `script delete` | Elimina un archivo de script e informa qué se eliminó. |
 | `script attach` | Adjunta un script `.gd` a un nodo (por ruta de nodo) en una escena. |
-| `script validate` | Comprueba la compilación de scripts `.gd` — varias PATH en un único arranque del motor, o `--all` para todo el proyecto — e informa un `valid` agregado más una entrada por script en `scripts`; un script que falla es un veredicto (`valid: false`, salida `0`), no un error. |
+| `script validate` | Comprueba la compilación de scripts `.gd` — varias PATH en un único arranque del motor, o `--all` para todo el proyecto — e informa de un `valid` agregado y una entrada por script en `scripts`; si un script no compila, lo indica en el resultado (`valid: false`, salida `0`) en lugar de producir un error. |
 | `script run` | Ejecuta un script del proyecto en headless como punto de entrada de un solo uso, bajo `--timeout`. Su `exit_status` y `stderr` se devuelven tal cual; `stdout` se incluye en el propio resultado hasta 64 KiB y, si se trunca, el `stdout` completo se escribe en el archivo que indica el resultado — un `quit()` distinto de cero es un dato, no un fallo, salvo que pases `--strict`. |
 
 **`project`** — el proyecto en su conjunto (ajustes, autoloads, análisis estático)
@@ -479,7 +479,7 @@ el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza de forma perezosa, en la primera operación que la necesita (`--windowed` para la captura de `screen`). |
+| `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se inicia solo cuando una operación la necesita (`--windowed` para la captura de `screen`). |
 | `daemon wait-ready` | Lanza la sesión del motor ahora y espera a que esté lista; `--timeout` es el presupuesto que el daemon dedica a ese lanzamiento y no limita estrictamente la duración total de la llamada. Las consultas de solo lectura `diag` / `logger` nunca lanzan una sesión, así que ejecútalo primero cuando una de ellas sea tu primer comando live. |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
@@ -494,7 +494,7 @@ el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
 | `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
 | `game set` | Define una propiedad de un nodo de runtime, o una variable del script adjunto nombrada explícitamente, en el juego en ejecución; `verified` informa si la relectura coincidió. |
-| `game call` | Invoca un método que el script del nodo declara en `GDA_CALLABLE` — la promesa de solo lectura del propio proyecto, que gda no puede verificar — y proyecta lo que devuelve; nunca se invoca nada que no esté declarado. |
+| `game call` | Invoca un método que el script del nodo declara en `GDA_CALLABLE` y devuelve su valor como datos estructurados. El propio proyecto declara que el método es de solo lectura, algo que gda no puede comprobar; nunca se invocan métodos no declarados. |
 
 `game call` lee lo que `game get` no puede: estado que tu proyecto expone como método.
 `game set --property position` sigue la misma regla de `Control` que `node set`.
@@ -503,13 +503,13 @@ el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `diag errors` | Sigue (tail) los errores de runtime del juego en ejecución (categorizados). |
+| `diag errors` | Muestra los errores de runtime del juego en ejecución a medida que aparecen (categorizados). |
 
 **`logger`** — registro de runtime estructurado
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `logger tail` | Sigue (tail) todo el registro de runtime del juego en ejecución como registros estructurados (`--level`, `--limit`, `--raw`). |
+| `logger tail` | Muestra todo el registro de runtime del juego en ejecución a medida que se genera, como registros estructurados (`--level`, `--limit`, `--raw`). |
 
 **`perf`** — monitorización de rendimiento
 
@@ -577,7 +577,7 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
   lectura (un `resource import` con la caché íntegra no arranca nada).
 - **El `_init` de los scripts de la escena** se ejecuta allí donde se instancia una escena: todo comando
   `node` que modifica la escena y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
-- **`script run`** ejecuta el script nombrado en su totalidad; **`scene preflight`** arranca la escena y
+- **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.
 - **`resource import`** ejecuta los importadores del motor (y los plugins de importación del proyecto)
   cuando falta la caché, sin autoloads.

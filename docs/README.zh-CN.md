@@ -67,8 +67,8 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
 - **⚡ 默认 Headless，需要时再 Live。** Headless 操作不需要 daemon、也不需要编辑器——
   只要一个 Godot 二进制文件。Live 操作则通过一个基于 Unix 域套接字的 daemon，为正在运行的游戏
   加上实时控制能力，用的还是同一套 CLI 语法。
-- **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错，引擎卡死则由超时兜底；两者都映射为一个
-  **稳定的非零退出码**，外加一个 Error 信封，里面有失败类别、错误码，以及（如有）已算出的类型化证据——
+- **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错，引擎卡死则由超时兜底；两者都会返回一个
+  **稳定的非零退出码**和一个 Error envelope（错误封装），其中包含失败类别、错误码，以及（如有）已计算出的类型化证据——
   shell 或 agent 据此分支处理即可，不必解析文本。`gda` 不认识的命令同样以这种方式拒绝，并在 `hint`
   中给出应当改用的调用方式。
 
@@ -213,12 +213,12 @@ uvx --from "gda[mcp]" gda-mcp
 服务器需要确定两件事——操控哪个 Godot**项目**，以及运行哪个 Godot**二进制文件**
 （MCP 无法在每次调用时传入 flag）：
 
-- **项目** — 设置 `GDA_PROJECT`。不设时 `gda-mcp` 会用客户端发来的工作区 **roots**（你打开的那个文件夹）——
-  但 MCP 2026-07-28 修订版弃用了 roots，所以固定 `GDA_PROJECT` 才是一直有效的配置。参见[配置](#configuration)。
+- **项目** — 设置 `GDA_PROJECT`。不设时 `gda-mcp` 会用客户端发来的工作区 **roots**（你打开的那个文件夹）。
+  但 MCP 2026-07-28 修订版弃用了 roots，因此最好固定 `GDA_PROJECT`，避免客户端升级后无法定位项目。参见[配置](#configuration)。
 - **引擎** — 把 `GDA_GODOT` 设为你的 Godot 二进制文件，例如 `"GDA_GODOT": "/path/to/Godot"`。
 
 `gda-mcp` 同时接受两代协议——2026 年以前的 MCP 协议与 **2026-07-28 修订版**——但两者解析项目的方式不同：
-2026 前的客户端仍会发送 roots，新修订版的客户端不再发送，只能靠 `GDA_PROJECT` 或服务器的 cwd。
+2026 前的客户端仍会发送 roots，新修订版的客户端不再发送，`gda-mcp` 会从 `GDA_PROJECT` 或服务器的 cwd 确定项目。
 请在客户端切换到新协议之前固定 `GDA_PROJECT`。对新修订版，`gda-mcp` 还会把 `tools/list` 标记为可缓存（1 小时 TTL）。
 
 #### 在编程 agent 中注册
@@ -467,7 +467,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话惰性启动，在第一个需要它的操作时才起（`screen` 截图需加 `--windowed`）。 |
+| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话按需启动，只有操作需要时才会拉起（`screen` 截图需加 `--windowed`）。 |
 | `daemon wait-ready` | 立即启动引擎会话并等待它就绪；`--timeout` 是 daemon 为这次启动分配的预算，不是这次调用的硬性上限。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
@@ -482,7 +482,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量；`verified` 报告读回值是否匹配。 |
-| `game call` | 调用节点脚本在 `GDA_CALLABLE` 中声明的一个方法——这是项目自己给出的只读承诺，gda 无法验证——并投影其返回值；未声明的方法绝不会被调用。 |
+| `game call` | 调用节点脚本在 `GDA_CALLABLE` 中声明的一个方法，并以结构化数据形式返回结果。项目自己承诺该方法是只读的，gda 无法验证；未声明的方法绝不会被调用。 |
 
 `game call` 读取 `game get` 读不到的东西：项目以方法形式暴露的状态。
 `game set --property position` 遵循与 `node set` 相同的 `Control` 规则。
@@ -565,7 +565,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
   `resource import` 不启动任何东西）。
 - **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令以及 `node get`；
   `scene get` / `scene list` / `node list` 只读取、不实例化。
-- **`script run`** 完整执行指定脚本；**`scene preflight`** 启动场景并运行其 `_ready`。
+- **`script run`** 会执行指定脚本的全部内容；**`scene preflight`** 启动场景并运行其 `_ready`。
 - **`resource import`** 在缓存缺失时运行引擎的导入器（以及项目的导入插件），不运行 autoload。
 - **`game call`** 只运行节点 `GDA_CALLABLE` 声明中列出的那一个方法；未声明的绝不会被调用。
 
