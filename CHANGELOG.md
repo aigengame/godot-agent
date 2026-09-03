@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.13.0](https://github.com/aigengame/godot-agent/compare/v0.12.0...v0.13.0) (2026-09-03)
+
+
+### Features
+
+* **gda:** accept --json on every command group ([#683](https://github.com/aigengame/godot-agent/issues/683)) ([#779](https://github.com/aigengame/godot-agent/issues/779)) ([59efe13](https://github.com/aigengame/godot-agent/commit/59efe13c54bd1118a821aa87e2d96b310148d655))
+* **gda:** compose scene validate over instanced sub-scenes ([#721](https://github.com/aigengame/godot-agent/issues/721)) ([#769](https://github.com/aigengame/godot-agent/issues/769)) ([a24ba13](https://github.com/aigengame/godot-agent/commit/a24ba137697b898928f890efba9dafaf6d1bd51b))
+* **gda:** dogfooding P2 — push_error diagnostics, composed scene validate, sandbox envelope, res:// containment, live float transport ([9122e03](https://github.com/aigengame/godot-agent/commit/9122e03ef91fcd4c974b649db33a4948193e7b2b))
+* **gda:** dogfooding P3 — group --json, timeout capture, one traversal, graph identity, headless float precision, budget refusal ([181da20](https://github.com/aigengame/godot-agent/commit/181da20d2ea418977600bd73d2958dc4308e8de6))
+* **gda:** dogfooding P4 — typed failure evidence, human rendering, one containment answer, float refusal, one scene-text reader, symlink identity, preflight timing, one group walk ([6413671](https://github.com/aigengame/godot-agent/commit/64136719c6a615ab94887aeeb3447f895511744e))
+* **gda:** dogfooding W5 — containment gate, emission-seam stderr rule, engine-aligned walk, container float refusal ([9dd5aa9](https://github.com/aigengame/godot-agent/commit/9dd5aa9ba9dbf59f9dde8e4a18c5756587257514))
+* **gda:** human-mode failure rendering as real lines ([#685](https://github.com/aigengame/godot-agent/issues/685)) ([#798](https://github.com/aigengame/godot-agent/issues/798)) ([ac0b2cf](https://github.com/aigengame/godot-agent/commit/ac0b2cf3509d2bfb53dbdc1e4ee0042ec3f2c376))
+* **gda:** one containment answer, and refuse a target another project owns ([#763](https://github.com/aigengame/godot-agent/issues/763), [#697](https://github.com/aigengame/godot-agent/issues/697)) ([#799](https://github.com/aigengame/godot-agent/issues/799)) ([1345b91](https://github.com/aigengame/godot-agent/commit/1345b91a13ccdaedccbe7ab057aef1bc633b8f0e))
+* **gda:** recognize a project-raised push_error as a script diagnostic ([#722](https://github.com/aigengame/godot-agent/issues/722)) ([#767](https://github.com/aigengame/godot-agent/issues/767)) ([b40893a](https://github.com/aigengame/godot-agent/commit/b40893ae77dad53457d1120af407134d794cf27c))
+* **gda:** report the elapsed clock and reached ceiling on a preflight timeout ([#787](https://github.com/aigengame/godot-agent/issues/787)) ([#791](https://github.com/aigengame/godot-agent/issues/791)) ([195ff47](https://github.com/aigengame/godot-agent/commit/195ff4750f6176aada2a133d0af262d4a0f3a9cf))
+* **gda:** typed evidence on the shared failure envelope ([#687](https://github.com/aigengame/godot-agent/issues/687)) ([#796](https://github.com/aigengame/godot-agent/issues/796)) ([3cc83b0](https://github.com/aigengame/godot-agent/commit/3cc83b09d7bd69db0a4de16b158bfd8030ac738b))
+
+
+### Bug Fixes
+
+* **gda:** caller-first timeout remediation, with the decisions recorded ([#716](https://github.com/aigengame/godot-agent/issues/716), [#717](https://github.com/aigengame/godot-agent/issues/717), [#684](https://github.com/aigengame/godot-agent/issues/684)) ([#793](https://github.com/aigengame/godot-agent/issues/793)) ([215c12a](https://github.com/aigengame/godot-agent/commit/215c12ac599153112d0261bacbd393a3973ce963))
+* **gda:** close the res://../ containment bypass in path_outside_project ([#766](https://github.com/aigengame/godot-agent/issues/766)) ([8a06aeb](https://github.com/aigengame/godot-agent/commit/8a06aeb69005053a79d064f8537c3830445d16c9))
+* **gda:** decide the live float transport policy in both directions ([#770](https://github.com/aigengame/godot-agent/issues/770)) ([a872560](https://github.com/aigengame/godot-agent/commit/a872560302e65ccf4c4785e293fbcbad1408cd02))
+* **gda:** decide the res:// walk's symlink policy by filesystem identity ([#760](https://github.com/aigengame/godot-agent/issues/760)) ([#795](https://github.com/aigengame/godot-agent/issues/795)) ([a1f9b6d](https://github.com/aigengame/godot-agent/commit/a1f9b6daec04244b7b1fabaf60b620f255df642b))
+* **gda:** dogfooding phase-2 P1 — parser, walk, and input-authority fixes (dev→main promotion) ([b616e7f](https://github.com/aigengame/godot-agent/commit/b616e7fbaf782a44df4a1b24614d7ad02a7446f2))
+* **gda:** one canonical identity for the project reference graph ([#774](https://github.com/aigengame/godot-agent/issues/774)) ([#777](https://github.com/aigengame/godot-agent/issues/777)) ([cd9ad81](https://github.com/aigengame/godot-agent/commit/cd9ad816810e2b531c2573044346b123f804b407))
+* **gda:** one reader for scene text, correcting four substring-read misattributions ([#775](https://github.com/aigengame/godot-agent/issues/775)) ([#794](https://github.com/aigengame/godot-agent/issues/794)) ([a40c92c](https://github.com/aigengame/godot-agent/commit/a40c92c5cb9c79a90745b6f79514d049fa9431ad))
+* **gda:** one root-cache exclusion for every res:// walk ([#712](https://github.com/aigengame/godot-agent/issues/712)) ([#758](https://github.com/aigengame/godot-agent/issues/758)) ([8d445e6](https://github.com/aigengame/godot-agent/commit/8d445e6336dfe76692c3a13f4b17bce447637d60))
+* **gda:** one traversal for the four res:// walkers ([#764](https://github.com/aigengame/godot-agent/issues/764)) ([#778](https://github.com/aigengame/godot-agent/issues/778)) ([d337a0d](https://github.com/aigengame/godot-agent/commit/d337a0d48aad7168db803fd7343e3e8d6dae0792))
+* **gda:** preserve the captured output of every timed-out launch ([#714](https://github.com/aigengame/godot-agent/issues/714)) ([#781](https://github.com/aigengame/godot-agent/issues/781)) ([1ba7490](https://github.com/aigengame/godot-agent/commit/1ba749060f0b06aff1f07221f1f6138f5ce702ff))
+* **gda:** refuse a --value literal Godot's float parser destroys ([#772](https://github.com/aigengame/godot-agent/issues/772)) ([#797](https://github.com/aigengame/godot-agent/issues/797)) ([c1e5aee](https://github.com/aigengame/godot-agent/commit/c1e5aee36f5815b44c6c870308f784763349e1ef))
+* **gda:** refuse a container float the parser destroys, on the raw text ([#805](https://github.com/aigengame/godot-agent/issues/805)) ([#809](https://github.com/aigengame/godot-agent/issues/809)) ([d2430c6](https://github.com/aigengame/godot-agent/commit/d2430c65fe2677e6e297b3f2b5ac4ad12be4019b))
+* **gda:** report headless float reads at full binary64 precision ([#771](https://github.com/aigengame/godot-agent/issues/771)) ([#780](https://github.com/aigengame/godot-agent/issues/780)) ([873f0c6](https://github.com/aigengame/godot-agent/commit/873f0c66e3368934b130fd7e29c6645552942564))
+* **gda:** route an invalid budget entry through the shared refusal renderer ([#759](https://github.com/aigengame/godot-agent/issues/759)) ([#776](https://github.com/aigengame/godot-agent/issues/776)) ([f91af58](https://github.com/aigengame/godot-agent/commit/f91af58e55bb3cc22e3a4f6c220c67c72b34e887))
+* **gda:** script validate help names the code the refusal emits ([#811](https://github.com/aigengame/godot-agent/issues/811)) ([#812](https://github.com/aigengame/godot-agent/issues/812)) ([16c32d9](https://github.com/aigengame/godot-agent/commit/16c32d96758f72370d73610f9144f8470007afb9))
+* **gda:** stop the script-error parser eating a genuine trailing dot ([#756](https://github.com/aigengame/godot-agent/issues/756)) ([78d17f1](https://github.com/aigengame/godot-agent/commit/78d17f19a52d5c9b1f667dabeb444c5b9a348f38))
+* **gda:** structured envelope for a filesystem-restricted harness install ([#768](https://github.com/aigengame/godot-agent/issues/768)) ([6a132a4](https://github.com/aigengame/godot-agent/commit/6a132a41cb6906b76c868cdeb8018a3d167af6d8))
+* **gda:** the emission seam's stderr rule reaches the preflight recipe ([#803](https://github.com/aigengame/godot-agent/issues/803)) ([#806](https://github.com/aigengame/godot-agent/issues/806)) ([f7dfeea](https://github.com/aigengame/godot-agent/commit/f7dfeea4178960b0ed34387b227a3ef5ba38aa02))
+* **gda:** the res:// walk skips nested projects and .gdignore directories, as the engine does ([#804](https://github.com/aigengame/godot-agent/issues/804)) ([#808](https://github.com/aigengame/godot-agent/issues/808)) ([05be049](https://github.com/aigengame/godot-agent/commit/05be049559c181892bbe8cdef3478e96925ae453))
+
 ## [0.12.0](https://github.com/aigengame/godot-agent/compare/v0.11.0...v0.12.0) (2026-08-27)
 
 
