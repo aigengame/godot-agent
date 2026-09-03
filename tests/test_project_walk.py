@@ -16,6 +16,8 @@ a real engine in ``test_e2e_project_walk.py``.
 import re
 from pathlib import Path
 
+from gda.commands import resource
+
 ROOT = Path(__file__).resolve().parents[1]
 OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
 
@@ -202,4 +204,78 @@ def test_the_engine_cache_exclusion_has_one_owner():
     assert users == {DESCEND_PREDICATE, CACHE_OWNER}, (
         f"{CACHE_CONSTANT} must be compared only in {DESCEND_PREDICATE}'s lexical "
         f"fast path and in {CACHE_OWNER}; found it in {sorted(users)}"
+    )
+
+
+# The two directory markers the engine's own scan skips on (#804), named as
+# constants so the rule has one home; `_should_descend` must be their only user.
+SKIP_MARKER_CONSTANTS = ("NESTED_PROJECT_MARKER", "GDIGNORE_MARKER")
+
+
+def test_the_engine_skip_markers_are_asked_only_by_the_descent_predicate():
+    # AC1 (#804): a nested `project.godot` and a `.gdignore` are skipped by the ONE
+    # shared traversal's descent decision, not per collector. The guard is the same
+    # shape the cache exclusion has: the constants exist, `_should_descend` probes
+    # both, and no other function names them — a second site is exactly how the
+    # four collectors drifted apart in #712.
+    source = _source()
+    descend = "\n".join(_function_body(source, DESCEND_PREDICATE))
+
+    for marker in SKIP_MARKER_CONSTANTS:
+        assert f"const {marker} :=" in source, f"{marker} must be declared once"
+        assert f"FileAccess.file_exists(child.path_join({marker}))" in descend, (
+            f"{DESCEND_PREDICATE} must probe {marker} on the child directory"
+        )
+
+    users = set()
+    for index, line in enumerate(source.splitlines()):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        for marker in SKIP_MARKER_CONSTANTS:
+            if marker not in stripped or stripped.startswith(f"const {marker}"):
+                continue
+            enclosing = _enclosing_function(source, index)
+            assert enclosing is not None, f"{marker} used outside any function"
+            users.add(enclosing)
+
+    assert users == {DESCEND_PREDICATE}, (
+        f"the engine skip markers must be asked only in {DESCEND_PREDICATE}; "
+        f"found them in {sorted(users)}"
+    )
+
+
+def _const_value(source: str, name: str) -> str:
+    """The string literal a top-level ``const NAME := "…"`` declares."""
+    match = re.search(rf'^const {name} := "([^"]*)"$', source, re.MULTILINE)
+    assert match, f"expected a string const {name} in operations.gd"
+    return match.group(1)
+
+
+def test_the_two_spellings_of_the_skip_markers_agree():
+    # #808 review: the rule crossed the language seam. `_should_descend` decides
+    # it for the walk; `_engine_skips_directory_of` (src/gda/commands/resource.py)
+    # predicts the SAME engine behaviour for the import gap listing, which reads
+    # the project's files from Python and so genuinely cannot ask the walk. Two
+    # independently editable spellings of two literals is how a rule drifts, and
+    # the repo's answer to that shape is a source-anchored guard (see
+    # `test_the_engine_cache_exclusion_has_one_owner`, and the `hints.py` table
+    # re-resolved against the live command tree).
+    #
+    # It compares the MARKERS, not the predicates: the two answer deliberately
+    # different questions and are expected to differ elsewhere. The walk keeps
+    # hidden and dot-prefixed directories in (#54, #712) while the engine's scan
+    # drops them, `Path.rglob` does not descend a symlinked directory while the
+    # walk does (#760), and the cache clause is filesystem identity engine-side
+    # against a dot-prefix reading in Python. Those divergences are stated in
+    # `_engine_skips_directory_of`'s docstring; the marker names are the one thing
+    # that must be identical.
+    source = _source()
+
+    engine_side = {name: _const_value(source, name) for name in SKIP_MARKER_CONSTANTS}
+    python_side = {name: getattr(resource, name) for name in SKIP_MARKER_CONSTANTS}
+
+    assert engine_side == python_side, (
+        f"the skip markers must read the same on both sides of the seam; "
+        f"operations.gd says {engine_side}, resource.py says {python_side}"
     )

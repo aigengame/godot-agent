@@ -68,6 +68,58 @@ instantiation (and the Node-vs-Resource base-class check) remains **split per si
 > already gives a name declared in two files. The full rule and its rationale live with the walk, in
 > `docs/command-catalog.md`'s exclusion passage.
 
+> **Amendment (2026-09-02, #804) — the walk skips what the ENGINE's scan skips, which
+> REVERSES the vendored-tree trade above.** #804 aligned the shared `res://` walk with
+> `EditorFileSystem::_should_skip_directory` (`editor/file_system/editor_file_system.cpp`,
+> 4.6.3-stable): besides the project data path, the engine skips a directory holding a
+> `project.godot` — another project inside this one — and a directory holding a
+> `.gdignore`. Its trigger was `script validate --all` compiling a nested project's
+> scripts against the OUTER root (ADR-0006's closed gap), but the change is the walk's, so
+> this index changes with it. **For this ADR the boundary is now:** a `class_name` declared
+> under a nested `project.godot` or under a `.gdignore`d directory **does not resolve** at
+> any of the three call sites, and a name that was `ambiguous_class_name` **only** because
+> a vendored sub-project declared it a second time is now unambiguous and resolves to the
+> outer project's declaration.
+>
+> That is a **deliberate reversal**, not a side effect. The two amendments above accepted
+> a vendored tree's scripts into the index — #712 chose to walk a nested `.godot` because
+> it is usually authored content, and #760 kept a checkout reached through a link
+> enumerable — on the reasoning that gda cannot tell a vendored sample tree from a real
+> sub-project. A `project.godot` **is** that missing distinction: the sub-project declares
+> itself, and its scripts' own `res://` references mean ITS root, so resolving one of its
+> `class_name`s here would instantiate a script against the wrong root — the same wrong
+> answer ADR-0006's ownership gate refuses when such a file is NAMED. A `.gdignore` is the
+> project's own instruction not to scan. The narrower trade the earlier amendments made is
+> therefore superseded exactly where a marker is present, and nowhere else: a vendored tree
+> WITHOUT either marker, including one reached through a symlink, is still walked and still
+> indexed, as #712 and #760 decided.
+>
+> **A second, unplanned reversal: the nested CACHE (recorded 2026-09-02, #808 review).**
+> #712 accepted one named cost — a vendored sub-project's own engine cache counting in
+> `project statistics`, becoming a `find-unused-resources` candidate, and its scripts
+> entering this index — because nothing in the PATH tells an engine cache from authored
+> content. The CONTENT does, and #804's `.gdignore` clause reads it: every engine that
+> creates a project data directory writes a `.gdignore` INTO it (`EditorPaths::create`,
+> `editor/file_system/editor_paths.cpp:268-277`; `EditorNode` does the same, and gda's own
+> `resource import` pass reports `res://.godot/.gdignore` in `created`). So a nested cache
+> that any engine produced — the case #712 named, "opened once in an editor" — now carries
+> the marker and is skipped, and #712's accepted cost is retired with it. The same
+> mechanism reaches the Android `build/` directory an export template installs
+> (`editor/export/export_template_manager.cpp:848-849`), which the engine marks the same
+> way, so that tree leaves `project statistics` too. What #712's
+> rule was actually FOR is unchanged: a `.godot` no engine wrote — an addon vendoring a
+> sample tree, a fixture tree — holds no `.gdignore` and is still walked and still indexed.
+> Measured both ways on a real engine and pinned by
+> `test_an_engine_written_nested_cache_is_skipped_where_an_authored_one_is_walked`.
+>
+> **Residuals, stated not chased.** The exclusion of the project data path is still the
+> hardcoded `res://.godot`, while the engine reads
+> `application/config/project_data_dir_name` from `ProjectSettings`; a project that renames
+> its data directory has gda index the renamed cache's scripts and skip a `res://.godot`
+> that is ordinary content. And the two marker clauses cost two `FileAccess.file_exists`
+> per child DIRECTORY — the same two probes the engine's own scan pays, on the same
+> directories, not per file.
+
 **Explicit contract edges:**
 
 - **Duplicate `class_name`** (declared in more than one `.gd`) is **ambiguous and rejected** with a
@@ -120,9 +172,12 @@ gda's existing boundary); its resolution would need a different mechanism and is
 - **Consistency restored** across the three sites: they now agree on `class_name` resolution in a
   never-opened project, rather than `find-references` reporting "no such class" while a repaired
   `resource create` resolves it.
-- **Scan boundary (amended 2026-08-28 #712, 2026-08-31 #760).** What the scan skips is the root
-  cache **identity**, not every directory named `.godot` and not the path as written — see the
-  Decision amendments for the boundary, the accepted nested-cache trade, and the symlink policy.
+- **Scan boundary (amended 2026-08-28 #712, 2026-08-31 #760, 2026-09-02 #804).** What the scan
+  skips is the root cache **identity** — not every directory named `.godot`, and not the path as
+  written — plus the two directories the engine's own scan skips: a nested `project.godot` and a
+  `.gdignore`. See the Decision amendments for the boundary, the symlink policy, and the two
+  reversals #804 makes to the earlier vendored-tree trade — the declared sub-project, and the
+  nested cache the engine marks with a `.gdignore` of its own.
 - **Cost.** A never-opened-project miss walks the whole `res://` tree and parses every `.gd`; this is
   acceptable for one-shot ops and is **not** backed by a persistent gda-owned cache — a gda-owned
   cache would re-introduce the very ".godot ownership" complexity the editor-scan option was rejected

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9ee297b6943985d55526d9519c2e4bee7d4ce1c301aa05e0e834b9ed9640b3c0 -->
+<!-- gda-readme-i18n: source=README.md sha256=c71e5e011339a24d1e70a7922fb24ecb5fc6269909f82fdbab469479868deac2 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -515,9 +515,10 @@ script que pertenece a un proyecto nunca se compila contra nada. Para el caso an
 mensaje indica la reemisión completa: el `--project` que hay que pasar y el objetivo
 reescrito relativo a ese propietario, porque una ruta relativa se ancla en el proyecto y
 la grafía original no se encontraría bajo el nuevo. `script run` y
-`resource import` rechazan igual, con el mismo código. `--all` es el único selector que
-todavía no aplica la mitad de propiedad, así que los scripts de un proyecto anidado
-pueden seguir mostrando esa cascada falsa.
+`resource import` rechazan igual, con el mismo código. `--all` no necesita ese rechazo: el
+recorrido de todo el proyecto omite un directorio que contiene un `project.godot` anidado
+(y uno que contiene un `.gdignore`) igual que lo hace el propio escaneo del motor, así que
+nunca enumera un archivo que la comprobación rechazaría por nombre.
 
 `script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución**:
 el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9ee297b6943985d55526d9519c2e4bee7d4ce1c301aa05e0e834b9ed9640b3c0 -->
+<!-- gda-readme-i18n: source=README.md sha256=c71e5e011339a24d1e70a7922fb24ecb5fc6269909f82fdbab469479868deac2 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -474,8 +474,9 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 同一检查在未解析到项目时同样生效，因此属于某个项目的脚本不会在没有项目的情况下被编译。
 对于嵌套这一种情况，错误消息会给出完整的重新调用方式：要传的 `--project`，以及相对该拥有者
 重新拼写的目标——相对路径以项目为基准，原来的拼写在新项目下找不到。
-`script run` 与 `resource import` 以同样的错误码同样拒绝。`--all` 是唯一尚未执行所有者检查的
-选择方式，因此嵌套项目中的脚本在那里仍可能出现这串假错误。
+`script run` 与 `resource import` 以同样的错误码同样拒绝。`--all` 不需要这道拒绝：项目级遍历
+与引擎自身的扫描一致，会跳过含有嵌套 `project.godot` 的目录（以及含有 `.gdignore` 的目录），
+因此它根本不会枚举到按名指定时会被拒绝的文件。
 
 `script run` 一次性执行一个具名项目脚本，并**将这次运行透传**：成功结果携带脚本自己的
 `exit_status`（脚本有意的非零 `quit()` 是数据而不是 gda 失败——传 `--strict` 可把它变成

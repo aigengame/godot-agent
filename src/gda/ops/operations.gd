@@ -159,10 +159,34 @@ const SCENE_INSTANCE_MAX_DEPTH := 16
 const SCENE_STARTUP_READY := "ready"
 const SCENE_STARTUP_NOT_READY := "not_ready"
 
-# The ONE directory a res:// walk excludes: the engine's own import/cache tree at
-# the project root. The VALUE only — the decision that uses it lives in exactly one
-# place, _is_in_engine_cache, which _should_descend and _should_collect both ask.
+# The engine's own import/cache tree at the project root — the first of the three
+# directories a res:// walk excludes. The VALUE only — the decision that uses it
+# lives in exactly one place, _is_in_engine_cache, which _should_descend and
+# _should_collect both ask.
+#
+# RESIDUAL (#804): the engine reads this location from ProjectSettings —
+# `get_project_data_path()` is `res://` joined with `application/config/
+# project_data_dir_name`, which a project may rename — while gda hardcodes the
+# default. A project that renames its data directory therefore has gda walk the
+# renamed cache and exclude a `res://.godot` that is ordinary content. Stated
+# rather than chased: the rename is rare, and closing it means reading the setting
+# in every walk-side predicate.
 const ENGINE_CACHE_DIR := "res://.godot"
+
+# The two MARKER files whose presence makes the engine's own scan skip a directory
+# (EditorFileSystem::_should_skip_directory, editor/file_system/
+# editor_file_system.cpp:3460-3480, line numbers from the 4.6.3-stable tag): a
+# `project.godot` marks a NESTED project, whose files belong to a different res://
+# root, and a `.gdignore` is the project's own explicit "do not scan this" marker.
+# Values only — the decision that uses them is _should_descend's alone (#804).
+#
+# The same two literals are spelled a second time in Python, in
+# `_engine_skips_directory_of` (src/gda/commands/resource.py), which predicts the
+# same rule for an inventory that never spawns the engine. The two spellings are
+# held together by `test_the_two_spellings_of_the_skip_markers_agree` (#808
+# review), not by derivation.
+const NESTED_PROJECT_MARKER := "project.godot"
+const GDIGNORE_MARKER := ".gdignore"
 
 # How far a res:// walk follows symlinks when it asks whether an entry is the
 # engine cache (#760): the links followed in one chain, and the passes the
@@ -4294,14 +4318,65 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 # resources, all files) asks this and nothing else, so the rule cannot drift
 # between them and a new walk inherits it by calling this.
 #
-# The first test is the full path, never the directory NAME, because a `.godot`
+# THE ENGINE'S OWN SKIP RULE (#804). EditorFileSystem::_should_skip_directory
+# (editor/file_system/editor_file_system.cpp:3460-3480, line numbers from the
+# 4.6.3-stable tag) skips three kinds of directory, and this predicate now answers
+# the same three:
+#
+#   - the project DATA path (the cache) — gda's ENGINE_CACHE_DIR clause below,
+#     with the hardcoded-vs-configurable residual stated at that constant;
+#   - a directory holding a `project.godot`: another project INSIDE this one. Its
+#     files address a different res:// root, so enumerating them here gave them
+#     the outer root — `script validate --all` compiled a nested script against it
+#     and reported every one of its own `res://` preloads as missing, the exact
+#     false cascade ADR-0006's gate refuses when the same file is NAMED. `--all`
+#     and the named target now agree because the walk no longer reaches the file;
+#   - a directory holding a `.gdignore`: the project's own explicit marker for
+#     content the engine must not scan. gda honoured it nowhere, so a `.gdignore`d
+#     tree was listed, validated, counted and indexed.
+#
+# Answering that function is NOT full parity with the engine's scan, and is not
+# meant to be: _scan_new_dir discards every hidden entry and every dot-prefixed
+# DIRECTORY before it consults _should_skip_directory (editor_file_system.cpp:
+# 1157-1168, same tag). gda deliberately enumerates those (#54, #712), so a
+# `res://.hidden/x.gd` is still listed here where the engine's scan never reaches
+# it. What this predicate adopts is the marker rule, not the hidden-entry rule.
+#
+# Only a directory carrying one of those markers changes answer. The probes are
+# lexical joins onto the child's res:// path, never the directory NAME, so a
+# sub-directory merely CALLED `project.godot` (a directory, not a file) does not
+# skip anything: FileAccess.file_exists answers false for a directory
+# (FileAccessUnix::file_exists accepts S_IFREG/S_IFLNK only). Nor does the way the
+# directory was REACHED: a marked directory symlinked into the tree is skipped
+# too, because the probe resolves the link. Both edges are pinned e2e (#808
+# review), which is what keeps them from being claims alone.
+#
+# COST (#804, recorded so review does not re-litigate it): two extra
+# FileAccess.file_exists per child DIRECTORY — the same two probes the engine's
+# own scan pays, on the same directories, and a file-level stat rather than a
+# read. It is not paid per FILE, and a project's directory count is orders below
+# its file count. Caching the answer was declined: a walk visits each directory
+# once, so a cache would only add state to save nothing.
+#
+# The cache test is the full path, never the directory NAME, because a `.godot`
 # deeper in the tree is not this project's engine cache. It is usually authored
 # content (an addon vendoring a sample project, a fixture tree), and excluding it
 # hid real scripts from `script list` and let `script validate --all` report a
 # valid aggregate for a project holding an invalid script (#663 review). Sometimes
-# it is a vendored sub-project's own cache instead, whose artefacts then count in
-# `project statistics` and `find-unused-resources` — accepted deliberately, since
-# nothing in the path tells the two apart and a false-valid aggregate is worse.
+# it is a vendored sub-project's own cache instead, whose artefacts then counted in
+# `project statistics` and `find-unused-resources` — a cost #712 accepted, since
+# nothing in the PATH tells the two apart and a false-valid aggregate is worse.
+#
+# The marker clause above retires that cost wherever an ENGINE wrote the cache —
+# the case #712 named — and #712's own reasoning is why: nothing in the path tells
+# an engine cache from authored content, but the CONTENT does. Every engine that
+# creates a project data directory writes a `.gdignore` into it — the editor
+# (EditorPaths::create, editor/file_system/editor_paths.cpp:268-277) and gda's own
+# import pass, whose `created` list names `res://.godot/.gdignore`. So a nested
+# cache any engine produced now carries the marker and is skipped, while a
+# `.godot` that is genuinely authored content — no engine ever wrote it, so no
+# `.gdignore` inside — is still walked, which is the case #712's rule was FOR
+# (#808 review).
 #
 # Three of the four walks once compared the NAME, so one project answered two
 # ways: `script list` reported a script `project statistics` counted as zero
@@ -4333,11 +4408,20 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 func _should_descend(dir: DirAccess, child: String, chain: Array[String]) -> bool:
 	if child == ENGINE_CACHE_DIR:
 		return false
+	# The engine's two marker clauses, in its own order. They are asked BEFORE the
+	# link tests because a marker is about what the directory HOLDS, not about how
+	# it was reached: a vendored checkout carrying its own `project.godot` is
+	# skipped whether it sits in the tree or is symlinked into it, exactly as the
+	# engine skips it (FileAccess::exists resolves the link too).
+	if FileAccess.file_exists(child.path_join(NESTED_PROJECT_MARKER)):
+		return false
+	if FileAccess.file_exists(child.path_join(GDIGNORE_MARKER)):
+		return false
 	if not dir.is_link(child):
 		# Not a link: its real parent is the directory being listed, which the
 		# walk already cleared, and it cannot be an ancestor of itself. So the
-		# lexical test above is the whole decision — an ordinary project pays one
-		# lstat per entry and nothing else.
+		# tests above are the whole decision — an ordinary project pays one lstat
+		# per entry plus the engine's own two marker probes, and nothing else.
 		return true
 	if _is_in_engine_cache(dir, child):
 		return false

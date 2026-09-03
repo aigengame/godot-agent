@@ -1,4 +1,4 @@
-"""S1 (e2e): the shared ``res://`` walk's behavioural contracts (#764, #760).
+"""S1 (e2e): the shared ``res://`` walk's behavioural contracts (#764, #760, #804).
 
 The four project-wide collectors in ``operations.gd`` run ONE traversal. These
 tests pin, against a real engine, the two things that consolidation had to decide
@@ -19,6 +19,11 @@ or preserve:
 left undecided: the walk follows a link as the engine does, but identifies what it
 reaches by filesystem identity, so an alias cannot re-admit the engine cache and a
 cycle cannot spell one file 33 ways.
+
+…and the walk's **engine skip rule** (#804): the traversal now declines a directory
+that holds a ``project.godot`` (a nested project) or a ``.gdignore``, the two
+markers ``EditorFileSystem::_should_skip_directory`` skips on, so every collector's
+universe is the engine's.
 """
 
 import json
@@ -544,3 +549,423 @@ def test_a_cache_alias_is_excluded_however_deep_below_the_cache_it_points(tmp_pa
     scripts = {s["path"] for s in _result(project, "script", "list")["scripts"]}
     assert scripts == {"res://real.gd"}, scripts
     _assert_class_name_unresolvable(project, "RootCacheThing")
+
+
+# --- the engine's own skip rule (#804) ---------------------------------------
+#
+# The walk descended into two kinds of directory the engine's scan never enters:
+# one holding a `project.godot` (another project inside this one) and one holding
+# a `.gdignore`. Every collector's universe was therefore wider than the engine's,
+# and `script validate --all` compiled a nested project's scripts against the
+# OUTER root — the same false `res://` cascade ADR-0006's gate refuses when the
+# same file is NAMED, so one file got opposite answers depending on the selector.
+
+# The nested project's own script, preloading a path that exists only under the
+# NESTED root. Compiled against the outer root it cannot resolve, which is what
+# made the cascade visible; it is Node-derived so a leak into the class_name index
+# makes `node add --type InnerThing` SUCCEED rather than merely change wording.
+INNER_GD = """\
+extends Node
+class_name InnerThing
+
+const Asset = preload("res://asset.gd")
+"""
+
+INNER_TSCN = """\
+[gd_scene format=3]
+
+[node name="Inner" type="Node3D"]
+"""
+
+IGNORED_GD = """\
+extends Node
+class_name IgnoredThing
+"""
+
+IGNORED_TSCN = """\
+[gd_scene format=3]
+
+[node name="Ignored" type="Node3D"]
+"""
+
+OUTER_GD = """\
+extends Node
+class_name OuterThing
+"""
+
+# Declared TWICE — once in the outer project, once in the nested one. While the
+# walk entered the nested project this was `ambiguous_class_name`; the skip rule
+# makes it resolve, which is the reversal ADR-0032 records.
+DUPLICATE_GD = """\
+extends Node
+class_name DuplicateThing
+"""
+
+# A sidecar with a declared importer and no `.md5` receipt: the engine's own
+# "reimport" state, so the asset counts as an import GAP wherever the scan reaches
+# it.
+STALE_IMPORT = """\
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://c8gda804test"
+"""
+
+
+@pytest.fixture
+def skipped_directory_project(tmp_path):
+    """An outer project holding a nested project and a ``.gdignore`` tree (#804).
+
+    Both skipped directories carry a script, a scene, and a stale-sidecar asset,
+    so every collector — the four listings, the class_name index, and the import
+    gap inventory — has something to report there if the walk still reaches it.
+    """
+    project = tmp_path / "game"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(name="gda-skip-rule-fixture"), encoding="utf-8"
+    )
+    (project / "outer.gd").write_text(OUTER_GD, encoding="utf-8")
+    (project / "duplicate.gd").write_text(DUPLICATE_GD, encoding="utf-8")
+    (project / "outer.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (project / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    (project / "pic.png.import").write_text(STALE_IMPORT, encoding="utf-8")
+
+    nested = project / "nested"
+    nested.mkdir()
+    (nested / "project.godot").write_text(
+        project_godot(name="gda-skip-rule-inner"), encoding="utf-8"
+    )
+    (nested / "asset.gd").write_text(LEAF_GD, encoding="utf-8")
+    (nested / "inner.gd").write_text(INNER_GD, encoding="utf-8")
+    (nested / "duplicate.gd").write_text(DUPLICATE_GD, encoding="utf-8")
+    (nested / "inner.tscn").write_text(INNER_TSCN, encoding="utf-8")
+    (nested / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    (nested / "pic.png.import").write_text(STALE_IMPORT, encoding="utf-8")
+
+    ignored = project / "ignored"
+    ignored.mkdir()
+    (ignored / ".gdignore").write_text("", encoding="utf-8")
+    (ignored / "ignored.gd").write_text(IGNORED_GD, encoding="utf-8")
+    (ignored / "ignored.tscn").write_text(IGNORED_TSCN, encoding="utf-8")
+    (ignored / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    (ignored / "pic.png.import").write_text(STALE_IMPORT, encoding="utf-8")
+    return project
+
+
+# Every res:// path inside the two skipped directories. A collector reporting any
+# of them has walked where the engine's scan does not.
+SKIPPED_PATHS = frozenset(
+    {
+        "res://nested/project.godot",
+        "res://nested/asset.gd",
+        "res://nested/inner.gd",
+        "res://nested/duplicate.gd",
+        "res://nested/inner.tscn",
+        "res://nested/pic.png",
+        "res://nested/pic.png.import",
+        "res://ignored/.gdignore",
+        "res://ignored/ignored.gd",
+        "res://ignored/ignored.tscn",
+        "res://ignored/pic.png",
+        "res://ignored/pic.png.import",
+    }
+)
+
+
+@pytest.mark.e2e
+def test_the_listings_skip_a_nested_project_and_a_gdignore_directory(
+    skipped_directory_project,
+):
+    # AC1/AC3 (#804): the rule lives in the ONE shared traversal, so the four
+    # listings answer together. Before it, `script list` named
+    # res://nested/inner.gd, res://nested/duplicate.gd, res://nested/asset.gd and
+    # res://ignored/ignored.gd; `scene list` named both skipped scenes; and
+    # `project statistics` counted the second `project.godot` and the `.gdignore`
+    # marker as files of this project.
+    walked = _walked_paths(skipped_directory_project)
+    assert not (walked & SKIPPED_PATHS), walked & SKIPPED_PATHS
+
+    scripts = {
+        s["path"]
+        for s in _result(skipped_directory_project, "script", "list")["scripts"]
+    }
+    assert scripts == {"res://outer.gd", "res://duplicate.gd"}, scripts
+
+    scenes = {
+        s["path"] for s in _result(skipped_directory_project, "scene", "list")["scenes"]
+    }
+    assert scenes == {"res://outer.tscn"}, scenes
+
+    # The unfiltered universe is the one that counts a `project.godot` and the
+    # `.gdignore` marker itself, so it is where a re-entry shows up as a raw count.
+    stats = _result(skipped_directory_project, "project", "statistics")
+    by_ext = {e["extension"]: e["files"] for e in stats["by_extension"]}
+    assert stats["script_count"] == 2, stats
+    assert stats["scene_count"] == 1, stats
+    assert by_ext.get("godot") == 1, by_ext  # the OUTER project.godot alone
+    assert "gdignore" not in by_ext, by_ext
+
+    # The outer project's own content is untouched: only a marked directory
+    # changes answer.
+    assert {"res://outer.gd", "res://duplicate.gd", "res://outer.tscn"} <= walked
+
+
+@pytest.mark.e2e
+def test_validate_all_and_the_named_target_agree_on_a_nested_projects_script(
+    skipped_directory_project,
+):
+    # AC2 (#804): the same file must not get opposite answers depending on the
+    # selector. `--all` used to compile res://nested/inner.gd against the OUTER
+    # root and report `Preload file "res://asset.gd" does not exist.` — a false
+    # cascade — while NAMING that file is refused outright by ADR-0006's ownership
+    # gate. The walk no longer reaches it, so `--all` reports only what the outer
+    # project owns and the refusal stays the one true answer for the nested file.
+    validated = _result(skipped_directory_project, "script", "validate", "--all")
+    assert {s["path"] for s in validated["scripts"]} == {
+        "res://outer.gd",
+        "res://duplicate.gd",
+    }, validated
+    assert validated["valid"] is True, validated
+
+    proc = _gda(
+        skipped_directory_project,
+        "script",
+        "validate",
+        "res://nested/inner.gd",
+        "--json",
+    )
+    error = json.loads(proc.stdout)["error"]
+    assert error["code"] == "target_outside_project", error
+    assert error["evidence"]["owning_project"].endswith("/nested"), error
+
+
+@pytest.mark.e2e
+def test_the_class_name_index_follows_the_walk_out_of_a_skipped_directory(
+    skipped_directory_project,
+):
+    # AC3 (#804): the class_name index is the FIFTH consumer of the same walk
+    # (ADR-0032), and the skip rule REVERSES the vendored-tree trade #712/#760
+    # recorded. Both consequences are asserted, because both are the point:
+    _assert_class_name_unresolvable(
+        skipped_directory_project, "InnerThing", "IgnoredThing"
+    )
+
+    # ...and a duplicate that existed only because the walk entered the nested
+    # project is no longer a duplicate, so a name that reported
+    # `ambiguous_class_name` now resolves — to the outer project's declaration.
+    added = _result(
+        skipped_directory_project,
+        "node",
+        "add",
+        "res://host.tscn",  # created by the helper above
+        "--parent",
+        ".",
+        "--name",
+        "Dup",
+        "--type",
+        "DuplicateThing",
+    )
+    assert added["script_class"] == "DuplicateThing", added
+
+    # `find-references` shares the identical resolver, so it agrees: the outer
+    # class is a resolvable target, the nested one is not a class at all.
+    assert (
+        _result(skipped_directory_project, "project", "find-references", "OuterThing")[
+            "target"
+        ]
+        == "OuterThing"
+    )
+    proc = _gda(
+        skipped_directory_project,
+        "project",
+        "find-references",
+        "InnerThing",
+        "--json",
+    )
+    error = json.loads(proc.stdout)["error"]
+    assert error["code"] == "invalid_target", error
+    assert "no .gd script declares class_name InnerThing" in error["message"], error
+
+
+@pytest.mark.e2e
+def test_the_import_gap_listing_promises_nothing_in_a_skipped_directory(
+    skipped_directory_project,
+):
+    # AC3 (#804), the sixth surface. `pass_will_also_import` PREDICTS what a
+    # project-wide `--import` pass will re-import besides the request; the engine's
+    # scan skips both marked directories, so their stale sidecars were a promise of
+    # work the pass never does. It listed res://ignored/pic.png and
+    # res://nested/pic.png before.
+    predicted = _result(
+        skipped_directory_project,
+        "resource",
+        "import",
+        "res://pic.png",
+        "--dry-run",
+    )
+    assert predicted["engine_pass"] is True, predicted  # the request itself is stale
+    assert predicted["pass_will_also_import"] == [], predicted
+
+
+# --- what the directory HOLDS is the whole rule (#808 review) -----------------
+#
+# The skip is claimed to be blind to two things the walk sees: the way a directory
+# was REACHED (a marker probe resolves a link) and what it is CALLED (a directory
+# named `project.godot` is not a marker FILE). Both claims held when measured, and
+# neither had a test — mutations that broke each left the added suite green. The
+# fixture below carries the two shapes plus the boundary #712's trade now sits on.
+
+LINKED_NESTED_GD = """\
+extends Node
+class_name LinkedNestedThing
+"""
+
+LINKED_IGNORED_GD = """\
+extends Node
+class_name LinkedIgnoredThing
+"""
+
+# The two nested-cache halves. An engine WRITES a `.gdignore` into every project
+# data directory it creates, so a nested cache that any engine produced carries the
+# marker; a `.godot` that is authored content does not.
+ENGINE_CACHE_GD = """\
+extends Node
+class_name EngineCacheThing
+"""
+
+AUTHORED_CACHE_GD = """\
+extends Node
+class_name AuthoredCacheThing
+"""
+
+
+@pytest.fixture
+def marker_reach_project(tmp_path):
+    """A project whose marked directories are reached and named every way (#808).
+
+    * ``linked_nested`` / ``linked_ignored`` — marked directories that live
+      OUTSIDE ``res://`` and are symlinked into it;
+    * ``dirmarker`` / ``dirignore`` — directories holding a sub-DIRECTORY called
+      ``project.godot`` / ``.gdignore``, which is not a marker file;
+    * ``vendored/.godot`` — a nested cache as an engine writes it, ``.gdignore``
+      inside;
+    * ``authored/.godot`` — a nested ``.godot`` that is authored content, with no
+      marker inside, which #712 decided to walk.
+    """
+    project = tmp_path / "game"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(name="gda-marker-reach-fixture"), encoding="utf-8"
+    )
+    (project / "outer.gd").write_text(OUTER_GD, encoding="utf-8")
+
+    outside_nested = tmp_path / "outside_nested"
+    outside_nested.mkdir()
+    (outside_nested / "project.godot").write_text(
+        project_godot(name="gda-marker-reach-inner"), encoding="utf-8"
+    )
+    (outside_nested / "out_script.gd").write_text(LINKED_NESTED_GD, encoding="utf-8")
+    (project / "linked_nested").symlink_to(outside_nested, target_is_directory=True)
+
+    outside_ignored = tmp_path / "outside_ignored"
+    outside_ignored.mkdir()
+    (outside_ignored / ".gdignore").write_text("", encoding="utf-8")
+    (outside_ignored / "out_ignored.gd").write_text(LINKED_IGNORED_GD, encoding="utf-8")
+    (project / "linked_ignored").symlink_to(outside_ignored, target_is_directory=True)
+
+    for directory, marker in (
+        ("dirmarker", "project.godot"),
+        ("dirignore", ".gdignore"),
+    ):
+        (project / directory / marker).mkdir(parents=True)
+        (project / directory / "held.gd").write_text(LEAF_GD, encoding="utf-8")
+
+    (project / "vendored" / ".godot").mkdir(parents=True)
+    (project / "vendored" / ".godot" / ".gdignore").write_text("", encoding="utf-8")
+    (project / "vendored" / ".godot" / "cached.gd").write_text(
+        ENGINE_CACHE_GD, encoding="utf-8"
+    )
+    (project / "vendored" / "real.gd").write_text(LEAF_GD, encoding="utf-8")
+
+    (project / "authored" / ".godot").mkdir(parents=True)
+    (project / "authored" / ".godot" / "sample.gd").write_text(
+        AUTHORED_CACHE_GD, encoding="utf-8"
+    )
+    return project
+
+
+@pytest.mark.e2e
+def test_a_marked_directory_is_skipped_however_it_is_reached_or_named(
+    marker_reach_project,
+):
+    # The probes run BEFORE the link tests, so a marked directory symlinked into
+    # the tree is skipped exactly as one sitting in it — the shape #760 exists
+    # because of, an alias re-admitting excluded content. Moving the probes behind
+    # the `is_link` fast path left every other test in this file green while
+    # res://linked_nested/out_script.gd came back.
+    #
+    # And the probe is `FileAccess.file_exists`, which answers false for a
+    # directory (FileAccessUnix::file_exists accepts S_IFREG/S_IFLNK only), so a
+    # directory merely CALLED `project.godot` skips nothing. Accepting a marker
+    # DIRECTORY too also left the suite green while dropping the two held scripts.
+    walked = _walked_paths(marker_reach_project)
+
+    linked = {
+        p
+        for p in walked
+        if p.startswith(("res://linked_nested/", "res://linked_ignored/"))
+    }
+    assert not linked, linked
+    assert {"res://dirmarker/held.gd", "res://dirignore/held.gd"} <= walked, walked
+
+    _assert_class_name_unresolvable(
+        marker_reach_project, "LinkedNestedThing", "LinkedIgnoredThing"
+    )
+
+
+@pytest.mark.e2e
+def test_an_engine_written_nested_cache_is_skipped_where_an_authored_one_is_walked(
+    marker_reach_project,
+):
+    # The second reversal #804 makes, which the amendment first written for it
+    # denied (#808 review). #712 accepted a cost — a vendored sub-project's own
+    # cache counting in `project statistics` and becoming a `find-unused-resources`
+    # candidate — because nothing in the PATH tells an engine cache from authored
+    # content. The CONTENT does: every engine that creates a project data directory
+    # writes a `.gdignore` into it (EditorPaths::create; gda's own import pass
+    # reports `res://.godot/.gdignore` in `created`), so the marker clause now
+    # skips a nested cache any engine produced. What #712's rule was actually for —
+    # a `.godot` no engine wrote — is still walked, and this pins both halves so
+    # the record cannot drift from the behaviour again.
+    walked = _walked_paths(marker_reach_project)
+
+    assert "res://authored/.godot/sample.gd" in walked, walked
+    assert not {p for p in walked if p.startswith("res://vendored/.godot/")}, walked
+
+    # Only the CACHE is skipped: the vendored tree around it carries no marker, so
+    # it is walked, as #712 and #760 decided.
+    assert "res://vendored/real.gd" in walked, walked
+
+    stats = _result(marker_reach_project, "project", "statistics")
+    by_ext = {e["extension"]: e["files"] for e in stats["by_extension"]}
+    assert "gdignore" not in by_ext, by_ext
+
+    # The class_name index is the same walk's fifth consumer, so it reverses with
+    # it: the engine-written cache's declaration is gone from the index while the
+    # authored one still resolves.
+    _assert_class_name_unresolvable(marker_reach_project, "EngineCacheThing")
+    added = _result(
+        marker_reach_project,
+        "node",
+        "add",
+        "res://host.tscn",  # created by the helper above
+        "--parent",
+        ".",
+        "--name",
+        "Authored",
+        "--type",
+        "AuthoredCacheThing",
+    )
+    assert added["script_class"] == "AuthoredCacheThing", added
