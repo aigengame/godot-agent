@@ -605,7 +605,12 @@ def test_the_gate_is_where_both_refusals_are_built():
     assert _called_names(gate) & CONTAINMENT_REFUSAL_BUILDERS == (
         CONTAINMENT_REFUSAL_BUILDERS
     )
-    # And the gate builds NOTHING itself beyond mapping the decision: the only
-    # gda.project name it calls is the decision function, so ordering and
-    # coordinates cannot quietly grow a second home here.
-    assert "containment_violation" in _called_names(gate)
+    # And the mapper's COMPLETE call set is pinned (#807 round 5): the decision,
+    # the two builders, and the isinstance dispatch — nothing else. Any new call
+    # inside the gate (a third builder, a probe of its own, a second decision
+    # source) fails here by construction, so ordering and coordinates cannot
+    # quietly grow a second home.
+    assert _called_names(gate) == CONTAINMENT_REFUSAL_BUILDERS | {
+        "containment_violation",
+        "isinstance",
+    }
