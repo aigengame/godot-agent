@@ -19,6 +19,7 @@ only in-process. That one is deliberately NOT marked `e2e`: this repo's `e2e` ma
 this check is cheap and deterministic and belongs in the default PR gate.
 """
 
+import functools
 import json
 import subprocess
 
@@ -29,10 +30,34 @@ from gda.cli import app
 from tests.support import GDA_CMD
 
 
-def _manifest() -> dict:
+@functools.cache
+def _manifest_json() -> str:
+    """The ``gda schema`` emission, produced ONCE per process (#815).
+
+    The surface is immutable for the process lifetime — the product asserts as
+    much for gda-mcp's cache hint — so every test reads the same emission
+    instead of walking the whole command tree again. ``_manifest`` hands each
+    caller its own parse, so no test can mutate what another reads.
+    """
     result = CliRunner().invoke(app, ["schema"])
     assert result.exit_code == 0, result.stdout
-    return json.loads(result.stdout)
+    return result.stdout
+
+
+def _manifest() -> dict:
+    return json.loads(_manifest_json())
+
+
+@functools.cache
+def _own_schema_json(name: str) -> str:
+    """A command's own ``--schema`` emission, produced ONCE per command (#815).
+
+    The four aggregate-versus-own comparisons below read the same table rather
+    than each re-dispatching every command.
+    """
+    result = CliRunner().invoke(app, [*name.split(" "), "--schema"])
+    assert result.exit_code == 0, result.stdout
+    return result.stdout
 
 
 def _live_dispatchable_command_names() -> set[str]:
@@ -109,9 +134,7 @@ def test_each_entry_matches_the_commands_own_schema():
     # command emits under its own `--schema` (ADR-0004): one source of truth,
     # derived through the same CommandSchema.of, not a parallel projection.
     for entry in _manifest()["commands"]:
-        result = CliRunner().invoke(app, [*entry["name"].split(" "), "--schema"])
-        assert result.exit_code == 0, result.stdout
-        own = json.loads(result.stdout)
+        own = json.loads(_own_schema_json(entry["name"]))
         assert entry["input"] == own["input"]
         assert entry["output"] == own["output"]
         assert entry["error"] == own["error"]
@@ -175,9 +198,7 @@ def test_entry_kind_matches_the_commands_own_schema_kind():
     # under its own `--schema` (ADR-0004 / ADR-0012): one descriptor field, not a
     # parallel projection — so the aggregate and per-command forms must agree.
     for entry in _manifest()["commands"]:
-        result = CliRunner().invoke(app, [*entry["name"].split(" "), "--schema"])
-        assert result.exit_code == 0, result.stdout
-        own = json.loads(result.stdout)
+        own = json.loads(_own_schema_json(entry["name"]))
         assert entry["kind"] == own["kind"], entry["name"]
 
 
@@ -202,9 +223,7 @@ def test_entry_constraints_match_the_commands_own_schema_constraints():
     # projection — so the aggregate and per-command forms must agree exactly,
     # including the null case.
     for entry in _manifest()["commands"]:
-        result = CliRunner().invoke(app, [*entry["name"].split(" "), "--schema"])
-        assert result.exit_code == 0, result.stdout
-        own = json.loads(result.stdout)
+        own = json.loads(_own_schema_json(entry["name"]))
         assert entry["constraints"] == own["constraints"], entry["name"]
 
 
@@ -379,9 +398,8 @@ def test_entry_argv_matches_the_commands_own_schema_argv():
     # (ADR-0012's live-tree walk, ADR-0023 §2's "projections, not parallel
     # registries"), so the aggregate and per-command forms cannot drift.
     for entry in _manifest()["commands"]:
-        result = CliRunner().invoke(app, [*entry["name"].split(" "), "--schema"])
-        assert result.exit_code == 0, result.stdout
-        assert entry["argv"] == json.loads(result.stdout)["argv"], entry["name"]
+        own = json.loads(_own_schema_json(entry["name"]))
+        assert entry["argv"] == own["argv"], entry["name"]
 
 
 def test_every_argv_binding_is_constructible_into_a_command_line():

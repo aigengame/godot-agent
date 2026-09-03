@@ -1232,7 +1232,10 @@ def test_the_owner_keeps_the_group_a_reaped_leader_cannot_name(tmp_path):
         assert _capture_owned_pgid(leader) is None, (
             "the reaped leader still names a group"
         )
-        session.close(time.monotonic() + 5.0)
+        # The deadline is this test's own, not a product constant: the descendant
+        # ignores SIGTERM, so the teardown polls it out in full before it
+        # escalates. 0.2s is the outcome's cost, not 5s (#815).
+        session.close(time.monotonic() + 0.2)
         _assert_gone(descendant, "descendant")
     finally:
         _reap_group(descendant, leader.pid)
@@ -1313,7 +1316,9 @@ def test_the_group_is_retired_even_when_the_leader_obeys_sigterm(monkeypatch):
         _OBEYS_SIGTERM_WITH_STUBBORN_CHILD
     )
     try:
-        _terminate(leader, time.monotonic() + 5.0, owned_pgid=owned_pgid)
+        # Same test-chosen deadline as above: the stubborn descendant makes the
+        # wait run to the deadline, so it is kept short (#815).
+        _terminate(leader, time.monotonic() + 0.2, owned_pgid=owned_pgid)
         assert leader.returncode == -signal.SIGTERM  # the leader DID obey
         _assert_gone(descendant, "descendant")
     finally:

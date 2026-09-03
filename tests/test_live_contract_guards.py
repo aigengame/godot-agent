@@ -16,6 +16,7 @@ descriptors off the LIVE Typer tree — the same authority ``gda.surface`` walks
 so they stay correct wherever the descriptors and result models physically live.
 """
 
+import functools
 import json
 import math
 import re
@@ -157,13 +158,20 @@ def _live_operations() -> set[str]:
     return {d.operation for d in _descriptors() if d.kind is ExecutionKind.LIVE}
 
 
-def _live_leaves():
-    """Every LIVE leaf as ``(name, descriptor)``, read off the live Typer tree."""
+@functools.cache
+def _live_leaves() -> "tuple[tuple[str, Any], ...]":
+    """Every LIVE leaf as ``(name, descriptor)``, read off the live Typer tree ONCE.
+
+    The tree is immutable for the process, so the walk is memoized (#815); the
+    tuple keeps the callers' ``for name, descriptor in _live_leaves()`` shape.
+    """
     root = typer.main.get_command(app)
+    leaves = []
     for name, command in _leaf_commands(root, []):
         descriptor = getattr(command, "gda_command", None)
         if descriptor is not None and descriptor.kind is ExecutionKind.LIVE:
-            yield name, descriptor
+            leaves.append((name, descriptor))
+    return tuple(leaves)
 
 
 def test_relayed_live_params_models_carry_the_wire_number_policy():
