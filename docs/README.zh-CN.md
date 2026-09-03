@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=709dd5cefc028550f7488f4e00caa02a6b4f6f07e8618f05d9b8fb517116fad8 -->
+<!-- gda-readme-i18n: source=README.md sha256=289476938ec06e3acf6339cd1ebd1c8da0159550c555165c3db9a592b6aca88d -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -67,9 +67,10 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
 - **⚡ 默认 Headless，需要时再 Live。** Headless 操作不需要 daemon、也不需要编辑器——
   只要一个 Godot 二进制文件。Live 操作则通过一个基于 Unix 域套接字的 daemon，为正在运行的游戏
   加上实时控制能力，用的还是同一套 CLI 语法。
-- **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失或卡死都受超时约束，并映射为一个**稳定的非零退出码**，
-  外加一个携带失败类别、代码与类型化证据的 Error 信封——这样 shell 或 agent 无需解析文本，
-  就能按失败分支处理。`gda` 不认识的命令同样以这种方式拒绝，并在 `hint` 中给出应当改用的调用方式。
+- **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错，引擎卡死则由超时兜底；两者都映射为一个
+  **稳定的非零退出码**，外加一个 Error 信封，里面有失败类别、错误码，以及已经算出的类型化证据——
+  shell 或 agent 据此分支处理即可，不必解析文本。`gda` 不认识的命令同样以这种方式拒绝，并在 `hint`
+  中给出应当改用的调用方式。
 
 ---
 
@@ -216,8 +217,9 @@ uvx --from "gda[mcp]" gda-mcp
   但 MCP 2026-07-28 修订版弃用了 roots，所以固定 `GDA_PROJECT` 才是一直有效的配置。参见[配置](#configuration)。
 - **引擎** — 把 `GDA_GODOT` 设为你的 Godot 二进制文件，例如 `"GDA_GODOT": "/path/to/Godot"`。
 
-`gda-mcp` 同时支持两代协议——2026 年以前的 MCP 协议与 **2026-07-28 修订版**——所以现有客户端在升级过程中
-行为不变。对新修订版客户端，它还会把 `tools/list` 响应标记为可缓存（1 小时 TTL）：工具列表在服务器生命周期内固定不变。
+`gda-mcp` 同时接受两代协议——2026 年以前的 MCP 协议与 **2026-07-28 修订版**——但两者解析项目的方式不同：
+2026 前的客户端仍会发送 roots，新修订版的客户端不再发送，只能靠 `GDA_PROJECT` 或服务器的 cwd。
+请在客户端切换到新协议之前固定 `GDA_PROJECT`。对新修订版，`gda-mcp` 还会把 `tools/list` 标记为可缓存（1 小时 TTL）。
 
 #### 在编程 agent 中注册
 
@@ -376,10 +378,10 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `scene list` | 枚举已解析项目中的 `.tscn` 场景。 |
 | `scene get-exports` | 列出场景里各节点脚本声明的 `@export` 属性。 |
 | `scene delete` | 删除一个场景文件并报告删除了什么。 |
-| `scene validate` | **静态**检查场景——依赖能否解析、绑定的脚本能否编译，子场景一并检查——不运行任何东西；坏场景是一份结论（`valid: false`，退出码 `0`），不是错误。 |
-| `scene preflight` | **动态**检查场景——以 headless 方式启动它，运行 `_ready`，报告 `started` 以及启动过程中出现的脚本错误；启动失败是结论，不是错误。 |
+| `scene validate` | **静态**检查场景——依赖能否解析、绑定的脚本能否编译，子场景一并检查——不实例化场景（项目的 autoload 仍会启动，和所有 `--project` 命令一样）；有问题的场景作为检查结果返回（`valid: false`，退出码 `0`），不会报错。 |
+| `scene preflight` | **动态**检查场景——以 headless 方式启动它，运行 `_ready`，报告 `started` 以及启动过程中出现的脚本错误；启动失败同样作为结果返回，不会报错。 |
 
-两者都要跑——`scene get` 会把脚本丢失的场景读成健康的，只有 `validate` 能指出那个文件，
+两者都要跑——`scene get` 会把脚本已丢失的场景当作正常场景读出来，只有 `validate` 能指出那个文件，
 也只有 `preflight` 能抓到第一帧的失败。
 
 **`node`** — 场景文件内的节点
@@ -406,8 +408,8 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `script set` | 通过搜索替换、行范围或整体覆写来编辑一个脚本。 |
 | `script delete` | 删除一个脚本文件并报告删除了什么。 |
 | `script attach` | 按节点路径把一个 `.gd` 脚本附加到场景里的某个节点上。 |
-| `script validate` | 编译检查 `.gd` 脚本——多个 PATH 在一次引擎启动中完成，或用 `--all` 检查整个项目——报告一个汇总的 `valid` 加上 `scripts` 里每个脚本各自的条目；编译失败的脚本是一份结论（`valid: false`，退出码 `0`），不是错误。 |
-| `script run` | 以一次性入口的方式 headless 运行一个项目脚本，受 `--timeout` 约束。脚本的 `exit_status`、`stdout` 与 `stderr` 原样透传——非零的 `quit()` 是数据而不是失败，除非传入 `--strict`。 |
+| `script validate` | 编译检查 `.gd` 脚本——多个 PATH 在一次引擎启动中完成，或用 `--all` 检查整个项目——报告一个汇总的 `valid` 加上 `scripts` 里每个脚本各自的条目；编译失败的脚本作为检查结果返回（`valid: false`，退出码 `0`），不会报错。 |
+| `script run` | 以一次性入口的方式 headless 运行一个项目脚本，受 `--timeout` 约束。脚本的 `exit_status` 与 `stderr` 原样透传，`stdout` 前 64 KiB 内联返回、其余落盘到结果中指明的文件；脚本以非零状态 `quit()` 不算失败，只是结果里的数据，加 `--strict` 才按失败处理。 |
 
 **`project`** — 作为整体的项目（设置、autoload、静态分析）
 
@@ -466,7 +468,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | 命令 | 作用 |
 | ------- | ------------ |
 | `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话惰性启动，在第一个需要它的操作时才起（`screen` 截图需加 `--windowed`）。 |
-| `daemon wait-ready` | 立即启动引擎会话并等待它就绪，最多等 `--timeout`。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。 |
+| `daemon wait-ready` | 立即启动引擎会话并等待它就绪；`--timeout` 是 daemon 为这次启动分配的预算，不是这次调用的硬性上限。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
 | `daemon install` | 在不启动 daemon 的情况下安装游戏内 harness，并报告写入了什么。幂等；`daemon start` 自己就会做这一步，因此只在想单独审阅或提交那次 `project.godot` 改动时使用。 |
@@ -480,7 +482,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量；`verified` 报告读回值是否匹配。 |
-| `game call` | 调用节点脚本在 `GDA_CALLABLE` 中声明的一个方法，并投影其返回值——未声明的方法绝不会被调用。 |
+| `game call` | 调用节点脚本在 `GDA_CALLABLE` 中声明的一个方法——这是项目自己给出的只读承诺，gda 无法验证——并投影其返回值；未声明的方法绝不会被调用。 |
 
 `game call` 读取 `game get` 读不到的东西：项目以方法形式暴露的状态。
 `game set --property position` 遵循与 `node set` 相同的 `Control` 规则。
@@ -515,7 +517,8 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放。 |
 | `input sequence` | 注入一条跨多帧的事件时间线。 |
 
-注入的鼠标坐标请从 `event.position` 读取——daemon 会话中 `get_mouse_position()` 可能一直是过期值。
+注入的鼠标坐标请从 `event.position` 读取——daemon 会话中 `get_mouse_position()` /
+`get_global_mouse_position()` 可能一直是过期值。
 
 **`screen`** — 视口捕获
 
@@ -532,7 +535,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
 | `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |
-| `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，同时给出它的来源——安装类型（`wheel` 或 `editable`），以及 editable 安装对应源码检出的 Git 版本号。 |
+| `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，同时给出它的来源——安装类型（`wheel`、`editable` 或 `unknown`），以及 editable 安装对应源码检出的 Git 版本号。 |
 | `--help`    | 显示 `gda` 或任意命令的用法。                                |
 
 ---
@@ -549,8 +552,8 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 上下文 | 项目解析顺序 |
 | --- | --- |
-| **CLI** | `--project` → `GDA_PROJECT` → 当前目录（若含有 `project.godot`）→ 无项目 |
-| **MCP**（`gda-mcp`） | `GDA_PROJECT` → 客户端的工作区 `root`（若它发送了；仅 2026 前的客户端）→ 服务器的 cwd → 无项目 |
+| **CLI** | `--project` → `GDA_PROJECT`（两者都严格：无效即报错）→ 当前目录（若含有 `project.godot`）→ 无项目 |
+| **MCP**（`gda-mcp`） | `GDA_PROJECT`（严格）→ 客户端的工作区 `root`（若发来的是有效项目；仅 2026 前的客户端）→ 服务器的 cwd（若它是项目）→ 无项目 |
 
 <details>
 <summary>项目代码执行——当你指向一个项目时会运行什么</summary>

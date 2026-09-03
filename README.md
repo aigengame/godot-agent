@@ -66,10 +66,10 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
 - **⚡ Headless by default, live when you need it.** Headless operations need no daemon
   and no editor — just a Godot binary. Live operations add real-time control of a running
   game over a Unix-domain-socket daemon, addressed by the same CLI grammar.
-- **🛡️ Fails loudly, never silently.** A missing or hung engine is bounded by a timeout
-  and mapped to a **stable non-zero exit code** plus an Error envelope carrying the
-  failure's category, code, and typed evidence — so a shell or agent branches on the
-  failure instead of parsing prose. A command `gda` does not recognize is refused the
+- **🛡️ Fails loudly, never silently.** A missing engine fails at once and a hung one at a
+  timeout; both map to a **stable non-zero exit code** plus an Error envelope carrying the
+  failure's category, code, and any typed evidence it computed — so a shell or agent branches
+  on the failure instead of parsing prose. A command `gda` does not recognize is refused the
   same way, with a `hint` naming the invocation to use instead.
 
 ---
@@ -215,9 +215,10 @@ The server resolves two pieces of context — which Godot **project** to drive a
   `GDA_PROJECT` is the setup that keeps working. See [Configuration](#configuration).
 - **Engine** — set `GDA_GODOT` to your Godot binary, e.g. `"GDA_GODOT": "/path/to/Godot"`.
 
-`gda-mcp` speaks both protocol eras — the pre-2026 MCP protocol and the **2026-07-28 revision** —
-so today's clients keep working unchanged as they upgrade. On the new revision it also marks its
-`tools/list` response cacheable (1-hour TTL): the tool surface is fixed for a server's lifetime.
+`gda-mcp` accepts both protocol eras — the pre-2026 MCP protocol and the **2026-07-28 revision** —
+but not with the same project resolution: a pre-2026 client still sends roots, a client on the new
+revision does not, so it resolves from `GDA_PROJECT` or the server's cwd. Pin `GDA_PROJECT` before
+your client moves. On the new revision `gda-mcp` also marks `tools/list` cacheable (1-hour TTL).
 
 #### Register with Coding Agents
 
@@ -379,7 +380,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `scene list` | Enumerate the `.tscn` scenes in the resolved project. |
 | `scene get-exports` | List the `@export` properties a scene's nodes' scripts declare. |
 | `scene delete` | Delete a scene file and report what was removed. |
-| `scene validate` | Check a scene **statically** — dependencies resolve and bound scripts compile, sub-scenes included — without running anything; a broken scene is a verdict (`valid: false`, exit `0`), not an error. |
+| `scene validate` | Check a scene **statically** — dependencies resolve and bound scripts compile, sub-scenes included — without instantiating it (the project's autoloads still start, as on every `--project` command); a broken scene is a verdict (`valid: false`, exit `0`), not an error. |
 | `scene preflight` | Check a scene **dynamically** — boot it headless, run `_ready`, and report `started` plus the script errors seen; a failed start is a verdict, not an error. |
 
 Run both — `scene get` reads a scene with its script missing as healthy, only `validate`
@@ -410,7 +411,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `script delete` | Delete a script file and report what was removed. |
 | `script attach` | Attach a `.gd` script to a node (by node path) in a scene. |
 | `script validate` | Compile-check `.gd` scripts — several PATHs in one engine launch, or `--all` for the whole project — reporting one aggregate `valid` plus a per-script entry under `scripts`; a failing script is a verdict (`valid: false`, exit `0`), not an error. |
-| `script run` | Run a project script headless as a one-shot entry point, under `--timeout`. Its `exit_status`, `stdout` and `stderr` pass straight through — a non-zero `quit()` is data, not a failure, unless you pass `--strict`. |
+| `script run` | Run a project script headless as a one-shot entry point, under `--timeout`. Its `exit_status` and `stderr` pass straight through, `stdout` up to 64 KiB inline with the rest spilled to a file the result names — and a non-zero `quit()` is data, not a failure, unless you pass `--strict`. |
 
 **`project`** — the project as a whole (settings, autoloads, static analysis)
 
@@ -469,7 +470,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | Command | What it does |
 | ------- | ------------ |
 | `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches lazily, on the first operation that needs one (`--windowed` for `screen` capture). |
-| `daemon wait-ready` | Launch the engine session now and wait for it, up to `--timeout`. Read-only `diag` / `logger` tails never launch one, so run this first when such a read is your first live command. |
+| `daemon wait-ready` | Launch the engine session now and wait for it; `--timeout` is the daemon's budget for that launch, not a hard ceiling on the call. Read-only `diag` / `logger` tails never launch a session, so run this first when such a read is your first live command. |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
 | `daemon install` | Install the in-game harness without starting a daemon, and report what it wrote. Idempotent; `daemon start` does this itself, so use it only to review or commit the `project.godot` change on its own. |
@@ -483,7 +484,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |
-| `game call` | Invoke one method the node's script declares in `GDA_CALLABLE`, and project what it returns — nothing undeclared is ever called. |
+| `game call` | Invoke one method the node's script declares in `GDA_CALLABLE` — the project's own read-only promise, which gda cannot verify — and project what it returns; nothing undeclared is ever called. |
 
 `game call` reads what `game get` cannot: state your project exposes as a method.
 `game set --property position` follows the same `Control` rule as `node set`.
@@ -519,7 +520,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `input sequence` | Inject a multi-frame event timeline. |
 
 Read injected mouse coordinates from `event.position` — in a daemon session
-`get_mouse_position()` can stay stale.
+`get_mouse_position()` / `get_global_mouse_position()` can stay stale.
 
 **`screen`** — viewport capture
 
@@ -536,7 +537,7 @@ Read injected mouse coordinates from `event.position` — in a daemon session
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |
-| `--version` | Print the installed `gda` version. With `--json`, also where it came from — install kind (`wheel` or `editable`) and, for an editable install, the source checkout's Git revision. |
+| `--version` | Print the installed `gda` version. With `--json`, also where it came from — install kind (`wheel`, `editable`, or `unknown`) and, for an editable install, the source checkout's Git revision. |
 | `--help`    | Show usage for `gda` or any command.                                |
 
 ---
@@ -552,8 +553,8 @@ directory must be a project, or `gda` reports an error; when nothing resolves, `
 
 | Context | Project resolution order |
 | --- | --- |
-| **CLI** | `--project` → `GDA_PROJECT` → the current directory, if it holds `project.godot` → projectless |
-| **MCP** (`gda-mcp`) | `GDA_PROJECT` → the client's workspace `root`, if it sends one (pre-2026 clients) → the server's cwd → projectless |
+| **CLI** | `--project` → `GDA_PROJECT` (both strict: an invalid one is an error) → the current directory, if it holds `project.godot` → projectless |
+| **MCP** (`gda-mcp`) | `GDA_PROJECT` (strict) → the client's workspace `root`, if it sends a valid one (pre-2026 clients) → the server's cwd, if it is a project → projectless |
 
 <details>
 <summary>Project code execution — what runs when you point at a project</summary>
