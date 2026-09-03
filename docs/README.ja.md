@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=da92f08b3efc565aabfaa217fc98b488f1088dd58758ba94f432b46a84048d14 -->
+<!-- gda-readme-i18n: source=README.md sha256=2e633d09b48794d0d129d4ec85bd48d23cec200fab96ad0803f0c5727e8ec6a5 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -62,8 +62,8 @@
   のように、Godot のオブジェクトと用語に沿ったコマンドを提供します。
 - **相補的な 3 つのアクセス方法。** エージェント、シェル、CI から CLI を直接実行する、
   再利用可能なガイダンスとして同梱の Agent Skill をインストールする、または同じ操作を
-  MCP ツールとして公開できます。設定方法と違いは
-  [CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/)を参照してください。
+  MCP ツールとして公開できます。各方式の比較と違いは
+  [CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/)で確認できます。
 - **範囲を制御でき、失敗後に対応できる自動化。** タイムアウト、出力上限、型付きの失敗、
   診断情報、変更レポートにより、エージェントは何が起きたかと復旧方法を判断できます。
 

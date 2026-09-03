@@ -19,10 +19,11 @@ The marker format is mirrored in ``scripts/update_readme_i18n.py``; keep them in
 sync if it ever changes.
 """
 
-import hashlib
 import re
 import unicodedata
 from pathlib import Path
+
+from scripts.update_readme_i18n import _normalized_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
@@ -36,12 +37,6 @@ TRANSLATIONS = {
 MARKER_RE = re.compile(
     r"<!--\s*gda-readme-i18n:\s*source=README\.md\s+sha256=([0-9a-f]{64})\s*-->"
 )
-
-
-def _normalized_hash(path: Path) -> str:
-    """Hash text content with platform line endings normalized to LF."""
-    content = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-    return hashlib.sha256(content).hexdigest()
 
 
 def _english_hash() -> str:

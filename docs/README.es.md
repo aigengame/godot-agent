@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=da92f08b3efc565aabfaa217fc98b488f1088dd58758ba94f432b46a84048d14 -->
+<!-- gda-readme-i18n: source=README.md sha256=2e633d09b48794d0d129d4ec85bd48d23cec200fab96ad0803f0c5727e8ec6a5 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -63,7 +63,8 @@ ese ciclo con dos modos complementarios:
 - **Tres vías de acceso complementarias.** Ejecuta la CLI directamente desde un agente,
   shell o CI; instala la Agent Skill incluida para obtener orientación reutilizable; o
   expón las mismas operaciones como herramientas MCP. Consulta
-  [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) para ver la configuración y las diferencias.
+  [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) para comparar las
+  opciones y sus diferencias.
 - **Automatización acotada y fallos útiles.** Los timeouts, los límites de salida, los
   fallos tipados, los diagnósticos y los informes de cambios ayudan al agente a saber qué
   ocurrió y cómo recuperarse.

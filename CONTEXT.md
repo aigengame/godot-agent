@@ -403,9 +403,29 @@ results, headless validation, and live runtime control." These three surfaces ch
 and must not drift. The phrase names an automation toolchain, not an agent.
 _Avoid_: tagline, slogan, hero, the value sentence
 
+**Brand slogan**:
+The website-only brand promise — "The game dev arsenal built for AI agents." It leads
+campaign and website hero copy, where the surrounding text supplies the literal product
+category. It complements the `Positioning descriptor`; it never replaces the README H1,
+package description, or GitHub repository description.
+_Avoid_: positioning descriptor, product category, README title
+
+**Verification message**:
+The public evidence hierarchy for the verified agent workflow: Headless validation confirms
+project readiness; Live operations return runtime evidence about actual behavior. Use both
+parts when explaining how `gda` closes the loop beyond a file edit.
+_Avoid_: treating a file edit as a verified game change, treating Headless and Live as rivals
+
+**Access-path message**:
+The public relationship among the three agent-facing channels — one `gda` operation surface,
+three complementary access paths. The CLI executes operations directly, the Agent Skill gives
+reusable guidance for choosing and running CLI commands, and `gda-mcp` maps the same public
+Schema to MCP tools. The access path changes; the operations and structured results do not.
+_Avoid_: three products, feature tiers, independent operation surfaces
+
 **Hero**:
 The README's opening *value* statement — what `gda` does for you ("Build and verify Godot
-projects from AI coding agents, shell scripts, and CI"), followed by its shared operation
+projects with AI coding agents, shell scripts, and CI"), followed by its shared operation
 surface and structured-result proof. README-only and free to evolve there; it does **not**
 mirror the extended metadata description and is never replicated into `pyproject` or the
 repo metadata.

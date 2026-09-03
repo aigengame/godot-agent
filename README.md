@@ -8,7 +8,7 @@
 [CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/) ·
 [PyPI](https://pypi.org/project/gda/)
 
-> **Build and verify Godot projects from AI coding agents, shell scripts, and CI.**
+> **Build and verify Godot projects with AI coding agents, shell scripts, and CI.**
 > `gda` exposes one Godot-native operation surface through a CLI, a bundled
 > Agent Skill, and an MCP server, returning structured results agents can act on.
 
@@ -60,7 +60,7 @@ complementary modes:
 - **Three complementary access paths.** Run the CLI directly from an agent, shell, or
   CI; install the bundled Agent Skill for reusable guidance; or expose the same
   operations as MCP tools. See [CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/)
-  for setup details and tradeoffs.
+  for comparison and tradeoffs.
 - **Bounded automation with actionable failures.** Timeouts, bounded output, typed
   failures, diagnostics, and mutation reports help agents decide what happened and how
   to recover.
