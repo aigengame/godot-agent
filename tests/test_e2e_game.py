@@ -9,45 +9,14 @@ RULES.md DoD the fake-runner command tests do not count toward this gate.
 """
 
 import json
-import os
-import subprocess
 import time
 
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
+from tests.support import Gda
 
-from tests.support import GDA_CMD
-
-
-def _gda_runner(project, timeout: int = 90):
-    """One project/Godot-aware `gda` invoker for this module's live e2es (#749 review).
-
-    The protocol arguments, environment and timeout were repeated per test and
-    could drift; this is the single place they live.
-    """
-    from gda.binary import resolve_godot_binary
-
-    godot = resolve_godot_binary()
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(project),
-                "--godot",
-                str(godot),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env={**os.environ},
-            timeout=timeout,
-        )
-
-    return run
+from .conftest import LIVE_PROJECT_GODOT
 
 
 @pytest.mark.e2e
@@ -55,12 +24,8 @@ def test_game_tree_without_a_daemon_reports_daemon_not_running(tmp_path):
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
 
     # An empty runtime dir so discovery finds no daemon for this fresh project.
-    env = {**os.environ, "XDG_RUNTIME_DIR": str(tmp_path / "run")}
-    proc = subprocess.run(
-        [*GDA_CMD, "game", "tree", "--project", str(tmp_path), "--json"],
-        capture_output=True,
-        text=True,
-        env=env,
+    proc = Gda(tmp_path, godot=None)(
+        "game", "tree", "--json", extra_env={"XDG_RUNTIME_DIR": str(tmp_path / "run")}
     )
 
     assert proc.returncode == EXIT_LIVE, proc.stdout + proc.stderr
@@ -106,15 +71,11 @@ def test_game_get_projects_a_path_less_texture_with_optional_digest(
     # under object_string, NO resource_path key — with digest null by default;
     # with --texture-digest, two same-class textures with different content
     # get different digests and same-content textures the same one.
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(TEXTURE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(TEXTURE_PLAYER_GD, encoding="utf-8")
 
-    run = _gda_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True)
 
     def texture_value(prop, *extra):
         got = run("game", "get", "/root/Main/Player", "--property", prop, *extra)
@@ -285,17 +246,13 @@ CALL_MAIN_TSCN = (
 def test_game_call_serves_declared_methods_and_refuses_the_rest(
     tmp_path, daemon_runtime_dir
 ):
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
     (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
     (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
 
-    run = _gda_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True)
 
     def call(node, method, *extra):
         return run("game", "call", node, "--method", method, *extra)
@@ -383,11 +340,7 @@ def test_declaring_gda_callable_in_both_base_and_subclass_is_an_engine_parse_err
     # GDScript forbids redeclaring a base class's constant, so an opted-in chain
     # has at most one declaration owner. The failure is loud — the script does
     # not load — never a silently wrong allowlist.
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
     (tmp_path / "call_main.gd").write_text(
         'extends "res://call_base.gd"\n\n'
@@ -404,7 +357,7 @@ def test_declaring_gda_callable_in_both_base_and_subclass_is_an_engine_parse_err
         encoding="utf-8",
     )
 
-    run = _gda_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0
@@ -434,17 +387,13 @@ def test_game_call_refuses_arguments_the_engine_would_not_convert(
     # (and polluting the Session log). Every refusal below was a false success at
     # the reviewed head; every acceptance below is a conversion the engine really
     # performs, so the gate mirrors the engine rather than over-refusing.
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
     (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
     (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
 
-    run = _gda_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True)
 
     def call(method, args):
         return run("game", "call", "/root/Main", "--method", method, "--args", args)
@@ -496,17 +445,13 @@ def test_game_call_non_finite_args_never_reach_the_session(
     # the daemon retired the channel — the NEXT call relaunched the session and
     # its runtime state was gone. The refusal now happens in the params model,
     # before the wire: fast, typed, and the session identity is untouched.
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
     (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
     (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
 
-    run = _gda_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0
@@ -566,17 +511,13 @@ def test_game_call_argument_gate_agrees_with_the_engine(tmp_path, daemon_runtime
     # oracle is the engine itself: `probe_direct` performs the call inside the
     # game and reports whether the method body RAN. gda must call exactly when
     # the engine would, so the table can never drift silently again.
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
     (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
     (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
 
-    run = _gda_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True)
 
     # (method, JSON arguments) pairs spanning every retained live source-to-target
     # conversion edge, plus identity and refusal boundaries. Empty Arrays isolate
@@ -672,17 +613,14 @@ def test_game_call_refuses_integers_the_wire_cannot_carry(tmp_path, daemon_runti
     # to …984 instead of …986; 1.2e29 arrived as -2). The bound is now refused at
     # the input boundary; the largest exact value still goes through unchanged.
     from gda.commands.game import MAX_EXACT_JSON_INT
-    from .conftest import project_godot
 
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
     (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
     (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
 
-    run = _gda_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0
@@ -749,17 +687,13 @@ def test_game_call_refuses_integers_the_wire_cannot_carry(tmp_path, daemon_runti
 @pytest.mark.e2e
 def test_game_call_preserves_large_finite_float_arguments(tmp_path, daemon_runtime_dir):
     """The live wire preserves high-range finite binary64 arguments."""
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "call_base.gd").write_text(CALL_BASE_GD, encoding="utf-8")
     (tmp_path / "call_child.gd").write_text(CALL_CHILD_GD, encoding="utf-8")
     (tmp_path / "call_main.gd").write_text(CALL_MAIN_GD, encoding="utf-8")
 
-    run = _gda_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0

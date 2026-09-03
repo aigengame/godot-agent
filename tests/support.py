@@ -268,7 +268,9 @@ def _run_error_code(proc: "subprocess.CompletedProcess[str]") -> str | None:
         return None
 
 
-def import_project(project: Path | str, *, timeout: float = 180.0) -> None:
+def import_project(
+    project: Path | str, *, timeout: float = 180.0
+) -> "subprocess.CompletedProcess[str]":
     """Run the engine's headless import pass over ``project``, and assert it passed.
 
     The precondition several e2e scenarios need: a ``class_name`` registers in
@@ -276,7 +278,8 @@ def import_project(project: Path | str, *, timeout: float = 180.0) -> None:
     cache, only after a project scan — the step a CI pipeline runs before using
     either. The engine's exit code is asserted here, so an import that failed
     surfaces as itself rather than as a confusing later assertion about a class
-    name that was never registered.
+    name that was never registered. The finished process is returned for the
+    caller that reads what the pass printed.
     """
     imported = subprocess.run(
         [str(GODOT), "--headless", "--path", str(project), "--import"],
@@ -285,6 +288,7 @@ def import_project(project: Path | str, *, timeout: float = 180.0) -> None:
         timeout=timeout,
     )
     assert imported.returncode == 0, imported.stdout + imported.stderr
+    return imported
 
 
 def templates_installed(gda: Gda, preset: str = "Linux/X11") -> bool:

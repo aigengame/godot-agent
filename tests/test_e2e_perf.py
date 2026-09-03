@@ -11,28 +11,16 @@ Run e2e SERIALLY; not a fresh empty HOME (Godot first-run). The
 
 import json
 import os
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from tests.support import Gda
 
-from tests.support import GDA_CMD
-
-from .conftest import project_godot
-
-GODOT = resolve_godot_binary()
+from .conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT
 
 # A main scene with a Player Node2D so the launched session has a runtime
 # SceneTree to monitor; Player.position is a Vector2 storage property the property
 # timeline samples each frame. File logging stays disabled via project_godot (#180).
-MAIN_TSCN = (
-    "[gd_scene format=3]\n\n"
-    '[node name="Main" type="Node2D"]\n\n'
-    '[node name="Player" type="Node2D" parent="."]\n'
-)
-PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
-
 # A Player that DECLARES a custom signal and emits it once per _process frame with
 # a single int argument (a monotonically increasing tick). The signal e2e watches
 # this signal over a window and asserts the recorded emissions — exercising the
@@ -60,27 +48,10 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 def test_daemon_serves_a_live_perf_snapshot(tmp_path, daemon_runtime_dir):
     # `perf monitors`: a real daemon -> engine session -> the running game's live
     # Performance counters, snapshotted in one frame (frame-coherent, ADR-0020).
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -105,27 +76,10 @@ def test_daemon_serves_a_property_timeline_over_a_window(tmp_path, daemon_runtim
     # `perf monitor --property --frames N`: the time-windowed multi-frame base
     # (#223) collects one sample per frame across the engine session and returns
     # the whole N-sample timeline in a single blocking call (ADR-0017 one-shot RPC).
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -162,28 +116,11 @@ def test_daemon_serves_a_signal_timeline_over_a_window(tmp_path, daemon_runtime_
     # disconnects on finalize. The Player emits `ticked(n)` once per _process frame,
     # so a window of N frames records emissions carrying the int tick arg — the real
     # get_signal_list / connect / record / disconnect path (#239).
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SIGNAL_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(SIGNAL_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -230,27 +167,10 @@ def test_perf_monitor_missing_node_reports_live_perf_node_not_found(
 ):
     # A path that resolves to no running node is the typed harness op-error,
     # relayed through the daemon (exit-0 sentinel) and mapped by classify_live.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0
@@ -279,12 +199,11 @@ def test_perf_monitors_without_a_daemon_reports_daemon_not_running(tmp_path):
 
     from gda.exit_codes import EXIT_LIVE
 
-    env = {**os.environ, "XDG_RUNTIME_DIR": str(tmp_path / "run")}
-    proc = subprocess.run(
-        [*GDA_CMD, "perf", "monitors", "--project", str(tmp_path), "--json"],
-        capture_output=True,
-        text=True,
-        env=env,
+    proc = Gda(tmp_path, godot=None)(
+        "perf",
+        "monitors",
+        "--json",
+        extra_env={"XDG_RUNTIME_DIR": str(tmp_path / "run")},
     )
 
     assert proc.returncode == EXIT_LIVE, proc.stdout + proc.stderr
@@ -305,8 +224,8 @@ def test_perf_monitors_window_collects_bounded_stats_and_verdicts(
     # 1e6) with one that must fail (fps min 1e6), so `passed` is
     # deterministically false while the command still exits 0 (the verdict is
     # data). The plain snapshot is asserted afterwards on the SAME surface.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
     budget = tmp_path / "budget.json"
     budget.write_text(
         '{"node_count": {"stat": "max", "max": 1000000},'
@@ -314,24 +233,7 @@ def test_perf_monitors_window_collects_bounded_stats_and_verdicts(
         encoding="utf-8",
     )
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0

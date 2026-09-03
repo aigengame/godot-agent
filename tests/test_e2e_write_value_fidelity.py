@@ -36,6 +36,8 @@ import pytest
 from tests.live_number_corpus import LIVE_NUMBER_CORPUS, value_bits
 from tests.support import GODOT, Gda
 
+from .conftest import LIVE_PROJECT_GODOT
+
 
 # --- the policy, expressed independently of the GDScript that implements it ----
 
@@ -772,8 +774,8 @@ def test_resource_set_shares_the_refusal(probe_project):
 
 # --- the command tier: live `game set` through a real daemon -------------------
 
-LIVE_MAIN_GD = 'extends Node2D\n\nvar v := 1.5\nvar n := 0\nvar d := {"seed": 1.0}\nvar a := [1.0]\n'
-LIVE_MAIN_TSCN = (
+SET_MAIN_GD = 'extends Node2D\n\nvar v := 1.5\nvar n := 0\nvar d := {"seed": 1.0}\nvar a := [1.0]\n'
+SET_MAIN_TSCN = (
     "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://live_main.gd" id="1"]\n\n'
     '[node name="Main" type="Node2D"]\n'
@@ -794,13 +796,9 @@ def test_game_set_refuses_the_same_literals_against_a_real_daemon(
     This is why the block is mirrored, and why it is exercised through a real
     session rather than trusted to the drift test.
     """
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
-    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
-    (tmp_path / "live_main.gd").write_text(LIVE_MAIN_GD, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SET_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "live_main.gd").write_text(SET_MAIN_GD, encoding="utf-8")
 
     run = Gda(tmp_path, json_output=True, timeout=180)
     try:

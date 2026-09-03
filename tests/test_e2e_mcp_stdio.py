@@ -22,9 +22,8 @@ import pytest
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
-
-GODOT = resolve_godot_binary()
+from gda.binary import GODOT_BIN_ENV
+from tests.support import GODOT
 
 
 def _server_params() -> StdioServerParameters:
