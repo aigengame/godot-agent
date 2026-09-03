@@ -55,6 +55,7 @@ from gda.execution import ExecutionKind
 from gda.models import TerminationPhase
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
 from gda.runner import LaunchFailure, LaunchWatch, RunResult
+from tests.support import minimal_project
 
 PROJECT = Path("/tmp/project")
 # The canonical entry the ABORTED_STDERR fixture names, so attribution matches.
@@ -397,8 +398,8 @@ def test_a_script_a_nested_project_owns_is_refused_before_any_launch(tmp_path):
     outer = tmp_path / "outer"
     inner = outer / "inner"
     inner.mkdir(parents=True)
-    (outer / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    (inner / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(outer)
+    minimal_project(inner)
 
     outcome, launch = _run(
         RunResult(stdout="", stderr="", exit_code=0),
@@ -420,7 +421,7 @@ def test_a_script_the_resolved_project_owns_still_launches(tmp_path):
     # owner and refusing every correct invocation.
     project = tmp_path / "game"
     (project / "tests").mkdir(parents=True)
-    (project / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(project)
 
     outcome, launch = _run(
         RunResult(stdout="ok\n", stderr="", exit_code=0),

@@ -33,7 +33,7 @@ from gda.commands.project import (
 )
 from gda.models import GdaErrorEnvelope
 from gda.runner import RunResult
-from tests.support import VERSION_INFO, FakeRunner, inject_runner, sentinel
+from tests.support import VERSION_INFO, inject_runner, invoke_cli, sentinel
 
 INFO_RESULT = {
     "name": "My Game",
@@ -78,12 +78,12 @@ LIST_RESULT = {
 
 def test_project_info_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(INFO_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "info", "--json"],
+        stdout=sentinel(INFO_RESULT),
+        stderr="engine diagnostic\n",
     )
-
-    result = CliRunner().invoke(app, ["project", "info", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -247,8 +247,9 @@ def test_project_set_human_output_is_set_setting_type_value(monkeypatch):
 def test_project_set_requires_value(monkeypatch):
     # --value is required: a set with no value is a usage error (exit 2), not a
     # silent no-op or an empty write.
-    fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(app, ["project", "set", "application/config/name"])
 
@@ -513,10 +514,10 @@ def test_project_add_input_action_dispatches_deadzone_and_physical_overrides(
 def test_project_add_input_action_requires_at_least_one_key(monkeypatch):
     # --key is required: an add with no keys is a usage error (exit 2), not a
     # dispatch of an empty key list.
-    fake = FakeRunner(
-        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0)
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0),
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(app, ["project", "add-input-action", "jump"])
 
@@ -527,10 +528,10 @@ def test_project_add_input_action_requires_at_least_one_key(monkeypatch):
 def test_project_add_input_action_rejects_out_of_range_deadzone(monkeypatch):
     # The deadzone bounds (0..1, the editor slider's) are validated model-side
     # (ADR-0015) and surface as a clean usage error before any dispatch.
-    fake = FakeRunner(
-        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0)
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0),
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(
         app,

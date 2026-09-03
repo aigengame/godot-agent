@@ -21,6 +21,7 @@ from tests.support import (
     SHADER_SET_RESULT,
     THEME_CREATE_RESULT,
     inject_runner,
+    invoke_cli,
     sentinel,
 )
 
@@ -29,13 +30,8 @@ from tests.support import (
 
 def test_shader_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(SHADER_CREATE_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "shader",
             "create",
@@ -44,6 +40,8 @@ def test_shader_create_json_maps_success_to_json_object_and_exit_zero(monkeypatc
             "canvas_item",
             "--json",
         ],
+        stdout=sentinel(SHADER_CREATE_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -160,11 +158,10 @@ def test_shader_create_content_and_type_are_mutually_exclusive(monkeypatch):
 def test_shader_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
     # shader get is the verifier (issue #115): it reads a shader's source back as
     # raw text with its shader_type, so a create round-trips.
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(SHADER_GET_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app, ["shader", "get", "/tmp/proj/wave.gdshader", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["shader", "get", "/tmp/proj/wave.gdshader", "--json"],
+        stdout=sentinel(SHADER_GET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -353,12 +350,12 @@ def test_shader_set_search_replace_and_content_are_mutually_exclusive(monkeypatc
 
 
 def test_theme_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(THEME_CREATE_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["theme", "create", "/tmp/proj/ui.tres", "--json"],
+        stdout=sentinel(THEME_CREATE_RESULT),
+        stderr="engine diagnostic\n",
     )
-
-    result = CliRunner().invoke(app, ["theme", "create", "/tmp/proj/ui.tres", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)

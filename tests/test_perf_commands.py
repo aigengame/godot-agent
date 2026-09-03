@@ -27,12 +27,8 @@ from tests.support import (
     perf_sample_reply_all_monitors,
     plain_text,
     sentinel,
+    minimal_project,
 )
-
-
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
 
 
 # --- perf monitors (single-frame snapshot) ------------------------------------
@@ -45,7 +41,7 @@ def test_perf_monitors_emits_a_snapshot_through_the_live_channel(monkeypatch, tm
     )
 
     result = CliRunner().invoke(
-        app, ["perf", "monitors", "--project", str(_project(tmp_path)), "--json"]
+        app, ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"]
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -63,7 +59,7 @@ def test_perf_monitors_with_no_daemon_reports_daemon_not_running(monkeypatch, tm
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
     result = CliRunner().invoke(
-        app, ["perf", "monitors", "--project", str(_project(tmp_path)), "--json"]
+        app, ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"]
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -101,7 +97,7 @@ def test_perf_monitors_on_non_unix_reports_live_unsupported_platform(
     monkeypatch.setattr("gda.live_runner._is_unix", lambda: False)
 
     result = CliRunner().invoke(
-        app, ["perf", "monitors", "--project", str(_project(tmp_path)), "--json"]
+        app, ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"]
     )
 
     assert result.exit_code != 0, result.stdout
@@ -132,7 +128,7 @@ def test_perf_monitor_property_emits_a_timeline_through_the_live_channel(
             "--frames",
             "3",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -176,7 +172,7 @@ def test_perf_monitor_signal_records_emissions_through_the_live_channel(
             "--frames",
             "3",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -217,7 +213,7 @@ def test_perf_monitor_default_frame_count_is_threaded(monkeypatch, tmp_path):
             "--property",
             "position",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -249,7 +245,7 @@ def test_perf_monitor_missing_node_reports_live_perf_node_not_found(
             "--property",
             "position",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -283,7 +279,7 @@ def test_perf_monitor_unknown_property_reports_live_perf_property_not_found(
             "--property",
             "nope",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -313,7 +309,7 @@ def test_perf_monitor_unknown_signal_reports_live_perf_signal_not_found(
             "--signal",
             "nope",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -334,7 +330,7 @@ def test_perf_monitor_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp
             "--property",
             "position",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -370,7 +366,7 @@ def test_perf_monitor_argv_both_selectors_is_a_usage_error(monkeypatch, tmp_path
             "--signal",
             "hit",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -394,7 +390,7 @@ def test_perf_monitor_argv_no_selector_is_a_usage_error(monkeypatch, tmp_path):
             "monitor",
             "/root/Main/Player",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -422,7 +418,7 @@ def test_perf_monitor_argv_frames_over_range_is_a_usage_error(monkeypatch, tmp_p
             "--frames",
             "601",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -466,7 +462,7 @@ def _window(tmp_path, *args):
             "monitors",
             *args,
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -609,7 +605,7 @@ def test_perf_monitors_selection_and_budget_require_frames(monkeypatch, tmp_path
             "--params-json",
             '{"monitors": ["fps"]}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -641,7 +637,7 @@ def test_perf_monitors_window_unknown_monitor_is_rejected_before_dispatch(
             "--params-json",
             '{"frames": 5, "monitors": ["fpss"]}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -845,7 +841,7 @@ def test_perf_monitors_budget_path_expands_a_literal_tilde(monkeypatch, tmp_path
             '{"frames": 5, "monitors": ["fps", "draw_calls"], '
             '"budget": "~/budget.json"}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )

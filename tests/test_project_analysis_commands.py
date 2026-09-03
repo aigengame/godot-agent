@@ -19,17 +19,18 @@ from tests.support import (
     STATISTICS_RESULT,
     UNUSED_RESULT,
     inject_runner,
+    invoke_cli,
     sentinel,
 )
 
 
 def test_dependencies_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(DEPENDENCIES_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "dependencies", "--json"],
+        stdout=sentinel(DEPENDENCIES_RESULT),
+        stderr="engine diagnostic\n",
     )
-
-    result = CliRunner().invoke(app, ["project", "dependencies", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)

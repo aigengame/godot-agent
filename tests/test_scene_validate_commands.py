@@ -16,7 +16,12 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.commands.scene import SceneProblemKind, SceneStartupStatus
 from gda.runner import RunResult
-from tests.support import inject_runner, sentinel
+from tests.support import (
+    assert_operation_error,
+    inject_runner,
+    minimal_project,
+    sentinel,
+)
 
 # One invalid verdict as the engine reports it: the op's own payload, WITHOUT the
 # project_root the CLI adds afterwards.
@@ -72,13 +77,8 @@ COMPOSED_PAYLOAD = {
 VALID_PAYLOAD = {"path": "res://main.tscn", "valid": True, "problems": []}
 
 
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
-
-
 def test_valid_scene_reports_the_verdict_and_exits_zero(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     fake = inject_runner(
         monkeypatch, RunResult(stdout=sentinel(VALID_PAYLOAD), stderr="", exit_code=0)
     )
@@ -105,7 +105,7 @@ def test_invalid_scene_is_a_successful_operation_with_problems(monkeypatch, tmp_
     # THE CRUX: an invalid scene exits 0 with valid=false — the verdict is read from
     # the result, never from the process status (the script validate contract, applied
     # to scenes).
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     inject_runner(
         monkeypatch, RunResult(stdout=sentinel(INVALID_PAYLOAD), stderr="", exit_code=0)
     )
@@ -145,7 +145,7 @@ def test_projectless_run_reports_a_null_project_root(monkeypatch, tmp_path):
 
 
 def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     fake = inject_runner(
         monkeypatch, RunResult(stdout=sentinel(VALID_PAYLOAD), stderr="", exit_code=0)
     )
@@ -169,7 +169,7 @@ def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):
 
 
 def test_human_output_leads_with_the_verdict_then_the_evidence(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     inject_runner(
         monkeypatch, RunResult(stdout=sentinel(INVALID_PAYLOAD), stderr="", exit_code=0)
     )
@@ -196,7 +196,7 @@ def test_a_composed_verdict_attributes_each_problem_to_the_scene_it_was_found_in
     # both live in `child.tscn`. Without `scene` an agent reads them as the
     # parent's, and each problem's `nodes` — relative to the scene that owns
     # them — resolve against the wrong tree.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     inject_runner(
         monkeypatch,
         RunResult(stdout=sentinel(COMPOSED_PAYLOAD), stderr="", exit_code=0),
@@ -220,7 +220,7 @@ def test_a_composed_verdict_attributes_each_problem_to_the_scene_it_was_found_in
 
 
 def test_human_output_names_the_sub_scene_a_problem_was_found_in(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     inject_runner(
         monkeypatch,
         RunResult(stdout=sentinel(COMPOSED_PAYLOAD), stderr="", exit_code=0),
@@ -245,7 +245,7 @@ def test_human_output_stays_silent_about_the_scene_the_command_was_given(
 ):
     # The `in` line is attribution, not decoration: an ordinary single-file verdict
     # would only be made longer by repeating the path already in its headline.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     inject_runner(
         monkeypatch, RunResult(stdout=sentinel(INVALID_PAYLOAD), stderr="", exit_code=0)
     )
@@ -261,7 +261,7 @@ def test_human_output_stays_silent_about_the_scene_the_command_was_given(
 def test_an_operation_failure_is_still_an_error_envelope(monkeypatch, tmp_path):
     # The shared addressing ladder does not fork for validate: a missing file is a
     # refusal, not a verdict.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     payload = {
         "error": {"code": "path_not_found", "message": "scene file does not exist"}
     }
@@ -274,8 +274,7 @@ def test_an_operation_failure_is_still_an_error_envelope(monkeypatch, tmp_path):
         ["scene", "validate", "res://gone.tscn", "--project", str(project), "--json"],
     )
 
-    assert result.exit_code == 4, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "path_not_found"
+    assert_operation_error(result, "path_not_found")
 
 
 # --- The cross-language enum contract (#664) --------------------------------

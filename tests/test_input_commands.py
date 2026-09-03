@@ -30,12 +30,8 @@ from tests.support import (
     error_sentinel,
     inject_live_runner,
     sentinel,
+    minimal_project,
 )
-
-
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
 
 
 # --- input key (single-frame) -------------------------------------------------
@@ -48,7 +44,15 @@ def test_input_key_injects_a_key_event_through_the_live_channel(monkeypatch, tmp
     )
 
     result = CliRunner().invoke(
-        app, ["input", "key", "Right", "--project", str(_project(tmp_path)), "--json"]
+        app,
+        [
+            "input",
+            "key",
+            "Right",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -81,7 +85,7 @@ def test_input_key_threads_modifiers_and_released(monkeypatch, tmp_path):
             "ctrl",
             "--released",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -105,7 +109,8 @@ def test_input_key_unresolvable_name_reports_live_invalid_key(monkeypatch, tmp_p
     )
 
     result = CliRunner().invoke(
-        app, ["input", "key", "Nope", "--project", str(_project(tmp_path)), "--json"]
+        app,
+        ["input", "key", "Nope", "--project", str(minimal_project(tmp_path)), "--json"],
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -118,7 +123,15 @@ def test_input_key_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_pa
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
     result = CliRunner().invoke(
-        app, ["input", "key", "Right", "--project", str(_project(tmp_path)), "--json"]
+        app,
+        [
+            "input",
+            "key",
+            "Right",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -158,7 +171,7 @@ def test_input_mouse_click_injects_the_whole_gesture_through_the_live_channel(
             "right",
             "--double",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -236,7 +249,7 @@ def test_input_mouse_move_injects_a_motion_through_the_live_channel(
             "50",
             "60",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -262,7 +275,7 @@ def test_input_mouse_click_default_button_is_left(monkeypatch, tmp_path):
             "1",
             "2",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -287,7 +300,7 @@ def test_input_mouse_click_unknown_button_argv_is_a_usage_error(monkeypatch, tmp
             "--button",
             "scroll",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -314,7 +327,14 @@ def test_input_action_presses_an_action_through_the_live_channel(monkeypatch, tm
 
     result = CliRunner().invoke(
         app,
-        ["input", "action", "jump", "--project", str(_project(tmp_path)), "--json"],
+        [
+            "input",
+            "action",
+            "jump",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -341,7 +361,7 @@ def test_input_action_release_and_strength_are_threaded(monkeypatch, tmp_path):
             "--strength",
             "0.5",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -362,7 +382,15 @@ def test_input_action_unknown_action_reports_live_unknown_action(monkeypatch, tm
     )
 
     result = CliRunner().invoke(
-        app, ["input", "action", "nope", "--project", str(_project(tmp_path)), "--json"]
+        app,
+        [
+            "input",
+            "action",
+            "nope",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -386,7 +414,7 @@ def test_input_action_strength_over_range_argv_is_a_usage_error(monkeypatch, tmp
             "--strength",
             "2.0",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -419,7 +447,7 @@ def test_input_tap_key_dispatches_the_press_hold_release_window(monkeypatch, tmp
             "--key",
             "Right",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -473,7 +501,7 @@ def test_input_tap_action_threads_strength_and_frame_counts(monkeypatch, tmp_pat
             "--settle-frames",
             "0",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -506,7 +534,7 @@ def test_input_tap_requires_exactly_one_target(monkeypatch, tmp_path):
 
     neither = CliRunner().invoke(
         app,
-        ["input", "tap", "--project", str(_project(tmp_path)), "--json"],
+        ["input", "tap", "--project", str(minimal_project(tmp_path)), "--json"],
     )
     both = CliRunner().invoke(
         app,
@@ -518,7 +546,7 @@ def test_input_tap_requires_exactly_one_target(monkeypatch, tmp_path):
             "--action",
             "jump",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -547,7 +575,7 @@ def test_input_tap_rejects_the_other_targets_fields(monkeypatch, tmp_path):
             "--modifiers",
             "shift",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -561,7 +589,7 @@ def test_input_tap_rejects_the_other_targets_fields(monkeypatch, tmp_path):
             "--strength",
             "0.5",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -593,7 +621,7 @@ def test_input_tap_window_is_bounded_to_the_shared_ceiling(monkeypatch, tmp_path
             "--settle-frames",
             "0",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -621,7 +649,7 @@ def test_input_tap_hold_frames_zero_is_a_usage_error(monkeypatch, tmp_path):
             "--hold-frames",
             "0",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -672,7 +700,7 @@ def test_input_tap_omitted_action_strength_is_normalized_model_side(
             "--action",
             "jump",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -684,7 +712,7 @@ def test_input_tap_omitted_action_strength_is_normalized_model_side(
             "--params-json",
             '{"action": "jump"}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -705,7 +733,7 @@ def test_input_tap_omitted_action_strength_is_normalized_model_side(
             "--key",
             "Right",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -775,7 +803,7 @@ def test_malformed_tap_reply_is_a_contract_violation(monkeypatch, tmp_path):
                 "--key",
                 "Right",
                 "--project",
-                str(_project(tmp_path)),
+                str(minimal_project(tmp_path)),
                 "--json",
             ],
         )
@@ -799,7 +827,7 @@ def test_malformed_click_reply_is_a_contract_violation(monkeypatch, tmp_path):
                 "1",
                 "2",
                 "--project",
-                str(_project(tmp_path)),
+                str(minimal_project(tmp_path)),
                 "--json",
             ],
         )
@@ -829,7 +857,7 @@ def test_malformed_mouse_move_reply_is_a_contract_violation(monkeypatch, tmp_pat
                 "1",
                 "2",
                 "--project",
-                str(_project(tmp_path)),
+                str(minimal_project(tmp_path)),
                 "--json",
             ],
         )
@@ -863,7 +891,7 @@ def test_input_sequence_injects_events_across_frames_through_the_live_channel(
             "--events",
             json.dumps(events),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -917,7 +945,7 @@ def test_input_sequence_physics_frame_offsets_dispatch_through_the_live_channel(
             "--events",
             json.dumps(events),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -963,7 +991,7 @@ def test_input_sequence_accepts_mouse_button_press_move_release(monkeypatch, tmp
             "--events",
             json.dumps(events),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -997,7 +1025,7 @@ def test_input_sequence_with_no_daemon_reports_daemon_not_running(
             "--events",
             json.dumps([{"type": "key", "key": "Right"}]),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1029,7 +1057,7 @@ def test_input_sequence_invalid_event_spec_reports_the_typed_error(
             "--events",
             json.dumps([{"type": "key", "key": "Right"}]),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1054,7 +1082,7 @@ def test_input_sequence_non_json_events_argv_is_a_usage_error(monkeypatch, tmp_p
             "--events",
             "not json",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1077,7 +1105,7 @@ def test_input_sequence_empty_events_argv_is_a_usage_error(monkeypatch, tmp_path
             "--events",
             "[]",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1102,7 +1130,7 @@ def test_input_sequence_malformed_event_argv_is_a_usage_error(monkeypatch, tmp_p
             "--events",
             json.dumps([{"type": "key", "frame": 0}]),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1129,7 +1157,7 @@ def test_input_sequence_over_window_frame_argv_is_a_usage_error(monkeypatch, tmp
             "--events",
             json.dumps([{"type": "key", "key": "Right", "frame": 999999}]),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1162,7 +1190,7 @@ def test_input_sequence_over_window_physics_frame_argv_is_a_usage_error(
                 ]
             ),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1196,7 +1224,7 @@ def test_input_sequence_mixed_process_and_physics_clocks_argv_is_a_usage_error(
                 ]
             ),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1223,7 +1251,7 @@ def test_input_sequence_at_the_window_boundary_argv_is_accepted(monkeypatch, tmp
                 [{"type": "key", "key": "Right", "frame": MAX_WINDOW_FRAMES - 1}]
             ),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1298,7 +1326,7 @@ def test_input_key_params_json_bad_modifier_is_invalid_params(monkeypatch, tmp_p
             "--params-json",
             '{"key": "A", "modifiers": ["control"]}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1323,7 +1351,7 @@ def test_input_action_params_json_strength_over_range_is_invalid_params(
             "--params-json",
             '{"action": "jump", "strength": 2.0}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1348,7 +1376,7 @@ def test_input_sequence_params_json_empty_events_is_invalid_params(
             "--params-json",
             '{"events": []}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1373,7 +1401,7 @@ def test_input_sequence_params_json_malformed_event_is_invalid_params(
             "--params-json",
             '{"events": [{"type": "mouse_click", "x": 1.0}]}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1398,7 +1426,7 @@ def test_input_sequence_params_json_mouse_button_without_phase_is_invalid_params
             "--params-json",
             '{"events": [{"type": "mouse_button", "x": 1.0, "y": 2.0}]}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1426,7 +1454,7 @@ def test_input_sequence_params_json_mouse_button_conflicting_phase_is_invalid_pa
                 '"pressed": true, "release": true}]}'
             ),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1454,7 +1482,7 @@ def test_input_sequence_params_json_mouse_button_pressed_false_is_invalid_params
                 '"pressed": false}]}'
             ),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1479,7 +1507,7 @@ def test_input_sequence_params_json_pressed_on_mouse_move_is_invalid_params(
             "--params-json",
             '{"events": [{"type": "mouse_move", "x": 1.0, "y": 2.0, "pressed": true}]}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1507,7 +1535,7 @@ def test_input_sequence_params_json_over_window_frame_is_invalid_params(
             "--params-json",
             json.dumps({"events": [{"type": "key", "key": "Right", "frame": 999999}]}),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1543,7 +1571,7 @@ def test_input_sequence_params_json_mixed_clock_fields_is_invalid_params(
                 }
             ),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1576,7 +1604,7 @@ def test_input_sequence_params_json_at_the_window_boundary_dispatches(
                 }
             ),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1626,7 +1654,7 @@ def test_input_sequence_params_json_physics_frame_dispatches(monkeypatch, tmp_pa
                 }
             ),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1653,7 +1681,7 @@ def test_input_key_params_json_dispatches_like_argv(monkeypatch, tmp_path):
             "--params-json",
             '{"key": "Right", "modifiers": ["shift"]}',
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1778,7 +1806,7 @@ def _reject(monkeypatch, tmp_path, event: dict) -> str:
             "--params-json",
             json.dumps({"events": [event]}),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -1941,7 +1969,7 @@ def test_an_explicit_null_button_still_means_the_left_button(monkeypatch, tmp_pa
             "--events",
             json.dumps(events),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )

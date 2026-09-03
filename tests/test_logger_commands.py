@@ -21,12 +21,8 @@ from tests.support import (
     error_sentinel,
     inject_live_runner,
     sentinel,
+    minimal_project,
 )
-
-
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
 
 
 def test_logger_tail_emits_structured_records_json_through_the_live_channel(
@@ -38,7 +34,7 @@ def test_logger_tail_emits_structured_records_json_through_the_live_channel(
     )
 
     result = CliRunner().invoke(
-        app, ["logger", "tail", "--project", str(_project(tmp_path)), "--json"]
+        app, ["logger", "tail", "--project", str(minimal_project(tmp_path)), "--json"]
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -67,7 +63,7 @@ def test_logger_tail_passes_level_and_limit_through(monkeypatch, tmp_path):
             "--limit",
             "5",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -87,7 +83,15 @@ def test_logger_tail_raw_passes_raw_flag_and_returns_verbatim_info_records(
     )
 
     result = CliRunner().invoke(
-        app, ["logger", "tail", "--raw", "--project", str(_project(tmp_path)), "--json"]
+        app,
+        [
+            "logger",
+            "tail",
+            "--raw",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -113,7 +117,7 @@ def test_logger_tail_rejects_a_non_positive_limit_on_the_argv_path(tmp_path):
                 "--limit",
                 bad,
                 "--project",
-                str(_project(tmp_path)),
+                str(minimal_project(tmp_path)),
                 "--json",
             ],
         )
@@ -130,7 +134,7 @@ def test_logger_tail_rejects_an_unknown_level_on_the_argv_path(tmp_path):
             "--level",
             "trace",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             "--json",
         ],
     )
@@ -144,7 +148,7 @@ def test_logger_tail_human_output_renders_records(monkeypatch, tmp_path):
     )
 
     result = CliRunner().invoke(
-        app, ["logger", "tail", "--project", str(_project(tmp_path))]
+        app, ["logger", "tail", "--project", str(minimal_project(tmp_path))]
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -161,7 +165,7 @@ def test_logger_tail_raw_human_output_renders_lines(monkeypatch, tmp_path):
     )
 
     result = CliRunner().invoke(
-        app, ["logger", "tail", "--raw", "--project", str(_project(tmp_path))]
+        app, ["logger", "tail", "--raw", "--project", str(minimal_project(tmp_path))]
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -173,7 +177,7 @@ def test_logger_tail_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
     result = CliRunner().invoke(
-        app, ["logger", "tail", "--project", str(_project(tmp_path)), "--json"]
+        app, ["logger", "tail", "--project", str(minimal_project(tmp_path)), "--json"]
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -193,7 +197,7 @@ def test_logger_tail_log_unavailable_is_a_typed_live_error(monkeypatch, tmp_path
     )
 
     result = CliRunner().invoke(
-        app, ["logger", "tail", "--project", str(_project(tmp_path)), "--json"]
+        app, ["logger", "tail", "--project", str(minimal_project(tmp_path)), "--json"]
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -214,7 +218,7 @@ def test_logger_tail_params_json_rejects_a_non_positive_limit_as_invalid_params(
                 "--params-json",
                 json.dumps({"limit": bad}),
                 "--project",
-                str(_project(tmp_path)),
+                str(minimal_project(tmp_path)),
                 "--json",
             ],
         )

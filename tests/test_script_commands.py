@@ -22,22 +22,22 @@ from tests.support import (
     SCRIPT_GET_RESULT as GET_RESULT,
     SCRIPT_LIST_RESULT as LIST_RESULT,
     SCRIPT_SET_RESULT as SET_RESULT,
-    FakeRunner,
+    assert_operation_error,
     inject_runner,
+    invoke_cli,
+    minimal_project,
+    recording_runner,
     sentinel,
 )
 
 
 def test_script_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(CREATE_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         ["script", "create", "/tmp/proj/hero.gd", "--extends", "Node2D", "--json"],
+        stdout=sentinel(CREATE_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -147,10 +147,11 @@ def test_script_create_content_and_extends_are_mutually_exclusive(monkeypatch):
 def test_script_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
     # script get is the verifier (issue #110): it reads a script's source back
     # as raw text with its class_name/extends, so a create round-trips.
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(GET_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(app, ["script", "get", "/tmp/proj/hero.gd", "--json"])
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["script", "get", "/tmp/proj/hero.gd", "--json"],
+        stdout=sentinel(GET_RESULT),
+    )
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -167,12 +168,11 @@ def test_script_list_json_enumerates_project_scripts_and_exit_zero(
     # script list enumerates the resolved project's .gd files (issue #117): each
     # entry carries its res:// path plus the class_name/extends parsed cheaply
     # from the script's raw source.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(LIST_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app, ["script", "list", "--project", str(tmp_path), "--json"]
+    minimal_project(tmp_path)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["script", "list", "--project", str(tmp_path), "--json"],
+        stdout=sentinel(LIST_RESULT),
     )
 
     assert result.exit_code == 0
@@ -192,23 +192,17 @@ def test_script_list_json_enumerates_project_scripts_and_exit_zero(
 def test_script_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
     # script list enumerates res:// in the resolved project, so --project must
     # reach the runner (which hands it to the engine as --path, issue #32).
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    seen: dict = {}
-
-    def record(binary, project):
-        seen["project"] = project
-        return FakeRunner(
-            RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
-        )
-
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    minimal_project(tmp_path)
+    projects = recording_runner(
+        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app, ["script", "list", "--project", str(tmp_path), "--json"]
     )
 
     assert result.exit_code == 0
-    assert seen["project"] == tmp_path
+    assert projects[0] == tmp_path
 
 
 def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
@@ -217,13 +211,8 @@ def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
     # the edit mode once and stamps the explicit `mode` discriminator the op
     # dispatches on (issue #133). The result re-parses the written source's
     # class_name/extends, so set round-trips through get.
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(SET_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "script",
             "set",
@@ -234,6 +223,8 @@ def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
             "Node2D",
             "--json",
         ],
+        stdout=sentinel(SET_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -419,13 +410,8 @@ def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
     # script attach (issue #118) binds a .gd to a node in a scene: the scene
     # path, the node path, and the script path ride through as the typed params;
     # the result echoes the attached script's class_name.
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(ATTACH_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "script",
             "attach",
@@ -436,6 +422,8 @@ def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
             "/tmp/proj/hero.gd",
             "--json",
         ],
+        stdout=sentinel(ATTACH_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -471,11 +459,8 @@ def test_script_attach_reports_the_displaced_script(monkeypatch):
         "class_name": None,
         "replaced_script": "res://old.gd",
     }
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(payload)
-    inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_cli(
+        monkeypatch,
         [
             "script",
             "attach",
@@ -486,6 +471,7 @@ def test_script_attach_reports_the_displaced_script(monkeypatch):
             "/tmp/proj/new.gd",
             "--json",
         ],
+        stdout=sentinel(payload),
     )
 
     assert result.exit_code == 0
@@ -517,13 +503,10 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypa
     # reporting valid=true, no error_string, and no diagnostics. A single path is a
     # batch of one (#663), so the verdict sits in the one `scripts` entry and the
     # top-level `valid` is that entry's own.
-    stdout = "Godot Engine v4.6.3.stable.official\n" + _validate_sentinel(
-        _ok("/tmp/proj/ok.gd")
-    )
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app, ["script", "validate", "/tmp/proj/ok.gd", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["script", "validate", "/tmp/proj/ok.gd", "--json"],
+        stdout=_validate_sentinel(_ok("/tmp/proj/ok.gd")),
     )
 
     assert result.exit_code == 0
@@ -548,14 +531,6 @@ def test_script_validate_help_mentions_valid_false_success_result():
 # --- project context: the refusal and the reported root (#658) ----------------
 
 
-def _project(tmp_path, name: str):
-    """A directory Godot counts as a project (it holds the marker)."""
-    proj = tmp_path / name
-    proj.mkdir(parents=True, exist_ok=True)
-    (proj / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return proj
-
-
 def test_script_validate_refuses_a_script_outside_the_resolved_project(
     monkeypatch, tmp_path
 ):
@@ -564,7 +539,7 @@ def test_script_validate_refuses_a_script_outside_the_resolved_project(
     # reports a cascade of false missing-file and derived type errors. gda refuses
     # instead — BEFORE the engine runs, which is what `fake.calls == []` pins —
     # and names both sides so the reader sees which one is wrong.
-    proj = _project(tmp_path, "game")
+    proj = minimal_project(tmp_path / "game")
     outsider = tmp_path / "elsewhere" / "deck.gd"
     fake = inject_runner(
         monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
@@ -602,7 +577,7 @@ def test_script_validate_refusal_is_identical_on_the_params_json_path(
     # ADR-0015 parity: --params-json builds the same model and must reach the same
     # refusal. The check lives on the command's recipe — the one hook both input
     # paths share — not in the argv body, which --params-json bypasses.
-    proj = _project(tmp_path, "game")
+    proj = minimal_project(tmp_path / "game")
     outsider = tmp_path / "elsewhere" / "deck.gd"
     fake = inject_runner(
         monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
@@ -621,8 +596,7 @@ def test_script_validate_refusal_is_identical_on_the_params_json_path(
         ],
     )
 
-    assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "target_outside_project"
+    assert_operation_error(result, "target_outside_project")
     assert fake.calls == []
 
 
@@ -649,7 +623,7 @@ def test_script_validate_refuses_a_res_dotdot_escape_the_same_as_the_absolute_sp
     # one test — not two separate ones — is deliberate: it is exactly the
     # invariant that broke (same file, same command, opposite verdicts), so a
     # future change that fixes one spelling without the other fails HERE.
-    proj = _project(tmp_path, "game")
+    proj = minimal_project(tmp_path / "game")
     outsider = tmp_path / "outside.gd"  # one directory above the project root
 
     fake_abs = inject_runner(
@@ -692,7 +666,7 @@ def test_script_validate_reports_the_resolved_project_root(monkeypatch, tmp_path
     # The result names the root its res:// dependencies resolved against, so a
     # reader can tell a real compile error from a wrong-project one without
     # re-deriving gda's resolution.
-    proj = _project(tmp_path, "game")
+    proj = minimal_project(tmp_path / "game")
     script = proj / "deck.gd"
     inject_runner(
         monkeypatch,
@@ -741,7 +715,7 @@ def test_script_validate_does_not_refuse_a_res_path(monkeypatch, tmp_path):
     # refused. That is no longer true of every res:// spelling (#762): one that
     # lexically escapes the namespace, e.g. `res://../outside.gd`, is refused —
     # see test_script_validate_refuses_a_res_dotdot_escape_the_same_as_the_absolute_spelling.
-    proj = _project(tmp_path, "game")
+    proj = minimal_project(tmp_path / "game")
     fake = inject_runner(
         monkeypatch,
         RunResult(
@@ -767,7 +741,7 @@ def test_script_validate_does_not_refuse_a_colon_bearing_path_as_virtual(
     # an ordinary filesystem path — and this one is outside the project, so it is
     # refused rather than waved through as engine-virtual (which skipped
     # containment entirely and let the engine open the outside file).
-    proj = _project(tmp_path, "game")
+    proj = minimal_project(tmp_path / "game")
     odd = tmp_path / "outside:" / "deck.gd"
     fake = inject_runner(
         monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
@@ -777,8 +751,7 @@ def test_script_validate_does_not_refuse_a_colon_bearing_path_as_virtual(
         app, ["script", "validate", str(odd), "--project", str(proj), "--json"]
     )
 
-    assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "target_outside_project"
+    assert_operation_error(result, "target_outside_project")
     assert fake.calls == []
 
 
@@ -789,8 +762,8 @@ def test_script_validate_refuses_a_target_a_nested_project_owns(monkeypatch, tmp
     # -file errors for a file that is perfectly valid in its own project, and only
     # `project_root` hinted why. ADR-0006's 2026-08-31 amendment (#697) refuses
     # instead and names the owner to pass.
-    outer = _project(tmp_path, "outer")
-    inner = _project(tmp_path, "outer/inner")
+    outer = minimal_project(tmp_path / "outer")
+    inner = minimal_project(tmp_path / "outer/inner")
     fake = inject_runner(
         monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
     )
@@ -827,8 +800,8 @@ def test_script_validate_names_a_res_target_s_real_location(monkeypatch, tmp_pat
     # anchoring made `Path("res://inner/main.gd")` the RELATIVE `res:/inner/main.gd`
     # and reported `<project>/res:/inner/main.gd`, a directory that does not exist —
     # in the human message and in the typed evidence alike.
-    outer = _project(tmp_path, "outer")
-    inner = _project(tmp_path, "outer/inner")
+    outer = minimal_project(tmp_path / "outer")
+    inner = minimal_project(tmp_path / "outer/inner")
     inject_runner(monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -858,7 +831,7 @@ def test_script_validate_refuses_a_projectless_target_that_has_an_owner(
     # projectless engine, where its res:// references resolved against nothing and
     # produced the same cascade with `project_root: null` as the only clue.
     workspace = tmp_path / "workspace"
-    game = _project(workspace, "game")
+    game = minimal_project(workspace / "game")
     monkeypatch.chdir(workspace)
     fake = inject_runner(
         monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
@@ -901,7 +874,7 @@ def test_script_validate_still_validates_a_standalone_script_projectless(
 
 def _ancestor_cwd_project(monkeypatch, tmp_path):
     """A project one level below the cwd, with a script in it (the #658 A shape)."""
-    proj = _project(tmp_path, "game")
+    proj = minimal_project(tmp_path / "game")
     monkeypatch.chdir(tmp_path)
     return proj
 
@@ -984,8 +957,7 @@ def test_script_validate_still_refuses_a_relative_target_that_climbs_out(
         ],
     )
 
-    assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "target_outside_project"
+    assert_operation_error(result, "target_outside_project")
     assert fake.calls == []
 
 
@@ -999,15 +971,11 @@ def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monke
         'value after "=".\n'
         "          at: GDScript::reload (/tmp/proj/broken.gd:3)\n"
     )
-    stdout = "Godot Engine v4.6.3.stable.official\n" + _validate_sentinel(
-        _broken("/tmp/proj/broken.gd", "Parse error.")
-    )
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr=stderr, exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["script", "validate", "/tmp/proj/broken.gd", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["script", "validate", "/tmp/proj/broken.gd", "--json"],
+        stdout=_validate_sentinel(_broken("/tmp/proj/broken.gd", "Parse error.")),
+        stderr=stderr,
     )
 
     assert result.exit_code == 0
@@ -1112,7 +1080,7 @@ def test_script_validate_human_output_invalid_leads_with_the_project_root(
     # An invalid verdict prints the project it was compiled against BEFORE the
     # diagnostics (#658): when the root is wrong every line below it is an
     # artefact of that one mistake, so the cause must not sit under the cascade.
-    proj = _project(tmp_path, "game")
+    proj = minimal_project(tmp_path / "game")
     script = proj / "broken.gd"
     inject_runner(
         monkeypatch,
@@ -1373,7 +1341,7 @@ def test_script_validate_refuses_a_batch_whose_second_path_is_outside_the_projec
     # ADR-0006's one resolved project applies to EVERY path in the batch: a batch
     # that spans projects is refused before the engine runs, reusing #658's refusal
     # rather than compiling the outsider against the wrong root.
-    proj = _project(tmp_path, "game")
+    proj = minimal_project(tmp_path / "game")
     inside = proj / "deck.gd"
     outsider = tmp_path / "elsewhere" / "card.gd"
     fake = inject_runner(
@@ -1461,8 +1429,7 @@ def test_script_validate_params_json_refuses_an_empty_batch(monkeypatch):
         ],
     )
 
-    assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert_operation_error(result, "invalid_params")
     assert fake.calls == []
 
 
@@ -1482,8 +1449,7 @@ def test_script_validate_params_json_refuses_paths_together_with_all(monkeypatch
         ],
     )
 
-    assert result.exit_code == 4
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert_operation_error(result, "invalid_params")
     assert fake.calls == []
 
 

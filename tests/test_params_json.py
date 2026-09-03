@@ -27,6 +27,7 @@ from tests.support import (
     SCRIPT_SET_RESULT,
     SHADER_CREATE_RESULT,
     inject_runner,
+    minimal_project,
     sentinel,
 )
 
@@ -553,7 +554,7 @@ def test_an_unexpandable_tilde_is_structured_on_a_sibling_command(
     # `invalid_path`), but structured either way, which is what the contract requires.
     # Both channels, because the argv body builds the params model DIRECTLY: a
     # normalizer that raised would still crash here even though --params-json caught it.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     inject_runner(
         monkeypatch,
         RunResult(

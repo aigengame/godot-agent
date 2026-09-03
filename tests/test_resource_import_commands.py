@@ -18,14 +18,16 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
+from tests.support import minimal_project
 
 runner_cli = CliRunner()
 
 
 def _project(tmp_path: Path) -> Path:
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    (tmp_path / "icon.png").write_bytes(b"\x89PNG fake bytes")
-    return tmp_path
+    """The shared minimum, plus the one asset the import pass has to see."""
+    project = minimal_project(tmp_path)
+    (project / "icon.png").write_bytes(b"\x89PNG fake bytes")
+    return project
 
 
 def _sidecar(
@@ -741,9 +743,7 @@ def test_an_asset_a_nested_project_owns_is_refused_before_the_pass(tmp_path):
     # `not_importable`, while `--dry-run` predicted a sidecar that would never
     # appear. It now refuses up front and names the project that CAN import it.
     project = _project(tmp_path)
-    nested = project / "vendor"
-    nested.mkdir()
-    (nested / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    nested = minimal_project(project / "vendor")
     (nested / "pic.png").write_bytes(b"\x89PNG")
 
     data = json.loads(_run(project, "res://vendor/pic.png", "--dry-run").stdout)

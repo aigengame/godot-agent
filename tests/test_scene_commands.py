@@ -16,22 +16,21 @@ from tests.support import (
     SCENE_DELETE_RESULT as DELETE_RESULT,
     SCENE_GET_RESULT as GET_RESULT,
     SCENE_LIST_RESULT as LIST_RESULT,
-    FakeRunner,
     inject_runner,
+    invoke_cli,
+    minimal_project,
+    recording_runner,
     sentinel,
 )
 
 
 def test_scene_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(CREATE_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         ["scene", "create", "/tmp/proj/main.tscn", "--root-type", "Node2D", "--json"],
+        stdout=sentinel(CREATE_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -90,10 +89,11 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
 
 
 def test_scene_get_json_emits_structured_node_tree_and_exit_zero(monkeypatch):
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(GET_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(app, ["scene", "get", "/tmp/proj/main.tscn", "--json"])
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "get", "/tmp/proj/main.tscn", "--json"],
+        stdout=sentinel(GET_RESULT),
+    )
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -108,23 +108,17 @@ def test_scene_get_json_emits_structured_node_tree_and_exit_zero(monkeypatch):
 def test_scene_get_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
     # --project resolves to a project dir and is handed to the runner (which
     # turns it into the engine's --path so res:// resolves there, issue #32).
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    seen: dict = {}
-
-    def record(binary, project):
-        seen["project"] = project
-        return FakeRunner(
-            RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
-        )
-
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    minimal_project(tmp_path)
+    projects = recording_runner(
+        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app, ["scene", "get", "res://main.tscn", "--project", str(tmp_path), "--json"]
     )
 
     assert result.exit_code == 0
-    assert seen["project"] == tmp_path
+    assert projects[0] == tmp_path
 
 
 def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
@@ -191,13 +185,11 @@ def test_scene_get_exports_json_emits_per_node_exports_and_exit_zero(monkeypatch
     # scene get-exports loads a scene and reports, per node (by node path), the
     # @export properties its attached script declares (issue #58): each export's
     # name, declared type, hint/hint_string, and value as typed JSON.
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(GET_EXPORTS_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["scene", "get-exports", "/tmp/proj/main.tscn", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "get-exports", "/tmp/proj/main.tscn", "--json"],
+        stdout=sentinel(GET_EXPORTS_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
@@ -256,12 +248,11 @@ def test_scene_list_json_enumerates_project_scenes_and_exit_zero(monkeypatch, tm
     # scene list enumerates the resolved project's .tscn files (issue #54):
     # each entry carries its res:// path plus the root name/type read cheaply
     # from the scene's stored state.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(LIST_RESULT)
-    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
-
-    result = CliRunner().invoke(
-        app, ["scene", "list", "--project", str(tmp_path), "--json"]
+    minimal_project(tmp_path)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "list", "--project", str(tmp_path), "--json"],
+        stdout=sentinel(LIST_RESULT),
     )
 
     assert result.exit_code == 0
@@ -280,36 +271,28 @@ def test_scene_list_json_enumerates_project_scenes_and_exit_zero(monkeypatch, tm
 def test_scene_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
     # scene list enumerates res:// in the resolved project, so --project must
     # reach the runner (which hands it to the engine as --path, issue #32).
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    seen: dict = {}
-
-    def record(binary, project):
-        seen["project"] = project
-        return FakeRunner(
-            RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
-        )
-
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    minimal_project(tmp_path)
+    projects = recording_runner(
+        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app, ["scene", "list", "--project", str(tmp_path), "--json"]
     )
 
     assert result.exit_code == 0
-    assert seen["project"] == tmp_path
+    assert projects[0] == tmp_path
 
 
 def test_scene_delete_json_reports_what_was_removed_and_exit_zero(monkeypatch):
     # scene delete removes a scene file and names what it deleted (issue #54):
     # the path plus the removed scene's root name/type, so the result names the
     # content, not just the file.
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(DELETE_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["scene", "delete", "/tmp/proj/old.tscn", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "delete", "/tmp/proj/old.tscn", "--json"],
+        stdout=sentinel(DELETE_RESULT),
+        stderr="engine diagnostic\n",
     )
 
     assert result.exit_code == 0
