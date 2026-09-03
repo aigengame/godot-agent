@@ -628,7 +628,7 @@ uv sync                       # set up the environment
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
-uv run pytest -n 4 --dist loadgroup   # the same, on four workers — what CI runs
+uv run pytest -n 4 --dist loadgroup   # any tier above on four workers, as CI runs each
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
