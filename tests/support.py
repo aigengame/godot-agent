@@ -19,11 +19,15 @@ import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from typer.testing import CliRunner, Result
 
 from gda.cli import app
 from gda.runner import RunResult
+
+if TYPE_CHECKING:  # the daemon imports stay deferred; the annotation does not
+    from gda.daemon.server import DaemonServer
 
 # Typer renders help and usage errors through Rich, which colorizes when it
 # believes it is on a terminal — under GitHub Actions it does, while a local
@@ -217,7 +221,7 @@ def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     return fake
 
 
-def recording_runner(monkeypatch, result: RunResult) -> list:
+def recording_runner(monkeypatch, result: RunResult) -> list[Path | None]:
     """Swap the runner seam for one that RECORDS the project it was built with.
 
     :func:`inject_runner` throws the factory's arguments away; this keeps them.
@@ -227,7 +231,7 @@ def recording_runner(monkeypatch, result: RunResult) -> list:
     entry per runner built, in order — so a caller reads the project it expects,
     or the whole list where the number of builds is the point.
     """
-    projects: list = []
+    projects: list[Path | None] = []
 
     def record(binary, project=None):
         projects.append(project)
@@ -257,6 +261,8 @@ def invoke_cli(
     stdout: str = "",
     stderr: str = "",
     exit_code: int = 0,
+    banner: bool = True,
+    stdin: str | None = None,
 ) -> tuple[Result, FakeRunner]:
     """Run ``argv`` through the CLI against ONE canned engine run.
 
@@ -266,12 +272,25 @@ def invoke_cli(
     ``CliRunner`` result and the fake, so a test that only reads the result
     writes ``result, _ = invoke_cli(...)`` and one that also checks what was
     dispatched keeps the fake.
+
+    ``banner=False`` stages the ``stdout`` bytes ALONE. A real run always writes
+    the banner, so the default is what a test wants — except where the staged
+    stdout is itself the input under test (a frame with no result sentinel, a
+    malformed one), and adding a preamble would change the subject rather than
+    make the fixture faithful.
+
+    ``stdin`` is the text the CLI reads from standard input, for the one channel
+    that takes its payload there (``--params-json -``).
     """
     fake = inject_runner(
         monkeypatch,
-        RunResult(stdout=ENGINE_BANNER + stdout, stderr=stderr, exit_code=exit_code),
+        RunResult(
+            stdout=(ENGINE_BANNER + stdout) if banner else stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+        ),
     )
-    return CliRunner().invoke(app, argv), fake
+    return CliRunner().invoke(app, argv, input=stdin), fake
 
 
 def invoke_operation_error(
@@ -320,7 +339,7 @@ def operation_error_invoker(
 
 
 def assert_operation_error(
-    result, code: str, needle: str | None = None, diagnostics: str | None = None
+    result: Result, code: str, needle: str | None = None, diagnostics: str | None = None
 ) -> dict:
     """Assert ``result`` is the operation-category failure for ``code``, and return it.
 
@@ -354,6 +373,11 @@ class FakeProc:
     process group it owns, and the own-group guard then resolves this stand-in to
     no group at all. An invented pid would instead resolve to whichever real
     process holds it — which a test would then signal.
+
+    NOT :class:`RecordingSpawn`'s ``_CannedProcess``: this one answers liveness and
+    nothing else, and no test reads a stream from it. Reach for the other when the
+    subject is a SPAWN — an argv, a cwd, an environment, and real readable streams
+    for the launch primitive to drain.
     """
 
     pid = os.getpid()
@@ -365,7 +389,9 @@ class FakeProc:
         return self.returncode
 
 
-def server_with_session(tmp_path: Path, log_file: Path, alive: bool = True):
+def server_with_session(
+    tmp_path: Path, log_file: Path, alive: bool = True
+) -> "DaemonServer":
     """A ``DaemonServer`` holding a stand-in :class:`FakeProc` session.
 
     The fixture the log-backed live reads need (``diag errors``, ``logger tail``,
@@ -373,8 +399,6 @@ def server_with_session(tmp_path: Path, log_file: Path, alive: bool = True):
     the test writes a log and asks the server, with no engine and no socket.
     ``alive`` decides whether the session's process still polls as running.
     """
-    from typing import cast
-
     from gda.daemon.discovery import daemon_paths
     from gda.daemon.server import DaemonServer
     from gda.daemon.session import EngineSession
@@ -1231,7 +1255,12 @@ class RecordingSpawn:
 
 
 class _CannedProcess:
-    """The child :class:`RecordingSpawn` hands back — see its docstring."""
+    """The child :class:`RecordingSpawn` hands back — see its docstring.
+
+    The heavier of the two process doubles: real readable streams, a wait that can
+    time out, a terminate that ends it. A daemon test that only needs the session
+    to answer "still alive?" wants :class:`FakeProc` instead.
+    """
 
     def __init__(
         self, stdout: bytes, stderr: bytes, returncode: int, *, alive: bool
