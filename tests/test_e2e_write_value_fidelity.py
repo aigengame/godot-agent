@@ -33,12 +33,8 @@ import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-
 from tests.live_number_corpus import LIVE_NUMBER_CORPUS, value_bits
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
+from tests.support import GODOT, Gda
 
 
 # --- the policy, expressed independently of the GDScript that implements it ----
@@ -324,26 +320,6 @@ WRITE_CASES = [
 ]
 
 
-def _headless_runner(project):
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(project),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-
-    return run
-
-
 @pytest.fixture
 def probe_project(godot_project):
     (godot_project / "probe.gd").write_text(PROBE_GD, encoding="utf-8")
@@ -360,7 +336,7 @@ def test_node_set_refuses_a_literal_the_parser_destroys(probe_project):
     rewritten with it.
     """
     scene = probe_project / "main.tscn"
-    run = _headless_runner(probe_project)
+    run = Gda(probe_project, json_output=True, timeout=180)
 
     for literal, refused, note in WRITE_CASES:
         before = scene.read_text(encoding="utf-8")
@@ -407,7 +383,7 @@ def test_node_set_refuses_a_literal_the_parser_destroys(probe_project):
 def test_the_refusal_is_narrow_and_names_its_remedy(probe_project):
     """It refuses a LOSS, not a magnitude, and tells the caller what to type instead."""
     scene = probe_project / "main.tscn"
-    run = _headless_runner(probe_project)
+    run = Gda(probe_project, json_output=True, timeout=180)
 
     # A value that is not a number at all keeps the message it always had: the
     # fidelity note must not relabel an ordinary coercion failure.
@@ -555,7 +531,7 @@ def test_node_set_refuses_a_destroyed_number_inside_a_container(probe_project):
     scalar, alive on the one path its per-component walk could not reach.
     """
     scene = probe_project / "main.tscn"
-    run = _headless_runner(probe_project)
+    run = Gda(probe_project, json_output=True, timeout=180)
 
     for prop, value, note in CONTAINER_REFUSED:
         before = scene.read_text(encoding="utf-8")
@@ -639,7 +615,7 @@ def test_the_note_explains_only_the_refusal_it_diagnosed(probe_project):
     `test_node_set_refuses_a_destroyed_number_inside_a_container`.)
     """
     scene = probe_project / "main.tscn"
-    run = _headless_runner(probe_project)
+    run = Gda(probe_project, json_output=True, timeout=180)
 
     def message(*args):
         result = run("node", "set", str(scene), "--node", ".", *args)
@@ -707,7 +683,7 @@ def test_project_set_shares_the_refusal(probe_project):
         + '\n[gda]\n\nprobe/value=1.5\nprobe/dict={"a": 1.0}\nprobe/arr=[1.0]\n',
         encoding="utf-8",
     )
-    run = _headless_runner(probe_project)
+    run = Gda(probe_project, json_output=True, timeout=180)
 
     refused = run(
         "project", "set", "gda/probe/value", "--value", "0.000000000000000001"
@@ -760,7 +736,7 @@ def test_resource_set_shares_the_refusal(probe_project):
     (probe_project / "probe_res.gd").write_text(RESOURCE_PROBE_GD, encoding="utf-8")
     resource = probe_project / "probe.tres"
     resource.write_text(RESOURCE_PROBE_TRES, encoding="utf-8")
-    run = _headless_runner(probe_project)
+    run = Gda(probe_project, json_output=True, timeout=180)
 
     # The scalar rule first, so a container failure below cannot be a `resource
     # set` that never had the rule at all.
@@ -826,7 +802,7 @@ def test_game_set_refuses_the_same_literals_against_a_real_daemon(
     (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "live_main.gd").write_text(LIVE_MAIN_GD, encoding="utf-8")
 
-    run = _headless_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=180)
     try:
         assert run("daemon", "start").returncode == 0
 

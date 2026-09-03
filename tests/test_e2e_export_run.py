@@ -30,23 +30,19 @@ unconditionally.
 
 import json
 import os
-import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 
-from gda.binary import resolve_godot_binary
 from gda.harness.install import (
     HARNESS_AUTOLOAD_NAME,
     HARNESS_FILE,
     HARNESS_RES_DIR,
     install_harness,
 )
-from tests.support import GDA_CMD, templates_installed
-
-GODOT = resolve_godot_binary()
+from tests.support import Gda, templates_installed
 
 # A runnable Linux preset writing to build/game.x86_64, plus a non-runnable
 # preset with NO export_path (to exercise export_path_unset). Sibling `.options`
@@ -84,19 +80,6 @@ binary_format/embed_pck=false
 """
 
 
-def _gda_project(project):
-    """A ``gda`` bound to ``--godot`` + ``--project`` for the real engine."""
-
-    def gda(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
-            capture_output=True,
-            text=True,
-        )
-
-    return gda
-
-
 @pytest.mark.e2e
 def test_export_run_unknown_preset_reuses_export_get_error(godot_project):
     # export run resolves the preset via export get first, so an unknown preset is
@@ -105,7 +88,7 @@ def test_export_run_unknown_preset_reuses_export_get_error(godot_project):
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     run = gda("export", "run", "--preset", "Nope", "--json")
 
@@ -123,7 +106,7 @@ def test_export_run_unset_path_yields_export_path_unset(godot_project):
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     run = gda("export", "run", "--preset", "NoPath", "--json")
 
@@ -158,7 +141,7 @@ def test_export_run_writes_to_configured_export_path(godot_project):
     )
     configured_rel = "build/game.x86_64"
     artifact = godot_project / configured_rel
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     run = gda("export", "run", "--preset", "Linux/X11", "--json")
 
@@ -211,7 +194,7 @@ def test_export_run_pack_writes_pck_without_templates(godot_project):
     )
     artifact = godot_project / "dist" / "packed.pck"
     configured = godot_project / "build/game.x86_64"
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     run = gda(
         "export",
@@ -257,26 +240,17 @@ def test_export_run_pack_accepts_a_relative_project(godot_project):
 
     # Drive gda from the project's PARENT with a RELATIVE --project (the failing
     # case) — NOT the absolute path _gda_project passes.
-    run = subprocess.run(
-        [
-            *GDA_CMD,
-            "export",
-            "run",
-            "--preset",
-            "Linux/X11",
-            "--mode",
-            "pack",
-            "--output",
-            str(artifact),
-            "--json",
-            "--godot",
-            str(GODOT),
-            "--project",
-            godot_project.name,  # RELATIVE; resolved against the cwd below
-        ],
-        capture_output=True,
-        text=True,
-        cwd=str(godot_project.parent),
+    run = Gda(godot_project.name)(  # RELATIVE project; resolved against the cwd
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--mode",
+        "pack",
+        "--output",
+        str(artifact),
+        "--json",
+        cwd=godot_project.parent,
     )
 
     # No skip: pack must RUN to completion regardless of template presence. Before
@@ -314,7 +288,7 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
     assert HARNESS_AUTOLOAD_NAME in project_godot.read_text(encoding="utf-8")
 
     artifact = godot_project / "dist" / "packed.zip"
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     run = gda(
         "export",
@@ -380,22 +354,13 @@ def test_export_run_without_templates_yields_export_templates_missing(
     empty_data = tmp_path / "empty-xdg"
     empty_data.mkdir()
 
-    run = subprocess.run(
-        [
-            *GDA_CMD,
-            "export",
-            "run",
-            "--preset",
-            "Linux/X11",
-            "--json",
-            "--godot",
-            str(GODOT),
-            "--project",
-            str(godot_project),
-        ],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "XDG_DATA_HOME": str(empty_data)},
+    run = Gda(godot_project)(
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--json",
+        extra_env={"XDG_DATA_HOME": str(empty_data)},
     )
 
     assert run.returncode == 4, run.stdout + run.stderr
@@ -444,7 +409,7 @@ def test_templates_installed_is_true_when_host_templates_are_on_disk(godot_proje
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     # templates_installed is preset-independent (it only checks the version dir
     # exists), so any real preset works; the on-disk check above is the source of truth.

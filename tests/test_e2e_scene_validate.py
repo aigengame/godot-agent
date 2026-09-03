@@ -14,14 +14,10 @@ compile, through any gda command.
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
+from tests.support import Gda
 
 GOOD_SCRIPT = """\
 extends Node2D
@@ -72,24 +68,13 @@ script = ExtResource("1_broken")
 """
 
 
-def _gda_project(project):
-    def gda(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
-            capture_output=True,
-            text=True,
-        )
-
-    return gda
-
-
 @pytest.mark.e2e
 def test_a_sound_scene_validates_and_names_the_project_it_resolved_against(
     godot_project,
 ):
     (godot_project / "hero.gd").write_text(GOOD_SCRIPT, encoding="utf-8")
     (godot_project / "hero.tscn").write_text(GOOD_TSCN, encoding="utf-8")
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://hero.tscn", "--json")
 
@@ -106,7 +91,7 @@ def test_missing_dependencies_are_reported_where_scene_get_reports_nothing(
     godot_project,
 ):
     (godot_project / "main.tscn").write_text(MISSING_DEPS_TSCN, encoding="utf-8")
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     # BEFORE (GDA-DF-040): the read succeeds and the tree looks healthy — the missing
     # script and texture leave no trace in it. This is the gap, pinned.
@@ -151,7 +136,7 @@ def test_an_attached_script_that_does_not_compile_is_a_problem_not_a_failure(
 ):
     (godot_project / "broken.gd").write_text(BROKEN_SCRIPT, encoding="utf-8")
     (godot_project / "main.tscn").write_text(BROKEN_SCRIPT_TSCN, encoding="utf-8")
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://main.tscn", "--json")
 
@@ -194,7 +179,7 @@ def test_an_asset_that_was_never_imported_is_unloadable_not_missing(godot_projec
         'texture = ExtResource("1_dot")\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://main.tscn", "--json")
 
@@ -210,7 +195,7 @@ def test_an_asset_that_was_never_imported_is_unloadable_not_missing(godot_projec
 def test_a_missing_scene_is_refused_not_reported_as_invalid(godot_project):
     # The addressing ladder does not fork for validate: what is not there cannot have
     # a verdict, so it is the same path_not_found every other scene command reports.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://nosuch.tscn", "--json")
 
@@ -259,7 +244,7 @@ def test_a_dependency_broken_from_a_sub_resource_is_a_verdict_not_a_refusal(
     # `not_a_scene` about a file that IS a scene — hiding exactly the broken
     # dependency this command exists to report.
     (godot_project / "main.tscn").write_text(SUB_RESOURCE_TSCN, encoding="utf-8")
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://main.tscn", "--json")
 
@@ -283,7 +268,7 @@ def test_a_binary_scene_is_refused_rather_than_reported_valid(godot_project):
     (godot_project / "hero.gd").write_text(GOOD_SCRIPT, encoding="utf-8")
     (godot_project / "hero.tscn").write_text(GOOD_TSCN, encoding="utf-8")
     (godot_project / "save_binary.gd").write_text(SAVE_AS_BINARY_GD, encoding="utf-8")
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     saved = gda("script", "run", "res://save_binary.gd", "--json")
     assert saved.returncode == 0, saved.stdout + saved.stderr
@@ -349,7 +334,7 @@ def test_an_incompatible_script_binding_is_a_problem_not_a_pass(godot_project):
     (godot_project / "badbind.tscn").write_text(
         INCOMPATIBLE_BINDING_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://badbind.tscn", "--json")
 
@@ -367,7 +352,7 @@ def test_an_incompatible_script_binding_is_a_problem_not_a_pass(godot_project):
 @pytest.mark.e2e
 def test_a_broken_embedded_script_is_a_problem_not_a_pass(godot_project):
     (godot_project / "badembed.tscn").write_text(BROKEN_EMBEDDED_TSCN, encoding="utf-8")
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://badembed.tscn", "--json")
 
@@ -420,7 +405,7 @@ def test_a_non_script_resource_declared_as_script_is_a_problem_not_a_pass(
     (godot_project / "notascript.tscn").write_text(
         NOT_A_SCRIPT_BINDING_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://notascript.tscn", "--json")
 
@@ -441,7 +426,7 @@ def test_an_embedded_non_script_bound_as_script_is_a_problem_not_a_pass(
     (godot_project / "embednotascript.tscn").write_text(
         EMBEDDED_NOT_A_SCRIPT_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://embednotascript.tscn", "--json")
 
@@ -464,7 +449,7 @@ def test_a_tscn_that_is_not_a_scene_document_is_refused_not_diagnosed(godot_proj
         "this is not a scene file at all\n",
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://garbage.tscn", "--json")
 
@@ -485,7 +470,7 @@ def test_a_header_that_merely_starts_with_gd_scene_is_still_refused(godot_projec
         "this is not a Godot scene\n",
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://scenery.tscn", "--json")
 
@@ -507,7 +492,7 @@ def test_an_unclosed_gd_scene_header_is_still_refused(godot_project):
         "this is not a Godot scene\n",
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://unclosed.tscn", "--json")
 
@@ -547,7 +532,7 @@ COMPOSED_PARENT_TSCN = """\
 def test_an_instanced_broken_child_makes_the_parent_invalid(godot_project):
     (godot_project / "child.tscn").write_text(COMPOSED_CHILD_TSCN, encoding="utf-8")
     (godot_project / "parent.tscn").write_text(COMPOSED_PARENT_TSCN, encoding="utf-8")
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     # The child's own verdict is the reference answer.
     child = gda("scene", "validate", "res://child.tscn", "--json")
@@ -601,7 +586,7 @@ def test_a_sound_composed_scene_is_still_valid_and_each_file_checked_once(
         '[node name="LeafDirect" parent="." instance=ExtResource("2_leaf")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://top.tscn", "--json")
 
@@ -651,7 +636,7 @@ def test_an_instancing_cycle_terminates_with_a_diagnostic(godot_project):
         '[node name="AInstance" parent="." instance=ExtResource("1_a")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://a.tscn", "--json")
 
@@ -678,7 +663,7 @@ def test_a_scene_that_instances_itself_is_one_cycle_not_a_hang(godot_project):
         '[node name="Inner2" parent="." instance=ExtResource("1_self")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://self.tscn", "--json")
 
@@ -707,7 +692,7 @@ def test_a_missing_sub_scene_is_the_parents_problem_and_not_reported_twice(
         '[node name="Missing" parent="." instance=ExtResource("1_gone")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://parent.tscn", "--json")
 
@@ -764,7 +749,7 @@ def test_a_chain_at_the_depth_bound_is_still_fully_validated(godot_project):
     # the verdict is a real one. This is the half that keeps the bound honest: a
     # cap that fires early would turn ordinary compositions into non-answers.
     _write_instance_chain(godot_project, 16)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://s0.tscn", "--json")
 
@@ -779,7 +764,7 @@ def test_past_the_depth_bound_the_walk_stops_and_says_so(godot_project):
     # One level further. The walk stops at the edge into s17 and reports it —
     # rather than answering `valid: true` about a subtree it never looked at.
     _write_instance_chain(godot_project, 17)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://s0.tscn", "--json")
 
@@ -811,7 +796,7 @@ def test_the_bound_does_not_hide_a_break_above_it(godot_project):
         '[node name="Child" parent="." instance=ExtResource("1_c")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://s0.tscn", "--json")
 
@@ -860,7 +845,7 @@ def test_a_sub_scene_referenced_as_data_still_breaks_its_owner(godot_project):
     (godot_project / "parent.tscn").write_text(
         DATA_REFERENCE_PARENT_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://parent.tscn", "--json")
 
@@ -901,7 +886,7 @@ def test_a_binary_sub_scene_is_reported_unchecked_not_silently_skipped(godot_pro
     (godot_project / "parent.tscn").write_text(
         BINARY_SUB_SCENE_PARENT_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     saved = gda("script", "run", "res://save_binary.gd", "--json")
     assert saved.returncode == 0, saved.stdout + saved.stderr
     assert (godot_project / "hero.scn").exists(), saved.stdout + saved.stderr
@@ -941,7 +926,7 @@ def test_a_binary_sub_scene_that_does_not_load_is_still_reported_once(godot_proj
     (godot_project / "parent.tscn").write_text(
         BINARY_SUB_SCENE_PARENT_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     saved = gda("script", "run", "res://save_binary.gd", "--json")
     assert saved.returncode == 0, saved.stdout + saved.stderr
     # Removing the script entirely makes the binary resource itself unloadable.
@@ -981,7 +966,7 @@ def test_two_spellings_of_one_sub_scene_are_one_file(godot_project):
         '[node name="B" parent="." instance=ExtResource("2_a")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://alias.tscn", "--json")
 
@@ -1050,7 +1035,7 @@ def test_the_depth_verdict_does_not_depend_on_declaration_order(
     # nothing stood behind), while direct-first validated the leaf first and let
     # `visited` swallow the deep edge in silence (`valid: true`).
     _write_cross_boundary_diamond(godot_project, deep_first=deep_first)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://root.tscn", "--json")
 
@@ -1073,7 +1058,7 @@ def test_a_target_no_route_reaches_in_bound_is_still_reported(godot_project):
         '[node name="Deep" parent="." instance=ExtResource("1_deep")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://root.tscn", "--json")
 
@@ -1130,7 +1115,7 @@ def test_a_packed_scene_saved_as_a_res_is_reported_not_skipped(godot_project):
     (godot_project / "parent.tscn").write_text(
         RES_SUB_SCENE_PARENT_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     saved = gda("script", "run", "res://save_res.gd", "--json")
     assert saved.returncode == 0, saved.stdout + saved.stderr
     assert (godot_project / "hero_pack.res").exists(), saved.stdout + saved.stderr
@@ -1168,7 +1153,7 @@ def test_a_res_declared_as_something_else_is_still_not_a_scene_edge(godot_projec
         'metadata/thing = ExtResource("1_p")\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://parent.tscn", "--json")
 
@@ -1242,7 +1227,7 @@ def test_a_sound_graph_converging_above_the_bound_is_valid_in_both_orders(
     # `t.tscn`, one edge below it, was reached on the direct-first file and left
     # past the bound on the deep-first one. Same graph, two verdicts.
     _write_ancestor_convergence(godot_project, deep_first=deep_first, break_leaf=False)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://root.tscn", "--json")
 
@@ -1263,7 +1248,7 @@ def test_a_break_below_the_convergence_is_found_in_both_orders(
     # find the break, not merely stop reporting the bound. One problem, the same
     # one, whichever line the root declares first.
     _write_ancestor_convergence(godot_project, deep_first=deep_first, break_leaf=True)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://root.tscn", "--json")
 
@@ -1295,7 +1280,7 @@ def test_a_subtree_only_the_deep_route_reaches_is_still_reported(godot_project):
         '[node name="Deep" parent="." instance=ExtResource("1_deep")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://root.tscn", "--json")
 
@@ -1324,7 +1309,7 @@ def test_an_aliased_root_is_the_same_file_as_the_reference_back_to_it(godot_proj
         '[node name="Inner" parent="." instance=ExtResource("2_self")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     canonical = gda("scene", "validate", "res://root.tscn", "--json")
     aliased = gda("scene", "validate", "res://./root.tscn", "--json")
@@ -1356,7 +1341,7 @@ def test_an_edge_problem_lists_every_id_that_names_the_target(godot_project):
         '[node name="InnerB" parent="." instance=ExtResource("2_b")]\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://self.tscn", "--json")
 
@@ -1393,7 +1378,7 @@ def test_a_cycle_below_a_re_expanded_scene_is_reported_once(godot_project):
             '[node name="Child" parent="." instance=ExtResource("1_c")]\n',
             encoding="utf-8",
         )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://root.tscn", "--json")
 
@@ -1471,7 +1456,7 @@ def test_a_deferred_depth_edge_does_not_suppress_a_later_cycle(
     # reported the cycle (measured on Godot 4.6.3 before the fix). One graph, one
     # verdict — the cycle, attributed to the file that declares the closing edge.
     _write_deferred_cycle(godot_project, deep_first=deep_first)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://root.tscn", "--json")
 
@@ -1510,7 +1495,7 @@ script = ExtResource("1_gone")
 @pytest.mark.e2e
 def test_a_problem_names_the_node_a_whole_name_header_read_finds(godot_project):
     (godot_project / "main.tscn").write_text(DECOY_ATTR_TSCN, encoding="utf-8")
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     validated = gda("scene", "validate", "res://main.tscn", "--json")
 

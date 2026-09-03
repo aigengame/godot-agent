@@ -32,21 +32,17 @@ CLI arm would have to spend a real minute or ten. ``resource import`` does expos
 """
 
 import json
-import subprocess
 import time
 from pathlib import Path
 
 import pytest
 
-from gda.binary import resolve_godot_binary
 from gda.commands.export import ExportRunMode, classify_export_run
 from gda.errors import Failure, classify_run
 from gda.export_runner import SubprocessExportRunner
 from gda.models import EngineVersion
 from gda.runner import SubprocessGodotRunner
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
+from tests.support import GODOT, Gda
 
 # The ceiling every arm gives its wedged engine. Long enough for a real Godot to
 # boot and print, short enough that three arms plus gda's terminate grace stay
@@ -221,22 +217,13 @@ def test_a_wedged_import_pass_reports_what_the_engine_printed(tmp_path):
     (project / "icon.png").write_bytes(b"\x89PNG not really an image")
 
     started = time.monotonic()
-    run = subprocess.run(
-        [
-            *GDA_CMD,
-            "resource",
-            "import",
-            "res://icon.png",
-            "--timeout",
-            str(CEILING_SECONDS),
-            "--project",
-            str(project),
-            "--godot",
-            str(GODOT),
-            "--json",
-        ],
-        capture_output=True,
-        text=True,
+    run = Gda(project)(
+        "resource",
+        "import",
+        "res://icon.png",
+        "--timeout",
+        str(CEILING_SECONDS),
+        "--json",
     )
     elapsed = time.monotonic() - started
 
