@@ -141,15 +141,19 @@ def _clock_held_until_written(
 
     The #728 technique for a launch that has no watch to observe the capture
     through: the stand-in touches ``marker`` after its two ``printf``s, and the
-    clock the runner reads reports 0.0 until the marker exists AND the loop has
-    polled ``settle_polls`` more times — proof that the run kept polling past
-    its output rather than ending on it — then jumps to ``then``, past any
-    ceiling this file uses, so the deadline "elapses" only once the output is
-    guaranteed to be in the pipe. Racing a REAL 1.0s ceiling against the
-    child's first write failed under xdist contention (10 of 12 runs with the
-    timing modules concentrated on four workers). A real-time safety ceiling
-    turns a child that never writes into a loud assertion, not a hung suite.
-    ``sleep`` stays real, so the loop keeps its real cadence on a real process.
+    clock the runner reads reports 0.0 until the marker exists AND it has been
+    read ``settle_polls`` more times — one read per poll for a watchless launch
+    (a watch's abort deliberation adds a second read), so this is proof that
+    the run kept polling past its output rather than ending on it — then jumps
+    to ``then``, past the ceiling its callers use, so the deadline "elapses"
+    only once the output is guaranteed to be in the pipe. Racing a REAL 1.0s
+    ceiling against the child's first write failed under xdist contention (10
+    of 12 runs with the timing modules concentrated on four workers). A
+    real-time safety ceiling turns a loop that never ends into a loud
+    assertion, not a hung suite. The loop's real cadence is untouched: it
+    comes from ``proc.wait(timeout=...)`` on the subprocess module's own
+    clock, which this binding does not reach; ``sleep`` is kept real only so
+    the stand-in module stays faithful.
     """
     real_monotonic = time.monotonic
     real_deadline = real_monotonic() + 15.0
@@ -159,7 +163,8 @@ def _clock_held_until_written(
         nonlocal polls_after_written
         if real_monotonic() > real_deadline:
             raise AssertionError(
-                f"safety ceiling: the child never touched its marker {marker}"
+                "safety ceiling: launch did not finish within 15s "
+                f"(marker exists: {marker.exists()})"
             )
         if not marker.exists():
             return 0.0
