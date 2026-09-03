@@ -194,6 +194,11 @@ class Gda:
         ``--params-json -`` channel). ``retry`` re-runs once on a transient
         ``engine_crashed`` — a shared-``user://`` log race under parallel e2e,
         not a gda bug (#180) — so a happy path does not flake on it.
+
+        ``extra_env`` reaches the ENGINE too: the CLI passes no ``env=`` to its
+        own Godot subprocess, so the engine inherits whatever gda was given —
+        the channel the production-inert ``GDA_TEST_PERTURB_BEFORE_SAVE`` test
+        seam rides on (issue #226).
         """
         argv = [*GDA_CMD, *args, *self._tail]
         cwd = self._cwd if cwd is None else cwd
