@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=2f73af925ffb8d67ddb2bdb786a7969c6f3915323aeeb0e2c21c472fc62f9c73 -->
+<!-- gda-readme-i18n: source=README.md sha256=0a0984f04558ef7f992908163cb4143eb53b693a134db20c8e39b4b3cb197a26 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -192,10 +192,7 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-`--install --provider <claude|codex> --scope <project|user>` 会解析出某个已知 agent 的 skills
-目录（`--scope` 默认为 `user`）；`--dir` 则是面向任何其他 agent 的通用兜底——没有内置默认值。
-[Skill 配方](gda-skill.md) 列出了每个 agent 的目录（Claude Code 的 `~/.claude/skills/`、
-Codex 的 `~/.agents/skills/` 等）。或者，如果你不想走 `gda skill`，也可以直接从仓库获取同一个文件——
+[Skill 配方](gda-skill.md) 列出了每个 agent 的 skills 目录。或者直接从仓库获取同一个文件——
 你仍然需要安装 `gda`，因为 Skill 靠它来驱动：
 
 ```bash
@@ -215,17 +212,9 @@ uvx --from "gda[mcp]" gda-mcp
 服务器需要确定两件事——操控哪个 Godot**项目**，以及运行哪个 Godot**二进制文件**
 （MCP 无法在每次调用时传入 flag）：
 
-- **项目** — 当你的客户端无法提供工作区 **roots** 时，设置 `GDA_PROJECT`；否则 `gda-mcp`
-  会从客户端发来的 roots（你打开的那个文件夹）自动检测项目。*已设置但无效*的 `GDA_PROJECT`
-  会明确报错，而不会静默回退到其他配置。注意 MCP 2026-07-28 规范修订版弃用了 roots 功能：
-  现在的客户端行为不变，但固定 `GDA_PROJECT` 才是面向未来的配置（走新无状态协议的客户端没有
-  roots 可以提供）。完整的 CLI 与 MCP 解析顺序参见[配置](#configuration)。
+- **项目** — 设置 `GDA_PROJECT`。不设时 `gda-mcp` 会用客户端发来的工作区 **roots**（你打开的那个文件夹）——
+  但较新的 MCP 客户端不再发送 roots，所以固定 `GDA_PROJECT` 才是一直有效的配置。参见[配置](#configuration)。
 - **引擎** — 把 `GDA_GODOT` 设为你的 Godot 二进制文件，例如 `"GDA_GODOT": "/path/to/Godot"`。
-
-对走 MCP 2026-07-28 修订版协议的客户端，`gda-mcp` 会把 `tools/list` 响应标记为可缓存
-（1 小时 TTL、public 范围）——生成的工具列表在服务器生命周期内固定不变，升级后的客户端
-因此不必反复拉取；使用 2026 年以前 MCP 协议的客户端，其请求流量完全不变。
-
 
 #### 在编程 agent 中注册
 
@@ -357,8 +346,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `set`               | 修改一个属性。 |
 | 领域动词        | `play`、`run`、`export`、`import` 等，保留它们的自然含义。 |
 
-每条命令都支持 `--json` 和 `--schema`——`gda schema` 同样接受 `--json`，但它不会改变任何
-输出，因为聚合清单本身就是 JSON。读取或修改 `res://` 路径的命令会解析一个[项目上下文](#configuration)。
+每条命令都支持 `--json` 和 `--schema`。读取或修改 `res://` 路径的命令会解析一个[项目上下文](#configuration)。
 运行 `gda <group> <command> --help` 查看完整 flag——`gda --help` 是已安装命令的权威清单。
 
 **第一次用？** 一条不错的上手路径：`gda info` → `gda scene create` → `gda node add` →
@@ -368,9 +356,9 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `gda info`   | 报告 Godot 引擎的版本信息。接受显式、经校验的 `--project`（其他 meta 命令不接受）；版本结果并不依赖它。 |
-| `gda version` | 报告当前安装的是哪个 `gda`、来自何处——加 `--json` 时给出完整的安装溯源信息（与 `gda --version --json` 同一份载荷）。不会启动 Godot。 |
-| `gda help`   | 显示某条命令的帮助（`gda help scene get`）或整个 CLI 的帮助；加 `--json` 时以 `{command, text}` 返回。 |
+| `gda info`   | 报告 Godot 引擎的版本。 |
+| `gda version` | 报告当前安装的是哪个 `gda`、来自何处（加 `--json` 时附带安装溯源信息）。 |
+| `gda help`   | 显示某条命令的帮助（`gda help scene get`）或整个 CLI 的帮助。 |
 | `gda schema` | 把整个命令界面作为一份机器可读的 JSON 清单输出。 |
 | `gda skill`  | 输出或安装随包附带的 Agent Skill（`SKILL.md`），它教 agent 如何操控 `gda`。 |
 
@@ -537,11 +525,11 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | Flag       | 说明                                                               |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出——成功时是结果，失败时是 `{"error": {…}}` 信封。不加它时，两者都会改为打印一份简洁的、供人阅读的渲染结果。命令之前同样接受该 flag：`gda --json <group> <command>` 与 `gda <group> --json <command>` 都与写在命令之后含义相同。 |
+| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出——成功时是结果，失败时是 `{"error": {…}}` 信封。不加它时，两者都会改为打印一份简洁的、供人阅读的渲染结果。写在命令之前同样有效。 |
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
 | `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |
-| `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，改为输出结构化的安装溯源信息——版本，可执行文件、解释器与实际导入的包所在路径，安装类型（`wheel`、`editable`，或在安装元数据无法读取时为 `unknown`），以及 editable 安装所对应的源码检出目录、Git 版本号和是否有未提交改动（不会启动 Godot）。适合在长时间运行前作为预检：editable 安装的代码可能在运行过程中变更版本。 |
+| `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，同时给出它的来源——安装类型（`wheel` 或 `editable`），以及 editable 安装对应源码检出的 Git 版本号。 |
 | `--help`    | 显示 `gda` 或任意命令的用法。                                |
 
 ---
@@ -552,51 +540,29 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 `gda` 会从 **`--godot <path>`** flag 找到 Godot 二进制文件，否则就用
 **`GDA_GODOT`** 环境变量——设置其中之一，`gda` 才能定位到你的引擎。
 
-领域命令会按以下顺序解析一个 **Godot 项目**（以便 `res://` 路径以及场景的跨资源
-引用能够确定性地解析）：
-
-1. **`--project <dir>`** flag。
-2. **`GDA_PROJECT`** 环境变量。
-3. **当前目录**，当它本身是个 Godot 项目时（含有 `project.godot`）。
-
-显式指定的目录必须是个项目，否则 `gda` 会直接报错。当没有任何一项解析成功时，
-`gda` 会以**无项目（projectless）**方式运行——只有文件系统路径（绝对路径或相对于 cwd 的路径）
-能解析，`res://` 不行。**MCP 服务器**没有 flag，所以它解析项目的方式略有不同：
+领域命令会解析一个 **Godot 项目**，以便 `res://` 路径能够解析。显式指定的目录必须是个项目，
+否则 `gda` 会报错；当没有任何一项解析成功时，`gda` 会以**无项目（projectless）**方式运行——
+普通文件系统路径可用，`res://` 不行。
 
 | 上下文 | 项目解析顺序 |
 | --- | --- |
-| **CLI** | `--project` → `GDA_PROJECT`（两者都严格——无效即报错）→ 含有 `project.godot` 的 cwd，否则无项目 |
-| **MCP**（`gda-mcp`） | `GDA_PROJECT`（严格——已设置但无效会直接报错，而非跳过）→ 一个*有效的*客户端工作区 `root`（走 2026 前 MCP 协议的客户端；2026-07-28 修订版没有 roots，这类客户端直接跳到下一级）→ 一个*有效的*服务器 cwd，否则无项目 |
+| **CLI** | `--project` → `GDA_PROJECT` → 当前目录（若含有 `project.godot`）→ 无项目 |
+| **MCP**（`gda-mcp`） | `GDA_PROJECT` → 客户端的工作区 `root`（若它发送了）→ 服务器的 cwd → 无项目 |
 
 <details>
 <summary>项目代码执行——当你指向一个项目时会运行什么</summary>
 
-大多数解析项目的命令会以该项目启动 Godot，Godot 也会随之执行项目自身的一部分代码（例外：缓存完好的 `resource import` 根本不启动引擎）。具体来说：
+把 `gda` 指向一个项目，就会运行该项目自身的一部分代码——这是有意为之，因为项目被视为可信
+（[ADR-0009](adr/0009-trust-boundary-trusted-project.md)）：
 
-- **每个会启动游戏侧引擎的 `--project` 操作都会运行 autoload。** 当一个项目被解析时，
-  引擎会在启动阶段——在命令本身的工作开始之前——构造该项目的 autoload 单例，因此它们的
-  `_init`（以及 `_ready`）也会在 `scene get`、`node list` 这类只读操作中执行。两个例外：
-  缓存完好的 `resource import` 根本不启动引擎；其缓存缺失时的导入 pass 走编辑器导入器
-  路径，不执行 autoload。如果没有解析到项目，就不会注册任何 autoload，它们也就不会运行。
-- **会实例化场景的命令，会执行该场景所附脚本的构造函数。**
-  任何需要实例化节点树的命令——每一个会改动状态的命令（`node add`、`node set`、
-  `node remove` 等），以及 `node get`（它会报告存储数据本身不携带的运行时属性默认值）——
-  都会加载并实例化该场景，这会构造每个节点，并运行其中任何附加在节点上的脚本的 `_init`。
-  只读取已存储场景数据的命令（`scene get`、`scene list`、`node list`）只是遍历它而不实例化，
-  所以不会运行那些脚本。
-- **`gda script run` 会完整执行指定的脚本。** 这正是该命令的用途：脚本的顶层代码及其调用的
-  一切都会在声明的约束之内运行到结束。
-- **`gda scene preflight` 会启动场景。** 它实例化场景并运行其 `_ready` 与观察帧，
-  因此场景中的每个脚本——以及项目的 autoload——都会执行其启动代码。
-- **`gda resource import` 在缓存缺失时运行引擎导入 pass。** 导入器代码——以及项目注册的
-  任何导入插件——会在整个项目的内容上运行。该 pass 启动的是编辑器导入器路径而非游戏：
-  不执行 autoload。缓存完好的请求根本不启动引擎。
-- **`gda game call` 在运行中的游戏里执行一个已声明的方法。** 每次请求只执行被寻址节点的
-  附加脚本链在 `GDA_CALLABLE` 声明中列出的那一个方法。读取该声明不执行任何代码——常量由编译
-  后的脚本提供——且绝不会调用未声明的方法。
+- **autoload** 在每个会启动引擎的 `--project` 操作中运行，只读操作也不例外（缓存完好的
+  `resource import` 不启动任何东西）。
+- **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令以及 `node get`；
+  `scene get` / `scene list` / `node list` 只读取、不实例化。
+- **`script run`** 完整执行指定脚本；**`scene preflight`** 启动场景并运行其 `_ready`。
+- **`resource import`** 在缓存缺失时运行引擎的导入器（以及项目的导入插件），不运行 autoload。
+- **`game call`** 只运行节点 `GDA_CALLABLE` 声明中列出的那一个方法；未声明的绝不会被调用。
 
-`gda` 将目标项目视为可信，所以这是有意为之——信任模型参见
-[ADR-0009](adr/0009-trust-boundary-trusted-project.md)。
 </details>
 
 ---
@@ -628,17 +594,11 @@ Headless 的 Godot 会把它的横幅、警告和 `print()` 输出混在 stdout 
 | `0`       | —             | 成功。                                                              |
 | `2`       | `usage`       | `gda` 无法解析你的请求——命令或选项无法识别。若属于已知的近似写法，信封的 `hint` 会给出应当改用的调用方式。 |
 | `127`     | `environment` | Godot 二进制文件无法启动（shell 惯例：not found）。 |
-| `124`     | `environment` | Godot 启动了，但在 runner 超时之前没有返回（shell 惯例：timed out）——见下面的**读懂 `124`**。 |
+| `124`     | `environment` | Godot 启动了，但在超时之前没有返回（shell 惯例：timed out）；信封携带截至当时捕获的部分输出。 |
 | `3`       | `version`     | 检测到的 Godot 版本低于受支持的最低版本。            |
 | `4`       | `operation`   | 引擎运行了，但操作失败了——已注册的操作错误、引擎崩溃，或进程以非零退出码退出且没有结构化输出。 |
 | `5`       | `parse`       | 进程返回成功，但输出不符合结构化契约。 |
 | `6`       | `live`        | 一个 Live 操作失败了——例如没有正在运行的 daemon/会话，或一次 Live 超时。 |
-
-**读懂 `124`。** `environment` 这个分类描述的是这次运行**如何结束**，而不是主机状态。
-先读 `diagnostics` 里捕获到的部分输出，看这次运行走到了哪一步；然后在提供 `--timeout`
-的命令上抬高上限，若命令没有该选项，则上限属于 gda 自身——那就减少工作量，或给机器更多余量。
-只有当捕获显示引擎根本没有启动时，才去怀疑二进制或机器。捕获里的任何引擎错误都只是参考信息——
-本次判定就是超时。
 
 这些值就是公开 ABI；其权威来源是
 [`src/gda/exit_codes.py`](../src/gda/exit_codes.py)。`{"error": {category, code, …}}`
