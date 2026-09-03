@@ -28,11 +28,10 @@ from pydantic import BaseModel, Field, model_validator
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
-    Failure,
     classify_launch_or_crash,
+    containment_refusal,
+    Failure,
     make_failure,
-    target_outside_project_failure,
-    target_owned_by_another_project_failure,
 )
 from gda.execution import ExecutionKind
 from gda.headless import (
@@ -53,11 +52,8 @@ from gda.project import (
     RES_PREFIX,
     canonical_res_path,
     is_engine_virtual_path,
-    owner_relative_target,
-    owning_project,
-    path_outside_project,
+    project_absolute,
     project_anchored,
-    target_location,
 )
 from gda.render import render_property_lines, render_set_echo
 from gda.runner import launch
@@ -834,28 +830,19 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
         )
     # One coordinate system for BOTH sides before any comparison: a relative
     # --project must not meet an absolute candidate (#738 re-review 2 — the
-    # mixed comparison raised a bare ValueError on the lexical fallback).
-    project_abs = project.expanduser()
-    if not project_abs.is_absolute():
-        project_abs = Path.cwd() / project_abs
-    # The checks read the project as SPELLED (the double reading is theirs to make);
-    # the refusals report it RESOLVED, which is what `FailureEvidence.project_root`
-    # publishes ("in its resolved form — the same value a successful result
-    # reports") and what the two sibling gates already did. Reporting `project_abs`
-    # itself made this one command answer `/tmp/...` where `script validate`
-    # answered `/private/tmp/...` for the same call (#799 review).
-    root = project_abs.resolve()
-    owner = owning_project(raw, project_abs)
-    if owner is not None:
-        return target_owned_by_another_project_failure(
-            target_location(raw, project_abs),
-            owner.resolve(),
-            root,
-            owner_relative_target(raw, project_abs, owner),
-        )
-    outside = path_outside_project(raw, project_abs)
-    if outside is not None:
-        return target_outside_project_failure(outside, root)
+    # mixed comparison raised a bare ValueError on the lexical fallback). This
+    # local is for the res:// MAPPING further down, which needs the same absolute
+    # root the gate below reads. Not a two-places-must-agree coupling: there is one
+    # normalization RULE — `project_absolute` — and both sites call it, so the only
+    # cost of asking twice is a second `Path.cwd()` (#807 review).
+    project_abs = project_absolute(project)
+    # ONE call for ownership-then-containment and both refusal envelopes (#802).
+    # What used to stand here — the two probes, their order, the four coordinates
+    # and the resolved root each refusal reports — now lives on ADR-0006's path
+    # authority, so this gate keeps only what is genuinely about ASSETS.
+    refusal = containment_refusal(raw, project)
+    if refusal is not None:
+        return refusal
     if raw.startswith(RES_PREFIX):
         # Already in the engine's namespace: canonicalize the spelling and stop.
         # Reading it lexically is what the engine does too — a symlink inside the
@@ -1041,6 +1028,63 @@ def _project_files(project: Path) -> set[str]:
     return files
 
 
+# The two marker files the engine's scan skips a directory on. Named here, not
+# spelled inline, because the same two literals are declared a second time in
+# ``operations.gd`` (``NESTED_PROJECT_MARKER`` / ``GDIGNORE_MARKER``) for the walk
+# — one rule, two languages. ``test_the_two_spellings_of_the_skip_markers_agree``
+# reads both files and fails if they drift apart (#808 review).
+NESTED_PROJECT_MARKER = "project.godot"
+GDIGNORE_MARKER = ".gdignore"
+
+
+def _engine_skips_directory_of(project: Path, rel: str) -> bool:
+    """Whether the engine's own scan never reaches ``rel`` (#804).
+
+    Two clauses of ``EditorFileSystem``'s scan decide this, and the prediction
+    needs BOTH because the scan asks them in order:
+
+    * ``_scan_new_dir`` drops every **dot-prefixed directory** before it
+      consults the skip rule at all (``editor/file_system/
+      editor_file_system.cpp:1157-1168``, line numbers from the 4.6.3-stable
+      tag) — so ``res://.hidden/h.png`` is unreachable however ordinary it
+      looks. This clause subsumes the ``.godot`` cache and a ``.git`` checkout,
+      at any depth rather than at the project root alone;
+    * ``_should_skip_directory`` (same file, ``3460-3480``) then skips a
+      directory holding a ``project.godot`` — another project inside this one —
+      or a ``.gdignore`` marker.
+
+    Every directory ABOVE ``rel`` up to (but never including) the project root
+    is asked, because one marker hides the whole subtree.
+
+    **This is not the walk's rule, and must not be read as it.** The same two
+    markers gate ``_should_descend`` in ``operations.gd``, but that walk answers
+    a different question — what gda ENUMERATES — and deliberately keeps hidden
+    and dot-prefixed directories in (#54, #712). This predicate answers what the
+    ENGINE reaches, so it drops them. Two further divergences are known and
+    stated rather than chased: ``Path.rglob`` does not descend a symlinked
+    directory while the walk does (#760), so a stale asset behind a link is not
+    predicted — an omission, never a false promise, and the real run's
+    ``created`` list stays authoritative; and the OS "hidden" attribute the
+    engine also honours (``DirAccess::current_is_hidden``) has no portable
+    Python reading, so only the dot-prefix half of that clause is modelled.
+
+    Cost: the ancestors are re-probed per sidecar and memoized nowhere — 2000
+    sidecars at depth 4 cost ~16k ``stat`` calls, measured at 0.11 s. A cache
+    was declined for the same reason the walk declines one: the state would buy
+    nothing at this size.
+    """
+    parts = Path(rel).parent.parts
+    for depth in range(1, len(parts) + 1):
+        if parts[depth - 1].startswith("."):
+            return True
+        directory = project.joinpath(*parts[:depth])
+        if (directory / NESTED_PROJECT_MARKER).is_file():
+            return True
+        if (directory / GDIGNORE_MARKER).is_file():
+            return True
+    return False
+
+
 def _project_import_gaps(project: Path, requested: set[str]) -> list[str]:
     """Other assets the project-wide pass WILL re-import (#738 review).
 
@@ -1053,11 +1097,18 @@ def _project_import_gaps(project: Path, requested: set[str]) -> list[str]:
     predicted from here — the engine decides those — so the real run's
     ``created`` list stays the authoritative inventory, and the contract says
     so.
+
+    An asset the engine's scan never reaches is not a gap either (#804): the
+    pass skips a nested project's, a ``.gdignore``d and a dot-prefixed
+    directory's contents, so predicting a re-import there promised work the
+    engine will not do. That one predicate replaced the ``.godot``/``.git``
+    prefix test this loop used to make, which was the same clause spelled for
+    two directories at the project root only (#808 review).
     """
     gaps: list[str] = []
     for sidecar in sorted(project.rglob("*.import")):
         rel = sidecar.relative_to(project).as_posix()
-        if rel.startswith(".godot/") or rel.startswith(".git/"):
+        if _engine_skips_directory_of(project, rel):
             continue
         res_path = "res://" + rel[: -len(".import")]
         if res_path in requested:

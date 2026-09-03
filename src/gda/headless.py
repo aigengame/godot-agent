@@ -655,15 +655,20 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     key set, so a record does not read differently depending on which half of the
     contract carried it (:class:`gda.models.FailureEvidence`).
 
-    The child run's stderr (``failure.child_stderr``, attached by
-    :meth:`HeadlessCommand.execute`) is forwarded to this process's stderr here,
-    where the channel is known — EXCEPT when the human channel is about to print
-    the very same bytes as ``diagnostics``, which would say one stream twice
-    across two streams (#798 review). Byte identity decides, not the error code:
-    a curated or capped ``diagnostics`` (the labeled ``--strict`` sections, a
-    timeout's tail-capped captures) differs from the raw stream, so its tee — the
-    only copy that is complete — survives. Under ``--json`` the tee is
-    unconditional, keeping that channel's bytes exactly as they were.
+    The child run's stderr (``failure.child_stderr``) is forwarded to this
+    process's stderr here, where the channel is known — except when the human
+    channel is about to print the very same bytes as ``diagnostics``, which would
+    say one stream twice across two streams (#798 review). Byte identity decides,
+    not the error code: a curated or capped ``diagnostics`` (the labeled
+    ``--strict`` sections, a timeout's tail-capped captures) differs from the raw
+    stream, so its tee — the only copy that is complete — survives. Under
+    ``--json`` the tee is unconditional, keeping that channel's bytes exactly as
+    they were.
+
+    That is this function's whole part in the child-stderr rule. The rule itself —
+    the success half, the producer roster, and the ``gda script run`` exception —
+    is recorded once, in ADR-0002's #803 outcome note; the producers state their
+    own halves locally and reference it (#806 review).
     """
     if failure.child_stderr and (
         json_output or failure.error.diagnostics != failure.child_stderr

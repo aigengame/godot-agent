@@ -243,6 +243,20 @@ is a literal path component, not shell-style home expansion.
 >   project analysis, the import gap listing), which is its own slice with its own blast
 >   radius. The walk's full exclusion rule is ADR-0032's to state, not this one's.
 
+> **Outcome (2026-09-02, #804):** the second gap above is **closed**. The shared `res://`
+> walk now answers `EditorFileSystem::_should_skip_directory`'s two marker clauses (a
+> nested `project.godot`, a `.gdignore`), so `--all` never enumerates a file this gate
+> would refuse by name, and the two selectors give the same file the same answer. The
+> layer boundary the gap named still stands — the walk decides what the project can
+> ADDRESS, this gate decides what a caller may NAME — and the walk's full exclusion rule
+> is still ADR-0032's to state.
+>
+> One correction to the record above: the "import gap listing" the bullet named among the
+> walk's collectors is not one. `resource import --dry-run`'s `pass_will_also_import`
+> reads the project's files from Python (`Path.rglob`) and never enters `operations.gd`,
+> so the same engine rule had to be stated a second time there
+> (`_engine_skips_directory_of`) rather than inherited from the walk.
+
 ## Considered options
 
 - **`--project` flag, projectless fallback** (chosen) — explicit and

@@ -836,6 +836,38 @@ def test_dry_run_lists_what_the_pass_will_also_reimport(tmp_path):
     assert data["pass_will_also_import"] == ["res://other.png"]
 
 
+def test_the_gap_scan_skips_every_directory_the_engines_scan_never_reaches(tmp_path):
+    # #804: the prediction must not promise work the engine's pass never does.
+    # `EditorFileSystem::_should_skip_directory` skips a directory holding a
+    # `project.godot` or a `.gdignore`, so a stale sidecar under one is never
+    # re-imported — the gap scan reads the project's files directly and used to
+    # report both. A stale asset in an ordinary directory is still a gap, so this
+    # narrows the scan rather than emptying it.
+    #
+    # The DOT-prefixed directory is the third case, and the one the marker clauses
+    # alone still got wrong (#808 review): `_scan_new_dir` drops such a directory
+    # BEFORE it consults the skip rule, so `res://.hidden/pic.png` is unreachable
+    # too. Measured against a real pass, which re-imported the ordinary asset and
+    # left the hidden one's sidecar and cache artefacts untouched.
+    project = _project(tmp_path)
+    for directory, marker in (("nested", "project.godot"), ("ignored", ".gdignore")):
+        (project / directory).mkdir()
+        (project / directory / marker).write_text("", encoding="utf-8")
+        (project / directory / "pic.png").write_bytes(b"\x89PNG skipped")
+        _sidecar(project, f"{directory}/pic.png", None)
+    for hidden in (".hidden", "sub/.hidden"):
+        (project / hidden).mkdir(parents=True)
+        (project / hidden / "pic.png").write_bytes(b"\x89PNG hidden")
+        _sidecar(project, f"{hidden}/pic.png", None)
+    (project / "ordinary").mkdir()
+    (project / "ordinary" / "pic.png").write_bytes(b"\x89PNG reached")
+    _sidecar(project, "ordinary/pic.png", None)
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["pass_will_also_import"] == ["res://ordinary/pic.png"], data
+
+
 # --- request validation --------------------------------------------------------
 
 

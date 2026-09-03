@@ -159,10 +159,34 @@ const SCENE_INSTANCE_MAX_DEPTH := 16
 const SCENE_STARTUP_READY := "ready"
 const SCENE_STARTUP_NOT_READY := "not_ready"
 
-# The ONE directory a res:// walk excludes: the engine's own import/cache tree at
-# the project root. The VALUE only — the decision that uses it lives in exactly one
-# place, _is_in_engine_cache, which _should_descend and _should_collect both ask.
+# The engine's own import/cache tree at the project root — the first of the three
+# directories a res:// walk excludes. The VALUE only — the decision that uses it
+# lives in exactly one place, _is_in_engine_cache, which _should_descend and
+# _should_collect both ask.
+#
+# RESIDUAL (#804): the engine reads this location from ProjectSettings —
+# `get_project_data_path()` is `res://` joined with `application/config/
+# project_data_dir_name`, which a project may rename — while gda hardcodes the
+# default. A project that renames its data directory therefore has gda walk the
+# renamed cache and exclude a `res://.godot` that is ordinary content. Stated
+# rather than chased: the rename is rare, and closing it means reading the setting
+# in every walk-side predicate.
 const ENGINE_CACHE_DIR := "res://.godot"
+
+# The two MARKER files whose presence makes the engine's own scan skip a directory
+# (EditorFileSystem::_should_skip_directory, editor/file_system/
+# editor_file_system.cpp:3460-3480, line numbers from the 4.6.3-stable tag): a
+# `project.godot` marks a NESTED project, whose files belong to a different res://
+# root, and a `.gdignore` is the project's own explicit "do not scan this" marker.
+# Values only — the decision that uses them is _should_descend's alone (#804).
+#
+# The same two literals are spelled a second time in Python, in
+# `_engine_skips_directory_of` (src/gda/commands/resource.py), which predicts the
+# same rule for an inventory that never spawns the engine. The two spellings are
+# held together by `test_the_two_spellings_of_the_skip_markers_agree` (#808
+# review), not by derivation.
+const NESTED_PROJECT_MARKER := "project.godot"
+const GDIGNORE_MARKER := ".gdignore"
 
 # How far a res:// walk follows symlinks when it asks whether an entry is the
 # engine cache (#760): the links followed in one chain, and the passes the
@@ -4294,14 +4318,65 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 # resources, all files) asks this and nothing else, so the rule cannot drift
 # between them and a new walk inherits it by calling this.
 #
-# The first test is the full path, never the directory NAME, because a `.godot`
+# THE ENGINE'S OWN SKIP RULE (#804). EditorFileSystem::_should_skip_directory
+# (editor/file_system/editor_file_system.cpp:3460-3480, line numbers from the
+# 4.6.3-stable tag) skips three kinds of directory, and this predicate now answers
+# the same three:
+#
+#   - the project DATA path (the cache) — gda's ENGINE_CACHE_DIR clause below,
+#     with the hardcoded-vs-configurable residual stated at that constant;
+#   - a directory holding a `project.godot`: another project INSIDE this one. Its
+#     files address a different res:// root, so enumerating them here gave them
+#     the outer root — `script validate --all` compiled a nested script against it
+#     and reported every one of its own `res://` preloads as missing, the exact
+#     false cascade ADR-0006's gate refuses when the same file is NAMED. `--all`
+#     and the named target now agree because the walk no longer reaches the file;
+#   - a directory holding a `.gdignore`: the project's own explicit marker for
+#     content the engine must not scan. gda honoured it nowhere, so a `.gdignore`d
+#     tree was listed, validated, counted and indexed.
+#
+# Answering that function is NOT full parity with the engine's scan, and is not
+# meant to be: _scan_new_dir discards every hidden entry and every dot-prefixed
+# DIRECTORY before it consults _should_skip_directory (editor_file_system.cpp:
+# 1157-1168, same tag). gda deliberately enumerates those (#54, #712), so a
+# `res://.hidden/x.gd` is still listed here where the engine's scan never reaches
+# it. What this predicate adopts is the marker rule, not the hidden-entry rule.
+#
+# Only a directory carrying one of those markers changes answer. The probes are
+# lexical joins onto the child's res:// path, never the directory NAME, so a
+# sub-directory merely CALLED `project.godot` (a directory, not a file) does not
+# skip anything: FileAccess.file_exists answers false for a directory
+# (FileAccessUnix::file_exists accepts S_IFREG/S_IFLNK only). Nor does the way the
+# directory was REACHED: a marked directory symlinked into the tree is skipped
+# too, because the probe resolves the link. Both edges are pinned e2e (#808
+# review), which is what keeps them from being claims alone.
+#
+# COST (#804, recorded so review does not re-litigate it): two extra
+# FileAccess.file_exists per child DIRECTORY — the same two probes the engine's
+# own scan pays, on the same directories, and a file-level stat rather than a
+# read. It is not paid per FILE, and a project's directory count is orders below
+# its file count. Caching the answer was declined: a walk visits each directory
+# once, so a cache would only add state to save nothing.
+#
+# The cache test is the full path, never the directory NAME, because a `.godot`
 # deeper in the tree is not this project's engine cache. It is usually authored
 # content (an addon vendoring a sample project, a fixture tree), and excluding it
 # hid real scripts from `script list` and let `script validate --all` report a
 # valid aggregate for a project holding an invalid script (#663 review). Sometimes
-# it is a vendored sub-project's own cache instead, whose artefacts then count in
-# `project statistics` and `find-unused-resources` — accepted deliberately, since
-# nothing in the path tells the two apart and a false-valid aggregate is worse.
+# it is a vendored sub-project's own cache instead, whose artefacts then counted in
+# `project statistics` and `find-unused-resources` — a cost #712 accepted, since
+# nothing in the PATH tells the two apart and a false-valid aggregate is worse.
+#
+# The marker clause above retires that cost wherever an ENGINE wrote the cache —
+# the case #712 named — and #712's own reasoning is why: nothing in the path tells
+# an engine cache from authored content, but the CONTENT does. Every engine that
+# creates a project data directory writes a `.gdignore` into it — the editor
+# (EditorPaths::create, editor/file_system/editor_paths.cpp:268-277) and gda's own
+# import pass, whose `created` list names `res://.godot/.gdignore`. So a nested
+# cache any engine produced now carries the marker and is skipped, while a
+# `.godot` that is genuinely authored content — no engine ever wrote it, so no
+# `.gdignore` inside — is still walked, which is the case #712's rule was FOR
+# (#808 review).
 #
 # Three of the four walks once compared the NAME, so one project answered two
 # ways: `script list` reported a script `project statistics` counted as zero
@@ -4333,11 +4408,20 @@ func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
 func _should_descend(dir: DirAccess, child: String, chain: Array[String]) -> bool:
 	if child == ENGINE_CACHE_DIR:
 		return false
+	# The engine's two marker clauses, in its own order. They are asked BEFORE the
+	# link tests because a marker is about what the directory HOLDS, not about how
+	# it was reached: a vendored checkout carrying its own `project.godot` is
+	# skipped whether it sits in the tree or is symlinked into it, exactly as the
+	# engine skips it (FileAccess::exists resolves the link too).
+	if FileAccess.file_exists(child.path_join(NESTED_PROJECT_MARKER)):
+		return false
+	if FileAccess.file_exists(child.path_join(GDIGNORE_MARKER)):
+		return false
 	if not dir.is_link(child):
 		# Not a link: its real parent is the directory being listed, which the
 		# walk already cleared, and it cannot be an ancestor of itself. So the
-		# lexical test above is the whole decision — an ordinary project pays one
-		# lstat per entry and nothing else.
+		# tests above are the whole decision — an ordinary project pays one lstat
+		# per entry plus the engine's own two marker probes, and nothing else.
 		return true
 	if _is_in_engine_cache(dir, child):
 		return false
@@ -6492,7 +6576,15 @@ func _coerce_int(raw: String) -> Variant:
 	return trimmed.to_int()
 
 
-# --- Float fidelity: the WRITE side of the engine's number domain (#772) ---
+# --- Float fidelity: the WRITE side of the engine's number domain (#772, #805) ---
+#
+# The rule below is about a LITERAL, not about a property type, so it reaches every
+# float a write can spell: the scalar `--value` and the components of a Vector2 or a
+# Color, which `_coerce_float` parses one at a time, and the JSON numbers inside a
+# Dictionary or an Array value, which no per-element step parses at all and which
+# `_destroyed_json_number` therefore reads from the raw text (#805). Until that was
+# added the container was the one path where a destroyed float still landed
+# silently — `--value '{"a": 1e-320}'` reported success and stored `{"a": 0.0}`.
 #
 # Godot reads a float literal with built_in_strtod (core/string/ustring.cpp),
 # reached from GDScript as String.to_float() and from JSON.parse_string alike.
@@ -6548,16 +6640,106 @@ func _float_literal_is_destroyed(literal: String) -> bool:
 	return is_nan(parsed) or (parsed == 0.0 and not _float_literal_names_zero(literal))
 
 
+# Whether `character` can appear inside a JSON number token. Deliberately a
+# CHARACTER class and not a number grammar: the scan below runs only on text the
+# JSON parser already accepted, so the grammar has been checked once, by the
+# engine, and re-implementing it here would be a second opinion about it.
+func _is_json_number_char(character: String) -> bool:
+	return character == "-" or character == "+" or character == "." \
+			or character == "e" or character == "E" \
+			or (character >= "0" and character <= "9")
+
+
+# The first JSON number literal in `raw` that the parser DESTROYS, or "" — the
+# container half of the #772 rule (#805).
+#
+# A container's coercion is `JSON.parse_string` as the gate plus one atomic
+# `str_to_var(raw)`; there is no per-element step to hook, and by the time a float
+# exists inside the parsed value its literal is gone. So the literals are read from
+# the RAW text, which is the only place they still are.
+#
+# Reading text needs one rule to be safe, and it is STRING-AWARENESS: a JSON
+# string's bytes are never a number, whatever they spell. That single rule disposes
+# of the two ways ORDINARY input invites a text scan to refuse a write the engine
+# would have kept faithfully. A value that merely LOOKS numeric is one — `{"a":
+# "1e-320"}` stores the six-character string, and no float is parsed anywhere in
+# it. A KEY is the other — every JSON key is a string, so `{"1e-320": 1.0}` names a
+# member and the `1.0` beside it is the only number present. Escapes are honoured
+# while skipping, so a quote INSIDE a string (`{"a\": 1e-320 fake": 1.0}`, valid
+# JSON whose key holds that text) does not end it early and leak its bytes into the
+# scan.
+#
+# A third way is left open, ACCEPTED rather than closed: a member the parser then
+# DISCARDS. Godot's JSON keeps the LAST value of a repeated key (measured on 4.6.3:
+# `{"a": 1e-320, "a": 2.0}` parses to `{"a": 2.0}`), but the scan reads the text and
+# sees the discarded literal too, so that write is refused although nothing
+# destroyed would have been stored. Telling a discarded token from a kept one needs
+# the key-and-position bookkeeping of a real parser — the second opinion about the
+# engine's grammar this scan avoids by construction — while the over-refusal is in
+# the safe direction: nothing wrong is written, and the remedy is to spell the key
+# once.
+#
+# Outside strings, valid JSON spells only structure, `true`/`false`/`null`, and
+# numbers, so a maximal run of number characters IS a number token — with the one
+# exception of the lone "e" the two keyword spellings contribute, which is not a
+# float spelling and which `_float_literal_is_destroyed` therefore answers false
+# for. Nothing else needs excluding, because the text is already valid JSON.
+#
+# That "already valid JSON" is also what closes the third edge. `str_to_var`
+# accepts richer Variant syntax than JSON, and `{"a": Vector2(1e-320, 0)}` really
+# does build a zeroed Vector2 through it — but that text is NOT JSON (measured on
+# Godot 4.6.3: the parse fails with "Expected 'true', 'false', or 'null', got
+# 'Vector'"), so the gate refuses it before `str_to_var` is reached and a
+# constructor is unreachable through this coercion. This scan deliberately does not
+# try to read one: it would be reading text the gate has already rejected, and
+# would blame the float parser for a syntax refusal.
+func _destroyed_json_number(raw: String) -> String:
+	var index := 0
+	var length := raw.length()
+	while index < length:
+		var character := raw[index]
+		if character == "\"":
+			index += 1
+			while index < length:
+				if raw[index] == "\\":
+					index += 2
+					continue
+				if raw[index] == "\"":
+					index += 1
+					break
+				index += 1
+			continue
+		if not _is_json_number_char(character):
+			index += 1
+			continue
+		var start := index
+		while index < length and _is_json_number_char(raw[index]):
+			index += 1
+		var literal := raw.substr(start, index - start)
+		if _float_literal_is_destroyed(literal):
+			return literal
+	return ""
+
+
 # The literal whose destruction ACTUALLY refused this coercion, or "" when the
 # refusal was anything else. A note must never explain a failure it did not
 # diagnose, so this walks exactly what `_coerce_value` walks for `type`, in the
-# same order and behind the same gates: only TYPE_FLOAT, TYPE_VECTOR2 and
-# TYPE_COLOR reach `_coerce_float` at all — TYPE_INT, TYPE_VECTOR2I,
-# TYPE_DICTIONARY, TYPE_ARRAY and the rest refuse for reasons of their own and no
-# float spelling would help them; a wrong component count refuses on ARITY before
-# a component is parsed; a Color in hex form parses no float; and a component that
-# is not a float spelling at all is the ordinary uncoercible failure, which stops
-# the walk where `_coerce_float_list` stops.
+# same order and behind the same gates: only TYPE_FLOAT, TYPE_VECTOR2, TYPE_COLOR
+# (through `_coerce_float`) and TYPE_DICTIONARY / TYPE_ARRAY (through the raw-text
+# scan) refuse on a destroyed literal at all — TYPE_INT, TYPE_VECTOR2I and the rest
+# refuse for reasons of their own and no float spelling would help them; a wrong
+# component count refuses on ARITY before a component is parsed; a Color in hex
+# form parses no float; and a component that is not a float spelling at all is the
+# ordinary uncoercible failure, which stops the walk where `_coerce_float_list`
+# stops. The container arms repeat their coercion's JSON gate for the same reason:
+# text that is not JSON — or is JSON of the OTHER container type — was refused by
+# the gate, not by the float parser, so it keeps the plain message.
+#
+# For the SCALAR arms that second walk re-derives a different shape (split, arity,
+# hex form), and that independence is what keeps the note honest. For the container
+# arms it re-derives nothing — gate plus scan, twice — which is affordable at two
+# arms and is the trigger to watch: if a THIRD container-shaped type ever reaches
+# this rule, stop walking and have `_coerce_value` hand back the reason it refused.
 func _destroyed_float_literal(raw: String, type: int) -> String:
 	var components: PackedStringArray
 	match type:
@@ -6574,6 +6756,10 @@ func _destroyed_float_literal(raw: String, type: int) -> String:
 			components = trimmed.split(",")
 			if components.size() != 3 and components.size() != 4:
 				return ""
+		TYPE_DICTIONARY, TYPE_ARRAY:
+			if typeof(JSON.parse_string(raw)) != type:
+				return ""
+			return _destroyed_json_number(raw)
 		_:
 			return ""
 	for part in components:
@@ -6585,12 +6771,13 @@ func _destroyed_float_literal(raw: String, type: int) -> String:
 	return ""
 
 
-# The explanation appended to an uncoercible_value message when `_coerce_float`
-# refused a destroyed literal, and "" for every OTHER coercion failure — so "abc"
-# on a float, any value on an int or a Dictionary, and a three-component Vector2
-# all keep the message they always had. `type` is the declared type the failed
-# `_coerce_value` was given; a list type names the ONE offending component rather
-# than the whole argument.
+# The explanation appended to an uncoercible_value message when a destroyed
+# literal is what refused the coercion, and "" for every OTHER coercion failure —
+# so "abc" on a float, any value on an int, a non-JSON value on a Dictionary, and a
+# three-component Vector2 all keep the message they always had. `type` is the
+# declared type the failed `_coerce_value` was given; a list type names the ONE
+# offending component, and a container the ONE offending JSON number, rather than
+# the whole argument.
 func _float_fidelity_note(raw: String, type: int) -> String:
 	var literal := _destroyed_float_literal(raw, type)
 	if literal.is_empty():
@@ -6675,6 +6862,12 @@ func _coerce_dictionary(raw: String, current: Variant = null) -> Variant:
 	var parsed: Variant = JSON.parse_string(raw)
 	if not (parsed is Dictionary):
 		return null
+	# A number the parser destroys is refused here exactly as `_coerce_float`
+	# refuses a scalar one (#805): same code, same note, same reason — the write
+	# would store a value the caller never sent. Scanned on the raw text, and only
+	# now that the gate has accepted it (see `_destroyed_json_number`).
+	if not _destroyed_json_number(raw).is_empty():
+		return null
 	var variant: Variant = str_to_var(raw)
 	if not (variant is Dictionary):
 		return null
@@ -6694,6 +6887,9 @@ func _coerce_dictionary(raw: String, current: Variant = null) -> Variant:
 func _coerce_array(raw: String, current: Variant = null) -> Variant:
 	var parsed: Variant = JSON.parse_string(raw)
 	if not (parsed is Array):
+		return null
+	# Same refusal as `_coerce_dictionary`'s, for the same reason (#805).
+	if not _destroyed_json_number(raw).is_empty():
 		return null
 	var variant: Variant = str_to_var(raw)
 	if not (variant is Array):

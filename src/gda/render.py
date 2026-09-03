@@ -81,14 +81,10 @@ def render_failure(error: GdaError) -> str:
     the dump readable — and suppressing it per code is exactly the per-command layout
     this renderer exists to prevent.
 
-    A SECOND duplication — the child-stderr tee repeating the classifiers whose
-    ``diagnostics`` IS that stream — is prevented at the emission point rather than
-    here (#798 review): :meth:`gda.headless.HeadlessCommand.execute` attaches the
-    child's stderr to the ``Failure`` instead of printing it, and
-    :func:`gda.headless.emit_failure` forwards it unless this human channel is about
-    to print the identical bytes as ``diagnostics``. Byte identity decides, so a
-    curated or tail-capped ``diagnostics`` keeps its tee — the only complete copy —
-    and ``--json``'s streams stay exactly as they were.
+    A SECOND duplication — a forwarded child stderr repeating the ``diagnostics``
+    this renderer prints — is prevented at the emission point, not here: this
+    function only renders what the envelope carries. The routing and suppression
+    rule lives in ADR-0002's #803 outcome note (#806 review).
     """
     lines = [f"error: {error.code} ({error.category.value})", error.message]
     if error.probe is not None:

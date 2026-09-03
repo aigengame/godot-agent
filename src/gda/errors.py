@@ -61,6 +61,7 @@ from gda.models import (
     TerminationPhase,
 )
 from gda.parser import parse_result
+from gda.project import ForeignOwnerViolation, containment_violation
 from gda.runner import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
 from gda.script_errors import ScriptError, script_error_line
 
@@ -75,11 +76,12 @@ class Failure:
     """A classified failure: the stable error shape plus its process exit code.
 
     ``child_stderr`` is the raw stderr of the child run this failure classifies,
-    attached by :meth:`gda.headless.HeadlessCommand.execute` instead of being teed
-    there — whether printing it would say the same bytes twice depends on the
-    caller's channel, which only the emission point knows (#798 review). It stays
-    ``""`` on every failure no child run produced, and it is not part of the
-    serialized envelope.
+    attached by its producer instead of being teed there — whether printing it
+    would say the same bytes twice depends on the caller's channel, which only the
+    emission point (:func:`gda.headless.emit_failure`) knows (#798 review). The
+    full rule — producers, the success half, and the exception — is ADR-0002's
+    #803 outcome note. It stays ``""`` on every failure no child run produced, and
+    it is not part of the serialized envelope.
     """
 
     error: GdaError
@@ -796,10 +798,13 @@ def target_outside_project_failure(location: Path, project: Path) -> Failure:
     gda therefore refuses *before* the target is parsed and reports the mismatch
     itself, naming both sides so the reader can see which one is wrong.
 
-    The two commands that hold a resolved project when they ask the containment
-    question share this builder — ``script validate``'s recipe and ``resource
-    import``'s asset gate — so one condition reports one code, one message and one
-    pair of typed coordinates (#763). The message says what is true of BOTH: a
+    Two commands can reach this builder through the gate
+    (:func:`containment_refusal`, #802) — ``script validate`` and ``resource
+    import``, the ones whose target may still be a filesystem spelling — so one
+    condition reports one code, one message and one pair of typed coordinates
+    (#763). ``script run`` calls the same gate, but only its ownership half is
+    reachable there: an address its own gate accepted is canonical ``res://``,
+    which is never outside the root (#807 round 4). The message says what is true of BOTH: a
     target gda addresses through the project's ``res://`` namespace has no place
     in that namespace. Why that matters differs per command — a compile resolves
     the target's own dependencies, an import writes into the project's cache — and
@@ -885,6 +890,38 @@ def target_owned_by_another_project_failure(
             owning_project=str(owner),
         ),
     )
+
+
+def containment_refusal(target: str, project: Path | None) -> Failure | None:
+    """The refusal when ``target`` does not belong to ``project`` — or ``None`` (#802).
+
+    THE gate the three path-taking commands call — ``script validate`` per batch
+    entry, ``script run`` for its entry script, ``resource import`` per asset. The
+    DECISION is not made here: :func:`gda.project.containment_violation` owns the
+    ordering (ownership first), the normalization, and the four coordinates; this
+    function maps each half of its answer to the envelope the taxonomy owns. The
+    split follows ADR-0040 §5 — the taxonomy reaches DOWN to the path authority,
+    never the reverse; the composition briefly lived whole on ``gda.project`` and
+    needed a deferred import of this module to hide the inverted edge (#807
+    review).
+
+    One builder of the same code stays outside the gate, deliberately:
+    :func:`script_escapes_project_failure`, ``script run``'s pre-resolution address
+    gate (ADR-0031). It decides on the spelling alone, before there is a project to
+    be outside OF, so it holds none of the four coordinates a refusal from here
+    reports; the argument for keeping it apart is at that builder.
+    """
+    violation = containment_violation(target, project)
+    if violation is None:
+        return None
+    if isinstance(violation, ForeignOwnerViolation):
+        return target_owned_by_another_project_failure(
+            violation.location,
+            violation.owner,
+            violation.root,
+            violation.owner_relative,
+        )
+    return target_outside_project_failure(violation.outside, violation.root)
 
 
 def script_escapes_project_failure(script: str) -> Failure:

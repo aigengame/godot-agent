@@ -458,16 +458,6 @@ budget. Refusing that would reject ordinary game values, so it is disclosed inst
 "Number reporting" above). Scientific notation removes the cap loss as well:
 `1.2345678901234567e-3` stores exactly what `0.0012345678901234567` cannot.
 
-One caveat on the SCENE round-trip belongs to neither half and was measured while #772 was
-written: Godot's scene packer omits a property whose value is not "different" from the property's
-own default, and its difference test compares two floats **approximately, as float32**
-(`PropertyUtils::is_property_value_different` → `Math::is_equal_approx`, `packed_scene.cpp`). So a
-`node set` whose value lands within about `1e-5` of that default is elided from the `.tscn`: on a
-property declared `@export var v: float = 0.0`, `--value 1e-6` echoes `1e-6` and a following
-`node get` reads `0.0`. That is the packer's elision, not the parser's loss — no coercion refusal
-can see it, and `project set` (measured) is unaffected, so it is recorded here rather than
-folded into the rule above.
-
 The rule keys on what the parser PRODUCED, and the two edges it draws are separated by what
 gets STORED, not by how loudly the result reads back — a stored `NaN` and a stored `inf` both
 report as JSON `null`, so the reply cannot tell them apart. An **overflow is not refused**:
@@ -480,10 +470,66 @@ here rather than refused: `inf` is stored but cannot be REPORTED, so the `set` e
 later `node get` / `project get` read it as JSON `null`. A literal **below binary64's reach is
 refused** anyway — `1e-400` fails exactly as `1e-320` does, although zero is the
 correctly-rounded answer there; the coercion cannot tell a true underflow from the engine's −309 cliff without modelling
-the parser it asks instead, and a caller who means zero writes `0`. One path does not reach the
-check at all: a number nested inside a Dictionary or Array `--value` arrives through
-`JSON.parse_string` / `str_to_var`. `gda.live_numbers` records the measurement;
-`tests/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both channels.
+the parser it asks instead, and a caller who means zero writes `0`. `gda.live_numbers` records the
+measurement; `tests/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both
+channels.
+
+A number nested inside a **Dictionary or Array `--value`** is refused by the same rule, with the
+same code and the same message ([#805](https://github.com/aigengame/godot-agent/issues/805)) —
+`--value '{"a": 1e-320}'` fails as `uncoercible_value` naming `1e-320`, where before it succeeded
+and stored `{"a": 0.0}`. It reaches the rule by a different route, because a container has no
+per-element coercion to hook: `JSON.parse_string` gates the text and one atomic `str_to_var(raw)`
+builds the value, so by the time a float exists its literal is gone. gda therefore reads the JSON
+number literals out of the **raw `--value` text**, and only after the gate has accepted it. Four
+consequences follow from that scanning rule, each a deliberate disposition:
+
+- **A string value that looks numeric is NOT refused.** The scan skips the contents of every JSON
+  string, honouring escapes, so `--value '{"a": "1e-320"}'` stores the six-character string it
+  always did. Nothing is parsed as a float there, so nothing can be destroyed.
+- **Keys are never scanned**, for the same reason — every JSON key is a string. `--value
+  '{"1e-320": 1.0}'` writes that member unchanged.
+- **A Variant constructor is unreachable, so it is not scanned for.** `str_to_var` accepts richer
+  syntax than JSON and would build `Vector2(1e-320, 0)` as a zeroed vector — but that text is not
+  JSON, so the gate refuses it first (measured: the parse fails with `Expected 'true', 'false', or
+  'null', got 'Vector'`). It stays the plain `uncoercible_value` it has always been: the JSON gate
+  refused it, not the float parser, so the fidelity note would name a false cause. The same
+  attribution rule keeps the note off a `--value` that is not a container at all, and off JSON of
+  the OTHER container type (`'[1e-320]'` on a `Dictionary` property fails on the type).
+- **A repeated key OVER-refuses, and that is accepted rather than closed.** Godot's JSON keeps the
+  LAST value of a duplicate key, so `--value '{"a": 1e-320, "a": 2.0}'` would have stored
+  `{"a": 2.0}` faithfully (measured on 4.6.3) — but the scan reads the text, sees the discarded
+  literal too, and refuses. Telling a discarded token from a kept one needs the key-and-position
+  bookkeeping of a real parser, which is the second opinion about the engine's grammar this scan
+  avoids by construction; the over-refusal is in the safe direction — nothing wrong is written —
+  and the remedy is to spell the key once.
+
+One caveat on the SCENE round-trip belongs to neither half and was measured while #772 was
+written: Godot's scene packer omits a property whose value is not "different" from the property's
+own default, and its difference test compares two floats **approximately, as float32**
+(`PropertyUtils::is_property_value_different` → `Math::is_equal_approx`, `packed_scene.cpp`). So a
+`node set` whose value lands within about `1e-5` of that default is elided from the `.tscn`: on a
+property declared `@export var v: float = 0.0`, `--value 1e-6` echoes `1e-6` and a following
+`node get` reads `0.0`. That is the packer's elision, not the parser's loss — no coercion refusal
+can see it, and `project set` (measured) is unaffected, so it is recorded here rather than
+folded into the rule above.
+
+**This qualification is the contract, not a placeholder**
+([#805](https://github.com/aigengame/godot-agent/issues/805)): the round-trip claim is published
+with the exception named, and gda adds no mechanism to detect or disclose the elision per write.
+Four reasons, in the order they bind. It is the ENGINE's serializer policy, applied to any write
+the engine makes, and the value gda coerced was exact — so a gda-side refusal or annotation would
+blame the wrong stage. gda also cannot ANSWER the question at coercion time without either a
+write-then-read-back engine round-trip on every write — disproportionate to a band this narrow,
+and out of scope by decision — or a re-implementation of
+`PropertyUtils::is_property_value_different`, which would be a second opinion about an engine
+function, exactly what the refusal rule above avoids by RUNNING the parser instead of modelling
+it. The loss is also not the one the rule exists to stop: the file records nothing, so the
+property keeps the default its own source declares, rather than holding a number nobody sent. And
+the disclosure would not be free — a result-level field touches the result models, `--schema` and
+the README family for a rare, engine-owned band. If that field is ever wanted, it is a separate
+issue with its own trigger: a case where an agent acted on the `set` echo and the elision made the
+action wrong. Until then the remedy is the one the round-trip claim already names — read it back
+with `node get` when the exact stored value matters.
 
 **Structural edits** (established by #56): three commands restructure the node tree within a
 scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the
@@ -601,17 +647,47 @@ body cannot be mistaken for the declaration. `script get` additionally returns t
 its `res://` path and the `class_name`/`extends` parsed from the **raw text** (no compilation,
 issue #30) — null when the source declares neither, so the listing names every `.gd` it found.
 Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
-`--project`); an empty project is a valid, empty listing, not an error. The walk excludes exactly
-one directory — the engine's own cache at `res://.godot`, whose contents are import artefacts no
-agent authored. The first test is **lexical**: the child's `res://` PATH is compared against that
-one path. Not the directory NAME, so a nested `.godot` is walked — it is usually authored content,
-and excluding it hid real scripts from the listing and let `script validate --all` report a valid
+`--project`); an empty project is a valid, empty listing, not an error. The walk excludes the same
+three kinds of directory `EditorFileSystem::_should_skip_directory` does (#804): the engine's cache
+at `res://.godot`, a directory holding a **`project.godot`** — another project inside this one —
+and a directory holding a **`.gdignore`**. That is the marker rule, not full parity with the
+engine's scan: `_scan_new_dir` additionally drops every hidden entry and every dot-prefixed
+directory before it consults that function, and gda deliberately keeps enumerating those (#54,
+#712), so `res://.hidden/x.gd` is listed here where the engine never reaches it.
+
+The **cache** test is **lexical**: the child's `res://` PATH is compared against that one path.
+Not the directory NAME, so a nested `.godot` is walked — it is usually authored content, and
+excluding it hid real scripts from the listing and let `script validate --all` report a valid
 aggregate for a project holding an invalid script (#663 review). Sometimes it is not authored
 content — a vendored sub-project checked out under `res://` and opened once in an editor keeps an
-engine cache of its own, whose import artefacts then count in `project statistics` and become
-`find-unused-resources` candidates. That cost is accepted deliberately: gda cannot tell the two
-apart from the directory alone, and a false-valid aggregate is the worse failure. Hidden entries
-are otherwise enumerated as promised (#54). **This rule governs the four `res://` collectors in
+engine cache of its own, whose import artefacts then counted in `project statistics` and became
+`find-unused-resources` candidates. #712 accepted that cost deliberately, because gda cannot tell
+the two apart from the directory alone and a false-valid aggregate is the worse failure. **The
+marker clause below now covers exactly that case, so the cost is retired** (#804, recorded in the
+#808 review): every engine that creates a project data directory writes a `.gdignore` into it —
+the editor (`EditorPaths::create`) and gda's own `resource import` pass, whose `created` list
+names `res://.godot/.gdignore` — so a nested cache any engine produced holds the marker and is
+skipped, and its artefacts leave `statistics`, `find-unused-resources` and the `class_name` index.
+The tree AROUND that cache carries no marker and is still walked. What #712's rule was for is
+unchanged too: a `.godot` no engine wrote — an addon vendoring a sample tree, a fixture tree —
+holds no `.gdignore` and is still walked. One residual stays: the engine reads this location from
+`application/config/project_data_dir_name` while gda hardcodes the default, so a project that
+renames its data directory has gda walk the renamed cache and exclude a `res://.godot` that is
+ordinary content (#804).
+
+The **two markers** are probed on the child directory itself, so what decides is what the
+directory HOLDS, not what it is called or how it was reached — a vendored checkout carrying its own
+`project.godot` is skipped whether it sits in the tree or is symlinked into it, exactly as the
+engine skips it. A `project.godot` is the distinction the cache rule above lacks: the sub-project
+declares itself, and its files' own `res://` references mean ITS root, so enumerating them here
+gave them the outer root — that is what made `script validate --all` compile a nested project's
+scripts against the outer root and report every one of their `res://` preloads as missing (#804,
+the gap ADR-0006 recorded). A `.gdignore` is the project's own instruction not to scan. Both probes
+are FILE tests, so a sub-directory merely *called* `project.godot` marks nothing. The cost is
+two `FileAccess.file_exists` per child DIRECTORY — the two probes the engine's scan pays, on the
+same directories, never per file. Hidden entries are still enumerated as promised (#54), which is
+the deliberate divergence from the engine's scan stated above.
+**This rule governs the four `res://` collectors in
 `operations.gd`** — the `script list` walk, the `scene list` walk, and both static-analysis walks
 (the extension-filtered one behind `find-references`, `dependencies`, `find-unused-resources` and
 the `class_name` index, and the unfiltered one `project statistics` counts with) — so one project
@@ -623,8 +699,8 @@ compared case-sensitively — so each collector is now a single line: the shared
 acceptance test it passes. What they share is the traversal and the exclusion rule, **not** a file
 universe; the two static-analysis walks below still range over different files.
 
-The lexical test is the walk's first question, not its only one, because a link renames what it
-points at (#760). Comparing the path as written let an alias re-admit exactly what the rule
+The lexical cache test is the walk's first question, not its only one, because a link renames what
+it points at (#760). Comparing the path as written let an alias re-admit exactly what the rule
 excludes — `res://nested/.godot` pointing at the root cache made the cache's own scripts and
 scenes visible under a second name — and let a cycle (`sub/loop` -> `sub`) be descended until the
 OS refused another symlink hop, spelling one `.gd` 33 ways with a deepest path 174 characters
@@ -769,7 +845,8 @@ single path is a batch of one, so the shape never varies with the batch size. A 
 validated and reported once per occurrence — gda drops no input. `--all` needs a resolved project
 (`project_not_found` otherwise, as `script list` does), and an empty project is a vacuously valid
 empty batch. It enumerates through the same walk `script list` uses, so it sees the same set —
-including a nested `.godot` directory, and never the engine's own `res://.godot` cache.
+including a nested `.godot` directory, and never the engine's own `res://.godot` cache, a nested
+project's directory, or a `.gdignore`d one.
 
 A **`valid=false` result is a successful operation** — `validate` exits `0` with the aggregate
 `valid: false` for a batch in which any script does not compile. The op only *fails* (non-zero,
@@ -793,16 +870,16 @@ tells the two apart. A target the resolved project **does not own** is **refused
 with `target_outside_project`, naming both the file and the project, rather than emitting that
 false cascade. The check applies to **every** path in a batch, and the first offender in requested
 order refuses the whole call (#663): one call has one project, so one outsider makes the requested
-set unservable. `--all` carries no paths to check, and one KNOWN GAP: it enumerates through gda's own
-`res://` walk, which does not skip a directory holding a nested `project.godot`, while the
-engine's editor scan does (`EditorFileSystem::_should_skip_directory`). So `--all` still
-compiles a nested project's scripts against the outer root and can report the false cascade
-for them, where naming the same file explicitly is refused. That gap is one face of a layer
-boundary and not only a bug: the walk decides what the project can ADDRESS, by filesystem
-identity (see the exclusion passage above); this gate decides what a caller may NAME as a
-target, from the caller's own spelling. Closing it means changing the shared walk every
-collector uses; until then, read an `--all` verdict for a nested project's script as the
-artefact it is (ADR-0006 amendment, #697).
+set unservable. `--all` carries no paths to check, and needs none: it enumerates through gda's own
+`res://` walk, which skips a directory holding a nested `project.godot` exactly as the engine's
+editor scan does (`EditorFileSystem::_should_skip_directory`), so it never reaches a file this
+gate would refuse by name and the two selectors give the same file the same answer (#804). Before
+that, `--all` compiled a nested project's scripts against the outer root and reported the false
+cascade for them, where naming the same file explicitly was refused. The two are still different
+questions, and the layer boundary between them still stands: the walk decides what the project can
+ADDRESS (see the exclusion passage above); this gate decides what a caller may NAME as a target,
+from the caller's own spelling (ADR-0006 amendment, #697). What #804 removed is the case where
+they disagreed.
 
 "Does not own" is two questions (ADR-0006 amendment, #697). **Containment** follows the engine's
 own addressing: a relative path is anchored at the resolved project (not gda's cwd), an
@@ -1047,9 +1124,21 @@ file, classified against the explicit cache root: `cache_owned` (under `res://.g
 `source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
 file). `--dry-run` writes nothing and reports the decidable inventory: the per-asset
 states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
-stale assets the project-wide pass will re-import (invalid ones excluded; assets with no
+stale assets the project-wide pass will re-import (invalid ones excluded; assets under a
+nested project's, a `.gdignore`d or a **dot-prefixed** directory excluded too, since the
+engine's scan never reaches them, #804; assets with no
 sidecar and generated `.uid` files are the engine's to decide, so the real run's `created`
-list is the authoritative inventory). Plain `gda script run` never triggers an import
+list is the authoritative inventory). This prediction is a SECOND spelling of the walk's
+rule, not the walk: it reads the project's files from Python (`Path.rglob`), so it can
+never ask `operations.gd`, and the two are held together only by the marker names a test
+compares across the seam. Two divergences follow and are stated rather than chased (#808
+review): the prediction drops dot-prefixed directories where the walk enumerates them
+(that is the engine being modelled, not a drift), and `rglob` does not descend a symlinked
+directory where the walk does (#760) — so a stale asset behind a link is not predicted,
+which under-promises rather than over-promises and is what the authoritative `created`
+list is for. Its cost is unlike the walk's: the ancestors are re-probed per sidecar and
+memoized nowhere (2000 sidecars at depth 4 ≈ 16k `stat` calls, 0.11 s measured), and a
+cache was declined at that size. Plain `gda script run` never triggers an import
 pass. A pass that outruns `--timeout` reports the shared `launch_timeout` envelope with
 the pass's own captured output, the ceiling it reached and the elapsed clock — read it the
 caller-first way [`script run`](#script) describes: this is the one channel on that shared

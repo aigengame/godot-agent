@@ -1046,6 +1046,11 @@ def run_scene_preflight_operation(
     - **the op reported a verdict** → the public result, with the script errors gda
       read off stderr (#651's parser, the single home of that reading) and the
       CLI-resolved project added to the engine's answer.
+
+    Those four outcomes are decided by :func:`_preflight_verdict` and returned
+    through the one tail below, which is what lets this channel answer to the
+    child-stderr rule of ADR-0002's #803 note: a failure carries the launch's
+    stderr to the emission point, a verdict forwards it here.
     """
     run_launch = make_launch or launch
     try:
@@ -1071,13 +1076,29 @@ def run_scene_preflight_operation(
         timeout=params.timeout,
         timeout_label="Godot scene preflight",
     )
-    # Forward the engine's own stream, exactly as the sentinel channel does
-    # (``HeadlessCommand.execute``): a preflight's stderr is where the booted scene's
-    # verbatim complaints are, and this command must not be the one that swallows
-    # them.
-    if raw.stderr:
+    outcome = _preflight_verdict(raw, params, binary, root)
+    # A failure carries the launch's stderr to the emission seam, which alone knows
+    # the caller's channel; a verdict has no diagnostics block to duplicate, so its
+    # tee is immediate and this is the reader's only copy. The rule these two
+    # branches implement is ADR-0002's #803 outcome note (#806 review).
+    if isinstance(outcome, Failure):
+        outcome.child_stderr = raw.stderr
+    elif raw.stderr:
         print(raw.stderr, end="", file=sys.stderr)
+    return outcome
 
+
+def _preflight_verdict(
+    raw: RunResult,
+    params: ScenePreflightParams,
+    binary: Path,
+    root: "Path | None",
+) -> "ScenePreflightResult | Failure":
+    """The four-way bifurcation of a finished preflight launch (#664).
+
+    Split out of :func:`run_scene_preflight_operation` so its four exits funnel
+    through one tail there rather than each repeating the stderr decision (#803).
+    """
     diagnostics = parse_script_errors(raw.stderr)
     if raw.launch_failure is LaunchFailure.TIMEOUT:
         # The evidence the launch already measured, which this verdict used to drop
