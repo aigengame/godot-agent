@@ -7,23 +7,19 @@ supported version (>= 4.4) per ADR-0003.
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
+from tests.support import Gda
 
-GODOT = resolve_godot_binary()
+from .conftest import project_godot
+
+gda = Gda()
 
 
 @pytest.mark.e2e
 def test_gda_info_json_against_real_godot():
-    proc = subprocess.run(
-        [*GDA_CMD, "info", "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-    )
+    proc = gda("info", "--json")
 
     assert proc.returncode == 0, proc.stderr
     # stdout is a single valid JSON object.
@@ -41,11 +37,7 @@ def test_gda_info_missing_binary_yields_structured_error_end_to_end():
     # against a binary that cannot launch. No installed engine required — the
     # point is that the path does NOT exist. The runner synthesizes exit 127,
     # the CLI emits a structured JSON error on stdout.
-    proc = subprocess.run(
-        [*GDA_CMD, "info", "--godot", "/nonexistent/Godot", "--json"],
-        capture_output=True,
-        text=True,
-    )
+    proc = Gda(godot="/nonexistent/Godot")("info", "--json")
 
     assert proc.returncode == 127
     err = json.loads(proc.stdout)["error"]
@@ -62,14 +54,10 @@ def test_gda_info_accepts_a_project_and_still_reports_the_engine(tmp_path):
     # (ADR-0006), not that the flag is parsed and dropped. Against a REAL engine: the
     # version comes back unchanged, so the uniform argv costs nothing.
     (tmp_path / "project.godot").write_text(
-        'config_version=5\n\n[application]\n\nconfig/name="probe"\n', encoding="utf-8"
+        project_godot(name="probe"), encoding="utf-8"
     )
 
-    proc = subprocess.run(
-        [*GDA_CMD, "info", "--project", str(tmp_path), "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-    )
+    proc = Gda(tmp_path)("info", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
@@ -77,22 +65,14 @@ def test_gda_info_accepts_a_project_and_still_reports_the_engine(tmp_path):
 
     # And it is the SAME answer as the projectless probe — the project does not
     # change what `info` reports.
-    projectless = subprocess.run(
-        [*GDA_CMD, "info", "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-    )
+    projectless = gda("info", "--json")
     assert json.loads(projectless.stdout) == data
 
 
 @pytest.mark.e2e
 def test_gda_info_refuses_a_project_that_is_not_one(tmp_path):
     # Validated, not merely accepted — through the real CLI, before any engine runs.
-    proc = subprocess.run(
-        [*GDA_CMD, "info", "--project", str(tmp_path), "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-    )
+    proc = Gda(tmp_path)("info", "--json")
 
     assert proc.returncode == 4, proc.stdout + proc.stderr
     assert json.loads(proc.stdout)["error"]["code"] == "project_not_found"

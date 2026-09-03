@@ -8,20 +8,12 @@ structured-level verification of ``scene create``'s effect.
 
 import json
 import os
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
+from tests.support import Gda
 
-GODOT = resolve_godot_binary()
-
-
-def _gda(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [*GDA_CMD, *args, "--godot", str(GODOT)], capture_output=True, text=True
-    )
+gda = Gda()
 
 
 @pytest.mark.e2e
@@ -30,12 +22,7 @@ def test_res_path_round_trip_against_the_project_fixture(godot_project):
     # project fixture, a res:// path resolves against it — proving the fixture
     # is actually handed to the engine (it previously never reached it). The
     # created scene lands inside the project and reads back through res://.
-    def gda(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(godot_project)],
-            capture_output=True,
-            text=True,
-        )
+    gda = Gda(godot_project)
 
     created = gda(
         "scene", "create", "res://hero.tscn", "--root-type", "Node2D", "--json"
@@ -53,9 +40,7 @@ def test_res_path_round_trip_against_the_project_fixture(godot_project):
 def test_scene_create_then_get_round_trip(godot_project):
     scene_path = godot_project / "main.tscn"
 
-    created = _gda(
-        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
-    )
+    created = gda("scene", "create", str(scene_path), "--root-type", "Node2D", "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
@@ -63,7 +48,7 @@ def test_scene_create_then_get_round_trip(godot_project):
     # The .tscn landed on disk inside the temp project.
     assert scene_path.exists()
 
-    got = _gda("scene", "get", str(scene_path), "--json")
+    got = gda("scene", "get", str(scene_path), "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     tree = json.loads(got.stdout)
@@ -82,7 +67,7 @@ def test_scene_path_containing_end_sentinel_round_trips(godot_project):
     # is not a legal node-name char, so it cannot be derived from this filename.
     scene_path = godot_project / "weird<<<GDA:END>>>name.tscn"
 
-    created = _gda(
+    created = gda(
         "scene",
         "create",
         str(scene_path),
@@ -96,7 +81,7 @@ def test_scene_path_containing_end_sentinel_round_trips(godot_project):
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["path"] == str(scene_path)
 
-    got = _gda("scene", "get", str(scene_path), "--json")
+    got = gda("scene", "get", str(scene_path), "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     tree = json.loads(got.stdout)
@@ -108,9 +93,7 @@ def test_scene_path_containing_end_sentinel_round_trips(godot_project):
 def test_scene_create_creates_missing_parent_directories(godot_project):
     scene_path = godot_project / "levels" / "demo" / "main.tscn"
 
-    created = _gda(
-        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
-    )
+    created = gda("scene", "create", str(scene_path), "--root-type", "Node2D", "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
@@ -120,7 +103,7 @@ def test_scene_create_creates_missing_parent_directories(godot_project):
     ]
     assert scene_path.exists()
 
-    got = _gda("scene", "get", str(scene_path), "--json")
+    got = gda("scene", "get", str(scene_path), "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["root"]["name"] == "main"
@@ -130,22 +113,8 @@ def test_scene_create_creates_missing_parent_directories(godot_project):
 def test_scene_create_creates_relative_parent_directories_against_project(
     godot_project,
 ):
-    created = subprocess.run(
-        [
-            *GDA_CMD,
-            "scene",
-            "create",
-            "demo/main.tscn",
-            "--root-type",
-            "Node2D",
-            "--project",
-            str(godot_project),
-            "--godot",
-            str(GODOT),
-            "--json",
-        ],
-        capture_output=True,
-        text=True,
+    created = Gda(godot_project)(
+        "scene", "create", "demo/main.tscn", "--root-type", "Node2D", "--json"
     )
 
     assert created.returncode == 0, created.stdout + created.stderr
@@ -163,9 +132,7 @@ def test_scene_create_existing_path_yields_already_exists_without_overwriting(
     original = "not a scene\n"
     scene_path.write_text(original, encoding="utf-8")
 
-    created = _gda(
-        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
-    )
+    created = gda("scene", "create", str(scene_path), "--root-type", "Node2D", "--json")
 
     assert created.returncode == 4
     err = json.loads(created.stdout)["error"]
@@ -179,9 +146,7 @@ def test_scene_create_existing_path_yields_already_exists_without_overwriting(
 def test_scene_create_empty_root_name_yields_structured_error(godot_project):
     scene_path = godot_project / ".tscn"
 
-    created = _gda(
-        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
-    )
+    created = gda("scene", "create", str(scene_path), "--root-type", "Node2D", "--json")
 
     assert created.returncode == 4
     err = json.loads(created.stdout)["error"]
@@ -195,7 +160,7 @@ def test_scene_create_empty_root_name_yields_structured_error(godot_project):
 def test_scene_create_rejects_root_name_godot_would_rewrite(godot_project):
     scene_path = godot_project / "bad-name.tscn"
 
-    created = _gda(
+    created = gda(
         "scene",
         "create",
         str(scene_path),
@@ -220,7 +185,7 @@ def test_scene_create_rejects_dotted_default_root_name_but_allows_override(
 ):
     scene_path = godot_project / "level.v2.tscn"
 
-    rejected = _gda(
+    rejected = gda(
         "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
     )
 
@@ -230,7 +195,7 @@ def test_scene_create_rejects_dotted_default_root_name_but_allows_override(
     assert err["code"] == "invalid_root_name"
     assert not scene_path.exists()
 
-    created = _gda(
+    created = gda(
         "scene",
         "create",
         str(scene_path),
@@ -244,7 +209,7 @@ def test_scene_create_rejects_dotted_default_root_name_but_allows_override(
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["root_name"] == "LevelV2"
 
-    got = _gda("scene", "get", str(scene_path), "--json")
+    got = gda("scene", "get", str(scene_path), "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["root"]["name"] == "LevelV2"
@@ -307,7 +272,7 @@ def test_scene_get_reports_nested_tree(godot_project):
     scene_path = godot_project / "nested.tscn"
     scene_path.write_text(NESTED_TSCN, encoding="utf-8")
 
-    got = _gda("scene", "get", str(scene_path), "--json")
+    got = gda("scene", "get", str(scene_path), "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     root = json.loads(got.stdout)["root"]
@@ -330,7 +295,7 @@ def test_scene_get_marks_instanced_child_and_resolves_its_root_type(godot_projec
     (godot_project / "main.tscn").write_text(
         HOST_WITH_INSTANCED_CHILD_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     got = gda("scene", "get", "res://main.tscn", "--json")
 
@@ -371,7 +336,7 @@ def test_scene_get_reads_the_instance_attribute_by_whole_name(godot_project):
     (godot_project / "main.tscn").write_text(
         HOST_WITH_DECOYED_INSTANCE_ATTR_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     got = gda("scene", "get", "res://main.tscn", "--json")
 
@@ -390,7 +355,7 @@ def test_scene_get_marks_missing_instanced_child_reference(godot_project):
     (godot_project / "main.tscn").write_text(
         HOST_WITH_MISSING_INSTANCED_CHILD_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     got = gda("scene", "get", "res://main.tscn", "--json")
 
@@ -410,7 +375,7 @@ def test_scene_get_missing_file_yields_structured_error_end_to_end(godot_project
     # operation exit code.
     missing = godot_project / "missing.tscn"
 
-    got = _gda("scene", "get", str(missing), "--json")
+    got = gda("scene", "get", str(missing), "--json")
 
     assert got.returncode == 4
     err = json.loads(got.stdout)["error"]
@@ -432,9 +397,7 @@ def test_scene_create_unwritable_directory_yields_structured_save_failed(godot_p
     target = locked / "main.tscn"
     locked.chmod(0o500)
     try:
-        created = _gda(
-            "scene", "create", str(target), "--root-type", "Node2D", "--json"
-        )
+        created = gda("scene", "create", str(target), "--root-type", "Node2D", "--json")
     finally:
         locked.chmod(0o700)
 
@@ -455,7 +418,7 @@ def test_scene_create_unknown_root_type_yields_structured_error_end_to_end(
 ):
     target = godot_project / "bogus.tscn"
 
-    created = _gda("scene", "create", str(target), "--root-type", "NotAClass", "--json")
+    created = gda("scene", "create", str(target), "--root-type", "NotAClass", "--json")
 
     assert created.returncode == 4
     err = json.loads(created.stdout)["error"]
@@ -464,26 +427,13 @@ def test_scene_create_unknown_root_type_yields_structured_error_end_to_end(
     assert not target.exists()
 
 
-def _gda_project(project):
-    """A ``_gda`` bound to ``--project`` for res:// enumeration/resolution."""
-
-    def gda(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
-            capture_output=True,
-            text=True,
-        )
-
-    return gda
-
-
 @pytest.mark.e2e
 def test_scene_list_enumerates_created_scenes(godot_project):
     # scene list (issue #54) enumerates the project's .tscn scenes by walking
     # res://: two scenes created at different depths both appear, each with its
     # res:// path and the root name/type read from stored state. The listing IS
     # the structured-level verification of what scene create wrote.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     assert (
         gda(
@@ -520,7 +470,7 @@ def test_scene_list_marks_inherited_scene_root_and_resolves_its_type(godot_proje
     (godot_project / "inherited_hud.tscn").write_text(
         INHERITED_HUD_ROOT_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     listed = gda("scene", "list", "--json")
 
@@ -541,7 +491,7 @@ def test_scene_list_enumerates_dot_prefixed_scenes_but_skips_godot_cache(godot_p
     # dot-prefixed entry. The empty-project test already proves res://.godot does
     # not leak; this proves the skip is scoped to res://.godot, not "anything
     # starting with a dot".
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     assert (
         gda(
@@ -589,7 +539,7 @@ def test_scene_list_enumerates_dot_prefixed_scenes_but_skips_godot_cache(godot_p
 def test_scene_list_on_empty_project_is_an_empty_listing(godot_project):
     # A project with no scenes is a valid, empty listing — not an error (the
     # res://.godot import cache must not leak in as a phantom scene).
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     listed = gda("scene", "list", "--json")
 
@@ -602,12 +552,7 @@ def test_scene_list_without_project_yields_project_not_found(tmp_path):
     # scene list cannot enumerate res:// projectless: run from a non-project
     # directory with no --project, it must refuse with the structured
     # project_not_found code rather than return a misleading empty listing.
-    listed = subprocess.run(
-        [*GDA_CMD, "scene", "list", "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-        cwd=str(tmp_path),
-    )
+    listed = gda("scene", "list", "--json", cwd=tmp_path)
 
     assert listed.returncode == 4, listed.stdout + listed.stderr
     err = json.loads(listed.stdout)["error"]
@@ -621,7 +566,7 @@ def test_scene_delete_removes_a_scene_and_names_what_was_removed(godot_project):
     # scene delete (issue #54) removes a scene file and names the removed root.
     # The round-trip verifier: scene list before shows the scene, delete reports
     # the removed root's name/type, and scene list after no longer shows it.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -647,7 +592,7 @@ def test_scene_delete_removes_a_scene_and_names_what_was_removed(godot_project):
 def test_scene_delete_missing_file_yields_path_not_found(godot_project):
     missing = godot_project / "missing.tscn"
 
-    deleted = _gda("scene", "delete", str(missing), "--json")
+    deleted = gda("scene", "delete", str(missing), "--json")
 
     assert deleted.returncode == 4
     err = json.loads(deleted.stdout)["error"]
@@ -664,7 +609,7 @@ def test_scene_delete_refuses_non_scene_file_and_leaves_it_on_disk(godot_project
     notes = godot_project / "notes.txt"
     notes.write_text("not a scene\n", encoding="utf-8")
 
-    deleted = _gda("scene", "delete", str(notes), "--json")
+    deleted = gda("scene", "delete", str(notes), "--json")
 
     assert deleted.returncode == 4
     err = json.loads(deleted.stdout)["error"]

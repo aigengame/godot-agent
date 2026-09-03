@@ -32,25 +32,14 @@ The contract pinned (verified on Godot 4.6.3):
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
+from tests.support import Gda
 
 from .conftest import project_godot
 
-GODOT = resolve_godot_binary()
-
-
-def _gda(*args: str, cwd=None) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [*GDA_CMD, *args, "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-        cwd=str(cwd) if cwd is not None else None,
-    )
+gda = Gda()
 
 
 # A root script whose _init has a side effect AND prints a forged result block.
@@ -86,12 +75,7 @@ def test_scene_get_does_not_execute_scene_code(godot_project):
 
     # Run from inside the project so res://evil.gd resolves — the condition
     # under which the script would load and (on the buggy path) execute.
-    proc = subprocess.run(
-        [*GDA_CMD, "scene", "get", "evil.tscn", "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-        cwd=str(godot_project),
-    )
+    proc = gda("scene", "get", "evil.tscn", "--json", cwd=godot_project)
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     tree = json.loads(proc.stdout)
@@ -152,14 +136,14 @@ def test_node_list_does_not_execute_scene_script(godot_project):
     # project code and that is a regression, not an intentional behavior change.
     scene = _plant_spied_scene(godot_project)
 
-    listed = _gda("node", "list", str(scene), "--project", str(godot_project), "--json")
+    listed = gda("node", "list", str(scene), "--project", str(godot_project), "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     tree = json.loads(listed.stdout)["root"]
     # The declared tree is reported (not anything the script could have forged).
     assert (tree["name"], tree["type"], tree["path"]) == ("Root", "Node2D", ".")
     assert tree["children"] == []
 
-    got = _gda("scene", "get", str(scene), "--project", str(godot_project), "--json")
+    got = gda("scene", "get", str(scene), "--project", str(godot_project), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["root"]["name"] == "Root"
 
@@ -180,7 +164,7 @@ def test_node_add_executes_pre_existing_scene_script(godot_project):
     # assertion below should flip to assert the marker file does NOT appear.
     scene = _plant_spied_scene(godot_project)
 
-    added = _gda(
+    added = gda(
         "node",
         "add",
         str(scene),
@@ -217,7 +201,7 @@ def test_node_get_executes_pre_existing_scene_script(godot_project):
     # marker file does NOT appear.
     scene = _plant_spied_scene(godot_project)
 
-    got = _gda(
+    got = gda(
         "node",
         "get",
         str(scene),
@@ -276,7 +260,7 @@ def test_node_add_forged_sentinel_from_scene_script_fails_loudly(godot_project):
     (godot_project / "forge.gd").write_text(FORGE_GD, encoding="utf-8")
     (godot_project / "forged.tscn").write_text(FORGED_TSCN, encoding="utf-8")
 
-    added = _gda(
+    added = gda(
         "node",
         "add",
         str(godot_project / "forged.tscn"),
@@ -352,7 +336,7 @@ def test_autoload_runs_on_scene_get(godot_project):
     (godot_project / "autoload.gd").write_text(AUTOLOAD_GD, encoding="utf-8")
     (godot_project / "plain.tscn").write_text(PLAIN_TSCN, encoding="utf-8")
 
-    got = _gda(
+    got = gda(
         "scene",
         "get",
         str(godot_project / "plain.tscn"),

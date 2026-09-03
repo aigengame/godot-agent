@@ -17,12 +17,13 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from typer.testing import CliRunner, Result
 
+from gda.binary import resolve_godot_binary
 from gda.cli import app
 from gda.runner import RunResult
 
@@ -108,11 +109,193 @@ def assert_no_pydantic_dump(message: str) -> None:
 GDA_CMD = [sys.executable, "-m", "gda"]
 
 
-def templates_installed(gda, preset: str = "Linux/X11") -> bool:
+# The Godot binary the e2e tier drives, resolved ONCE for the whole tier by the
+# same precedence gda itself uses (``--godot`` > ``$GDA_GODOT`` > the RULES.md
+# default). Every e2e module used to resolve its own copy; one constant keeps the
+# path a test passes as ``--godot`` and the path ``conftest`` gates the tier on
+# from drifting apart.
+GODOT = resolve_godot_binary()
+
+# What one `gda` e2e spawn waits before the test calls it wedged. Long enough for
+# a real engine to boot, import and answer on a loaded machine; short enough that
+# a wedged engine fails one test instead of hanging the whole tier. A call that
+# legitimately needs longer states its own bound; no spawn goes unbounded.
+DEFAULT_TIMEOUT = 90.0
+
+
+class Gda:
+    """The e2e tier's one out-of-process ``gda`` invoker.
+
+    Every e2e spawn goes through here, so the tier has ONE adapter over the
+    ``[sys.executable, "-m", "gda"]`` seam (:data:`GDA_CMD`, #299) instead of a
+    per-module copy of :func:`subprocess.run`. Out of process is the point: the
+    e2e tier proves the shipped CLI, not an in-process Typer call.
+
+    An instance BINDS what a module repeats — the project, the engine, the child
+    environment, the working directory, the timeout, and whether ``--json`` is
+    baked in — and exposes three forms over that binding:
+
+    * calling it runs the command and returns the raw
+      :class:`subprocess.CompletedProcess`, for a test that reads an exit code,
+      a stream, or a failure of any category;
+    * :meth:`json` asserts the run succeeded and returns the parsed result;
+    * :meth:`error` asserts the ADR-0002 operation-failure envelope for one
+      :term:`Gda error code` and returns the parsed error.
+
+    ``project=None`` builds the project-less form the commands that resolve no
+    project need (``gda version``, ``gda info --godot``, the "no project"
+    refusals); ``godot=None`` drops ``--godot`` for the few tests that spell the
+    engine themselves or read it from ``$GDA_GODOT``.
+
+    Bound options are appended AFTER the command's own argv, in the
+    ``--project``, ``--godot``, ``--json`` order, because a few tests read a
+    target relative to the working directory and the placement of the target
+    among the options is part of what they exercise.
+    """
+
+    def __init__(
+        self,
+        project: Path | str | None = None,
+        *,
+        godot: Path | str | None = GODOT,
+        json_output: bool = False,
+        env: Mapping[str, str] | None = None,
+        extra_env: Mapping[str, str] | None = None,
+        cwd: Path | str | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> None:
+        tail: list[str] = []
+        if project is not None:
+            tail += ["--project", str(project)]
+        if godot is not None:
+            tail += ["--godot", str(godot)]
+        if json_output:
+            tail.append("--json")
+        self._tail = tail
+        self._json_output = json_output
+        self._env = env
+        self._extra_env = extra_env
+        self._cwd = cwd
+        self._timeout = timeout
+
+    def __call__(
+        self,
+        *args: str,
+        cwd: Path | str | None = None,
+        timeout: float | None = None,
+        extra_env: Mapping[str, str] | None = None,
+        stdin: str | None = None,
+        retry: bool = False,
+    ) -> "subprocess.CompletedProcess[str]":
+        """Run ``gda <args>`` and return the finished process.
+
+        ``cwd``, ``timeout`` and ``extra_env`` override the binding for this one
+        call; ``stdin`` is the text the CLI reads from standard input (the
+        ``--params-json -`` channel). ``retry`` re-runs once on a transient
+        ``engine_crashed`` — a shared-``user://`` log race under parallel e2e,
+        not a gda bug (#180) — so a happy path does not flake on it.
+
+        ``extra_env`` reaches the ENGINE too: the CLI passes no ``env=`` to its
+        own Godot subprocess, so the engine inherits whatever gda was given —
+        the channel the production-inert ``GDA_TEST_PERTURB_BEFORE_SAVE`` test
+        seam rides on (issue #226).
+        """
+        argv = [*GDA_CMD, *args, *self._tail]
+        cwd = self._cwd if cwd is None else cwd
+        proc = self._spawn(
+            argv,
+            cwd=cwd,
+            timeout=self._timeout if timeout is None else timeout,
+            extra_env=extra_env,
+            stdin=stdin,
+        )
+        if retry and proc.returncode != 0 and _run_error_code(proc) == "engine_crashed":
+            proc = self._spawn(
+                argv,
+                cwd=cwd,
+                timeout=self._timeout if timeout is None else timeout,
+                extra_env=extra_env,
+                stdin=stdin,
+            )
+        return proc
+
+    def json(self, *args: str, **overrides) -> dict:
+        """Run ``gda <args> --json``, assert it succeeded, and return the result."""
+        proc = self(*self._with_json(args), **overrides)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        return json.loads(proc.stdout)
+
+    def error(self, *args: str, code: str, **overrides) -> dict:
+        """Run ``gda <args> --json`` and assert it failed the operation with ``code``."""
+        return assert_operation_error(self(*self._with_json(args), **overrides), code)
+
+    def _with_json(self, args: tuple[str, ...]) -> tuple[str, ...]:
+        """``args`` guaranteed to ask for JSON, which both parsing forms need."""
+        if self._json_output or "--json" in args:
+            return args
+        return (*args, "--json")
+
+    def _spawn(
+        self,
+        argv: list[str],
+        *,
+        cwd: Path | str | None,
+        timeout: float,
+        extra_env: Mapping[str, str] | None,
+        stdin: str | None,
+    ) -> "subprocess.CompletedProcess[str]":
+        extra = {**(self._extra_env or {}), **(extra_env or {})}
+        if self._env is not None:
+            env = {**self._env, **extra}
+        else:
+            env = {**os.environ, **extra} if extra else None
+        return subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=None if cwd is None else str(cwd),
+            timeout=timeout,
+            input=stdin,
+        )
+
+
+def _run_error_code(proc: "subprocess.CompletedProcess[str]") -> str | None:
+    """The ``Gda error code`` a finished run reported, or ``None`` if it reported none."""
+    try:
+        return json.loads(proc.stdout)["error"]["code"]
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def import_project(
+    project: Path | str, *, timeout: float = 180.0
+) -> "subprocess.CompletedProcess[str]":
+    """Run the engine's headless import pass over ``project``, and assert it passed.
+
+    The precondition several e2e scenarios need: a ``class_name`` registers in
+    ``.godot/global_script_class_list.cfg``, and a UID resolves through the UID
+    cache, only after a project scan — the step a CI pipeline runs before using
+    either. The engine's exit code is asserted here, so an import that failed
+    surfaces as itself rather than as a confusing later assertion about a class
+    name that was never registered. The finished process is returned for the
+    caller that reads what the pass printed.
+    """
+    imported = subprocess.run(
+        [str(GODOT), "--headless", "--path", str(project), "--import"],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    assert imported.returncode == 0, imported.stdout + imported.stderr
+    return imported
+
+
+def templates_installed(gda: Gda, preset: str = "Linux/X11") -> bool:
     """Whether the running engine has export templates, via ``gda export get``.
 
-    ``gda`` is a bound ``gda <args> --json`` callable (e.g. the e2e tests'
-    ``_gda_project``). The single source of truth for the e2e template-presence
+    ``gda`` is a project-bound :class:`Gda`. The single source of truth for the
+    e2e template-presence
     policy, shared by the export-run happy-path skip and the harness template-gate
     behavioural proof (#301). ``preset`` only needs to NAME a preset that exists in
     the project so ``export get`` succeeds; the verdict itself is preset-independent
@@ -121,9 +304,7 @@ def templates_installed(gda, preset: str = "Linux/X11") -> bool:
     version dir present but the host platform's file missing still sees ``True`` and
     must tolerate the export failing later.
     """
-    got = gda("export", "get", "--preset", preset, "--json")
-    assert got.returncode == 0, got.stdout + got.stderr
-    return json.loads(got.stdout)["templates_installed"]
+    return gda.json("export", "get", "--preset", preset)["templates_installed"]
 
 
 class FakeRunner:
@@ -339,7 +520,10 @@ def operation_error_invoker(
 
 
 def assert_operation_error(
-    result: Result, code: str, needle: str | None = None, diagnostics: str | None = None
+    result: "Result | subprocess.CompletedProcess[str]",
+    code: str,
+    needle: str | None = None,
+    diagnostics: str | None = None,
 ) -> dict:
     """Assert ``result`` is the operation-category failure for ``code``, and return it.
 
@@ -350,9 +534,23 @@ def assert_operation_error(
     asserts the raw stderr the envelope carries, and is always passed EXPLICITLY —
     a module that checks it says so at the call site rather than inheriting it.
     Returns the parsed error, so a caller asserts anything further on it.
+
+    Both tiers' invocation results are read: a Typer ``Result`` from an in-process
+    CLI call, and a finished ``CompletedProcess`` from an e2e :class:`Gda` spawn
+    (which is where :meth:`Gda.error` lands). The contract asserted is the same
+    envelope either way; only where the exit code sits, and how much of the run to
+    quote when the assertion fails, differ.
     """
-    assert result.exit_code == 4, result.stdout
-    err = json.loads(result.stdout)["error"]
+    if isinstance(result, subprocess.CompletedProcess):
+        exit_code, stdout, evidence = (
+            result.returncode,
+            result.stdout,
+            result.stdout + result.stderr,
+        )
+    else:
+        exit_code, stdout, evidence = result.exit_code, result.stdout, result.stdout
+    assert exit_code == 4, evidence
+    err = json.loads(stdout)["error"]
     assert err["category"] == "operation"
     assert err["code"] == code
     if needle is not None:

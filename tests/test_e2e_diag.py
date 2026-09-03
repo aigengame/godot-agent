@@ -20,17 +20,13 @@ serially in review.
 
 import json
 import os
-import subprocess
 import time
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
+from tests.support import Gda
 
-from .conftest import project_godot
-
-GODOT = resolve_godot_binary()
+from .conftest import LIVE_PROJECT_GODOT, SCRIPTED_MAIN_TSCN
 
 # A main scene whose root script emits a KNOWN runtime error and a KNOWN print
 # line at `_ready`, so the daemon's Session log captures both for `diag` to read
@@ -43,14 +39,6 @@ func _ready() -> void:
 	print("known line")
 	push_error("known error")
 """
-
-MAIN_TSCN = (
-    "[gd_scene load_steps=2 format=3]\n\n"
-    '[ext_resource type="Script" path="res://main.gd" id="1"]\n\n'
-    '[node name="Main" type="Node2D"]\n'
-    'script = ExtResource("1")\n'
-)
-PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
 # A main scene whose `_ready` calls a chain a() -> b() that triggers a runtime
 # GDScript error (calling a method on a null), so the engine emits a `GDScript
@@ -77,28 +65,11 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 def test_diag_reads_back_a_known_runtime_error_and_log_line(
     tmp_path, daemon_runtime_dir
 ):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPTED_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "main.gd").write_text(MAIN_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     # Correct lifecycle (ADR-0022): `gda diag` OBSERVES an already-launched session
     # — it does NOT create one. So the session must be launched by a NON-diagnostic
@@ -152,28 +123,11 @@ def test_diag_reads_back_a_multi_frame_callstack(tmp_path, daemon_runtime_dir):
     # — not just the top `file:line`. Same lifecycle as the sibling test: a
     # NON-diag live op (`game tree`) launches + warms the session, THEN diag
     # observes the daemon-owned Session log.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPTED_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "main.gd").write_text(CALLSTACK_MAIN_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     def poll_errors(needle, timeout=15.0):
         deadline = time.monotonic() + timeout

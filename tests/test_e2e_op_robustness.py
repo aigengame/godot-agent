@@ -13,13 +13,11 @@ import time
 
 import pytest
 
-from gda.binary import resolve_godot_binary
 from gda.errors import Failure, classify_run
 from gda.models import EngineVersion
 from gda.parser import parse_result
 from gda.runner import OPERATIONS_GD, RunResult, SubprocessGodotRunner
-
-GODOT = resolve_godot_binary()
+from tests.support import GODOT
 
 
 @pytest.mark.e2e

@@ -29,16 +29,12 @@ when the cache misses. These tests exercise the change through the REAL engine
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from tests.support import Gda, assert_operation_error, import_project
 
 from .conftest import project_godot
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
 
 # Built through ``project_godot`` so e2e file logging stays disabled (issue #180).
 CLASSNAME_RES_PROJECT_GODOT = project_godot(name="gda-classname-res-fixture")
@@ -66,35 +62,6 @@ func taunt() -> void:
 """
 
 
-def _gda(project, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
-        capture_output=True,
-        text=True,
-    )
-
-
-def _import_project(project) -> None:
-    # An editor/import scan is what populates .godot/global_script_class_cache.cfg
-    # (tier 2). Scenario (b) runs it; scenarios (a), (c), (d) deliberately do NOT,
-    # so the resolver must fall through to the static scan (tier 3).
-    imported = subprocess.run(
-        [str(GODOT), "--headless", "--path", str(project), "--import"],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert imported.returncode == 0, imported.stdout + imported.stderr
-
-
-def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
-    assert proc.returncode == 4, proc.stdout + proc.stderr
-    err = json.loads(proc.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == code
-    return err
-
-
 @pytest.fixture
 def uncached_project(tmp_path):
     """An editor-never-opened project (NO .godot/) with project-local classes."""
@@ -119,8 +86,7 @@ def test_resource_create_resolves_project_class_name_without_editor_cache(
     assert not (uncached_project / ".godot").exists()
     resource_path = uncached_project / "panda.tres"
 
-    created = _gda(
-        uncached_project,
+    created = Gda(uncached_project)(
         "resource",
         "create",
         str(resource_path),
@@ -144,8 +110,7 @@ def test_node_add_resolves_project_class_name_without_editor_cache(uncached_proj
     # node add resolves a project-local class_name Node via the static scan.
     assert not (uncached_project / ".godot").exists()
     scene_path = uncached_project / "main.tscn"
-    created = _gda(
-        uncached_project,
+    created = Gda(uncached_project)(
         "scene",
         "create",
         str(scene_path),
@@ -155,8 +120,8 @@ def test_node_add_resolves_project_class_name_without_editor_cache(uncached_proj
     )
     assert created.returncode == 0, created.stdout + created.stderr
 
-    added = _gda(
-        uncached_project, "node", "add", str(scene_path), "--type", "Hero", "--json"
+    added = Gda(uncached_project)(
+        "node", "add", str(scene_path), "--type", "Hero", "--json"
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
@@ -175,7 +140,7 @@ def test_find_references_resolves_project_class_name_without_editor_cache(
     # no more "not a res:// path or a registered class_name" for a real class.
     assert not (uncached_project / ".godot").exists()
 
-    proc = _gda(uncached_project, "project", "find-references", "Hero", "--json")
+    proc = Gda(uncached_project)("project", "find-references", "Hero", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
@@ -192,12 +157,14 @@ def test_find_references_resolves_project_class_name_without_editor_cache(
 def test_editor_opened_project_resolves_via_cache_unchanged(uncached_project):
     # With a populated .godot/ cache (tier 2), resolution is unchanged — the
     # static-scan fallback is unobservable for an editor-opened project.
-    _import_project(uncached_project)
+    # An editor/import scan is what populates .godot/global_script_class_cache.cfg
+    # (tier 2). Only this scenario runs it; (a), (c) and (d) deliberately do NOT,
+    # so the resolver must fall through to the static scan (tier 3).
+    import_project(uncached_project)
     assert (uncached_project / ".godot").exists()
     resource_path = uncached_project / "panda_cached.tres"
 
-    created = _gda(
-        uncached_project,
+    created = Gda(uncached_project)(
         "resource",
         "create",
         str(resource_path),
@@ -244,8 +211,7 @@ def _assert_ambiguous(err: dict) -> None:
 
 @pytest.mark.e2e
 def test_resource_create_ambiguous_class_name(ambiguous_project):
-    created = _gda(
-        ambiguous_project,
+    created = Gda(ambiguous_project)(
         "resource",
         "create",
         str(ambiguous_project / "x.tres"),
@@ -253,7 +219,7 @@ def test_resource_create_ambiguous_class_name(ambiguous_project):
         "Dup",
         "--json",
     )
-    _assert_ambiguous(_assert_operation_error(created, "ambiguous_class_name"))
+    _assert_ambiguous(assert_operation_error(created, "ambiguous_class_name"))
     # Nothing was written for the rejected type.
     assert not (ambiguous_project / "x.tres").exists()
 
@@ -261,8 +227,7 @@ def test_resource_create_ambiguous_class_name(ambiguous_project):
 @pytest.mark.e2e
 def test_node_add_ambiguous_class_name(ambiguous_project):
     scene_path = ambiguous_project / "main.tscn"
-    created = _gda(
-        ambiguous_project,
+    created = Gda(ambiguous_project)(
         "scene",
         "create",
         str(scene_path),
@@ -272,18 +237,18 @@ def test_node_add_ambiguous_class_name(ambiguous_project):
     )
     assert created.returncode == 0, created.stdout + created.stderr
 
-    added = _gda(
-        ambiguous_project, "node", "add", str(scene_path), "--type", "Dup", "--json"
+    added = Gda(ambiguous_project)(
+        "node", "add", str(scene_path), "--type", "Dup", "--json"
     )
 
-    _assert_ambiguous(_assert_operation_error(added, "ambiguous_class_name"))
+    _assert_ambiguous(assert_operation_error(added, "ambiguous_class_name"))
 
 
 @pytest.mark.e2e
 def test_find_references_ambiguous_class_name(ambiguous_project):
-    proc = _gda(ambiguous_project, "project", "find-references", "Dup", "--json")
+    proc = Gda(ambiguous_project)("project", "find-references", "Dup", "--json")
 
-    _assert_ambiguous(_assert_operation_error(proc, "ambiguous_class_name"))
+    _assert_ambiguous(assert_operation_error(proc, "ambiguous_class_name"))
 
 
 # --- (d) unknown type: actionable message, no editor-cache implication -------
@@ -291,17 +256,15 @@ def test_find_references_ambiguous_class_name(ambiguous_project):
 
 @pytest.mark.e2e
 def test_resource_create_unknown_type_message_is_actionable(uncached_project):
-    created = _gda(
-        uncached_project,
+    err = Gda(uncached_project).error(
         "resource",
         "create",
         str(uncached_project / "nope.tres"),
         "--type",
         "Nope",
         "--json",
+        code="invalid_resource_type",
     )
-
-    err = _assert_operation_error(created, "invalid_resource_type")
     msg = err["message"]
     assert "Nope" in msg
     # The actionable cause: the class is not declared in a .gd (a misspelling).
@@ -315,8 +278,7 @@ def test_resource_create_unknown_type_message_is_actionable(uncached_project):
 @pytest.mark.e2e
 def test_node_add_unknown_type_message_is_actionable(uncached_project):
     scene_path = uncached_project / "main.tscn"
-    created = _gda(
-        uncached_project,
+    created = Gda(uncached_project)(
         "scene",
         "create",
         str(scene_path),
@@ -326,11 +288,15 @@ def test_node_add_unknown_type_message_is_actionable(uncached_project):
     )
     assert created.returncode == 0, created.stdout + created.stderr
 
-    added = _gda(
-        uncached_project, "node", "add", str(scene_path), "--type", "Nope", "--json"
+    err = Gda(uncached_project).error(
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Nope",
+        "--json",
+        code="invalid_node_type",
     )
-
-    err = _assert_operation_error(added, "invalid_node_type")
     msg = err["message"]
     assert "Nope" in msg
     assert "no .gd script declares class_name Nope" in msg
@@ -350,8 +316,7 @@ def test_resource_create_project_class_emits_no_engine_error(uncached_project):
     # probe, so the static-scan resolution is silent.
     assert not (uncached_project / ".godot").exists()
 
-    created = _gda(
-        uncached_project,
+    created = Gda(uncached_project)(
         "resource",
         "create",
         str(uncached_project / "quiet.tres"),
@@ -368,8 +333,7 @@ def test_resource_create_project_class_emits_no_engine_error(uncached_project):
 def test_node_add_project_class_emits_no_engine_error(uncached_project):
     assert not (uncached_project / ".godot").exists()
     scene_path = uncached_project / "main.tscn"
-    created = _gda(
-        uncached_project,
+    created = Gda(uncached_project)(
         "scene",
         "create",
         str(scene_path),
@@ -379,8 +343,8 @@ def test_node_add_project_class_emits_no_engine_error(uncached_project):
     )
     assert created.returncode == 0, created.stdout + created.stderr
 
-    added = _gda(
-        uncached_project, "node", "add", str(scene_path), "--type", "Hero", "--json"
+    added = Gda(uncached_project)(
+        "node", "add", str(scene_path), "--type", "Hero", "--json"
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
@@ -393,8 +357,7 @@ def test_ambiguous_class_name_carries_no_cannot_get_class(ambiguous_project):
     # of UNRELATED error envelopes on the fallback path — an ambiguous_class_name
     # failure carried "Cannot get class 'Dup'", pointing away from the real
     # cause. Neither the envelope's diagnostics nor stderr embeds it now.
-    created = _gda(
-        ambiguous_project,
+    created = Gda(ambiguous_project)(
         "resource",
         "create",
         str(ambiguous_project / "x.tres"),
@@ -403,7 +366,7 @@ def test_ambiguous_class_name_carries_no_cannot_get_class(ambiguous_project):
         "--json",
     )
 
-    err = _assert_operation_error(created, "ambiguous_class_name")
+    err = assert_operation_error(created, "ambiguous_class_name")
     assert "Cannot get class" not in err.get("diagnostics", "")
     assert "Cannot get class" not in created.stderr
 
@@ -414,8 +377,7 @@ def test_builtin_classes_resolve_unchanged_and_silent(uncached_project):
     # built-in Resource (Gradient) still resolve on the ClassDB tier exactly as
     # before — never reaching the class_name resolver — and stay silent.
     scene_path = uncached_project / "builtin.tscn"
-    created = _gda(
-        uncached_project,
+    created = Gda(uncached_project)(
         "scene",
         "create",
         str(scene_path),
@@ -426,16 +388,15 @@ def test_builtin_classes_resolve_unchanged_and_silent(uncached_project):
     assert created.returncode == 0, created.stdout + created.stderr
     assert "ERROR:" not in created.stderr, created.stderr
 
-    added = _gda(
-        uncached_project, "node", "add", str(scene_path), "--type", "Sprite2D", "--json"
+    added = Gda(uncached_project)(
+        "node", "add", str(scene_path), "--type", "Sprite2D", "--json"
     )
     assert added.returncode == 0, added.stdout + added.stderr
     assert json.loads(added.stdout)["type"] == "Sprite2D"
     assert "ERROR:" not in added.stderr, added.stderr
 
     resource_path = uncached_project / "builtin.tres"
-    res = _gda(
-        uncached_project,
+    res = Gda(uncached_project)(
         "resource",
         "create",
         str(resource_path),

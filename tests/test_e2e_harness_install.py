@@ -39,7 +39,6 @@ from typing import NamedTuple
 
 import pytest
 
-from gda.binary import resolve_godot_binary
 from gda.daemon.protocol import read_frame
 from gda.harness.install import (
     HARNESS_AUTOLOAD_NAME,
@@ -48,16 +47,13 @@ from gda.harness.install import (
     install_harness,
 )
 
-from tests.support import GDA_CMD, templates_installed
+from tests.support import GODOT, Gda, templates_installed
 
-from .conftest import project_godot
-
-GODOT = resolve_godot_binary()
+from .conftest import LIVE_PROJECT_GODOT, project_godot
 
 # A trivial main scene so a normal (non-`--script`) boot runs the autoload's
 # `_ready`; file logging stays disabled via project_godot (issue #180).
 MAIN_TSCN = '[gd_scene format=3]\n\n[node name="Main" type="Node"]\n'
-PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
 # The harness only connects when a `gda-daemon` marker is present in the user args
 # (StreamPeerUDS.connect_to_host). An inert boot opens nothing, so none of these
@@ -79,7 +75,7 @@ def _assert_inert_boot(out: str, returncode: int) -> None:
 
 @pytest.mark.e2e
 def test_installed_harness_boots_inert_in_a_real_engine(tmp_path):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
 
     result = install_harness(tmp_path)
@@ -110,7 +106,7 @@ def test_exported_pck_with_harness_runs_inert(tmp_path):
     # harness is genuinely IN the pack, then RUN that .pck with no `gda-daemon`
     # marker — the packed GdaHarness autoload must boot clean and open nothing (the
     # exact failure ADR-0018 guards: a dangling/active autoload in an exported game).
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
     install_harness(tmp_path)
 
@@ -368,14 +364,7 @@ def test_template_feature_gates_the_harness_only_in_exported_builds(
     (tmp_path / "export_presets.cfg").write_text(target.presets_cfg, encoding="utf-8")
     install_harness(tmp_path)
 
-    def gda(*args):  # bound `gda export get` for the templates-presence gate
-        return subprocess.run(
-            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(tmp_path)],
-            capture_output=True,
-            text=True,
-        )
-
-    if not templates_installed(gda, preset=target.preset):
+    if not templates_installed(Gda(tmp_path), preset=target.preset):
         pytest.skip(
             f"export templates for the running engine + {target.preset!r} are not "
             "installed; the template-gate BEHAVIOURAL proof cannot export a template "
@@ -481,15 +470,10 @@ def test_daemon_install_leaves_a_project_a_real_engine_boots_inert(tmp_path):
     # same way the fast install tests' does — the autoload loads, and stays inert with
     # no daemon marker. Driven through a REAL `gda` subprocess (no daemon involved),
     # so the recipe, the JSON receipt and the engine's verdict are all exercised.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
 
-    installed = subprocess.run(
-        [*GDA_CMD, "daemon", "install", "--project", str(tmp_path), "--json"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    installed = Gda(tmp_path, godot=None, timeout=60)("daemon", "install", "--json")
 
     assert installed.returncode == 0, installed.stdout + installed.stderr
     receipt = json.loads(installed.stdout)
@@ -510,12 +494,7 @@ def test_daemon_install_leaves_a_project_a_real_engine_boots_inert(tmp_path):
     _assert_inert_boot(proc.stdout + proc.stderr, proc.returncode)
 
     # And `gda daemon uninstall` reverses it, so the pair is symmetric end to end.
-    removed = subprocess.run(
-        [*GDA_CMD, "daemon", "uninstall", "--project", str(tmp_path), "--json"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    removed = Gda(tmp_path, godot=None, timeout=60)("daemon", "uninstall", "--json")
     assert removed.returncode == 0, removed.stdout + removed.stderr
     assert json.loads(removed.stdout)["removed"] is True
     assert not (tmp_path / "addons" / "gda_harness").exists()

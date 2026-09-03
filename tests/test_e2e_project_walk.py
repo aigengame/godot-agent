@@ -27,16 +27,12 @@ universe is the engine's.
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from tests.support import Gda
 
 from .conftest import project_godot
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
 
 PROJECT_GODOT = project_godot(name="gda-walk-fixture")
 
@@ -86,28 +82,14 @@ def walk_project(tmp_path):
     return tmp_path
 
 
-def _gda(project, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
-        capture_output=True,
-        text=True,
-    )
-
-
-def _result(project, *args: str) -> dict:
-    proc = _gda(project, *args, "--json")
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    return json.loads(proc.stdout)
-
-
 @pytest.mark.e2e
 def test_the_listings_accept_an_extension_in_any_case_as_the_engine_does(walk_project):
     # AC2 (#764): the case-sensitivity drift is resolved case-INSENSITIVELY, on
     # both sides. `Level.TSCN` is a scene to the engine (it loads as a
     # PackedScene, reported below through root_type) so `scene list` reports it;
     # `Widget.GD` was already accepted by the script walk and stays accepted.
-    scenes = {s["path"]: s for s in _result(walk_project, "scene", "list")["scenes"]}
-    scripts = {s["path"] for s in _result(walk_project, "script", "list")["scripts"]}
+    scenes = {s["path"]: s for s in Gda(walk_project).json("scene", "list")["scenes"]}
+    scripts = {s["path"] for s in Gda(walk_project).json("script", "list")["scripts"]}
 
     assert set(scenes) == {"res://main.tscn", "res://Level.TSCN"}
     assert scripts == {"res://helper.gd", "res://Widget.GD"}
@@ -120,7 +102,7 @@ def test_the_listings_accept_an_extension_in_any_case_as_the_engine_does(walk_pr
     # classifies by a lowercased extension, so its counts match the listings.
     # Before this change it counted a scene `scene list` could not see (#712's
     # failure shape, on the acceptance test instead of the descent decision).
-    stats = _result(walk_project, "project", "statistics")
+    stats = Gda(walk_project).json("project", "statistics")
     assert stats["scene_count"] == len(scenes)
     assert stats["script_count"] == len(scripts)
 
@@ -131,7 +113,7 @@ def test_the_two_file_universes_survive_the_shared_traversal(walk_project):
     # file it reaches — including the `.import` sidecar and `project.godot` — while
     # the extension-filtered walk behind the reference graph excludes exactly
     # those, and still sees the leaf asset beside them.
-    stats = _result(walk_project, "project", "statistics")
+    stats = Gda(walk_project).json("project", "statistics")
     by_ext = {e["extension"]: e["files"] for e in stats["by_extension"]}
 
     assert by_ext.get("import") == 1, by_ext  # icon.png.import
@@ -140,10 +122,10 @@ def test_the_two_file_universes_survive_the_shared_traversal(walk_project):
 
     # The filtered universe: the sidecar and the project file are not resources,
     # so they are neither unused-resource candidates nor dependency sources...
-    unused = set(_result(walk_project, "project", "find-unused-resources")["unused"])
+    unused = set(Gda(walk_project).json("project", "find-unused-resources")["unused"])
     sources = {
         d["path"]
-        for d in _result(walk_project, "project", "dependencies")["dependencies"]
+        for d in Gda(walk_project).json("project", "dependencies")["dependencies"]
     }
     excluded = {"res://icon.png.import", "res://project.godot"}
     assert not (unused & excluded), unused
@@ -264,10 +246,9 @@ def _assert_class_name_unresolvable(project, *classes: str) -> None:
     The message half is asserted too, because it is the half that distinguishes
     "no script declares this" from every other ``invalid_node_type``.
     """
-    _result(project, "scene", "create", "res://host.tscn", "--root-type", "Node")
+    Gda(project).json("scene", "create", "res://host.tscn", "--root-type", "Node")
     for name in classes:
-        proc = _gda(
-            project,
+        proc = Gda(project)(
             "node",
             "add",
             "res://host.tscn",
@@ -292,12 +273,12 @@ def _walked_paths(project) -> set[str]:
     The policy is one decision, so the assertions are made against the union: a
     path admitted by any collector is a path the walk admitted.
     """
-    scripts = {s["path"] for s in _result(project, "script", "list")["scripts"]}
-    scenes = {s["path"] for s in _result(project, "scene", "list")["scenes"]}
+    scripts = {s["path"] for s in Gda(project).json("script", "list")["scripts"]}
+    scenes = {s["path"] for s in Gda(project).json("scene", "list")["scenes"]}
     sources = {
-        d["path"] for d in _result(project, "project", "dependencies")["dependencies"]
+        d["path"] for d in Gda(project).json("project", "dependencies")["dependencies"]
     }
-    unused = set(_result(project, "project", "find-unused-resources")["unused"])
+    unused = set(Gda(project).json("project", "find-unused-resources")["unused"])
     return scripts | scenes | sources | unused
 
 
@@ -324,7 +305,7 @@ def test_an_alias_cannot_re_admit_the_engine_cache(symlink_project):
 
     # `project statistics` counts over the unfiltered universe, so it is the
     # collector that would show the cache re-entering as a raw count.
-    stats = _result(symlink_project, "project", "statistics")
+    stats = Gda(symlink_project).json("project", "statistics")
     assert stats["script_count"] == 2, stats  # sub/leaf.gd and vendored/vendored.gd
     assert stats["scene_count"] == 1, stats  # vendored/vendored.tscn — nothing aliased
 
@@ -348,7 +329,9 @@ def test_a_symlink_cycle_terminates_without_fabricated_paths(symlink_project):
 
     # The termination is a rule, not a truncation: the counting collector agrees
     # with the listing rather than reporting the OS limit's leftovers.
-    scripts = [s["path"] for s in _result(symlink_project, "script", "list")["scripts"]]
+    scripts = [
+        s["path"] for s in Gda(symlink_project).json("script", "list")["scripts"]
+    ]
     assert scripts.count("res://sub/leaf.gd") == 1, scripts
 
 
@@ -367,11 +350,10 @@ def test_a_link_to_authored_content_is_still_walked(symlink_project):
     assert "res://vendored/vendored.gd" in walked, walked
     assert "res://vendored/vendored.tscn" in walked, walked
 
-    _result(
-        symlink_project, "scene", "create", "res://host.tscn", "--root-type", "Node"
+    Gda(symlink_project).json(
+        "scene", "create", "res://host.tscn", "--root-type", "Node"
     )
-    added = _result(
-        symlink_project,
+    added = Gda(symlink_project).json(
         "node",
         "add",
         "res://host.tscn",
@@ -495,7 +477,7 @@ def test_the_cache_stays_excluded_under_a_second_spelling_of_its_parent(
         "res://link1/deep_leaf.gd",
     } <= walked, walked
 
-    stats = _result(aliased_spelling_project, "project", "statistics")
+    stats = Gda(aliased_spelling_project).json("project", "statistics")
     assert stats["script_count"] == 3, stats
     assert stats["scene_count"] == 0, stats
 
@@ -514,7 +496,7 @@ def test_a_vendored_checkouts_own_cache_is_not_taken_for_the_projects(
     # `res://.godot`, which is_equivalent then confirmed against the project's own
     # cache — so a nested cache #712 decided to walk was silently hidden.
     scripts = {
-        s["path"] for s in _result(vendored_cache_project, "script", "list")["scripts"]
+        s["path"] for s in Gda(vendored_cache_project).json("script", "list")["scripts"]
     }
 
     assert "res://vendored/x/vendored_sample.gd" in scripts, scripts
@@ -546,7 +528,7 @@ def test_a_cache_alias_is_excluded_however_deep_below_the_cache_it_points(tmp_pa
     (deep / "deep_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
     (project / "alias_deep").symlink_to(deep, target_is_directory=True)
 
-    scripts = {s["path"] for s in _result(project, "script", "list")["scripts"]}
+    scripts = {s["path"] for s in Gda(project).json("script", "list")["scripts"]}
     assert scripts == {"res://real.gd"}, scripts
     _assert_class_name_unresolvable(project, "RootCacheThing")
 
@@ -689,18 +671,19 @@ def test_the_listings_skip_a_nested_project_and_a_gdignore_directory(
 
     scripts = {
         s["path"]
-        for s in _result(skipped_directory_project, "script", "list")["scripts"]
+        for s in Gda(skipped_directory_project).json("script", "list")["scripts"]
     }
     assert scripts == {"res://outer.gd", "res://duplicate.gd"}, scripts
 
     scenes = {
-        s["path"] for s in _result(skipped_directory_project, "scene", "list")["scenes"]
+        s["path"]
+        for s in Gda(skipped_directory_project).json("scene", "list")["scenes"]
     }
     assert scenes == {"res://outer.tscn"}, scenes
 
     # The unfiltered universe is the one that counts a `project.godot` and the
     # `.gdignore` marker itself, so it is where a re-entry shows up as a raw count.
-    stats = _result(skipped_directory_project, "project", "statistics")
+    stats = Gda(skipped_directory_project).json("project", "statistics")
     by_ext = {e["extension"]: e["files"] for e in stats["by_extension"]}
     assert stats["script_count"] == 2, stats
     assert stats["scene_count"] == 1, stats
@@ -722,15 +705,14 @@ def test_validate_all_and_the_named_target_agree_on_a_nested_projects_script(
     # cascade — while NAMING that file is refused outright by ADR-0006's ownership
     # gate. The walk no longer reaches it, so `--all` reports only what the outer
     # project owns and the refusal stays the one true answer for the nested file.
-    validated = _result(skipped_directory_project, "script", "validate", "--all")
+    validated = Gda(skipped_directory_project).json("script", "validate", "--all")
     assert {s["path"] for s in validated["scripts"]} == {
         "res://outer.gd",
         "res://duplicate.gd",
     }, validated
     assert validated["valid"] is True, validated
 
-    proc = _gda(
-        skipped_directory_project,
+    proc = Gda(skipped_directory_project)(
         "script",
         "validate",
         "res://nested/inner.gd",
@@ -755,8 +737,7 @@ def test_the_class_name_index_follows_the_walk_out_of_a_skipped_directory(
     # ...and a duplicate that existed only because the walk entered the nested
     # project is no longer a duplicate, so a name that reported
     # `ambiguous_class_name` now resolves — to the outer project's declaration.
-    added = _result(
-        skipped_directory_project,
+    added = Gda(skipped_directory_project).json(
         "node",
         "add",
         "res://host.tscn",  # created by the helper above
@@ -772,13 +753,12 @@ def test_the_class_name_index_follows_the_walk_out_of_a_skipped_directory(
     # `find-references` shares the identical resolver, so it agrees: the outer
     # class is a resolvable target, the nested one is not a class at all.
     assert (
-        _result(skipped_directory_project, "project", "find-references", "OuterThing")[
+        Gda(skipped_directory_project).json("project", "find-references", "OuterThing")[
             "target"
         ]
         == "OuterThing"
     )
-    proc = _gda(
-        skipped_directory_project,
+    proc = Gda(skipped_directory_project)(
         "project",
         "find-references",
         "InnerThing",
@@ -798,8 +778,7 @@ def test_the_import_gap_listing_promises_nothing_in_a_skipped_directory(
     # scan skips both marked directories, so their stale sidecars were a promise of
     # work the pass never does. It listed res://ignored/pic.png and
     # res://nested/pic.png before.
-    predicted = _result(
-        skipped_directory_project,
+    predicted = Gda(skipped_directory_project).json(
         "resource",
         "import",
         "res://pic.png",
@@ -948,7 +927,7 @@ def test_an_engine_written_nested_cache_is_skipped_where_an_authored_one_is_walk
     # it is walked, as #712 and #760 decided.
     assert "res://vendored/real.gd" in walked, walked
 
-    stats = _result(marker_reach_project, "project", "statistics")
+    stats = Gda(marker_reach_project).json("project", "statistics")
     by_ext = {e["extension"]: e["files"] for e in stats["by_extension"]}
     assert "gdignore" not in by_ext, by_ext
 
@@ -956,8 +935,7 @@ def test_an_engine_written_nested_cache_is_skipped_where_an_authored_one_is_walk
     # it: the engine-written cache's declaration is gone from the index while the
     # authored one still resolves.
     _assert_class_name_unresolvable(marker_reach_project, "EngineCacheThing")
-    added = _result(
-        marker_reach_project,
+    added = Gda(marker_reach_project).json(
         "node",
         "add",
         "res://host.tscn",  # created by the helper above

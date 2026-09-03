@@ -20,11 +20,10 @@ from mcp import Client
 from mcp.types import ListRootsResult, Root
 from pydantic import FileUrl
 
-from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
+from gda.binary import GODOT_BIN_ENV
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server
-
-GODOT = resolve_godot_binary()
+from tests.support import GODOT
 
 
 def _call_tool(server, name, arguments, *, roots=None):

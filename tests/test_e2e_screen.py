@@ -21,16 +21,12 @@ within the `sun_path` limit.
 
 import json
 import os
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD, assert_windowed_ok
+from tests.support import Gda, assert_windowed_ok
 
-from .conftest import project_godot
-
-GODOT = resolve_godot_binary()
+from .conftest import LIVE_PROJECT_GODOT, project_godot
 
 # The PNG magic the written capture must start with — the proof it is a real,
 # decodable image (not an empty/placeholder buffer).
@@ -47,7 +43,6 @@ MAIN_TSCN = (
     "offset_bottom = 150.0\n"
     "color = Color(0.2, 0.6, 0.9, 1)\n"
 )
-PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -69,23 +64,8 @@ _needs_display = pytest.mark.usefixtures("windowed_host")
 
 
 def _scaffold(tmp_path):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-
-
-def _runner(gda, tmp_path):
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [*gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=120,
-        )
-
-    return run
 
 
 @pytest.mark.e2e
@@ -94,7 +74,7 @@ def test_windowed_daemon_captures_a_single_viewport_frame(tmp_path, daemon_runti
     # `daemon start --windowed` -> a WINDOWED engine session -> `screen capture`
     # writes a real PNG of the running viewport (magic + dims > 0).
     _scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "shot.png"
 
     try:
@@ -147,7 +127,7 @@ def test_windowed_daemon_captures_a_single_viewport_frame(tmp_path, daemon_runti
 def test_windowed_daemon_inline_embeds_the_base64(tmp_path, daemon_runtime_dir):
     # `screen capture --inline` additionally embeds the base64 PNG in the reply.
     _scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "shot.png"
 
     try:
@@ -182,12 +162,12 @@ def test_capture_receipt_reports_the_scene_uid_the_project_provides(
     # whose FILE HEADER carries a uid (as every editor-authored scene does)
     # reports it — read from the header itself, no `.godot/` cache needed. The
     # uid-less arm is the single-frame test above.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(
         f'{header}\n\n[node name="Main" type="Node2D"]\n',
         encoding="utf-8",
     )
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "shot.png"
 
     try:
@@ -208,7 +188,7 @@ def test_capture_receipt_names_the_launched_scene_after_a_scene_switch(
     # #660's authoritative semantics (#746 review Spec 1): the receipt's scene
     # fields are the LAUNCHED scene — a session launch fact — so a game that
     # switches scenes mid-session still receipts under the scene it launched.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.gd").write_text(
         "extends Node2D\n"
         "var _frames := 0\n"
@@ -229,7 +209,7 @@ def test_capture_receipt_names_the_launched_scene_after_a_scene_switch(
         '[gd_scene format=3]\n\n[node name="Other" type="Node2D"]\n',
         encoding="utf-8",
     )
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "shot.png"
 
     try:
@@ -255,7 +235,7 @@ def test_windowed_daemon_captures_a_frame_window(tmp_path, daemon_runtime_dir):
     # 3 viewport frames over the engine session and returns them in one blocking
     # call; the CLI writes one PNG per frame (path-only).
     _scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out_dir = tmp_path / "frames"
 
     try:
@@ -302,7 +282,7 @@ def test_ninety_frame_capture_completes_with_a_structured_envelope(
     # they establish correlation, not the specific cap. The --summary envelope
     # below stays well under any such limit either way.
     _scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out_dir = tmp_path / "frames"
 
     try:
@@ -353,7 +333,7 @@ def test_headless_session_reports_live_display_unavailable(
     # capture` there is refused with the typed live_display_unavailable (the
     # self-revealing remediation: start --windowed). No file is written.
     _scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "shot.png"
 
     try:
@@ -376,7 +356,7 @@ def test_screen_capture_with_no_daemon_reports_daemon_not_running(
     # No daemon started: `screen capture` is the attach-or-fail daemon_not_running
     # (ADR-0017), the same typed error every live op reports with no daemon.
     _scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
 
     cap = run("screen", "capture", "--output", str(tmp_path / "shot.png"))
 
@@ -549,7 +529,7 @@ def test_await_predicate_captures_the_matched_frames_pixels_repeatedly(
     # decoded PNG must show the MATCHED frame's presentation — not the frame
     # before it — on REPEATED captures in one session.
     _predicate_scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
 
     try:
         assert_windowed_ok(run("daemon", "start", "--windowed"))
@@ -579,7 +559,7 @@ def test_await_predicate_that_never_holds_is_the_typed_error(
     # after the declared frame bound — in ~a third of a second, not a timeout —
     # and writes no file.
     _predicate_scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "never.png"
 
     try:
@@ -605,7 +585,7 @@ def test_await_events_capture_an_input_triggered_transient(
     # press triggers cannot be missed by a second CLI round trip; the declared
     # release fires before the reply, so no key is left held.
     _predicate_scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "flash.png"
 
     try:
@@ -638,7 +618,7 @@ def test_early_match_still_fires_every_scheduled_release(tmp_path, daemon_runtim
     # mouse-button phase, and an action are each verified released afterwards,
     # so no input state leaks into later live operations.
     _predicate_scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
 
     cases = [
         (
@@ -686,7 +666,7 @@ def test_unmet_predicate_error_path_still_fires_every_event(
     # schema/model parity, #743 second re-review) and still fires during the
     # drain, so the reply arrives only after it.
     _predicate_scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "never.png"
 
     try:
@@ -717,7 +697,7 @@ def test_predicate_resolution_never_reads_the_property(tmp_path, daemon_runtime_
     # so a scripted getter runs EXACTLY once per sampled frame — frames_waited+1
     # times in total, no pre-read, no re-read at capture.
     _predicate_scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "probe.png"
 
     try:
@@ -741,7 +721,7 @@ def test_input_written_state_is_captured_with_its_own_presentation(
     # writes is observed one boundary LATER, together with its own
     # presentation — so the decoded pixels show the matched visual.
     _predicate_scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
 
     try:
         assert_windowed_ok(run("daemon", "start", "--windowed"))
@@ -775,7 +755,7 @@ def test_late_event_failure_is_the_reply_and_writes_no_file(
     # scheduled event FAILS — the reply is that typed failure, no file is
     # written, and the later declared release still drains (no held action).
     _predicate_scaffold(tmp_path)
-    run = _runner(GDA_CMD, tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     out = tmp_path / "late.png"
 
     try:

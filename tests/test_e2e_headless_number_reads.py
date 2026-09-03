@@ -21,11 +21,8 @@ claims anything about it.
 
 import json
 import math
-import subprocess
 
 import pytest
-
-from gda.binary import resolve_godot_binary
 
 from tests.live_number_corpus import (
     LIVE_NUMBER_CORPUS,
@@ -34,9 +31,7 @@ from tests.live_number_corpus import (
     tally_outcome,
     value_bits,
 )
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
+from tests.support import Gda
 
 # One exported float per corpus row plus the whole corpus as a packed array, so
 # the scalar arm of the value projection and its element-wise arm are both read
@@ -84,33 +79,12 @@ PROBE_TSCN = (
 )
 
 
-def _gda(project):
-    """A bound ``gda <args> --project <p> --godot <g> --json`` runner."""
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(project),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-
-    return run
-
-
 def _probe_project(project):
     """Write the probe scene into ``project`` and return its bound runner."""
     (project / "numbers.gd").write_text(_probe_source(), encoding="utf-8")
     (project / "numbers.tscn").write_text(PROBE_TSCN, encoding="utf-8")
-    return _gda(project)
+    # 180s: a read of the whole corpus boots the engine on every row.
+    return Gda(project, json_output=True, timeout=180)
 
 
 def _exports_by_name(run) -> dict:
@@ -221,7 +195,7 @@ def test_a_project_setting_round_trips_through_set_and_get(godot_project):
     from both — while `project.godot` held the value the caller sent. These are the
     two literals #771 quotes, and they are the round-trip the catalog promises.
     """
-    run = _gda(godot_project)
+    run = Gda(godot_project, json_output=True, timeout=180)
     setting = "physics/2d/default_gravity"
 
     for literal, expected in (

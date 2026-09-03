@@ -12,15 +12,11 @@ run, and the verdict has to come back within it.
 """
 
 import json
-import subprocess
 import time
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
+from tests.support import Gda
 
 # printerr, not print: gda's stdout carries only the result object (ADR-0002), so
 # the engine's stdout is consumed by the sentinel parse and never forwarded. Its
@@ -64,17 +60,6 @@ def _scene_tscn(script: str) -> str:
     )
 
 
-def _gda_project(project):
-    def gda(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
-            capture_output=True,
-            text=True,
-        )
-
-    return gda
-
-
 def _scene(project, name: str, script_name: str, source: str):
     (project / script_name).write_text(source, encoding="utf-8")
     (project / name).write_text(_scene_tscn(script_name), encoding="utf-8")
@@ -83,7 +68,7 @@ def _scene(project, name: str, script_name: str, source: str):
 @pytest.mark.e2e
 def test_a_scene_that_comes_up_cleanly_is_started(godot_project):
     _scene(godot_project, "hero.tscn", "hero.gd", READY_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda("scene", "preflight", "res://hero.tscn", "--json")
 
@@ -108,7 +93,7 @@ def test_an_error_raised_in_ready_is_reported_though_the_scene_reached_ready(
     # reaches _ready — and is still broken. `status` reports how far it got, the
     # diagnostics say what went wrong, and `started` requires both.
     _scene(godot_project, "encounter.tscn", "encounter.gd", FAILING_READY_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     # Static validation passes: every dependency resolves and the script compiles.
     validated = gda("scene", "validate", "res://encounter.tscn", "--json")
@@ -137,7 +122,7 @@ def test_a_scene_whose_ready_never_returns_is_a_timeout_verdict_within_the_bound
     # still comes back — as a SUCCESS carrying status=timeout, because "it did not
     # come up" is the answer this command was asked for.
     _scene(godot_project, "hang.tscn", "hang.gd", BLOCKING_READY_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     started_at = time.monotonic()
     preflighted = gda(
@@ -179,7 +164,7 @@ def test_a_scene_missing_an_unimported_asset_starts_clean_which_is_why_both_exis
         'texture = ExtResource("1_dot")\n',
         encoding="utf-8",
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda("scene", "preflight", "res://main.tscn", "--json")
     assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
@@ -198,7 +183,7 @@ def test_a_scene_missing_an_unimported_asset_starts_clean_which_is_why_both_exis
 
 @pytest.mark.e2e
 def test_a_missing_scene_is_refused_not_reported_as_a_verdict(godot_project):
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda("scene", "preflight", "res://nosuch.tscn", "--json")
 
@@ -253,7 +238,7 @@ def test_a_scene_that_hands_off_in_ready_still_counts_as_started(godot_project):
     # that freed itself in _ready is already gone. Sampling reported this shape as
     # not_ready — a scene that plainly started.
     _scene(godot_project, "splash.tscn", "splash.gd", HANDOFF_READY_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda("scene", "preflight", "res://splash.tscn", "--json")
 
@@ -270,7 +255,7 @@ def test_the_frame_window_is_what_catches_a_failure_after_ready(godot_project):
     # one-frame window and fails with the default one, because its error lands on
     # frame five. This is why the window is not simply "wait for ready".
     _scene(godot_project, "late.tscn", "late.gd", LATE_FAILURE_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     narrow = gda("scene", "preflight", "res://late.tscn", "--frames", "1", "--json")
     assert narrow.returncode == 0, narrow.stdout + narrow.stderr
@@ -305,7 +290,7 @@ def test_a_scene_that_quits_from_ready_still_gets_its_ready_verdict(godot_projec
     # moment the signal lands, so the verdict survives the project's exit instead
     # of being misreported as an operation failure (the pre-#709 behavior).
     _scene(godot_project, "splash.tscn", "splash.gd", QUITTING_READY_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda("scene", "preflight", "res://splash.tscn", "--json")
 
@@ -349,7 +334,7 @@ def test_a_push_error_raised_in_ready_is_reported_as_a_startup_diagnostic(
     # `started: true` with EMPTY diagnostics — the phantom-clean start the
     # dogfooding note is about, in the most common shape a project writes it.
     _scene(godot_project, "encounter.tscn", "encounter.gd", PUSH_ERROR_READY_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     # Static validation passes: the scene's dependencies resolve and it compiles.
     # Only booting it reveals what the project itself thinks of what it found.
@@ -402,7 +387,7 @@ def test_an_engine_error_a_script_triggered_is_not_reported_as_the_projects_own(
     # of the project's diagnostics — the record stays unrecognized, and the
     # verbatim stream is where a reader still finds it.
     _scene(godot_project, "indirect.tscn", "indirect.gd", INDIRECT_ERROR_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda("scene", "preflight", "res://indirect.tscn", "--json")
 
@@ -442,7 +427,7 @@ def test_a_refused_script_binding_is_not_a_clean_start(godot_project):
     (godot_project / "badbind.tscn").write_text(
         INCOMPATIBLE_BINDING_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda("scene", "preflight", "res://badbind.tscn", "--json")
 
@@ -480,7 +465,7 @@ def test_a_non_script_binding_is_not_a_clean_start(godot_project):
     (godot_project / "notascript.tscn").write_text(
         NOT_A_SCRIPT_BINDING_TSCN, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda("scene", "preflight", "res://notascript.tscn", "--json")
 
@@ -504,7 +489,7 @@ def test_the_timeout_verdict_carries_the_elapsed_clock_and_the_configured_ceilin
     # exactly what this caller configured, not the 30s default the run did not use.
     # Together they are what tells this scene (stuck) from one that was merely slow.
     _scene(godot_project, "stuck.tscn", "stuck.gd", BLOCKING_READY_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda(
         "scene", "preflight", "res://stuck.tscn", "--timeout", "3", "--json"
@@ -526,7 +511,7 @@ def test_a_scene_that_comes_up_carries_no_timeout_evidence(godot_project):
     # absent rather than null or zero. A `ready` verdict is byte-identical to what it
     # was before #787 added the keys.
     _scene(godot_project, "hero.tscn", "hero.gd", READY_SCRIPT)
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     preflighted = gda("scene", "preflight", "res://hero.tscn", "--json")
 

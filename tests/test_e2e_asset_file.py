@@ -12,25 +12,9 @@ import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from tests.support import GODOT, Gda
 
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
-
-
-def _gda(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [*GDA_CMD, *args, "--godot", str(GODOT)], capture_output=True, text=True
-    )
-
-
-def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
-    assert proc.returncode == 4, proc.stdout + proc.stderr
-    err = json.loads(proc.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == code
-    return err
+gda = Gda()
 
 
 # --- shader create → get → set round-trip ----------------------------------
@@ -43,7 +27,7 @@ def test_shader_create_default_template_then_get_round_trip(godot_project):
     # write.
     shader_path = godot_project / "wave.gdshader"
 
-    created = _gda("shader", "create", str(shader_path), "--json")
+    created = gda("shader", "create", str(shader_path), "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
@@ -51,7 +35,7 @@ def test_shader_create_default_template_then_get_round_trip(godot_project):
     assert data["shader_type"] == "canvas_item"
     assert shader_path.exists()
 
-    got = _gda("shader", "get", str(shader_path), "--json")
+    got = gda("shader", "get", str(shader_path), "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     got_data = json.loads(got.stdout)
@@ -65,14 +49,14 @@ def test_shader_create_default_template_then_get_round_trip(godot_project):
 def test_shader_create_with_type_parameterizes_the_template(godot_project):
     shader_path = godot_project / "world.gdshader"
 
-    created = _gda(
+    created = gda(
         "shader", "create", str(shader_path), "--shader-type", "spatial", "--json"
     )
 
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["shader_type"] == "spatial"
 
-    got = _gda("shader", "get", str(shader_path), "--json")
+    got = gda("shader", "get", str(shader_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["shader_type"] == "spatial"
 
@@ -89,12 +73,12 @@ def test_shader_create_with_content_round_trips_verbatim_source(godot_project):
         "}\n"
     )
 
-    created = _gda("shader", "create", str(shader_path), "--content", source, "--json")
+    created = gda("shader", "create", str(shader_path), "--content", source, "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["shader_type"] == "canvas_item"
 
-    got = _gda("shader", "get", str(shader_path), "--json")
+    got = gda("shader", "get", str(shader_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["source"] == source
 
@@ -105,9 +89,9 @@ def test_shader_set_search_replace_round_trips_through_get(godot_project):
     # reused script-set interface, issue #115): edit the shader_type and read it
     # back changed.
     shader_path = godot_project / "edit.gdshader"
-    _gda("shader", "create", str(shader_path), "--json")
+    gda("shader", "create", str(shader_path), "--json")
 
-    edited = _gda(
+    edited = gda(
         "shader",
         "set",
         str(shader_path),
@@ -121,7 +105,7 @@ def test_shader_set_search_replace_round_trips_through_get(godot_project):
     assert edited.returncode == 0, edited.stdout + edited.stderr
     assert json.loads(edited.stdout)["shader_type"] == "spatial"
 
-    got = _gda("shader", "get", str(shader_path), "--json")
+    got = gda("shader", "get", str(shader_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["source"] == "shader_type spatial;\n"
 
@@ -129,13 +113,13 @@ def test_shader_set_search_replace_round_trips_through_get(godot_project):
 @pytest.mark.e2e
 def test_shader_set_full_overwrite_round_trips_through_get(godot_project):
     shader_path = godot_project / "full.gdshader"
-    _gda("shader", "create", str(shader_path), "--json")
+    gda("shader", "create", str(shader_path), "--json")
     new_source = "shader_type particles;\n"
 
-    edited = _gda("shader", "set", str(shader_path), "--content", new_source, "--json")
+    edited = gda("shader", "set", str(shader_path), "--content", new_source, "--json")
 
     assert edited.returncode == 0, edited.stdout + edited.stderr
-    got = _gda("shader", "get", str(shader_path), "--json")
+    got = gda("shader", "get", str(shader_path), "--json")
     assert json.loads(got.stdout)["source"] == new_source
 
 
@@ -145,36 +129,40 @@ def test_shader_set_full_overwrite_round_trips_through_get(godot_project):
 @pytest.mark.e2e
 def test_shader_create_no_clobber_existing_file(godot_project):
     shader_path = godot_project / "once.gdshader"
-    assert _gda("shader", "create", str(shader_path), "--json").returncode == 0
+    assert gda("shader", "create", str(shader_path), "--json").returncode == 0
     before = shader_path.read_text(encoding="utf-8")
 
-    again = _gda(
+    gda.error(
         "shader",
         "create",
         str(shader_path),
         "--content",
         "shader_type spatial;\n",
         "--json",
+        code="already_exists",
     )
-
-    _assert_operation_error(again, "already_exists")
     # The original file is untouched — no-clobber.
     assert shader_path.read_text(encoding="utf-8") == before
 
 
 @pytest.mark.e2e
 def test_shader_get_missing_file_is_path_not_found(godot_project):
-    missing = _gda("shader", "get", str(godot_project / "nope.gdshader"), "--json")
-    _assert_operation_error(missing, "path_not_found")
+    gda.error(
+        "shader",
+        "get",
+        str(godot_project / "nope.gdshader"),
+        "--json",
+        code="path_not_found",
+    )
 
 
 @pytest.mark.e2e
 def test_shader_set_no_search_match_leaves_file_untouched(godot_project):
     shader_path = godot_project / "nomatch.gdshader"
-    _gda("shader", "create", str(shader_path), "--json")
+    gda("shader", "create", str(shader_path), "--json")
     before = shader_path.read_text(encoding="utf-8")
 
-    edited = _gda(
+    gda.error(
         "shader",
         "set",
         str(shader_path),
@@ -183,18 +171,17 @@ def test_shader_set_no_search_match_leaves_file_untouched(godot_project):
         "--replace",
         "z",
         "--json",
+        code="no_search_match",
     )
-
-    _assert_operation_error(edited, "no_search_match")
     assert shader_path.read_text(encoding="utf-8") == before
 
 
 @pytest.mark.e2e
 def test_shader_set_invalid_line_range_is_invalid_line_range(godot_project):
     shader_path = godot_project / "range.gdshader"
-    _gda("shader", "create", str(shader_path), "--json")
+    gda("shader", "create", str(shader_path), "--json")
 
-    edited = _gda(
+    gda.error(
         "shader",
         "set",
         str(shader_path),
@@ -205,9 +192,8 @@ def test_shader_set_invalid_line_range_is_invalid_line_range(godot_project):
         "--content",
         "x",
         "--json",
+        code="invalid_line_range",
     )
-
-    _assert_operation_error(edited, "invalid_line_range")
 
 
 # --- theme create: a genuinely LOADABLE .tres ------------------------------
@@ -220,7 +206,7 @@ def test_theme_create_produces_a_loadable_tres(godot_project):
     # assert the loaded resource is a Theme — the structured-level proof.
     theme_path = godot_project / "ui.tres"
 
-    created = _gda("theme", "create", str(theme_path), "--json")
+    created = gda("theme", "create", str(theme_path), "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
@@ -236,17 +222,16 @@ def test_theme_create_produces_a_loadable_tres(godot_project):
 @pytest.mark.e2e
 def test_theme_create_no_clobber_existing_file(godot_project):
     theme_path = godot_project / "dup.tres"
-    assert _gda("theme", "create", str(theme_path), "--json").returncode == 0
+    assert gda("theme", "create", str(theme_path), "--json").returncode == 0
 
-    again = _gda("theme", "create", str(theme_path), "--json")
-
-    _assert_operation_error(again, "already_exists")
+    gda.error("theme", "create", str(theme_path), "--json", code="already_exists")
 
 
 @pytest.mark.e2e
 def test_theme_create_wrong_extension_is_invalid_path(godot_project):
-    bad = _gda("theme", "create", str(godot_project / "ui.txt"), "--json")
-    _assert_operation_error(bad, "invalid_path")
+    gda.error(
+        "theme", "create", str(godot_project / "ui.txt"), "--json", code="invalid_path"
+    )
 
 
 def _load_resource_class(resource_path) -> str:
@@ -270,6 +255,7 @@ def _load_resource_class(resource_path) -> str:
         [str(GODOT), "--headless", "--script", str(probe)],
         capture_output=True,
         text=True,
+        timeout=120,
     )
     out = proc.stdout
     start = out.find("<<<CLASS>>>") + len("<<<CLASS>>>")
