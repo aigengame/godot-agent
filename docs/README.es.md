@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0a0984f04558ef7f992908163cb4143eb53b693a134db20c8e39b4b3cb197a26 -->
+<!-- gda-readme-i18n: source=README.md sha256=709dd5cefc028550f7488f4e00caa02a6b4f6f07e8618f05d9b8fb517116fad8 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -218,9 +218,13 @@ El servidor resuelve dos piezas de contexto — qué **proyecto** de Godot manej
 ejecutar (MCP no puede pasar flags por llamada):
 
 - **Proyecto** — define `GDA_PROJECT`. Sin él, `gda-mcp` usa los **roots** de workspace que envía el
-  cliente (la carpeta que tienes abierta) — pero los clientes MCP más recientes ya no envían roots, así
+  cliente (la carpeta que tienes abierta) — pero la revisión MCP 2026-07-28 marca los roots como obsoletos, así
   que fijar `GDA_PROJECT` es la configuración que sigue funcionando. Consulta [Configuración](#configuration).
 - **Motor** — define `GDA_GODOT` con tu binario de Godot, p. ej. `"GDA_GODOT": "/path/to/Godot"`.
+
+`gda-mcp` habla ambas eras del protocolo — el MCP anterior a 2026 y la **revisión 2026-07-28** — así que
+los clientes actuales siguen funcionando sin cambios mientras se actualizan. En la nueva revisión también marca
+su respuesta de `tools/list` como cacheable (TTL de 1 hora): la superficie de herramientas es fija durante la vida del servidor.
 
 #### Registrar con agentes de programación
 
@@ -559,7 +563,7 @@ directorio indicado debe ser un proyecto, o `gda` reporta un error; cuando nada 
 | Contexto | Orden de resolución del proyecto |
 | --- | --- |
 | **CLI** | `--project` → `GDA_PROJECT` → el directorio actual, si contiene `project.godot` → sin proyecto |
-| **MCP** (`gda-mcp`) | `GDA_PROJECT` → el `root` de workspace del cliente, si lo envía → el cwd del servidor → sin proyecto |
+| **MCP** (`gda-mcp`) | `GDA_PROJECT` → el `root` de workspace del cliente, si lo envía (clientes anteriores a 2026) → el cwd del servidor → sin proyecto |
 
 <details>
 <summary>Ejecución del código del proyecto — qué se ejecuta cuando apuntas a un proyecto</summary>

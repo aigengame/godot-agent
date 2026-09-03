@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0a0984f04558ef7f992908163cb4143eb53b693a134db20c8e39b4b3cb197a26 -->
+<!-- gda-readme-i18n: source=README.md sha256=709dd5cefc028550f7488f4e00caa02a6b4f6f07e8618f05d9b8fb517116fad8 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -213,8 +213,11 @@ uvx --from "gda[mcp]" gda-mcp
 （MCP 无法在每次调用时传入 flag）：
 
 - **项目** — 设置 `GDA_PROJECT`。不设时 `gda-mcp` 会用客户端发来的工作区 **roots**（你打开的那个文件夹）——
-  但较新的 MCP 客户端不再发送 roots，所以固定 `GDA_PROJECT` 才是一直有效的配置。参见[配置](#configuration)。
+  但 MCP 2026-07-28 修订版弃用了 roots，所以固定 `GDA_PROJECT` 才是一直有效的配置。参见[配置](#configuration)。
 - **引擎** — 把 `GDA_GODOT` 设为你的 Godot 二进制文件，例如 `"GDA_GODOT": "/path/to/Godot"`。
+
+`gda-mcp` 同时支持两代协议——2026 年以前的 MCP 协议与 **2026-07-28 修订版**——所以现有客户端在升级过程中
+行为不变。对新修订版客户端，它还会把 `tools/list` 响应标记为可缓存（1 小时 TTL）：工具列表在服务器生命周期内固定不变。
 
 #### 在编程 agent 中注册
 
@@ -547,7 +550,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | 上下文 | 项目解析顺序 |
 | --- | --- |
 | **CLI** | `--project` → `GDA_PROJECT` → 当前目录（若含有 `project.godot`）→ 无项目 |
-| **MCP**（`gda-mcp`） | `GDA_PROJECT` → 客户端的工作区 `root`（若它发送了）→ 服务器的 cwd → 无项目 |
+| **MCP**（`gda-mcp`） | `GDA_PROJECT` → 客户端的工作区 `root`（若它发送了；仅 2026 前的客户端）→ 服务器的 cwd → 无项目 |
 
 <details>
 <summary>项目代码执行——当你指向一个项目时会运行什么</summary>

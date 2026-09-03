@@ -211,9 +211,13 @@ The server resolves two pieces of context — which Godot **project** to drive a
 **binary** to run (MCP can't pass per-call flags):
 
 - **Project** — set `GDA_PROJECT`. Without it, `gda-mcp` uses the workspace **roots** the client
-  sends (the folder you have open) — but newer MCP clients no longer send roots, so pinning
+  sends (the folder you have open) — but the MCP 2026-07-28 revision deprecates roots, so pinning
   `GDA_PROJECT` is the setup that keeps working. See [Configuration](#configuration).
 - **Engine** — set `GDA_GODOT` to your Godot binary, e.g. `"GDA_GODOT": "/path/to/Godot"`.
+
+`gda-mcp` speaks both protocol eras — the pre-2026 MCP protocol and the **2026-07-28 revision** —
+so today's clients keep working unchanged as they upgrade. On the new revision it also marks its
+`tools/list` response cacheable (1-hour TTL): the tool surface is fixed for a server's lifetime.
 
 #### Register with Coding Agents
 
@@ -549,7 +553,7 @@ directory must be a project, or `gda` reports an error; when nothing resolves, `
 | Context | Project resolution order |
 | --- | --- |
 | **CLI** | `--project` → `GDA_PROJECT` → the current directory, if it holds `project.godot` → projectless |
-| **MCP** (`gda-mcp`) | `GDA_PROJECT` → the client's workspace `root`, if it sends one → the server's cwd → projectless |
+| **MCP** (`gda-mcp`) | `GDA_PROJECT` → the client's workspace `root`, if it sends one (pre-2026 clients) → the server's cwd → projectless |
 
 <details>
 <summary>Project code execution — what runs when you point at a project</summary>

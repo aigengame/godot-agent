@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0a0984f04558ef7f992908163cb4143eb53b693a134db20c8e39b4b3cb197a26 -->
+<!-- gda-readme-i18n: source=README.md sha256=709dd5cefc028550f7488f4e00caa02a6b4f6f07e8618f05d9b8fb517116fad8 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -220,9 +220,13 @@ uvx --from "gda[mcp]" gda-mcp
 **バイナリ** を実行するか(MCP は呼び出しごとのフラグを渡せません)。
 
 - **プロジェクト** — `GDA_PROJECT` を設定します。未設定なら `gda-mcp` はクライアントが送るワークスペースの
-  **roots**(あなたが開いているフォルダ)を使いますが、新しい MCP クライアントは roots を送らなくなったため、
+  **roots**(あなたが開いているフォルダ)を使いますが、MCP 2026-07-28 改訂版は roots を非推奨にしたため、
   `GDA_PROJECT` を固定するのが確実に動く設定です。[設定](#configuration) を参照してください。
 - **エンジン** — `GDA_GODOT` に Godot バイナリを設定します。例: `"GDA_GODOT": "/path/to/Godot"`。
+
+`gda-mcp` は両方の世代のプロトコル — 2026 年以前の MCP と **2026-07-28 改訂版** — に対応しているため、
+既存のクライアントはアップグレードしても変わらず動作します。新しい改訂版に対しては、`tools/list` 応答を
+キャッシュ可能(TTL 1 時間)としてもマークします。ツール群はサーバーの生存期間中固定だからです。
 
 #### コーディングエージェントへの登録
 
@@ -562,7 +566,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | コンテキスト | プロジェクトの解決順序 |
 | --- | --- |
 | **CLI** | `--project` → `GDA_PROJECT` → カレントディレクトリ(`project.godot` を含む場合)→ projectless |
-| **MCP**(`gda-mcp`) | `GDA_PROJECT` → クライアントのワークスペース `root`(送られてくる場合)→ サーバーの cwd → projectless |
+| **MCP**(`gda-mcp`) | `GDA_PROJECT` → クライアントのワークスペース `root`(送られてくる場合。2026 年以前のクライアントのみ)→ サーバーの cwd → projectless |
 
 <details>
 <summary>プロジェクトコードの実行 — プロジェクトを指定したときに何が実行されるか</summary>
