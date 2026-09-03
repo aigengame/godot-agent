@@ -24,37 +24,21 @@ from gda.daemon.protocol import write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession, SceneMismatch, launch_session
 from gda.parser import parse_result
-from tests.support import no_engine_teardown
+from tests.support import (
+    FakeProc,
+    minimal_project,
+    no_engine_teardown,
+    server_with_session,
+)
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
-
-
-class _FakeProc:
-    """A stand-in subprocess.Popen: ``poll()`` returns ``returncode`` (None = alive)."""
-
-    def __init__(self, returncode=None):
-        self.returncode = returncode
-
-    def poll(self):
-        return self.returncode
-
-    # gda's OWN pid, deliberately: teardown reads the pid to find the process
-    # group it owns, and the own-group guard then resolves this stand-in to no
-    # group at all. An invented pid would instead resolve to whichever real
-    # process holds it — which a test would then signal.
-    pid = os.getpid()
-
-
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
 
 
 # --- Slice 1: launch carries --log-file and the session remembers the path ---
 
 
 def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     log_file = tmp_path / "session.log"
     captured = {}
 
@@ -100,7 +84,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
 def test_engine_session_exposes_its_log_file_path(tmp_path):
     log_file = tmp_path / "s.log"
     session = EngineSession(
-        cast(subprocess.Popen, _FakeProc()), conn=None, log_file=log_file
+        cast(subprocess.Popen, FakeProc()), conn=None, log_file=log_file
     )
     assert session.log_file == log_file
 
@@ -143,7 +127,7 @@ def _capture_launch_argv(monkeypatch, project, **launch_kw):
 
 
 def test_launch_session_inserts_scene_before_path_when_set(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     argv = _capture_launch_argv(monkeypatch, project, scene="res://B.tscn")
 
     # `--scene <path>` is an ENGINE option: present, paired, and BEFORE `--path`
@@ -163,7 +147,7 @@ def test_launch_session_inserts_scene_before_path_when_set(monkeypatch, tmp_path
 def test_launch_session_accepts_a_uid_scene_selector(monkeypatch, tmp_path):
     # Godot's `--scene` accepts a `uid://…` value too; the launch passes it through
     # verbatim in the same engine-option slot AND in the harness tail.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     argv = _capture_launch_argv(monkeypatch, project, scene="uid://abc123")
 
     assert argv[argv.index("--scene") + 1] == "uid://abc123"
@@ -175,7 +159,7 @@ def test_launch_session_omits_scene_by_default(monkeypatch, tmp_path):
     # No selector: behaviour unchanged — the engine runs the project's main_scene,
     # so no `--scene` engine option appears in the argv. The harness tail still
     # carries a slot for the selector — an EMPTY string (no selector requested).
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     argv = _capture_launch_argv(monkeypatch, project)
 
     assert "--scene" not in argv
@@ -213,7 +197,7 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
     second frame. Returns the launch_session outcome (or the raised exception class
     via pytest.raises in the caller).
     """
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc())
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc())
     no_engine_teardown(monkeypatch)
     daemon_end, harness_end = socket.socketpair()
     # The harness presents its token, then the scene-verification frame.
@@ -240,7 +224,7 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
 
 
 def test_launch_returns_verified_session_when_scene_ok(monkeypatch, tmp_path):
-    _project(tmp_path)
+    minimal_project(tmp_path)
     session = _launch_with_fake_harness(
         monkeypatch,
         tmp_path,
@@ -252,7 +236,7 @@ def test_launch_returns_verified_session_when_scene_ok(monkeypatch, tmp_path):
 
 
 def test_launch_raises_scene_mismatch_when_loaded_scene_differs(monkeypatch, tmp_path):
-    _project(tmp_path)
+    minimal_project(tmp_path)
     with pytest.raises(SceneMismatch):
         _launch_with_fake_harness(
             monkeypatch,
@@ -268,7 +252,7 @@ def test_launch_with_no_selector_does_not_require_a_verification_frame(
 ):
     # No selector: scene_ok is trivially true (the harness sends it as ok), and the
     # session is verified — the main_scene default is unchanged.
-    _project(tmp_path)
+    minimal_project(tmp_path)
     session = _launch_with_fake_harness(
         monkeypatch,
         tmp_path,
@@ -280,10 +264,10 @@ def test_launch_with_no_selector_does_not_require_a_verification_frame(
 
 
 def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
-    _project(tmp_path)
+    minimal_project(tmp_path)
     # A wrong token aborts the handshake BEFORE the verification frame: a generic
     # launch failure (None), distinct from a scene mismatch.
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc())
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc())
     no_engine_teardown(monkeypatch)
     daemon_end, harness_end = socket.socketpair()
     write_frame(harness_end, b"WRONG")
@@ -321,10 +305,10 @@ class _NoAcceptListener:
 def test_failed_launch_records_signal_death_when_child_already_died(
     monkeypatch, tmp_path
 ):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     # A child that reports it aborted by SIGABRT (returncode -6) — what a windowed
     # session with no usable DisplayServer does before the harness can connect.
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(-6))
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc(-6))
     no_engine_teardown(monkeypatch)
 
     diagnostics: list[str] = []
@@ -347,10 +331,10 @@ def test_failed_launch_records_signal_death_when_child_already_died(
 def test_failed_launch_records_harness_hung_when_child_still_alive(
     monkeypatch, tmp_path
 ):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     # A child still alive (poll() is None) when the harness never connected: the
     # "engine up, harness hung" case, distinct from a crashed child.
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(None))
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc(None))
     no_engine_teardown(monkeypatch)
 
     diagnostics: list[str] = []
@@ -377,14 +361,14 @@ def test_failed_launch_diagnostics_excludes_stale_session_log(
     # the deterministic session-log path. If a PREVIOUS session left content there, it
     # must NOT leak into the current failure's diagnostics. launch_session truncates
     # the log BEFORE spawning, so the tail reads EMPTY for a pre-logger abort.
-    server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
+    server = DaemonServer(daemon_paths(minimal_project(tmp_path)), godot="godot")
     log_path = server.paths.session_log
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("STALE-PREVIOUS-SESSION-OUTPUT", encoding="utf-8")
 
     # A REAL launch_session runs (truncating the log), spawns a fake child that dies
     # pre-logger by SIGABRT and writes nothing, and no harness connects -> None.
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(-6))
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc(-6))
     no_engine_teardown(monkeypatch)
     server._harness_listener = cast(socket.socket, _NoAcceptListener())
 
@@ -404,22 +388,12 @@ def test_failed_launch_diagnostics_excludes_stale_session_log(
 # --- Slice 2: the daemon serves diag from the remembered log file ---
 
 
-def _server_with_session(tmp_path, log_file, alive=True):
-    server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
-    server._session = EngineSession(
-        cast(subprocess.Popen, _FakeProc(None if alive else 0)),
-        conn=None,
-        log_file=log_file,
-    )
-    return server
-
-
 def test_diag_errors_reads_structured_errors_from_the_log(tmp_path):
     log_file = tmp_path / "session.log"
     log_file.write_text(
         "print output\nERROR: boom\n   at: _ready (res://main.gd:9)\n", encoding="utf-8"
     )
-    server = _server_with_session(tmp_path, log_file)
+    server = server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "diag-errors", "params": {}})
     assert reply is not None
@@ -437,7 +411,7 @@ def test_diag_errors_limit_tails_the_most_recent_n(tmp_path):
         "ERROR: one\n   at: a (res://a.gd:1)\nERROR: two\n   at: b (res://b.gd:2)\n",
         encoding="utf-8",
     )
-    server = _server_with_session(tmp_path, log_file)
+    server = server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "diag-errors", "params": {"limit": 1}})
     assert reply is not None
@@ -454,7 +428,7 @@ def test_diag_serves_even_when_the_session_process_has_died(tmp_path):
     log_file.write_text(
         "ERROR: crashed\n   at: _ready (res://main.gd:3)\n", encoding="utf-8"
     )
-    server = _server_with_session(tmp_path, log_file, alive=False)
+    server = server_with_session(tmp_path, log_file, alive=False)
 
     reply = server._handle({"op": "diag-errors", "params": {}})
     assert reply is not None
@@ -466,7 +440,7 @@ def test_diag_serves_even_when_the_session_process_has_died(tmp_path):
 def test_diag_empty_log_is_an_empty_result_not_an_error(tmp_path):
     log_file = tmp_path / "session.log"
     log_file.write_text("", encoding="utf-8")
-    server = _server_with_session(tmp_path, log_file)
+    server = server_with_session(tmp_path, log_file)
 
     errors_reply = server._handle({"op": "diag-errors", "params": {}})
     assert errors_reply is not None
@@ -483,7 +457,7 @@ def test_diag_with_no_session_launched_is_engine_session_not_running(
     # spawn an engine session as a side effect, even with a Godot binary set (that
     # hidden project-code-execution side effect is the bug under ADR-0009).
     op = "diag-errors"
-    server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
+    server = DaemonServer(daemon_paths(minimal_project(tmp_path)), godot="godot")
 
     # Trip-wire: if diag tries to launch a session, fail loudly.
     def _boom(*args, **kwargs):
@@ -506,7 +480,7 @@ def test_diag_with_a_remembered_session_but_missing_file_is_live_log_unavailable
 ):
     # A session was launched (remembered) but its log file is gone/unreadable.
     log_file = tmp_path / "missing.log"  # never created
-    server = _server_with_session(tmp_path, log_file, alive=False)
+    server = server_with_session(tmp_path, log_file, alive=False)
 
     reply = server._handle({"op": "diag-errors", "params": {}})
     assert reply is not None

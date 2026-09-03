@@ -9,40 +9,15 @@ log file, plus the same no-session / missing-file typed errors ``diag`` returns.
 """
 
 import os
-import subprocess
-from typing import cast
 
 import pytest
 
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.server import DaemonServer
-from gda.daemon.session import EngineSession
 from gda.parser import parse_result
+from tests.support import minimal_project, server_with_session
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
-
-
-class _FakeProc:
-    def __init__(self, returncode=None):
-        self.returncode = returncode
-
-    def poll(self):
-        return self.returncode
-
-
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
-
-
-def _server_with_session(tmp_path, log_file, alive=True):
-    server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
-    server._session = EngineSession(
-        cast(subprocess.Popen, _FakeProc(None if alive else 0)),
-        conn=None,
-        log_file=log_file,
-    )
-    return server
 
 
 def test_logger_tail_reads_structured_records_from_the_log(tmp_path):
@@ -50,7 +25,7 @@ def test_logger_tail_reads_structured_records_from_the_log(tmp_path):
     log_file.write_text(
         "print output\nERROR: boom\n   at: _ready (res://main.gd:9)\n", encoding="utf-8"
     )
-    server = _server_with_session(tmp_path, log_file)
+    server = server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {}})
     assert reply is not None
@@ -70,7 +45,7 @@ def test_logger_tail_raw_returns_verbatim_info_records(tmp_path):
     # LogRecord[]), so even an `ERROR:` header stays an unclassified info line.
     log_file = tmp_path / "session.log"
     log_file.write_text("known line\nERROR: boom\n", encoding="utf-8")
-    server = _server_with_session(tmp_path, log_file)
+    server = server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {"raw": True}})
     assert reply is not None
@@ -88,7 +63,7 @@ def test_logger_tail_level_filters_by_minimum_severity(tmp_path):
         "ERROR: boom\n   at: g (res://b.gd:2)\n",
         encoding="utf-8",
     )
-    server = _server_with_session(tmp_path, log_file)
+    server = server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {"level": "warning"}})
     assert reply is not None
@@ -102,7 +77,7 @@ def test_logger_tail_level_filters_by_minimum_severity(tmp_path):
 def test_logger_tail_limit_tails_the_most_recent_n(tmp_path):
     log_file = tmp_path / "session.log"
     log_file.write_text("one\ntwo\nthree\n", encoding="utf-8")
-    server = _server_with_session(tmp_path, log_file)
+    server = server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {"limit": 1}})
     assert reply is not None
@@ -119,7 +94,7 @@ def test_logger_tail_serves_even_when_the_session_process_has_died(tmp_path):
     log_file.write_text(
         "ERROR: crashed\n   at: _ready (res://main.gd:3)\n", encoding="utf-8"
     )
-    server = _server_with_session(tmp_path, log_file, alive=False)
+    server = server_with_session(tmp_path, log_file, alive=False)
 
     reply = server._handle({"op": "logger-tail", "params": {}})
     assert reply is not None
@@ -132,7 +107,7 @@ def test_logger_tail_serves_even_when_the_session_process_has_died(tmp_path):
 def test_logger_tail_empty_log_is_an_empty_result_not_an_error(tmp_path):
     log_file = tmp_path / "session.log"
     log_file.write_text("", encoding="utf-8")
-    server = _server_with_session(tmp_path, log_file)
+    server = server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {}})
     assert reply is not None
@@ -144,7 +119,7 @@ def test_logger_tail_empty_log_is_an_empty_result_not_an_error(tmp_path):
 def test_logger_tail_with_no_session_is_engine_session_not_running(tmp_path):
     # ADR-0022: a daemon-served log op observes an already-launched session; it does
     # NOT launch one. With none launched this lifetime it is a structured error.
-    server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
+    server = DaemonServer(daemon_paths(minimal_project(tmp_path)), godot="godot")
 
     reply = server._handle({"op": "logger-tail", "params": {}})
     assert reply is not None
@@ -159,7 +134,7 @@ def test_logger_tail_with_a_remembered_session_but_missing_file_is_live_log_unav
     tmp_path,
 ):
     log_file = tmp_path / "missing.log"  # never created
-    server = _server_with_session(tmp_path, log_file, alive=False)
+    server = server_with_session(tmp_path, log_file, alive=False)
 
     reply = server._handle({"op": "logger-tail", "params": {}})
     assert reply is not None
