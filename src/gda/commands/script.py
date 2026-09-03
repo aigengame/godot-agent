@@ -2519,8 +2519,8 @@ def validate_script(
     errors derived from them.
 
     A path OUTSIDE the resolved project refuses the whole batch with
-    'project_not_found' before anything is parsed, naming both the file and the
-    project, rather than reporting that false cascade. gda never derives the
+    'target_outside_project' before anything is parsed, naming both the file and
+    the project, rather than reporting that false cascade. gda never derives the
     project from a script's own path (ADR-0006), so pass --project for the project
     that owns the files. A missing file or a non-.gd path likewise refuses the
     batch (path_not_found / invalid_path) instead of becoming a verdict.
