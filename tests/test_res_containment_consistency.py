@@ -495,6 +495,33 @@ def test_a_project_directory_literally_named_like_a_home_reference_is_served(
     assert outcome.error.code == "target_outside_project"
 
 
+def test_inside_targets_under_a_literal_tilde_project_are_served(tmp_path, monkeypatch):
+    # The other half of the accepted widening (#807 round 4): the total expansion
+    # changes ACCEPTED paths too. At the merge base an inside target under a
+    # relative `~<no-such-user>` project crashed the same way the refusal did;
+    # now it is served normally. Pinned engine-free at three depths: the decision
+    # accepts, `resource import`'s gate maps the address, and `script validate`'s
+    # recipe gets PAST containment (a nonexistent binary is the failure it then
+    # reports — an environment verdict, not a containment one, not a crash).
+    project = tmp_path / "~gda_no_such_user_802"
+    project.mkdir()
+    (project / PROJECT_MARKER).write_text("", encoding="utf-8")
+    (project / "inner.gd").write_text("extends Node\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    spelled = Path("~gda_no_such_user_802")
+
+    assert containment_refusal("inner.gd", spelled) is None
+    assert _import_verdict(spelled, "inner.gd") == "res://inner.gd"
+
+    outcome = _script_validate_recipe(
+        ScriptValidateParams(paths=["inner.gd"]),
+        project=spelled,
+        godot="/nonexistent/gda-802-binary",
+    )
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "binary_not_found"
+
+
 @pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
 def test_the_three_gates_now_emit_ONE_envelope(project, nested, spelling):
     # The sharpest form of the invariant, and the one only #802 makes checkable: the
@@ -508,9 +535,10 @@ def test_the_three_gates_now_emit_ONE_envelope(project, nested, spelling):
 
 #: The two builders that construct a `target_outside_project` refusal once a project
 #: is RESOLVED. #802's first acceptance criterion is that no command module calls
-#: either: the gate owns the ordering AND the envelopes, so a command states only
-#: which target it is asking about. Named here rather than inferred, so adding a
-#: builder is a change this test makes someone look at.
+#: either: the decision (`gda.project.containment_violation`) owns the ordering and
+#: the mapper (`gda.errors.containment_refusal`) owns the envelopes, so a command
+#: states only which target it is asking about. Named here rather than inferred, so
+#: adding a builder is a change this test makes someone look at.
 #:
 #: `gda.errors.script_escapes_project_failure` is the recorded EXCLUSION, not an
 #: omission (#807 review): it builds the same code from `gda.commands.script`, and

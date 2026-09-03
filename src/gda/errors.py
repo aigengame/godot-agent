@@ -797,11 +797,13 @@ def target_outside_project_failure(location: Path, project: Path) -> Failure:
     gda therefore refuses *before* the target is parsed and reports the mismatch
     itself, naming both sides so the reader can see which one is wrong.
 
-    The three commands that hold a resolved project when they ask the containment
-    question share this builder through the gate (:func:`containment_refusal`,
-    #802) — ``script validate``, ``script run``, and ``resource import`` — so one
+    Two commands can reach this builder through the gate
+    (:func:`containment_refusal`, #802) — ``script validate`` and ``resource
+    import``, the ones whose target may still be a filesystem spelling — so one
     condition reports one code, one message and one pair of typed coordinates
-    (#763). The message says what is true of BOTH: a
+    (#763). ``script run`` calls the same gate, but only its ownership half is
+    reachable there: an address its own gate accepted is canonical ``res://``,
+    which is never outside the root (#807 round 4). The message says what is true of BOTH: a
     target gda addresses through the project's ``res://`` namespace has no place
     in that namespace. Why that matters differs per command — a compile resolves
     the target's own dependencies, an import writes into the project's cache — and
