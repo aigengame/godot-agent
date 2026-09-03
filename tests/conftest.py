@@ -87,6 +87,32 @@ def project_godot(name: str = "gda-e2e-fixture", extra: str = "") -> str:
 # logging-disable rationale lives in exactly one place.
 PROJECT_GODOT = project_godot()
 
+# The live tier's scaffold: a project that names a main scene, and the two main
+# scenes its modules run. A live module needs a game to launch, so `daemon`,
+# `game`, `input`, `screen`, `perf`, `diag`, `logger`, `mcp_live` and the harness
+# install tests each carried a copy of this pair; the copies are one edit away
+# from disagreeing about what "the live fixture project" is, so they live here
+# beside the builder that makes them. A module whose scene is its own subject
+# (the coloured rect `screen` captures, the reference graph `project analysis`
+# walks) keeps that scene local — it is not a copy of anything.
+LIVE_PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
+
+# A main scene with a child node, for a live module that addresses a node path.
+LIVE_MAIN_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="Player" type="Node2D" parent="."]\n'
+)
+
+# A main scene that runs `res://main.gd`, for a live module whose subject is what
+# the running game PRINTS (the session log, the runtime errors read back).
+SCRIPTED_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://main.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n'
+    'script = ExtResource("1")\n'
+)
+
 
 @pytest.fixture
 def godot_project(tmp_path):
