@@ -31,9 +31,10 @@ from gda import dispatch
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
-    Failure,
     classify_launch_or_crash,
     classify_run,
+    containment_refusal,
+    Failure,
     make_failure,
     script_did_not_run_failure,
     script_escapes_project_failure,
@@ -42,8 +43,6 @@ from gda.errors import (
     script_run_aborted_failure,
     script_run_project_not_found_failure,
     script_run_timeout_failure,
-    target_outside_project_failure,
-    target_owned_by_another_project_failure,
     termination_phase,
     unresolvable_binary_failure,
 )
@@ -65,11 +64,8 @@ from gda.models import (
 from gda.project import (
     RES_PREFIX,
     canonical_res_path,
-    owner_relative_target,
-    owning_project,
-    path_outside_project,
+    project_absolute,
     res_escape_remainder,
-    target_location,
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
 from gda.script_errors import (
@@ -1564,16 +1560,19 @@ def run_script_run_operation(
     # address gate above is lexical, so it cannot see a `project.godot` nested
     # between the resolved root and the script. Running against the outer root
     # would resolve the script's own `res://` references against a root that is
-    # not its own — GDA-DF-035 in the executing form. One rule, two commands: the
-    # same probe `script validate` applies, reported under the same code.
-    owner = owning_project(script, project)
-    if owner is not None:
-        return target_owned_by_another_project_failure(
-            target_location(script, project),
-            owner.resolve(),
-            project.expanduser().resolve(),
-            owner_relative_target(script, project, owner),
-        )
+    # not its own — GDA-DF-035 in the executing form. One rule, three commands:
+    # the same shared gate `script validate` and `resource import` apply, reported
+    # under the same code.
+    #
+    # This site asked ownership ALONE until #802, because the address gate above
+    # has already decided containment for it — every escaping spelling is refused
+    # there, and a non-escaping res:// address is inside the root by construction.
+    # It now calls the whole gate anyway: the containment half is inert here (the
+    # consistency table proves it spelling by spelling rather than assuming it),
+    # and one call site cannot drift from the other two.
+    refusal = containment_refusal(script, project)
+    if refusal is not None:
+        return refusal
 
     try:
         binary = resolve_godot_binary(godot)
@@ -2147,18 +2146,21 @@ def _script_validate_recipe(
     own entry.
 
     The refusal has TWO halves since ADR-0006's 2026-08-31 amendment (#697), and
-    the second is why a *projectless* call is now checked too. Containment
-    (:func:`~gda.project.path_outside_project`) asks whether the target is in the
-    resolved project's tree, which only a resolved project can fail. Ownership
-    (:func:`~gda.project.owning_project`) asks whether that project is really the
-    target's OWNER — a ``project.godot`` nearer to the target claims it — and that
-    is the half GDA-DF-035 exposed in both its readings: an ancestor that is a
-    project, with the target in a nested one; and a projectless run of a file that
-    does have an owner. Both compiled the target against a root that was not its
-    own and produced the same cascade of false ``res://`` errors. gda refuses and
-    names the owner instead of adopting it: deriving the root from the target is
-    what ADR-0006 rejected and the amendment keeps rejected, so ``--project``
-    naming the owner stays the way to say what you mean. A standalone script with
+    the second is why a *projectless* call is now checked too. Both are asked by
+    ONE call to :func:`~gda.errors.containment_refusal` (#802), which maps the
+    ordered decision :func:`~gda.project.containment_violation` makes to whichever
+    envelope fires; this recipe only chooses the targets. Containment (:func:`~gda.project.path_outside_project`) asks whether
+    the target is in the resolved project's tree, which only a resolved project
+    can fail. Ownership (:func:`~gda.project.owning_project`) asks whether that
+    project is really the target's OWNER — a ``project.godot`` nearer to the
+    target claims it — and that is the half GDA-DF-035 exposed in both its
+    readings: an ancestor that is a project, with the target in a nested one; and
+    a projectless run of a file that does have an owner. Both compiled the target
+    against a root that was not its own and produced the same cascade of false
+    ``res://`` errors. gda refuses and names the owner instead of adopting it:
+    deriving the root from the target is what ADR-0006 rejected and the amendment
+    keeps rejected, so ``--project`` naming the owner stays the way to say what
+    you mean. A standalone script with
     no owner is still validated projectless by filesystem path, exactly as before.
 
     ``--all`` has nothing to check: the engine enumerates the resolved project's
@@ -2179,24 +2181,18 @@ def _script_validate_recipe(
     built once by the caller, identical on the argv and ``--params-json`` paths
     (ADR-0015).
     """
-    root = None if project is None else project.expanduser().resolve()
+    # The SUCCESS path's root, normalized the way the refusal path's is (#807
+    # review): both sides of one verdict must reach the project by one reading, and
+    # the same call answering two spellings of one root is what #799 was.
+    # `project_absolute` differs only in staying total on an unresolvable `~user`.
+    root = None if project is None else project_absolute(project).resolve()
     for path in params.paths:
-        # Ownership first: it is the more specific diagnosis, and it is the only
-        # one a projectless call can make. Containment then needs a root to be
-        # outside OF — `root` is set exactly when `project` is, and both are named
-        # so the narrowing stays local to the branch that uses them.
-        owner = owning_project(path, project)
-        if owner is not None:
-            return target_owned_by_another_project_failure(
-                target_location(path, project),
-                owner.resolve(),
-                root,
-                owner_relative_target(path, project, owner),
-            )
-        if project is not None and root is not None:
-            outside = path_outside_project(path, project)
-            if outside is not None:
-                return target_outside_project_failure(outside, root)
+        # ONE call for both halves and their ordering (#802): the gate on ADR-0006's
+        # path authority owns them, so this recipe states only WHICH targets it is
+        # asking about — the batch, in requested order, first offender wins.
+        refusal = containment_refusal(path, project)
+        if refusal is not None:
+            return refusal
     # The runner seam is read off the module at call time — never imported by
     # name — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
     # Naming the HEADLESS factory directly is correct only while this command is

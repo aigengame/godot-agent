@@ -27,11 +27,22 @@ on, :func:`canonical_res_path` and :func:`res_escape_remainder`, live here too:
 they are pure lexical address rules, so they belong beside
 :data:`ENGINE_VIRTUAL_PREFIXES` and :func:`_lexical_abs` rather than in the
 stderr parser that first needed one (:mod:`gda.script_errors`, now a consumer).
+
+Since #802 the authority owns the **decision** as well as the primitives:
+:func:`containment_violation` is the whole ordered composition — normalize the
+project, ask ownership, ask containment, report whichever half fired with its
+coordinates. The ENVELOPES stay with the taxonomy: `gda.errors.containment_refusal`
+maps the decision to the two refusals, so a command module states only WHICH
+target it is asking about while the dependency direction stays
+``errors -> foundation`` (ADR-0040 §5; #807 review — the composition briefly
+lived here whole and needed a deferred ``gda.errors`` import to hide the
+inverted edge).
 """
 
 import os
 import posixpath
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 GDA_PROJECT_ENV = "GDA_PROJECT"
@@ -477,6 +488,124 @@ def owning_project(path: str, project: Path | None) -> Path | None:
             return None
         if (directory / PROJECT_MARKER).exists():
             return directory
+    return None
+
+
+def project_absolute(project: Path) -> Path:
+    """``project`` as an absolute directory, still spelled the caller's way (#738).
+
+    ONE coordinate system for both sides of every containment comparison. A
+    project may arrive relative — ``--project game`` is resolved to a directory,
+    not to an absolute one (:func:`resolve_project_dir`) — and a relative root met
+    an absolute candidate on :func:`path_outside_project`'s lexical fallback,
+    where ``relative_to`` raised a bare ``ValueError`` instead of answering.
+    Anchoring at the cwd is the right anchor because that is where a relative
+    ``--project`` was typed.
+
+    Symlinks are deliberately NOT followed: the two readings
+    :func:`path_outside_project` and :func:`owning_project` make are theirs to
+    make, and pre-resolving here would take the lexical one away from them. ``~``
+    is expanded the module's total way (:func:`_expand_user`), so an unresolvable
+    ``~user`` stays literal rather than raising out of a containment check.
+
+    Written for ``resource import``'s asset gate and adopted by
+    :func:`containment_violation` as the decision's own normalization (#802); the
+    asset gate still calls it directly because it also maps an accepted path back
+    onto ``res://`` afterwards, which needs the same absolute root.
+    """
+    absolute = _expand_user(project)
+    if not absolute.is_absolute():
+        absolute = Path.cwd() / absolute
+    return absolute
+
+
+@dataclass(frozen=True)
+class ForeignOwnerViolation:
+    """The ownership half of the containment decision: a nearer project owns it."""
+
+    location: Path
+    owner: Path
+    root: Path | None
+    owner_relative: str
+
+
+@dataclass(frozen=True)
+class OutsideRootViolation:
+    """The containment half of the decision: the target escapes the root."""
+
+    outside: Path
+    root: Path
+
+
+def containment_violation(
+    target: str, project: Path | None
+) -> ForeignOwnerViolation | OutsideRootViolation | None:
+    """The ordered containment decision for ``target`` under ``project`` (#802).
+
+    The one question "does this target belong to the resolved project?", asked in
+    one order, answered with the fired half and its coordinates — no envelope is
+    built here. `gda.errors.containment_refusal` maps the decision to the two
+    refusals and is what the three commands call (``script validate`` per batch
+    entry, ``script run`` for its entry script, ``resource import`` per asset);
+    until #802 each wrote this composition by hand, so the ordering rule, the four
+    coordinates and the ``.resolve()`` discipline were interface cost every one of
+    them paid. They had drifted twice already (#763's postmortem, then #799's),
+    which is why the cross-gate consistency test exists; it now guards the gate's
+    output rather than being the only thing holding three copies together.
+
+    **Ordering: ownership first, containment second.** A real precedence rule, not
+    only a choice of wording, because the two halves CAN both fire on one target:
+    their bounds differ. :func:`owning_project` stops its walk by :func:`_within`,
+    which consults the lexical spelling unconditionally, while
+    :func:`path_outside_project` WITHHOLDS the lexical reading when either side
+    carries a ``..``. A file symlinked into the project from a tree that is itself
+    a project, addressed with a ``..``, therefore satisfies the walk's bound and
+    the containment refusal at once — the monorepo shared-addon layout
+    :func:`path_outside_project` exists for, plus a ``..`` in the spelling.
+    Ownership wins because it is the more specific diagnosis — it names the
+    project that CAN serve the call and the spelling to address the target by, so
+    following the sentence verbatim works — while containment can only say "not
+    here, and I found no owner to send you to". Swapping the two loses the
+    actionable half on exactly that layout, so the order is pinned by a test of
+    its own (#807 review) and not by this paragraph alone. Ownership is also the
+    only half a PROJECTLESS call can make: with no root there is nothing to be
+    outside OF, so containment is skipped and a standalone file that no
+    ``project.godot`` claims is served, as ADR-0006's projectless fallback
+    promises.
+
+    **Normalization: the project is cwd-absolutized** (:func:`project_absolute`),
+    the form ``resource import`` adopted in #738 — the checks read the project as
+    SPELLED (the double reading is theirs to make) but they must read it in one
+    coordinate system, or a relative ``--project`` meets an absolute candidate on
+    the lexical fallback. The refusals report it RESOLVED, which is what
+    ``FailureEvidence.project_root`` publishes: "in its resolved form — the same
+    value a successful result reports".
+
+    ``target`` is the caller's own spelling in any form the command accepts —
+    ``res://`` address, project-relative path, or absolute path — because
+    :func:`_anchored_target` anchors each of them the way the engine would.
+    ``project`` is the already-resolved directory (resolution stays CLI-side,
+    ADR-0006); ``None`` means projectless.
+    """
+    if project is None:
+        anchor = root = None
+    else:
+        anchor = project_absolute(project)
+        root = anchor.resolve()
+    owner = owning_project(target, anchor)
+    if owner is not None:
+        return ForeignOwnerViolation(
+            location=target_location(target, anchor),
+            owner=owner.resolve(),
+            root=root,
+            owner_relative=owner_relative_target(target, anchor, owner),
+        )
+    # `root` is set exactly when `anchor` is; both are named so the narrowing stays
+    # local to the branch that uses them.
+    if anchor is not None and root is not None:
+        outside = path_outside_project(target, anchor)
+        if outside is not None:
+            return OutsideRootViolation(outside=outside, root=root)
     return None
 
 
