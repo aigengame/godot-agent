@@ -90,7 +90,9 @@ def _fake_engine(tmp_path: Path, body: str) -> Path:
     return script
 
 
-def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Path:
+def _fast_fake_engine(
+    tmp_path: Path, stdout_line: str, stderr_line: str, marker: Path | None = None
+) -> Path:
     """A ``/bin/sh`` stand-in, kept for WALL-CLOCK SPEED, not correctness (#728).
 
     Diverges from ``_fake_engine`` on purpose: that one pays a fresh Python
@@ -109,6 +111,11 @@ def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Pat
     passed in. ``printf`` with a literal ``'%s\\n'`` format leaves the
     (``shlex.quote``-escaped, so shell-syntax-safe) argument untouched.
 
+    ``marker``, when given, is a file the stand-in creates AFTER both lines are
+    written — the observation channel a test without a watch needs to hold the
+    runner's clock until the output is guaranteed to be in the pipe (#824, see
+    ``_clock_held_until_written``).
+
     It always ``sleep``s afterward, past any timeout this suite uses, via
     ``exec`` — not a trailing background job. Without ``exec`` SIGTERM only
     ends the shell; the orphaned ``sleep`` keeps the captured pipe open and
@@ -118,20 +125,66 @@ def _fast_fake_engine(tmp_path: Path, stdout_line: str, stderr_line: str) -> Pat
     script = tmp_path / "fast-fake-engine"
     out = shlex.quote(stdout_line)
     err = shlex.quote(stderr_line)
+    touch = f": > {shlex.quote(str(marker))}\n" if marker is not None else ""
     script.write_text(
-        f"#!/bin/sh\nprintf '%s\\n' {out}\nprintf '%s\\n' {err} 1>&2\nexec sleep 30\n",
+        f"#!/bin/sh\nprintf '%s\\n' {out}\nprintf '%s\\n' {err} 1>&2\n{touch}exec sleep 30\n",
         encoding="utf-8",
     )
     script.chmod(0o755)
     return script
 
 
-def test_timeout_synthesizes_a_result_that_keeps_what_the_run_produced(tmp_path):
+def _clock_held_until_written(
+    monkeypatch, marker: Path, *, settle_polls: int = 5, then: float = 1.5
+) -> None:
+    """Make the runner's poll loop see NO time pass until ``marker`` exists (#824).
+
+    The #728 technique for a launch that has no watch to observe the capture
+    through: the stand-in touches ``marker`` after its two ``printf``s, and the
+    clock the runner reads reports 0.0 until the marker exists AND the loop has
+    polled ``settle_polls`` more times — proof that the run kept polling past
+    its output rather than ending on it — then jumps to ``then``, past any
+    ceiling this file uses, so the deadline "elapses" only once the output is
+    guaranteed to be in the pipe. Racing a REAL 1.0s ceiling against the
+    child's first write failed under xdist contention (10 of 12 runs with the
+    timing modules concentrated on four workers). A real-time safety ceiling
+    turns a child that never writes into a loud assertion, not a hung suite.
+    ``sleep`` stays real, so the loop keeps its real cadence on a real process.
+    """
+    real_monotonic = time.monotonic
+    real_deadline = real_monotonic() + 15.0
+    polls_after_written = 0
+
+    def fake_monotonic() -> float:
+        nonlocal polls_after_written
+        if real_monotonic() > real_deadline:
+            raise AssertionError(
+                f"safety ceiling: the child never touched its marker {marker}"
+            )
+        if not marker.exists():
+            return 0.0
+        polls_after_written += 1
+        return then if polls_after_written > settle_polls else 0.0
+
+    monkeypatch.setattr(
+        runner,
+        "time",
+        SimpleNamespace(monotonic=fake_monotonic, sleep=time.sleep),
+    )
+
+
+def test_timeout_synthesizes_a_result_that_keeps_what_the_run_produced(
+    monkeypatch, tmp_path
+):
     # The bound gda puts on a hung engine, and the evidence it comes back with. The
     # run below writes to both streams and then never returns; `launch` ends it at
     # the ceiling and reports what it had already read — the whole of #714, which
-    # replaced a capture that discarded exactly this.
-    engine = _fast_fake_engine(tmp_path, "BOOTED", "wedged")
+    # replaced a capture that discarded exactly this. The ceiling elapses on the
+    # held clock only after the child has written (#824): the real 1.0s used to
+    # race the child's first line under load.
+    marker = tmp_path / "written"
+    engine = _fast_fake_engine(tmp_path, "BOOTED", "wedged", marker=marker)
+    _clock_held_until_written(monkeypatch, marker)
 
     result = launch(engine, ["--version"], cwd=None, timeout=1.0)
 
@@ -142,7 +195,8 @@ def test_timeout_synthesizes_a_result_that_keeps_what_the_run_produced(tmp_path)
     # No gda prose in either stream: the classifier composes the sentence from the
     # bound below, so mixing one in would corrupt the evidence.
     assert "timed out" not in result.stderr
-    # The caller's own ceiling is what ended it, and the clock says so.
+    # The caller's own ceiling is what ended it, and the clock the loop read says
+    # so (the real wall clock is pinned by test_streaming_measures_the_elapsed_wall_clock).
     assert result.elapsed_seconds is not None
     assert 1.0 <= result.elapsed_seconds < 3.0
     # Default label: the sentinel channel's launch is just "Godot".
@@ -506,25 +560,30 @@ def test_streaming_maps_a_missing_binary_to_the_same_not_found_result():
     assert streamed.stderr == buffered.stderr
 
 
-def test_a_watchless_launch_streams_and_never_ends_a_run_early(tmp_path):
+def test_a_watchless_launch_streams_and_never_ends_a_run_early(monkeypatch, tmp_path):
     # The pairing that makes ``watch`` POLICY rather than strategy (#714): a launch
     # WITHOUT one still captures and still times itself, and the only thing it gives
     # up is the early abort. Both halves are asserted against the same engine, so a
     # regression that made the no-watch path buffered again — or one that let it end
-    # a run on its own — fails here.
-    engine = _fast_fake_engine(tmp_path, "written and kept", "and this too")
+    # a run on its own — fails here. The clock is held until the child has written
+    # (#824), so neither half races the child's first line.
+    marker = tmp_path / "written"
+    engine = _fast_fake_engine(
+        tmp_path, "written and kept", "and this too", marker=marker
+    )
+    _clock_held_until_written(monkeypatch, marker)
 
-    started = time.monotonic()
     result = launch(engine, [], cwd=None, timeout=1.0, timeout_label="Godot export")
-    waited = time.monotonic() - started
 
     assert result.launch_failure is LaunchFailure.TIMEOUT
     assert result.stdout == "written and kept\n"
     assert result.stderr == "and this too\n"
-    assert result.elapsed_seconds is not None
     assert result.timeout_bound == TimeoutBound("Godot export", 1.0)
-    # It waited out the ceiling rather than ending early on the output it saw.
-    assert waited >= 1.0
+    # It waited out the ceiling rather than ending early on the output it saw: the
+    # held clock reaches 1.0 only after the loop polled past the written output,
+    # so a run that ended on that output would report an elapsed of 0.0.
+    assert result.elapsed_seconds is not None
+    assert result.elapsed_seconds >= 1.0
 
 
 def _capture_popen(monkeypatch) -> list:
