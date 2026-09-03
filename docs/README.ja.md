@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f16edb8309c514c091979325f1561031d92fe21fbe3c82c7cb9e7c7fa37ebe7c -->
+<!-- gda-readme-i18n: source=README.md sha256=da92f08b3efc565aabfaa217fc98b488f1088dd58758ba94f432b46a84048d14 -->
 
 # gda — AI エージェント向け Godot オートメーション
 

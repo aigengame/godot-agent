@@ -26,8 +26,14 @@ TRANSLATIONS = [ROOT / "docs" / f"README.{lang}.md" for lang in ("zh-CN", "es", 
 MARKER_RE = re.compile(r"<!--\s*gda-readme-i18n:.*?-->", re.DOTALL)
 
 
+def _normalized_hash(path: Path) -> str:
+    """Hash text content with platform line endings normalized to LF."""
+    content = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(content).hexdigest()
+
+
 def main() -> None:
-    digest = hashlib.sha256(README.read_bytes()).hexdigest()
+    digest = _normalized_hash(README)
     marker = f"<!-- gda-readme-i18n: source=README.md sha256={digest} -->"
 
     for path in TRANSLATIONS:
