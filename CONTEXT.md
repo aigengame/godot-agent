@@ -206,7 +206,12 @@ stored — but ask the question differently,
 because the two know the literal at different times: on the live wire gda spells it,
 so the refusal PREDICTS the outcome before the request is relayed (#752), while a
 `--value` string is spelled by the CALLER, so `node set` / `resource set` /
-`project set` and the live `game set` OBSERVE what that parser did (#772). What the
+`project set` and the live `game set` OBSERVE what that parser did (#772). Observing
+covers every literal a `--value` spells, a CONTAINER's included: a `Dictionary` or
+`Array` value has no per-element parse to observe — the coercion is
+`JSON.parse_string` as a gate plus one atomic `str_to_var` — so its JSON numbers are
+read from the RAW text, once the gate has accepted it, with string contents skipped so
+that a numeric-looking VALUE or KEY is not mistaken for a number (#805). What the
 parser produces bounds the rule on both sides: the low-order drift is disclosed
 rather than refused, which the full-precision echo shows, and so is an OVERFLOW — a
 `--value` of `1e400` is stored as the `inf` the parser saturates it to, since that

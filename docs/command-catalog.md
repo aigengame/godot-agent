@@ -458,16 +458,6 @@ budget. Refusing that would reject ordinary game values, so it is disclosed inst
 "Number reporting" above). Scientific notation removes the cap loss as well:
 `1.2345678901234567e-3` stores exactly what `0.0012345678901234567` cannot.
 
-One caveat on the SCENE round-trip belongs to neither half and was measured while #772 was
-written: Godot's scene packer omits a property whose value is not "different" from the property's
-own default, and its difference test compares two floats **approximately, as float32**
-(`PropertyUtils::is_property_value_different` → `Math::is_equal_approx`, `packed_scene.cpp`). So a
-`node set` whose value lands within about `1e-5` of that default is elided from the `.tscn`: on a
-property declared `@export var v: float = 0.0`, `--value 1e-6` echoes `1e-6` and a following
-`node get` reads `0.0`. That is the packer's elision, not the parser's loss — no coercion refusal
-can see it, and `project set` (measured) is unaffected, so it is recorded here rather than
-folded into the rule above.
-
 The rule keys on what the parser PRODUCED, and the two edges it draws are separated by what
 gets STORED, not by how loudly the result reads back — a stored `NaN` and a stored `inf` both
 report as JSON `null`, so the reply cannot tell them apart. An **overflow is not refused**:
@@ -480,10 +470,66 @@ here rather than refused: `inf` is stored but cannot be REPORTED, so the `set` e
 later `node get` / `project get` read it as JSON `null`. A literal **below binary64's reach is
 refused** anyway — `1e-400` fails exactly as `1e-320` does, although zero is the
 correctly-rounded answer there; the coercion cannot tell a true underflow from the engine's −309 cliff without modelling
-the parser it asks instead, and a caller who means zero writes `0`. One path does not reach the
-check at all: a number nested inside a Dictionary or Array `--value` arrives through
-`JSON.parse_string` / `str_to_var`. `gda.live_numbers` records the measurement;
-`tests/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both channels.
+the parser it asks instead, and a caller who means zero writes `0`. `gda.live_numbers` records the
+measurement; `tests/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both
+channels.
+
+A number nested inside a **Dictionary or Array `--value`** is refused by the same rule, with the
+same code and the same message ([#805](https://github.com/aigengame/godot-agent/issues/805)) —
+`--value '{"a": 1e-320}'` fails as `uncoercible_value` naming `1e-320`, where before it succeeded
+and stored `{"a": 0.0}`. It reaches the rule by a different route, because a container has no
+per-element coercion to hook: `JSON.parse_string` gates the text and one atomic `str_to_var(raw)`
+builds the value, so by the time a float exists its literal is gone. gda therefore reads the JSON
+number literals out of the **raw `--value` text**, and only after the gate has accepted it. Four
+consequences follow from that scanning rule, each a deliberate disposition:
+
+- **A string value that looks numeric is NOT refused.** The scan skips the contents of every JSON
+  string, honouring escapes, so `--value '{"a": "1e-320"}'` stores the six-character string it
+  always did. Nothing is parsed as a float there, so nothing can be destroyed.
+- **Keys are never scanned**, for the same reason — every JSON key is a string. `--value
+  '{"1e-320": 1.0}'` writes that member unchanged.
+- **A Variant constructor is unreachable, so it is not scanned for.** `str_to_var` accepts richer
+  syntax than JSON and would build `Vector2(1e-320, 0)` as a zeroed vector — but that text is not
+  JSON, so the gate refuses it first (measured: the parse fails with `Expected 'true', 'false', or
+  'null', got 'Vector'`). It stays the plain `uncoercible_value` it has always been: the JSON gate
+  refused it, not the float parser, so the fidelity note would name a false cause. The same
+  attribution rule keeps the note off a `--value` that is not a container at all, and off JSON of
+  the OTHER container type (`'[1e-320]'` on a `Dictionary` property fails on the type).
+- **A repeated key OVER-refuses, and that is accepted rather than closed.** Godot's JSON keeps the
+  LAST value of a duplicate key, so `--value '{"a": 1e-320, "a": 2.0}'` would have stored
+  `{"a": 2.0}` faithfully (measured on 4.6.3) — but the scan reads the text, sees the discarded
+  literal too, and refuses. Telling a discarded token from a kept one needs the key-and-position
+  bookkeeping of a real parser, which is the second opinion about the engine's grammar this scan
+  avoids by construction; the over-refusal is in the safe direction — nothing wrong is written —
+  and the remedy is to spell the key once.
+
+One caveat on the SCENE round-trip belongs to neither half and was measured while #772 was
+written: Godot's scene packer omits a property whose value is not "different" from the property's
+own default, and its difference test compares two floats **approximately, as float32**
+(`PropertyUtils::is_property_value_different` → `Math::is_equal_approx`, `packed_scene.cpp`). So a
+`node set` whose value lands within about `1e-5` of that default is elided from the `.tscn`: on a
+property declared `@export var v: float = 0.0`, `--value 1e-6` echoes `1e-6` and a following
+`node get` reads `0.0`. That is the packer's elision, not the parser's loss — no coercion refusal
+can see it, and `project set` (measured) is unaffected, so it is recorded here rather than
+folded into the rule above.
+
+**This qualification is the contract, not a placeholder**
+([#805](https://github.com/aigengame/godot-agent/issues/805)): the round-trip claim is published
+with the exception named, and gda adds no mechanism to detect or disclose the elision per write.
+Four reasons, in the order they bind. It is the ENGINE's serializer policy, applied to any write
+the engine makes, and the value gda coerced was exact — so a gda-side refusal or annotation would
+blame the wrong stage. gda also cannot ANSWER the question at coercion time without either a
+write-then-read-back engine round-trip on every write — disproportionate to a band this narrow,
+and out of scope by decision — or a re-implementation of
+`PropertyUtils::is_property_value_different`, which would be a second opinion about an engine
+function, exactly what the refusal rule above avoids by RUNNING the parser instead of modelling
+it. The loss is also not the one the rule exists to stop: the file records nothing, so the
+property keeps the default its own source declares, rather than holding a number nobody sent. And
+the disclosure would not be free — a result-level field touches the result models, `--schema` and
+the README family for a rare, engine-owned band. If that field is ever wanted, it is a separate
+issue with its own trigger: a case where an agent acted on the `set` echo and the elision made the
+action wrong. Until then the remedy is the one the round-trip claim already names — read it back
+with `node get` when the exact stored value matters.
 
 **Structural edits** (established by #56): three commands restructure the node tree within a
 scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the
