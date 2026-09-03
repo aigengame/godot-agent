@@ -509,9 +509,9 @@ def project_absolute(project: Path) -> Path:
     ``~user`` stays literal rather than raising out of a containment check.
 
     Written for ``resource import``'s asset gate and adopted by
-    :func:`containment_refusal` as the gate's own normalization (#802); the asset
-    gate still calls it directly because it also maps an accepted path back onto
-    ``res://`` afterwards, which needs the same absolute root.
+    :func:`containment_violation` as the decision's own normalization (#802); the
+    asset gate still calls it directly because it also maps an accepted path back
+    onto ``res://`` afterwards, which needs the same absolute root.
     """
     absolute = _expand_user(project)
     if not absolute.is_absolute():

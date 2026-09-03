@@ -2147,9 +2147,9 @@ def _script_validate_recipe(
 
     The refusal has TWO halves since ADR-0006's 2026-08-31 amendment (#697), and
     the second is why a *projectless* call is now checked too. Both are asked by
-    ONE call to :func:`~gda.errors.containment_refusal` (#802), which owns their
-    ordering and builds whichever envelope fires; this recipe only chooses the
-    targets. Containment (:func:`~gda.project.path_outside_project`) asks whether
+    ONE call to :func:`~gda.errors.containment_refusal` (#802), which maps the
+    ordered decision :func:`~gda.project.containment_violation` makes to whichever
+    envelope fires; this recipe only chooses the targets. Containment (:func:`~gda.project.path_outside_project`) asks whether
     the target is in the resolved project's tree, which only a resolved project
     can fail. Ownership (:func:`~gda.project.owning_project`) asks whether that
     project is really the target's OWNER — a ``project.godot`` nearer to the

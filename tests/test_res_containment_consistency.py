@@ -466,22 +466,33 @@ def test_the_gate_reads_the_project_as_spelled_rather_than_pre_resolved(
         assert outcome.error.code == "target_outside_project", name
 
 
-def test_a_project_directory_literally_named_like_a_home_reference_is_served(tmp_path):
-    # #807 review: the gate normalizes with the module's total `_expand_user`, so a
-    # project directory literally named `~<no-such-user>` stays literal. At the
-    # merge base the same call leaked `RuntimeError: Could not determine home
-    # directory` (exit 1) out of the per-entry composition; the issue widened to
-    # accept the structured refusal as the pinned behavior.
+def test_a_project_directory_literally_named_like_a_home_reference_is_served(
+    tmp_path, monkeypatch
+):
+    # #807 review, round 3: the discriminating spelling is the RELATIVE one —
+    # `Path.expanduser()` leaves a tilde alone inside an absolute path, so only a
+    # relative `~<no-such-user>` project reaches the expansion and raised
+    # `RuntimeError: Can't determine home directory` (exit 1) at the merge base.
+    # The gate normalizes with the module's total `_expand_user`, which keeps the
+    # unresolvable spelling literal; the issue widened to accept the structured
+    # refusal as the pinned behavior, asserted through a command entry point.
     project = tmp_path / "~gda_no_such_user_802"
     project.mkdir()
     (project / PROJECT_MARKER).write_text("", encoding="utf-8")
     outside = tmp_path / "outside.gd"
     outside.write_text("extends Node\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    spelled = Path("~gda_no_such_user_802")
 
-    refusal = containment_refusal(str(outside), project)
-
+    refusal = containment_refusal(str(outside), spelled)
     assert refusal is not None
     assert refusal.error.code == "target_outside_project"
+
+    outcome = _script_validate_recipe(
+        ScriptValidateParams(paths=[str(outside)]), project=spelled, godot=None
+    )
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "target_outside_project"
 
 
 @pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
