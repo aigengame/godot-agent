@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=289476938ec06e3acf6339cd1ebd1c8da0159550c555165c3db9a592b6aca88d -->
+<!-- gda-readme-i18n: source=README.md sha256=465ec4f02a22747e675bfbee6bdba48edd474a3da79ec654943c9741a747c302 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -200,7 +200,7 @@ gda skill --install --dir ~/.claude/skills/gda         # …or give the director
 ```
 
 [Skill レシピ](gda-skill.md) には各エージェントのスキルディレクトリが記載されています。あるいは同じファイルを
-リポジトリから直接取得することもできます — Skill はそれを駆動するので、`gda` 自体のインストールは引き続き必要です。
+リポジトリから直接取得することもできます — Skill は `gda` を呼び出して動くので、`gda` 自体のインストールは引き続き必要です。
 
 ```bash
 curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
@@ -221,15 +221,15 @@ uvx --from "gda[mcp]" gda-mcp
 **バイナリ** を実行するか(MCP は呼び出しごとのフラグを渡せません)。
 
 - **プロジェクト** — `GDA_PROJECT` を設定します。未設定なら `gda-mcp` はクライアントが送るワークスペースの
-  **roots**(あなたが開いているフォルダ)を使いますが、MCP 2026-07-28 改訂版は roots を非推奨にしたため、
-  `GDA_PROJECT` を固定するのが確実に動く設定です。[設定](#configuration) を参照してください。
+  **roots**(エディタで開いているフォルダ)を使いますが、MCP 2026-07-28 改訂版は roots を非推奨にしたため、
+  `GDA_PROJECT` を固定しておくのが今後も動き続ける設定です。[設定](#configuration) を参照してください。
 - **エンジン** — `GDA_GODOT` に Godot バイナリを設定します。例: `"GDA_GODOT": "/path/to/Godot"`。
 
 `gda-mcp` は 2026 年以前の MCP と **2026-07-28 改訂版** の両方の接続を受け付けますが、プロジェクトの
 決め方は同じではありません。2026 年以前のクライアントは引き続き roots を送りますが、新しい改訂版の
 クライアントは送らないため、`GDA_PROJECT` かサーバーの cwd に頼ることになります。クライアントを
-移行する前に `GDA_PROJECT` を固定してください。新しい改訂版に対しては、`gda-mcp` は `tools/list` を
-キャッシュ可能(TTL 1 時間)としてもマークします。
+移行する前に `GDA_PROJECT` を固定してください。新しい改訂版に対しては、`gda-mcp` は `tools/list` に
+キャッシュ可能(TTL 1 時間)のマークも付けます。
 
 #### コーディングエージェントへの登録
 
@@ -378,7 +378,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | コマンド | 機能 |
 | ------- | ------------ |
 | `gda info`   | Godot エンジンのバージョンを報告します。 |
-| `gda version` | どの `gda` がインストールされていて、どこから来たのかを報告します(`--json` でインストール来歴も出力)。 |
+| `gda version` | どの `gda` がインストールされていて、その出どころはどこかを報告します(`--json` でインストール来歴も出力)。 |
 | `gda help`   | コマンドのヘルプ(`gda help scene get`)または CLI 全体のヘルプを表示します。 |
 | `gda schema` | コマンド体系全体を 1 つの機械可読な JSON マニフェストとして出力します。 |
 | `gda skill`  | エージェントに `gda` の操作方法を教える同梱の Agent Skill(`SKILL.md`)を出力またはインストールします。 |
@@ -397,7 +397,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `scene validate` | シーンを**静的に**検査します——依存が解決でき、バインドされたスクリプトがコンパイルできるかを、サブシーンも含めて調べます。シーンはインスタンス化しません(プロジェクトのオートロードは、他の `--project` コマンドと同じく起動します)。壊れたシーンはエラーではなく判定(`valid: false`、終了コード `0`)として返ります。 |
 | `scene preflight` | シーンを**動的に**検査します——headless で起動して `_ready` を実行し、`started` と起動中に検出したスクリプトエラーを報告します。起動失敗はエラーではなく判定です。 |
 
-両方を実行してください。`scene get` はスクリプトを失ったシーンも健全に読み取ります。そのファイルを
+両方を実行してください。`scene get` はスクリプトを失ったシーンでも問題なしとして読み取ります。そのファイルを
 指摘できるのは `validate` だけで、最初のフレームでの失敗を捕まえられるのは `preflight` だけです。
 
 **`node`** — シーンファイル内のノード
@@ -425,7 +425,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `script delete` | スクリプトファイルを削除し、削除された内容を報告します。 |
 | `script attach` | シーン内のノードに(ノードパスで指定して)`.gd` スクリプトをアタッチします。 |
 | `script validate` | `.gd` スクリプトのコンパイルチェックを行います——PATH を複数渡せば 1 回のエンジン起動で済み、`--all` でプロジェクト全体を対象にできます。集約された `valid` と、`scripts` 内のスクリプトごとのエントリを報告します。失敗したスクリプトはエラーではなく判定(`valid: false`、終了コード `0`)です。 |
-| `script run` | プロジェクトスクリプトをワンショットのエントリポイントとして headless 実行します。上限は `--timeout` です。スクリプトの `exit_status` と `stderr` はそのまま返され、`stdout` は 64 KiB までがインラインで、残りは結果に示されたファイルに書き出されます。非ゼロの `quit()` は失敗ではなく結果データとして扱われ、`--strict` を渡したときだけ失敗になります。 |
+| `script run` | プロジェクトスクリプトをワンショットのエントリポイントとして headless 実行します。上限は `--timeout` です。スクリプトの `exit_status` と `stderr` はそのまま返され、`stdout` は 64 KiB までがインラインで返されます。切り詰められた場合は、完全な stdout が結果に示されたファイルに書き出されます。非ゼロの `quit()` は失敗ではなく結果データとして扱われ、`--strict` を渡したときだけ失敗になります。 |
 
 **`project`** — プロジェクト全体(設定、オートロード、静的解析)
 
@@ -533,7 +533,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行)。 |
 | `input sequence` | 複数フレームにわたるイベントのタイムラインを注入します。 |
 
-注入されたマウス座標は `event.position` から読み取ってください——daemon セッションでは
+注入されたマウス座標は `event.position` から読み取ってください——デーモンセッションでは
 `get_mouse_position()` / `get_global_mouse_position()` が古い値のままになることがあります。
 
 **`screen`** — ビューポートのキャプチャ
@@ -580,9 +580,9 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 
 - **オートロード**は、エンジンを起動するすべての `--project` 操作で実行されます。読み取り専用の操作も
   例外ではありません(キャッシュが完全な `resource import` は何も起動しません)。
-- **シーンスクリプトの `_init`** は、シーンがインスタンス化される場所で実行されます。すべての変更系
+- **シーンスクリプトの `_init`** は、シーンをインスタンス化する操作では必ず実行されます。すべての変更系
   `node` コマンドと `node get` が該当し、`scene get` / `scene list` / `node list` はインスタンス化せずに読み取ります。
-- **`script run`** は指名されたスクリプトを完全に実行し、**`scene preflight`** はシーンを起動して `_ready` を実行します。
+- **`script run`** は指定されたスクリプトを最後まで実行し、**`scene preflight`** はシーンを起動して `_ready` を実行します。
 - **`resource import`** はキャッシュ欠落時にエンジンのインポーター(およびプロジェクトのインポートプラグイン)を
   実行します。オートロードは実行されません。
 - **`game call`** はノードの `GDA_CALLABLE` 宣言が指定した 1 つのメソッドだけを実行します。宣言されていない

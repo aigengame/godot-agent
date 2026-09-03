@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=289476938ec06e3acf6339cd1ebd1c8da0159550c555165c3db9a592b6aca88d -->
+<!-- gda-readme-i18n: source=README.md sha256=465ec4f02a22747e675bfbee6bdba48edd474a3da79ec654943c9741a747c302 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -68,7 +68,7 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
   只要一个 Godot 二进制文件。Live 操作则通过一个基于 Unix 域套接字的 daemon，为正在运行的游戏
   加上实时控制能力，用的还是同一套 CLI 语法。
 - **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错，引擎卡死则由超时兜底；两者都映射为一个
-  **稳定的非零退出码**，外加一个 Error 信封，里面有失败类别、错误码，以及已经算出的类型化证据——
+  **稳定的非零退出码**，外加一个 Error 信封，里面有失败类别、错误码，以及（如有）已算出的类型化证据——
   shell 或 agent 据此分支处理即可，不必解析文本。`gda` 不认识的命令同样以这种方式拒绝，并在 `hint`
   中给出应当改用的调用方式。
 
@@ -409,7 +409,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `script delete` | 删除一个脚本文件并报告删除了什么。 |
 | `script attach` | 按节点路径把一个 `.gd` 脚本附加到场景里的某个节点上。 |
 | `script validate` | 编译检查 `.gd` 脚本——多个 PATH 在一次引擎启动中完成，或用 `--all` 检查整个项目——报告一个汇总的 `valid` 加上 `scripts` 里每个脚本各自的条目；编译失败的脚本作为检查结果返回（`valid: false`，退出码 `0`），不会报错。 |
-| `script run` | 以一次性入口的方式 headless 运行一个项目脚本，受 `--timeout` 约束。脚本的 `exit_status` 与 `stderr` 原样透传，`stdout` 前 64 KiB 内联返回、其余落盘到结果中指明的文件；脚本以非零状态 `quit()` 不算失败，只是结果里的数据，加 `--strict` 才按失败处理。 |
+| `script run` | 以一次性入口的方式 headless 运行一个项目脚本，受 `--timeout` 约束。脚本的 `exit_status` 与 `stderr` 原样透传；`stdout` 内联返回最多 64 KiB，超出时完整的 stdout 会写入结果中指明的文件；脚本以非零状态 `quit()` 不算失败，只是结果里的数据，加 `--strict` 才按失败处理。 |
 
 **`project`** — 作为整体的项目（设置、autoload、静态分析）
 

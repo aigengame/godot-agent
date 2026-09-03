@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=289476938ec06e3acf6339cd1ebd1c8da0159550c555165c3db9a592b6aca88d -->
+<!-- gda-readme-i18n: source=README.md sha256=465ec4f02a22747e675bfbee6bdba48edd474a3da79ec654943c9741a747c302 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -71,7 +71,7 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
   en ejecución a través de un daemon sobre socket de dominio Unix, direccionadas con la misma gramática de la CLI.
 - **🛡️ Falla de forma ruidosa, nunca en silencio.** Un motor ausente falla de inmediato y uno colgado
   al agotarse el timeout; ambos se traducen en un **código de salida no nulo estable** más un sobre de
-  error con la categoría y el código del fallo y, cuando se calculó, su evidencia tipada — de modo que
+  error con la categoría del fallo, su código y la evidencia tipada que se haya calculado — de modo que
   un shell o un agente decide según el fallo en vez de analizar prosa. Un comando que `gda` no reconoce
   se rechaza del mismo modo, con un `hint` que nombra la invocación que debe usarse en su lugar.
 
@@ -198,7 +198,7 @@ gda skill --install --dir ~/.claude/skills/gda         # …or give the director
 ```
 
 Las [recetas de skills](gda-skill.md) listan el directorio de skills de cada agente. O bien obtén el
-mismo archivo directamente del repositorio — aun así instalas `gda`, ya que la Skill lo maneja:
+mismo archivo directamente del repositorio — aun así instalas `gda`, ya que la Skill lo invoca:
 
 ```bash
 curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
@@ -223,9 +223,10 @@ ejecutar (MCP no puede pasar flags por llamada):
 - **Motor** — define `GDA_GODOT` con tu binario de Godot, p. ej. `"GDA_GODOT": "/path/to/Godot"`.
 
 `gda-mcp` es compatible con ambas generaciones del protocolo — el MCP anterior a 2026 y la **revisión
-2026-07-28** — pero no resuelven el proyecto igual: un cliente anterior a 2026 sigue enviando roots, uno
-de la nueva revisión no, así que se apoya en `GDA_PROJECT` o en el cwd del servidor. Fija `GDA_PROJECT`
-antes de que tu cliente cambie. En la nueva revisión `gda-mcp` también marca `tools/list` como cacheable (TTL de 1 hora).
+2026-07-28** — pero cada una determina el proyecto de forma distinta: un cliente anterior a 2026 sigue
+enviando roots; uno de la nueva revisión ya no, así que `gda-mcp` recurre a `GDA_PROJECT` o al cwd del servidor.
+Fija `GDA_PROJECT` antes de que tu cliente pase a la nueva revisión. Con la nueva revisión, `gda-mcp`
+también marca `tools/list` como cacheable (TTL de 1 hora).
 
 #### Registrar con agentes de programación
 
@@ -392,7 +393,7 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `scene validate` | Comprueba una escena **estáticamente** — las dependencias se resuelven y los scripts vinculados compilan, subescenas incluidas — sin instanciarla (los autoloads del proyecto siguen arrancando, como en todo comando `--project`); una escena rota es un veredicto (`valid: false`, salida `0`), no un error. |
 | `scene preflight` | Comprueba una escena **dinámicamente** — la arranca en headless, ejecuta `_ready` e informa `started` más los errores de script vistos; un arranque fallido es un veredicto, no un error. |
 
-Ejecuta ambas — `scene get` lee como sana una escena sin su script, solo `validate` nombra
+Ejecuta ambas comprobaciones — `scene get` lee como sana una escena sin su script, solo `validate` nombra
 el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 
 **`node`** — nodos dentro de un archivo de escena
@@ -402,7 +403,7 @@ el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 | `node add` | Añade un nodo bajo un padre, opcionalmente en `--index`: un tipo integrado, un script con `class_name`, o `--instance` para componer otra escena como hijo instanciado. |
 | `node get` | Lee las propiedades de un nodo (por ruta de nodo) como JSON tipado. |
 | `node list` | Lista el árbol de nodos de una escena con la ruta de cada nodo relativa a la raíz. |
-| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; los hijos de un `Container` están gestionados por layout, así que define sus offsets directamente. |
+| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; el layout coloca los hijos de un `Container`, así que define sus offsets directamente. |
 | `node remove` | Elimina un nodo (y su subárbol) por ruta de nodo. |
 | `node duplicate` | Duplica un nodo (y su subárbol) bajo su padre. |
 | `node move` | Reasigna un nodo (y su subárbol) a un nuevo padre, o lo reordena con `--index`. |
@@ -420,7 +421,7 @@ el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 | `script delete` | Elimina un archivo de script e informa qué se eliminó. |
 | `script attach` | Adjunta un script `.gd` a un nodo (por ruta de nodo) en una escena. |
 | `script validate` | Comprueba la compilación de scripts `.gd` — varias PATH en un único arranque del motor, o `--all` para todo el proyecto — e informa un `valid` agregado más una entrada por script en `scripts`; un script que falla es un veredicto (`valid: false`, salida `0`), no un error. |
-| `script run` | Ejecuta un script del proyecto en headless como punto de entrada de un solo uso, bajo `--timeout`. Su `exit_status` y `stderr` pasan tal cual, y `stdout` hasta 64 KiB en línea con el resto volcado a un archivo que el resultado nombra — un `quit()` distinto de cero es un dato, no un fallo, salvo que pases `--strict`. |
+| `script run` | Ejecuta un script del proyecto en headless como punto de entrada de un solo uso, bajo `--timeout`. Su `exit_status` y `stderr` se devuelven tal cual; `stdout` se incluye en el propio resultado hasta 64 KiB y, si se trunca, el `stdout` completo se escribe en el archivo que indica el resultado — un `quit()` distinto de cero es un dato, no un fallo, salvo que pases `--strict`. |
 
 **`project`** — el proyecto en su conjunto (ajustes, autoloads, análisis estático)
 
@@ -479,7 +480,7 @@ el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 | Comando | Qué hace |
 | ------- | ------------ |
 | `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza de forma perezosa, en la primera operación que la necesita (`--windowed` para la captura de `screen`). |
-| `daemon wait-ready` | Lanza la sesión del motor ahora y espera a que esté lista; `--timeout` es el presupuesto del daemon para ese lanzamiento, no un techo estricto de la llamada. Las lecturas de solo lectura `diag` / `logger` nunca lanzan una sesión, así que ejecútalo primero cuando una de ellas sea tu primer comando live. |
+| `daemon wait-ready` | Lanza la sesión del motor ahora y espera a que esté lista; `--timeout` es el presupuesto que el daemon dedica a ese lanzamiento y no limita estrictamente la duración total de la llamada. Las consultas de solo lectura `diag` / `logger` nunca lanzan una sesión, así que ejecútalo primero cuando una de ellas sea tu primer comando live. |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
 | `daemon install` | Instala el harness dentro del juego sin iniciar un daemon e informa qué escribió. Idempotente; `daemon start` ya lo hace por su cuenta, así que úsalo solo para revisar o hacer commit por separado del cambio en `project.godot`. |
@@ -492,8 +493,8 @@ el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 | `game tree` | Lee el árbol de escena en runtime del juego en ejecución (después de `_ready`). |
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
 | `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
-| `game set` | Define una propiedad de un nodo de runtime, o una variable explícita del script adjunto, en el juego en ejecución; `verified` informa si la relectura coincidió. |
-| `game call` | Invoca un método que el script del nodo declara en `GDA_CALLABLE` — la promesa de solo lectura del propio proyecto, que gda no puede verificar — y proyecta lo que devuelve; nunca se invoca nada no declarado. |
+| `game set` | Define una propiedad de un nodo de runtime, o una variable del script adjunto nombrada explícitamente, en el juego en ejecución; `verified` informa si la relectura coincidió. |
+| `game call` | Invoca un método que el script del nodo declara en `GDA_CALLABLE` — la promesa de solo lectura del propio proyecto, que gda no puede verificar — y proyecta lo que devuelve; nunca se invoca nada que no esté declarado. |
 
 `game call` lee lo que `game get` no puede: estado que tu proyecto expone como método.
 `game set --property position` sigue la misma regla de `Control` que `node set`.
@@ -542,7 +543,7 @@ Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesi�
 
 | Flag       | Descripción                                                        |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emite el desenlace como un único objeto JSON en stdout: el resultado si hay éxito, el sobre `{"error": {…}}` si hay fallo. Sin él, ambos se imprimen como una representación concisa y legible para humanos. También se acepta antes del comando. |
+| `--json`    | Emite un único objeto JSON en stdout: el resultado si hay éxito, el sobre `{"error": {…}}` si hay fallo. Sin él, ambos se imprimen como una representación concisa y legible para humanos. También se acepta antes del comando. |
 | `--schema`  | Emite el contrato JSON Schema de entrada/salida del comando (sin lanzar Godot). |
 | `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT` y el valor por defecto). |
 | `--project` | Directorio del proyecto de Godot para la resolución de `res://` (anula `$GDA_PROJECT`; por defecto, el directorio actual si es un proyecto). Solo comandos de dominio. Resolver un proyecto ejecuta el código de ese proyecto — consulta [Ejecución del código del proyecto](#configuration). |
@@ -557,9 +558,9 @@ Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesi�
 `gda` encuentra el binario de Godot a partir del flag **`--godot <path>`**, o bien de la
 variable de entorno **`GDA_GODOT`** — define una de las dos para que `gda` pueda localizar tu motor.
 
-Los comandos de dominio resuelven un **proyecto de Godot** para que las rutas `res://` se resuelvan. Un
-directorio indicado debe ser un proyecto, o `gda` reporta un error; cuando nada resuelve, `gda` se ejecuta
-**sin proyecto** (projectless) — las rutas del sistema de archivos funcionan, `res://` no.
+Los comandos de dominio determinan el **proyecto de Godot** con el que trabajan, para que las rutas `res://`
+tengan sentido. Si indicas un directorio que no es un proyecto, `gda` devuelve un error; si no se determina
+ninguno, `gda` funciona **sin proyecto** (projectless): las rutas del sistema de archivos funcionan, `res://` no.
 
 | Contexto | Orden de resolución del proyecto |
 | --- | --- |
@@ -575,13 +576,13 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
 - **Los autoloads** arrancan en cada operación `--project` que inicia el motor, incluidas las de solo
   lectura (un `resource import` con la caché íntegra no arranca nada).
 - **El `_init` de los scripts de la escena** se ejecuta allí donde se instancia una escena: todo comando
-  `node` que muta y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
+  `node` que modifica la escena y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta el script nombrado en su totalidad; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.
 - **`resource import`** ejecuta los importadores del motor (y los plugins de importación del proyecto)
   cuando falta la caché, sin autoloads.
 - **`game call`** ejecuta el único método que nombra la declaración `GDA_CALLABLE` del nodo; nunca se
-  invoca nada no declarado.
+  invoca nada que no esté declarado.
 
 </details>
 
@@ -615,7 +616,7 @@ para que un shell o un agente pueda bifurcar según la **categoría del fallo si
 | `0`       | —             | Éxito.                                                               |
 | `2`       | `usage`       | `gda` no pudo resolver lo que se le pidió — un comando o una opción que no reconoce. Un caso cercano reconocido lleva en el `hint` del sobre la invocación que debe usarse. |
 | `127`     | `environment` | No se pudo lanzar el binario de Godot (convención de shell: no encontrado). |
-| `124`     | `environment` | Godot se lanzó pero no retornó antes del timeout (convención de shell: tiempo agotado); el sobre lleva la salida parcial capturada hasta entonces. |
+| `124`     | `environment` | Godot se lanzó pero no terminó antes del timeout (convención de shell: tiempo agotado); el sobre lleva la salida parcial capturada hasta entonces. |
 | `3`       | `version`     | La versión de Godot detectada está por debajo del mínimo soportado.   |
 | `4`       | `operation`   | El motor se ejecutó pero la operación falló — un error de operación registrado, una caída del motor o una salida no nula no estructurada. |
 | `5`       | `parse`       | El proceso declaró éxito pero violó el contrato de salida estructurada. |

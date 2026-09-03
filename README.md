@@ -411,7 +411,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `script delete` | Delete a script file and report what was removed. |
 | `script attach` | Attach a `.gd` script to a node (by node path) in a scene. |
 | `script validate` | Compile-check `.gd` scripts — several PATHs in one engine launch, or `--all` for the whole project — reporting one aggregate `valid` plus a per-script entry under `scripts`; a failing script is a verdict (`valid: false`, exit `0`), not an error. |
-| `script run` | Run a project script headless as a one-shot entry point, under `--timeout`. Its `exit_status` and `stderr` pass straight through, `stdout` up to 64 KiB inline with the rest spilled to a file the result names — and a non-zero `quit()` is data, not a failure, unless you pass `--strict`. |
+| `script run` | Run a project script headless as a one-shot entry point, under `--timeout`. Its `exit_status` and `stderr` pass straight through; `stdout` is inline up to 64 KiB and, when truncated, the complete stdout is written to the file the result names — and a non-zero `quit()` is data, not a failure, unless you pass `--strict`. |
 
 **`project`** — the project as a whole (settings, autoloads, static analysis)
 
