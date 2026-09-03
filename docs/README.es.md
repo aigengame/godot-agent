@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=c71e5e011339a24d1e70a7922fb24ecb5fc6269909f82fdbab469479868deac2 -->
+<!-- gda-readme-i18n: source=README.md sha256=ffb56660e6d1f4ed1cfc3356e705ad60a33f7dce864aad11c405c798ca4c946e -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -70,16 +70,10 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
   ni editor — solo un binario de Godot. Las operaciones live añaden control en tiempo real de un juego
   en ejecución a través de un daemon sobre socket de dominio Unix, direccionadas con la misma gramática de la CLI.
 - **🛡️ Falla de forma ruidosa, nunca en silencio.** Un motor ausente o colgado queda acotado por un timeout
-  y se mapea a un **código de salida no nulo estable** más un sobre de error que lleva la categoría
-  y el código del fallo — de modo que un shell o un agente puede bifurcar según el fallo sin analizar
-  prosa. Con `--json` ese sobre es el objeto `{"error": {…}}`; sin él, el mismo fallo se dispone como
-  líneas legibles, con el veredicto primero.
-  Un comando o una opción que `gda` no reconoce se rechaza del mismo modo, con un
-  `hint` que nombra la invocación que debe usarse en su lugar. Cuando un fallo calculó evidencia,
-  esa evidencia también viaja en el sobre — un objeto `evidence` opcional que lleva el reloj
-  transcurrido y el techo que alcanzó una ejecución agotada, el estado de salida propio del proceso
-  hijo, los errores de script ya analizados — para que un agente bifurque con números en vez de
-  analizar el mensaje.
+  y se mapea a un **código de salida no nulo estable** más un sobre de error que lleva la categoría,
+  el código y la evidencia tipada del fallo — de modo que un shell o un agente bifurca según el fallo
+  en vez de analizar prosa. Un comando que `gda` no reconoce se rechaza del mismo modo, con un
+  `hint` que nombra la invocación que debe usarse en su lugar.
 
 ---
 
@@ -405,54 +399,11 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `scene list` | Enumera las escenas `.tscn` del proyecto resuelto. |
 | `scene get-exports` | Lista las propiedades `@export` que declaran los scripts de los nodos de una escena. |
 | `scene delete` | Elimina un archivo de escena e informa qué se eliminó. |
-| `scene validate` | Comprueba estáticamente que una escena y las subescenas que referencia resuelven sus dependencias y compilan sus scripts. |
-| `scene preflight` | Arranca una escena en headless, espera a `_ready` e informa su veredicto de arranque. |
+| `scene validate` | Comprueba una escena **estáticamente** — las dependencias resuelven y los scripts vinculados compilan, subescenas incluidas — sin ejecutar nada; una escena rota es un veredicto (`valid: false`, salida `0`), no un error. |
+| `scene preflight` | Comprueba una escena **dinámicamente** — la arranca en headless, ejecuta `_ready` e informa `started` más los errores de script vistos; un arranque fallido es un veredicto, no un error. |
 
-Leer una escena sobrevive a la mayoría de las roturas: Godot sustituye por null la referencia
-de un nodo que no puede resolver y aun así devuelve un árbol utilizable, así que `scene get`
-muestra una escena sana cuyo script y textura han desaparecido (una dependencia rota desde un
-sub-resource todavía puede hacer fallar la carga entera). Las dos comprobaciones responden
-preguntas distintas. `scene validate` es **estática**: resuelve cada dependencia, compila cada
-script vinculado (referenciado o embebido) y comprueba cada vínculo que el motor rechazaría,
-todo sin instanciar nada, e informa un problema por archivo problemático
-(`missing_resource`, `unloadable_resource` para un recurso que nunca se importó,
-`script_compile_failed`, o `incompatible_script` para un vínculo que el motor rechazaría: un
-script sobre un nodo fuera de su base, o un valor vinculado que no es un script) junto con los
-nodos que lo referencian. El veredicto es **compuesto**: las escenas que una escena referencia
-—normalmente las que instancia— se comprueban con ella, porque un padre cuyo hijo está roto
-también está roto y su propio recorrido no puede verlo: `res://child.tscn` se resuelve y se carga
-por mucho que falte dentro de él. Por eso cada problema lleva `scene`, el archivo donde se
-encontró, y su `path` y sus nodos se leen contra ese archivo — y toda ruta del resultado es la
-grafía canónica, así que `res://./main.tscn` y `res://main.tscn` son un archivo y un veredicto.
-Una referencia se sigue cuando la ruta que resuelve termina en `.tscn`/`.scn` **o** su línea
-`[ext_resource]` declara `type="PackedScene"`. Ambos disparadores hacen falta: Godot carga cada
-`[ext_resource]` al cargar la escena y elige el gestor por extensión, así que un `.tscn`
-referenciado como simple metadato rompe a su dueño igual que uno instanciado — mientras que
-`ResourceSaver` escribe un PackedScene dentro de un `.res` corriente que ninguna prueba de
-extensión detecta. Un PackedScene guardado bajo una extensión que no es de escena *y* declarado
-como otro tipo queda fuera del recorrido. Se informan tres tipos de arista en vez de seguirlas:
-`cyclic_instance`, donde una referencia cierra un ciclo cuya arista de cierre el motor descarta
-(llevándose los nodos que habría aportado); `unreadable_sub_scene`, una escena que carga pero no
-lleva el texto `[gd_scene]` que el recorrido lee — un `.scn` binario, o un PackedScene dentro de
-un `.res`; e `instance_depth_exceeded`, para una escena a la que ninguna ruta llega dentro de 16
-niveles de subescenas. Las dos últimas informan ese subárbol como **no comprobado** en vez de
-sano — valídalo directamente, o vuelve a guardarlo como `.tscn`, para obtener su propio
-veredicto. El límite de profundidad se aplica a la ruta más corta hacia cada escena, así que el
-veredicto no depende del orden en que se declaran las referencias; acota el recorrido propio de
-gda, el motor carga la cadena entera de todos modos, y una cadena extremadamente profunda
-desborda su cargador y termina la ejecución sin veredicto alguno. La comprobación es **escalonada**: cuando hay dependencias sin
-resolver, la escena no se carga, así que los problemas de compilación y de vínculo que solo la
-escena cargada puede revelar aparecen después de reparar las dependencias y volver a ejecutar
-validate — la lista de problemas es completa para la etapa alcanzada, no para ambas etapas a la
-vez. `scene preflight` es
-**dinámica**: arranca la escena, ejecuta su `_ready` y los autoloads del proyecto, la observa
-durante unos fotogramas e informa `status` (`ready` / `not_ready` / `timeout`) más los errores
-de script vistos durante el arranque; lee `started` como puerta de un solo booleano. Ejecuta ambas: una escena con todas sus dependencias resueltas
-puede fallar en su primer fotograma, y una escena que referencia una textura nunca importada
-arranca de forma perfectamente limpia; solo la comprobación estática nombra ese archivo.
-Ambas informan una escena defectuosa como una **operación exitosa** (salida `0`, veredicto en el
-resultado); solo un archivo inexistente, un archivo que no es una escena o un fallo del entorno
-usan el sobre de Error.
+Ejecuta ambas — `scene get` lee como sana una escena sin su script, solo `validate` nombra
+el archivo, y solo `preflight` detecta un fallo en el primer fotograma.
 
 **`node`** — nodos dentro de un archivo de escena
 
@@ -483,60 +434,8 @@ layout, así que define esas propiedades offset explícitamente.
 | `script set` | Edita un script mediante buscar-reemplazar, rango de líneas o sobrescritura completa. |
 | `script delete` | Elimina un archivo de script e informa qué se eliminó. |
 | `script attach` | Adjunta un script `.gd` a un nodo (por ruta de nodo) en una escena. |
-| `script validate` | Comprueba la sintaxis/compilación de scripts `.gd`: varias PATH a la vez, o `--all` para todos los scripts del proyecto. |
-| `script run` | Ejecuta un script del proyecto en headless como punto de entrada de un solo uso, bajo un límite de reloj de pared. |
-
-`script validate` acepta un **lote**: pasa varias PATH y todas se validan en un único
-arranque del motor, así que los cuatro a seis scripts relacionados que toca un cambio
-cuestan un proceso en vez de uno cada uno. `--all` valida del mismo modo todos los
-scripts `.gd` del proyecto resuelto.
-
-Para `script validate --json`, lee el campo `valid` del objeto de resultado: es el
-veredicto **agregado**, `false` cuando falla cualquiera de los scripts. El veredicto de
-cada script es una entrada en `scripts`, con su `path`, `valid`, `error_string` y
-`diagnostics`. Una sola PATH es simplemente un lote de uno, así que la forma nunca
-varía. Un script que no compila sigue siendo una operación exitosa: salida `0`, sin
-`error` de nivel superior, y `valid: false`. Los problemas de operación, como un
-archivo inexistente, siguen usando el Error envelope normal y rechazan el lote entero
-en lugar de convertirse en un veredicto.
-
-El resultado también informa `project_root`: el proyecto contra el que se compilaron los
-scripts, es decir, la raíz a la que se resolvieron sus dependencias `res://` (`null`
-cuando no se resolvió ningún proyecto). Léelo antes de actuar sobre un `valid: false`:
-un veredicto lleno de dependencias `res://` inexistentes, más los errores de tipo
-derivados de ellas, suele significar el proyecto equivocado y no un script roto. Una
-ruta que el proyecto resuelto no posee rechaza el lote entero de entrada con
-`target_outside_project`, nombrando tanto el archivo como el proyecto, en lugar de
-informar esos errores falsos; pasa `--project` con el proyecto al que pertenecen los
-archivos. Eso cubre dos casos: una ruta *fuera* del proyecto resuelto, y una ruta que
-pertenece a un `project.godot` *anidado* — gda nombra al propietario que encontró en vez
-de adoptarlo, y la misma comprobación se aplica sin proyecto resuelto, de modo que un
-script que pertenece a un proyecto nunca se compila contra nada. Para el caso anidado el
-mensaje indica la reemisión completa: el `--project` que hay que pasar y el objetivo
-reescrito relativo a ese propietario, porque una ruta relativa se ancla en el proyecto y
-la grafía original no se encontraría bajo el nuevo. `script run` y
-`resource import` rechazan igual, con el mismo código. `--all` no necesita ese rechazo: el
-recorrido de todo el proyecto omite un directorio que contiene un `project.godot` anidado
-(y uno que contiene un `.gdignore`) igual que lo hace el propio escaneo del motor, así que
-nunca enumera un archivo que la comprobación rechazaría por nombre.
-
-`script run` ejecuta un script del proyecto de un solo uso y **deja pasar su ejecución**:
-el resultado de éxito lleva el `exit_status` propio del script (un `quit()` distinto de
-cero deliberado es un dato, no un fallo de gda — pasa `--strict` para convertirlo en un error
-`script_failed` para cadenas `&&` del shell) más su `stdout` y `stderr` capturados. `stderr`
-se devuelve literalmente; `stdout` se devuelve literalmente hasta 64 KiB — por encima de eso
-el resultado lleva los bytes iniciales del flujo y el flujo completo se escribe en el archivo
-nombrado en `stdout_file`, con `stdout_bytes` y `stdout_truncated` informando siempre el
-tamaño completo y si hubo truncado. Un archivo de volcado que gda no puede escribir falla de
-forma tipada (`stdout_spill_failed`) en lugar de devolver un resultado sin límite, así que
-lee los tres campos al consumir `stdout`.
-`--timeout <s>` limita el reloj de pared de la ejecución; una ejecución que gda tiene que
-terminar informa `launch_timeout` **con la salida parcial capturada hasta entonces**, los
-segundos transcurridos y una fase de terminación. Declara `--completion-marker <line>` — una
-línea que tu script imprime cuando su trabajo termina — y una ejecución que encontró un error
-reconocido atribuible al script de entrada, aún no ha impreso el marcador, y luego queda en
-silencio en ambos flujos se termina en segundos en lugar de esperar al límite, informada como
-`script_aborted` con el error capturado.
+| `script validate` | Comprueba la compilación de scripts `.gd` — varias PATH en un único arranque del motor, o `--all` para todo el proyecto — e informa un `valid` agregado más una entrada por script en `scripts`; un script que falla es un veredicto (`valid: false`, salida `0`), no un error. |
+| `script run` | Ejecuta un script del proyecto en headless como punto de entrada de un solo uso, bajo `--timeout`. Su `exit_status`, `stdout` y `stderr` pasan tal cual — un `quit()` distinto de cero es un dato, no un fallo, salvo que pases `--strict`. |
 
 **`project`** — el proyecto en su conjunto (ajustes, autoloads, análisis estático)
 
@@ -608,27 +507,11 @@ silencio en ambos flujos se termina en segundos en lugar de esperar al límite, 
 | `game tree` | Lee el árbol de escena en runtime del juego en ejecución (después de `_ready`). |
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
 | `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
-| `game set` | Define una propiedad de un nodo de runtime, o una variable explícita del script adjunto, en el juego en ejecución. |
-| `game call` | Invoca un método nombrado por la declaración de la cadena de scripts adjuntos del nodo (`GDA_CALLABLE`) y proyecta lo que devuelve. |
+| `game set` | Define una propiedad de un nodo de runtime, o una variable explícita del script adjunto, en el juego en ejecución; `verified` informa si la relectura coincidió. |
+| `game call` | Invoca un método que el script del nodo declara en `GDA_CALLABLE` y proyecta lo que devuelve — nunca se invoca nada no declarado. |
 
-`game call` lee lo que `game get` no puede: un contrato de depuración o de estado que el
-proyecto expone como **método**. gda resuelve la declaración `GDA_CALLABLE` de forma estática
-desde el script adjunto al nodo a lo largo de su cadena de clases base; así, averiguar qué puede
-invocarse no ejecuta nada de tu código y nada es invocable hasta que una cadena lo declara.
-GDScript prohíbe redeclarar la constante de una clase base, por lo que una cadena que la usa
-tiene como máximo una clase propietaria de la declaración (una base propietaria cubre sus
-subclases y no tiene que definir todos los métodos que nombra). gda no puede
-verificar que un método declarado no tenga efectos secundarios; lo que garantiza es que nunca
-invoca un método no declarado (ADR-0041). Los argumentos que los parámetros declarados no
-pueden aceptar se rechazan antes de la llamada, así que un desajuste de tipo es un error
-tipado y no un `null` silencioso.
-
-`game set --property position` en vivo sigue la misma política de `Control` que
-`node set`; `game rect` sigue siendo una consulta de geometría renderizada de solo
-lectura. Los resultados exitosos de `game set` incluyen `verified`: `true` cuando
-el valor observado al leer de vuelta coincide con el valor coercionado solicitado,
-y `false` cuando el set se completó pero el valor observado difiere, como en
-variables de script getter-only/no-op o controles edge-triggered.
+`game call` lee lo que `game get` no puede: estado que tu proyecto expone como método.
+`game set --property position` sigue la misma regla de `Control` que `node set`.
 
 **`diag`** — diagnósticos de runtime
 

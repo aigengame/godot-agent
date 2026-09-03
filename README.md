@@ -68,14 +68,9 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
   game over a Unix-domain-socket daemon, addressed by the same CLI grammar.
 - **🛡️ Fails loudly, never silently.** A missing or hung engine is bounded by a timeout
   and mapped to a **stable non-zero exit code** plus an Error envelope carrying the
-  failure's category and code — so a shell or agent can branch on the failure without
-  parsing prose. Under `--json` that envelope is the `{"error": {…}}` object; without it
-  the same failure is laid out as readable lines, verdict first. A command or option
-  `gda` does not recognize is refused the same way, with a `hint` naming the invocation
-  to use instead. Where a failure computed evidence, that evidence rides the envelope too
-  — an optional `evidence` object carrying the elapsed clock and the ceiling a timed-out
-  run reached, the child's own exit status, the parsed script errors — so an agent
-  branches on numbers instead of parsing the message.
+  failure's category, code, and typed evidence — so a shell or agent branches on the
+  failure instead of parsing prose. A command `gda` does not recognize is refused the
+  same way, with a `hint` naming the invocation to use instead.
 
 ---
 
@@ -393,52 +388,11 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `scene list` | Enumerate the `.tscn` scenes in the resolved project. |
 | `scene get-exports` | List the `@export` properties a scene's nodes' scripts declare. |
 | `scene delete` | Delete a scene file and report what was removed. |
-| `scene validate` | Check statically that a scene and the sub-scenes it references resolve their dependencies and compile their scripts. |
-| `scene preflight` | Boot a scene headless, wait for `_ready`, and report its startup verdict. |
+| `scene validate` | Check a scene **statically** — dependencies resolve and bound scripts compile, sub-scenes included — without running anything; a broken scene is a verdict (`valid: false`, exit `0`), not an error. |
+| `scene preflight` | Check a scene **dynamically** — boot it headless, run `_ready`, and report `started` plus the script errors seen; a failed start is a verdict, not an error. |
 
-Reading a scene survives most breakage: Godot substitutes null for a node's reference it
-cannot resolve and still returns a usable tree, so `scene get` shows a healthy scene whose
-script and texture are both gone (a dependency broken from inside a sub-resource can still
-fail the whole load). The two checks answer different questions.
-`scene validate` is **static** — it resolves every dependency, compiles every bound script
-(referenced or embedded), and checks every binding the engine would refuse, all without
-instantiating anything — reporting one problem per problem file (`missing_resource`,
-`unloadable_resource` for an asset that was never imported, `script_compile_failed`, or
-`incompatible_script` for a binding the engine would refuse: a script on a node outside its
-base, or a bound value that is not a script) with the nodes that reference it. The verdict is
-**composed**: the scenes a scene references — normally the ones it instances — are checked with
-it, because a parent whose child is broken is broken too and its own walk cannot see that:
-`res://child.tscn` resolves and loads whatever is missing inside it. Every problem therefore
-carries `scene`, the file it was found in, and its `path` and nodes are read against that file —
-every path in the result being the canonical spelling, so `res://./main.tscn` and
-`res://main.tscn` are one file and one verdict. A reference is followed when the path it resolves
-to ends in `.tscn`/`.scn` **or** its `[ext_resource]` line declares `type="PackedScene"`. Both
-triggers earn their place: Godot loads every `[ext_resource]` when it loads the scene and picks
-the handler by extension, so a `.tscn` referenced as plain metadata breaks its owner exactly as
-an instanced one does — while `ResourceSaver` will write a PackedScene into a plain `.res` that
-no extension test catches. A PackedScene stored under a non-scene extension *and* declared as
-some other type stays outside the walk. Three kinds of edge are reported instead of followed:
-`cyclic_instance`, where a reference closes a cycle whose closing edge the engine drops (taking
-the nodes it would have contributed with it); `unreadable_sub_scene`, a scene that loads but
-carries none of the `[gd_scene]` text the walk reads — a binary `.scn`, or a PackedScene inside a
-`.res`; and `instance_depth_exceeded`, for a scene no route reaches within 16 levels of
-sub-scenes. The last two report that subtree as **unchecked** rather than sound — validate it
-directly, or re-save it as `.tscn`, for a verdict of its own. The depth bound is on the shortest
-route to each scene, so the verdict does not depend on the order the references are declared; it
-covers gda's own walk only, the engine loads the whole chain either way, and an extremely deep
-one overflows its loader and ends the run with no verdict at all. The check is
-**staged**: when dependencies fail to resolve, the scene is not loaded, so the compile and
-binding problems of the loaded scene can only appear after the dependencies are repaired and
-validate is rerun — the problem list is complete for the stage it reached, not across both
-stages at once. `scene preflight` is **dynamic** —
-it boots the scene, runs its `_ready` and the project's autoloads, watches it for a few frames,
-and reports `status` (`ready` / `not_ready` / `timeout`) plus the script errors seen while it
-started; read `started` for the one-boolean gate. Run both: a scene whose dependencies all
-resolve can still fail on its first frame, and a scene referencing a never-imported texture
-starts perfectly cleanly — only the static check names that file. Both report a bad scene as a
-**successful operation** (exit `0`,
-verdict in the result) — only a missing file, a non-scene file, or an environment failure uses
-the Error envelope.
+Run both — `scene get` reads a scene with its script missing as healthy, only `validate`
+names the file, and only `preflight` catches a first-frame failure.
 
 **`node`** — nodes within a scene file
 
@@ -469,55 +423,8 @@ offset properties explicitly instead.
 | `script set` | Edit a script via search-replace, line-range, or full overwrite. |
 | `script delete` | Delete a script file and report what was removed. |
 | `script attach` | Attach a `.gd` script to a node (by node path) in a scene. |
-| `script validate` | Syntax/compile-check `.gd` scripts — several PATHs at once, or `--all` for every script in the project. |
-| `script run` | Run a project script headless as a one-shot entry point, under a bounded wall clock. |
-
-`script validate` takes a **batch**: pass several PATHs and they are all validated in
-one engine launch, so the four to six related scripts a change touches cost one
-process instead of one each. `--all` validates every `.gd` script in the resolved
-project the same way.
-
-For `script validate --json`, read the result object's `valid` field — the **aggregate**
-verdict, `false` when any one script fails. Each script's own verdict is an entry under
-`scripts`, carrying its `path`, `valid`, `error_string` and `diagnostics`. A single
-PATH is simply a batch of one, so the shape never varies. A script that does not compile
-is still a successful operation: exit `0`, no top-level `error`, and `valid: false`.
-Operation problems such as a missing file still use the normal Error envelope, and they
-refuse the whole batch rather than becoming a verdict.
-
-The result also reports `project_root`: the project the scripts were compiled against,
-which is the root their `res://` dependencies resolved to (`null` when no project was
-resolved). Read it before acting on a `valid: false` — a verdict full of missing
-`res://` dependencies, plus the type errors derived from them, usually means the wrong
-project rather than a broken script. A path the resolved project does not own refuses the
-whole batch up front with `target_outside_project`, naming both the file and the project,
-instead of reporting those false errors; pass `--project` for the project that owns the
-files. That covers two cases: a path outside the resolved project, and a path a *nested*
-`project.godot` owns — gda names the owner it found rather than switching to it, and the
-same check runs with no project resolved, so a script that belongs to a project is never
-compiled against nothing. For the nested case the message states the whole re-issue: the
-`--project` to pass and the target respelled relative to that owner, because a relative
-path anchors at the project and the original spelling would not be found under the new
-one. `script run` and `resource import` refuse the same way, under the
-same code. `--all` needs no such refusal: the project-wide walk skips a directory holding
-a nested `project.godot` (and one holding a `.gdignore`) exactly as the engine's own scan
-does, so it never enumerates a file the check would refuse by name.
-
-`script run` executes a named project script one-shot and **passes its run through**: the
-success result carries the script's own `exit_status` (a deliberate non-zero `quit()` is
-data, not a gda failure — pass `--strict` to turn it into a `script_failed` error for shell
-`&&` chains) plus its captured `stdout` and `stderr`. `stderr` is verbatim; `stdout` is
-verbatim up to 64 KiB — above that the result carries the stream's leading bytes and the
-complete stream spills to the file named in `stdout_file`, with `stdout_bytes` and
-`stdout_truncated` always reporting the full size and whether truncation happened. A spill
-file gda cannot write fails typed (`stdout_spill_failed`) rather than returning an
-unbounded result, so read the three fields when consuming `stdout`. `--timeout <s>` bounds the
-run's wall clock; a run gda has to end reports `launch_timeout` **with the partial output
-captured so far**, the elapsed seconds and a termination phase. Declare
-`--completion-marker <line>` — a line your script prints when its work is done — and a run
-that hit a recognized error attributable to the entry script, has not printed the marker,
-and then goes silent on both streams is ended in seconds rather than at the ceiling,
-reported as `script_aborted` with the captured error.
+| `script validate` | Compile-check `.gd` scripts — several PATHs in one engine launch, or `--all` for the whole project — reporting one aggregate `valid` plus a per-script entry under `scripts`; a failing script is a verdict (`valid: false`, exit `0`), not an error. |
+| `script run` | Run a project script headless as a one-shot entry point, under `--timeout`. Its `exit_status`, `stdout` and `stderr` pass straight through — a non-zero `quit()` is data, not a failure, unless you pass `--strict`. |
 
 **`project`** — the project as a whole (settings, autoloads, static analysis)
 
@@ -589,27 +496,11 @@ reported as `script_aborted` with the captured error.
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
-| `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game. |
-| `game call` | Invoke one method named by the node's attached-script-chain declaration (`GDA_CALLABLE`), and project what it returns. |
+| `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |
+| `game call` | Invoke one method the node's script declares in `GDA_CALLABLE`, and project what it returns — nothing undeclared is ever called. |
 
-`game call` reads what `game get` cannot: a debug or state contract your project
-exposes as a **method**. gda resolves the `GDA_CALLABLE` declaration statically
-from the node's attached script along its base chain — so learning what may be
-called runs none of your code, and nothing is callable until a chain opts in.
-GDScript forbids redeclaring a base class's constant, so an opted-in chain has at
-most one declaration owner (a base owner covers its subclasses and need not define
-every method it names). gda
-cannot verify a declared method has no side effects; what it guarantees is that no
-undeclared method is called (ADR-0041). Arguments that the declared parameters
-cannot take are refused before the call, so a mismatch is a typed error rather
-than a silent `null`.
-
-Live `game set --property position` follows the same `Control` policy as
-`node set`; `game rect` remains a read-only rendered-geometry query. `game set`
-success results include `verified`: `true` when the observed read-back value
-matches the coerced requested value, and `false` when the set completed but the
-observed value differs, such as getter-only/no-op script variables or
-edge-triggered controls.
+`game call` reads what `game get` cannot: state your project exposes as a method.
+`game set --property position` follows the same `Control` rule as `node set`.
 
 **`diag`** — runtime diagnostics
 
