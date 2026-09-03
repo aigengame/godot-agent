@@ -54,6 +54,11 @@ build-backend = "uv_build"
 dev = [
     "jsonschema>=4.26.0",
     "pytest>=9.0.3",
+    # Both pytest tiers run on four workers (`-n 4 --dist loadgroup`, #818): the
+    # suite is wall-clock bound by process waits and engine boots, not CPU. The
+    # `xdist_group("windowed")` mark keeps the tests that open a real window on
+    # one worker, so two windowed sessions never share the host display at once.
+    "pytest-xdist>=3.8.0",
     # The MCP SDK is also a dev dependency (not just the `[mcp]` extra) so
     # `uv run pytest` has it for the gda-mcp fast/e2e tiers (ADR-0013).
     "mcp>=2,<3",

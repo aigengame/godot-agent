@@ -722,6 +722,7 @@ def test_two_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
 
 @pytest.mark.e2e
 @pytest.mark.usefixtures("windowed_host")
+@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
 def test_two_windowed_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
     # The exact #647 reproduction: a WINDOWED daemon session, two successful
     # clicks, an empty `diag errors`. The windowed path also carries the

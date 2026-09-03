@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=465ec4f02a22747e675bfbee6bdba48edd474a3da79ec654943c9741a747c302 -->
+<!-- gda-readme-i18n: source=README.md sha256=7df2a345ba40bb5b7d090e2c84660e5dbd60fc51aea86727e322cc0e1f4cb6ab -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -623,6 +623,7 @@ uv sync                       # set up the environment
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
+uv run pytest -n 4 --dist loadgroup   # 同上，四个 worker 并行——CI 的运行方式
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
