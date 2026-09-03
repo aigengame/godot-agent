@@ -13,131 +13,91 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import LaunchFailure, RunResult
-from tests.support import error_sentinel, inject_runner
+from tests.support import (
+    assert_operation_error,
+    inject_runner,
+    invoke_cli,
+    invoke_operation_error,
+)
 
 
 def test_scene_get_missing_file_maps_to_stable_path_not_found_code(monkeypatch):
     # The operation found no file at the target path and reported a structured
     # failure: exit 4 (operation category), but a finer stable code than the
     # generic operation_failed so an agent can react to the mode specifically.
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(
-                "path_not_found", "scene file does not exist: /x/missing.tscn"
-            ),
-            stderr="gda: running operation: scene-get\n",
-            exit_code=1,
-        ),
+        ["scene", "get", "/x/missing.tscn", "--json"],
+        "path_not_found",
+        "scene file does not exist: /x/missing.tscn",
+        "scene-get",
     )
 
-    result = CliRunner().invoke(app, ["scene", "get", "/x/missing.tscn", "--json"])
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "path_not_found"
-    assert "/x/missing.tscn" in err["message"]
     # The raw stderr still rides along as diagnostics (ADR-0002).
-    assert err["diagnostics"] == "gda: running operation: scene-get\n"
+    assert_operation_error(
+        result,
+        "path_not_found",
+        "/x/missing.tscn",
+        diagnostics="gda: running operation: scene-get\n",
+    )
 
 
 def test_scene_get_unloadable_file_maps_to_stable_not_a_scene_code(monkeypatch):
     # The file exists but Godot cannot load it as a PackedScene — distinct
     # stable code, same operation category and exit code.
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "not_a_scene", "failed to load as a scene: /x/notes.txt"
-            ),
-            stderr="",
-            exit_code=1,
-        ),
+        ["scene", "get", "/x/notes.txt", "--json"],
+        "not_a_scene",
+        "failed to load as a scene: /x/notes.txt",
+        "scene-get",
     )
 
-    result = CliRunner().invoke(app, ["scene", "get", "/x/notes.txt", "--json"])
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "not_a_scene"
+    assert_operation_error(result, "not_a_scene")
 
 
 def test_scene_get_exports_missing_file_maps_to_stable_path_not_found_code(monkeypatch):
     # scene get-exports reuses the shared load-failure ladder (issue #58): a
     # target that does not exist is the file-level path_not_found, exit 4, so an
     # agent can tell "no such scene" apart from other get-exports failures.
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(
-                "path_not_found", "scene file does not exist: /x/missing.tscn"
-            ),
-            stderr="gda: running operation: scene-get-exports\n",
-            exit_code=1,
-        ),
+        ["scene", "get-exports", "/x/missing.tscn", "--json"],
+        "path_not_found",
+        "scene file does not exist: /x/missing.tscn",
+        "scene-get-exports",
     )
 
-    result = CliRunner().invoke(
-        app, ["scene", "get-exports", "/x/missing.tscn", "--json"]
-    )
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "path_not_found"
-    assert "/x/missing.tscn" in err["message"]
+    assert_operation_error(result, "path_not_found", "/x/missing.tscn")
 
 
 def test_scene_get_exports_unloadable_file_maps_to_stable_not_a_scene_code(monkeypatch):
     # The file exists but Godot cannot load it as a PackedScene — get-exports
     # reuses the same stable not_a_scene code scene get / delete report, so a
     # stray non-scene file is refused rather than mis-handled (issue #58).
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "not_a_scene", "failed to load as a scene: /x/notes.txt"
-            ),
-            stderr="",
-            exit_code=1,
-        ),
+        ["scene", "get-exports", "/x/notes.txt", "--json"],
+        "not_a_scene",
+        "failed to load as a scene: /x/notes.txt",
+        "scene-get-exports",
     )
 
-    result = CliRunner().invoke(app, ["scene", "get-exports", "/x/notes.txt", "--json"])
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "not_a_scene"
+    assert_operation_error(result, "not_a_scene")
 
 
 def test_scene_create_unknown_root_type_maps_to_stable_invalid_root_type_code(
     monkeypatch,
 ):
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "invalid_root_type", "not an instantiable Node class: Foo"
-            ),
-            stderr="",
-            exit_code=1,
-        ),
+        ["scene", "create", "/x/main.tscn", "--root-type", "Foo", "--json"],
+        "invalid_root_type",
+        "not an instantiable Node class: Foo",
+        "scene-create",
     )
 
-    result = CliRunner().invoke(
-        app, ["scene", "create", "/x/main.tscn", "--root-type", "Foo", "--json"]
-    )
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "invalid_root_type"
-    assert "Foo" in err["message"]
+    assert_operation_error(result, "invalid_root_type", "Foo")
 
 
 def test_scene_create_save_failure_maps_to_stable_save_failed_code(monkeypatch):
@@ -145,39 +105,24 @@ def test_scene_create_save_failure_maps_to_stable_save_failed_code(monkeypatch):
     # read-only filesystem): the structured error envelope maps to the stable
     # save_failed code so an agent can tell "fix the destination" apart from
     # "fix the request" (issue #35).
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "save_failed",
-                "failed to save scene to /x/demo/main.tscn: Can't open",
-            ),
-            stderr="",
-            exit_code=1,
-        ),
+        ["scene", "create", "/x/demo/main.tscn", "--root-type", "Node2D", "--json"],
+        "save_failed",
+        "failed to save scene to /x/demo/main.tscn: Can't open",
+        "scene-create",
     )
 
-    result = CliRunner().invoke(
-        app, ["scene", "create", "/x/demo/main.tscn", "--root-type", "Node2D", "--json"]
-    )
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "save_failed"
-    assert "/x/demo/main.tscn" in err["message"]
+    assert_operation_error(result, "save_failed", "/x/demo/main.tscn")
 
 
 def test_scene_get_broken_sentinel_maps_to_parse_error(monkeypatch):
     # Exit 0 but no result sentinel: the structured-output contract (ADR-0002)
     # was violated — the shared parse classification applies to scene commands
     # exactly as it does to info.
-    inject_runner(
-        monkeypatch,
-        RunResult(stdout="no sentinel here\n", stderr="", exit_code=0),
+    result, _ = invoke_cli(
+        monkeypatch, ["scene", "get", "/x/main.tscn", "--json"], stdout="no sentinel\n"
     )
-
-    result = CliRunner().invoke(app, ["scene", "get", "/x/main.tscn", "--json"])
 
     assert result.exit_code == 5
     err = json.loads(result.stdout)["error"]
@@ -189,47 +134,30 @@ def test_scene_delete_missing_file_maps_to_stable_path_not_found_code(monkeypatc
     # scene delete reuses the shared load-failure ladder (issue #54): a target
     # that does not exist is the file-level path_not_found, exit 4, so an agent
     # can tell "no such scene" apart from other delete failures.
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "path_not_found", "scene file does not exist: /x/missing.tscn"
-            ),
-            stderr="",
-            exit_code=1,
-        ),
+        ["scene", "delete", "/x/missing.tscn", "--json"],
+        "path_not_found",
+        "scene file does not exist: /x/missing.tscn",
+        "scene-delete",
     )
 
-    result = CliRunner().invoke(app, ["scene", "delete", "/x/missing.tscn", "--json"])
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "path_not_found"
-    assert "/x/missing.tscn" in err["message"]
+    assert_operation_error(result, "path_not_found", "/x/missing.tscn")
 
 
 def test_scene_delete_non_scene_file_maps_to_stable_not_a_scene_code(monkeypatch):
     # delete refuses a target that is not loadable as a scene (issue #54): the
     # safety boundary is that delete only removes things that load as a
     # PackedScene, so a stray file is not_a_scene rather than silently deleted.
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "not_a_scene", "failed to load as a scene: /x/notes.txt"
-            ),
-            stderr="",
-            exit_code=1,
-        ),
+        ["scene", "delete", "/x/notes.txt", "--json"],
+        "not_a_scene",
+        "failed to load as a scene: /x/notes.txt",
+        "scene-delete",
     )
 
-    result = CliRunner().invoke(app, ["scene", "delete", "/x/notes.txt", "--json"])
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "not_a_scene"
+    assert_operation_error(result, "not_a_scene")
 
 
 def test_scene_delete_unlink_failure_maps_to_stable_delete_failed_code(monkeypatch):
@@ -239,25 +167,15 @@ def test_scene_delete_unlink_failure_maps_to_stable_delete_failed_code(monkeypat
     # than reusing save_failed (whose contract is "a scene could not be packed or
     # saved"). An agent can then tell "deletion was blocked" apart from "writing
     # the scene failed".
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "delete_failed",
-                "failed to delete scene /x/main.tscn: Permission denied",
-            ),
-            stderr="",
-            exit_code=1,
-        ),
+        ["scene", "delete", "/x/main.tscn", "--json"],
+        "delete_failed",
+        "failed to delete scene /x/main.tscn: Permission denied",
+        "scene-delete",
     )
 
-    result = CliRunner().invoke(app, ["scene", "delete", "/x/main.tscn", "--json"])
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "delete_failed"
-    assert "/x/main.tscn" in err["message"]
+    assert_operation_error(result, "delete_failed", "/x/main.tscn")
 
 
 def test_scene_list_without_project_maps_to_stable_project_not_found_code(monkeypatch):
@@ -265,25 +183,15 @@ def test_scene_list_without_project_maps_to_stable_project_not_found_code(monkey
     # (issue #54): with no resolvable project, the operation reports the new
     # project_not_found code — a finer mode than the generic operation_failed so
     # an agent knows to pass --project rather than retry.
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "project_not_found",
-                "scene list requires a Godot project; none was resolved — pass --project",
-            ),
-            stderr="",
-            exit_code=1,
-        ),
+        ["scene", "list", "--json"],
+        "project_not_found",
+        "scene list requires a Godot project; none was resolved — pass --project",
+        "scene-list",
     )
 
-    result = CliRunner().invoke(app, ["scene", "list", "--json"])
-
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "project_not_found"
-    assert "--project" in err["message"]
+    assert_operation_error(result, "project_not_found", "--project")
 
 
 def test_scene_create_missing_binary_maps_to_environment_error(monkeypatch):

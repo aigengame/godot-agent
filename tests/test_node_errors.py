@@ -6,46 +6,28 @@ registered operation codes (ADR-0002) — exit 4 for the operation category,
 finer stable codes so an agent can branch on the mode without parsing prose.
 """
 
-import json
+from tests.support import assert_operation_error, operation_error_invoker
 
-from typer.testing import CliRunner
-
-from gda.cli import app
-from gda.runner import RunResult
-from tests.support import error_sentinel, inject_runner
-
-
-def _invoke_node_add(monkeypatch, code: str, message: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: node-add\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app,
-        ["node", "add", "/x/main.tscn", "--type", "Sprite2D", "--json"],
-    )
+_node_add = operation_error_invoker(
+    ["node", "add", "/x/main.tscn", "--type", "Sprite2D", "--json"], "node-add"
+)
 
 
 def test_node_add_bad_parent_maps_to_stable_parent_not_found_code(monkeypatch):
     # The scene exists but the requested parent node path resolves to nothing —
     # a new node-group code, distinct from the file-level path_not_found, so an
     # agent knows to fix the node path, not the scene path.
-    result = _invoke_node_add(
+    result = _node_add(
         monkeypatch, "parent_not_found", "parent node not found in scene: Bogus/Path"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "parent_not_found"
-    assert "Bogus/Path" in err["message"]
     # The raw stderr still rides along as diagnostics (ADR-0002).
-    assert err["diagnostics"] == "gda: running operation: node-add\n"
+    assert_operation_error(
+        result,
+        "parent_not_found",
+        "Bogus/Path",
+        diagnostics="gda: running operation: node-add\n",
+    )
 
 
 def test_node_add_non_canonical_parent_maps_to_stable_parent_not_found_code(
@@ -58,57 +40,39 @@ def test_node_add_non_canonical_parent_maps_to_stable_parent_not_found_code(
     # nothing — with a message naming the canonical form. Mapping pin: the
     # envelope rides through the same parent_not_found path as a missing
     # canonical parent.
-    result = _invoke_node_add(
+    result = _node_add(
         monkeypatch,
         "parent_not_found",
         "non-canonical parent path: A/.. — address the parent exactly as "
         "node list reports it: '.' for the root, 'A/B' for a descendant",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "parent_not_found"
-    assert "A/.." in err["message"]
+    err = assert_operation_error(result, "parent_not_found", "A/..")
     assert "non-canonical" in err["message"]
 
 
 def test_node_add_unknown_type_maps_to_stable_invalid_node_type_code(monkeypatch):
-    result = _invoke_node_add(
+    result = _node_add(
         monkeypatch,
         "invalid_node_type",
         "not an instantiable Node class or registered class_name: Foo",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "invalid_node_type"
-    assert "Foo" in err["message"]
+    assert_operation_error(result, "invalid_node_type", "Foo")
 
 
 def test_node_add_name_collision_maps_to_stable_duplicate_node_name_code(monkeypatch):
-    result = _invoke_node_add(
+    result = _node_add(
         monkeypatch, "duplicate_node_name", "parent already has a child named: Hero"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "duplicate_node_name"
-    assert "Hero" in err["message"]
+    assert_operation_error(result, "duplicate_node_name", "Hero")
 
 
 def test_node_add_bad_name_maps_to_stable_invalid_node_name_code(monkeypatch):
-    result = _invoke_node_add(
-        monkeypatch, "invalid_node_name", "invalid name: Bad%Name"
-    )
+    result = _node_add(monkeypatch, "invalid_node_name", "invalid name: Bad%Name")
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "invalid_node_name"
-    assert "Bad%Name" in err["message"]
+    assert_operation_error(result, "invalid_node_name", "Bad%Name")
 
 
 def test_node_add_vanished_instance_maps_to_stable_missing_dependency_code(monkeypatch):
@@ -116,18 +80,14 @@ def test_node_add_vanished_instance_maps_to_stable_missing_dependency_code(monke
     # would lose the whole instance on re-save; the refusal surfaces as the
     # registered missing_dependency code so an agent knows to fix the scene's
     # dependencies or its project context rather than retry the add.
-    result = _invoke_node_add(
+    result = _node_add(
         monkeypatch,
         "missing_dependency",
         "scene nodes vanished on load (unresolvable instanced sub-scene?): "
         "ChildInstance — re-saving would silently drop them",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "missing_dependency"
-    assert "ChildInstance" in err["message"]
+    assert_operation_error(result, "missing_dependency", "ChildInstance")
 
 
 def test_node_add_substituted_class_maps_to_stable_missing_dependency_code(monkeypatch):
@@ -135,7 +95,7 @@ def test_node_add_substituted_class_maps_to_stable_missing_dependency_code(monke
     # run materializes as a substitute node, so a re-save would rewrite its
     # type. The refusal reuses missing_dependency — an unavailable class IS a
     # missing dependency (extension/module), the same agent fix applies.
-    result = _invoke_node_add(
+    result = _node_add(
         monkeypatch,
         "missing_dependency",
         "scene nodes vanished or degraded on load: "
@@ -143,11 +103,9 @@ def test_node_add_substituted_class_maps_to_stable_missing_dependency_code(monke
         "re-saving would silently drop or downgrade them",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "missing_dependency"
-    assert "declared TotallyMissingClass, materialized Node" in err["message"]
+    assert_operation_error(
+        result, "missing_dependency", "declared TotallyMissingClass, materialized Node"
+    )
 
 
 def test_node_add_broken_class_name_maps_to_stable_uninstantiable_script_code(
@@ -157,74 +115,46 @@ def test_node_add_broken_class_name_maps_to_stable_uninstantiable_script_code(
     # script broke after registration is a script problem, not an unknown type.
     # The refusal surfaces as the registered uninstantiable_script code so an
     # agent knows to repair the script rather than the type name.
-    result = _invoke_node_add(
+    result = _node_add(
         monkeypatch,
         "uninstantiable_script",
         "registered class_name Hero script cannot be instantiated: "
         "res://hero.gd — it no longer compiles; see diagnostics",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "uninstantiable_script"
-    assert "res://hero.gd" in err["message"]
+    assert_operation_error(result, "uninstantiable_script", "res://hero.gd")
 
 
 def test_node_add_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
     # The scene-file-level failure reuses the registered scene code: the
     # node group introduces no parallel code for the same mode.
-    result = _invoke_node_add(
+    result = _node_add(
         monkeypatch, "path_not_found", "scene file does not exist: /x/main.tscn"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "path_not_found"
-    assert "/x/main.tscn" in err["message"]
+    assert_operation_error(result, "path_not_found", "/x/main.tscn")
 
 
-def _invoke_node_get(monkeypatch, code: str, message: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: node-get\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app, ["node", "get", "/x/main.tscn", "--node", "Bogus", "--json"]
-    )
+_node_get = operation_error_invoker(
+    ["node", "get", "/x/main.tscn", "--node", "Bogus", "--json"], "node-get"
+)
 
 
-def _invoke_node_set(monkeypatch, code: str, message: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: node-set\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app,
-        [
-            "node",
-            "set",
-            "/x/main.tscn",
-            "--node",
-            "Hero",
-            "--property",
-            "position",
-            "--value",
-            "3,4",
-            "--json",
-        ],
-    )
+_node_set = operation_error_invoker(
+    [
+        "node",
+        "set",
+        "/x/main.tscn",
+        "--node",
+        "Hero",
+        "--property",
+        "position",
+        "--value",
+        "3,4",
+        "--json",
+    ],
+    "node-set",
+)
 
 
 def test_node_get_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
@@ -232,60 +162,41 @@ def test_node_get_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
     # distinct from the file-level path_not_found and from node add's
     # parent_not_found, so an agent knows the node, not the file or parent, is
     # the thing that's missing.
-    result = _invoke_node_get(
-        monkeypatch, "node_not_found", "node not found in scene: Bogus"
-    )
+    result = _node_get(monkeypatch, "node_not_found", "node not found in scene: Bogus")
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "node_not_found"
-    assert "Bogus" in err["message"]
+    assert_operation_error(result, "node_not_found", "Bogus")
 
 
 def test_node_set_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
-    result = _invoke_node_set(
-        monkeypatch, "node_not_found", "node not found in scene: Hero"
-    )
+    result = _node_set(monkeypatch, "node_not_found", "node not found in scene: Hero")
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "node_not_found"
-    assert "Hero" in err["message"]
+    assert_operation_error(result, "node_not_found", "Hero")
 
 
 def test_node_set_unknown_property_maps_to_stable_unknown_property_code(monkeypatch):
     # issue #55: setting a property the node does not declare is a clean
     # unknown_property error, so an agent can branch on a typo'd or absent
     # property name rather than parsing prose.
-    result = _invoke_node_set(
+    result = _node_set(
         monkeypatch,
         "unknown_property",
         "node Hero has no settable property: positon",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "unknown_property"
-    assert "positon" in err["message"]
+    assert_operation_error(result, "unknown_property", "positon")
 
 
 def test_node_set_uncoercible_value_maps_to_stable_uncoercible_value_code(monkeypatch):
     # issue #55's type-coercion contract: a value that cannot be coerced to the
     # property's declared Godot type is a clean uncoercible_value error naming
     # the value, the target type, and the property — never a silent wrong value.
-    result = _invoke_node_set(
+    result = _node_set(
         monkeypatch,
         "uncoercible_value",
         'cannot coerce value "nope" to Vector2 for property position on node Hero',
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "uncoercible_value"
-    assert "Vector2" in err["message"]
+    assert_operation_error(result, "uncoercible_value", "Vector2")
 
 
 def test_node_set_missing_dependency_maps_to_stable_missing_dependency_code(
@@ -295,145 +206,104 @@ def test_node_set_missing_dependency_maps_to_stable_missing_dependency_code(
     # (issue #64) via the shared mutate-entry: a scene whose instance vanishes
     # on load is refused with missing_dependency, the same as node add, leaving
     # the file untouched rather than dropping the instance on re-save.
-    result = _invoke_node_set(
+    result = _node_set(
         monkeypatch,
         "missing_dependency",
         "scene nodes vanished or degraded on load: ChildInstance (vanished) — "
         "re-saving would silently drop or downgrade them",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "missing_dependency"
-    assert "ChildInstance" in err["message"]
+    assert_operation_error(result, "missing_dependency", "ChildInstance")
 
 
 def test_node_get_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
-    result = _invoke_node_get(
+    result = _node_get(
         monkeypatch, "path_not_found", "scene file does not exist: /x/main.tscn"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "path_not_found"
-    assert "/x/main.tscn" in err["message"]
+    assert_operation_error(result, "path_not_found", "/x/main.tscn")
 
 
-def _invoke_node_remove(monkeypatch, code: str, message: str, node: str = "Hero"):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: node-remove\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app, ["node", "remove", "/x/main.tscn", "--node", node, "--json"]
-    )
+_node_remove = operation_error_invoker(
+    lambda node="Hero": ["node", "remove", "/x/main.tscn", "--node", node, "--json"],
+    "node-remove",
+)
 
 
 def test_node_remove_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
     # issue #56: removing a node path that resolves to nothing reuses the
     # node-group's node_not_found code — the same mode node get / node set
     # report, so an agent branches on a missing node without a parallel code.
-    result = _invoke_node_remove(
+    result = _node_remove(
         monkeypatch, "node_not_found", "node not found in scene: Bogus", node="Bogus"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "node_not_found"
-    assert "Bogus" in err["message"]
+    assert_operation_error(result, "node_not_found", "Bogus")
 
 
 def test_node_remove_root_maps_to_stable_cannot_target_root_code(monkeypatch):
     # issue #56: removing the scene root is refused with the new structural-edit
     # code cannot_target_root — the root has no parent to be removed from, so
     # the agent learns to delete the scene file rather than retry the removal.
-    result = _invoke_node_remove(
+    result = _node_remove(
         monkeypatch,
         "cannot_target_root",
         "cannot remove the scene root: . — the root has no parent to be removed from",
         node=".",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "cannot_target_root"
-    assert "root" in err["message"]
+    assert_operation_error(result, "cannot_target_root", "root")
 
 
-def _invoke_node_duplicate(monkeypatch, code: str, message: str, node: str = "Hero"):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: node-duplicate\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app, ["node", "duplicate", "/x/main.tscn", "--node", node, "--json"]
-    )
+_node_duplicate = operation_error_invoker(
+    lambda node="Hero": ["node", "duplicate", "/x/main.tscn", "--node", node, "--json"],
+    "node-duplicate",
+)
 
 
 def test_node_duplicate_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
     # issue #56: duplicating a node path that resolves to nothing reuses the
     # node-group's node_not_found code.
-    result = _invoke_node_duplicate(
+    result = _node_duplicate(
         monkeypatch, "node_not_found", "node not found in scene: Bogus", node="Bogus"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "node_not_found"
-    assert "Bogus" in err["message"]
+    assert_operation_error(result, "node_not_found", "Bogus")
 
 
 def test_node_duplicate_root_maps_to_stable_cannot_target_root_code(monkeypatch):
     # issue #56: the scene root has no parent to host a sibling copy, so
     # duplicating '.' reuses the shared cannot_target_root code.
-    result = _invoke_node_duplicate(
+    result = _node_duplicate(
         monkeypatch,
         "cannot_target_root",
         "cannot duplicate the scene root: . — the root has no parent to host a sibling copy",
         node=".",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "cannot_target_root"
-    assert "root" in err["message"]
+    assert_operation_error(result, "cannot_target_root", "root")
 
 
-def _invoke_node_move(
-    monkeypatch, code: str, message: str, node: str = "Hero", to: str = "Enemies"
-):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: node-move\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app,
-        ["node", "move", "/x/main.tscn", "--node", node, "--to", to, "--json"],
-    )
+_node_move = operation_error_invoker(
+    lambda node="Hero", to="Enemies": [
+        "node",
+        "move",
+        "/x/main.tscn",
+        "--node",
+        node,
+        "--to",
+        to,
+        "--json",
+    ],
+    "node-move",
+)
 
 
 def test_node_move_cyclic_target_maps_to_stable_cyclic_target_code(monkeypatch):
     # issue #56: moving a node under its own descendant would detach the subtree
     # from the scene. The refusal surfaces as the new cyclic_target code so an
     # agent branches on the cyclic mistake rather than parsing prose.
-    result = _invoke_node_move(
+    result = _node_move(
         monkeypatch,
         "cyclic_target",
         "cyclic move target: A/B is the moved node A or one of its descendants",
@@ -441,129 +311,93 @@ def test_node_move_cyclic_target_maps_to_stable_cyclic_target_code(monkeypatch):
         to="A/B",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "cyclic_target"
-    assert "A/B" in err["message"]
+    assert_operation_error(result, "cyclic_target", "A/B")
 
 
 def test_node_move_missing_target_maps_to_stable_parent_not_found_code(monkeypatch):
     # An invalid move target reuses the node group's parent_not_found code (the
     # same code node add reports for a bad --parent).
-    result = _invoke_node_move(
+    result = _node_move(
         monkeypatch,
         "parent_not_found",
         "target parent node not found in scene: Bogus",
         to="Bogus",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "parent_not_found"
-    assert "Bogus" in err["message"]
+    assert_operation_error(result, "parent_not_found", "Bogus")
 
 
 def test_node_move_name_collision_maps_to_stable_duplicate_node_name_code(monkeypatch):
     # A name collision at the destination reuses duplicate_node_name.
-    result = _invoke_node_move(
+    result = _node_move(
         monkeypatch,
         "duplicate_node_name",
         "target Enemies already has a child named: Hero",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "duplicate_node_name"
-    assert "Hero" in err["message"]
+    assert_operation_error(result, "duplicate_node_name", "Hero")
 
 
 def test_node_move_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
-    result = _invoke_node_move(
+    result = _node_move(
         monkeypatch, "node_not_found", "node not found in scene: Bogus", node="Bogus"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "node_not_found"
-    assert "Bogus" in err["message"]
+    assert_operation_error(result, "node_not_found", "Bogus")
 
 
 def test_node_move_root_maps_to_stable_cannot_target_root_code(monkeypatch):
     # Moving the scene root is refused with cannot_target_root — the root has no
     # parent to be reparented out of.
-    result = _invoke_node_move(
+    result = _node_move(
         monkeypatch,
         "cannot_target_root",
         "cannot move the scene root: . — the root has no parent to be reparented out of",
         node=".",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "cannot_target_root"
-    assert "root" in err["message"]
+    assert_operation_error(result, "cannot_target_root", "root")
 
 
 # --- node connect-signal / disconnect-signal (issue #57) ---
 
 
-def _invoke_connect_signal(monkeypatch, code: str, message: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: node-connect-signal\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app,
-        [
-            "node",
-            "connect-signal",
-            "/x/main.tscn",
-            "--from",
-            "Emitter",
-            "--signal",
-            "timeout",
-            "--to",
-            "Receiver",
-            "--method",
-            "on_timeout",
-            "--json",
-        ],
-    )
+_connect_signal = operation_error_invoker(
+    [
+        "node",
+        "connect-signal",
+        "/x/main.tscn",
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
+    ],
+    "node-connect-signal",
+)
 
 
-def _invoke_disconnect_signal(monkeypatch, code: str, message: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: node-disconnect-signal\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app,
-        [
-            "node",
-            "disconnect-signal",
-            "/x/main.tscn",
-            "--from",
-            "Emitter",
-            "--signal",
-            "timeout",
-            "--to",
-            "Receiver",
-            "--method",
-            "on_timeout",
-            "--json",
-        ],
-    )
+_disconnect_signal = operation_error_invoker(
+    [
+        "node",
+        "disconnect-signal",
+        "/x/main.tscn",
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
+    ],
+    "node-disconnect-signal",
+)
 
 
 def test_connect_signal_missing_signal_maps_to_stable_signal_not_found_code(
@@ -572,40 +406,30 @@ def test_connect_signal_missing_signal_maps_to_stable_signal_not_found_code(
     # issue #57's design decision: the signal MUST exist on the source node — a
     # typo or wrong node is a clean signal_not_found error, so an agent branches
     # on a bad signal name rather than parsing prose.
-    result = _invoke_connect_signal(
+    result = _connect_signal(
         monkeypatch, "signal_not_found", "source node Emitter has no signal: timoeut"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "signal_not_found"
-    assert "timoeut" in err["message"]
+    assert_operation_error(result, "signal_not_found", "timoeut")
 
 
 def test_connect_signal_missing_source_node_reuses_node_not_found_code(monkeypatch):
     # The source node path resolving to nothing reuses the node group's
     # node_not_found code (issue #55) — the node group introduces no parallel
     # code for the same mode.
-    result = _invoke_connect_signal(
+    result = _connect_signal(
         monkeypatch, "node_not_found", "source node not found in scene: Emitter"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "node_not_found"
-    assert "Emitter" in err["message"]
+    assert_operation_error(result, "node_not_found", "Emitter")
 
 
 def test_connect_signal_missing_target_node_reuses_node_not_found_code(monkeypatch):
-    result = _invoke_connect_signal(
+    result = _connect_signal(
         monkeypatch, "node_not_found", "target node not found in scene: Receiver"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "node_not_found"
-    assert "Receiver" in err["message"]
+    assert_operation_error(result, "node_not_found", "Receiver")
 
 
 def test_connect_signal_already_connected_maps_to_stable_already_connected_code(
@@ -615,17 +439,13 @@ def test_connect_signal_already_connected_maps_to_stable_already_connected_code(
     # already_connected error rather than a silent no-op or a noisy engine
     # ERR_INVALID_PARAMETER — so an agent can tell "already there" apart from
     # "newly wired".
-    result = _invoke_connect_signal(
+    result = _connect_signal(
         monkeypatch,
         "already_connected",
         "Emitter.timeout is already connected to Receiver.on_timeout",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "already_connected"
-    assert "on_timeout" in err["message"]
+    assert_operation_error(result, "already_connected", "on_timeout")
 
 
 def test_disconnect_signal_absent_connection_maps_to_connection_not_found_code(
@@ -634,53 +454,39 @@ def test_disconnect_signal_absent_connection_maps_to_connection_not_found_code(
     # issue #57's acceptance: disconnecting a connection that does not exist is a
     # clean connection_not_found error, not a silent success — so an agent knows
     # the unwiring had nothing to remove.
-    result = _invoke_disconnect_signal(
+    result = _disconnect_signal(
         monkeypatch,
         "connection_not_found",
         "no such connection: Emitter.timeout -> Receiver.on_timeout",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "connection_not_found"
-    assert "Emitter.timeout" in err["message"]
+    assert_operation_error(result, "connection_not_found", "Emitter.timeout")
 
 
 def test_disconnect_signal_missing_signal_maps_to_signal_not_found_code(monkeypatch):
     # A missing source signal on disconnect is signal_not_found, symmetric with
     # connect-signal and the documented contract (issue #57 review) — it is not
     # collapsed into connection_not_found.
-    result = _invoke_disconnect_signal(
+    result = _disconnect_signal(
         monkeypatch,
         "signal_not_found",
         "source node Emitter has no signal: timoeut",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "signal_not_found"
-    assert "timoeut" in err["message"]
+    assert_operation_error(result, "signal_not_found", "timoeut")
 
 
 def test_disconnect_signal_missing_node_reuses_node_not_found_code(monkeypatch):
-    result = _invoke_disconnect_signal(
+    result = _disconnect_signal(
         monkeypatch, "node_not_found", "source node not found in scene: Emitter"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "node_not_found"
-    assert "Emitter" in err["message"]
+    assert_operation_error(result, "node_not_found", "Emitter")
 
 
 def test_connect_signal_missing_scene_reuses_path_not_found_code(monkeypatch):
-    result = _invoke_connect_signal(
+    result = _connect_signal(
         monkeypatch, "path_not_found", "scene file does not exist: /x/main.tscn"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "path_not_found"
-    assert "/x/main.tscn" in err["message"]
+    assert_operation_error(result, "path_not_found", "/x/main.tscn")

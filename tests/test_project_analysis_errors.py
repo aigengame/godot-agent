@@ -8,106 +8,66 @@ agent branches on the mode without parsing prose. The project group reuses
 and mints ``invalid_target`` for a bad find-references target.
 """
 
-import json
-
-from typer.testing import CliRunner
-
-from gda.cli import app
-from gda.runner import RunResult
-from tests.support import error_sentinel, inject_runner
-
-
-def _assert_structured_operation_error(result, code: str) -> None:
-    assert result.exit_code == 4, result.stdout
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == code
+from tests.support import assert_operation_error, invoke_operation_error
 
 
 def test_dependencies_without_project_is_project_not_found(monkeypatch):
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(
-                "project_not_found",
-                "project dependencies requires a Godot project; none was resolved",
-            ),
-            stderr="gda: running operation: project-dependencies\n",
-            exit_code=1,
-        ),
+        ["project", "dependencies", "--json"],
+        "project_not_found",
+        "project dependencies requires a Godot project; none was resolved",
+        "project-dependencies",
     )
 
-    result = CliRunner().invoke(app, ["project", "dependencies", "--json"])
-
-    _assert_structured_operation_error(result, "project_not_found")
+    assert_operation_error(result, "project_not_found")
 
 
 def test_find_unused_without_project_is_project_not_found(monkeypatch):
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel("project_not_found", "no project resolved"),
-            stderr="",
-            exit_code=1,
-        ),
+        ["project", "find-unused-resources", "--json"],
+        "project_not_found",
+        "no project resolved",
+        "project-find-unused-resources",
     )
 
-    result = CliRunner().invoke(app, ["project", "find-unused-resources", "--json"])
-
-    _assert_structured_operation_error(result, "project_not_found")
+    assert_operation_error(result, "project_not_found")
 
 
 def test_statistics_without_project_is_project_not_found(monkeypatch):
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel("project_not_found", "no project resolved"),
-            stderr="",
-            exit_code=1,
-        ),
+        ["project", "statistics", "--json"],
+        "project_not_found",
+        "no project resolved",
+        "project-statistics",
     )
 
-    result = CliRunner().invoke(app, ["project", "statistics", "--json"])
-
-    _assert_structured_operation_error(result, "project_not_found")
+    assert_operation_error(result, "project_not_found")
 
 
 def test_find_references_without_project_is_project_not_found(monkeypatch):
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel("project_not_found", "no project resolved"),
-            stderr="",
-            exit_code=1,
-        ),
+        ["project", "find-references", "res://hero.gd", "--json"],
+        "project_not_found",
+        "no project resolved",
+        "project-find-references",
     )
 
-    result = CliRunner().invoke(
-        app, ["project", "find-references", "res://hero.gd", "--json"]
-    )
-
-    _assert_structured_operation_error(result, "project_not_found")
+    assert_operation_error(result, "project_not_found")
 
 
 def test_find_references_bad_target_is_invalid_target(monkeypatch):
     # A bad find-references target (empty, or not a res:// path / class_name)
     # surfaces as the registered invalid_target operation code.
-    inject_runner(
+    result = invoke_operation_error(
         monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(
-                "invalid_target",
-                "find-references target is not a res:// path or class_name: /abs/path",
-            ),
-            stderr="gda: running operation: project-find-references\n",
-            exit_code=1,
-        ),
+        ["project", "find-references", "/abs/path", "--json"],
+        "invalid_target",
+        "find-references target is not a res:// path or class_name: /abs/path",
+        "project-find-references",
     )
 
-    result = CliRunner().invoke(
-        app, ["project", "find-references", "/abs/path", "--json"]
-    )
-
-    _assert_structured_operation_error(result, "invalid_target")
+    assert_operation_error(result, "invalid_target")
