@@ -239,7 +239,7 @@ def test_export_run_pack_accepts_a_relative_project(godot_project):
     artifact = godot_project / "dist" / "packed.pck"
 
     # Drive gda from the project's PARENT with a RELATIVE --project (the failing
-    # case) — NOT the absolute path _gda_project passes.
+    # case) — NOT the absolute path a project-bound invoker passes.
     run = Gda(godot_project.name)(  # RELATIVE project; resolved against the cwd
         "export",
         "run",

@@ -88,12 +88,15 @@ def project_godot(name: str = "gda-e2e-fixture", extra: str = "") -> str:
 PROJECT_GODOT = project_godot()
 
 # The live tier's scaffold: a project that names a main scene, and the two main
-# scenes its modules run. A live module needs a game to launch, so `daemon`,
-# `game`, `input`, `screen`, `perf`, `diag`, `logger`, `mcp_live` and the harness
-# install tests each carried a copy of this pair; the copies are one edit away
-# from disagreeing about what "the live fixture project" is, so they live here
-# beside the builder that makes them. A module whose scene is its own subject
-# (the coloured rect `screen` captures, the reference graph `project analysis`
+# scenes its modules run. A live module needs a game to launch, so the eleven
+# that launch one (`daemon`, `game`, `input`, `screen`, `perf`, `diag`, `logger`,
+# `mcp_live`, `live_number_transport`, `write_value_fidelity` and the harness
+# install tests) take the project from here; `daemon`, `perf` and `mcp_live`
+# take the node-path scene, `diag` and `logger` the scripted one. The copies
+# they carried were one edit away from disagreeing about what "the live fixture
+# project" is, so they live here beside the builder that makes them. A module
+# whose scene is its own subject (the coloured rect `screen` captures, the bare
+# root the harness-install gate watches, the reference graph `project analysis`
 # walks) keeps that scene local — it is not a copy of anything.
 LIVE_PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 

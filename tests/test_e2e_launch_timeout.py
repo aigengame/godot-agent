@@ -42,6 +42,7 @@ from gda.errors import Failure, classify_run
 from gda.export_runner import SubprocessExportRunner
 from gda.models import EngineVersion
 from gda.runner import SubprocessGodotRunner
+from tests.conftest import project_godot
 from tests.support import GODOT, Gda
 
 # The ceiling every arm gives its wedged engine. Long enough for a real Godot to
@@ -91,17 +92,12 @@ script="plugin.gd"
 
 def _wedged_project(tmp_path: Path, *, autoload: bool, plugin: bool) -> Path:
     """A project whose engine startup never finishes on the requested path(s)."""
-    sections = [
-        "config_version=5\n\n[application]\n\n",
-        'config/name="t714"\n\n',
-        # The e2e file-logging policy (#180): no launch here writes a shared
-        # user://logs/godot.log, so concurrent runs cannot contend over it.
-        "[debug]\n\nfile_logging/enable_file_logging=false\n"
-        "file_logging/enable_file_logging.pc=false\n\n",
-    ]
+    # Built through the one e2e builder so the file-logging policy (#180) is
+    # inherited, not re-spelled: every launch here boots a real engine.
+    sections = []
     if autoload:
         (tmp_path / "wedge.gd").write_text(BLOCKING_AUTOLOAD_GD, encoding="utf-8")
-        sections.append('[autoload]\n\nWedge="*res://wedge.gd"\n\n')
+        sections.append('[autoload]\n\nWedge="*res://wedge.gd"\n')
     if plugin:
         addon = tmp_path / "addons" / "wedge"
         addon.mkdir(parents=True)
@@ -111,7 +107,9 @@ def _wedged_project(tmp_path: Path, *, autoload: bool, plugin: bool) -> Path:
             "[editor_plugins]\n\n"
             'enabled=PackedStringArray("res://addons/wedge/plugin.cfg")\n'
         )
-    (tmp_path / "project.godot").write_text("".join(sections), encoding="utf-8")
+    (tmp_path / "project.godot").write_text(
+        project_godot(name="t714", extra="\n".join(sections)), encoding="utf-8"
+    )
     return tmp_path
 
 

@@ -32,6 +32,7 @@ The contract pinned (verified on Godot 4.6.3):
 """
 
 import json
+
 import pytest
 
 from tests.support import Gda

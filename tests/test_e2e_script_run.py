@@ -1024,6 +1024,10 @@ def test_script_run_abort_still_lands_within_its_stated_bound(godot_project):
         "--project",
         str(godot_project),
         "--json",
+        # The engine ceiling (120s) sits above the spawn's default bound; a
+        # regressed abort must reach the assertion below with its message, not
+        # die as a TimeoutExpired at 90s.
+        timeout=150,
     )
     elapsed = time.monotonic() - started
 
