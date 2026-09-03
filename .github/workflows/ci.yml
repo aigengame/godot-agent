@@ -173,7 +173,9 @@ jobs:
         run: python scripts/harness_version_guard.py "$BASE_SHA" "$HEAD_SHA"
 
       - name: Run unit tests
-        run: uv run --frozen pytest -m "not e2e"
+        # Four workers (the runner has four vCPUs); `loadgroup` keeps the
+        # `xdist_group`-marked tests together and load-balances the rest (#818).
+        run: uv run --frozen pytest -m "not e2e" -n 4 --dist loadgroup
 
       # The root testpaths excludes the example game; run its PURE-Python tier here
       # (no Godot). The "engine" and "e2e" tiers need a real engine and run in the
@@ -480,7 +482,10 @@ jobs:
         # -rs surfaces skip reasons in the log (e.g. absent export templates, or no
         # DisplayServer for windowed capture), so a silently-skipped e2e is visible
         # rather than mistaken for a pass.
-        run: uv run --frozen pytest -m e2e -rs
+        # Four workers, as the unit step; every e2e spawn has its own project,
+        # user-data placement and daemon socket dir, and the windowed tests are
+        # grouped on one worker (#818).
+        run: uv run --frozen pytest -m e2e -rs -n 4 --dist loadgroup
 
       # The example game's engine-backed tiers: the data round-trip + logic seam
       # (engine marker) and the live daemon loop (e2e). install-godot exported

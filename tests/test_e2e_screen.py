@@ -44,7 +44,12 @@ MAIN_TSCN = (
     "color = Color(0.2, 0.6, 0.9, 1)\n"
 )
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = [
+    pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"),
+    # The windowed captures share the host display: one worker under xdist's
+    # `--dist loadgroup`, so two windowed sessions never compete for it (#818).
+    pytest.mark.xdist_group("windowed"),
+]
 
 # A WINDOWED engine session needs a usable host DisplayServer. This is NOT a
 # "macOS always has one" assumption: headless macOS (SSH / CI / sandbox) has no

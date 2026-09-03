@@ -909,6 +909,7 @@ def test_daemon_uninstall_is_refused_while_running(tmp_path, daemon_runtime_dir)
 
 
 @pytest.mark.e2e
+@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
 def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runtime_dir):
     # #251: `daemon status` reports the running daemon's launch-time display mode,
     # read over STATUS_OP through the `gda` CLI, so an agent can tell whether a
@@ -1216,6 +1217,7 @@ def test_daemon_serves_live_ops_while_scenetree_paused(tmp_path, daemon_runtime_
 
 
 @pytest.mark.e2e
+@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
 def test_daemon_serves_screen_capture_while_scenetree_paused(
     tmp_path, daemon_runtime_dir
 ):
