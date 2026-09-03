@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=c71e5e011339a24d1e70a7922fb24ecb5fc6269909f82fdbab469479868deac2 -->
+<!-- gda-readme-i18n: source=README.md sha256=465ec4f02a22747e675bfbee6bdba48edd474a3da79ec654943c9741a747c302 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -67,13 +67,10 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
 - **⚡ 默认 Headless，需要时再 Live。** Headless 操作不需要 daemon、也不需要编辑器——
   只要一个 Godot 二进制文件。Live 操作则通过一个基于 Unix 域套接字的 daemon，为正在运行的游戏
   加上实时控制能力，用的还是同一套 CLI 语法。
-- **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错；引擎卡死则会触发超时处理。
-  这些错误都会映射为一个**稳定的非零退出码**，并附带一个带有失败类别与代码的 Error 信封——这样 shell 或
-  agent 无需解析自然语言文本，就能按失败分支处理。加上 `--json` 时该信封就是 `{"error": {…}}` 对象；不加时
-  同一个失败会被排布成可读的文本行，判定结果排在最前。`gda` 不认识的命令或选项同样以这种方式拒绝，
-  并在 `hint` 中给出应当改用的调用方式。若某个失败已经算出了证据，这些证据同样会随信封返回——
-  一个可选的 `evidence` 对象，携带超时运行已用的时钟与它触到的上限、子进程自身的退出状态、
-  解析出的脚本错误——于是 agent 可以按数值分支，而不必解析消息文本。
+- **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错，引擎卡死则由超时兜底；两者都会返回一个
+  **稳定的非零退出码**和一个 Error envelope（错误封装），其中包含失败类别、错误码，以及（如有）已计算出的类型化证据——
+  shell 或 agent 据此分支处理即可，不必解析文本。`gda` 不认识的命令同样以这种方式拒绝，并在 `hint`
+  中给出应当改用的调用方式。
 
 ---
 
@@ -196,10 +193,7 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-`--install --provider <claude|codex> --scope <project|user>` 会解析出某个已知 agent 的 skills
-目录（`--scope` 默认为 `user`）；`--dir` 则是面向任何其他 agent 的通用兜底——没有内置默认值。
-[Skill 配方](gda-skill.md) 列出了每个 agent 的目录（Claude Code 的 `~/.claude/skills/`、
-Codex 的 `~/.agents/skills/` 等）。或者，如果你不想走 `gda skill`，也可以直接从仓库获取同一个文件——
+[Skill 配方](gda-skill.md) 列出了每个 agent 的 skills 目录。或者直接从仓库获取同一个文件——
 你仍然需要安装 `gda`，因为 Skill 靠它来驱动：
 
 ```bash
@@ -219,17 +213,13 @@ uvx --from "gda[mcp]" gda-mcp
 服务器需要确定两件事——操控哪个 Godot**项目**，以及运行哪个 Godot**二进制文件**
 （MCP 无法在每次调用时传入 flag）：
 
-- **项目** — 当你的客户端无法提供工作区 **roots** 时，设置 `GDA_PROJECT`；否则 `gda-mcp`
-  会从客户端发来的 roots（你打开的那个文件夹）自动检测项目。*已设置但无效*的 `GDA_PROJECT`
-  会明确报错，而不会静默回退到其他配置。注意 MCP 2026-07-28 规范修订版弃用了 roots 功能：
-  现在的客户端行为不变，但固定 `GDA_PROJECT` 才是面向未来的配置（走新无状态协议的客户端没有
-  roots 可以提供）。完整的 CLI 与 MCP 解析顺序参见[配置](#configuration)。
+- **项目** — 设置 `GDA_PROJECT`。不设时 `gda-mcp` 会用客户端发来的工作区 **roots**（你打开的那个文件夹）。
+  但 MCP 2026-07-28 修订版弃用了 roots，因此最好固定 `GDA_PROJECT`，避免客户端升级后无法定位项目。参见[配置](#configuration)。
 - **引擎** — 把 `GDA_GODOT` 设为你的 Godot 二进制文件，例如 `"GDA_GODOT": "/path/to/Godot"`。
 
-对走 MCP 2026-07-28 修订版协议的客户端，`gda-mcp` 会把 `tools/list` 响应标记为可缓存
-（1 小时 TTL、public 范围）——生成的工具列表在服务器生命周期内固定不变，升级后的客户端
-因此不必反复拉取；使用 2026 年以前 MCP 协议的客户端，其请求流量完全不变。
-
+`gda-mcp` 同时接受两代协议——2026 年以前的 MCP 协议与 **2026-07-28 修订版**——但两者解析项目的方式不同：
+2026 前的客户端仍会发送 roots，新修订版的客户端不再发送，`gda-mcp` 会从 `GDA_PROJECT` 或服务器的 cwd 确定项目。
+请在客户端切换到新协议之前固定 `GDA_PROJECT`。对新修订版，`gda-mcp` 还会把 `tools/list` 标记为可缓存（1 小时 TTL）。
 
 #### 在编程 agent 中注册
 
@@ -361,8 +351,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `set`               | 修改一个属性。 |
 | 领域动词        | `play`、`run`、`export`、`import` 等，保留它们的自然含义。 |
 
-每条命令都支持 `--json` 和 `--schema`——`gda schema` 同样接受 `--json`，但它不会改变任何
-输出，因为聚合清单本身就是 JSON。读取或修改 `res://` 路径的命令会解析一个[项目上下文](#configuration)。
+每条命令都支持 `--json` 和 `--schema`。读取或修改 `res://` 路径的命令会解析一个[项目上下文](#configuration)。
 运行 `gda <group> <command> --help` 查看完整 flag——`gda --help` 是已安装命令的权威清单。
 
 **第一次用？** 一条不错的上手路径：`gda info` → `gda scene create` → `gda node add` →
@@ -372,9 +361,9 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `gda info`   | 报告 Godot 引擎的版本信息。接受显式、经校验的 `--project`（其他 meta 命令不接受）；版本结果并不依赖它。 |
-| `gda version` | 报告当前安装的是哪个 `gda`、来自何处——加 `--json` 时给出完整的安装溯源信息（与 `gda --version --json` 同一份载荷）。不会启动 Godot。 |
-| `gda help`   | 显示某条命令的帮助（`gda help scene get`）或整个 CLI 的帮助；加 `--json` 时以 `{command, text}` 返回。 |
+| `gda info`   | 报告 Godot 引擎的版本。 |
+| `gda version` | 报告当前安装的是哪个 `gda`、来自何处（加 `--json` 时附带安装溯源信息）。 |
+| `gda help`   | 显示某条命令的帮助（`gda help scene get`）或整个 CLI 的帮助。 |
 | `gda schema` | 把整个命令界面作为一份机器可读的 JSON 清单输出。 |
 | `gda skill`  | 输出或安装随包附带的 Agent Skill（`SKILL.md`），它教 agent 如何操控 `gda`。 |
 
@@ -389,40 +378,11 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `scene list` | 枚举已解析项目中的 `.tscn` 场景。 |
 | `scene get-exports` | 列出场景里各节点脚本声明的 `@export` 属性。 |
 | `scene delete` | 删除一个场景文件并报告删除了什么。 |
-| `scene validate` | 静态检查场景及其引用的子场景，依赖能否解析、脚本能否编译。 |
-| `scene preflight` | 以 headless 方式启动场景，等待 `_ready`，并报告启动结论。 |
+| `scene validate` | **静态**检查场景——依赖能否解析、绑定的脚本能否编译，子场景一并检查——不实例化场景（项目的 autoload 仍会启动，和所有 `--project` 命令一样）；有问题的场景作为检查结果返回（`valid: false`，退出码 `0`），不会报错。 |
+| `scene preflight` | **动态**检查场景——以 headless 方式启动它，运行 `_ready`，报告 `started` 以及启动过程中出现的脚本错误；启动失败同样作为结果返回，不会报错。 |
 
-读取场景能扛住大多数损坏：Godot 会把节点上无法解析的引用替换为 null 并仍返回一棵可用的树，
-所以脚本与贴图都已丢失的场景，在 `scene get` 里看起来依然健康（但从 sub-resource 内部坏掉的依赖
-仍可能让整个加载失败）。这两个检查回答的是不同的问题。
-`scene validate` 是**静态的**——它不实例化任何东西，解析每一个依赖、编译每一个绑定脚本
-（引用的与内嵌的都算），并检查每一个引擎会拒绝的绑定，为每个有问题的文件报告一条
-problem（`missing_resource`、`unloadable_resource`（从未被导入的资源）、`script_compile_failed`
-或 `incompatible_script`（引擎会拒绝的绑定：脚本挂在其基类之外的节点上，或绑定的值根本不是脚本）），
-同时给出引用它的节点。这个结论是**组合式的**：场景所引用的子场景——通常就是它实例化的那些——会与它一并检查，
-因为孩子坏了、父场景也就坏了，而父场景自己的遍历看不到这一点：`res://child.tscn` 能解析、
-也能加载，无论它内部丢了什么。因此每条 problem 都带有 `scene`，即发现它的那个文件，其 `path`
-与节点都要按该文件来读；结果里的每个路径都是规范化写法，所以 `res://./main.tscn` 与
-`res://main.tscn` 是同一个文件、同一份结论。当一个引用解析出的路径以 `.tscn`/`.scn` 结尾，
-**或者**它那行 `[ext_resource]` 声明了 `type="PackedScene"` 时，遍历就会跟进这个引用。
-两个触发条件缺一不可：Godot 加载场景时会加载每一个 `[ext_resource]`，并按扩展名挑选加载器，
-所以一个仅作为元数据被引用的 `.tscn`，对宿主场景的破坏与被实例化时完全一样；而 `ResourceSaver`
-又会把 PackedScene 写进普通的 `.res`，只看扩展名根本抓不到它。若一个 PackedScene 既存放在
-非场景扩展名下、又被声明为别的类型，它仍在遍历之外。有三类边遍历不会跟进，而是直接报告：
-`cyclic_instance`——引用闭合成环，引擎会丢弃那条闭环引用，它本该带来的节点也随之消失；
-`unreadable_sub_scene`——能加载、却不含遍历所读取的 `[gd_scene]` 文本的场景（二进制 `.scn`，
-或存放在 `.res` 里的 PackedScene）；以及 `instance_depth_exceeded`——在 16 层子场景
-以内没有任何路径能到达的场景。后两类表示那棵子树**未被检查**，而不是"没问题"，需要单独校验它、
-或把它另存为 `.tscn`，才能获得自己的结论。深度上限按到达每个场景的**最短**路径计算，因此结论
-不依赖引用的声明顺序；它也只约束 gda 自己的遍历，引擎无论如何都会加载整条链，而极深的链会让
-引擎自身的加载器栈溢出，运行直接终止、得不到任何结论。这个检查是**分阶段的**：只要有依赖无法解析，场景就不会被加载，
-因此只有加载后的场景才能暴露的编译与绑定问题，要等依赖修好、重新运行 validate 之后才会出现——
-problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶段。`scene preflight` 是**动态的**——
-它启动场景，运行其 `_ready` 与项目的 autoload，观察若干帧，然后报告 `status`
-（`ready` / `not_ready` / `timeout`）以及启动过程中出现的脚本错误；只需读 `started` 这一个布尔值即可作为门禁。
-两者都要跑：依赖全部解析的场景仍可能在第一帧失败，而引用了从未导入的贴图的场景会“干净地”启动——只有静态检查会指出那个文件。
-两者都把有问题的场景报告为**成功的操作**（退出码 `0`，结论在结果里）——只有文件不存在、不是场景文件
-或环境失败才使用 Error envelope。
+两者都要跑——`scene get` 会把脚本已丢失的场景当作正常场景读出来，只有 `validate` 能指出那个文件，
+也只有 `preflight` 能抓到第一帧的失败。
 
 **`node`** — 场景文件内的节点
 
@@ -431,16 +391,12 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | `node add` | 在某个父节点下添加一个节点，可用 `--index` 指定位置：内置类型、带 `class_name` 的脚本，或用 `--instance` 将另一个场景实例化为子节点。 |
 | `node get` | 按节点路径读取一个节点的属性，输出带类型的 JSON。 |
 | `node list` | 列出一个场景的节点树，并给出每个节点相对于根的路径。 |
-| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。 |
+| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。对 `Control`，`position` 会写入四个 offset；`Container` 的子节点由布局管理，请直接设置它们的 offset。 |
 | `node remove` | 按节点路径移除一个节点（及其子树）。 |
 | `node duplicate` | 在父节点下复制一个节点（及其子树）。 |
 | `node move` | 把一个节点（及其子树）重新挂到新的父节点下，或用 `--index` 调整同级顺序。 |
 | `node connect-signal` | 把源节点的信号接到目标节点的方法上。 |
 | `node disconnect-signal` | 断开一个已有的「信号→方法」连接。 |
-
-对于 `Control` 节点，`node set --property position` 会写入底层的
-`offset_left` / `offset_top` / `offset_right` / `offset_bottom`，同时保留尺寸。
-`Container` 的直接子节点由布局管理，因此应显式设置这些 offset 属性。
 
 **`script`** — GDScript 文件（`.gd`）
 
@@ -452,44 +408,8 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | `script set` | 通过搜索替换、行范围或整体覆写来编辑一个脚本。 |
 | `script delete` | 删除一个脚本文件并报告删除了什么。 |
 | `script attach` | 按节点路径把一个 `.gd` 脚本附加到场景里的某个节点上。 |
-| `script validate` | 对多个 `.gd` 脚本做语法 / 编译检查——可一次传入多个 PATH，或用 `--all` 检查项目里的全部脚本。 |
-| `script run` | 以一次性入口的方式 headless 运行一个项目脚本，受墙钟上限约束。 |
-
-`script validate` 接受**批量**输入：一次传入多个 PATH，它们会在同一次引擎启动中全部完成校验，
-因此一次改动通常涉及的四到六个相关脚本只需一个进程，而不是每个脚本各起一个。`--all` 则以同样
-的方式校验所解析项目里的每一个 `.gd` 脚本。
-
-对 `script validate --json`，要读取结果对象里的 `valid` 字段——它是**汇总**结论，只要有任何一个
-脚本未通过就是 `false`。每个脚本各自的结论是 `scripts` 里的一个条目，携带其 `path`、`valid`、
-`error_string` 与 `diagnostics`。传入单个 PATH 就是批量为一的情形，所以结构不会随批量大小变化。
-脚本编译失败仍然算一次成功操作：退出码为 `0`，没有顶层 `error`，并给出 `valid: false`。缺失文件
-等操作层问题仍然采用标准的 Error envelope，而且会拒绝整个批次，而不是变成某条结论。
-
-结果还会报告 `project_root`：这些脚本编译时所针对的项目，也就是其 `res://` 依赖解析到的根目录
-（未解析到项目时为 `null`）。在处理 `valid: false` 之前请先读它——若诊断里满是缺失的 `res://`
-依赖以及由此派生的类型错误，通常说明项目选错了，而不是脚本本身有问题。不属于所解析项目的路径
-会让整个批次被提前拒绝并返回 `target_outside_project`，同时指明文件与项目，而不是报出那一连串
-假错误；此时请用 `--project` 指定真正拥有这些文件的项目。这涵盖两种情况：位于所解析项目**之外**
-的路径，以及被**嵌套的** `project.godot` 拥有的路径——gda 只报告它找到的拥有者，不会改用它；
-同一检查在未解析到项目时同样生效，因此属于某个项目的脚本不会在没有项目的情况下被编译。
-对于嵌套这一种情况，错误消息会给出完整的重新调用方式：要传的 `--project`，以及相对该拥有者
-重新拼写的目标——相对路径以项目为基准，原来的拼写在新项目下找不到。
-`script run` 与 `resource import` 以同样的错误码同样拒绝。`--all` 不需要这道拒绝：项目级遍历
-与引擎自身的扫描一致，会跳过含有嵌套 `project.godot` 的目录（以及含有 `.gdignore` 的目录），
-因此它根本不会枚举到按名指定时会被拒绝的文件。
-
-`script run` 一次性执行一个具名项目脚本，并**将这次运行透传**：成功结果携带脚本自己的
-`exit_status`（脚本有意的非零 `quit()` 是数据而不是 gda 失败——传 `--strict` 可把它变成
-`script_failed` 错误，供 shell `&&` 链使用），以及捕获的 `stdout` 与 `stderr`。`stderr`
-逐字返回；`stdout` 在 64 KiB 以内逐字返回——超过后结果携带流的前缀字节，完整流落盘到
-`stdout_file` 命名的文件，`stdout_bytes` 与 `stdout_truncated` 始终报告完整大小与是否发生
-截断。gda 无法写出落盘文件时以类型化失败（`stdout_spill_failed`）报告，而不是返回无界结果，
-因此消费 `stdout` 时请读取这三个字段。
-`--timeout <s>` 约束这次运行的墙钟；gda 不得不终止的运行会报告 `launch_timeout`，
-**并携带截至当时捕获的部分输出**、已耗秒数与一个终止阶段。声明
-`--completion-marker <line>`——你的脚本在工作完成时打印的一行——之后，一次已出现可归因于
-入口脚本的已识别错误、尚未打印标记行、且随后两个流都陷入沉默的运行，会在数秒内被终止，
-而不是等到墙钟上限，并报告 `script_aborted` 与捕获到的错误。
+| `script validate` | 编译检查 `.gd` 脚本——多个 PATH 在一次引擎启动中完成，或用 `--all` 检查整个项目——报告一个汇总的 `valid` 加上 `scripts` 里每个脚本各自的条目；编译失败的脚本作为检查结果返回（`valid: false`，退出码 `0`），不会报错。 |
+| `script run` | 以一次性入口的方式 headless 运行一个项目脚本，受 `--timeout` 约束。脚本的 `exit_status` 与 `stderr` 原样透传；`stdout` 内联返回最多 64 KiB，超出时完整的 stdout 会写入结果中指明的文件；脚本以非零状态 `quit()` 不算失败，只是结果里的数据，加 `--strict` 才按失败处理。 |
 
 **`project`** — 作为整体的项目（设置、autoload、静态分析）
 
@@ -547,12 +467,12 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话会在第一个需要它的操作时启动（`screen` 截图需加 `--windowed`）。 |
-| `daemon wait-ready` | 建立惰性启动的引擎会话，使 Live 读取可服务。`--timeout` 是 daemon 端由启动等待和新工作决策共享的预算；正在执行的同步启动调用可能延后过期状态的观察。这是显式触发会话启动的规范做法：只读的 `diag`/`logger` 读取从不启动会话，所以 `daemon start` 之后的第一次 `diag errors` 按设计会报 `engine_session_not_running`。 |
+| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话按需启动，只有操作需要时才会拉起（`screen` 截图需加 `--windowed`）。 |
+| `daemon wait-ready` | 立即启动引擎会话并等待它就绪；`--timeout` 是 daemon 为这次启动分配的预算，不是这次调用的硬性上限。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
-| `daemon install` | 在不启动 daemon 的情况下把游戏内 `gda` harness 安装进项目，并报告它创建的每个路径与配置段。幂等，并会把旧版 `gda` 装下的 harness 同步为当前版本。`daemon start` 自己就会执行这一步，因此只有在你想显式地做出这次 `project.godot` 改动（例如便于审阅或提交）时才需要它。 |
-| `daemon uninstall` | 从项目中移除游戏内 `gda` harness（autoload 条目 + 文件）——一次显式的开发工具卸载；`gda export run` 在导出产物时已经会自动剥离它。 |
+| `daemon install` | 在不启动 daemon 的情况下安装游戏内 harness，并报告写入了什么。幂等；`daemon start` 自己就会做这一步，因此只在想单独审阅或提交那次 `project.godot` 改动时使用。 |
+| `daemon uninstall` | 移除游戏内 harness——autoload 条目、harness 文件、`.uid` 附属文件——还原 `project.godot`，并报告移除了什么。仅用于开发工具卸载：`gda export run` 已经会自动从导出产物中剥离 harness。 |
 
 **`game`** — 正在运行的游戏的运行时场景图
 
@@ -561,22 +481,11 @@ problem 列表只对它到达的那个阶段完整，并非一次覆盖两个阶
 | `game tree` | 读取正在运行的游戏的运行时场景树（在 `_ready` 之后）。 |
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
-| `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量。 |
-| `game call` | 调用该节点附加脚本链声明（`GDA_CALLABLE`）所列的一个方法，并投影其返回值。 |
+| `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量；`verified` 报告读回值是否匹配。 |
+| `game call` | 调用节点脚本在 `GDA_CALLABLE` 中声明的一个方法，并以结构化数据形式返回结果。项目自己承诺该方法是只读的，gda 无法验证；未声明的方法绝不会被调用。 |
 
-`game call` 读取 `game get` 无法读取的东西：项目以**方法**形式暴露的调试或状态契约。
-gda 从节点附加脚本开始沿基类链静态解析 `GDA_CALLABLE` 声明，因此"哪些方法可调用"这一步
-不会运行你的任何代码，且继承链选择加入之前没有任何方法可调用。GDScript 禁止子类重声明
-基类常量，因此一条已加入的继承链至多有一个声明所有者（基类所有者覆盖其子类，且不必亲自
-定义它列出的每个方法）。gda 无法验证已声明的方法没有副作用；它保证的是绝不
-调用未声明的方法（ADR-0041）。已声明参数无法接受的实参会在调用前被拒绝，因此类型不匹配是
-一个类型化错误，而不是静默的 `null`。
-
-Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策略；
-`game rect` 仍然是只读的渲染几何查询。`game set` 的成功结果包含
-`verified`：当观测到的读回值匹配本次请求的已转换值时为 `true`；当 set
-已完成但观测值不同（例如 getter-only/no-op 脚本变量或边沿触发控制）时为
-`false`。
+`game call` 读取 `game get` 读不到的东西：项目以方法形式暴露的状态。
+`game set --property position` 遵循与 `node set` 相同的 `Control` 规则。
 
 **`diag`** — 运行时诊断
 
@@ -608,8 +517,8 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 | `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放。 |
 | `input sequence` | 注入一条跨多帧的事件时间线。 |
 
-鼠标事件会在 `event.position` 中携带注入的视口坐标。Godot 在 daemon 会话中可能让
-`get_mouse_position()` / `get_global_mouse_position()` 一直返回过期数据，因此游戏代码应从输入事件读取注入的鼠标坐标。
+注入的鼠标坐标请从 `event.position` 读取——daemon 会话中 `get_mouse_position()` /
+`get_global_mouse_position()` 可能一直是过期值。
 
 **`screen`** — 视口捕获
 
@@ -622,11 +531,11 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 
 | Flag       | 说明                                                               |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出——成功时是结果，失败时是 `{"error": {…}}` 信封。不加它时，两者都会改为打印一份简洁的、供人阅读的渲染结果。命令之前同样接受该 flag：`gda --json <group> <command>` 与 `gda <group> --json <command>` 都与写在命令之后含义相同。 |
+| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出——成功时是结果，失败时是 `{"error": {…}}` 信封。不加它时，两者都会改为打印一份简洁的、供人阅读的渲染结果。写在命令之前同样有效。 |
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
 | `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |
-| `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，改为输出结构化的安装溯源信息——版本，可执行文件、解释器与实际导入的包所在路径，安装类型（`wheel`、`editable`，或在安装元数据无法读取时为 `unknown`），以及 editable 安装所对应的源码检出目录、Git 版本号和是否有未提交改动（不会启动 Godot）。适合在长时间运行前作为预检：editable 安装的代码可能在运行过程中变更版本。 |
+| `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，同时给出它的来源——安装类型（`wheel`、`editable` 或 `unknown`），以及 editable 安装对应源码检出的 Git 版本号。 |
 | `--help`    | 显示 `gda` 或任意命令的用法。                                |
 
 ---
@@ -637,51 +546,29 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 `gda` 会从 **`--godot <path>`** flag 找到 Godot 二进制文件，否则就用
 **`GDA_GODOT`** 环境变量——设置其中之一，`gda` 才能定位到你的引擎。
 
-领域命令会按以下顺序解析一个 **Godot 项目**（以便 `res://` 路径以及场景的跨资源
-引用能够确定性地解析）：
-
-1. **`--project <dir>`** flag。
-2. **`GDA_PROJECT`** 环境变量。
-3. **当前目录**，当它本身是个 Godot 项目时（含有 `project.godot`）。
-
-显式指定的目录必须是个项目，否则 `gda` 会直接报错。当没有任何一项解析成功时，
-`gda` 会以**无项目（projectless）**方式运行——只有文件系统路径（绝对路径或相对于 cwd 的路径）
-能解析，`res://` 不行。**MCP 服务器**没有 flag，所以它解析项目的方式略有不同：
+领域命令会解析一个 **Godot 项目**，以便 `res://` 路径能够解析。显式指定的目录必须是个项目，
+否则 `gda` 会报错；当没有任何一项解析成功时，`gda` 会以**无项目（projectless）**方式运行——
+普通文件系统路径可用，`res://` 不行。
 
 | 上下文 | 项目解析顺序 |
 | --- | --- |
-| **CLI** | `--project` → `GDA_PROJECT`（两者都严格——无效即报错）→ 含有 `project.godot` 的 cwd，否则无项目 |
-| **MCP**（`gda-mcp`） | `GDA_PROJECT`（严格——已设置但无效会直接报错，而非跳过）→ 一个*有效的*客户端工作区 `root`（走 2026 前 MCP 协议的客户端；2026-07-28 修订版没有 roots，这类客户端直接跳到下一级）→ 一个*有效的*服务器 cwd，否则无项目 |
+| **CLI** | `--project` → `GDA_PROJECT`（两者都严格：无效即报错）→ 当前目录（若含有 `project.godot`）→ 无项目 |
+| **MCP**（`gda-mcp`） | `GDA_PROJECT`（严格）→ 客户端的工作区 `root`（若发来的是有效项目；仅 2026 前的客户端）→ 服务器的 cwd（若它是项目）→ 无项目 |
 
 <details>
 <summary>项目代码执行——当你指向一个项目时会运行什么</summary>
 
-大多数解析项目的命令会以该项目启动 Godot，Godot 也会随之执行项目自身的一部分代码（例外：缓存完好的 `resource import` 根本不启动引擎）。具体来说：
+把 `gda` 指向一个项目，就会运行该项目自身的一部分代码——这是有意为之，因为项目被视为可信
+（[ADR-0009](adr/0009-trust-boundary-trusted-project.md)）：
 
-- **每个会启动游戏侧引擎的 `--project` 操作都会运行 autoload。** 当一个项目被解析时，
-  引擎会在启动阶段——在命令本身的工作开始之前——构造该项目的 autoload 单例，因此它们的
-  `_init`（以及 `_ready`）也会在 `scene get`、`node list` 这类只读操作中执行。两个例外：
-  缓存完好的 `resource import` 根本不启动引擎；其缓存缺失时的导入 pass 走编辑器导入器
-  路径，不执行 autoload。如果没有解析到项目，就不会注册任何 autoload，它们也就不会运行。
-- **会实例化场景的命令，会执行该场景所附脚本的构造函数。**
-  任何需要实例化节点树的命令——每一个会改动状态的命令（`node add`、`node set`、
-  `node remove` 等），以及 `node get`（它会报告存储数据本身不携带的运行时属性默认值）——
-  都会加载并实例化该场景，这会构造每个节点，并运行其中任何附加在节点上的脚本的 `_init`。
-  只读取已存储场景数据的命令（`scene get`、`scene list`、`node list`）只是遍历它而不实例化，
-  所以不会运行那些脚本。
-- **`gda script run` 会完整执行指定的脚本。** 这正是该命令的用途：脚本的顶层代码及其调用的
-  一切都会在声明的约束之内运行到结束。
-- **`gda scene preflight` 会启动场景。** 它实例化场景并运行其 `_ready` 与观察帧，
-  因此场景中的每个脚本——以及项目的 autoload——都会执行其启动代码。
-- **`gda resource import` 在缓存缺失时运行引擎导入 pass。** 导入器代码——以及项目注册的
-  任何导入插件——会在整个项目的内容上运行。该 pass 启动的是编辑器导入器路径而非游戏：
-  不执行 autoload。缓存完好的请求根本不启动引擎。
-- **`gda game call` 在运行中的游戏里执行一个已声明的方法。** 每次请求只执行被寻址节点的
-  附加脚本链在 `GDA_CALLABLE` 声明中列出的那一个方法。读取该声明不执行任何代码——常量由编译
-  后的脚本提供——且绝不会调用未声明的方法。
+- **autoload** 在每个会启动引擎的 `--project` 操作中运行，只读操作也不例外（缓存完好的
+  `resource import` 不启动任何东西）。
+- **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令以及 `node get`；
+  `scene get` / `scene list` / `node list` 只读取、不实例化。
+- **`script run`** 会执行指定脚本的全部内容；**`scene preflight`** 启动场景并运行其 `_ready`。
+- **`resource import`** 在缓存缺失时运行引擎的导入器（以及项目的导入插件），不运行 autoload。
+- **`game call`** 只运行节点 `GDA_CALLABLE` 声明中列出的那一个方法；未声明的绝不会被调用。
 
-`gda` 将目标项目视为可信，所以这是有意为之——信任模型参见
-[ADR-0009](adr/0009-trust-boundary-trusted-project.md)。
 </details>
 
 ---
@@ -713,17 +600,11 @@ Headless 的 Godot 会把它的横幅、警告和 `print()` 输出混在 stdout 
 | `0`       | —             | 成功。                                                              |
 | `2`       | `usage`       | `gda` 无法解析你的请求——命令或选项无法识别。若属于已知的近似写法，信封的 `hint` 会给出应当改用的调用方式。 |
 | `127`     | `environment` | Godot 二进制文件无法启动（shell 惯例：not found）。 |
-| `124`     | `environment` | Godot 启动了，但在 runner 超时之前没有返回（shell 惯例：timed out）——见下面的**读懂 `124`**。 |
+| `124`     | `environment` | Godot 启动了，但在超时之前没有返回（shell 惯例：timed out）；信封携带截至当时捕获的部分输出。 |
 | `3`       | `version`     | 检测到的 Godot 版本低于受支持的最低版本。            |
 | `4`       | `operation`   | 引擎运行了，但操作失败了——已注册的操作错误、引擎崩溃，或进程以非零退出码退出且没有结构化输出。 |
 | `5`       | `parse`       | 进程返回成功，但输出不符合结构化契约。 |
 | `6`       | `live`        | 一个 Live 操作失败了——例如没有正在运行的 daemon/会话，或一次 Live 超时。 |
-
-**读懂 `124`。** `environment` 这个分类描述的是这次运行**如何结束**，而不是主机状态。
-先读 `diagnostics` 里捕获到的部分输出，看这次运行走到了哪一步；然后在提供 `--timeout`
-的命令上抬高上限，若命令没有该选项，则上限属于 gda 自身——那就减少工作量，或给机器更多余量。
-只有当捕获显示引擎根本没有启动时，才去怀疑二进制或机器。捕获里的任何引擎错误都只是参考信息——
-本次判定就是超时。
 
 这些值就是公开 ABI；其权威来源是
 [`src/gda/exit_codes.py`](../src/gda/exit_codes.py)。`{"error": {category, code, …}}`

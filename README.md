@@ -66,16 +66,11 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
 - **⚡ Headless by default, live when you need it.** Headless operations need no daemon
   and no editor — just a Godot binary. Live operations add real-time control of a running
   game over a Unix-domain-socket daemon, addressed by the same CLI grammar.
-- **🛡️ Fails loudly, never silently.** A missing or hung engine is bounded by a timeout
-  and mapped to a **stable non-zero exit code** plus an Error envelope carrying the
-  failure's category and code — so a shell or agent can branch on the failure without
-  parsing prose. Under `--json` that envelope is the `{"error": {…}}` object; without it
-  the same failure is laid out as readable lines, verdict first. A command or option
-  `gda` does not recognize is refused the same way, with a `hint` naming the invocation
-  to use instead. Where a failure computed evidence, that evidence rides the envelope too
-  — an optional `evidence` object carrying the elapsed clock and the ceiling a timed-out
-  run reached, the child's own exit status, the parsed script errors — so an agent
-  branches on numbers instead of parsing the message.
+- **🛡️ Fails loudly, never silently.** A missing engine fails at once and a hung one at a
+  timeout; both map to a **stable non-zero exit code** plus an Error envelope carrying the
+  failure's category, code, and any typed evidence it computed — so a shell or agent branches
+  on the failure instead of parsing prose. A command `gda` does not recognize is refused the
+  same way, with a `hint` naming the invocation to use instead.
 
 ---
 
@@ -195,12 +190,8 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-`--install --provider <claude|codex> --scope <project|user>` resolves a known agent's skills
-directory (`--scope` defaults to `user`); `--dir` is the neutral fallback for any other agent —
-there's no built-in default. The [skill recipes](docs/gda-skill.md) list each agent's directory
-(Claude Code's `~/.claude/skills/`, Codex's `~/.agents/skills/`, …). Or fetch the same file straight
-from the repo, if you'd rather not go through `gda skill` — you still install `gda`, since the Skill
-drives it:
+The [skill recipes](docs/gda-skill.md) list each agent's skills directory. Or fetch the same
+file straight from the repo — you still install `gda`, since the Skill drives it:
 
 ```bash
 curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
@@ -219,18 +210,15 @@ uvx --from "gda[mcp]" gda-mcp
 The server resolves two pieces of context — which Godot **project** to drive and which Godot
 **binary** to run (MCP can't pass per-call flags):
 
-- **Project** — set `GDA_PROJECT` when your client can't advertise workspace **roots**; otherwise
-  `gda-mcp` auto-detects the project from the roots the client sends (the folder you have open). A
-  *set-but-invalid* `GDA_PROJECT` is a reported error, not a silent fallback. Note the MCP
-  2026-07-28 spec revision deprecates the roots capability: today's clients keep working unchanged,
-  but pinning `GDA_PROJECT` is the future-proof setup (a client on the new stateless protocol has no
-  roots to advertise). See [Configuration](#configuration) for the full CLI-vs-MCP resolution order.
+- **Project** — set `GDA_PROJECT`. Without it, `gda-mcp` uses the workspace **roots** the client
+  sends (the folder you have open) — but the MCP 2026-07-28 revision deprecates roots, so pinning
+  `GDA_PROJECT` is the setup that keeps working. See [Configuration](#configuration).
 - **Engine** — set `GDA_GODOT` to your Godot binary, e.g. `"GDA_GODOT": "/path/to/Godot"`.
 
-For clients on the MCP 2026-07-28 revision, `gda-mcp` marks its `tools/list` response cacheable
-(1-hour TTL, public scope) — the generated tool surface is fixed for a server's lifetime, so
-upgraded clients can skip re-fetching it; pre-2026 clients see identical traffic.
-
+`gda-mcp` accepts both protocol eras — the pre-2026 MCP protocol and the **2026-07-28 revision** —
+but not with the same project resolution: a pre-2026 client still sends roots, a client on the new
+revision does not, so it resolves from `GDA_PROJECT` or the server's cwd. Pin `GDA_PROJECT` before
+your client moves. On the new revision `gda-mcp` also marks `tools/list` cacheable (1-hour TTL).
 
 #### Register with Coding Agents
 
@@ -364,8 +352,7 @@ vocabulary, so the same verb means the same thing in every group:
 | `set`               | Mutate a property.                                                |
 | domain verbs        | `play`, `run`, `export`, `import`, … kept with their natural meaning. |
 
-Every command supports `--json` and `--schema` — `gda schema` accepts `--json` too, where
-it changes nothing because the aggregate manifest is already JSON. Commands that read or mutate a `res://` path
+Every command supports `--json` and `--schema`. Commands that read or mutate a `res://` path
 resolve a [project context](#configuration). Run `gda <group> <command> --help` for full
 flags — `gda --help` is the authoritative list of what is installed.
 
@@ -376,9 +363,9 @@ flags — `gda --help` is the authoritative list of what is installed.
 
 | Command | What it does |
 | ------- | ------------ |
-| `gda info`   | Report the Godot engine version info. Accepts an explicit, validated `--project` (the other meta commands do not); the version does not depend on it. |
-| `gda version` | Report which `gda` is installed and where it came from — with `--json`, the full install provenance (the same payload as `gda --version --json`). No Godot is spawned. |
-| `gda help`   | Show a command's help (`gda help scene get`) or the whole CLI's; `--json` returns it as `{command, text}`. |
+| `gda info`   | Report the Godot engine version. |
+| `gda version` | Report which `gda` is installed and where it came from (`--json` adds the install provenance). |
+| `gda help`   | Show a command's help (`gda help scene get`) or the whole CLI's. |
 | `gda schema` | Emit the whole command surface as one machine-readable JSON manifest. |
 | `gda skill`  | Emit or install the bundled Agent Skill (`SKILL.md`) that teaches an agent how to drive `gda`. |
 
@@ -393,52 +380,11 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `scene list` | Enumerate the `.tscn` scenes in the resolved project. |
 | `scene get-exports` | List the `@export` properties a scene's nodes' scripts declare. |
 | `scene delete` | Delete a scene file and report what was removed. |
-| `scene validate` | Check statically that a scene and the sub-scenes it references resolve their dependencies and compile their scripts. |
-| `scene preflight` | Boot a scene headless, wait for `_ready`, and report its startup verdict. |
+| `scene validate` | Check a scene **statically** — dependencies resolve and bound scripts compile, sub-scenes included — without instantiating it (the project's autoloads still start, as on every `--project` command); a broken scene is a verdict (`valid: false`, exit `0`), not an error. |
+| `scene preflight` | Check a scene **dynamically** — boot it headless, run `_ready`, and report `started` plus the script errors seen; a failed start is a verdict, not an error. |
 
-Reading a scene survives most breakage: Godot substitutes null for a node's reference it
-cannot resolve and still returns a usable tree, so `scene get` shows a healthy scene whose
-script and texture are both gone (a dependency broken from inside a sub-resource can still
-fail the whole load). The two checks answer different questions.
-`scene validate` is **static** — it resolves every dependency, compiles every bound script
-(referenced or embedded), and checks every binding the engine would refuse, all without
-instantiating anything — reporting one problem per problem file (`missing_resource`,
-`unloadable_resource` for an asset that was never imported, `script_compile_failed`, or
-`incompatible_script` for a binding the engine would refuse: a script on a node outside its
-base, or a bound value that is not a script) with the nodes that reference it. The verdict is
-**composed**: the scenes a scene references — normally the ones it instances — are checked with
-it, because a parent whose child is broken is broken too and its own walk cannot see that:
-`res://child.tscn` resolves and loads whatever is missing inside it. Every problem therefore
-carries `scene`, the file it was found in, and its `path` and nodes are read against that file —
-every path in the result being the canonical spelling, so `res://./main.tscn` and
-`res://main.tscn` are one file and one verdict. A reference is followed when the path it resolves
-to ends in `.tscn`/`.scn` **or** its `[ext_resource]` line declares `type="PackedScene"`. Both
-triggers earn their place: Godot loads every `[ext_resource]` when it loads the scene and picks
-the handler by extension, so a `.tscn` referenced as plain metadata breaks its owner exactly as
-an instanced one does — while `ResourceSaver` will write a PackedScene into a plain `.res` that
-no extension test catches. A PackedScene stored under a non-scene extension *and* declared as
-some other type stays outside the walk. Three kinds of edge are reported instead of followed:
-`cyclic_instance`, where a reference closes a cycle whose closing edge the engine drops (taking
-the nodes it would have contributed with it); `unreadable_sub_scene`, a scene that loads but
-carries none of the `[gd_scene]` text the walk reads — a binary `.scn`, or a PackedScene inside a
-`.res`; and `instance_depth_exceeded`, for a scene no route reaches within 16 levels of
-sub-scenes. The last two report that subtree as **unchecked** rather than sound — validate it
-directly, or re-save it as `.tscn`, for a verdict of its own. The depth bound is on the shortest
-route to each scene, so the verdict does not depend on the order the references are declared; it
-covers gda's own walk only, the engine loads the whole chain either way, and an extremely deep
-one overflows its loader and ends the run with no verdict at all. The check is
-**staged**: when dependencies fail to resolve, the scene is not loaded, so the compile and
-binding problems of the loaded scene can only appear after the dependencies are repaired and
-validate is rerun — the problem list is complete for the stage it reached, not across both
-stages at once. `scene preflight` is **dynamic** —
-it boots the scene, runs its `_ready` and the project's autoloads, watches it for a few frames,
-and reports `status` (`ready` / `not_ready` / `timeout`) plus the script errors seen while it
-started; read `started` for the one-boolean gate. Run both: a scene whose dependencies all
-resolve can still fail on its first frame, and a scene referencing a never-imported texture
-starts perfectly cleanly — only the static check names that file. Both report a bad scene as a
-**successful operation** (exit `0`,
-verdict in the result) — only a missing file, a non-scene file, or an environment failure uses
-the Error envelope.
+Run both — `scene get` reads a scene with its script missing as healthy, only `validate`
+names the file, and only `preflight` catches a first-frame failure.
 
 **`node`** — nodes within a scene file
 
@@ -447,17 +393,12 @@ the Error envelope.
 | `node add` | Add a node under a parent, optionally at `--index`: a built-in type, a `class_name` script, or `--instance` to compose another scene as an instanced child. |
 | `node get` | Read a node's properties (by node path) as typed JSON. |
 | `node list` | List a scene's node tree with each node's path relative to the root. |
-| `node set` | Set a node property, coercing the value to its declared Godot type. |
+| `node set` | Set a node property, coercing the value to its declared Godot type. On a `Control`, `position` writes the four offsets; a `Container`'s children are layout-managed, so set their offsets directly. |
 | `node remove` | Remove a node (and its subtree) by node path. |
 | `node duplicate` | Duplicate a node (and its subtree) under its parent. |
 | `node move` | Reparent a node (and its subtree) under a new parent, or reorder it with `--index`. |
 | `node connect-signal` | Wire a source node's signal to a target node's method. |
 | `node disconnect-signal` | Unwire an existing signal→method connection. |
-
-For `Control` nodes, `node set --property position` writes the underlying
-`offset_left` / `offset_top` / `offset_right` / `offset_bottom` values while
-preserving size. Direct children of a `Container` are layout-managed, so set the
-offset properties explicitly instead.
 
 **`script`** — GDScript files (`.gd`)
 
@@ -469,55 +410,8 @@ offset properties explicitly instead.
 | `script set` | Edit a script via search-replace, line-range, or full overwrite. |
 | `script delete` | Delete a script file and report what was removed. |
 | `script attach` | Attach a `.gd` script to a node (by node path) in a scene. |
-| `script validate` | Syntax/compile-check `.gd` scripts — several PATHs at once, or `--all` for every script in the project. |
-| `script run` | Run a project script headless as a one-shot entry point, under a bounded wall clock. |
-
-`script validate` takes a **batch**: pass several PATHs and they are all validated in
-one engine launch, so the four to six related scripts a change touches cost one
-process instead of one each. `--all` validates every `.gd` script in the resolved
-project the same way.
-
-For `script validate --json`, read the result object's `valid` field — the **aggregate**
-verdict, `false` when any one script fails. Each script's own verdict is an entry under
-`scripts`, carrying its `path`, `valid`, `error_string` and `diagnostics`. A single
-PATH is simply a batch of one, so the shape never varies. A script that does not compile
-is still a successful operation: exit `0`, no top-level `error`, and `valid: false`.
-Operation problems such as a missing file still use the normal Error envelope, and they
-refuse the whole batch rather than becoming a verdict.
-
-The result also reports `project_root`: the project the scripts were compiled against,
-which is the root their `res://` dependencies resolved to (`null` when no project was
-resolved). Read it before acting on a `valid: false` — a verdict full of missing
-`res://` dependencies, plus the type errors derived from them, usually means the wrong
-project rather than a broken script. A path the resolved project does not own refuses the
-whole batch up front with `target_outside_project`, naming both the file and the project,
-instead of reporting those false errors; pass `--project` for the project that owns the
-files. That covers two cases: a path outside the resolved project, and a path a *nested*
-`project.godot` owns — gda names the owner it found rather than switching to it, and the
-same check runs with no project resolved, so a script that belongs to a project is never
-compiled against nothing. For the nested case the message states the whole re-issue: the
-`--project` to pass and the target respelled relative to that owner, because a relative
-path anchors at the project and the original spelling would not be found under the new
-one. `script run` and `resource import` refuse the same way, under the
-same code. `--all` needs no such refusal: the project-wide walk skips a directory holding
-a nested `project.godot` (and one holding a `.gdignore`) exactly as the engine's own scan
-does, so it never enumerates a file the check would refuse by name.
-
-`script run` executes a named project script one-shot and **passes its run through**: the
-success result carries the script's own `exit_status` (a deliberate non-zero `quit()` is
-data, not a gda failure — pass `--strict` to turn it into a `script_failed` error for shell
-`&&` chains) plus its captured `stdout` and `stderr`. `stderr` is verbatim; `stdout` is
-verbatim up to 64 KiB — above that the result carries the stream's leading bytes and the
-complete stream spills to the file named in `stdout_file`, with `stdout_bytes` and
-`stdout_truncated` always reporting the full size and whether truncation happened. A spill
-file gda cannot write fails typed (`stdout_spill_failed`) rather than returning an
-unbounded result, so read the three fields when consuming `stdout`. `--timeout <s>` bounds the
-run's wall clock; a run gda has to end reports `launch_timeout` **with the partial output
-captured so far**, the elapsed seconds and a termination phase. Declare
-`--completion-marker <line>` — a line your script prints when its work is done — and a run
-that hit a recognized error attributable to the entry script, has not printed the marker,
-and then goes silent on both streams is ended in seconds rather than at the ceiling,
-reported as `script_aborted` with the captured error.
+| `script validate` | Compile-check `.gd` scripts — several PATHs in one engine launch, or `--all` for the whole project — reporting one aggregate `valid` plus a per-script entry under `scripts`; a failing script is a verdict (`valid: false`, exit `0`), not an error. |
+| `script run` | Run a project script headless as a one-shot entry point, under `--timeout`. Its `exit_status` and `stderr` pass straight through; `stdout` is inline up to 64 KiB and, when truncated, the complete stdout is written to the file the result names — and a non-zero `quit()` is data, not a failure, unless you pass `--strict`. |
 
 **`project`** — the project as a whole (settings, autoloads, static analysis)
 
@@ -575,12 +469,12 @@ reported as `script_aborted` with the captured error.
 
 | Command | What it does |
 | ------- | ------------ |
-| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first operation that requires one (`--windowed` for `screen` capture). |
-| `daemon wait-ready` | Establish the lazily-launched engine session so live reads serve. Its `--timeout` is the daemon-side budget shared by launch waits and new-work decisions; a synchronous launch call can delay when expiry is observed. This is the documented way to trigger the session launch, since the read-only `diag`/`logger` reads never launch one and a first `diag errors` right after `daemon start` reports `engine_session_not_running` by design. |
+| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches lazily, on the first operation that needs one (`--windowed` for `screen` capture). |
+| `daemon wait-ready` | Launch the engine session now and wait for it; `--timeout` is the daemon's budget for that launch, not a hard ceiling on the call. Read-only `diag` / `logger` tails never launch a session, so run this first when such a read is your first live command. |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
-| `daemon install` | Install the in-game `gda` harness into the project without starting a daemon, reporting every path and section it created. Idempotent, and re-syncs a harness from an older `gda`. `daemon start` does this itself, so run it only to make that `project.godot` change deliberately — to review or commit it. |
-| `daemon uninstall` | Remove the in-game `gda` harness from the project — the autoload entry, the harness files and its `.uid` sidecar, plus an `[autoload]` section left with no keys, so `project.godot` returns to its pre-install bytes (for files Godot's own writer produces); the result enumerates every path and section removed. An explicit dev-tooling teardown; `gda export run` already strips the harness from exported artifacts automatically. |
+| `daemon install` | Install the in-game harness without starting a daemon, and report what it wrote. Idempotent; `daemon start` does this itself, so use it only to review or commit the `project.godot` change on its own. |
+| `daemon uninstall` | Remove the in-game harness — autoload entry, harness files, `.uid` sidecar — restoring `project.godot`, and report what was removed. Dev-tooling teardown only: `gda export run` already strips the harness from exported builds. |
 
 **`game`** — the running game's runtime scene graph
 
@@ -589,27 +483,11 @@ reported as `script_aborted` with the captured error.
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
-| `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game. |
-| `game call` | Invoke one method named by the node's attached-script-chain declaration (`GDA_CALLABLE`), and project what it returns. |
+| `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |
+| `game call` | Invoke one method the node's script declares in `GDA_CALLABLE` — the project's own read-only promise, which gda cannot verify — and project what it returns; nothing undeclared is ever called. |
 
-`game call` reads what `game get` cannot: a debug or state contract your project
-exposes as a **method**. gda resolves the `GDA_CALLABLE` declaration statically
-from the node's attached script along its base chain — so learning what may be
-called runs none of your code, and nothing is callable until a chain opts in.
-GDScript forbids redeclaring a base class's constant, so an opted-in chain has at
-most one declaration owner (a base owner covers its subclasses and need not define
-every method it names). gda
-cannot verify a declared method has no side effects; what it guarantees is that no
-undeclared method is called (ADR-0041). Arguments that the declared parameters
-cannot take are refused before the call, so a mismatch is a typed error rather
-than a silent `null`.
-
-Live `game set --property position` follows the same `Control` policy as
-`node set`; `game rect` remains a read-only rendered-geometry query. `game set`
-success results include `verified`: `true` when the observed read-back value
-matches the coerced requested value, and `false` when the set completed but the
-observed value differs, such as getter-only/no-op script variables or
-edge-triggered controls.
+`game call` reads what `game get` cannot: state your project exposes as a method.
+`game set --property position` follows the same `Control` rule as `node set`.
 
 **`diag`** — runtime diagnostics
 
@@ -641,10 +519,8 @@ edge-triggered controls.
 | `input tap` | Tap one key or action: press, hold, release across frames. |
 | `input sequence` | Inject a multi-frame event timeline. |
 
-Mouse events report the injected viewport coordinate through `event.position`.
-Godot may leave `get_mouse_position()` / `get_global_mouse_position()` stale in
-daemon sessions, so game code should read injected mouse coordinates from the
-input event.
+Read injected mouse coordinates from `event.position` — in a daemon session
+`get_mouse_position()` / `get_global_mouse_position()` can stay stale.
 
 **`screen`** — viewport capture
 
@@ -657,11 +533,11 @@ input event.
 
 | Flag       | Description                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emit the outcome as a single JSON object on stdout — the result on success, the `{"error": {…}}` envelope on failure. Without it, both are printed as a concise human-readable rendering instead. Accepted before the command too: `gda --json <group> <command>` and `gda <group> --json <command>` mean the same as passing it after the command. |
+| `--json`    | Emit the outcome as a single JSON object on stdout — the result on success, the `{"error": {…}}` envelope on failure. Without it, both are printed as a concise human-readable rendering instead. Accepted before the command as well. |
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |
-| `--version` | Print the installed `gda` version. With `--json`, emit structured install provenance instead — version, executable, interpreter and imported-package paths, install kind (`wheel`, `editable`, or `unknown` when the install metadata cannot be read), and an editable install's source checkout with its Git revision and dirty state (no Godot spawned). Useful as a preflight before a long run: an editable install can change revision while the run is in progress. |
+| `--version` | Print the installed `gda` version. With `--json`, also where it came from — install kind (`wheel`, `editable`, or `unknown`) and, for an editable install, the source checkout's Git revision. |
 | `--help`    | Show usage for `gda` or any command.                                |
 
 ---
@@ -671,60 +547,32 @@ input event.
 `gda` finds the Godot binary from the **`--godot <path>`** flag, otherwise the
 **`GDA_GODOT`** environment variable — set one of these so `gda` can locate your engine.
 
-Domain commands resolve a **Godot project** (so `res://` paths and a scene's inter-resource
-references resolve deterministically) in this order:
-
-1. The **`--project <dir>`** flag.
-2. The **`GDA_PROJECT`** environment variable.
-3. The **current directory**, when it is a Godot project (contains `project.godot`).
-
-A named directory must be a project, or `gda` reports it as an error. When none resolves,
-`gda` runs **projectless** — only filesystem paths (absolute or cwd-relative) resolve, not
-`res://`. The **MCP server** has no flags, so it resolves a project a little differently:
+Domain commands resolve a **Godot project** so that `res://` paths resolve. A named
+directory must be a project, or `gda` reports an error; when nothing resolves, `gda` runs
+**projectless** — plain filesystem paths work, `res://` does not.
 
 | Context | Project resolution order |
 | --- | --- |
-| **CLI** | `--project` → `GDA_PROJECT` (both strict — invalid is reported) → cwd if it holds `project.godot`, else projectless |
-| **MCP** (`gda-mcp`) | `GDA_PROJECT` (strict — set-but-invalid is reported, not skipped) → a *valid* client workspace `root` (clients on the pre-2026 MCP protocol; the 2026-07-28 revision has no roots, so those clients skip straight on) → a *valid* server cwd, else projectless |
+| **CLI** | `--project` → `GDA_PROJECT` (both strict: an invalid one is an error) → the current directory, if it holds `project.godot` → projectless |
+| **MCP** (`gda-mcp`) | `GDA_PROJECT` (strict) → the client's workspace `root`, if it sends a valid one (pre-2026 clients) → the server's cwd, if it is a project → projectless |
 
 <details>
 <summary>Project code execution — what runs when you point at a project</summary>
 
-Most commands that resolve a project run Godot against it, and Godot runs some of the
-project's own code as part of that (a fully cached `resource import` is the exception:
-it starts no engine). Concretely:
+Pointing `gda` at a project runs some of that project's own code — by design, since the
+project is trusted ([ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md)):
 
-- **Autoloads run on every `--project` operation that starts the game-facing engine.** When a
-  project is resolved, the engine constructs the project's autoload singletons at startup —
-  before the command's own work runs — so their `_init` (and `_ready`) execute on read-only
-  operations too, like `scene get` and `node list`. Two exceptions: a fully cached
-  `resource import` starts no engine at all, and its cache-miss import pass boots the editor
-  importer path, which skips autoloads. Without a resolved project, no autoloads are
-  registered, so they do not run.
-- **Commands that instantiate a scene execute that scene's attached scripts' constructors.**
-  A command that needs a live node tree — every mutating command (`node add`, `node set`,
-  `node remove`, …), and `node get` (which reports runtime property defaults the stored data
-  does not carry) — loads and instantiates the scene, which constructs each node and runs the
-  `_init` of any script attached to a node in it. Commands that only read the stored scene
-  data (`scene get`, `scene list`, `node list`) walk it without instantiating, so they do not
-  run those scripts.
-- **`gda script run` executes the named script in full.** That is the command's purpose: the
-  script's top-level code and everything it calls run to completion under the declared
-  bounds.
-- **`gda scene preflight` boots the scene.** It instantiates the scene and runs its `_ready`
-  plus the observation frames, so every script in the scene — and the project's autoloads —
-  execute their startup code.
-- **`gda resource import` runs the engine import pass on a cache miss.** Importer code — and
-  any import plugins the project registers — runs over the whole project's content. The pass
-  boots the editor importer path, not the game: no autoloads execute. A fully cached request
-  starts no engine at all.
-- **`gda game call` runs one declared method in the running game.** The single method the
-  addressed node's attached-script chain named in its `GDA_CALLABLE` declaration executes, once, per
-  request. Reading that declaration runs nothing — the constant is served by the compiled
-  script — and no undeclared method is ever called.
+- **Autoloads** start on every `--project` operation that boots the engine, read-only ones
+  included (a cached `resource import` boots nothing).
+- **Scene scripts' `_init`** runs wherever a scene is instantiated: every mutating `node`
+  command and `node get`; `scene get` / `scene list` / `node list` read without instantiating.
+- **`script run`** executes the named script in full; **`scene preflight`** boots the scene
+  and runs its `_ready`.
+- **`resource import`** runs the engine's importers (and the project's import plugins) on a
+  cache miss, without autoloads.
+- **`game call`** runs the one method the node's `GDA_CALLABLE` declaration names; nothing
+  undeclared is ever called.
 
-`gda` treats the target project as trusted, so this is by design — see
-[ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md) for the trust model.
 </details>
 
 ---
@@ -757,18 +605,11 @@ or agent can branch on the failure **category without parsing the JSON error**:
 | `0`       | —             | Success.                                                              |
 | `2`       | `usage`       | `gda` could not resolve what was asked for — an unrecognized command or option. A recognized near miss carries the invocation to use instead in the envelope's `hint`. |
 | `127`     | `environment` | The Godot binary could not be launched (shell convention: not found). |
-| `124`     | `environment` | Godot launched but did not return before the runner timeout (shell convention: timed out) — see **Reading a `124`** below. |
+| `124`     | `environment` | Godot launched but did not return before the timeout (shell convention: timed out); the envelope carries the partial output captured so far. |
 | `3`       | `version`     | The detected Godot version is below the supported minimum.            |
 | `4`       | `operation`   | The engine ran but the operation failed — a registered operation error, an engine crash, or an unstructured non-zero exit. |
 | `5`       | `parse`       | The process claimed success but violated the structured-output contract. |
 | `6`       | `live`        | A live operation failed — e.g. no running daemon/session, or a live timeout. |
-
-**Reading a `124`.** The `environment` category describes how the run ENDED, not the
-host. Read the captured partial output in `diagnostics` for how far the run got, then
-raise the ceiling with `--timeout` where the command exposes one; where it does not the
-ceiling is gda's own, so reduce the work or give the machine more headroom. Suspect the
-binary or the machine only when the capture shows the engine never started. Any engine
-error inside that capture is advisory — the verdict is the timeout.
 
 These values are the public ABI; their authoritative source is
 [`src/gda/exit_codes.py`](src/gda/exit_codes.py). The `{"error": {category, code, …}}`
