@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d0416dc1a93c1149d22530e346d9559260465142baff5b6536a49aef22ce5614 -->
+<!-- gda-readme-i18n: source=README.md sha256=1d08c8b23269bae2e1eee649556a99cb93038924307f8ebea09d12d9b0bf8219 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -59,7 +59,7 @@
 - **遵循 Godot 语义的操作。** 命令沿用 Godot 的对象和术语，例如
   `gda scene create`、`gda node add` 和 `gda game get`。
 - **在受控环境中可靠执行。** 将用户数据与日志重定向到可写位置、隔离并发运行，并在
-  Godot 崩溃前返回明确、带类型的环境错误。
+  Godot 崩溃前返回明确、带类型的环境错误。这让 Agent 更容易在沙箱环境中工作。
 - **三种互补接入方式。** Agent、Shell 或 CI 可直接运行 CLI；需要可复用的操作指导时安装
   随包附带的 Agent Skill；需要工具发现与调用时，将同一套操作暴露为 MCP 工具。
   接入方式的对比与取舍详见 [CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/)。

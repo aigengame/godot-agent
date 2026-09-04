@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d0416dc1a93c1149d22530e346d9559260465142baff5b6536a49aef22ce5614 -->
+<!-- gda-readme-i18n: source=README.md sha256=1d08c8b23269bae2e1eee649556a99cb93038924307f8ebea09d12d9b0bf8219 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -62,7 +62,8 @@ ese ciclo con dos modos complementarios:
   Godot, como `gda scene create`, `gda node add` y `gda game get`.
 - **Ejecución fiable en entornos restringidos.** Redirige los datos de usuario y los
   registros a ubicaciones con permisos de escritura, aísla las ejecuciones simultáneas
-  y devuelve fallos de entorno tipados antes de que Godot se bloquee.
+  y devuelve fallos de entorno tipados antes de que Godot se bloquee. Esto facilita que
+  los agentes trabajen en entornos sandbox.
 - **Tres vías de acceso complementarias.** Ejecuta la CLI directamente desde un agente,
   shell o CI; instala la Agent Skill incluida para obtener orientación reutilizable; o
   expón las mismas operaciones como herramientas MCP. Consulta

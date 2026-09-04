@@ -59,7 +59,7 @@ complementary modes:
   `gda scene create`, `gda node add`, and `gda game get`.
 - **Operate reliably in restricted environments.** Redirect user data and logs to
   writable locations, isolate concurrent runs, and return typed environment failures
-  before Godot crashes.
+  before Godot crashes. This makes it easier for agents to work in sandboxes.
 - **Three complementary access paths.** Run the CLI directly from an agent, shell, or
   CI; install the bundled Agent Skill for reusable guidance; or expose the same
   operations as MCP tools. See [CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/)
