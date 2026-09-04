@@ -9,8 +9,9 @@
 [PyPI](https://pypi.org/project/gda/)
 
 > **Build and verify Godot projects with AI coding agents, shell scripts, and CI.**
-> `gda` exposes one Godot-native operation surface through a CLI, a bundled
-> Agent Skill, and an MCP server, returning structured results agents can act on.
+> `gda` provides Godot automation with headless validation as well as live runtime
+> inspection and control through a CLI, a bundled Agent Skill, or an MCP server,
+> returning structured results agents can act on.
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
@@ -20,11 +21,10 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A file edit is not a verified game change. `gda` closes that loop in two
-complementary modes:
+`gda` provides two complementary modes for this build-and-verify workflow:
 
 - **Headless** — create and edit project content, compile scripts, validate and boot
-  scenes, inspect projects, and export builds without an editor plugin or daemon.
+  scenes, analyze project structure, and export builds without an editor plugin or daemon.
 - **Live** — inspect and drive the running game through a per-project daemon: runtime
   tree and state, input simulation, frame capture, logs, errors, and performance.
 
@@ -50,13 +50,17 @@ complementary modes:
 
 ## Why `gda`?
 
-- **Verification beyond file edits.** Headless validation confirms project readiness;
+- **Verification across the game development lifecycle.** Headless validation confirms project readiness;
   Live operations return runtime evidence about actual behavior.
 - **Structured results and discoverable schemas.** With `--json`, each command emits
   exactly one result object on stdout. Typed input and output models also power
   `--schema` and the generated MCP tool surface.
-- **Godot-native operations.** Commands follow Godot objects and vocabulary, such as
-  `gda scene create`, `gda node add`, and `gda game get`.
+- **Godot-native bounded context and ubiquitous language.** `gda` uses a single
+  Godot-aligned operation model and vocabulary, giving agents consistent terms for
+  project content and runtime state.
+- **Operate reliably in restricted environments.** Redirect user data and logs to
+  writable locations, isolate concurrent runs, and return typed environment failures
+  before Godot crashes. This makes it easier for agents to work in sandboxes.
 - **Three complementary access paths.** Run the CLI directly from an agent, shell, or
   CI; install the bundled Agent Skill for reusable guidance; or expose the same
   operations as MCP tools. See [CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/)
@@ -65,8 +69,9 @@ complementary modes:
   failures, diagnostics, and mutation reports help agents decide what happened and how
   to recover.
 
-These capabilities were refined through a
-[public real-game production dogfooding record](https://github.com/aigengame/godot-agent/milestone/10).
+These capabilities were refined while
+[building a real game](https://aigengame.xyz/#showcase), with the work documented in a public
+[dogfooding record](https://github.com/aigengame/godot-agent/milestone/10).
 
 ---
 
@@ -75,7 +80,7 @@ These capabilities were refined through a
 | Goal | What `gda` provides | Start with |
 | --- | --- | --- |
 | Build Godot project content (Headless) | Create and edit scenes, nodes, scripts, resources, project settings, shaders, and themes | `scene` / `node` / `script` / `resource` / `project` / `shader` / `theme` |
-| Verify project readiness (Headless) | Compile scripts, validate dependencies, boot scenes in a bounded preflight, inspect projects, and export builds | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
+| Verify project readiness (Headless) | Compile scripts, validate dependencies, boot scenes in a bounded preflight, analyze project structure, and export builds | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
 | Verify runtime behavior (Live) | Read runtime state, call declared methods, simulate input, capture frames, collect logs and errors, and sample performance | `gda daemon start`, then `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | Connect an AI coding agent | Use direct CLI execution, reusable Agent Skill guidance, or MCP tool discovery and calling | `gda` / `gda skill` / `gda-mcp` |
 | Run reliably in automation | Receive structured results, typed schemas and failures, bounded execution, isolated logs, and actionable diagnostics | `--json` / `--schema` / `--user-data-root` / timeouts |
