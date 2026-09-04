@@ -157,3 +157,27 @@ another environment can have different capabilities._
   Report the passing headless evidence and the remaining rendered-validation gap
   separately.
 - **Last verified:** 2026-08 in managed Godot review environments.
+
+## Godot game-path launch with no scene on macOS blocks on a native alert
+
+- **Applies when:** A hand-written Godot launch (a probe, a script, an ad-hoc
+  `subprocess` call) starts the engine on the GAME path — `--path <project>` with no
+  `--script`, `--scene`, `--import`, or `--export-*` argument — against a project whose
+  `application/run/main_scene` is empty, on macOS.
+- **Symptom:** The engine prints `Error: Can't run project: no main scene defined in the
+  project.` and a native ALERT dialog with that text appears on the desktop, even with
+  `--headless`. The process does not exit; it blocks until the dialog is dismissed or the
+  process is killed, so a caller waits out its full timeout.
+- **Cause:** Godot's startup (`main/main.cpp`, 4.6.3) calls `OS::alert()` unconditionally
+  on this path, and the macOS implementation shows an `NSAlert` regardless of the display
+  server. No command-line flag suppresses it. A sibling call site alerts the same way
+  for a `run/main_scene` UID that cannot be resolved.
+- **Prevention:** Name what the engine should run: pass `--script <res://...>`,
+  `--scene <path|UID>`, `--import`, or `--export-*`, or point the launch at a project
+  whose `run/main_scene` is set. Every `gda` headless operation already does one of
+  these, so the gate matters for direct engine launches; `gda daemon start` on such a
+  project without `--scene` would reach it (tracked as #829).
+- **Recovery:** Kill the engine — `pkill -f "Godot.*<project dir>"` — which also closes
+  the dialog; a launch made through `gda`'s runner ends it at its own timeout
+  (SIGTERM, then SIGKILL after the grace). Check `pgrep -fl Godot` afterwards.
+- **Last verified:** 2026-09-04 with Godot 4.6.3 on macOS, from a test probe.
