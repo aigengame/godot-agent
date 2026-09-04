@@ -9,8 +9,9 @@
 [PyPI](https://pypi.org/project/gda/)
 
 > **Build and verify Godot projects with AI coding agents, shell scripts, and CI.**
-> `gda` exposes one Godot-native operation surface through a CLI, a bundled
-> Agent Skill, and an MCP server, returning structured results agents can act on.
+> `gda` provides Godot automation with headless validation as well as live runtime
+> inspection and control through a CLI, a bundled Agent Skill, or an MCP server,
+> returning structured results agents can act on.
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)

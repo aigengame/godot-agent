@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=552cdc8d4990f3f379aab0c0ddab12d3aa58cd3d950df8a49c8aa4ac2bc49e9e -->
+<!-- gda-readme-i18n: source=README.md sha256=7645aa9bfcabd98aa3e48cf84b793a38351886bae203d11baba7cffcb9b70bd5 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -11,8 +11,8 @@
 [PyPI](https://pypi.org/project/gda/)
 
 > **让 Coding Agent、Shell 脚本与 CI 构建并验证 Godot 项目。**
-> `gda` 通过 CLI、随包附带的 Agent Skill 和 MCP server 提供同一套遵循 Godot
-> 语义的操作，并返回 Agent 可直接处理的结构化结果。
+> `gda` 提供具备 Headless 验证以及 Live 运行时检查与控制能力的 Godot 自动化，可通过
+> CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直接处理的结构化结果。
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)

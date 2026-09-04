@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=552cdc8d4990f3f379aab0c0ddab12d3aa58cd3d950df8a49c8aa4ac2bc49e9e -->
+<!-- gda-readme-i18n: source=README.md sha256=7645aa9bfcabd98aa3e48cf84b793a38351886bae203d11baba7cffcb9b70bd5 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -11,8 +11,9 @@
 [PyPI](https://pypi.org/project/gda/)
 
 > **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
-> `gda` ofrece el mismo conjunto de operaciones nativas de Godot mediante una CLI, una
-> Agent Skill incluida y un servidor MCP, con resultados estructurados que los agentes pueden usar.
+> `gda` ofrece automatización de Godot con validación Headless, además de inspección y
+> control del runtime en modo Live, mediante una CLI, una Agent Skill incluida o un servidor MCP,
+> y devuelve resultados estructurados que los agentes pueden usar.
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)

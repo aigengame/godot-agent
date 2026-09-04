@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=552cdc8d4990f3f379aab0c0ddab12d3aa58cd3d950df8a49c8aa4ac2bc49e9e -->
+<!-- gda-readme-i18n: source=README.md sha256=7645aa9bfcabd98aa3e48cf84b793a38351886bae203d11baba7cffcb9b70bd5 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -11,8 +11,9 @@
 [PyPI](https://pypi.org/project/gda/)
 
 > **AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
-> `gda` は、CLI、同梱の Agent Skill、MCP サーバーを通じて同じ Godot ネイティブな
-> 操作体系を提供し、エージェントがそのまま処理できる構造化結果を返します。
+> `gda` は、Headless 検証と Live ランタイムの検査・操作を備えた Godot オートメーションを、
+> CLI、同梱の Agent Skill、MCP サーバーのいずれかを通じて提供し、エージェントがそのまま
+> 処理できる構造化結果を返します。
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
