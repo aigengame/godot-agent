@@ -279,8 +279,20 @@ def test_windowed_start_without_a_display_is_live_windowed_unavailable(
     assert outcome.error.probe.platform == "darwin"
 
 
-def test_start_with_no_main_scene_is_live_main_scene_undefined_without_spawning(
-    tmp_path, short_runtime, monkeypatch
+@pytest.mark.parametrize("windowed", [False, True])
+@pytest.mark.parametrize(
+    "setting, code, reason",
+    [
+        ("", "live_main_scene_undefined", "application/run/main_scene"),
+        (
+            'run/main_scene="uid://c1abc"\n',
+            "live_main_scene_unresolved",
+            "uid_cache.bin",
+        ),
+    ],
+)
+def test_unrunnable_main_scene_is_refused_before_spawn_and_display_probe(
+    tmp_path, short_runtime, monkeypatch, windowed, setting, code, reason
 ):
     # #829: a project whose `application/run/main_scene` is empty, started with no
     # `--scene`, has nothing for the session to run — Godot would print "no main
@@ -289,7 +301,8 @@ def test_start_with_no_main_scene_is_live_main_scene_undefined_without_spawning(
     # the harness install, with the typed live_main_scene_undefined (LIVE / 6).
     project = tmp_path
     (project / "project.godot").write_text(
-        'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n' + setting,
+        encoding="utf-8",
     )
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
     spawned: list = []
@@ -297,16 +310,19 @@ def test_start_with_no_main_scene_is_live_main_scene_undefined_without_spawning(
     outcome = daemon_ops.run_daemon_start_operation(
         project,
         None,
+        windowed=windowed,
+        # A determinate scene error keeps its code even when the display also fails.
+        display_check=lambda: _unavailable(),
         spawn=lambda p, b, w, s: spawned.append((p, b, w, s)),
         version_check=_OK_VERSION,
     )
 
     assert isinstance(outcome, Failure), outcome
-    assert outcome.error.code == "live_main_scene_undefined"
+    assert outcome.error.code == code
     assert outcome.error.category.value == "live"
     assert outcome.exit_code == 6
     # Both remedies are named, caller-first.
-    assert "application/run/main_scene" in outcome.error.message
+    assert reason in outcome.error.message
     assert "--scene" in outcome.error.message
     assert spawned == []  # never spawned the daemon
     # Pre-harness-install: a refused start must not mutate the project.

@@ -249,8 +249,20 @@ def test_windowed_no_display_is_live_windowed_unavailable_without_launching(
     assert server._session is None  # nothing launched or cached
 
 
-def test_no_main_scene_is_live_main_scene_undefined_without_launching(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("windowed", [False, True])
+@pytest.mark.parametrize(
+    "setting, code, reason",
+    [
+        ("", "live_main_scene_undefined", "application/run/main_scene"),
+        (
+            'run/main_scene="uid://c1abc"\n',
+            "live_main_scene_unresolved",
+            "uid_cache.bin",
+        ),
+    ],
+)
+def test_unrunnable_main_scene_is_refused_before_launch_and_display_probe(
+    tmp_path, monkeypatch, windowed, setting, code, reason
 ):
     # #829: the AUTHORITATIVE nothing-to-run guard lives at the session-launch
     # boundary, read from the project file at launch time — a project.godot can
@@ -261,20 +273,29 @@ def test_no_main_scene_is_live_main_scene_undefined_without_launching(
     from tests.support import minimal_project
 
     minimal_project(tmp_path)  # config_version only: no main scene declared
+    if setting:
+        (tmp_path / "project.godot").write_text(
+            "config_version=5\n[application]\n" + setting, encoding="utf-8"
+        )
 
     def _must_not_launch(*a, **k):
         raise AssertionError("launch_session must not be called with no main scene")
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _must_not_launch)
-    server = DaemonServer(daemon_paths(tmp_path), godot="godot")
+    server = DaemonServer(
+        daemon_paths(tmp_path),
+        godot="godot",
+        windowed=windowed,
+        display_check=lambda: _unavailable(),
+    )
     server._harness_listener = cast(socket.socket, object())
 
     reply = server._handle({"op": "game-tree", "params": {}})
     assert reply is not None
 
     error = parse_result(reply["stdout"])["error"]
-    assert error["code"] == "live_main_scene_undefined"
-    assert "application/run/main_scene" in error["message"]
+    assert error["code"] == code
+    assert reason in error["message"]
     assert server._session is None  # nothing launched or cached
 
 

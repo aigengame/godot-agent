@@ -1635,7 +1635,8 @@ re-derives every verdict from a running engine.
   main scene with no cache under the configured project data directory —
   `live_main_scene_unresolved`, remedy: run the import pass once. Refusal precedes daemon
   or session launch (the engine version probe is allowed), and the daemon repeats the
-  check at its launch boundary. This is a conservative precheck: main-scene feature
+  check at its launch boundary. A determinate main-scene refusal precedes the
+  `--windowed` display check at both sites. This is a conservative precheck: main-scene feature
   overrides, `override.cfg`, a nonempty custom `application/config/project_settings_override` path
   (including feature overrides of that path), or escaped application keys defer to the
   engine; a feature override or an unrecognized boolean value for

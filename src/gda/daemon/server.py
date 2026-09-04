@@ -474,6 +474,17 @@ class DaemonServer:
                     "session was retired; no replacement was launched"
                 )
             return None
+        # The AUTHORITATIVE nothing-to-run guard (#829): a session with no `--scene`
+        # whose `application/run/main_scene` is empty, or a `uid://` the engine has
+        # no UID cache for, would make Godot print its "no main scene" / "could not
+        # be resolved from UID" error and then block on a native alert (macOS, even
+        # headless) until the readiness deadline killed it. Read from the project
+        # files at THIS instant — they can change after `daemon start`, which runs
+        # the same check as its optional fail-fast — and refused before
+        # launch_session, so no engine is spawned for it.
+        unrunnable = main_scene_unrunnable(self.paths.project, self.scene)
+        if unrunnable is not None:
+            raise MainSceneUnrunnableAtLaunch(unrunnable)
         # The AUTHORITATIVE no-display guard (#345): a windowed session needs a usable
         # host DisplayServer, else a windowed Godot aborts during DisplayServer
         # registration. This is the launch boundary — where the lazy session launch
@@ -486,17 +497,6 @@ class DaemonServer:
             verdict = self._display_check()
             if verdict is not None:
                 raise WindowedDisplayUnavailable(verdict)
-        # The AUTHORITATIVE nothing-to-run guard (#829): a session with no `--scene`
-        # whose `application/run/main_scene` is empty, or a `uid://` the engine has
-        # no UID cache for, would make Godot print its "no main scene" / "could not
-        # be resolved from UID" error and then block on a native alert (macOS, even
-        # headless) until the readiness deadline killed it. Read from the project
-        # files at THIS instant — they can change after `daemon start`, which runs
-        # the same check as its optional fail-fast — and refused before
-        # launch_session, so no engine is spawned for it.
-        unrunnable = main_scene_unrunnable(self.paths.project, self.scene)
-        if unrunnable is not None:
-            raise MainSceneUnrunnableAtLaunch(unrunnable)
         # A res:// / filesystem scene selector that names no file is rejected HERE,
         # at the launch boundary (NOT per-request — finding 1), as a typed
         # SceneMismatch. Godot does not fall-back-and-run for a missing res:// path:

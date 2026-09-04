@@ -865,6 +865,18 @@ def run_daemon_start_operation(
             "",
         )
 
+    # Nothing to run (#829): an empty `application/run/main_scene` with no `--scene`,
+    # or a `uid://` main scene on a never-imported checkout, would make the lazily
+    # launched engine print its "no main scene" / "could not be resolved from UID"
+    # error and then block on a native alert (macOS, even headless) until the
+    # readiness deadline killed it. Refuse HERE — before the daemon is spawned and
+    # before the harness install — with the typed live_main_scene_undefined /
+    # live_main_scene_unresolved (LIVE / 6); the daemon's launch boundary runs the
+    # same check authoritatively, reading the project files at launch time.
+    unrunnable = main_scene_unrunnable(project, scene)
+    if unrunnable is not None:
+        return make_failure(unrunnable.code, unrunnable.reason, "")
+
     if windowed:
         # A windowed session needs a usable host DisplayServer; without one Godot
         # aborts during DisplayServer registration (before its file logger is even
@@ -889,18 +901,6 @@ def run_daemon_start_operation(
                 "",
                 probe=unavailable.probe,
             )
-
-    # Nothing to run (#829): an empty `application/run/main_scene` with no `--scene`,
-    # or a `uid://` main scene on a never-imported checkout, would make the lazily
-    # launched engine print its "no main scene" / "could not be resolved from UID"
-    # error and then block on a native alert (macOS, even headless) until the
-    # readiness deadline killed it. Refuse HERE — before the daemon is spawned and
-    # before the harness install — with the typed live_main_scene_undefined /
-    # live_main_scene_unresolved (LIVE / 6); the daemon's launch boundary runs the
-    # same check authoritatively, reading the project files at launch time.
-    unrunnable = main_scene_unrunnable(project, scene)
-    if unrunnable is not None:
-        return make_failure(unrunnable.code, unrunnable.reason, "")
 
     # The harness install happens BEFORE the daemon exists, so everything from the
     # install onward runs against a project gda has already mutated. The snapshot is
