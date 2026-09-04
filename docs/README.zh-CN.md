@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7645aa9bfcabd98aa3e48cf84b793a38351886bae203d11baba7cffcb9b70bd5 -->
+<!-- gda-readme-i18n: source=README.md sha256=52dae55852b715d695d1cb49789dca82a930f5fab9f3ac2302f95df7305cbab1 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -87,10 +87,10 @@
 <a id="installation"></a>
 ## 安装
 
-**环境要求：** Python 3.13+，以及一个 [Godot](https://godotengine.org) 二进制文件——
-Headless 命令需要 4.4+，macOS/Linux 上的 Live（daemon）命令需要 4.6+。
+**环境要求：** Python 3.13+ 和一个 [Godot](https://godotengine.org) 二进制文件——
+Headless 操作需要 4.4+，macOS/Linux 上的 Live 操作需要 4.6+。
 
-把 CLI 从 PyPI 安装到你的 `PATH` 上：
+从 PyPI 安装面向 AI Agent 的 Godot CLI `gda`，并将它加入 `PATH`：
 
 ```bash
 uv tool install gda      # or: pipx install gda
@@ -129,7 +129,7 @@ gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
 
-stdout 永远是干净、可管道传递的 JSON；所有引擎和脚本的诊断信息都走 stderr：
+使用 `--json` 时，stdout 是干净、可管道传递的 JSON；所有引擎和脚本诊断信息都走 stderr：
 
 ```bash
 gda info --json | jq .major   # → 4
@@ -143,6 +143,7 @@ export GDA_PROJECT="/path/to/your/godot-project"   # or pass --project to any co
 gda scene create scenes/main.tscn --root-type Node2D --json
 gda node add  scenes/main.tscn --type Sprite2D --name Hero --json
 gda node set  scenes/main.tscn --node Hero --property position --value 10,20 --json
+gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
@@ -150,9 +151,10 @@ gda scene get scenes/main.tscn --json
 > 没有项目？`gda` 仍可在普通文件系统路径上以**无项目（projectless）**方式运行（路径相对于你的当前目录）——
 > 只有 `res://` 解析才需要项目。参见[配置](#configuration)。
 
-**实时操控*正在运行*的游戏。** Live 操作会运行项目的**主场景**，所以先通过 Godot 的
-`application/run/main_scene` 项目设置（也就是编辑器里的 *Application → Run → Main Scene*）
-把它指向你刚构建好的那个场景，然后启动 daemon（macOS/Linux，Godot 4.6+）：
+**使用 Live 操作检查并操控*正在运行*的游戏。** 这些操作会运行项目的**主场景**，所以先通过
+Godot 的 `application/run/main_scene` 项目设置（也就是编辑器里的
+*Application → Run → Main Scene*）把它指向你刚构建好的那个场景，然后启动 daemon
+（macOS/Linux，Godot 4.6+）：
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -170,19 +172,23 @@ gda daemon stop
 <a id="choose-your-integration"></a>
 ## 选择你的集成方式
 
-`gda` 用三种方式暴露**同一套命令界面**——你的 agent（或你自己）支持哪种就用哪种：
+`gda` 通过三种互补的接入方式提供同一套操作能力。可以使用 CLI、Agent Skill、MCP server，
+也可以组合使用，以适配你的工作流。无论如何接入，底层操作与结构化结果都保持一致。
 
-| 入口 | 适合 | 怎么用 |
+还不确定哪种方式适合你的工作流？参见
+[Godot MCP、CLI 与 Agent Skill 对比](https://aigengame.xyz/zh/godot-mcp/)。
+
+| 接入方式 | 适合 | 怎么用 |
 | --- | --- | --- |
 | **CLI**（`gda`） | 人类、shell 脚本、CI，以及能运行命令的 agent | `gda <group> <command> --json` |
-| **Skill**（`gda skill`） | 支持 Agent Skills、偏好省 token 的 CLI 工作流的编程 agent | 打印/安装 `SKILL.md`（见下文） |
-| **MCP**（`gda-mcp`） | 通过 Model Context Protocol 调用工具的 agent | 运行 stdio 服务器（见下文） |
+| **Agent Skill**（`gda skill`） | 支持 Agent Skills、偏好省 token 的 CLI 工作流的 Coding Agent | 打印或安装内置指导（见下文） |
+| **MCP**（`gda-mcp`） | 能够发现并调用工具的 MCP 兼容客户端 | 运行 stdio server（见下文） |
 
-### 作为 Skill 使用
+### 使用 Agent Skill
 
-`gda` 附带一个 agent **Skill**——一份 `SKILL.md`，教 AI agent *何时*以及*如何*使用 CLI 操控
-Godot。这是最轻量的接入方式（没有服务器要注册），随包附带，并与你的安装版本锁定。把它打印出来，
-或安装到你的 agent 的 skills 目录里：
+`gda` 内置 **Agent Skill**，指导 AI Agent *何时*以及*如何*通过 CLI 操控 Godot。适合支持
+Agent Skills、需要可复用指导且不想注册服务器的 Coding Agent。其指导内容与已安装的 `gda`
+版本保持一致。可以将它打印出来，或安装到 Agent 的 skills 目录：
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -190,18 +196,19 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-[Skill 配方](gda-skill.md) 列出了每个 agent 的 skills 目录。或者直接从仓库获取同一个文件——
-你仍然需要安装 `gda`，因为 Skill 靠它来驱动：
+[Agent Skill 配方](gda-skill.md)列出了不同 Agent 的 skills 目录。也可以直接从仓库获取同一文件——
+你仍然需要安装 `gda`，因为 Agent Skill 会调用它的 CLI：
 
 ```bash
 curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
   https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
 ```
 
-### 作为 MCP 服务器使用
+### 使用 MCP server
 
-`gda` 在 `[mcp]` 这个 extra 之下附带了一个 stdio [MCP](https://modelcontextprotocol.io) 服务器，
-因此任何 MCP agent（Claude Code、Codex、Cursor 等）都能操控 Godot。无需安装即可一试：
+`gda-mcp` 是面向兼容客户端的内置 Godot MCP server。它通过 stdio 实现
+[Model Context Protocol](https://modelcontextprotocol.io)，并由 `[mcp]` extra 提供。
+无需永久安装即可通过 `uvx` 运行：
 
 ```bash
 uvx --from "gda[mcp]" gda-mcp
@@ -304,17 +311,20 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 <a id="how-it-works"></a>
 ## 工作原理
 
-`gda` 由三个组件构成，以两种模式覆盖各类操作：
+`gda` 是一个 Godot 自动化工具链，包含三个组件和两种互补的操作模式：
 
-| 组件             | 职责                                                                  |
-| ---------------- | --------------------------------------------------------------------- |
-| **`gda`**        | 面向 agent 的 CLI——以结构化的 `--json` 输出暴露 Godot。 |
-| **`gda-mcp`**    | 一个 MCP 服务器，从 `--schema` 出发，把同一套操作以工具形式暴露。 |
-| **`gda-daemon`** | 一个按项目运行的进程，为 Live 操作守护一个正在运行的游戏。 |
+| 组件             | 职责 |
+| ---------------- | ---- |
+| **`gda`**        | 以 CLI 直接执行 Godot 操作并返回结构化的 `--json` 结果。 |
+| **`gda-mcp`**    | 根据 `--schema` 将相同的操作和结构化结果映射为 MCP 工具。 |
+| **`gda-daemon`** | 按项目监督运行中的游戏，以支持 Live 操作。 |
 
-- **Headless 操作**一次性运行——没有 daemon、无需安装任何东西（创建场景、编辑脚本、导出、分析）。
+- **Headless 操作**一次性运行——没有 daemon、无需安装任何东西（创建场景、编辑脚本、
+  校验或启动场景、导出、分析）。
 - **Live 操作**需要一个正在运行的游戏——`gda-daemon` 启动它、注入一个默认处于休眠状态的游戏内 harness，
-  并通过 Unix 域套接字中转请求（运行时树、输入、截图、性能、诊断）。
+  并通过 Unix 域套接字中转请求（运行时树、输入、画面捕获、性能、诊断）。
+
+Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行为的运行时证据。
 
 `gda-daemon` 注入的游戏内 harness **仅用于开发**：`gda export run` 会把它从产物中彻底剥离；
 而即便用其他方式构建（编辑器 GUI、直接执行 `godot --export`），它在导出后的游戏里也会自动禁用——
