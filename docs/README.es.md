@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d4dd7805af9f112ce08aef17ff6600d5e54bc020b81382478cfe487754114c92 -->
+<!-- gda-readme-i18n: source=README.md sha256=ff71c57fd774bc54d9bf9af04f9a7e6c4e7939ad4a38e5f9d12b693cc9bb379e -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -11,8 +11,9 @@
 [PyPI](https://pypi.org/project/gda/)
 
 > **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
-> `gda` ofrece el mismo conjunto de operaciones nativas de Godot mediante una CLI, una
-> Agent Skill incluida y un servidor MCP, con resultados estructurados que los agentes pueden usar.
+> `gda` ofrece automatización de Godot con validación Headless, además de inspección y
+> control del runtime en modo Live, mediante una CLI, una Agent Skill incluida o un servidor MCP,
+> y devuelve resultados estructurados que los agentes pueden usar.
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
@@ -22,11 +23,10 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-Editar un archivo no significa que el cambio en el juego esté verificado. `gda` cierra
-ese ciclo con dos modos complementarios:
+`gda` ofrece dos modos complementarios para este flujo de creación y verificación:
 
 - **Headless** — crea y edita contenido del proyecto, compila scripts, valida e inicia
-  escenas, inspecciona proyectos y exporta builds sin plugin de editor ni daemon.
+  escenas, analiza la estructura del proyecto y exporta builds sin plugin de editor ni daemon.
 - **Live** — inspecciona y controla el juego en ejecución mediante un daemon por proyecto:
   árbol y estado de runtime, simulación de entrada, captura de frames, registros, errores y rendimiento.
 
@@ -53,13 +53,18 @@ ese ciclo con dos modos complementarios:
 <a id="why-gda"></a>
 ## ¿Por qué `gda`?
 
-- **Verificación más allá de la edición de archivos.** La validación Headless confirma
+- **Verificación a lo largo del ciclo de vida del desarrollo de juegos.** La validación Headless confirma
   que el proyecto está listo; las operaciones Live aportan evidencia del comportamiento real.
 - **Resultados estructurados y esquemas consultables.** Con `--json`, cada comando emite
   exactamente un objeto de resultado en stdout. Los modelos tipados de entrada y salida
   también sustentan `--schema` y la superficie de herramientas MCP generada.
-- **Operaciones nativas de Godot.** Los comandos siguen los objetos y el vocabulario de
-  Godot, como `gda scene create`, `gda node add` y `gda game get`.
+- **Contexto delimitado y lenguaje ubicuo nativos de Godot.** `gda` utiliza un único
+  modelo operativo y vocabulario alineados con Godot, proporcionando a los agentes
+  términos coherentes para el contenido del proyecto y el estado en runtime.
+- **Ejecución fiable en entornos restringidos.** Redirige los datos de usuario y los
+  registros a ubicaciones con permisos de escritura, aísla las ejecuciones simultáneas
+  y devuelve fallos de entorno tipados antes de que Godot se bloquee. Esto facilita que
+  los agentes trabajen en entornos sandbox.
 - **Tres vías de acceso complementarias.** Ejecuta la CLI directamente desde un agente,
   shell o CI; instala la Agent Skill incluida para obtener orientación reutilizable; o
   expón las mismas operaciones como herramientas MCP. Consulta
@@ -69,8 +74,9 @@ ese ciclo con dos modos complementarios:
   fallos tipados, los diagnósticos y los informes de cambios ayudan al agente a saber qué
   ocurrió y cómo recuperarse.
 
-Estas capacidades se perfeccionaron mediante un
-[registro público de uso en la producción de un juego real](https://github.com/aigengame/godot-agent/milestone/10).
+Estas capacidades se perfeccionaron mientras
+[se desarrollaba un juego real](https://aigengame.xyz/#showcase); el trabajo quedó documentado
+en un [registro público de dogfooding](https://github.com/aigengame/godot-agent/milestone/10).
 
 ---
 
@@ -80,7 +86,7 @@ Estas capacidades se perfeccionaron mediante un
 | Objetivo | Lo que ofrece `gda` | Empieza por |
 | --- | --- | --- |
 | Crear contenido de proyectos Godot (Headless) | Crear y editar escenas, nodos, scripts, recursos, ajustes del proyecto, shaders y temas | `scene` / `node` / `script` / `resource` / `project` / `shader` / `theme` |
-| Verificar que el proyecto está listo (Headless) | Compilar scripts, validar dependencias, iniciar escenas con un preflight acotado, inspeccionar proyectos y exportar builds | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
+| Verificar que el proyecto está listo (Headless) | Compilar scripts, validar dependencias, iniciar escenas con un preflight acotado, analizar la estructura del proyecto y exportar builds | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
 | Verificar el comportamiento en runtime (Live) | Leer el estado de runtime, llamar a métodos declarados, simular entradas, capturar frames, recopilar registros y errores, y medir el rendimiento | `gda daemon start`, luego `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | Conectar un agente de programación con IA | Usar la CLI directamente, la orientación reutilizable de Agent Skill o el descubrimiento y las llamadas de herramientas MCP | `gda` / `gda skill` / `gda-mcp` |
 | Ejecutar automatización de forma fiable | Recibir resultados estructurados, esquemas y fallos tipados, ejecución acotada, registros aislados y diagnósticos útiles | `--json` / `--schema` / `--user-data-root` / timeouts |
