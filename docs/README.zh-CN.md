@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=1d08c8b23269bae2e1eee649556a99cb93038924307f8ebea09d12d9b0bf8219 -->
+<!-- gda-readme-i18n: source=README.md sha256=f17f5969e6f5aefe3efdc735f891af318614bbf23f749cbc5be426444806d9a6 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -56,8 +56,8 @@
   证据验证实际行为。
 - **结构化结果与可发现的 Schema。** 使用 `--json` 时，每条命令只在 stdout 输出一个
   结果对象。带类型的输入和输出模型同时支撑 `--schema` 与自动生成的 MCP 工具界面。
-- **遵循 Godot 语义的操作。** 命令沿用 Godot 的对象和术语，例如
-  `gda scene create`、`gda node add` 和 `gda game get`。
+- **Godot 原生的限界上下文与通用语言。** `gda` 使用统一、与 Godot 对齐的操作模型和词汇，
+  使 Agent 能以一致术语描述项目内容与运行时状态。
 - **在受控环境中可靠执行。** 将用户数据与日志重定向到可写位置、隔离并发运行，并在
   Godot 崩溃前返回明确、带类型的环境错误。这让 Agent 更容易在沙箱环境中工作。
 - **三种互补接入方式。** Agent、Shell 或 CI 可直接运行 CLI；需要可复用的操作指导时安装

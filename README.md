@@ -55,8 +55,9 @@ complementary modes:
 - **Structured results and discoverable schemas.** With `--json`, each command emits
   exactly one result object on stdout. Typed input and output models also power
   `--schema` and the generated MCP tool surface.
-- **Godot-native operations.** Commands follow Godot objects and vocabulary, such as
-  `gda scene create`, `gda node add`, and `gda game get`.
+- **Godot-native bounded context and ubiquitous language.** `gda` uses a single
+  Godot-aligned operation model and vocabulary, giving agents consistent terms for
+  project content and runtime state.
 - **Operate reliably in restricted environments.** Redirect user data and logs to
   writable locations, isolate concurrent runs, and return typed environment failures
   before Godot crashes. This makes it easier for agents to work in sandboxes.

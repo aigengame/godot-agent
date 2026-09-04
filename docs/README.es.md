@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=1d08c8b23269bae2e1eee649556a99cb93038924307f8ebea09d12d9b0bf8219 -->
+<!-- gda-readme-i18n: source=README.md sha256=f17f5969e6f5aefe3efdc735f891af318614bbf23f749cbc5be426444806d9a6 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -58,8 +58,9 @@ ese ciclo con dos modos complementarios:
 - **Resultados estructurados y esquemas consultables.** Con `--json`, cada comando emite
   exactamente un objeto de resultado en stdout. Los modelos tipados de entrada y salida
   también sustentan `--schema` y la superficie de herramientas MCP generada.
-- **Operaciones nativas de Godot.** Los comandos siguen los objetos y el vocabulario de
-  Godot, como `gda scene create`, `gda node add` y `gda game get`.
+- **Contexto delimitado y lenguaje ubicuo nativos de Godot.** `gda` utiliza un único
+  modelo operativo y vocabulario alineados con Godot, proporcionando a los agentes
+  términos coherentes para el contenido del proyecto y el estado en runtime.
 - **Ejecución fiable en entornos restringidos.** Redirige los datos de usuario y los
   registros a ubicaciones con permisos de escritura, aísla las ejecuciones simultáneas
   y devuelve fallos de entorno tipados antes de que Godot se bloquee. Esto facilita que
