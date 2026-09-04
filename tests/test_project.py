@@ -813,6 +813,67 @@ def test_a_uid_main_scene_needs_the_active_uid_cache(tmp_path):
     assert main_scene_unrunnable(project, None) is None
 
 
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        'config/project_settings_override="res://custom.cfg"',
+        'config/project_settings_override.macos="res://custom.cfg"',
+        'config/project_settings_override=""\n'
+        'config/project_settings_override.windows="res://custom.cfg"',
+    ],
+)
+def test_a_custom_settings_overlay_defers_to_the_engine(tmp_path, declaration):
+    from gda.project import main_scene_unrunnable
+
+    project = _project_with(tmp_path, f"[application]\n{declaration}\n")
+    (project / "custom.cfg").write_text(
+        '[application]\nrun/main_scene="res://main.tscn"\n', encoding="utf-8"
+    )
+    assert main_scene_unrunnable(project, None) is None
+
+
+def test_an_empty_custom_overlay_path_does_not_hide_an_undefined_scene(tmp_path):
+    from gda.project import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
+
+    project = _project_with(
+        tmp_path, '[application]\nconfig/project_settings_override=""\n'
+    )
+    verdict = main_scene_unrunnable(project, None)
+    assert verdict is not None and verdict.code == MAIN_SCENE_UNDEFINED
+
+
+@pytest.mark.parametrize("base, feature", [("false", "true"), ("true", "false")])
+@pytest.mark.parametrize("override_first", [False, True])
+def test_a_feature_data_directory_defers_only_the_uid_verdict(
+    tmp_path, base, feature, override_first
+):
+    from gda.project import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
+
+    declarations = [
+        f"config/use_hidden_project_data_directory={base}",
+        f"config/use_hidden_project_data_directory.macos={feature}",
+    ]
+    if override_first:
+        declarations.reverse()
+    settings = "[application]\n" + "\n".join(declarations) + "\n"
+    project = _project_with(tmp_path, settings + 'run/main_scene="uid://c1abc"\n')
+    # Neither cache exists: deciding which directory matters belongs to the engine.
+    assert main_scene_unrunnable(project, None) is None
+    # That uncertainty does not change the independently known empty-scene verdict.
+    _project_with(tmp_path, settings + 'run/main_scene=""\n')
+    verdict = main_scene_unrunnable(project, None)
+    assert verdict is not None and verdict.code == MAIN_SCENE_UNDEFINED
+
+
+def test_an_escaped_application_key_is_not_an_absent_main_scene(tmp_path):
+    from gda.project import main_scene_unrunnable
+
+    project = _project_with(
+        tmp_path, "[application]\n" + r'"run/\u006dain_scene"="res://main.tscn"' + "\n"
+    )
+    assert main_scene_unrunnable(project, None) is None
+
+
 def test_an_unreadable_project_file_is_no_verdict(tmp_path):
     # Not a decision about the scene: the harness install reports the permission
     # failure as its own, in the order an existing daemon test pins.

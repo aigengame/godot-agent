@@ -659,6 +659,7 @@ MAIN_SCENE_UNRESOLVED = "live_main_scene_unresolved"
 
 _MAIN_SCENE_KEY = "run/main_scene"
 _HIDDEN_DATA_DIR_KEY = "config/use_hidden_project_data_directory"
+_SETTINGS_OVERRIDE_KEY = "config/project_settings_override"
 _UID_CACHE = "uid_cache.bin"
 _OVERRIDE_CFG = "override.cfg"
 
@@ -685,17 +686,19 @@ class _MainSceneSetting:
     """What ``project.godot`` says about the main scene, as far as gda reads it.
 
     ``value`` is the base ``application/run/main_scene``; ``overridden`` records
-    that a feature-tagged override of it (``run/main_scene.<feature>``) or an
-    ``override.cfg`` exists — either can change the effective value in ways only
-    the engine decides (which features this host has, what the overlay sets), so
-    the verdict defers to the engine rather than guess. ``hidden_data_dir`` is
+    that a feature-tagged override of it (``run/main_scene.<feature>``) or a
+    default/custom settings overlay exists. Either can change the effective value
+    in ways only the engine decides (its features and the overlay's contents), so
+    the verdict defers to the engine. ``hidden_data_dir`` is
     ``application/config/use_hidden_project_data_directory`` (``.godot/`` when
-    true, ``godot/`` otherwise), which names the one UID cache the engine reads.
+    true, ``godot/`` when false), which names the one UID cache the engine reads.
+    ``None`` means the directory depends on an override or an unrecognized value;
+    only the UID-cache verdict needs to defer in that case.
     """
 
     value: str
     overridden: bool
-    hidden_data_dir: bool
+    hidden_data_dir: bool | None
 
 
 def _strip_comment(line: str) -> str:
@@ -715,7 +718,7 @@ def _strip_comment(line: str) -> str:
 
 
 def _unquote(token: str) -> str:
-    """A ``ConfigFile`` string literal's text, or the bare token for a non-string."""
+    """Strip surrounding quotes; this is not a ``ConfigFile`` escape decoder."""
     token = token.strip()
     if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
         return token[1:-1].replace('\\"', '"')
@@ -730,14 +733,15 @@ def _section_name(line: str) -> str | None:
 
 
 def _read_main_scene(project: Path) -> _MainSceneSetting | None:
-    """Read the main-scene setting, or ``None`` when the file cannot be read.
+    """Read the main-scene setting, or ``None`` when it cannot be determined.
 
     A minimal read of Godot's ``ConfigFile`` text: ``;`` starts a comment outside
     quotes, sections are ``[name]`` lines, keys are ``key=value`` lines inside them
     (a key may be quoted), and a string value is a double-quoted literal. Only the
-    two settings this verdict needs are read. A file gda cannot read or decode is
-    ``None``: that is not a verdict about the scene, and the step that next touches
-    the file (the harness install) reports the failure as its own.
+    settings this verdict needs and their override declarations are read. Escaped
+    application keys are left to the engine's parser. A file gda cannot read or
+    decode is ``None``: that is not a verdict about the scene, and the next step
+    that touches the file (the harness install) reports the failure as its own.
     """
     try:
         text = (project / PROJECT_MARKER).read_text(encoding="utf-8")
@@ -746,7 +750,7 @@ def _read_main_scene(project: Path) -> _MainSceneSetting | None:
     section = ""
     value = ""
     overridden = (project / _OVERRIDE_CFG).exists()
-    hidden = True
+    hidden: bool | None = True
     for raw in text.splitlines():
         line = _strip_comment(raw).strip()
         opened = _section_name(line)
@@ -756,13 +760,24 @@ def _read_main_scene(project: Path) -> _MainSceneSetting | None:
         if section != "application" or "=" not in line:
             continue
         key, token = line.split("=", 1)
+        if "\\" in key:
+            # A quoted key can encode any setting name (e.g. run/\u006dain_scene).
+            # Do not mistake a declaration we cannot decode for an absent setting.
+            return None
         key = _unquote(key)
         if key == _MAIN_SCENE_KEY:
             value = _unquote(token)
         elif key.startswith(_MAIN_SCENE_KEY + "."):
             overridden = True
         elif key == _HIDDEN_DATA_DIR_KEY:
-            hidden = _unquote(token).lower() != "false"
+            if hidden is not None:
+                hidden = {"true": True, "false": False}.get(token.strip())
+        elif key.startswith(_HIDDEN_DATA_DIR_KEY + "."):
+            hidden = None
+        elif key == _SETTINGS_OVERRIDE_KEY and _unquote(token):
+            overridden = True
+        elif key.startswith(_SETTINGS_OVERRIDE_KEY + "."):
+            overridden = True
     return _MainSceneSetting(value=value, overridden=overridden, hidden_data_dir=hidden)
 
 
@@ -792,10 +807,12 @@ def main_scene_unrunnable(
 
     The verdict refuses only what it is CERTAIN of and must never refuse a project
     the engine would run: a ``--scene`` selector makes the main scene irrelevant; a
-    feature-tagged override of the setting or an ``override.cfg`` can change the
-    effective value in ways only the engine decides (its feature set, the overlay's
-    contents), so their presence defers to the engine — the launch then behaves as
-    before this check existed, bounded by the readiness deadline.
+    feature-tagged override of the setting or a default/custom settings overlay
+    can change the effective value in ways only the engine decides (its features
+    and the overlay's contents), so their presence defers to the engine. The launch
+    behaves as before this check, bounded by the readiness deadline (a native alert
+    can still appear). Escaped application keys also defer to the engine. A
+    feature-tagged data-directory setting defers only the UID-cache verdict.
     """
     if scene:
         return None
@@ -813,8 +830,10 @@ def main_scene_unrunnable(
             "running); Godot would otherwise refuse to run the project and, on "
             "macOS, block on a native alert even under --headless",
         )
-    if setting.value.startswith("uid://") and not _uid_cache_present(
-        project, setting.hidden_data_dir
+    if (
+        setting.value.startswith("uid://")
+        and setting.hidden_data_dir is not None
+        and not _uid_cache_present(project, setting.hidden_data_dir)
     ):
         return MainSceneUnrunnable(
             MAIN_SCENE_UNRESOLVED,

@@ -180,11 +180,17 @@ Every headless reply carries its floats at full binary64 precision, so a value r
 
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 
-Prerequisites: the project defines `application/run/main_scene`, or you pass `--scene`
-(without either, `daemon start` refuses with `live_main_scene_undefined`; a `uid://` main
-scene on a never-imported checkout is `live_main_scene_unresolved` — run `gda resource
-import <any existing res:// asset>` once, or open the project in the editor — rather than
-let the engine block on a native alert). Run `gda daemon start` first (optionally `--scene <res://...>` to boot a
+Prerequisites: the project defines `application/run/main_scene`, or you pass `--scene`.
+For settings it can determine from the project files, `daemon start` refuses an empty main
+scene with `live_main_scene_undefined`, or a `uid://` main scene without its UID cache with
+`live_main_scene_unresolved` — run `gda resource import <any existing res:// asset>` once,
+or open the project in the editor. Main-scene feature overrides, default/custom settings
+overlays (`override.cfg` / `application/config/project_settings_override`, including feature
+overrides of that path), and escaped application keys defer to the engine; feature overrides
+or unrecognized boolean values for `application/config/use_hidden_project_data_directory` defer only
+the UID-cache check. Deferred cases can still show a native alert on macOS even headless
+until the readiness deadline tears down the session. An explicit valid `--scene res://<scene>.tscn`
+avoids main-scene resolution. Run `gda daemon start` first (optionally `--scene <res://...>` to boot a
 specific scene instead of the project's main scene); the engine session launches lazily on
 the first operation that requires one. To establish the session deterministically, run
 `gda daemon wait-ready` (`--timeout` budgets daemon waits and new-work decisions;

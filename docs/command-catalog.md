@@ -1630,13 +1630,20 @@ re-derives every verdict from a running engine.
   retained across a failed replacement launch (nothing replaced the session it names)
   until a new session is established. It is the value a `screen capture` receipt's
   `session_id` correlates with; null before the first established session this daemon
-  lifetime. `daemon start` refuses a project whose `application/run/main_scene` is empty when
-  no `--scene` selector is given — `live_main_scene_undefined` (LIVE, exit 6) — and one
-  whose main scene is a `uid://` on a checkout that was never imported (no UID cache) —
-  `live_main_scene_unresolved`, remedy: run the import pass once. Both are decided from the
-  project files before the daemon or a session is spawned, and again at the daemon's launch
-  boundary: Godot would otherwise print its "no main scene" / "could not be resolved from
-  UID" error and, on macOS, block on a native alert even headless (#829). `daemon start --windowed` additionally
+  lifetime. With no `--scene` selector, `daemon start` checks the project files for an empty
+  `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit 6) — or a `uid://`
+  main scene with no cache under the configured project data directory —
+  `live_main_scene_unresolved`, remedy: run the import pass once. Refusal precedes daemon
+  or session launch (the engine version probe is allowed), and the daemon repeats the
+  check at its launch boundary. This is a conservative precheck: main-scene feature
+  overrides, `override.cfg`, a nonempty custom `application/config/project_settings_override` path
+  (including feature overrides of that path), or escaped application keys defer to the
+  engine; a feature override or an unrecognized boolean value for
+  `application/config/use_hidden_project_data_directory` defers only the UID-cache check.
+  Deferred cases can still reach Godot's "no main scene" / "could not be resolved from
+  UID" native alert on macOS even headless, until the readiness deadline tears down the
+  session (#829). An explicit valid `--scene res://<scene>.tscn` avoids main-scene resolution.
+  `daemon start --windowed` additionally
   requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
   `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two
