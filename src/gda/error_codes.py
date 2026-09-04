@@ -828,7 +828,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A live Engine session had nothing to run: the project's"
         " `application/run/main_scene` is empty and `gda daemon start` was given no"
         " `--scene` selector, so Godot would refuse to start — and on macOS block on"
-        " a native alert even headless; refused before spawning Godot.",
+        " a native alert even headless; refused before the daemon or an Engine session is launched.",
     ),
     # The sibling verdict (#829): the main scene IS declared, as the `uid://` the
     # editor writes since Godot 4.4, but the checkout was never imported so the
@@ -845,7 +845,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " the project has no UID cache (never imported on this checkout) and `gda"
         " daemon start` was given no `--scene` selector, so Godot would refuse to"
         " start — and on macOS block on a native alert even headless; refused before"
-        " spawning Godot.",
+        " the daemon or an Engine session is launched.",
     ),
     # Per live-operation failures the gda harness reports for `perf` (#223). Same
     # shape as the #220 game op-errors above: LIVE-category, classifier-source,

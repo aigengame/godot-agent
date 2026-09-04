@@ -727,31 +727,63 @@ def test_main_scene_undefined_is_the_empty_or_absent_setting(tmp_path):
         tmp_path, 'config_version=5\n\n[application]\n\nrun/main_scene=""\n'
     )
     assert main_scene_unrunnable(empty, None) is not None
+    # An empty value with a trailing comment is still empty (`;` starts a comment).
+    commented_empty = _project_with(
+        tmp_path,
+        'config_version=5\n\n[application]\n\nrun/main_scene="" ; disabled for now\n',
+    )
+    assert main_scene_unrunnable(commented_empty, None) is not None
     # No [application] section at all reads the same way.
     bare = _project_with(tmp_path, "config_version=5\n")
     assert main_scene_unrunnable(bare, None) is not None
 
 
-def test_a_declared_res_main_scene_or_a_selector_is_runnable(tmp_path):
+def test_a_declared_main_scene_or_a_selector_is_runnable(tmp_path):
     from gda.project import main_scene_unrunnable
 
-    declared = _project_with(
-        tmp_path,
+    for text in (
         'config_version=5\n\n[application]\n\nconfig/name="t"\n'
         'run/main_scene="res://main.tscn"\n\n[debug]\n\nfile_logging/enable_file_logging=false\n',
-    )
-    assert main_scene_unrunnable(declared, None) is None
+        # A quoted key is engine-valid; a trailing comment after the value too.
+        'config_version=5\n\n[application]\n\n"run/main_scene"="res://main.tscn"\n',
+        'config_version=5\n\n[application]\n\nrun/main_scene="res://a;b.tscn" ; the game\n',
+        # A section header with a trailing comment; a CRLF file.
+        'config_version=5\n\n[application] ; the game\n\nrun/main_scene="res://main.tscn"\n',
+        'config_version=5\r\n\r\n[application]\r\n\r\nrun/main_scene="res://a.tscn"\r\n',
+    ):
+        assert main_scene_unrunnable(_project_with(tmp_path, text), None) is None, text
     # The selector wins over an undefined main scene; an EMPTY selector is no selector.
     undefined = _project_with(tmp_path, "config_version=5\n")
     assert main_scene_unrunnable(undefined, "res://other.tscn") is None
     assert main_scene_unrunnable(undefined, "") is not None
 
 
-def test_a_uid_main_scene_needs_the_uid_cache(tmp_path):
+def test_an_override_defers_to_the_engine(tmp_path):
+    # Which feature-tagged override applies is the engine's call (its feature set),
+    # and an override.cfg can set or clear the value: with either present the
+    # verdict refuses nothing, whatever the base key says (#831 review).
+    from gda.project import main_scene_unrunnable
+
+    for text in (
+        'config_version=5\n\n[application]\n\nrun/main_scene.macos="res://main.tscn"\n',
+        'config_version=5\n\n[application]\n\nrun/main_scene=""\nrun/main_scene.macos="res://m.tscn"\n',
+        'config_version=5\n\n[application]\n\nrun/main_scene="res://m.tscn"\nrun/main_scene.macos=""\n',
+        'config_version=5\n\n[application]\n\nrun/main_scene="uid://c1abc"\nrun/main_scene.windows="res://m.tscn"\n',
+    ):
+        assert main_scene_unrunnable(_project_with(tmp_path, text), None) is None, text
+    overlay = _project_with(tmp_path, "config_version=5\n")
+    (overlay / "override.cfg").write_text(
+        '[application]\n\nrun/main_scene="res://main.tscn"\n', encoding="utf-8"
+    )
+    assert main_scene_unrunnable(overlay, None) is None
+
+
+def test_a_uid_main_scene_needs_the_active_uid_cache(tmp_path):
     # The sibling engine alert (#829 review): Godot 4.4+ writes the setting as a
-    # uid:// and resolves it through .godot/uid_cache.bin, which a fresh clone does
-    # not have — the engine then alerts "could not be resolved from UID". Mirrors
-    # the engine's own condition: refused only while no cache file exists.
+    # uid:// and resolves it through the UID cache under the project data
+    # directory, which a fresh clone does not have — the engine then alerts "could
+    # not be resolved from UID". Mirrors the engine's own condition: refused only
+    # while the ONE cache the engine reads is absent.
     from gda.project import MAIN_SCENE_UNRESOLVED, main_scene_unrunnable
 
     project = _project_with(
@@ -760,46 +792,25 @@ def test_a_uid_main_scene_needs_the_uid_cache(tmp_path):
     verdict = main_scene_unrunnable(project, None)
     assert verdict is not None and verdict.code == MAIN_SCENE_UNRESOLVED
     assert "uid_cache.bin" in verdict.reason and "gda resource import" in verdict.reason
-
+    # A stray cache under the INACTIVE (non-hidden) directory does not count.
+    (project / "godot").mkdir()
+    (project / "godot" / "uid_cache.bin").write_bytes(b"")
+    assert main_scene_unrunnable(project, None) is not None
     (project / ".godot").mkdir()
     (project / ".godot" / "uid_cache.bin").write_bytes(b"")
     assert main_scene_unrunnable(project, None) is None
-    # The non-hidden project data directory (`godot/`) resolves the same way.
+
+    # With the non-hidden data directory selected, `godot/` is the one that counts.
     (project / ".godot" / "uid_cache.bin").unlink()
-    (project / "godot").mkdir()
+    (project / "godot" / "uid_cache.bin").unlink()
+    _project_with(
+        tmp_path,
+        "config_version=5\n\n[application]\n\nconfig/use_hidden_project_data_directory=false\n"
+        'run/main_scene="uid://c1abc"\n',
+    )
+    assert main_scene_unrunnable(project, None) is not None
     (project / "godot" / "uid_cache.bin").write_bytes(b"")
     assert main_scene_unrunnable(project, None) is None
-
-
-def test_the_reader_does_not_refuse_what_the_engine_would_run(tmp_path):
-    # Two hand-written shapes the engine accepts (#831 review): a section header
-    # with a trailing comment, and only a feature-tagged override of the key.
-    from gda.project import main_scene_unrunnable
-
-    commented = _project_with(
-        tmp_path,
-        'config_version=5\n\n[application] ; the game\n\nrun/main_scene="res://main.tscn"\n',
-    )
-    assert main_scene_unrunnable(commented, None) is None
-    override_only = _project_with(
-        tmp_path,
-        'config_version=5\n\n[application]\n\nrun/main_scene.macos="res://main.tscn"\n',
-    )
-    assert main_scene_unrunnable(override_only, None) is None
-    # An EMPTY base key beside a declared override is still declared (the engine
-    # applies a matching override over the base); a CRLF file reads the same.
-    empty_base = _project_with(
-        tmp_path,
-        'config_version=5\n\n[application]\n\nrun/main_scene=""\n'
-        'run/main_scene.macos="res://main.tscn"\n',
-    )
-    assert main_scene_unrunnable(empty_base, None) is None
-    crlf = _project_with(
-        tmp_path,
-        'config_version=5\r\n\r\n[application]\r\n\r\nrun/main_scene="res://a.tscn"\r\n'
-        'run/main_scene.macos=""\r\n',
-    )
-    assert main_scene_unrunnable(crlf, None) is None
 
 
 def test_an_unreadable_project_file_is_no_verdict(tmp_path):
