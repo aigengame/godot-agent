@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f17f5969e6f5aefe3efdc735f891af318614bbf23f749cbc5be426444806d9a6 -->
+<!-- gda-readme-i18n: source=README.md sha256=552cdc8d4990f3f379aab0c0ddab12d3aa58cd3d950df8a49c8aa4ac2bc49e9e -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -22,8 +22,7 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-ファイルを編集しただけでは、ゲームの変更を検証したことにはなりません。`gda` は、
-次の 2 つの相補的なモードで変更から検証までのループを閉じます。
+`gda` は、この構築・検証ワークフローに 2 つの相補的なモードを提供します。
 
 - **Headless** — エディタプラグインやデーモンを使わずに、プロジェクト内容の作成・編集、
   スクリプトのコンパイル、シーンの検証と起動、プロジェクト構造の分析、ビルドのエクスポートを行います。

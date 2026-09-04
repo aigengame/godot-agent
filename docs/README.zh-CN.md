@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f17f5969e6f5aefe3efdc735f891af318614bbf23f749cbc5be426444806d9a6 -->
+<!-- gda-readme-i18n: source=README.md sha256=552cdc8d4990f3f379aab0c0ddab12d3aa58cd3d950df8a49c8aa4ac2bc49e9e -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -22,7 +22,7 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-文件修改完成，不代表游戏改动已经通过验证。`gda` 用两种互补模式补上验证环节：
+`gda` 为这一构建与验证工作流提供两种互补模式：
 
 - **Headless** — 无需编辑器插件或 daemon，即可创建和编辑项目内容、编译脚本、
   校验并启动场景、分析项目结构以及导出构建产物。

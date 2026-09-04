@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f17f5969e6f5aefe3efdc735f891af318614bbf23f749cbc5be426444806d9a6 -->
+<!-- gda-readme-i18n: source=README.md sha256=552cdc8d4990f3f379aab0c0ddab12d3aa58cd3d950df8a49c8aa4ac2bc49e9e -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -22,8 +22,7 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-Editar un archivo no significa que el cambio en el juego esté verificado. `gda` cierra
-ese ciclo con dos modos complementarios:
+`gda` ofrece dos modos complementarios para este flujo de creación y verificación:
 
 - **Headless** — crea y edita contenido del proyecto, compila scripts, valida e inicia
   escenas, analiza la estructura del proyecto y exporta builds sin plugin de editor ni daemon.

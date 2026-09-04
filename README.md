@@ -20,8 +20,7 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A file edit is not a verified game change. `gda` closes that loop in two
-complementary modes:
+`gda` provides two complementary modes for this build-and-verify workflow:
 
 - **Headless** — create and edit project content, compile scripts, validate and boot
   scenes, analyze project structure, and export builds without an editor plugin or daemon.
