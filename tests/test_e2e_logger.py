@@ -30,12 +30,9 @@ import time
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
+from tests.support import GODOT, Gda
 
-from .conftest import project_godot
-
-GODOT = resolve_godot_binary()
+from .conftest import LIVE_PROJECT_GODOT, SCRIPTED_MAIN_TSCN
 
 # A main scene whose root script emits a KNOWN print line, a KNOWN warning, and a
 # KNOWN error at `_ready`, so the daemon's Session log captures all three for
@@ -58,14 +55,6 @@ func _ready() -> void:
 	push_error("known error")
 """
 
-MAIN_TSCN = (
-    "[gd_scene load_steps=2 format=3]\n\n"
-    '[ext_resource type="Script" path="res://main.gd" id="1"]\n\n'
-    '[node name="Main" type="Node2D"]\n'
-    'script = ExtResource("1")\n'
-)
-PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
-
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
@@ -73,28 +62,11 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 def test_logger_tail_reads_back_structured_records_and_raw_lines(
     tmp_path, daemon_runtime_dir
 ):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPTED_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "main.gd").write_text(MAIN_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     def poll_records(extra_args, needle, timeout=15.0):
         # The session is already launched + warmed by `game tree`; this short poll
@@ -218,8 +190,8 @@ def test_gda_log_is_inert_outside_a_daemon_launched_session(tmp_path):
     # calls GdaHarness.gda_log(...), and assert the sentinel is absent.
     from gda.harness.install import install_harness
 
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPTED_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "main.gd").write_text(PLAIN_MAIN_GD, encoding="utf-8")
     install_harness(
         tmp_path

@@ -12,29 +12,12 @@ The scene is built end-to-end with the real CLI: ``scene create`` →
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from tests.support import Gda
 
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
-
-
-def _gda(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [*GDA_CMD, *args, "--godot", str(GODOT)], capture_output=True, text=True
-    )
-
-
-def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
-    assert proc.returncode == 4, proc.stdout + proc.stderr
-    err = json.loads(proc.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == code
-    return err
+gda = Gda()
 
 
 # A script declaring a representative @export surface: a typed scalar with a
@@ -55,15 +38,13 @@ var not_exported: int = 7
 def _build_scene_with_exports(project) -> "tuple":
     """scene create → script create (exports) → script attach to the root."""
     scene_path = project / "main.tscn"
-    created = _gda(
-        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
-    )
+    created = gda("scene", "create", str(scene_path), "--root-type", "Node2D", "--json")
     assert created.returncode == 0, created.stdout + created.stderr
 
     script_path = project / "actor.gd"
     script_path.write_text(EXPORTING_SCRIPT, encoding="utf-8")
 
-    attached = _gda(
+    attached = gda(
         "script",
         "attach",
         str(scene_path),
@@ -87,7 +68,7 @@ def test_scene_get_exports_reports_declared_exports_per_node(godot_project):
     # typed JSON. A plain (non-@export) var is NOT reported.
     scene_path, _ = _build_scene_with_exports(godot_project)
 
-    got = _gda(
+    got = gda(
         "scene",
         "get-exports",
         str(scene_path),
@@ -131,12 +112,10 @@ def test_scene_get_exports_omits_nodes_without_declared_exports(godot_project):
     # not appear: get-exports lists only nodes that actually declare exports. A
     # bare scene (no scripts anywhere) is a valid, empty listing.
     scene_path = godot_project / "bare.tscn"
-    created = _gda(
-        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
-    )
+    created = gda("scene", "create", str(scene_path), "--root-type", "Node2D", "--json")
     assert created.returncode == 0, created.stdout + created.stderr
 
-    got = _gda(
+    got = gda(
         "scene",
         "get-exports",
         str(scene_path),
@@ -157,14 +136,12 @@ def test_scene_get_exports_reports_nested_node_by_path(godot_project):
     # afterwards. The root here carries no script, so only the child is listed —
     # which also pins that a scriptless node is omitted.
     scene_path = godot_project / "main.tscn"
-    created = _gda(
-        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
-    )
+    created = gda("scene", "create", str(scene_path), "--root-type", "Node2D", "--json")
     assert created.returncode == 0, created.stdout + created.stderr
     script_path = godot_project / "actor.gd"
     script_path.write_text(EXPORTING_SCRIPT, encoding="utf-8")
 
-    added = _gda(
+    added = gda(
         "node",
         "add",
         str(scene_path),
@@ -175,7 +152,7 @@ def test_scene_get_exports_reports_nested_node_by_path(godot_project):
         "--json",
     )
     assert added.returncode == 0, added.stdout + added.stderr
-    attached = _gda(
+    attached = gda(
         "script",
         "attach",
         str(scene_path),
@@ -189,7 +166,7 @@ def test_scene_get_exports_reports_nested_node_by_path(godot_project):
     )
     assert attached.returncode == 0, attached.stdout + attached.stderr
 
-    got = _gda(
+    got = gda(
         "scene",
         "get-exports",
         str(scene_path),
@@ -209,16 +186,15 @@ def test_scene_get_exports_reports_nested_node_by_path(godot_project):
 
 @pytest.mark.e2e
 def test_scene_get_exports_missing_file_yields_path_not_found(godot_project):
-    got = _gda(
+    err = gda.error(
         "scene",
         "get-exports",
         str(godot_project / "nope.tscn"),
         "--project",
         str(godot_project),
         "--json",
+        code="path_not_found",
     )
-
-    err = _assert_operation_error(got, "path_not_found")
     assert "nope.tscn" in err["message"]
 
 
@@ -229,13 +205,12 @@ def test_scene_get_exports_non_scene_file_yields_not_a_scene(godot_project):
     notes = godot_project / "notes.txt"
     notes.write_text("not a scene\n", encoding="utf-8")
 
-    got = _gda(
+    gda.error(
         "scene",
         "get-exports",
         str(notes),
         "--project",
         str(godot_project),
         "--json",
+        code="not_a_scene",
     )
-
-    _assert_operation_error(got, "not_a_scene")

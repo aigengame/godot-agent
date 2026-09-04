@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
-from tests.support import sentinel
+from tests.support import assert_operation_error, minimal_project, sentinel
 
 READY = sentinel({"path": "res://main.tscn", "status": "ready"})
 
@@ -44,13 +44,8 @@ def _patch_launch(monkeypatch, result: RunResult) -> list:
     return calls
 
 
-def _project(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
-
-
 def test_a_clean_start_is_ready_and_started(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -83,7 +78,7 @@ def test_a_script_error_during_startup_is_reported_though_the_scene_reached_read
     # THE DISTINCTION the issue asks for: "compiles and loads" is not "reaches _ready
     # without script errors". The engine says ready; the stderr says otherwise, so
     # `started` is false while `status` still reports how far the boot got.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch, RunResult(stdout=READY, stderr=READY_STDERR, exit_code=0)
     )
@@ -116,7 +111,7 @@ def test_a_run_gda_ends_at_the_bound_is_a_timeout_verdict_not_an_envelope(
     # anything, so the bound is gda's. The answer is still the verdict the caller
     # asked for — "it did not start" — carrying what the engine had already printed,
     # which the streaming capture is what preserves.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -153,7 +148,7 @@ def test_a_run_gda_ends_at_the_bound_is_a_timeout_verdict_not_an_envelope(
 def test_a_missing_binary_is_still_an_error_envelope(monkeypatch, tmp_path):
     # Only the SCENE's fate is a verdict. An environment failure is not about the
     # scene at all, so it stays the shared envelope every channel reports.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -176,7 +171,7 @@ def test_a_missing_binary_is_still_an_error_envelope(monkeypatch, tmp_path):
 def test_an_operation_refusal_survives_the_recipe(monkeypatch, tmp_path):
     # The op's own structured refusals still classify normally: a scene that cannot
     # be instantiated at all is a dependency failure, not a startup verdict.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     payload = sentinel(
         {
             "error": {
@@ -192,12 +187,11 @@ def test_an_operation_refusal_survives_the_recipe(monkeypatch, tmp_path):
         ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
     )
 
-    assert result.exit_code == 4, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "missing_dependency"
+    assert_operation_error(result, "missing_dependency")
 
 
 def test_frames_and_timeout_reach_the_launch_through_params_json(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -221,7 +215,7 @@ def test_frames_and_timeout_reach_the_launch_through_params_json(monkeypatch, tm
 
 @pytest.mark.parametrize("frames", ["0", "-1"])
 def test_a_non_positive_frame_budget_is_a_usage_error(monkeypatch, tmp_path, frames):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -242,7 +236,7 @@ def test_a_non_positive_frame_budget_is_a_usage_error(monkeypatch, tmp_path, fra
 
 
 def test_a_non_positive_timeout_is_a_usage_error(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -263,7 +257,7 @@ def test_a_non_positive_timeout_is_a_usage_error(monkeypatch, tmp_path):
 
 
 def test_human_output_leads_with_the_verdict(monkeypatch, tmp_path):
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch, RunResult(stdout=READY, stderr=READY_STDERR, exit_code=0)
     )
@@ -287,7 +281,7 @@ def test_an_engine_reported_not_ready_projects_as_a_failed_start(monkeypatch, tm
     # The verdict gda cannot produce on a healthy engine but must still project
     # faithfully: readiness is settled before the first observed frame, so a
     # not_ready payload means the propagation never reached the scene at all.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -312,7 +306,7 @@ def test_an_unknown_status_is_a_contract_violation_not_a_verdict(monkeypatch, tm
     # The closed enum is the contract: a payload gda does not understand is a parse
     # failure, never a guess. This is what keeps the GDScript/Python mirror honest at
     # runtime as well as in the pinning test.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -336,7 +330,7 @@ def test_a_timeout_outranks_a_sentinel_that_arrived_before_it(monkeypatch, tmp_p
     # over whatever the partial capture happens to contain. A sentinel in a timed-out
     # capture is not the engine's final answer — the run never finished — and reading
     # it would report a scene as started that gda had just killed.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -368,7 +362,7 @@ def test_this_channel_declares_no_watch_which_is_what_keeps_aborted_unreachable(
     # watch, and ABORTED is unreachable here. The invariant is an argument the launch
     # does NOT get: adding a policy watch later fails this test rather than silently
     # degrading an abort into a contract_violation.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -395,7 +389,7 @@ def test_params_json_refuses_the_same_bounds_argv_does(monkeypatch, tmp_path, pa
     # argv as a usage error, --params-json as the structured invalid_params. An
     # infinite ceiling is refused because it would never be reached, leaving the run
     # gda promised to bound unbounded.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
 
     result = CliRunner().invoke(
@@ -411,8 +405,7 @@ def test_params_json_refuses_the_same_bounds_argv_does(monkeypatch, tmp_path, pa
         ],
     )
 
-    assert result.exit_code == 4, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert_operation_error(result, "invalid_params")
     assert calls == []
 
 
@@ -424,7 +417,7 @@ def test_a_project_that_quits_the_engine_is_not_blamed_on_gdas_contract(
     # then exits cleanly with no sentinel, which the shared classifier reads as gda's
     # own output contract being violated. That sends the reader to debug gda for
     # something the project did, so this channel names the real cause instead.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(stdout="Godot Engine v4.6.3\n", stderr="quitting\n", exit_code=0),
@@ -449,7 +442,7 @@ def test_a_quit_after_the_readiness_evidence_keeps_the_ready_verdict(
     # already printed readiness as its own evidence line. That run has a startup
     # verdict — the scene plainly came up — so it is reported as ready, not as an
     # operation failure.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -477,7 +470,7 @@ def test_a_quit_after_readiness_still_combines_the_captured_diagnostics(
     # `started` keeps both halves of the contract on the synthesized verdict too:
     # readiness is proven by the evidence line, and a recognized error captured
     # before the quit still gates a clean start.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -510,7 +503,7 @@ def test_a_payload_that_died_without_reporting_is_still_the_generic_failure(
     # payload quits with a code that DEFAULTS to failure, so every way it can end
     # without emitting exits non-zero — and stays the generic operation_failed rather
     # than being mislabelled as the project's own quit.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(stdout="", stderr="SCRIPT ERROR: in the payload\n", exit_code=1),
@@ -533,7 +526,7 @@ def test_a_begun_but_unterminated_sentinel_stays_a_parse_failure(monkeypatch, tm
     # marker here: a payload that STARTED a result and did not finish one has not
     # been quit out from under — it emitted something gda cannot read. Reported as
     # the parse failure it is, not as the project's own quit.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -560,7 +553,7 @@ def test_a_timeout_verdict_carries_the_elapsed_clock_and_the_ceiling_it_reached(
     # fraction over a tight ceiling from one that was stuck for an hour (GDA-DF-032,
     # reintroduced for this one channel). The evidence is now on the verdict, in the
     # same two words the other timeout surfaces use.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -605,7 +598,7 @@ def test_the_ceiling_is_read_off_the_launch_rather_than_re_derived_from_the_para
     # same fact from the params it happened to pass in. Production keeps the two
     # equal; the divergence here is test-only, and it is what makes the source of
     # the number observable at all.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -643,7 +636,7 @@ def test_an_unmeasured_timeout_reports_the_ceiling_instead_of_claiming_zero(
     # Reporting 0.0 would read as "ended instantly" — the opposite of what happened —
     # so each number degrades to the truthful value the caller's own ceiling
     # guarantees: gda ended this run AT that ceiling, so it ran at least that long.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -695,7 +688,7 @@ def test_a_non_timeout_verdict_omits_the_evidence_keys_entirely(
     # exactly the bytes it always did. The keys are OMITTED rather than serialized as
     # null — gda's omitted-never-null convention (cf. gda.provenance) — because a
     # null would claim a measurement that does not apply to a run nobody bounded.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(monkeypatch, raw)
 
     result = CliRunner().invoke(
@@ -714,7 +707,7 @@ def test_the_human_timeout_verdict_states_both_numbers_too(monkeypatch, tmp_path
     # The rendered output carries the same evidence as the JSON: an agent reading the
     # human channel must not have to re-run with --json to learn whether the scene
     # was slow or stuck.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch,
         RunResult(
@@ -750,7 +743,7 @@ def test_the_human_render_of_a_non_timeout_verdict_gains_no_evidence_line(
 ):
     # The same invariance on the human channel: a verdict with nothing to report
     # reports nothing, rather than a line of blanks or zeros.
-    project = _project(tmp_path)
+    project = minimal_project(tmp_path)
     _patch_launch(
         monkeypatch, RunResult(stdout=READY, stderr=READY_STDERR, exit_code=0)
     )

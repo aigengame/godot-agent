@@ -8,15 +8,12 @@ toward this gate.
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from tests.support import Gda
 
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
+gda = Gda()
 
 
 @pytest.mark.e2e
@@ -24,20 +21,7 @@ def test_scene_create_via_params_json_creates_the_scene(godot_project):
     scene_path = godot_project / "main.tscn"
     params = json.dumps({"path": str(scene_path), "root_type": "Node2D"})
 
-    created = subprocess.run(
-        [
-            *GDA_CMD,
-            "scene",
-            "create",
-            "--params-json",
-            params,
-            "--json",
-            "--godot",
-            str(GODOT),
-        ],
-        capture_output=True,
-        text=True,
-    )
+    created = gda("scene", "create", "--params-json", params, "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
@@ -48,11 +32,7 @@ def test_scene_create_via_params_json_creates_the_scene(godot_project):
     assert scene_path.exists()
 
     # And reads back through the engine — the file is loadable, not just present.
-    got = subprocess.run(
-        [*GDA_CMD, "scene", "get", str(scene_path), "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-    )
+    got = gda("scene", "get", str(scene_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["root"]["type"] == "Node2D"
 
@@ -63,21 +43,7 @@ def test_scene_create_via_params_json_stdin_creates_the_scene(godot_project):
     scene_path = godot_project / "fromstdin.tscn"
     params = json.dumps({"path": str(scene_path), "root_type": "Node2D"})
 
-    created = subprocess.run(
-        [
-            *GDA_CMD,
-            "scene",
-            "create",
-            "--params-json",
-            "-",
-            "--json",
-            "--godot",
-            str(GODOT),
-        ],
-        input=params,
-        capture_output=True,
-        text=True,
-    )
+    created = gda("scene", "create", "--params-json", "-", "--json", stdin=params)
 
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["root_name"] == "fromstdin"

@@ -25,13 +25,9 @@ from gda.commands.daemon import (
 )
 from gda.errors import Failure
 from gda.parser import build_result, parse_result
+from tests.support import FakeProc, minimal_project
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
-
-
-class _FakeProc:
-    def poll(self):
-        return None
 
 
 def _unavailable(
@@ -47,7 +43,7 @@ def _unavailable(
 
 
 def test_live_op_without_a_launchable_session_is_engine_session_not_running(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     # No Godot binary -> ensure_session cannot launch -> engine_session_not_running.
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
@@ -82,8 +78,7 @@ def test_malformed_control_request_is_dropped_not_raised(tmp_path):
 
 
 def _project_with_marker(tmp_path):
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return daemon_paths(tmp_path)
+    return daemon_paths(minimal_project(tmp_path))
 
 
 def test_scene_mismatch_at_launch_is_a_typed_live_scene_not_found(
@@ -120,7 +115,7 @@ def test_a_verified_session_is_reused_without_re_checking_the_scene(
     # multiple live ops (no per-request disk/scene re-validation), so deleting the
     # scene file after launch cannot break a live op.
     calls = {"n": 0}
-    served = EngineSession(cast(subprocess.Popen, _FakeProc()), conn=None)
+    served = EngineSession(cast(subprocess.Popen, FakeProc()), conn=None)
     monkeypatch.setattr(
         served,
         "request",
@@ -230,7 +225,7 @@ def test_windowed_no_display_is_live_windowed_unavailable_without_launching(
     # windowed daemon on a host with no usable DisplayServer refuses a live op with the
     # typed live_windowed_unavailable AND never calls launch_session — so a doomed
     # windowed Godot is never spawned, even if `daemon start --windowed` slipped through.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
 
     def _must_not_launch(*a, **k):
         raise AssertionError("launch_session must not be called with no usable display")
@@ -264,7 +259,7 @@ def test_windowed_denied_relays_the_permission_code_not_the_capability_one(
     # so it also carries the machine-readable `probe` — deliberately widening the live
     # wire envelope with that ONE optional key (#667 review), rather than reporting
     # less here than the optional CLI fail-fast reports.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
 
     def _must_not_launch(*a, **k):
         raise AssertionError("launch_session must not be called with no usable display")
@@ -299,7 +294,7 @@ def test_a_relayed_refusal_without_a_probe_keeps_the_narrow_wire_shape(
     # The widening is OPTIONAL: every live reply that has no probe — which is all of
     # them except the windowed refusals — is byte-identical to before, so the key can
     # never appear as a null for the harness-emitted and daemon-synthesized codes.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
     server = DaemonServer(daemon_paths(tmp_path), godot="godot")
     server._harness_listener = cast(socket.socket, object())
@@ -316,7 +311,7 @@ def test_windowed_with_a_usable_display_reaches_launch(tmp_path, monkeypatch):
     # The guard is display-gated: a usable display (the check returns None) does NOT
     # short-circuit — the launch proceeds (here to the generic engine_session_not_running
     # via a patched None launch), proving the guard fires ONLY on no-display.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     calls = {"n": 0}
 
     def _launch(*a, **k):
@@ -345,7 +340,7 @@ def test_headless_windowed_false_never_consults_the_display_check(
 ):
     # A default (headless) daemon must never consult the display check — a headless
     # session needs no window server; only a windowed session is gated.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
 
     def _boom() -> WindowedUnavailable | None:
         raise AssertionError("a headless daemon must not run the display check")
@@ -366,7 +361,7 @@ def test_headless_windowed_false_never_consults_the_display_check(
 def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
     # The selector-less default is unchanged: straight to the launch path (which here
     # is engine_session_not_running with no real binary), no scene verification.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    minimal_project(tmp_path)
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
     reply = server._handle({"op": "game-tree", "params": {}})
@@ -410,7 +405,7 @@ def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
     # hang the daemon forever (ADR-0021).
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     daemon_end, silent_harness = socket.socketpair()
-    session = EngineSession(cast(subprocess.Popen, _FakeProc()), daemon_end)
+    session = EngineSession(cast(subprocess.Popen, FakeProc()), daemon_end)
     try:
         reply = session.request("game-tree", {})
         assert parse_result(reply["stdout"])["error"]["code"] == "live_timeout"
@@ -444,7 +439,7 @@ def test_the_live_timeout_message_hedges_its_causes_and_rules_out_a_pause(monkey
     # unactionable class would repeat #684's mistake in a third direction.
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     daemon_end, silent_harness = socket.socketpair()
-    session = EngineSession(cast(subprocess.Popen, _FakeProc()), daemon_end)
+    session = EngineSession(cast(subprocess.Popen, FakeProc()), daemon_end)
     try:
         reply = session.request("game-tree", {})
     finally:
@@ -475,7 +470,7 @@ def test_a_trickled_reply_cannot_outlast_the_relays_own_bound(monkeypatch):
     # bound rather than a defence.
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.3)
     daemon_end, harness = socket.socketpair()
-    session = EngineSession(cast(subprocess.Popen, _FakeProc()), daemon_end)
+    session = EngineSession(cast(subprocess.Popen, FakeProc()), daemon_end)
 
     def _trickle() -> None:
         # A WELL-FORMED reply, so a relay that waits it out succeeds — the point
@@ -515,7 +510,7 @@ def test_a_timed_out_relay_leaves_the_session_dead_to_the_daemon(monkeypatch):
     # the next session-needing op rebuilds it through the launch boundary.
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     daemon_end, harness = socket.socketpair()
-    proc = _FakeProc()
+    proc = FakeProc()
     session = EngineSession(cast(subprocess.Popen, proc), daemon_end)
     try:
         first = session.request("game-tree", {})

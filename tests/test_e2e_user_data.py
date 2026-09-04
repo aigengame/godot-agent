@@ -44,11 +44,8 @@ from pathlib import Path
 
 import pytest
 
-from gda.binary import resolve_godot_binary
 from gda.runner import data_path_env, engine_data_path
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
+from tests.support import GDA_CMD, GODOT, Gda
 
 # A project whose file logging is at the ENGINE DEFAULT (on for desktop), i.e. what
 # a real user project looks like — see the module docstring.
@@ -161,10 +158,6 @@ def _env(home: Path, **extra: str) -> dict:
     return {**os.environ, "HOME": str(home), "GDA_GODOT": str(GODOT), **extra}
 
 
-def _run_gda(*args: str, env: dict) -> subprocess.CompletedProcess:
-    return subprocess.run([*GDA_CMD, *args], capture_output=True, text=True, env=env)
-
-
 @pytest.mark.e2e
 def test_control_unprotected_launch_really_does_die_on_the_restriction(
     restricted_home, logging_project
@@ -185,6 +178,7 @@ def test_control_unprotected_launch_really_does_die_on_the_restriction(
         capture_output=True,
         text=True,
         env=_env(home),
+        timeout=120,
     )
 
     assert MARKER not in proc.stdout, (
@@ -204,14 +198,13 @@ def test_script_validate_completes_under_a_read_only_app_data_dir(
     # restriction really do kill an unprotected launch.
     home, _ = restricted_home
 
-    run = _run_gda(
+    run = Gda(godot=None, env=_env(home))(
         "script",
         "validate",
         str(logging_project / "hello.gd"),
         "--project",
         str(logging_project),
         "--json",
-        env=_env(home),
     )
 
     assert run.returncode == 0, run.stdout + run.stderr
@@ -227,14 +220,13 @@ def test_script_run_completes_under_a_read_only_app_data_dir(
 ):
     home, _ = restricted_home
 
-    run = _run_gda(
+    run = Gda(godot=None, env=_env(home))(
         "script",
         "run",
         "res://hello.gd",
         "--project",
         str(logging_project),
         "--json",
-        env=_env(home),
     )
 
     assert run.returncode == 0, run.stdout + run.stderr
@@ -254,10 +246,9 @@ def test_unwritable_log_target_is_a_typed_environment_error(
     # typed environment code before the engine starts — never a signal-11 backtrace.
     home, data_path = restricted_home
 
-    run = _run_gda(
+    run = Gda(godot=None, env=_env(home, GDA_USER_DATA_ROOT=str(data_path / "denied")))(
         "info",
         "--json",
-        env=_env(home, GDA_USER_DATA_ROOT=str(data_path / "denied")),
     )
 
     assert run.returncode == 127, run.stdout + run.stderr
@@ -301,7 +292,7 @@ def test_a_root_whose_derived_data_path_is_blocked_is_refused(
     blocker.parent.mkdir(parents=True, exist_ok=True)
     blocker.write_text("not a directory", encoding="utf-8")
 
-    run = _run_gda(
+    run = Gda(godot=None, env={**os.environ, "GDA_GODOT": str(GODOT)})(
         "--user-data-root",
         str(root),
         "script",
@@ -310,7 +301,6 @@ def test_a_root_whose_derived_data_path_is_blocked_is_refused(
         "--project",
         str(logging_project),
         "--json",
-        env={**os.environ, "GDA_GODOT": str(GODOT)},
     )
 
     assert run.returncode == 127, run.stdout + run.stderr
@@ -336,7 +326,7 @@ def test_user_data_root_makes_user_writable_again(restricted_home, logging_proje
     home, _ = restricted_home
     root = logging_project.parent / "udr"
 
-    run = _run_gda(
+    run = Gda(godot=None, env=_env(home))(
         "--user-data-root",
         str(root),
         "script",
@@ -345,7 +335,6 @@ def test_user_data_root_makes_user_writable_again(restricted_home, logging_proje
         "--project",
         str(logging_project),
         "--json",
-        env=_env(home),
     )
 
     assert run.returncode == 0, run.stdout + run.stderr
@@ -394,7 +383,7 @@ def test_concurrent_invocations_never_touch_the_shared_rotated_log(
     ]
     # communicate() before returncode: draining the pipes is what lets each child
     # exit, so waiting first can deadlock on a full pipe buffer.
-    results = [(*p.communicate(), p.returncode) for p in procs]
+    results = [(*p.communicate(timeout=120), p.returncode) for p in procs]
 
     for out, err, code in results:
         assert code == 0, out + err
@@ -429,22 +418,15 @@ def test_relative_root_on_the_sentinel_channel_lands_under_gda_cwd(
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
-    run = subprocess.run(
-        [
-            *GDA_CMD,
-            "--user-data-root",
-            "./rel",
-            "script",
-            "validate",
-            str(logging_project / "hello.gd"),
-            "--project",
-            str(logging_project),
-            "--json",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=str(workdir),
-        env={**os.environ, "GDA_GODOT": str(GODOT)},
+    run = Gda(godot=None, env={**os.environ, "GDA_GODOT": str(GODOT)}, cwd=workdir)(
+        "--user-data-root",
+        "./rel",
+        "script",
+        "validate",
+        str(logging_project / "hello.gd"),
+        "--project",
+        str(logging_project),
+        "--json",
     )
 
     assert run.returncode == 0, run.stdout + run.stderr
@@ -470,27 +452,20 @@ def test_relative_root_on_the_export_channel_lands_under_gda_cwd(
     workdir.mkdir()
     artifact = logging_project / "dist" / "packed.pck"
 
-    run = subprocess.run(
-        [
-            *GDA_CMD,
-            "--user-data-root",
-            "./rel",
-            "export",
-            "run",
-            "--preset",
-            "Linux/X11",
-            "--mode",
-            "pack",
-            "--output",
-            str(artifact),
-            "--project",
-            str(logging_project),
-            "--json",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=str(workdir),
-        env={**os.environ, "GDA_GODOT": str(GODOT)},
+    run = Gda(godot=None, env={**os.environ, "GDA_GODOT": str(GODOT)}, cwd=workdir)(
+        "--user-data-root",
+        "./rel",
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--mode",
+        "pack",
+        "--output",
+        str(artifact),
+        "--project",
+        str(logging_project),
+        "--json",
     )
 
     assert run.returncode == 0, run.stdout + run.stderr

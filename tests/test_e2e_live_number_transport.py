@@ -20,11 +20,9 @@ flatten must be REFUSED instead of quietly arriving as ``0.0``.
 import json
 import math
 import struct
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
 from gda.live_numbers import wire_flattens_to_zero
 
 from tests.live_number_corpus import (
@@ -35,9 +33,9 @@ from tests.live_number_corpus import (
     tally_outcome,
     value_bits,
 )
-from tests.support import GDA_CMD, panel_text
+from tests.support import Gda, panel_text
 
-GODOT = resolve_godot_binary()
+from .conftest import LIVE_PROJECT_GODOT
 
 _PROBE_BODY = """\
 func _hex(v: float) -> String:
@@ -104,24 +102,7 @@ def _ulp_gap(sent: float, arrived: float) -> int:
 def _engine_rows(project) -> dict[str, tuple[str, str, str]]:
     """Run the probe through `gda script run` and index its lines by value bits."""
     (project / "probe.gd").write_text(_probe_source(), encoding="utf-8")
-    run = subprocess.run(
-        [
-            *GDA_CMD,
-            "script",
-            "run",
-            "res://probe.gd",
-            "--project",
-            str(project),
-            "--godot",
-            str(GODOT),
-            "--json",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    assert run.returncode == 0, run.stdout + run.stderr
-    result = json.loads(run.stdout)
+    result = Gda(project, timeout=180).json("script", "run", "res://probe.gd")
     assert result["exit_status"] == 0, result
 
     rows: dict[str, tuple[str, str, str]] = {}
@@ -237,40 +218,16 @@ NUMBERS_MAIN_TSCN = (
 )
 
 
-def _live_runner(project):
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(project),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-
-    return run
-
-
 @pytest.mark.e2e
 def test_live_reads_carry_small_and_many_digit_floats_exactly(
     tmp_path, daemon_runtime_dir
 ):
     """`game get` reports the value the running game holds, bit for bit."""
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(NUMBERS_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "numbers_main.gd").write_text(NUMBERS_MAIN_GD, encoding="utf-8")
 
-    run = _live_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     try:
         assert run("daemon", "start").returncode == 0
 
@@ -308,15 +265,11 @@ def test_live_call_refuses_an_argument_the_wire_would_flatten(
     tmp_path, daemon_runtime_dir
 ):
     """A value the parser cannot carry is refused, not silently delivered as 0.0."""
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(NUMBERS_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "numbers_main.gd").write_text(NUMBERS_MAIN_GD, encoding="utf-8")
 
-    run = _live_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     try:
         assert run("daemon", "start").returncode == 0
 
@@ -386,15 +339,11 @@ def test_every_live_ingress_refuses_a_flattening_value_against_a_real_daemon(
     event the same way. Each is driven here through a real daemon and a real
     engine session, so a guard that only existed in a unit test could not pass.
     """
-    from .conftest import project_godot
-
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='run/main_scene="res://main.tscn"'), encoding="utf-8"
-    )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(NUMBERS_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "numbers_main.gd").write_text(NUMBERS_MAIN_GD, encoding="utf-8")
 
-    run = _live_runner(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
     try:
         assert run("daemon", "start").returncode == 0
         before = json.loads(run("daemon", "status").stdout)["session_id"]

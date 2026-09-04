@@ -34,32 +34,21 @@ import anyio
 import pytest
 from mcp import Client
 
-from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
+from gda.binary import GODOT_BIN_ENV
 from gda.mcp.project_context import GDA_PROJECT_ENV
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server
+from tests.support import GODOT
 
-from .conftest import project_godot
+from .conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT
 from .mcp_support import tool_text
-
-GODOT = resolve_godot_binary()
-
-# Reuse test_e2e_daemon's scaffold: a main scene so the launched session has a
-# runtime SceneTree to read; a Player child mirrors the daemon e2e fixture. File
-# logging stays disabled via project_godot (issue #180).
-MAIN_TSCN = (
-    "[gd_scene format=3]\n\n"
-    '[node name="Main" type="Node2D"]\n\n'
-    '[node name="Player" type="Node2D" parent="."]\n'
-)
-PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
 def _scaffold_project(tmp_path):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
 
 
 def _pin_env(monkeypatch, project):

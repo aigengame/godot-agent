@@ -12,11 +12,10 @@ import anyio
 import pytest
 from mcp import Client
 
-from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
+from gda.binary import GODOT_BIN_ENV
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server
-
-GODOT = resolve_godot_binary()
+from tests.support import GODOT
 
 
 @pytest.mark.e2e

@@ -32,8 +32,7 @@ from gda.commands.project import (
     ProjectSetResult,
 )
 from gda.models import GdaErrorEnvelope
-from gda.runner import RunResult
-from tests.support import VERSION_INFO, FakeRunner, inject_runner, sentinel
+from tests.support import VERSION_INFO, invoke_cli, sentinel
 
 INFO_RESULT = {
     "name": "My Game",
@@ -78,12 +77,12 @@ LIST_RESULT = {
 
 def test_project_info_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
-    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(INFO_RESULT)
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "info", "--json"],
+        stdout=sentinel(INFO_RESULT),
+        stderr="engine diagnostic\n",
     )
-
-    result = CliRunner().invoke(app, ["project", "info", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -99,11 +98,9 @@ def test_project_info_json_maps_success_to_json_object_and_exit_zero(monkeypatch
 
 
 def test_project_info_human_output_is_a_readable_block(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(INFO_RESULT), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch, ["project", "info"], stdout=sentinel(INFO_RESULT)
     )
-
-    result = CliRunner().invoke(app, ["project", "info"])
 
     assert result.exit_code == 0
     assert "name: My Game" in result.stdout
@@ -115,11 +112,7 @@ def test_project_info_human_output_is_a_readable_block(monkeypatch):
 def test_project_info_human_output_shows_none_for_empty_main_scene(monkeypatch):
     # A new project has no main scene; the human block names that explicitly.
     payload = {**INFO_RESULT, "main_scene": ""}
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(app, ["project", "info"])
+    result, _ = invoke_cli(monkeypatch, ["project", "info"], stdout=sentinel(payload))
 
     assert result.exit_code == 0
     assert "main_scene: (none)" in result.stdout
@@ -129,12 +122,10 @@ def test_project_info_human_output_shows_none_for_empty_main_scene(monkeypatch):
 
 
 def test_project_get_dispatches_setting_param_and_reports_typed_value(monkeypatch):
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["project", "get", "application/config/name", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "get", "application/config/name", "--json"],
+        stdout=sentinel(GET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -145,11 +136,11 @@ def test_project_get_dispatches_setting_param_and_reports_typed_value(monkeypatc
 
 
 def test_project_get_human_output_is_setting_type_value(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["project", "get", "application/config/name"],
+        stdout=sentinel(GET_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["project", "get", "application/config/name"])
 
     assert result.exit_code == 0
     assert result.stdout.strip() == 'application/config/name (String) = "My Game"'
@@ -159,11 +150,9 @@ def test_project_get_carries_packed_value_projection(monkeypatch):
     # A packed-type setting (e.g. a Vector2-ish value) is carried as a JSON list,
     # the same projection node get reports — so get / set round-trip the shape.
     payload = {"setting": "some/vec", "type": "Vector2", "value": [10.0, 20.0]}
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch, ["project", "get", "some/vec", "--json"], stdout=sentinel(payload)
     )
-
-    result = CliRunner().invoke(app, ["project", "get", "some/vec", "--json"])
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["value"] == [10.0, 20.0]
@@ -179,11 +168,11 @@ def test_project_get_carries_compound_value_projection_untouched(monkeypatch):
         "events": [{"type": "InputEventKey", "keycode": 74, "pressed": False}],
     }
     payload = {"setting": "input/fire", "type": "Dictionary", "value": value}
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["project", "get", "input/fire", "--json"],
+        stdout=sentinel(payload),
     )
-
-    result = CliRunner().invoke(app, ["project", "get", "input/fire", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -197,12 +186,8 @@ def test_project_get_carries_compound_value_projection_untouched(monkeypatch):
 
 
 def test_project_set_dispatches_setting_and_value_and_round_trips(monkeypatch):
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         [
             "project",
             "set",
@@ -211,6 +196,7 @@ def test_project_set_dispatches_setting_and_value_and_round_trips(monkeypatch):
             "1920",
             "--json",
         ],
+        stdout=sentinel(SET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -230,12 +216,10 @@ def test_project_set_dispatches_setting_and_value_and_round_trips(monkeypatch):
 
 
 def test_project_set_human_output_is_set_setting_type_value(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["project", "set", "display/window/size/viewport_width", "--value", "1920"]
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["project", "set", "display/window/size/viewport_width", "--value", "1920"],
+        stdout=sentinel(SET_RESULT),
     )
 
     assert result.exit_code == 0
@@ -247,10 +231,11 @@ def test_project_set_human_output_is_set_setting_type_value(monkeypatch):
 def test_project_set_requires_value(monkeypatch):
     # --value is required: a set with no value is a usage error (exit 2), not a
     # silent no-op or an empty write.
-    fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
-
-    result = CliRunner().invoke(app, ["project", "set", "application/config/name"])
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "set", "application/config/name"],
+        stdout=sentinel(SET_RESULT),
+    )
 
     assert result.exit_code == 2
     assert fake.calls == []
@@ -262,11 +247,9 @@ def test_project_set_requires_value(monkeypatch):
 def test_project_list_bare_dispatches_customized_scope_and_maps_entries(monkeypatch):
     # A bare list lists only customized settings: include_defaults defaults False,
     # section None. Each entry rides through as {setting, type, value, is_default}.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch, ["project", "list", "--json"], stdout=sentinel(LIST_RESULT)
     )
-
-    result = CliRunner().invoke(app, ["project", "list", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -279,11 +262,11 @@ def test_project_list_bare_dispatches_customized_scope_and_maps_entries(monkeypa
 def test_project_list_all_flag_widens_scope_to_engine_defaults(monkeypatch):
     # --all sets include_defaults True so the engine's built-in defaults are listed
     # too, not just the project's customized settings.
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "list", "--all", "--json"],
+        stdout=sentinel(LIST_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["project", "list", "--all", "--json"])
 
     assert result.exit_code == 0
     assert fake.calls == [("project-list", {"include_defaults": True, "section": None})]
@@ -292,12 +275,10 @@ def test_project_list_all_flag_widens_scope_to_engine_defaults(monkeypatch):
 def test_project_list_section_filter_rides_through_as_a_param(monkeypatch):
     # --section restricts the listing to keys under a section/ prefix; it composes
     # with --all (both ride through as operation params).
-    fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["project", "list", "--all", "--section", "application/", "--json"]
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "list", "--all", "--section", "application/", "--json"],
+        stdout=sentinel(LIST_RESULT),
     )
 
     assert result.exit_code == 0
@@ -307,11 +288,9 @@ def test_project_list_section_filter_rides_through_as_a_param(monkeypatch):
 
 
 def test_project_list_human_output_lines_settings_and_marks_defaults(monkeypatch):
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    result, _ = invoke_cli(
+        monkeypatch, ["project", "list"], stdout=sentinel(LIST_RESULT)
     )
-
-    result = CliRunner().invoke(app, ["project", "list"])
 
     assert result.exit_code == 0
     lines = result.stdout.strip().splitlines()
@@ -321,12 +300,9 @@ def test_project_list_human_output_lines_settings_and_marks_defaults(monkeypatch
 
 
 def test_project_list_human_output_names_an_empty_listing(monkeypatch):
-    inject_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel({"settings": []}), stderr="", exit_code=0),
+    result, _ = invoke_cli(
+        monkeypatch, ["project", "list"], stdout=sentinel({"settings": []})
     )
-
-    result = CliRunner().invoke(app, ["project", "list"])
 
     assert result.exit_code == 0
     assert result.stdout.strip() == "(no settings)"
@@ -346,14 +322,10 @@ REMOVE_AUTOLOAD_RESULT = {
 
 
 def test_project_add_autoload_dispatches_name_and_path_and_reports_result(monkeypatch):
-    fake = inject_runner(
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(ADD_AUTOLOAD_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         ["project", "add-autoload", "Global", "res://global.gd", "--json"],
+        stdout=sentinel(ADD_AUTOLOAD_RESULT),
     )
 
     assert result.exit_code == 0
@@ -369,13 +341,10 @@ def test_project_add_autoload_dispatches_name_and_path_and_reports_result(monkey
 
 
 def test_project_add_autoload_human_output_names_the_registered_autoload(monkeypatch):
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(ADD_AUTOLOAD_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["project", "add-autoload", "Global", "res://global.gd"]
+        ["project", "add-autoload", "Global", "res://global.gd"],
+        stdout=sentinel(ADD_AUTOLOAD_RESULT),
     )
 
     assert result.exit_code == 0
@@ -386,12 +355,11 @@ def test_project_add_autoload_human_output_names_the_registered_autoload(monkeyp
 
 
 def test_project_remove_autoload_dispatches_name_and_reports_result(monkeypatch):
-    fake = inject_runner(
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(REMOVE_AUTOLOAD_RESULT), stderr="", exit_code=0),
+        ["project", "remove-autoload", "Global", "--json"],
+        stdout=sentinel(REMOVE_AUTOLOAD_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["project", "remove-autoload", "Global", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -402,12 +370,11 @@ def test_project_remove_autoload_dispatches_name_and_reports_result(monkeypatch)
 def test_project_remove_autoload_human_output_names_the_unregistered_autoload(
     monkeypatch,
 ):
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(REMOVE_AUTOLOAD_RESULT), stderr="", exit_code=0),
+        ["project", "remove-autoload", "Global"],
+        stdout=sentinel(REMOVE_AUTOLOAD_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["project", "remove-autoload", "Global"])
 
     assert result.exit_code == 0
     assert result.stdout.strip() == "removed autoload Global"
@@ -433,13 +400,8 @@ REMOVE_INPUT_ACTION_RESULT = {
 def test_project_add_input_action_dispatches_full_params_and_reports_result(
     monkeypatch,
 ):
-    fake = inject_runner(
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "project",
             "add-input-action",
@@ -450,6 +412,7 @@ def test_project_add_input_action_dispatches_full_params_and_reports_result(
             "Space",
             "--json",
         ],
+        stdout=sentinel(ADD_INPUT_ACTION_RESULT),
     )
 
     assert result.exit_code == 0
@@ -481,13 +444,8 @@ def test_project_add_input_action_dispatches_full_params_and_reports_result(
 def test_project_add_input_action_dispatches_deadzone_and_physical_overrides(
     monkeypatch,
 ):
-    fake = inject_runner(
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "project",
             "add-input-action",
@@ -499,6 +457,7 @@ def test_project_add_input_action_dispatches_deadzone_and_physical_overrides(
             "--physical",
             "--json",
         ],
+        stdout=sentinel(ADD_INPUT_ACTION_RESULT),
     )
 
     assert result.exit_code == 0
@@ -513,12 +472,11 @@ def test_project_add_input_action_dispatches_deadzone_and_physical_overrides(
 def test_project_add_input_action_requires_at_least_one_key(monkeypatch):
     # --key is required: an add with no keys is a usage error (exit 2), not a
     # dispatch of an empty key list.
-    fake = FakeRunner(
-        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0)
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "add-input-action", "jump"],
+        stdout=sentinel(ADD_INPUT_ACTION_RESULT),
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
-
-    result = CliRunner().invoke(app, ["project", "add-input-action", "jump"])
 
     assert result.exit_code == 2
     assert fake.calls == []
@@ -527,14 +485,10 @@ def test_project_add_input_action_requires_at_least_one_key(monkeypatch):
 def test_project_add_input_action_rejects_out_of_range_deadzone(monkeypatch):
     # The deadzone bounds (0..1, the editor slider's) are validated model-side
     # (ADR-0015) and surface as a clean usage error before any dispatch.
-    fake = FakeRunner(
-        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0)
-    )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_cli(
+        monkeypatch,
         ["project", "add-input-action", "jump", "--key", "J", "--deadzone", "1.5"],
+        stdout=sentinel(ADD_INPUT_ACTION_RESULT),
     )
 
     assert result.exit_code == 2
@@ -542,13 +496,10 @@ def test_project_add_input_action_rejects_out_of_range_deadzone(monkeypatch):
 
 
 def test_project_add_input_action_human_output_lists_resolved_bindings(monkeypatch):
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["project", "add-input-action", "jump", "--key", "J", "--key", "Space"]
+        ["project", "add-input-action", "jump", "--key", "J", "--key", "Space"],
+        stdout=sentinel(ADD_INPUT_ACTION_RESULT),
     )
 
     assert result.exit_code == 0
@@ -564,12 +515,10 @@ def test_project_add_input_action_human_output_marks_physical_bindings(monkeypat
         "deadzone": 0.5,
         "events": [{"kind": "key", "key": "J", "keycode": 74, "physical": True}],
     }
-    inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["project", "add-input-action", "jump", "--key", "J", "--physical"]
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["project", "add-input-action", "jump", "--key", "J", "--physical"],
+        stdout=sentinel(payload),
     )
 
     assert result.exit_code == 0
@@ -583,13 +532,10 @@ def test_project_add_input_action_human_output_marks_physical_bindings(monkeypat
 
 
 def test_project_remove_input_action_dispatches_name_and_reports_result(monkeypatch):
-    fake = inject_runner(
+    result, fake = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(REMOVE_INPUT_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["project", "remove-input-action", "jump", "--json"]
+        ["project", "remove-input-action", "jump", "--json"],
+        stdout=sentinel(REMOVE_INPUT_ACTION_RESULT),
     )
 
     assert result.exit_code == 0
@@ -600,12 +546,11 @@ def test_project_remove_input_action_dispatches_name_and_reports_result(monkeypa
 def test_project_remove_input_action_human_output_names_the_removed_action(
     monkeypatch,
 ):
-    inject_runner(
+    result, _ = invoke_cli(
         monkeypatch,
-        RunResult(stdout=sentinel(REMOVE_INPUT_ACTION_RESULT), stderr="", exit_code=0),
+        ["project", "remove-input-action", "jump"],
+        stdout=sentinel(REMOVE_INPUT_ACTION_RESULT),
     )
-
-    result = CliRunner().invoke(app, ["project", "remove-input-action", "jump"])
 
     assert result.exit_code == 0
     assert result.stdout.strip() == "removed input action jump"

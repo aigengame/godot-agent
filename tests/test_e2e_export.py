@@ -13,14 +13,10 @@ not a fixed value.
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
-
-GODOT = resolve_godot_binary()
+from tests.support import Gda
 
 # Two presets in the canonical format Godot writes export_presets.cfg: a
 # runnable Linux preset and a non-runnable Web preset, each with its sibling
@@ -64,38 +60,11 @@ def _expected_templates_version() -> str:
     re-adding the ``.0`` patch — fail RED here, instead of silently making the
     template-gate e2e skip (templates_installed would go False on a .0 engine).
     """
-    info = subprocess.run(
-        [*GDA_CMD, "info", "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-    )
-    assert info.returncode == 0, info.stdout + info.stderr
-    v = json.loads(info.stdout)
+    v = Gda().json("info")
     base = f"{v['major']}.{v['minor']}"
     if v["patch"]:
         base += f".{v['patch']}"
     return f"{base}.{v['status']}"
-
-
-def _gda_project(project):
-    """A ``gda`` bound to ``--project`` for res:// resolution of the cfg."""
-
-    def gda(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
-            capture_output=True,
-            text=True,
-        )
-
-    return gda
-
-
-def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
-    assert proc.returncode == 4, proc.stdout + proc.stderr
-    err = json.loads(proc.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == code
-    return err
 
 
 @pytest.mark.e2e
@@ -106,7 +75,7 @@ def test_export_list_enumerates_presets_from_export_presets_cfg(godot_project):
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     listed = gda("export", "list", "--json")
 
@@ -126,7 +95,7 @@ def test_export_list_empty_cfg_is_an_empty_listing(godot_project):
     # An export_presets.cfg that defines no presets is a valid, empty listing —
     # not an error (distinct from no cfg at all).
     (godot_project / "export_presets.cfg").write_text("", encoding="utf-8")
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     listed = gda("export", "list", "--json")
 
@@ -140,11 +109,9 @@ def test_export_list_no_cfg_yields_export_presets_not_found(godot_project):
     # export list refuses with the structured export_presets_not_found code rather
     # than a misleading empty listing, so an agent knows the project defines no
     # presets.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
-    listed = gda("export", "list", "--json")
-
-    err = _assert_operation_error(listed, "export_presets_not_found")
+    err = gda.error("export", "list", "--json", code="export_presets_not_found")
     assert "export_presets.cfg" in err["message"]
 
 
@@ -153,14 +120,9 @@ def test_export_list_without_project_yields_project_not_found(tmp_path):
     # export list reads export_presets.cfg in a project, so it cannot run
     # projectless: run from a non-project directory with no --project, it refuses
     # with project_not_found rather than returning a misleading empty listing.
-    listed = subprocess.run(
-        [*GDA_CMD, "export", "list", "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-        cwd=str(tmp_path),
+    err = Gda().error(
+        "export", "list", "--json", cwd=tmp_path, code="project_not_found"
     )
-
-    err = _assert_operation_error(listed, "project_not_found")
     assert "--project" in err["message"]
 
 
@@ -173,7 +135,7 @@ def test_export_get_reports_preset_details_and_template_status(godot_project):
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     got = gda("export", "get", "--preset", "Web", "--json")
 
@@ -200,7 +162,7 @@ def test_export_get_reports_export_path_of_a_preset_with_one(godot_project):
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     got = gda("export", "get", "--preset", "Linux/X11", "--json")
 
@@ -218,11 +180,11 @@ def test_export_get_unknown_preset_yields_export_preset_not_found(godot_project)
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
-    got = gda("export", "get", "--preset", "Nope", "--json")
-
-    err = _assert_operation_error(got, "export_preset_not_found")
+    err = gda.error(
+        "export", "get", "--preset", "Nope", "--json", code="export_preset_not_found"
+    )
     assert "Nope" in err["message"]
 
 
@@ -230,9 +192,9 @@ def test_export_get_unknown_preset_yields_export_preset_not_found(godot_project)
 def test_export_get_no_cfg_yields_export_presets_not_found(godot_project):
     # export get over a project with no export_presets.cfg reports the same
     # export_presets_not_found mode as export list — there is nothing to address.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
-    got = gda("export", "get", "--preset", "Web", "--json")
-
-    err = _assert_operation_error(got, "export_presets_not_found")
+    err = gda.error(
+        "export", "get", "--preset", "Web", "--json", code="export_presets_not_found"
+    )
     assert "export_presets.cfg" in err["message"]

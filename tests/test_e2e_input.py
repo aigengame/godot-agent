@@ -14,16 +14,12 @@ project_godot (#180).
 
 import json
 import os
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD, assert_windowed_ok
+from tests.support import Gda, assert_windowed_ok
 
-from .conftest import project_godot
-
-GODOT = resolve_godot_binary()
+from .conftest import LIVE_PROJECT_GODOT, project_godot
 
 # A Player whose `_input` moves it right on KEY_RIGHT — so an injected key event
 # rides the game's real input flow into `_input` and mutates `position.x`, observed
@@ -130,7 +126,6 @@ PHYSICS_ACTION_PLAYER_GD = (
     "\t\tposition.x += SPEED * delta\n"
 )
 
-PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
 # A project.godot whose [input] section declares `move_right` so the running
 # InputMap has the action `input action move_right` drives (InputMap.has_action).
@@ -230,28 +225,11 @@ def test_daemon_serves_input_key_observed_via_game_get(tmp_path, daemon_runtime_
     # The #221 DoD: a real daemon -> engine session -> `input key Right` pushes a key
     # event into the running game, whose `_input` moves the Player, observed via
     # `game get` — end-to-end through the real harness over UDS (ADR-0020).
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(KEY_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(KEY_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0
@@ -293,28 +271,11 @@ def test_daemon_serves_input_mouse_click_observed_via_game_get(
     # InputEventMouseButton through the real `push_input` viewport path into the
     # running game's `_input`, which snaps the Player to the click position —
     # observed via `game get` (ADR-0020).
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MOUSE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(MOUSE_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0
@@ -355,28 +316,11 @@ def test_mouse_input_reports_event_position_when_tracked_mouse_position_is_stale
     # #462: in the default daemon session, Godot accepts the injected event position
     # but does not expose a reliable seam for updating the engine-tracked mouse
     # position. Pin that limitation so the documented workaround remains true.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(TRACKED_MOUSE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(TRACKED_MOUSE_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     def player_property(name: str):
         got = run("game", "get", "/root/Main/Player", "--property", name)
@@ -422,28 +366,11 @@ def test_input_sequence_drags_mouse_with_held_button_mask(tmp_path, daemon_runti
     # #461: a press -> move(s) -> release gesture stays inside one `input sequence`
     # RPC. The game reads event.position and event.button_mask, not tracked mouse
     # position, because #462 documents the tracked-position limitation.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(DRAG_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(DRAG_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     def player_property(name: str):
         got = run("game", "get", "/root/Main/Player", "--property", name)
@@ -486,24 +413,7 @@ def test_daemon_serves_input_action_observed_via_game_get(tmp_path, daemon_runti
     (tmp_path / "main.tscn").write_text(ACTION_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(ACTION_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0
@@ -549,28 +459,11 @@ def test_add_input_action_makes_the_action_immediately_driveable(
     # action exists only because add-input-action persisted it. Ordering matters:
     # the InputMap loads from project.godot at engine launch, so the headless add
     # runs BEFORE `daemon start`.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(ACTION_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(ACTION_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     # Register the action headlessly FIRST — before any engine session exists.
     added = run("project", "add-input-action", "move_right", "--key", "Right")
@@ -613,28 +506,11 @@ def test_daemon_serves_input_sequence_across_frames(tmp_path, daemon_runtime_dir
     # multi-frame base (#223), returned as ONE blocking result. Three Right presses at
     # frames 0/1/2 each move the Player by 10, so position.x advances by 30 over the
     # window — observed via game get.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(KEY_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(KEY_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     events = json.dumps(
         [
@@ -688,24 +564,7 @@ def test_input_sequence_physics_frame_hold_matches_predicted_displacement(
     (tmp_path / "main.tscn").write_text(ACTION_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(PHYSICS_ACTION_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     hold_frames = 12
     physics_fps = 60
@@ -767,28 +626,11 @@ def test_input_action_unknown_action_reports_live_unknown_action(
 ):
     # An action absent from the running InputMap is the typed harness op-error,
     # relayed through the daemon (exit-0 sentinel) and mapped by classify_live.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(KEY_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(KEY_PLAYER_GD, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     from gda.exit_codes import EXIT_LIVE
 
@@ -803,23 +645,14 @@ def test_input_action_unknown_action_reports_live_unknown_action(
 
 
 def _button_project(tmp_path):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(BUTTON_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "ui.gd").write_text(BUTTON_UI_GD, encoding="utf-8")
 
 
-def _gda_json(tmp_path, env, *args):
-    return subprocess.run(
-        [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=90,
-    )
-
-
-def _property_value(tmp_path, env, node, name):
-    got = _gda_json(tmp_path, env, "game", "get", node, "--property", name)
+def _property_value(gda, node, name):
+    """One property's projected value, read live off the running game."""
+    got = gda("game", "get", node, "--property", name)
     assert got.returncode == 0, got.stdout + got.stderr
     return next(p for p in json.loads(got.stdout)["properties"] if p["name"] == name)[
         "value"
@@ -835,12 +668,12 @@ def test_mouse_click_performs_the_complete_activation_gesture(
     # press that leaves the button held down forever. Repeated clicks keep
     # activating, because each gesture releases what it pressed.
     _button_project(tmp_path)
-    env = {**os.environ}
+    gda = Gda(tmp_path, json_output=True)
 
     try:
-        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+        assert gda("daemon", "start").returncode == 0
 
-        first = _gda_json(tmp_path, env, "input", "mouse-click", "50", "20")
+        first = gda("input", "mouse-click", "50", "20")
         assert first.returncode == 0, first.stdout + first.stderr
         doc = json.loads(first.stdout)
         # The structured gesture evidence: the three phases at their frames.
@@ -851,18 +684,18 @@ def test_mouse_click_performs_the_complete_activation_gesture(
         ]
 
         # The Button observed the COMPLETE activation: down, up, and `pressed`.
-        assert _property_value(tmp_path, env, "/root/Main", "pressed_count") == 1
-        assert _property_value(tmp_path, env, "/root/Main", "down_count") == 1
-        assert _property_value(tmp_path, env, "/root/Main", "up_count") == 1
+        assert _property_value(gda, "/root/Main", "pressed_count") == 1
+        assert _property_value(gda, "/root/Main", "down_count") == 1
+        assert _property_value(gda, "/root/Main", "up_count") == 1
         # The gesture included the initial move (GDA-DF-004's "initial move").
-        assert _property_value(tmp_path, env, "/root/Main", "motion_seen") is True
+        assert _property_value(gda, "/root/Main", "motion_seen") is True
 
-        second = _gda_json(tmp_path, env, "input", "mouse-click", "50", "20")
+        second = gda("input", "mouse-click", "50", "20")
         assert second.returncode == 0, second.stdout + second.stderr
-        assert _property_value(tmp_path, env, "/root/Main", "pressed_count") == 2
-        assert _property_value(tmp_path, env, "/root/Main", "up_count") == 2
+        assert _property_value(gda, "/root/Main", "pressed_count") == 2
+        assert _property_value(gda, "/root/Main", "up_count") == 2
     finally:
-        _gda_json(tmp_path, env, "daemon", "stop")
+        gda("daemon", "stop")
 
 
 @pytest.mark.e2e
@@ -872,27 +705,24 @@ def test_two_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
     # EMPTY — not merely free of one known message — so a consumer can use an
     # empty result as clean runtime evidence after a multi-click playtest.
     _button_project(tmp_path)
-    env = {**os.environ}
+    gda = Gda(tmp_path, json_output=True)
 
     try:
-        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+        assert gda("daemon", "start").returncode == 0
 
-        assert (
-            _gda_json(tmp_path, env, "input", "mouse-click", "50", "20").returncode == 0
-        )
-        assert (
-            _gda_json(tmp_path, env, "input", "mouse-click", "50", "20").returncode == 0
-        )
+        assert gda("input", "mouse-click", "50", "20").returncode == 0
+        assert gda("input", "mouse-click", "50", "20").returncode == 0
 
-        diag = _gda_json(tmp_path, env, "diag", "errors")
+        diag = gda("diag", "errors")
         assert diag.returncode == 0, diag.stdout + diag.stderr
         assert json.loads(diag.stdout)["errors"] == []
     finally:
-        _gda_json(tmp_path, env, "daemon", "stop")
+        gda("daemon", "stop")
 
 
 @pytest.mark.e2e
 @pytest.mark.usefixtures("windowed_host")
+@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
 def test_two_windowed_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
     # The exact #647 reproduction: a WINDOWED daemon session, two successful
     # clicks, an empty `diag errors`. The windowed path also carries the
@@ -901,18 +731,18 @@ def test_two_windowed_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_di
     # (tests.support.require_windowed_host); a capability refusal skips, a
     # confined run fails loudly (#345/#667).
     _button_project(tmp_path)
-    env = {**os.environ}
+    gda = Gda(tmp_path, json_output=True)
 
     try:
-        assert_windowed_ok(_gda_json(tmp_path, env, "daemon", "start", "--windowed"))
+        assert_windowed_ok(gda("daemon", "start", "--windowed"))
 
-        assert_windowed_ok(_gda_json(tmp_path, env, "input", "mouse-click", "50", "20"))
-        assert_windowed_ok(_gda_json(tmp_path, env, "input", "mouse-click", "50", "20"))
+        assert_windowed_ok(gda("input", "mouse-click", "50", "20"))
+        assert_windowed_ok(gda("input", "mouse-click", "50", "20"))
 
-        diag = assert_windowed_ok(_gda_json(tmp_path, env, "diag", "errors"))
+        diag = assert_windowed_ok(gda("diag", "errors"))
         assert json.loads(diag.stdout)["errors"] == []
     finally:
-        _gda_json(tmp_path, env, "daemon", "stop")
+        gda("daemon", "stop")
 
 
 @pytest.mark.e2e
@@ -921,14 +751,12 @@ def test_sequence_mouse_click_event_activates_a_button(tmp_path, daemon_runtime_
     # (#652): the harness pushes the press and the release on the same frame,
     # which fully activates a default Button.
     _button_project(tmp_path)
-    env = {**os.environ}
+    gda = Gda(tmp_path, json_output=True)
 
     try:
-        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+        assert gda("daemon", "start").returncode == 0
 
-        injected = _gda_json(
-            tmp_path,
-            env,
+        injected = gda(
             "input",
             "sequence",
             "--events",
@@ -936,10 +764,10 @@ def test_sequence_mouse_click_event_activates_a_button(tmp_path, daemon_runtime_
         )
         assert injected.returncode == 0, injected.stdout + injected.stderr
 
-        assert _property_value(tmp_path, env, "/root/Main", "pressed_count") == 1
-        assert _property_value(tmp_path, env, "/root/Main", "up_count") == 1
+        assert _property_value(gda, "/root/Main", "pressed_count") == 1
+        assert _property_value(gda, "/root/Main", "up_count") == 1
     finally:
-        _gda_json(tmp_path, env, "daemon", "stop")
+        gda("daemon", "stop")
 
 
 @pytest.mark.e2e
@@ -949,15 +777,15 @@ def test_tap_advances_a_focus_driven_ui_exactly_once_repeatably(
     # The #652 tap DoD (GDA-DF-034): one key tap advances a focus-driven UI
     # exactly ONE step, and does so repeatably — the press and the release land
     # on separate process frames, and only the press navigates.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(FOCUS_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "ui.gd").write_text(FOCUS_UI_GD, encoding="utf-8")
-    env = {**os.environ}
+    gda = Gda(tmp_path, json_output=True)
 
     try:
-        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+        assert gda("daemon", "start").returncode == 0
 
-        first = _gda_json(tmp_path, env, "input", "tap", "--key", "Down")
+        first = gda("input", "tap", "--key", "Down")
         assert first.returncode == 0, first.stdout + first.stderr
         doc = json.loads(first.stdout)
         assert doc["phases"] == [
@@ -968,14 +796,14 @@ def test_tap_advances_a_focus_driven_ui_exactly_once_repeatably(
         assert doc["focus_before"] == "/root/Main/A", doc
         assert doc["focus_after"] == "/root/Main/B", doc
 
-        second = _gda_json(tmp_path, env, "input", "tap", "--key", "Down")
+        second = gda("input", "tap", "--key", "Down")
         assert second.returncode == 0, second.stdout + second.stderr
         doc = json.loads(second.stdout)
         # Repeatably: the next tap advances exactly one more step, B -> C.
         assert doc["focus_before"] == "/root/Main/B", doc
         assert doc["focus_after"] == "/root/Main/C", doc
     finally:
-        _gda_json(tmp_path, env, "daemon", "stop")
+        gda("daemon", "stop")
 
 
 @pytest.mark.e2e
@@ -988,27 +816,27 @@ def test_tap_action_produces_exactly_one_press_and_release_edge(
     (tmp_path / "project.godot").write_text(ACTION_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(ACTION_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(TAP_ACTION_PLAYER_GD, encoding="utf-8")
-    env = {**os.environ}
+    gda = Gda(tmp_path, json_output=True)
 
     try:
-        assert _gda_json(tmp_path, env, "daemon", "start").returncode == 0
+        assert gda("daemon", "start").returncode == 0
 
-        first = _gda_json(tmp_path, env, "input", "tap", "--action", "move_right")
+        first = gda("input", "tap", "--action", "move_right")
         assert first.returncode == 0, first.stdout + first.stderr
         doc = json.loads(first.stdout)
         assert doc["action"] == "move_right"
         assert doc["key"] is None
 
         node = "/root/Main/Player"
-        assert _property_value(tmp_path, env, node, "pressed_edges") == 1
-        assert _property_value(tmp_path, env, node, "released_edges") == 1
+        assert _property_value(gda, node, "pressed_edges") == 1
+        assert _property_value(gda, node, "released_edges") == 1
 
-        second = _gda_json(tmp_path, env, "input", "tap", "--action", "move_right")
+        second = gda("input", "tap", "--action", "move_right")
         assert second.returncode == 0, second.stdout + second.stderr
-        assert _property_value(tmp_path, env, node, "pressed_edges") == 2
-        assert _property_value(tmp_path, env, node, "released_edges") == 2
+        assert _property_value(gda, node, "pressed_edges") == 2
+        assert _property_value(gda, node, "released_edges") == 2
     finally:
-        _gda_json(tmp_path, env, "daemon", "stop")
+        gda("daemon", "stop")
 
 
 @pytest.mark.e2e
@@ -1018,12 +846,12 @@ def test_input_key_without_a_daemon_reports_daemon_not_running(tmp_path):
 
     from gda.exit_codes import EXIT_LIVE
 
-    env = {**os.environ, "XDG_RUNTIME_DIR": str(tmp_path / "run")}
-    proc = subprocess.run(
-        [*GDA_CMD, "input", "key", "Right", "--project", str(tmp_path), "--json"],
-        capture_output=True,
-        text=True,
-        env=env,
+    proc = Gda(tmp_path, godot=None)(
+        "input",
+        "key",
+        "Right",
+        "--json",
+        extra_env={"XDG_RUNTIME_DIR": str(tmp_path / "run")},
     )
 
     assert proc.returncode == EXIT_LIVE, proc.stdout + proc.stderr

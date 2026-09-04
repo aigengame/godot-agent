@@ -40,7 +40,13 @@ from gda.models import (
 from gda.render import render_failure
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
 from gda.script_errors import ScriptError, ScriptErrorKind
-from tests.support import error_sentinel, inject_runner, sentinel
+from tests.support import (
+    error_sentinel,
+    inject_runner,
+    invoke_cli,
+    minimal_project,
+    sentinel,
+)
 
 
 def _error(**overrides) -> GdaError:
@@ -302,6 +308,9 @@ def test_a_human_invocation_gets_the_lines_and_never_the_envelope(monkeypatch):
     # End to end through the real CLI: no `--json`, so the failure arrives as text.
     # `gda info` with a hung runner is the fast engine-free fixture that carries
     # typed evidence as well as prose.
+    # Staged as a whole raw run, not through `invoke_cli`: the LAUNCH FAILURE
+    # this run carries is the input under test, and the invoker stages only the
+    # three canned streams.
     inject_runner(
         monkeypatch,
         RunResult(
@@ -328,6 +337,9 @@ def test_the_same_failure_under_json_is_the_envelope_and_nothing_else(monkeypatc
     # The scope-defining half, at the CLI: `--json` must be exactly what it was —
     # ONE line, the model's own `exclude_none` dump, with no rendered text anywhere
     # near it.
+    # Staged as a whole raw run, not through `invoke_cli`: the LAUNCH FAILURE
+    # this run carries is the input under test, and the invoker stages only the
+    # three canned streams.
     inject_runner(
         monkeypatch,
         RunResult(
@@ -360,9 +372,7 @@ def test_a_raw_stderr_failure_reaches_a_human_once_not_twice(monkeypatch):
     # emission point when the bytes are identical, so a human reads ONE copy, on
     # the channel the layout owns.
     raw = "Godot Engine v4.6.stable\nERROR: the operation said no\n"
-    inject_runner(monkeypatch, RunResult(stdout="", stderr=raw, exit_code=1))
-
-    result = CliRunner().invoke(app, ["info"])
+    result, _ = invoke_cli(monkeypatch, ["info"], stderr=raw, exit_code=1)
 
     assert result.exit_code == EXIT_OPERATION
     assert result.stdout.startswith("error: operation_failed (operation)\n")
@@ -375,9 +385,7 @@ def test_the_same_raw_failure_under_json_keeps_its_stderr_tee(monkeypatch):
     # The scope boundary: `--json`'s streams are exactly what they were — the
     # envelope alone on stdout, the child's stderr forwarded in full.
     raw = "Godot Engine v4.6.stable\nERROR: the operation said no\n"
-    inject_runner(monkeypatch, RunResult(stdout="", stderr=raw, exit_code=1))
-
-    result = CliRunner().invoke(app, ["info", "--json"])
+    result, _ = invoke_cli(monkeypatch, ["info", "--json"], stderr=raw, exit_code=1)
 
     assert result.exit_code == EXIT_OPERATION
     assert json.loads(result.stdout)["error"]["code"] == "operation_failed"
@@ -389,6 +397,9 @@ def test_a_capped_diagnostics_failure_keeps_the_full_stderr_tee(monkeypatch):
     # COMPOSED tail-capped capture, not the raw stream, so its tee — the only
     # complete copy — survives for a human too.
     raw = "Godot Engine v4.6.stable\n"
+    # Staged as a whole raw run, not through `invoke_cli`: the LAUNCH FAILURE
+    # this run carries is the input under test, and the invoker stages only the
+    # three canned streams.
     inject_runner(
         monkeypatch,
         RunResult(
@@ -461,12 +472,6 @@ def test_a_usage_refusal_without_json_is_rendered_by_the_same_one_renderer():
 # passed the whole suite. One CLI case each closes that, all four engine-free.
 
 
-def _project(tmp_path):
-    """The minimum that makes a directory a Godot project (ADR-0006)."""
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
-
-
 def test_an_unresolvable_project_is_refused_in_lines_on_the_dispatch_tail(tmp_path):
     # `dispatch._resolve_project_or_fail`, the shared project-resolution point: it
     # refuses BEFORE any command runs, so the flag is the one the tail carries down.
@@ -493,7 +498,7 @@ def test_a_recipe_failure_is_refused_in_lines_too(monkeypatch, tmp_path):
             "--output",
             str(tmp_path / "shot.png"),
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
         ],
     )
 
@@ -515,7 +520,7 @@ def test_the_params_json_conflict_is_refused_in_lines(tmp_path):
             '{"path": "res://a.tscn", "root_type": "Node2D"}',
             "res://b.tscn",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
         ],
     )
 
@@ -536,7 +541,7 @@ def test_an_invalid_params_json_object_is_refused_in_lines(tmp_path):
             "--params-json",
             "{}",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
         ],
     )
 
@@ -578,7 +583,7 @@ def _preflight(tmp_path, *extra: str):
             "preflight",
             "res://nope.tscn",
             "--project",
-            str(_project(tmp_path)),
+            str(minimal_project(tmp_path)),
             *extra,
         ],
     )

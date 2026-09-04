@@ -28,11 +28,10 @@ import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
 from tests.conftest import project_godot
-from tests.support import GDA_CMD
+from tests.support import GODOT, Gda
 
-GODOT = resolve_godot_binary()
+gda = Gda()
 
 INSIDE_GD = """\
 extends SceneTree
@@ -41,10 +40,6 @@ func _initialize() -> void:
 \tprint("ran")
 \tquit(0)
 """
-
-
-def _run_gda(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([*GDA_CMD, *args], capture_output=True, text=True)
 
 
 def _code(proc: subprocess.CompletedProcess) -> "str | None":
@@ -108,36 +103,30 @@ def test_the_three_commands_agree_on_a_res_spelling(
     script = template.format(n="bar.gd", ext=".gd")
     asset = template.format(n="pic.png", ext=".png")
 
-    validate = _run_gda(
+    validate = gda(
         "script",
         "validate",
         script,
         "--project",
         project,
-        "--godot",
-        str(GODOT),
         "--json",
     )
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         script,
         "--project",
         project,
-        "--godot",
-        str(GODOT),
         "--timeout",
         "60",
         "--json",
     )
-    imported = _run_gda(
+    imported = gda(
         "resource",
         "import",
         asset,
         "--project",
         project,
-        "--godot",
-        str(GODOT),
         "--dry-run",
         "--json",
     )
@@ -253,14 +242,12 @@ def test_an_asset_a_nested_project_owns_is_refused_before_the_import_pass(tmp_pa
     (vendor / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     (outer / "own.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
-    refused = _run_gda(
+    refused = gda(
         "resource",
         "import",
         "res://vendor/pic.png",
         "--project",
         str(outer),
-        "--godot",
-        str(GODOT),
         "--dry-run",
         "--json",
     )
@@ -269,14 +256,12 @@ def test_an_asset_a_nested_project_owns_is_refused_before_the_import_pass(tmp_pa
     assert error["code"] == "target_outside_project"
     assert error["evidence"]["owning_project"] == str(vendor.resolve())
 
-    accepted = _run_gda(
+    accepted = gda(
         "resource",
         "import",
         "res://own.png",
         "--project",
         str(outer),
-        "--godot",
-        str(GODOT),
         "--dry-run",
         "--json",
     )
@@ -303,14 +288,12 @@ def test_a_script_a_nested_project_owns_is_refused_instead_of_falsely_invalid(tm
     )
 
     # Against its OWN project the verdict is the true one, and stays reachable.
-    owned = _run_gda(
+    owned = gda(
         "script",
         "validate",
         str(inner / "main.gd"),
         "--project",
         str(inner),
-        "--godot",
-        str(GODOT),
         "--json",
     )
     assert owned.returncode == 0, owned.stdout + owned.stderr
@@ -318,14 +301,12 @@ def test_a_script_a_nested_project_owns_is_refused_instead_of_falsely_invalid(tm
 
     # Against the outer one it is refused before the engine runs, and the owner to
     # pass is named in the typed evidence.
-    refused = _run_gda(
+    refused = gda(
         "script",
         "validate",
         str(inner / "main.gd"),
         "--project",
         str(outer),
-        "--godot",
-        str(GODOT),
         "--json",
     )
     assert refused.returncode == 4, refused.stdout + refused.stderr
@@ -351,20 +332,7 @@ def test_a_projectless_call_on_an_owned_script_is_refused(tmp_path):
         'extends Node\n\nconst Dep := preload("res://local_dep.gd")\n', encoding="utf-8"
     )
 
-    refused = subprocess.run(
-        [
-            *GDA_CMD,
-            "script",
-            "validate",
-            "game/main.gd",
-            "--godot",
-            str(GODOT),
-            "--json",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=str(workspace),
-    )
+    refused = gda("script", "validate", "game/main.gd", "--json", cwd=workspace)
 
     assert refused.returncode == 4, refused.stdout + refused.stderr
     error = json.loads(refused.stdout)["error"]
@@ -384,12 +352,7 @@ def test_a_standalone_script_is_still_validated_projectless(tmp_path):
         "extends Node\n\nfunc go() -> int:\n\treturn 1\n", encoding="utf-8"
     )
 
-    proc = subprocess.run(
-        [*GDA_CMD, "script", "validate", "scratch.gd", "--godot", str(GODOT), "--json"],
-        capture_output=True,
-        text=True,
-        cwd=str(tmp_path),
-    )
+    proc = gda("script", "validate", "scratch.gd", "--json", cwd=tmp_path)
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
@@ -443,9 +406,7 @@ def test_the_refusal_states_a_reissue_that_actually_runs(
     # So this reads the two operands OUT of the message and runs them. Nothing here
     # knows the fixture's layout — if the sentence is wrong, the re-issue fails.
     outer = str(owned_target_project)
-    refused = _run_gda(
-        *head, spelling, "--project", outer, "--godot", str(GODOT), *extra, "--json"
-    )
+    refused = gda(*head, spelling, "--project", outer, *extra, "--json")
     assert refused.returncode == 4, refused.stdout + refused.stderr
     error = json.loads(refused.stdout)["error"]
     assert error["code"] == "target_outside_project"
@@ -453,13 +414,11 @@ def test_the_refusal_states_a_reissue_that_actually_runs(
     stated = REISSUE.search(error["message"])
     assert stated is not None, error["message"]
 
-    reissued = _run_gda(
+    reissued = gda(
         *head,
         stated["target"],
         "--project",
         stated["project"],
-        "--godot",
-        str(GODOT),
         *extra,
         "--json",
     )
@@ -468,13 +427,11 @@ def test_the_refusal_states_a_reissue_that_actually_runs(
     # And the half that says WHY the target had to be named beside the project:
     # the same re-issue with the caller's original spelling still fails, so the
     # sentence is not merely decorated with a value the caller already had.
-    stale = _run_gda(
+    stale = gda(
         *head,
         spelling,
         "--project",
         stated["project"],
-        "--godot",
-        str(GODOT),
         *extra,
         "--json",
     )
@@ -498,14 +455,12 @@ def test_the_stated_reissue_survives_a_link_spelled_owner(tmp_path):
     (pkg / "vend.gd").write_text(INSIDE_GD, encoding="utf-8")
     (outer / "addons" / "vendored").symlink_to(pkg, target_is_directory=True)
 
-    refused = _run_gda(
+    refused = gda(
         "script",
         "validate",
         "addons/vendored/vend.gd",
         "--project",
         str(outer),
-        "--godot",
-        str(GODOT),
         "--json",
     )
     assert refused.returncode == 4, refused.stdout + refused.stderr
@@ -513,14 +468,12 @@ def test_the_stated_reissue_survives_a_link_spelled_owner(tmp_path):
     assert stated is not None
     assert stated["target"] == "vend.gd"
 
-    reissued = _run_gda(
+    reissued = gda(
         "script",
         "validate",
         stated["target"],
         "--project",
         stated["project"],
-        "--godot",
-        str(GODOT),
         "--json",
     )
     assert reissued.returncode == 0, reissued.stdout + reissued.stderr

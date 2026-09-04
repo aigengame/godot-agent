@@ -23,7 +23,6 @@ import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
 from gda.harness.install import (
     HARNESS_FILE,
     HARNESS_RES_DIR,
@@ -31,22 +30,13 @@ from gda.harness.install import (
     installed_harness_version,
 )
 
-from tests.support import GDA_CMD, assert_windowed_ok
+from tests.support import Gda, assert_windowed_ok, import_project
 
-from .conftest import project_godot
-
-GODOT = resolve_godot_binary()
+from .conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT
 
 # A main scene so the launched session has a runtime SceneTree to read; a Player
 # Node2D child carries a Vector2 storage property (position) for the game get/set
 # round trip (#220). File logging stays disabled via project_godot (issue #180).
-MAIN_TSCN = (
-    "[gd_scene format=3]\n\n"
-    '[node name="Main" type="Node2D"]\n\n'
-    '[node name="Player" type="Node2D" parent="."]\n'
-)
-PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
-
 RECT_MAIN_TSCN = (
     "[gd_scene format=3]\n\n"
     '[node name="Main" type="Control"]\n\n'
@@ -74,29 +64,12 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 
 @pytest.mark.e2e
 def test_daemon_serves_a_real_runtime_tree(tmp_path, daemon_runtime_dir):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
 
     # XDG_RUNTIME_DIR is set short by the daemon_runtime_dir fixture; the spawned
     # daemon inherits it through the subprocess environment.
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -125,26 +98,9 @@ def test_wait_ready_makes_a_first_diag_errors_serve(tmp_path, daemon_runtime_dir
     # no warm-up live op, no sleep loop. Without the wait, the first
     # `diag errors` reports engine_session_not_running by design (it must never
     # be the thing that launches the project's code, ADR-0022).
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -187,27 +143,10 @@ def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
     # The #220 DoD: a real daemon → engine session → `game set` mutates a runtime
     # property, applied at a frame boundary, and `game get` observes the change —
     # State consistency (ADR-0020) end-to-end through the real harness over UDS.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
 
-    env = {**os.environ}
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=90,
-        )
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -251,9 +190,9 @@ def test_daemon_game_rect_reads_free_positioned_control_rect(
 ):
     # #419: `game rect` reads rendered viewport-space geometry, not storage
     # properties, so a free-positioned Control reports get_global_rect().
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -277,9 +216,9 @@ def test_daemon_game_set_control_position_updates_offsets_preserving_size(
 ):
     # #464: live `game set` mirrors headless `node set` for Control.position by
     # applying an actionable offset write while preserving the current size.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(CONTROL_POSITION_MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -321,9 +260,9 @@ def test_daemon_game_set_container_managed_control_position_names_offset_alterna
 ):
     # A Container owns direct-child layout; `game set position` reports an
     # actionable live error instead of claiming a write the next layout pass owns.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -354,9 +293,9 @@ def test_daemon_game_rect_reads_container_managed_child_rect(
 ):
     # #419: container-managed Controls have layout output even when a storage
     # property read is the wrong surface. `game rect` returns the rendered rect.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -388,9 +327,9 @@ def test_daemon_game_rect_reads_container_managed_child_rect(
 def test_daemon_game_rect_rejects_non_control_node(tmp_path, daemon_runtime_dir):
     # #419: the command is intentionally Control-specific; a live node that
     # exists but is not a Control gets a typed LIVE error.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -458,10 +397,10 @@ def test_daemon_game_get_projects_compound_values_with_live_fallback(
     # JSON object, while a Node-valued property — a non-whitelisted runtime
     # Object — stays the str() fallback (the whitelist keeps the shared
     # projection safe against projecting a whole live scene tree).
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(PROJECTION_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(PROJECTION_PLAYER_GD, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -489,10 +428,10 @@ def test_daemon_game_get_reads_explicit_plain_script_dictionary_variable(
 ):
     # #422: a plain non-exported script variable is addressable when explicitly
     # named, but it remains outside the unfiltered storage-property listing.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -521,10 +460,10 @@ def test_daemon_game_set_mutates_explicit_plain_script_dictionary_variable(
 ):
     # #422: script-variable writes are live-session state seeding only. A later
     # read in the same session observes the mutation; nothing is persisted.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -581,10 +520,10 @@ def test_daemon_game_set_preserves_json_container_integer_and_float_types(
 ):
     # #427 live-side parity: the mirrored harness coercion must preserve JSON
     # integer vs float values in the same session state that game get observes.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -621,10 +560,10 @@ def test_daemon_game_set_preserves_json_container_integer_and_float_types(
 def test_daemon_game_get_unknown_explicit_script_variable_reports_unknown_property(
     tmp_path, daemon_runtime_dir
 ):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -645,10 +584,10 @@ def test_daemon_game_get_unknown_explicit_script_variable_reports_unknown_proper
 def test_daemon_game_set_uncoercible_script_variable_reports_target_type(
     tmp_path, daemon_runtime_dir
 ):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -678,12 +617,12 @@ def test_daemon_game_set_uncoercible_script_variable_reports_target_type(
 def test_daemon_game_set_readonly_script_variable_reports_unverified_observed_value(
     tmp_path, daemon_runtime_dir
 ):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(
         READONLY_SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8"
     )
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -720,12 +659,12 @@ def test_daemon_game_set_readonly_script_variable_reports_unverified_observed_va
 def test_daemon_game_set_edge_trigger_reports_unverified_then_side_effect_is_readable(
     tmp_path, daemon_runtime_dir
 ):
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(
         EDGE_TRIGGER_SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8"
     )
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start")
@@ -758,35 +697,6 @@ def test_daemon_game_set_edge_trigger_reports_unverified_then_side_effect_is_rea
         run("daemon", "stop")
 
 
-def _gda(tmp_path, env, timeout=90):
-    """A `gda <args> --project <tmp> --godot <GODOT> --json` subprocess helper.
-
-    ``timeout`` defaults to 90s (the value every existing call site relied on
-    implicitly); a windowed session is heavier to launch, so callers that start
-    one pass a larger value (e.g. ``timeout=120``, matching the windowed e2e
-    tests elsewhere) instead of hand-rolling a near-duplicate of this helper.
-    """
-
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=timeout,
-        )
-
-    return run
-
-
 @pytest.mark.e2e
 def test_daemon_start_re_syncs_harness_after_a_version_bump(
     tmp_path, daemon_runtime_dir
@@ -797,9 +707,9 @@ def test_daemon_start_re_syncs_harness_after_a_version_bump(
     # stale value, stop the daemon, and start again. The second start must detect
     # the mismatch and re-materialize (harness_synced True), syncing the on-disk
     # version back to HARNESS_VERSION.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
     harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
 
     try:
@@ -837,9 +747,9 @@ def test_daemon_install_then_uninstall_is_paired_and_idempotent(
     # #225 D2: a real start installs the harness; with the daemon stopped,
     # `daemon uninstall` removes BOTH the [autoload] entry and the files (paired),
     # and a second uninstall is an idempotent no-op success.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
     harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
 
     try:
@@ -888,8 +798,8 @@ def test_daemon_round_trip_restores_the_project_it_started_from(
     # harness, its sidecar and `addons/` are deliberately NOT ignored, so any residue
     # shows up.
     project_godot = tmp_path / "project.godot"
-    project_godot.write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    project_godot.write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / ".gitignore").write_text(".godot/\n", encoding="utf-8")
     before = project_godot.read_bytes()
 
@@ -909,7 +819,7 @@ def test_daemon_round_trip_restores_the_project_it_started_from(
     assert committed.returncode == 0, committed.stdout + committed.stderr
     assert git("status", "--porcelain").stdout == ""  # a clean baseline to diff against
 
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
     harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
 
     try:
@@ -934,12 +844,7 @@ def test_daemon_round_trip_restores_the_project_it_started_from(
 
         # Now let the ENGINE scan the project, the way a human opening the editor on
         # it does. This is what writes the .uid sidecar next to the installed harness.
-        imported = subprocess.run(
-            [str(GODOT), "--headless", "--path", str(tmp_path), "--import"],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
+        imported = import_project(tmp_path)
         sidecar = harness.with_name(f"{HARNESS_FILE}.uid")
         assert sidecar.exists(), (
             "the engine did not write the .uid sidecar, so the removal assertions "
@@ -986,9 +891,9 @@ def test_daemon_uninstall_is_refused_while_running(tmp_path, daemon_runtime_dir)
     # #225 D2: uninstall is refused while a daemon is running — it would yank the
     # harness autoload out from under the live engine session. The CLI surfaces the
     # daemon_running error at the LIVE exit (6), and the install is untouched.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
     harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
 
     try:
@@ -1004,6 +909,7 @@ def test_daemon_uninstall_is_refused_while_running(tmp_path, daemon_runtime_dir)
 
 
 @pytest.mark.e2e
+@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
 def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runtime_dir):
     # #251: `daemon status` reports the running daemon's launch-time display mode,
     # read over STATUS_OP through the `gda` CLI, so an agent can tell whether a
@@ -1011,9 +917,9 @@ def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runti
     # `windowed` null (clean, hang-free fallback); a default start -> false; a
     # `--windowed` start -> true. The daemon records the mode at start; no engine
     # session is launched here (lazy launch, ADR-0017), so this needs no display.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
 
     # No daemon running yet: running False, windowed null.
     before = json.loads(run("daemon", "status").stdout)
@@ -1063,11 +969,11 @@ def test_daemon_start_scene_runs_the_chosen_scene_not_main(
     # scene B — `game tree` reports B's root (not Main's), proving the engine received
     # `--scene` (before `--path`) — and `project.godot`'s `main_scene` is UNCHANGED
     # (no mutation, F6-equivalent). With scenes A (main) + B present.
-    project_text = PROJECT_GODOT
+    project_text = LIVE_PROJECT_GODOT
     (tmp_path / "project.godot").write_text(project_text, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "B.tscn").write_text(B_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start", "--scene", "res://B.tscn")
@@ -1096,9 +1002,9 @@ def test_daemon_start_nonexistent_scene_is_typed_live_scene_not_found(
     # (LIVE exit 6) on the first live op — NEVER a silent fall back to main_scene.
     # Detected at launch by the harness (the loaded scene != the requested selector),
     # surfaced when the lazy launch is triggered by `game tree`.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start", "--scene", "res://does_not_exist.tscn")
@@ -1119,9 +1025,9 @@ def test_daemon_start_nonexistent_uid_is_typed_not_silent_main_scene(
     # to main_scene. Launch-time harness verification catches this — the loaded scene
     # (main) != the requested uid — and surfaces a typed `live_scene_not_found`, NOT a
     # silent success on main_scene.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
 
     try:
         started = run("daemon", "start", "--scene", "uid://doesnotexist000")
@@ -1141,10 +1047,10 @@ def test_daemon_start_scene_against_a_running_daemon_is_a_typed_refusal(
     # #278 review finding 3: `--scene` only takes effect at daemon START. Against a
     # daemon that is already running it is a typed `daemon_already_running` refusal,
     # NOT a silent no-op that quietly ignores the chosen scene.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "B.tscn").write_text(B_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start").returncode == 0
@@ -1164,11 +1070,11 @@ def test_scene_verified_once_at_launch_survives_deleting_the_file(
     # live session bound to scene B keeps serving B after B.tscn is deleted on disk —
     # the running game does not reload disk edits (ADR-0017/0020 session-bound state),
     # so a later `game tree` STILL reports B, not `live_scene_not_found`.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
-    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
     b_scene = tmp_path / "B.tscn"
     b_scene.write_text(B_TSCN, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     try:
         assert run("daemon", "start", "--scene", "res://B.tscn").returncode == 0
@@ -1244,10 +1150,10 @@ def test_daemon_serves_live_ops_while_scenetree_paused(tmp_path, daemon_runtime_
     # everywhere a daemon e2e runs — including CI's display-less godot-e2e job; the
     # `screen capture` leg needs a real DisplayServer and lives in the windowed-gated
     # test below instead.
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(PAUSE_PLAYER_GD, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ})
+    run = Gda(tmp_path, json_output=True)
 
     def ticker_ticks() -> int:
         got = run("game", "get", "/root/Main/Ticker", "--property", "ticks")
@@ -1311,6 +1217,7 @@ def test_daemon_serves_live_ops_while_scenetree_paused(tmp_path, daemon_runtime_
 
 
 @pytest.mark.e2e
+@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
 def test_daemon_serves_screen_capture_while_scenetree_paused(
     tmp_path, daemon_runtime_dir
 ):
@@ -1331,10 +1238,10 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
 
     require_windowed_host()
 
-    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(PAUSE_PLAYER_GD, encoding="utf-8")
-    run = _gda(tmp_path, {**os.environ}, timeout=120)
+    run = Gda(tmp_path, json_output=True, timeout=120)
 
     def ticker_ticks() -> int:
         got = run("game", "get", "/root/Main/Ticker", "--property", "ticks")

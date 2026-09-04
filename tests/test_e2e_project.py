@@ -12,24 +12,12 @@ the e2e fixture has none, so that surface is exercised as a no-op here.
 """
 
 import json
-import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
+from tests.support import Gda
 
 from .conftest import project_godot
-
-GODOT = resolve_godot_binary()
-
-
-def _gda(project, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [*GDA_CMD, *args, "--project", str(project), "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-    )
 
 
 # An [input] action holding a real InputEventKey Object literal — the exact
@@ -51,7 +39,7 @@ INPUT_ACTION_SECTION = (
 
 @pytest.mark.e2e
 def test_project_info_reports_metadata(godot_project):
-    info = _gda(godot_project, "project", "info", "--json")
+    info = Gda(godot_project)("project", "info", "--json")
 
     assert info.returncode == 0, info.stdout + info.stderr
     data = json.loads(info.stdout)
@@ -69,7 +57,7 @@ def test_project_info_reports_metadata(godot_project):
 
 @pytest.mark.e2e
 def test_project_get_reads_a_setting_as_typed_json(godot_project):
-    got = _gda(godot_project, "project", "get", "application/config/name", "--json")
+    got = Gda(godot_project)("project", "get", "application/config/name", "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     data = json.loads(got.stdout)
@@ -88,7 +76,7 @@ def test_project_get_input_action_projects_a_structured_dictionary(godot_project
         project_godot(extra=INPUT_ACTION_SECTION), encoding="utf-8"
     )
 
-    got = _gda(godot_project, "project", "get", "input/fire", "--json")
+    got = Gda(godot_project)("project", "get", "input/fire", "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     data = json.loads(got.stdout)
@@ -119,7 +107,7 @@ def test_project_get_packed_string_array_setting_projects_a_json_list(godot_proj
         encoding="utf-8",
     )
 
-    got = _gda(godot_project, "project", "get", "gda/tags", "--json")
+    got = Gda(godot_project)("project", "get", "gda/tags", "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     data = json.loads(got.stdout)
@@ -132,8 +120,7 @@ def test_project_set_coerces_persists_and_round_trips_via_get(godot_project):
     # The CLI value is a STRING; the operation coerces it to the setting's declared
     # int type, saves project.godot, and the result reports the coerced int (#55
     # coercion reused). A second get reads it back from the saved file.
-    was_set = _gda(
-        godot_project,
+    was_set = Gda(godot_project)(
         "project",
         "set",
         "display/window/size/viewport_width",
@@ -150,14 +137,14 @@ def test_project_set_coerces_persists_and_round_trips_via_get(godot_project):
     assert set_data["value"] == 1920
 
     # Round-trip: a fresh process reads the persisted value back from project.godot.
-    got = _gda(
-        godot_project, "project", "get", "display/window/size/viewport_width", "--json"
+    got = Gda(godot_project)(
+        "project", "get", "display/window/size/viewport_width", "--json"
     )
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["value"] == 1920
 
     # And project info reflects the saved viewport width.
-    info = _gda(godot_project, "project", "info", "--json")
+    info = Gda(godot_project)("project", "info", "--json")
     assert info.returncode == 0, info.stdout + info.stderr
     assert json.loads(info.stdout)["viewport_width"] == 1920
 
@@ -172,8 +159,7 @@ def test_project_set_preserves_json_container_integer_and_float_types(godot_proj
         encoding="utf-8",
     )
 
-    was_set = _gda(
-        godot_project,
+    was_set = Gda(godot_project)(
         "project",
         "set",
         "gda/stats",
@@ -189,7 +175,7 @@ def test_project_set_preserves_json_container_integer_and_float_types(godot_proj
     assert type(set_value["items"][0]) is int
     assert type(set_value["items"][1]) is float
 
-    got = _gda(godot_project, "project", "get", "gda/stats", "--json")
+    got = Gda(godot_project)("project", "get", "gda/stats", "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     got_value = json.loads(got.stdout)["value"]
     assert type(got_value["a"]) is int
@@ -201,8 +187,7 @@ def test_project_set_preserves_json_container_integer_and_float_types(godot_proj
 @pytest.mark.e2e
 def test_project_set_string_setting_round_trips(godot_project):
     # A String-typed setting takes the CLI value verbatim and round-trips.
-    was_set = _gda(
-        godot_project,
+    was_set = Gda(godot_project)(
         "project",
         "set",
         "application/config/name",
@@ -213,7 +198,7 @@ def test_project_set_string_setting_round_trips(godot_project):
     assert was_set.returncode == 0, was_set.stdout + was_set.stderr
     assert json.loads(was_set.stdout)["value"] == "Renamed Game"
 
-    got = _gda(godot_project, "project", "get", "application/config/name", "--json")
+    got = Gda(godot_project)("project", "get", "application/config/name", "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["value"] == "Renamed Game"
 
@@ -223,7 +208,7 @@ def test_project_list_bare_reports_only_customized_settings(godot_project):
     # A bare list reports only the settings the fixture's project.godot actually
     # writes (customized), each as {setting, type, value, is_default} with
     # is_default false — NOT the hundreds of engine built-in defaults.
-    listed = _gda(godot_project, "project", "list", "--json")
+    listed = Gda(godot_project)("project", "list", "--json")
 
     assert listed.returncode == 0, listed.stdout + listed.stderr
     settings = json.loads(listed.stdout)["settings"]
@@ -248,7 +233,7 @@ def test_project_list_all_includes_engine_defaults(godot_project):
     # --all widens the listing to the engine's built-in defaults too, so a setting
     # the project never customized appears, flagged is_default true, alongside the
     # customized ones (is_default false).
-    listed = _gda(godot_project, "project", "list", "--all", "--json")
+    listed = Gda(godot_project)("project", "list", "--all", "--json")
 
     assert listed.returncode == 0, listed.stdout + listed.stderr
     settings = json.loads(listed.stdout)["settings"]
@@ -273,8 +258,7 @@ def test_project_list_all_includes_engine_defaults(godot_project):
 def test_project_list_section_filters_to_a_prefix_and_composes_with_all(godot_project):
     # --section restricts to keys under a section/ prefix; with --all it scopes the
     # engine defaults to that section too.
-    listed = _gda(
-        godot_project,
+    listed = Gda(godot_project)(
         "project",
         "list",
         "--all",
@@ -299,7 +283,7 @@ def test_project_list_section_filters_to_a_prefix_and_composes_with_all(godot_pr
 def test_project_list_entry_round_trips_through_project_get(godot_project):
     # A listed entry reports the SAME {type, value} projection project get reports
     # for that key — so an agent can list to discover, then get to read one.
-    listed = _gda(godot_project, "project", "list", "--all", "--json")
+    listed = Gda(godot_project)("project", "list", "--all", "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     entry = next(
         e
@@ -307,8 +291,8 @@ def test_project_list_entry_round_trips_through_project_get(godot_project):
         if e["setting"] == "display/window/size/viewport_width"
     )
 
-    got = _gda(
-        godot_project, "project", "get", "display/window/size/viewport_width", "--json"
+    got = Gda(godot_project)(
+        "project", "get", "display/window/size/viewport_width", "--json"
     )
     assert got.returncode == 0, got.stdout + got.stderr
     got_data = json.loads(got.stdout)
@@ -321,12 +305,7 @@ def test_project_list_without_project_is_a_clean_error():
     # Projectless: ProjectSettings would report only the engine's bare defaults,
     # not the agent's project, so it is refused with project_not_found (exit 4),
     # consistent with the rest of the project group.
-    proc = subprocess.run(
-        [*GDA_CMD, "project", "list", "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-        cwd="/tmp",
-    )
+    proc = Gda()("project", "list", "--json", cwd="/tmp")
 
     assert proc.returncode == 4
     err = json.loads(proc.stdout)["error"]
@@ -335,7 +314,7 @@ def test_project_list_without_project_is_a_clean_error():
 
 @pytest.mark.e2e
 def test_project_get_unknown_setting_is_a_clean_error(godot_project):
-    got = _gda(godot_project, "project", "get", "application/bogus/key", "--json")
+    got = Gda(godot_project)("project", "get", "application/bogus/key", "--json")
 
     assert got.returncode == 4
     err = json.loads(got.stdout)["error"]
@@ -348,8 +327,7 @@ def test_project_get_unknown_setting_is_a_clean_error(godot_project):
 def test_project_set_uncoercible_value_is_a_clean_error(godot_project):
     # An int setting cannot take a non-numeric string — uncoercible_value (#55),
     # exit 4, project.godot left untouched.
-    bad = _gda(
-        godot_project,
+    bad = Gda(godot_project)(
         "project",
         "set",
         "display/window/size/viewport_width",
@@ -364,8 +342,8 @@ def test_project_set_uncoercible_value_is_a_clean_error(godot_project):
     assert err["code"] == "uncoercible_value"
 
     # The file was untouched: a subsequent get still returns the original value.
-    got = _gda(
-        godot_project, "project", "get", "display/window/size/viewport_width", "--json"
+    got = Gda(godot_project)(
+        "project", "get", "display/window/size/viewport_width", "--json"
     )
     assert got.returncode == 0, got.stdout + got.stderr
 
@@ -375,8 +353,7 @@ def test_project_add_autoload_registers_persists_and_round_trips(godot_project):
     # A real script to autoload must exist in the project (path_not_found otherwise).
     (godot_project / "global.gd").write_text("extends Node\n", encoding="utf-8")
 
-    added = _gda(
-        godot_project,
+    added = Gda(godot_project)(
         "project",
         "add-autoload",
         "Global",
@@ -391,7 +368,7 @@ def test_project_add_autoload_registers_persists_and_round_trips(godot_project):
     assert add_data["path"] == "*res://global.gd"
 
     # Round-trip: a fresh process reads the autoload back from project.godot via get.
-    got = _gda(godot_project, "project", "get", "autoload/Global", "--json")
+    got = Gda(godot_project)("project", "get", "autoload/Global", "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     got_data = json.loads(got.stdout)
     assert got_data["setting"] == "autoload/Global"
@@ -401,18 +378,18 @@ def test_project_add_autoload_registers_persists_and_round_trips(godot_project):
 @pytest.mark.e2e
 def test_project_remove_autoload_unregisters_and_round_trips(godot_project):
     (godot_project / "global.gd").write_text("extends Node\n", encoding="utf-8")
-    added = _gda(
-        godot_project, "project", "add-autoload", "Global", "res://global.gd", "--json"
+    added = Gda(godot_project)(
+        "project", "add-autoload", "Global", "res://global.gd", "--json"
     )
     assert added.returncode == 0, added.stdout + added.stderr
 
-    removed = _gda(godot_project, "project", "remove-autoload", "Global", "--json")
+    removed = Gda(godot_project)("project", "remove-autoload", "Global", "--json")
     assert removed.returncode == 0, removed.stdout + removed.stderr
     assert json.loads(removed.stdout) == {"name": "Global"}
 
     # Round-trip: the autoload is gone from project.godot — a fresh get reports it
     # as an unknown setting, exit 4.
-    got = _gda(godot_project, "project", "get", "autoload/Global", "--json")
+    got = Gda(godot_project)("project", "get", "autoload/Global", "--json")
     assert got.returncode == 4, got.stdout + got.stderr
     assert json.loads(got.stdout)["error"]["code"] == "unknown_setting"
 
@@ -420,13 +397,13 @@ def test_project_remove_autoload_unregisters_and_round_trips(godot_project):
 @pytest.mark.e2e
 def test_project_add_autoload_duplicate_name_is_a_clean_error(godot_project):
     (godot_project / "global.gd").write_text("extends Node\n", encoding="utf-8")
-    first = _gda(
-        godot_project, "project", "add-autoload", "Global", "res://global.gd", "--json"
+    first = Gda(godot_project)(
+        "project", "add-autoload", "Global", "res://global.gd", "--json"
     )
     assert first.returncode == 0, first.stdout + first.stderr
 
-    dup = _gda(
-        godot_project, "project", "add-autoload", "Global", "res://global.gd", "--json"
+    dup = Gda(godot_project)(
+        "project", "add-autoload", "Global", "res://global.gd", "--json"
     )
     assert dup.returncode == 4
     err = json.loads(dup.stdout)["error"]
@@ -434,7 +411,7 @@ def test_project_add_autoload_duplicate_name_is_a_clean_error(godot_project):
     assert err["code"] == "already_exists"
 
     # The original registration is untouched: a get still reads it back.
-    got = _gda(godot_project, "project", "get", "autoload/Global", "--json")
+    got = Gda(godot_project)("project", "get", "autoload/Global", "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["value"] == "*res://global.gd"
 
@@ -442,8 +419,7 @@ def test_project_add_autoload_duplicate_name_is_a_clean_error(godot_project):
 @pytest.mark.e2e
 def test_project_add_autoload_missing_target_is_a_clean_error(godot_project):
     # The target script/scene does not exist — path_not_found, exit 4, nothing saved.
-    bad = _gda(
-        godot_project,
+    bad = Gda(godot_project)(
         "project",
         "add-autoload",
         "Global",
@@ -457,14 +433,14 @@ def test_project_add_autoload_missing_target_is_a_clean_error(godot_project):
     assert err["code"] == "path_not_found"
 
     # Nothing was registered: a get reports the autoload as unknown.
-    got = _gda(godot_project, "project", "get", "autoload/Global", "--json")
+    got = Gda(godot_project)("project", "get", "autoload/Global", "--json")
     assert got.returncode == 4
     assert json.loads(got.stdout)["error"]["code"] == "unknown_setting"
 
 
 @pytest.mark.e2e
 def test_project_remove_autoload_unknown_name_is_a_clean_error(godot_project):
-    bad = _gda(godot_project, "project", "remove-autoload", "Nonexistent", "--json")
+    bad = Gda(godot_project)("project", "remove-autoload", "Nonexistent", "--json")
 
     assert bad.returncode == 4
     err = json.loads(bad.stdout)["error"]
@@ -491,8 +467,7 @@ def test_project_add_input_action_persists_var_to_str_form_and_reports_keycodes(
     # section with real Object(InputEventKey, ...) literals (issue #380). The
     # stored-value SHAPE via `project get` is deliberately NOT asserted here (the
     # read-side projection of a compound setting is #381, independent).
-    added = _gda(
-        godot_project,
+    added = Gda(godot_project)(
         "project",
         "add-input-action",
         "jump",
@@ -531,8 +506,7 @@ def test_project_add_input_action_persists_var_to_str_form_and_reports_keycodes(
 def test_project_add_input_action_physical_binds_physical_keycode(godot_project):
     # --physical binds the keyboard POSITION: the persisted event carries the
     # keycode in physical_keycode, and the layout keycode stays unset (0).
-    added = _gda(
-        godot_project,
+    added = Gda(godot_project)(
         "project",
         "add-input-action",
         "move_up",
@@ -557,14 +531,14 @@ def test_project_add_input_action_physical_binds_physical_keycode(godot_project)
 
 @pytest.mark.e2e
 def test_project_add_input_action_duplicate_name_is_a_clean_error(godot_project):
-    first = _gda(
-        godot_project, "project", "add-input-action", "fire", "--key", "F", "--json"
+    first = Gda(godot_project)(
+        "project", "add-input-action", "fire", "--key", "F", "--json"
     )
     assert first.returncode == 0, first.stdout + first.stderr
     before = _normalized_project_godot(godot_project)
 
-    dup = _gda(
-        godot_project, "project", "add-input-action", "fire", "--key", "J", "--json"
+    dup = Gda(godot_project)(
+        "project", "add-input-action", "fire", "--key", "J", "--json"
     )
     assert dup.returncode == 4
     err = json.loads(dup.stdout)["error"]
@@ -577,8 +551,7 @@ def test_project_add_input_action_duplicate_name_is_a_clean_error(godot_project)
 
 @pytest.mark.e2e
 def test_project_add_input_action_unknown_key_is_a_clean_error(godot_project):
-    bad = _gda(
-        godot_project,
+    bad = Gda(godot_project)(
         "project",
         "add-input-action",
         "jump",
@@ -599,12 +572,12 @@ def test_project_add_input_action_unknown_key_is_a_clean_error(godot_project):
 
 @pytest.mark.e2e
 def test_project_remove_input_action_unregisters_and_persists(godot_project):
-    added = _gda(
-        godot_project, "project", "add-input-action", "jump", "--key", "J", "--json"
+    added = Gda(godot_project)(
+        "project", "add-input-action", "jump", "--key", "J", "--json"
     )
     assert added.returncode == 0, added.stdout + added.stderr
 
-    removed = _gda(godot_project, "project", "remove-input-action", "jump", "--json")
+    removed = Gda(godot_project)("project", "remove-input-action", "jump", "--json")
     assert removed.returncode == 0, removed.stdout + removed.stderr
     assert json.loads(removed.stdout) == {"name": "jump"}
 
@@ -616,7 +589,7 @@ def test_project_remove_input_action_unregisters_and_persists(godot_project):
 
 @pytest.mark.e2e
 def test_project_remove_input_action_unknown_name_is_a_clean_error(godot_project):
-    bad = _gda(godot_project, "project", "remove-input-action", "nonexistent", "--json")
+    bad = Gda(godot_project)("project", "remove-input-action", "nonexistent", "--json")
 
     assert bad.returncode == 4
     err = json.loads(bad.stdout)["error"]
@@ -629,12 +602,7 @@ def test_project_remove_input_action_unknown_name_is_a_clean_error(godot_project
 def test_project_info_without_project_is_a_clean_error():
     # Projectless: ProjectSettings would report only the engine's bare defaults,
     # not the agent's project, so it is refused with project_not_found.
-    proc = subprocess.run(
-        [*GDA_CMD, "project", "info", "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-        cwd="/tmp",
-    )
+    proc = Gda()("project", "info", "--json", cwd="/tmp")
 
     assert proc.returncode == 4
     err = json.loads(proc.stdout)["error"]

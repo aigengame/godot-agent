@@ -14,51 +14,12 @@ import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
 from gda.runner import OPERATIONS_GD
-
-from tests.support import GDA_CMD
+from tests.support import GODOT, Gda, assert_operation_error
 
 from .conftest import project_godot
 
-GODOT = resolve_godot_binary()
-
-
-def _gda(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [*GDA_CMD, *args, "--godot", str(GODOT)], capture_output=True, text=True
-    )
-
-
-def _gda_project(project):
-    """A ``_gda`` bound to ``--project`` for res:// enumeration/resolution."""
-
-    def gda(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
-            capture_output=True,
-            text=True,
-        )
-
-    return gda
-
-
-def _gda_env(extra_env: dict, *args: str) -> subprocess.CompletedProcess:
-    """``_gda`` with extra env vars in the child's environment (issue #226 seam)."""
-    return subprocess.run(
-        [*GDA_CMD, *args, "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-        env={**os.environ, **extra_env},
-    )
-
-
-def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
-    assert proc.returncode == 4, proc.stdout + proc.stderr
-    err = json.loads(proc.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == code
-    return err
+gda = Gda()
 
 
 @pytest.mark.e2e
@@ -67,7 +28,7 @@ def test_script_create_default_template_then_get_round_trip(godot_project):
     # source on disk IS what get reports — the round-trip proves the write.
     script_path = godot_project / "actor.gd"
 
-    created = _gda("script", "create", str(script_path), "--json")
+    created = gda("script", "create", str(script_path), "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
@@ -76,7 +37,7 @@ def test_script_create_default_template_then_get_round_trip(godot_project):
     assert data["class_name"] is None
     assert script_path.exists()
 
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     got_data = json.loads(got.stdout)
@@ -93,14 +54,12 @@ def test_script_create_with_extends_parameterizes_the_template(godot_project):
     # --root-type), and get reports it back from the parsed source.
     script_path = godot_project / "sprite.gd"
 
-    created = _gda(
-        "script", "create", str(script_path), "--extends", "Node2D", "--json"
-    )
+    created = gda("script", "create", str(script_path), "--extends", "Node2D", "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["extends"] == "Node2D"
 
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["extends"] == "Node2D"
 
@@ -115,14 +74,14 @@ def test_script_create_with_content_round_trips_verbatim_source_and_metadata(
     script_path = godot_project / "hero.gd"
     source = "class_name Hero\nextends Node2D\n\nvar speed := 100\n"
 
-    created = _gda("script", "create", str(script_path), "--content", source, "--json")
+    created = gda("script", "create", str(script_path), "--content", source, "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     create_data = json.loads(created.stdout)
     assert create_data["class_name"] == "Hero"
     assert create_data["extends"] == "Node2D"
 
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     got_data = json.loads(got.stdout)
@@ -136,8 +95,7 @@ def test_script_create_resolves_res_path_against_the_project(godot_project):
     # Script-file addressing via res:// resolves against --project, exactly like
     # scene create (issue #32): the script lands inside the project and reads
     # back through res://.
-    def gda(*args: str) -> subprocess.CompletedProcess:
-        return _gda(*args, "--project", str(godot_project))
+    gda = Gda(godot_project)
 
     created = gda("script", "create", "res://hero.gd", "--extends", "Node2D", "--json")
 
@@ -155,7 +113,7 @@ def test_script_create_creates_missing_parent_directories(godot_project):
     # in created_dirs from outermost to innermost.
     script_path = godot_project / "actors" / "enemies" / "goblin.gd"
 
-    created = _gda("script", "create", str(script_path), "--json")
+    created = gda("script", "create", str(script_path), "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     assert script_path.exists()
@@ -172,14 +130,18 @@ def test_script_create_existing_path_yields_already_exists_without_overwriting(
     # No-clobber: a second create on the same path is refused with already_exists
     # and the original content is left untouched.
     script_path = godot_project / "hero.gd"
-    _gda("script", "create", str(script_path), "--extends", "Node2D", "--json")
+    gda("script", "create", str(script_path), "--extends", "Node2D", "--json")
     before = script_path.read_text(encoding="utf-8")
 
-    again = _gda(
-        "script", "create", str(script_path), "--extends", "Sprite2D", "--json"
+    err = gda.error(
+        "script",
+        "create",
+        str(script_path),
+        "--extends",
+        "Sprite2D",
+        "--json",
+        code="already_exists",
     )
-
-    err = _assert_operation_error(again, "already_exists")
     assert str(script_path) in err["message"]
     assert script_path.read_text(encoding="utf-8") == before
 
@@ -190,9 +152,7 @@ def test_script_create_wrong_extension_yields_invalid_path(godot_project):
     # written.
     target = godot_project / "notes.txt"
 
-    created = _gda("script", "create", str(target), "--json")
-
-    err = _assert_operation_error(created, "invalid_path")
+    err = gda.error("script", "create", str(target), "--json", code="invalid_path")
     assert ".gd" in err["message"]
     assert str(target) in err["message"]
     assert not target.exists()
@@ -206,9 +166,7 @@ def test_script_create_cs_extension_is_refused(godot_project):
     # opaque text.
     target = godot_project / "Player.cs"
 
-    created = _gda("script", "create", str(target), "--json")
-
-    err = _assert_operation_error(created, "invalid_path")
+    err = gda.error("script", "create", str(target), "--json", code="invalid_path")
     assert ".gd" in err["message"]
     assert str(target) in err["message"]
     assert not target.exists()
@@ -218,9 +176,7 @@ def test_script_create_cs_extension_is_refused(godot_project):
 def test_script_get_missing_file_yields_path_not_found(godot_project):
     missing = godot_project / "nope.gd"
 
-    got = _gda("script", "get", str(missing), "--json")
-
-    err = _assert_operation_error(got, "path_not_found")
+    err = gda.error("script", "get", str(missing), "--json", code="path_not_found")
     assert str(missing) in err["message"]
 
 
@@ -237,11 +193,11 @@ def test_script_get_unreadable_file_is_path_not_found_not_empty_source(godot_pro
     locked.write_text("extends Node\n", encoding="utf-8")
     locked.chmod(0o000)
     try:
-        got = _gda("script", "get", str(locked), "--json")
+        got = gda("script", "get", str(locked), "--json")
     finally:
         locked.chmod(0o600)
 
-    err = _assert_operation_error(got, "path_not_found")
+    err = assert_operation_error(got, "path_not_found")
     assert str(locked) in err["message"]
     assert "could not be read" in err["message"]
 
@@ -251,9 +207,7 @@ def test_script_get_wrong_extension_yields_invalid_path(godot_project):
     notes = godot_project / "notes.txt"
     notes.write_text("not a script\n", encoding="utf-8")
 
-    got = _gda("script", "get", str(notes), "--json")
-
-    err = _assert_operation_error(got, "invalid_path")
+    err = gda.error("script", "get", str(notes), "--json", code="invalid_path")
     assert ".gd" in err["message"]
     assert str(notes) in err["message"]
 
@@ -267,12 +221,12 @@ def test_script_create_then_get_preserves_a_path_containing_the_end_sentinel(
     # sentinel must round-trip, not truncate into a parse error.
     script_path = godot_project / "weird<<<GDA:END>>>name.gd"
 
-    created = _gda("script", "create", str(script_path), "--json")
+    created = gda("script", "create", str(script_path), "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["path"] == str(script_path)
 
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["source"] == "extends Node\n"
 
@@ -294,14 +248,14 @@ def test_script_get_parses_metadata_past_a_leading_annotation_header(godot_proje
         "\tpass\n"
     )
 
-    created = _gda("script", "create", str(script_path), "--content", source, "--json")
+    created = gda("script", "create", str(script_path), "--content", source, "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     create_data = json.loads(created.stdout)
     assert create_data["class_name"] == "Widget"
     assert create_data["extends"] == "Control"
 
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     got_data = json.loads(got.stdout)
     assert got_data["class_name"] == "Widget"
@@ -321,14 +275,14 @@ def test_script_get_does_not_mistake_declaration_shaped_body_text_for_metadata(
         'extends Node\n\nvar doc := """\nclass_name Injected\nextends Injected\n"""\n'
     )
 
-    created = _gda("script", "create", str(script_path), "--content", source, "--json")
+    created = gda("script", "create", str(script_path), "--content", source, "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     create_data = json.loads(created.stdout)
     assert create_data["extends"] == "Node"
     assert create_data["class_name"] is None
 
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     got_data = json.loads(got.stdout)
     assert got_data["source"] == source
@@ -345,12 +299,12 @@ def test_script_get_keeps_a_quoted_base_class_path_intact(godot_project):
     script_path = godot_project / "derived.gd"
     source = 'extends "res://weapons/a#b.gd"\n'
 
-    created = _gda("script", "create", str(script_path), "--content", source, "--json")
+    created = gda("script", "create", str(script_path), "--content", source, "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["extends"] == '"res://weapons/a#b.gd"'
 
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["extends"] == '"res://weapons/a#b.gd"'
 
@@ -361,7 +315,7 @@ def test_script_list_enumerates_created_scripts(godot_project):
     # res://: two scripts created at different depths both appear, each with its
     # res:// path and the class_name/extends parsed from raw source. The listing
     # IS the structured-level verification of what script create wrote.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     assert (
         gda(
@@ -396,7 +350,7 @@ def test_script_list_enumerates_created_scripts(godot_project):
 def test_script_list_on_empty_project_is_an_empty_listing(godot_project):
     # A project with no scripts is a valid, empty listing — not an error (the
     # res://.godot import cache must not leak in as a phantom script).
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
     listed = gda("script", "list", "--json")
 
@@ -409,14 +363,8 @@ def test_script_list_without_project_yields_project_not_found(tmp_path):
     # script list cannot enumerate res:// projectless: run from a non-project
     # directory with no --project, it must refuse with the structured
     # project_not_found code rather than return a misleading empty listing.
-    listed = subprocess.run(
-        [*GDA_CMD, "script", "list", "--json", "--godot", str(GODOT)],
-        capture_output=True,
-        text=True,
-        cwd=str(tmp_path),
-    )
+    err = gda.error("script", "list", "--json", cwd=tmp_path, code="project_not_found")
 
-    err = _assert_operation_error(listed, "project_not_found")
     assert "--project" in err["message"]
 
 
@@ -426,7 +374,7 @@ def test_script_delete_removes_a_script_and_names_what_was_removed(godot_project
     # script's metadata. The round-trip verifier: script list before shows the
     # script, delete reports the removed class_name/extends, and script list
     # after no longer shows it.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "script",
@@ -459,9 +407,7 @@ def test_script_delete_removes_a_script_and_names_what_was_removed(godot_project
 def test_script_delete_missing_file_yields_path_not_found(godot_project):
     missing = godot_project / "nope.gd"
 
-    deleted = _gda("script", "delete", str(missing), "--json")
-
-    err = _assert_operation_error(deleted, "path_not_found")
+    err = gda.error("script", "delete", str(missing), "--json", code="path_not_found")
     assert str(missing) in err["message"]
 
 
@@ -473,9 +419,7 @@ def test_script_delete_wrong_extension_yields_invalid_path_and_leaves_it(godot_p
     notes = godot_project / "notes.txt"
     notes.write_text("not a script\n", encoding="utf-8")
 
-    deleted = _gda("script", "delete", str(notes), "--json")
-
-    err = _assert_operation_error(deleted, "invalid_path")
+    err = gda.error("script", "delete", str(notes), "--json", code="invalid_path")
     assert ".gd" in err["message"]
     assert str(notes) in err["message"]
     # The non-script file survives the refusal.
@@ -489,7 +433,7 @@ def test_script_set_search_replace_edits_in_place_and_round_trips_via_get(
     # search-replace mode (issue #118): every literal occurrence of --search is
     # replaced with --replace; script get round-trips the edited source on disk.
     script_path = godot_project / "hero.gd"
-    _gda(
+    gda(
         "script",
         "create",
         str(script_path),
@@ -498,7 +442,7 @@ def test_script_set_search_replace_edits_in_place_and_round_trips_via_get(
         "--json",
     )
 
-    edited = _gda(
+    edited = gda(
         "script",
         "set",
         str(script_path),
@@ -511,7 +455,7 @@ def test_script_set_search_replace_edits_in_place_and_round_trips_via_get(
 
     assert edited.returncode == 0, edited.stdout + edited.stderr
     assert json.loads(edited.stdout)["extends"] == "Node2D"
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     # Both occurrences replaced; the edited source IS what get reports.
     assert json.loads(got.stdout)["source"] == "extends Node2D\nvar a := Node2D\n"
@@ -529,7 +473,7 @@ def test_script_set_with_external_edit_in_window_yields_file_changed_externally(
     # blind write would clobber the external edit. The production-inert seam
     # (GDA_TEST_PERTURB_BEFORE_SAVE) simulates that edit, and the guard refuses.
     script_path = godot_project / "hero.gd"
-    _gda(
+    gda(
         "script",
         "create",
         str(script_path),
@@ -538,8 +482,7 @@ def test_script_set_with_external_edit_in_window_yields_file_changed_externally(
         "--json",
     )
 
-    edited = _gda_env(
-        {"GDA_TEST_PERTURB_BEFORE_SAVE": "1"},
+    err = gda.error(
         "script",
         "set",
         str(script_path),
@@ -548,9 +491,9 @@ def test_script_set_with_external_edit_in_window_yields_file_changed_externally(
         "--replace",
         "2",
         "--json",
+        extra_env={"GDA_TEST_PERTURB_BEFORE_SAVE": "1"},
+        code="file_changed_externally",
     )
-
-    err = _assert_operation_error(edited, "file_changed_externally")
     assert str(script_path) in err["message"]
 
     # The edit did NOT land: the original "var a := 1" is still present (the seam only
@@ -564,7 +507,7 @@ def test_script_set_line_range_replaces_the_span_and_round_trips_via_get(godot_p
     # line-range mode: replace lines 2..3 (1-based, inclusive) with new content;
     # the rest of the file is untouched. Lines are the parts split on "\n".
     script_path = godot_project / "actor.gd"
-    _gda(
+    gda(
         "script",
         "create",
         str(script_path),
@@ -573,7 +516,7 @@ def test_script_set_line_range_replaces_the_span_and_round_trips_via_get(godot_p
         "--json",
     )
 
-    edited = _gda(
+    edited = gda(
         "script",
         "set",
         str(script_path),
@@ -587,7 +530,7 @@ def test_script_set_line_range_replaces_the_span_and_round_trips_via_get(godot_p
     )
 
     assert edited.returncode == 0, edited.stdout + edited.stderr
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["source"] == (
         "extends Node\nvar x := 9\nfunc f(): pass\n"
@@ -598,7 +541,7 @@ def test_script_set_line_range_replaces_the_span_and_round_trips_via_get(godot_p
 def test_script_set_line_range_defaults_end_to_start_for_a_single_line(godot_project):
     # --end-line defaults to --start-line: a single-line replace.
     script_path = godot_project / "single.gd"
-    _gda(
+    gda(
         "script",
         "create",
         str(script_path),
@@ -607,7 +550,7 @@ def test_script_set_line_range_defaults_end_to_start_for_a_single_line(godot_pro
         "--json",
     )
 
-    edited = _gda(
+    edited = gda(
         "script",
         "set",
         str(script_path),
@@ -619,7 +562,7 @@ def test_script_set_line_range_defaults_end_to_start_for_a_single_line(godot_pro
     )
 
     assert edited.returncode == 0, edited.stdout + edited.stderr
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
     assert json.loads(got.stdout)["source"] == "extends Node\nvar a := 99\nvar b := 2\n"
 
 
@@ -631,7 +574,7 @@ def test_script_set_line_range_preserves_crlf_line_endings(godot_project):
     script_path = godot_project / "crlf.gd"
     script_path.write_bytes(b"extends Node\r\nvar a := 1\r\nvar b := 2\r\n")
 
-    edited = _gda(
+    edited = gda(
         "script",
         "set",
         str(script_path),
@@ -653,16 +596,16 @@ def test_script_set_full_overwrites_the_whole_file_and_round_trips_via_get(
 ):
     # full mode: --content with no --start-line overwrites the entire file.
     script_path = godot_project / "full.gd"
-    _gda("script", "create", str(script_path), "--content", "extends Node\n", "--json")
+    gda("script", "create", str(script_path), "--content", "extends Node\n", "--json")
 
     new_source = "class_name Hero\nextends Node2D\n\nvar speed := 100\n"
-    edited = _gda("script", "set", str(script_path), "--content", new_source, "--json")
+    edited = gda("script", "set", str(script_path), "--content", new_source, "--json")
 
     assert edited.returncode == 0, edited.stdout + edited.stderr
     data = json.loads(edited.stdout)
     assert data["class_name"] == "Hero"
     assert data["extends"] == "Node2D"
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
     assert json.loads(got.stdout)["source"] == new_source
 
 
@@ -671,10 +614,10 @@ def test_script_set_no_search_match_is_refused_and_leaves_file_untouched(godot_p
     # A search string the source does not contain is refused with no_search_match
     # and the file is left exactly as it was — the edit landed nowhere.
     script_path = godot_project / "hero.gd"
-    _gda("script", "create", str(script_path), "--content", "extends Node\n", "--json")
+    gda("script", "create", str(script_path), "--content", "extends Node\n", "--json")
     before = script_path.read_text(encoding="utf-8")
 
-    edited = _gda(
+    gda.error(
         "script",
         "set",
         str(script_path),
@@ -683,9 +626,8 @@ def test_script_set_no_search_match_is_refused_and_leaves_file_untouched(godot_p
         "--replace",
         "Node2D",
         "--json",
+        code="no_search_match",
     )
-
-    _assert_operation_error(edited, "no_search_match")
     assert script_path.read_text(encoding="utf-8") == before
 
 
@@ -696,7 +638,7 @@ def test_script_set_out_of_bounds_line_range_is_refused_and_leaves_file_untouche
     # A line range past the file's bounds is refused with invalid_line_range and
     # the file is left untouched.
     script_path = godot_project / "hero.gd"
-    _gda(
+    gda(
         "script",
         "create",
         str(script_path),
@@ -706,7 +648,7 @@ def test_script_set_out_of_bounds_line_range_is_refused_and_leaves_file_untouche
     )
     before = script_path.read_text(encoding="utf-8")
 
-    edited = _gda(
+    gda.error(
         "script",
         "set",
         str(script_path),
@@ -715,9 +657,8 @@ def test_script_set_out_of_bounds_line_range_is_refused_and_leaves_file_untouche
         "--content",
         "var x := 0",
         "--json",
+        code="invalid_line_range",
     )
-
-    _assert_operation_error(edited, "invalid_line_range")
     assert script_path.read_text(encoding="utf-8") == before
 
 
@@ -727,11 +668,15 @@ def test_script_set_missing_file_yields_path_not_found(godot_project):
     # silent create.
     missing = godot_project / "nope.gd"
 
-    edited = _gda(
-        "script", "set", str(missing), "--content", "extends Node\n", "--json"
+    err = gda.error(
+        "script",
+        "set",
+        str(missing),
+        "--content",
+        "extends Node\n",
+        "--json",
+        code="path_not_found",
     )
-
-    err = _assert_operation_error(edited, "path_not_found")
     assert str(missing) in err["message"]
     assert not missing.exists()
 
@@ -749,7 +694,7 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(godot_pr
     # lives in one, so validating it without naming it is now refused. The genuinely
     # projectless arm — a loose `.gd` no project.godot claims — is
     # `tests/test_e2e_res_containment.py`.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     script_path = godot_project / "ok.gd"
     gda(
         "script",
@@ -778,7 +723,7 @@ def test_script_validate_accepts_both_path_forms(godot_project, form):
     # (see tests/test_e2e_script_run.py). Pinned here so the shared representation is
     # a guarded contract on BOTH commands rather than an accident of this build —
     # the property that lets an agent address a script once and use it for either.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     (godot_project / "ok.gd").write_text("extends Node\n", encoding="utf-8")
 
     validated = gda("script", "validate", form, "--json")
@@ -795,7 +740,7 @@ def test_script_validate_broken_script_is_success_with_a_real_diagnostic(godot_p
     # op (exit 0) reporting valid=false, and at least one diagnostic with a real
     # `line` and non-empty `message` — proving the stderr-parsing regex against
     # the REAL engine output, not a fixture.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     script_path = godot_project / "broken.gd"
     # `var x =` with no initializer is a parse error the engine reports on its line.
     gda(
@@ -833,7 +778,7 @@ def test_script_validate_relative_preload_resolves_at_the_real_res_path(godot_pr
     # so the dependent script is valid=true under --project — not a false negative
     # from compiling an anonymous in-memory GDScript that has no res:// location to
     # resolve the relative reference against.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "script",
@@ -876,7 +821,7 @@ def test_script_validate_broken_script_under_project_still_reports_diagnostics(
     # reporting valid=false, and the stderr-parsed line/message diagnostic still
     # works under --project (the reload frame now names the real res:// path, which
     # the diagnostics parser pairs exactly as before).
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     # `var x =` with no initializer is a parse error the engine reports on its line.
     assert (
         gda(
@@ -912,11 +857,9 @@ def test_script_validate_missing_file_yields_path_not_found(godot_project):
     # project context first, which is a different (and equally true) verdict.
     missing = godot_project / "nope.gd"
 
-    validated = _gda_project(godot_project)(
-        "script", "validate", str(missing), "--json"
+    err = Gda(godot_project).error(
+        "script", "validate", str(missing), "--json", code="path_not_found"
     )
-
-    err = _assert_operation_error(validated, "path_not_found")
     assert str(missing) in err["message"]
 
 
@@ -925,9 +868,9 @@ def test_script_validate_wrong_extension_yields_invalid_path(godot_project):
     notes = godot_project / "notes.txt"
     notes.write_text("not a script\n", encoding="utf-8")
 
-    validated = _gda_project(godot_project)("script", "validate", str(notes), "--json")
-
-    err = _assert_operation_error(validated, "invalid_path")
+    err = Gda(godot_project).error(
+        "script", "validate", str(notes), "--json", code="invalid_path"
+    )
     assert ".gd" in err["message"]
 
 
@@ -965,7 +908,7 @@ def test_script_validate_batch_uses_one_engine_launch_for_every_script(tmp_path)
     # dispatch is one process. Three occurrences would be the pre-#663 behaviour
     # (one launch per script) passing every other assertion here.
     project = _batch_project(tmp_path)
-    gda = _gda_project(project)
+    gda = Gda(project)
 
     validated = gda(
         "script", "validate", "res://a.gd", "res://bad.gd", "res://c.gd", "--json"
@@ -999,7 +942,7 @@ def test_script_validate_all_validates_every_script_in_the_project(tmp_path):
     # the same shape, so an agent can screen a whole project in one launch without
     # first listing its scripts.
     project = _batch_project(tmp_path)
-    gda = _gda_project(project)
+    gda = Gda(project)
 
     validated = gda("script", "validate", "--all", "--json")
 
@@ -1026,7 +969,7 @@ def test_script_validate_batch_reports_a_repeated_path_once_per_occurrence(tmp_p
     # — is exactly what a fake runner cannot vouch for. It must, because gda
     # promises entry i corresponds to argument i and so never deduplicates.
     project = _batch_project(tmp_path)
-    gda = _gda_project(project)
+    gda = Gda(project)
 
     validated = gda(
         "script", "validate", "res://bad.gd", "res://a.gd", "res://bad.gd", "--json"
@@ -1073,7 +1016,7 @@ def test_script_validate_all_enumerates_a_nested_dot_godot_directory(tmp_path):
     (project / ".godot" / "engine_cache.gd").write_text(
         "extends Node\n\nvar y =\n", encoding="utf-8"
     )
-    gda = _gda_project(project)
+    gda = Gda(project)
 
     validated = gda("script", "validate", "--all", "--json")
 
@@ -1108,7 +1051,7 @@ def test_script_validate_all_on_a_project_with_no_scripts_is_vacuously_valid(tmp
         project_godot("gda-e2e-bare"), encoding="utf-8"
     )
 
-    validated = _gda_project(project)("script", "validate", "--all", "--json")
+    validated = Gda(project)("script", "validate", "--all", "--json")
 
     assert validated.returncode == 0, validated.stdout + validated.stderr
     data = json.loads(validated.stdout)
@@ -1126,7 +1069,7 @@ def test_script_validate_refuses_a_batch_that_spans_two_projects(tmp_path):
     project = _batch_project(tmp_path)
     _, other_project, outsider = _nested_project_script(tmp_path / "elsewhere")
 
-    validated = _gda(
+    validated = gda(
         "script",
         "validate",
         str(project / "a.gd"),
@@ -1136,7 +1079,7 @@ def test_script_validate_refuses_a_batch_that_spans_two_projects(tmp_path):
         "--json",
     )
 
-    err = _assert_operation_error(validated, "target_outside_project")
+    err = assert_operation_error(validated, "target_outside_project")
     assert str(outsider) in err["message"]
     assert str(project) in err["message"]
     assert other_project.exists()
@@ -1192,28 +1135,15 @@ def test_script_validate_from_an_ancestor_is_refused_and_names_the_owner(tmp_pat
     # as before.
     workspace, project, script = _nested_project_script(tmp_path)
 
-    from_ancestor = subprocess.run(
-        [
-            *GDA_CMD,
-            "script",
-            "validate",
-            "game/deck.gd",
-            "--godot",
-            str(GODOT),
-            "--json",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=workspace,
-    )
+    from_ancestor = gda("script", "validate", "game/deck.gd", "--json", cwd=workspace)
 
-    _assert_operation_error(from_ancestor, "target_outside_project")
+    assert_operation_error(from_ancestor, "target_outside_project")
     evidence = json.loads(from_ancestor.stdout)["error"]["evidence"]
     assert evidence["owning_project"] == str(project.resolve())
     # No engine ran, so the false cascade does not exist to be misread.
     assert '"valid"' not in from_ancestor.stdout
 
-    with_owning_project = _gda(
+    with_owning_project = gda(
         "script", "validate", str(script), "--project", str(project), "--json"
     )
 
@@ -1240,11 +1170,11 @@ def test_script_validate_refuses_a_script_outside_the_resolved_project(tmp_path)
         project_godot("gda-e2e-other"), encoding="utf-8"
     )
 
-    validated = _gda(
+    validated = gda(
         "script", "validate", str(script), "--project", str(other), "--json"
     )
 
-    err = _assert_operation_error(validated, "target_outside_project")
+    err = assert_operation_error(validated, "target_outside_project")
     assert str(script) in err["message"]
     assert str(other) in err["message"]
     # Refused BEFORE parsing: no engine ran, so no diagnostic about the file.
@@ -1288,7 +1218,7 @@ def test_script_validate_accepts_a_file_symlinked_into_the_project(tmp_path):
     (project / "addons" / "cardlib").symlink_to(library, target_is_directory=True)
     through_the_link = project / "addons" / "cardlib" / "deck.gd"
 
-    validated = _gda(
+    validated = gda(
         "script", "validate", str(through_the_link), "--project", str(project), "--json"
     )
 
@@ -1299,16 +1229,15 @@ def test_script_validate_accepts_a_file_symlinked_into_the_project(tmp_path):
     assert data["project_root"] == str(project)
 
     # Same file, outside spelling: outside under both readings, so still refused.
-    from_outside = _gda(
+    gda.error(
         "script",
         "validate",
         str(library / "deck.gd"),
         "--project",
         str(project),
         "--json",
+        code="target_outside_project",
     )
-
-    _assert_operation_error(from_outside, "target_outside_project")
 
 
 @pytest.mark.e2e
@@ -1331,13 +1260,7 @@ def test_script_validate_relative_target_from_an_ancestor_cwd_agrees_with_the_en
         "extends Node\n\nfunc top() -> int:\n\treturn 3\n", encoding="utf-8"
     )
 
-    def from_workspace(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*GDA_CMD, *args, "--godot", str(GODOT)],
-            capture_output=True,
-            text=True,
-            cwd=tmp_path,
-        )
+    from_workspace = Gda(cwd=tmp_path)
 
     argv = from_workspace(
         "script", "validate", "deck.gd", "--project", "game", "--json"
@@ -1383,7 +1306,7 @@ def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_
     )
     (project / "pivot").symlink_to(outside / "deep", target_is_directory=True)
 
-    validated = _gda(
+    validated = gda(
         "script",
         "validate",
         str(project / "pivot" / ".." / "deck.gd"),
@@ -1392,7 +1315,7 @@ def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_
         "--json",
     )
 
-    err = _assert_operation_error(validated, "target_outside_project")
+    err = assert_operation_error(validated, "target_outside_project")
     # The refusal names where the target REALLY is, not the collapsed spelling.
     assert str((outside / "deck.gd").resolve()) in err["message"]
     # Nothing was compiled: no verdict, and no engine diagnostic about the file.
@@ -1418,11 +1341,11 @@ def test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme(
         "extends Node\n\nfunc scheme_secret() -> int:\n\treturn 7\n", encoding="utf-8"
     )
 
-    validated = _gda(
+    validated = gda(
         "script", "validate", f"{odd}//deck.gd", "--project", str(project), "--json"
     )
 
-    _assert_operation_error(validated, "target_outside_project")
+    assert_operation_error(validated, "target_outside_project")
     assert '"valid"' not in validated.stdout
 
 
@@ -1435,7 +1358,7 @@ def test_script_attach_binds_script_to_node_and_scene_references_it(godot_projec
     # attaches a .gd, and saves. Verify by reading the saved .tscn back: the
     # script path now appears as an ext_resource the node references, the result
     # echoes the script's class_name, and the scene still re-loads (node list).
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1483,7 +1406,7 @@ def test_script_attach_binds_script_to_node_and_scene_references_it(godot_projec
 def test_script_attach_to_a_descendant_node(godot_project):
     # Attach addresses the node by the #53 node path: a descendant, not just the
     # root. The script lands on that exact node.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1530,7 +1453,7 @@ def test_script_attach_to_a_descendant_node(godot_project):
 @pytest.mark.e2e
 def test_script_attach_no_class_name_echoes_null_class_name(godot_project):
     # A script with no class_name attaches fine and the result carries null.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node", "--json"
@@ -1566,7 +1489,7 @@ def test_script_attach_non_compiling_script_yields_script_compile_failed(godot_p
     # saves no script), so attach must refuse with script_compile_failed rather
     # than report a phantom success over a scene with nothing attached. The scene
     # is left untouched.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1588,7 +1511,7 @@ def test_script_attach_non_compiling_script_yields_script_compile_failed(godot_p
     )
     before = (godot_project / "main.tscn").read_text(encoding="utf-8")
 
-    attached = gda(
+    err = gda.error(
         "script",
         "attach",
         "res://main.tscn",
@@ -1597,9 +1520,8 @@ def test_script_attach_non_compiling_script_yields_script_compile_failed(godot_p
         "--script",
         "res://broken.gd",
         "--json",
+        code="script_compile_failed",
     )
-
-    err = _assert_operation_error(attached, "script_compile_failed")
     assert "broken.gd" in err["message"]
     # The refusal leaves the scene exactly as it was — no half-applied mutation.
     assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
@@ -1612,7 +1534,7 @@ def test_script_attach_missing_preload_target_yields_missing_dependency(
     # A missing preload target is a dependency-ordering problem, not generic
     # prose-only compile stderr: the structured error names the missing res://
     # path, and the scene is left untouched.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1632,7 +1554,7 @@ def test_script_attach_missing_preload_target_yields_missing_dependency(
     )
     before = (godot_project / "main.tscn").read_text(encoding="utf-8")
 
-    attached = gda(
+    err = gda.error(
         "script",
         "attach",
         "res://main.tscn",
@@ -1641,9 +1563,8 @@ def test_script_attach_missing_preload_target_yields_missing_dependency(
         "--script",
         "res://enemy.gd",
         "--json",
+        code="missing_dependency",
     )
-
-    err = _assert_operation_error(attached, "missing_dependency")
     assert "res://missing_projectile.tscn" in err["message"]
     assert "res://enemy.gd" in err["message"]
     assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
@@ -1656,7 +1577,7 @@ def test_script_attach_ignores_preload_mentions_in_comments_and_strings(
     # The missing-preload gate must follow executable GDScript syntax, not the
     # project reference graph's raw text scan. Mentioning future assets in comments
     # or string literals is not a preload dependency and must not block attach.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1706,7 +1627,7 @@ def test_script_attach_multiline_missing_preload_target_yields_missing_dependenc
     # A valid preload call may split the opening paren and string literal across
     # lines. It should still get the same stable missing_dependency result as the
     # single-line form.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1735,7 +1656,7 @@ def test_script_attach_multiline_missing_preload_target_yields_missing_dependenc
     )
     before = (godot_project / "main.tscn").read_text(encoding="utf-8")
 
-    attached = gda(
+    err = gda.error(
         "script",
         "attach",
         "res://main.tscn",
@@ -1744,9 +1665,8 @@ def test_script_attach_multiline_missing_preload_target_yields_missing_dependenc
         "--script",
         "res://enemy.gd",
         "--json",
+        code="missing_dependency",
     )
-
-    err = _assert_operation_error(attached, "missing_dependency")
     assert "res://missing_projectile.tscn" in err["message"]
     assert "res://enemy.gd" in err["message"]
     assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
@@ -1762,7 +1682,7 @@ def test_script_attach_incompatible_node_type_yields_incompatible_script_type(
     # incompatible_script_type — not script_compile_failed — so the agent fixes
     # the node/script pairing rather than chasing a non-existent syntax error. The
     # scene is left untouched.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1779,7 +1699,7 @@ def test_script_attach_incompatible_node_type_yields_incompatible_script_type(
     )
     before = (godot_project / "main.tscn").read_text(encoding="utf-8")
 
-    attached = gda(
+    err = gda.error(
         "script",
         "attach",
         "res://main.tscn",
@@ -1788,9 +1708,8 @@ def test_script_attach_incompatible_node_type_yields_incompatible_script_type(
         "--script",
         "res://spatial.gd",
         "--json",
+        code="incompatible_script_type",
     )
-
-    err = _assert_operation_error(attached, "incompatible_script_type")
     assert "Node3D" in err["message"]
     assert "Node2D" in err["message"]
     # The refusal leaves the scene untouched.
@@ -1799,7 +1718,7 @@ def test_script_attach_incompatible_node_type_yields_incompatible_script_type(
 
 @pytest.mark.e2e
 def test_script_attach_missing_script_yields_path_not_found(godot_project):
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1807,7 +1726,7 @@ def test_script_attach_missing_script_yields_path_not_found(godot_project):
         == 0
     )
 
-    attached = gda(
+    err = gda.error(
         "script",
         "attach",
         "res://main.tscn",
@@ -1816,15 +1735,14 @@ def test_script_attach_missing_script_yields_path_not_found(godot_project):
         "--script",
         "res://nope.gd",
         "--json",
+        code="path_not_found",
     )
-
-    err = _assert_operation_error(attached, "path_not_found")
     assert "nope.gd" in err["message"]
 
 
 @pytest.mark.e2e
 def test_script_attach_wrong_script_extension_yields_invalid_path(godot_project):
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1833,7 +1751,7 @@ def test_script_attach_wrong_script_extension_yields_invalid_path(godot_project)
     )
     (godot_project / "notes.txt").write_text("not a script\n", encoding="utf-8")
 
-    attached = gda(
+    err = gda.error(
         "script",
         "attach",
         "res://main.tscn",
@@ -1842,9 +1760,8 @@ def test_script_attach_wrong_script_extension_yields_invalid_path(godot_project)
         "--script",
         "res://notes.txt",
         "--json",
+        code="invalid_path",
     )
-
-    err = _assert_operation_error(attached, "invalid_path")
     assert ".gd" in err["message"]
 
 
@@ -1852,7 +1769,7 @@ def test_script_attach_wrong_script_extension_yields_invalid_path(godot_project)
 def test_script_attach_missing_node_yields_node_not_found_and_leaves_scene(
     godot_project,
 ):
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1867,7 +1784,7 @@ def test_script_attach_missing_node_yields_node_not_found_and_leaves_scene(
     )
     before = (godot_project / "main.tscn").read_text(encoding="utf-8")
 
-    attached = gda(
+    err = gda.error(
         "script",
         "attach",
         "res://main.tscn",
@@ -1876,9 +1793,8 @@ def test_script_attach_missing_node_yields_node_not_found_and_leaves_scene(
         "--script",
         "res://hero.gd",
         "--json",
+        code="node_not_found",
     )
-
-    err = _assert_operation_error(attached, "node_not_found")
     assert "Bogus" in err["message"]
     # The refusal leaves the scene untouched.
     assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
@@ -1886,7 +1802,7 @@ def test_script_attach_missing_node_yields_node_not_found_and_leaves_scene(
 
 @pytest.mark.e2e
 def test_script_attach_missing_scene_yields_path_not_found(godot_project):
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "script", "create", "res://hero.gd", "--extends", "Node2D", "--json"
@@ -1894,7 +1810,7 @@ def test_script_attach_missing_scene_yields_path_not_found(godot_project):
         == 0
     )
 
-    attached = gda(
+    err = gda.error(
         "script",
         "attach",
         "res://missing.tscn",
@@ -1903,9 +1819,8 @@ def test_script_attach_missing_scene_yields_path_not_found(godot_project):
         "--script",
         "res://hero.gd",
         "--json",
+        code="path_not_found",
     )
-
-    err = _assert_operation_error(attached, "path_not_found")
     assert "missing.tscn" in err["message"]
 
 
@@ -1913,7 +1828,7 @@ def test_script_attach_missing_scene_yields_path_not_found(godot_project):
 def test_script_attach_no_prior_script_reports_null_replaced_script(godot_project):
     # attach is overwrite-and-report (issue #132): a node with no prior script is
     # bound and replaced_script is null — the signal that nothing was displaced.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -1949,7 +1864,7 @@ def test_script_attach_overwrites_and_reports_the_displaced_script(godot_project
     # would strand the node) but no longer hides the displacement: replaced_script
     # names the prior script's res:// path verbatim. The overwrite is real — the
     # saved .tscn now references the NEW script and no longer the old one.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
     assert (
         gda(
             "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
@@ -2020,9 +1935,9 @@ def test_script_attach_both_scene_and_script_missing_reports_the_scene_first(
     # primary subject (the scene loads + node exists) is validated before the
     # secondary input (the --script arg), one invariant with no exceptions. Before
     # the reorder this surfaced the script's path_not_found and masked the scene.
-    gda = _gda_project(godot_project)
+    gda = Gda(godot_project)
 
-    attached = gda(
+    err = gda.error(
         "script",
         "attach",
         "res://missing.tscn",
@@ -2031,9 +1946,8 @@ def test_script_attach_both_scene_and_script_missing_reports_the_scene_first(
         "--script",
         "res://also_missing.gd",
         "--json",
+        code="path_not_found",
     )
-
-    err = _assert_operation_error(attached, "path_not_found")
     # The reported failure names the SCENE, not the script.
     assert "missing.tscn" in err["message"]
     assert "also_missing.gd" not in err["message"]
@@ -2047,7 +1961,7 @@ def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
     # metadata.
     script_path = godot_project / "empty.gd"
 
-    created = _gda("script", "create", str(script_path), "--content", "", "--json")
+    created = gda("script", "create", str(script_path), "--content", "", "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     create_data = json.loads(created.stdout)
@@ -2055,7 +1969,7 @@ def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
     assert create_data["extends"] is None
     assert script_path.read_text(encoding="utf-8") == ""
 
-    got = _gda("script", "get", str(script_path), "--json")
+    got = gda("script", "get", str(script_path), "--json")
 
     assert got.returncode == 0, got.stdout + got.stderr
     got_data = json.loads(got.stdout)
@@ -2231,6 +2145,7 @@ def _run_harness(project, harness: str = _ATTACH_DROP_HARNESS) -> str:
         ],
         capture_output=True,
         text=True,
+        timeout=120,
     )
     marker_begin, marker_end = "<<<HARNESS>>>", "<<<END>>>"
     out = proc.stdout

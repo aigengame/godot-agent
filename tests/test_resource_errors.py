@@ -17,58 +17,36 @@ malformed ``uid://`` adds ``invalid_uid``, and a projectless run reuses the
 shared ``project_not_found``.
 """
 
-import json
-
-from typer.testing import CliRunner
-
-from gda.cli import app
-from gda.runner import RunResult
-from tests.support import error_sentinel, inject_runner
+from tests.support import assert_operation_error, operation_error_invoker
 
 
-def _invoke_resource_create(monkeypatch, code: str, message: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: resource-create\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app, ["resource", "create", "/x/palette.tres", "--type", "Gradient", "--json"]
-    )
+_resource_create = operation_error_invoker(
+    ["resource", "create", "/x/palette.tres", "--type", "Gradient", "--json"],
+    "resource-create",
+)
 
 
-def _invoke_resource_get(monkeypatch, code: str, message: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: resource-get\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(app, ["resource", "get", "/x/palette.tres", "--json"])
+_resource_get = operation_error_invoker(
+    ["resource", "get", "/x/palette.tres", "--json"],
+    "resource-get",
+)
 
 
 def test_resource_create_collision_reuses_stable_already_exists_code(monkeypatch):
     # No-clobber: a create whose target already exists reuses the registered
     # already_exists code (the same one scene/script create use), leaving the
     # file untouched — the resource group mints no parallel collision code.
-    result = _invoke_resource_create(
+    result = _resource_create(
         monkeypatch, "already_exists", "resource target already exists: /x/palette.tres"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "already_exists"
-    assert "/x/palette.tres" in err["message"]
     # The raw stderr still rides along as diagnostics (ADR-0002).
-    assert err["diagnostics"] == "gda: running operation: resource-create\n"
+    assert_operation_error(
+        result,
+        "already_exists",
+        "/x/palette.tres",
+        diagnostics="gda: running operation: resource-create\n",
+    )
 
 
 def test_resource_create_invalid_type_yields_invalid_resource_type(monkeypatch):
@@ -76,248 +54,200 @@ def test_resource_create_invalid_type_yields_invalid_resource_type(monkeypatch):
     # refuses it with the resource group's own invalid_resource_type code —
     # parallel to scene create's invalid_root_type and node add's
     # invalid_node_type, but for the Resource hierarchy.
-    result = _invoke_resource_create(
+    result = _resource_create(
         monkeypatch,
         "invalid_resource_type",
         "not an instantiable Resource class: Bogus",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "invalid_resource_type"
-    assert "Bogus" in err["message"]
+    assert_operation_error(result, "invalid_resource_type", "Bogus")
 
 
 def test_resource_create_non_tres_path_yields_invalid_path(monkeypatch):
-    result = _invoke_resource_create(
+    result = _resource_create(
         monkeypatch, "invalid_path", "resource path must end in .tres: /x/palette.txt"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "invalid_path"
+    assert_operation_error(result, "invalid_path")
 
 
 def test_resource_get_missing_yields_path_not_found(monkeypatch):
     # A get on a path with no resource file reuses the registered path_not_found
     # code (the same one scene/script get use for a missing file).
-    result = _invoke_resource_get(
+    result = _resource_get(
         monkeypatch, "path_not_found", "resource file does not exist: /x/palette.tres"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "path_not_found"
-    assert "/x/palette.tres" in err["message"]
+    assert_operation_error(result, "path_not_found", "/x/palette.tres")
 
 
-def _invoke_resource_set(monkeypatch, code: str, message: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: resource-set\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(
-        app,
-        [
-            "resource",
-            "set",
-            "/x/palette.tres",
-            "--property",
-            "interpolation_mode",
-            "--value",
-            "1",
-            "--json",
-        ],
-    )
+_resource_set = operation_error_invoker(
+    [
+        "resource",
+        "set",
+        "/x/palette.tres",
+        "--property",
+        "interpolation_mode",
+        "--value",
+        "1",
+        "--json",
+    ],
+    "resource-set",
+)
 
 
-def _invoke_resource_delete(monkeypatch, code: str, message: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: resource-delete\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(app, ["resource", "delete", "/x/palette.tres", "--json"])
+_resource_delete = operation_error_invoker(
+    ["resource", "delete", "/x/palette.tres", "--json"],
+    "resource-delete",
+)
 
 
 def test_resource_set_unknown_property_yields_unknown_property(monkeypatch):
     # set edits an existing property; an unknown property is unknown_property
     # (the same #55 code node set uses), never a silent create.
-    result = _invoke_resource_set(
+    result = _resource_set(
         monkeypatch,
         "unknown_property",
         "resource /x/palette.tres has no settable property: bogus",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "unknown_property"
-    assert "bogus" in err["message"]
-    assert err["diagnostics"] == "gda: running operation: resource-set\n"
+    assert_operation_error(
+        result,
+        "unknown_property",
+        "bogus",
+        diagnostics="gda: running operation: resource-set\n",
+    )
 
 
 def test_resource_set_uncoercible_value_yields_uncoercible_value(monkeypatch):
     # A value that cannot be coerced to the property's declared type reuses the
     # node-set #55 code: uncoercible_value (exit 4, the .tres untouched).
-    result = _invoke_resource_set(
+    result = _resource_set(
         monkeypatch,
         "uncoercible_value",
         "cannot coerce value not-a-number to int for property "
         "interpolation_mode on resource /x/palette.tres",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "uncoercible_value"
-    assert "not-a-number" in err["message"]
+    assert_operation_error(result, "uncoercible_value", "not-a-number")
 
 
 def test_resource_set_missing_yields_path_not_found(monkeypatch):
     # A set on a path with no resource file reuses the registered path_not_found
     # code (the same one resource get uses for a missing file).
-    result = _invoke_resource_set(
+    result = _resource_set(
         monkeypatch, "path_not_found", "resource file does not exist: /x/palette.tres"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "path_not_found"
-    assert "/x/palette.tres" in err["message"]
+    assert_operation_error(result, "path_not_found", "/x/palette.tres")
 
 
 def test_resource_set_non_tres_path_yields_invalid_path(monkeypatch):
-    result = _invoke_resource_set(
+    result = _resource_set(
         monkeypatch, "invalid_path", "resource path must end in .tres: /x/palette.txt"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "invalid_path"
+    assert_operation_error(result, "invalid_path")
 
 
 def test_resource_delete_missing_yields_path_not_found(monkeypatch):
     # A delete on a path with no resource file reuses path_not_found, so the
     # lifecycle's now-not-found is the same code a fresh get would report.
-    result = _invoke_resource_delete(
+    result = _resource_delete(
         monkeypatch, "path_not_found", "resource file does not exist: /x/palette.tres"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "path_not_found"
-    assert "/x/palette.tres" in err["message"]
+    assert_operation_error(result, "path_not_found", "/x/palette.tres")
 
 
 def test_resource_delete_non_tres_path_yields_invalid_path(monkeypatch):
-    result = _invoke_resource_delete(
+    result = _resource_delete(
         monkeypatch, "invalid_path", "resource path must end in .tres: /x/palette.txt"
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "invalid_path"
+    assert_operation_error(result, "invalid_path")
 
 
-def _invoke_resource_uid(monkeypatch, code: str, message: str, target: str):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr="gda: running operation: resource-uid\n",
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(app, ["resource", "uid", target, "--json"])
+_resource_uid = operation_error_invoker(
+    lambda target: ["resource", "uid", target, "--json"],
+    "resource-uid",
+)
 
 
-def _assert_operation_error(result, code: str, needle: str) -> dict:
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == code
-    assert needle in err["message"]
-    # The raw stderr still rides along as diagnostics (ADR-0002).
-    assert err["diagnostics"] == "gda: running operation: resource-uid\n"
-    return err
+# The raw stderr still rides along as diagnostics (ADR-0002). Every resource uid
+# test checks it, so the notice is named here and passed at each call site rather
+# than hidden inside a helper's default.
+_UID_NOTICE = "gda: running operation: resource-uid\n"
 
 
 def test_resource_uid_unknown_uid_is_structured_error(monkeypatch):
     # A well-formed uid:// absent from the project's UID cache is unknown_uid —
     # the agent learns the UID is unregistered, not that the syntax was wrong.
-    result = _invoke_resource_uid(
+    result = _resource_uid(
         monkeypatch,
         "unknown_uid",
         "UID is not registered in the project's UID cache: uid://abc",
-        "uid://abc",
+        target="uid://abc",
     )
 
-    _assert_operation_error(result, "unknown_uid", "uid://abc")
+    assert_operation_error(result, "unknown_uid", "uid://abc", diagnostics=_UID_NOTICE)
 
 
 def test_resource_uid_invalid_uid_is_structured_error(monkeypatch):
     # A syntactically malformed uid:// (engine text_to_id == INVALID_ID) is
     # invalid_uid — distinct from an unknown-but-well-formed UID.
-    result = _invoke_resource_uid(
+    result = _resource_uid(
         monkeypatch,
         "invalid_uid",
         "not a valid resource UID: uid://!!!",
-        "uid://!!!",
+        target="uid://!!!",
     )
 
-    _assert_operation_error(result, "invalid_uid", "uid://!!!")
+    assert_operation_error(result, "invalid_uid", "uid://!!!", diagnostics=_UID_NOTICE)
 
 
 def test_resource_uid_path_not_found_is_structured_error(monkeypatch):
     # A res:// path naming no resource is path_not_found — the same registered
     # code the file groups use, not a parallel resource-specific code.
-    result = _invoke_resource_uid(
+    result = _resource_uid(
         monkeypatch,
         "path_not_found",
         "no resource at path: res://missing.tres",
-        "res://missing.tres",
+        target="res://missing.tres",
     )
 
-    _assert_operation_error(result, "path_not_found", "res://missing.tres")
+    assert_operation_error(
+        result, "path_not_found", "res://missing.tres", diagnostics=_UID_NOTICE
+    )
 
 
 def test_resource_uid_no_uid_assigned_is_structured_error(monkeypatch):
     # A resource that exists but carries no UID in the cache is no_uid_assigned —
     # distinct from path_not_found (the file is there) and from a UID-direction
     # failure (the query was a path).
-    result = _invoke_resource_uid(
+    result = _resource_uid(
         monkeypatch,
         "no_uid_assigned",
         "resource has no UID assigned in the project's UID cache: res://plain.txt",
-        "res://plain.txt",
+        target="res://plain.txt",
     )
 
-    _assert_operation_error(result, "no_uid_assigned", "res://plain.txt")
+    assert_operation_error(
+        result, "no_uid_assigned", "res://plain.txt", diagnostics=_UID_NOTICE
+    )
 
 
 def test_resource_uid_projectless_run_is_project_not_found(monkeypatch):
     # Resolution queries the project's UID cache, so a projectless run has no
     # cache to query — refused with the shared project_not_found rather than a
     # misleading "no UID" answer.
-    result = _invoke_resource_uid(
+    result = _resource_uid(
         monkeypatch,
         "project_not_found",
         "resource uid requires a Godot project; none was resolved",
-        "uid://abc",
+        target="uid://abc",
     )
 
-    _assert_operation_error(result, "project_not_found", "requires a Godot project")
+    assert_operation_error(
+        result, "project_not_found", "requires a Godot project", diagnostics=_UID_NOTICE
+    )

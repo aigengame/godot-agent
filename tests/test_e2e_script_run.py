@@ -64,16 +64,14 @@ headless one-shot script controls its own exit code.
 """
 
 import json
-import subprocess
 import time
 from pathlib import Path
 
 import pytest
 
-from gda.binary import resolve_godot_binary
-from tests.support import GDA_CMD
+from tests.support import Gda
 
-GODOT = resolve_godot_binary()
+gda = Gda()
 
 # A standalone headless script: do work in _initialize, then quit with a chosen
 # code. `extends SceneTree` makes the script the main loop, the pattern a
@@ -157,40 +155,18 @@ func _initialize() -> void:
 """
 
 
-def _run_gda(*args: str, retry: bool = False) -> subprocess.CompletedProcess:
-    """Invoke ``gda <args>`` as a subprocess (this checkout's editable gda, ADR-0011).
-
-    ``retry`` re-runs once on a transient ``engine_crashed`` — a shared-``user://``
-    log race under parallel e2e (not a gda bug; the race was fixed in #180) — so a
-    happy path does not flake.
-    """
-    for attempt in range(2 if retry else 1):
-        proc = subprocess.run([*GDA_CMD, *args], capture_output=True, text=True)
-        if not retry or proc.returncode == 0:
-            return proc
-        try:
-            code = json.loads(proc.stdout)["error"]["code"]
-        except (ValueError, KeyError, TypeError):
-            return proc
-        if code != "engine_crashed":
-            return proc
-    return proc
-
-
 @pytest.mark.e2e
 def test_script_run_passes_a_clean_run_through(godot_project):
     # Happy path: a script that quit(0) → SUCCESS carrying exit_status 0 and the
     # script's printed line read back from stdout.
     (godot_project / "hello.gd").write_text(HELLO_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://hello.gd",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
         retry=True,
     )
@@ -210,14 +186,12 @@ def test_script_run_non_zero_quit_is_success_not_a_gda_failure(godot_project):
     # the non-zero code and the message are DATA the agent reads, not a gda error.
     (godot_project / "fail.gd").write_text(FAIL_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://fail.gd",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
         retry=True,
     )
@@ -238,14 +212,12 @@ def test_script_run_accepts_both_path_forms(godot_project, form):
     # `script validate` and `script run`.
     (godot_project / "hello.gd").write_text(HELLO_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         form,
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
         retry=True,
     )
@@ -265,14 +237,12 @@ def test_script_run_absolute_path_is_invalid_path(godot_project):
     # invalid_path decided BEFORE any launch — an explicit ABI edge (ADR-0031).
     (godot_project / "hello.gd").write_text(HELLO_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         str(godot_project / "hello.gd"),  # absolute, even though it EXISTS
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -310,14 +280,12 @@ def test_script_run_non_project_scoped_paths_are_refused_before_launch(
     # engine against `res://user:/x.gd`, an address the caller never typed. The
     # upward escapes moved to the containment arm below with #763 — same refusal,
     # same pre-launch timing, the shared code.
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         script,
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -351,14 +319,12 @@ def test_script_run_escapes_are_the_shared_containment_refusal(godot_project, sc
     # project, which is the ADR-0009 widening ADR-0031 cites as its reason for
     # refusing absolute paths. #763 keeps the refusal and moves it onto the code
     # every command reports this condition under.
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         script,
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -379,14 +345,12 @@ def test_script_run_does_not_overreject_unicode_spaces_godot_preserves(
     # so the request must launch and reach the ordinary entry-load verdict rather
     # than fail pre-launch as invalid_path.
     script = f"res://missing.gd{suffix}"
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         script,
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -403,12 +367,7 @@ def test_script_run_without_a_project_is_project_not_found(tmp_path):
     projectless = tmp_path / "empty"
     projectless.mkdir()
 
-    run = subprocess.run(
-        [*GDA_CMD, "script", "run", "res://hello.gd", "--godot", str(GODOT), "--json"],
-        capture_output=True,
-        text=True,
-        cwd=str(projectless),
-    )
+    run = gda("script", "run", "res://hello.gd", "--json", cwd=projectless)
 
     assert run.returncode == 4, run.stdout + run.stderr
     err = json.loads(run.stdout)["error"]
@@ -421,14 +380,12 @@ def test_script_run_missing_script_is_script_not_found(godot_project):
     # GDA-DF-032 against the REAL engine: Godot exits 0 for a res:// script that does
     # not exist, printing the load errors to stderr only. The verdict must come from
     # that stderr — a structured failure, never {"exit_status": 0}.
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://no-such-script.gd",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -459,14 +416,12 @@ def test_script_run_parse_error_dependency_is_script_compile_failed(godot_projec
     (godot_project / "suite.gd").write_text(BAD_DEPENDENCY_GD, encoding="utf-8")
     (godot_project / "broken_dep.gd").write_text(BROKEN_DEP_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://suite.gd",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -510,14 +465,12 @@ def test_script_run_runtime_error_is_a_success_carrying_diagnostics(godot_projec
     # in stderr prose: it is a classified diagnostic an agent can branch on.
     (godot_project / "runtime_error.gd").write_text(RUNTIME_ERROR_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://runtime_error.gd",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
         retry=True,
     )
@@ -557,14 +510,12 @@ def test_script_run_missing_entry_verdict_survives_path_aliasing(
     # identity restores the specific verdict for every spelling.
     (godot_project / "sub").mkdir(exist_ok=True)
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         spelling,
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -598,14 +549,12 @@ def test_script_run_compile_failed_verdict_survives_path_aliasing(
     (godot_project / "suite.gd").write_text(BAD_DEPENDENCY_GD, encoding="utf-8")
     (godot_project / "broken_dep.gd").write_text(BROKEN_DEP_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         spelling,
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -626,14 +575,12 @@ def test_script_run_runtime_resource_load_failure_is_a_success_with_diagnostics(
         RUNTIME_RESOURCE_LOAD_GD, encoding="utf-8"
     )
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://runtime_load.gd",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
         retry=True,
     )
@@ -657,15 +604,13 @@ def test_script_run_strict_fails_on_an_explicit_non_zero_quit(godot_project):
     # parsing the JSON.
     (godot_project / "fail.gd").write_text(FAIL_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://fail.gd",
         "--strict",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -697,15 +642,13 @@ def test_script_run_strict_envelope_carries_the_suites_stdout(godot_project):
     # a CI caller that only gets an exit code and an empty diagnostics learns nothing.
     (godot_project / "suite_fail.gd").write_text(FAILING_SUITE_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://suite_fail.gd",
         "--strict",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -731,15 +674,13 @@ def test_script_run_strict_leaves_a_passing_script_a_success(godot_project):
     # success, so a CI step can pass --strict unconditionally.
     (godot_project / "hello.gd").write_text(HELLO_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://hello.gd",
         "--strict",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
         retry=True,
     )
@@ -757,15 +698,8 @@ def test_script_run_unlaunchable_binary_is_binary_not_found(godot_project):
     # GDScript-mirrored code.
     (godot_project / "hello.gd").write_text(HELLO_GD, encoding="utf-8")
 
-    run = _run_gda(
-        "script",
-        "run",
-        "res://hello.gd",
-        "--project",
-        str(godot_project),
-        "--godot",
-        str(godot_project / "no-such-godot"),
-        "--json",
+    run = Gda(godot=godot_project / "no-such-godot")(
+        "script", "run", "res://hello.gd", "--project", str(godot_project), "--json"
     )
 
     assert run.returncode == 127, run.stdout + run.stderr
@@ -823,7 +757,7 @@ def test_script_run_returns_the_captured_error_of_an_aborted_run(godot_project):
     (godot_project / "aborts.gd").write_text(ABORTS_BEFORE_QUIT_GD, encoding="utf-8")
 
     started = time.monotonic()
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://aborts.gd",
@@ -833,8 +767,6 @@ def test_script_run_returns_the_captured_error_of_an_aborted_run(godot_project):
         "60",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
     elapsed = time.monotonic() - started
@@ -863,7 +795,7 @@ def test_script_run_timeout_returns_partial_output_elapsed_and_a_phase(godot_pro
     # a silent hang. No marker is declared here, so this is the plain timeout path.
     (godot_project / "slow.gd").write_text(SLOW_BUT_HEALTHY_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://slow.gd",
@@ -871,8 +803,6 @@ def test_script_run_timeout_returns_partial_output_elapsed_and_a_phase(godot_pro
         "4",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -904,7 +834,7 @@ def test_script_run_without_a_marker_waits_out_the_timeout_but_still_captures(
     (godot_project / "aborts.gd").write_text(ABORTS_BEFORE_QUIT_GD, encoding="utf-8")
 
     started = time.monotonic()
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://aborts.gd",
@@ -912,8 +842,6 @@ def test_script_run_without_a_marker_waits_out_the_timeout_but_still_captures(
         "5",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
     elapsed = time.monotonic() - started
@@ -993,7 +921,7 @@ def test_script_run_ends_a_silent_survivor_by_the_declared_contract(godot_projec
     (godot_project / "survivor.gd").write_text(QUIET_SURVIVOR_GD, encoding="utf-8")
 
     started = time.monotonic()
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://survivor.gd",
@@ -1003,8 +931,6 @@ def test_script_run_ends_a_silent_survivor_by_the_declared_contract(godot_projec
         "60",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
     elapsed = time.monotonic() - started
@@ -1027,7 +953,7 @@ def test_script_run_leaves_the_same_survivor_alone_without_a_marker(godot_projec
     # gda must not judge.
     (godot_project / "survivor.gd").write_text(QUIET_SURVIVOR_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://survivor.gd",
@@ -1035,8 +961,6 @@ def test_script_run_leaves_the_same_survivor_alone_without_a_marker(godot_projec
         "60",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -1059,7 +983,7 @@ def test_script_run_spares_a_survivor_that_prints_progress(godot_project):
     # satisfiable by a quiet-working script, not a trap.
     (godot_project / "progress.gd").write_text(PROGRESS_SURVIVOR_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://progress.gd",
@@ -1069,8 +993,6 @@ def test_script_run_spares_a_survivor_that_prints_progress(godot_project):
         "60",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
     )
 
@@ -1091,7 +1013,7 @@ def test_script_run_abort_still_lands_within_its_stated_bound(godot_project):
     (godot_project / "aborts.gd").write_text(ABORTS_BEFORE_QUIT_GD, encoding="utf-8")
 
     started = time.monotonic()
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://aborts.gd",
@@ -1101,9 +1023,11 @@ def test_script_run_abort_still_lands_within_its_stated_bound(godot_project):
         "120",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
+        # The engine ceiling (120s) sits above the spawn's default bound; a
+        # regressed abort must reach the assertion below with its message, not
+        # die as a TimeoutExpired at 90s.
+        timeout=150,
     )
     elapsed = time.monotonic() - started
 
@@ -1133,14 +1057,12 @@ def test_script_run_stdout_above_the_cap_truncates_and_spills(godot_project):
 
     (godot_project / "big.gd").write_text(BIG_PRINTER_GD, encoding="utf-8")
 
-    run = _run_gda(
+    run = gda(
         "script",
         "run",
         "res://big.gd",
         "--project",
         str(godot_project),
-        "--godot",
-        str(GODOT),
         "--json",
         retry=True,
     )

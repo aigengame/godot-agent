@@ -31,7 +31,13 @@ from gda.errors import Failure
 from gda.execution import ExecutionKind
 from gda.harness.install import install_harness, uninstall_harness
 from gda.runner import RunResult
-from tests.support import FakeExportRunner, FakeRunner, error_sentinel, sentinel
+from tests.support import (
+    ENGINE_BANNER,
+    FakeExportRunner,
+    FakeRunner,
+    error_sentinel,
+    sentinel,
+)
 
 
 def test_export_run_command_is_the_native_export_channel():
@@ -58,7 +64,7 @@ def _get_runner(get=GET_RESULT) -> FakeRunner:
     """A FakeRunner that returns ``get`` wrapped in an ADR-0002 success sentinel."""
     return FakeRunner(
         RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n" + sentinel(get),
+            stdout=ENGINE_BANNER + sentinel(get),
             stderr="",
             exit_code=0,
         )

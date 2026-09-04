@@ -6,67 +6,44 @@ registered operation codes (ADR-0002) — exit 4 for the operation category, fin
 stable codes so an agent branches on the mode without parsing prose.
 """
 
-import json
-
-from typer.testing import CliRunner
-
-from gda.cli import app
-from gda.runner import RunResult
-from tests.support import error_sentinel, inject_runner
-
-
-def _invoke(monkeypatch, args, code, message, stderr="gda: running operation\n"):
-    inject_runner(
-        monkeypatch,
-        RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n"
-            + error_sentinel(code, message),
-            stderr=stderr,
-            exit_code=1,
-        ),
-    )
-    return CliRunner().invoke(app, args)
+from tests.support import assert_operation_error, invoke_operation_error
 
 
 def test_project_info_without_project_maps_to_project_not_found(monkeypatch):
     # project info reads ProjectSettings, so a projectless run would report only
     # the engine's bare defaults — refused with project_not_found instead.
-    result = _invoke(
+    result = invoke_operation_error(
         monkeypatch,
         ["project", "info", "--json"],
         "project_not_found",
         "project info requires a Godot project; none was resolved",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "project_not_found"
-    assert "Godot project" in err["message"]
-    assert err["diagnostics"] == "gda: running operation\n"
+    assert_operation_error(
+        result,
+        "project_not_found",
+        "Godot project",
+        diagnostics="gda: running operation\n",
+    )
 
 
 def test_project_get_unknown_setting_maps_to_stable_unknown_setting_code(monkeypatch):
     # A typo'd / absent setting key is unknown_setting, distinct from a setting
     # genuinely holding null — the agent fixes the key, not the value.
-    result = _invoke(
+    result = invoke_operation_error(
         monkeypatch,
         ["project", "get", "application/bogus/key", "--json"],
         "unknown_setting",
         "project setting not found: application/bogus/key",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "unknown_setting"
-    assert "application/bogus/key" in err["message"]
+    assert_operation_error(result, "unknown_setting", "application/bogus/key")
 
 
 def test_project_set_unknown_setting_maps_to_stable_unknown_setting_code(monkeypatch):
     # set edits an existing setting; an unknown key is unknown_setting, never a
     # silent create.
-    result = _invoke(
+    result = invoke_operation_error(
         monkeypatch,
         ["project", "set", "application/bogus/key", "--value", "1", "--json"],
         "unknown_setting",
@@ -74,10 +51,7 @@ def test_project_set_unknown_setting_maps_to_stable_unknown_setting_code(monkeyp
         "existing setting; it never creates one",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["code"] == "unknown_setting"
-    assert "never creates" in err["message"]
+    assert_operation_error(result, "unknown_setting", "never creates")
 
 
 def test_project_set_uncoercible_value_maps_to_stable_uncoercible_value_code(
@@ -85,7 +59,7 @@ def test_project_set_uncoercible_value_maps_to_stable_uncoercible_value_code(
 ):
     # A value that cannot be coerced to the setting's declared type reuses the
     # node-set #55 code: uncoercible_value (exit 4, project.godot untouched).
-    result = _invoke(
+    result = invoke_operation_error(
         monkeypatch,
         [
             "project",
@@ -100,8 +74,4 @@ def test_project_set_uncoercible_value_maps_to_stable_uncoercible_value_code(
         "display/window/size/viewport_width",
     )
 
-    assert result.exit_code == 4
-    err = json.loads(result.stdout)["error"]
-    assert err["category"] == "operation"
-    assert err["code"] == "uncoercible_value"
-    assert "not-a-number" in err["message"]
+    assert_operation_error(result, "uncoercible_value", "not-a-number")

@@ -14,6 +14,7 @@ The fast tiers drive the surface from the **real** aggregate dump
 true mirror of the live ``gda`` surface, not a hand-stubbed subset.
 """
 
+import functools
 import warnings
 from pathlib import Path
 from typing import Callable, Optional
@@ -55,12 +56,15 @@ class FakeGdaRunner:
         return self.responder(args, stdin)
 
 
+@functools.cache
 def real_manifest_json() -> str:
     """The live ``gda schema`` manifest as JSON, built in-process (no subprocess).
 
     ``gda schema`` spawns no Godot (ADR-0012), so the manifest is produced
     directly from the Typer tree — giving the fake seam the *real* whole surface
-    to register against.
+    to register against. Built ONCE per process (#815): the surface is immutable
+    for the process lifetime (the registration tests assert exactly that for the
+    server's cache hint), and every ``schema_then`` responder used to rebuild it.
     """
     return build_surface_manifest(app).model_dump_json()
 
