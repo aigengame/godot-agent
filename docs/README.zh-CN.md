@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=52dae55852b715d695d1cb49789dca82a930f5fab9f3ac2302f95df7305cbab1 -->
+<!-- gda-readme-i18n: source=README.md sha256=a7f521f06441d07917e5e56ee6630e5caf08b50979afc0cc93a0748cf87e9bb4 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -151,7 +151,7 @@ gda scene get scenes/main.tscn --json
 > 没有项目？`gda` 仍可在普通文件系统路径上以**无项目（projectless）**方式运行（路径相对于你的当前目录）——
 > 只有 `res://` 解析才需要项目。参见[配置](#configuration)。
 
-**使用 Live 操作检查并操控*正在运行*的游戏。** 这些操作会运行项目的**主场景**，所以先通过
+**使用 Live 操作检查*正在运行*的游戏。** 这些操作会运行项目的**主场景**，所以先通过
 Godot 的 `application/run/main_scene` 项目设置（也就是编辑器里的
 *Application → Run → Main Scene*）把它指向你刚构建好的那个场景，然后启动 daemon
 （macOS/Linux，Godot 4.6+）：
@@ -316,10 +316,10 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | 组件             | 职责 |
 | ---------------- | ---- |
 | **`gda`**        | 以 CLI 直接执行 Godot 操作并返回结构化的 `--json` 结果。 |
-| **`gda-mcp`**    | 根据 `--schema` 将相同的操作和结构化结果映射为 MCP 工具。 |
+| **`gda-mcp`**    | 根据 `--schema` 生成 MCP 工具，调用相同的操作并返回其结构化结果。 |
 | **`gda-daemon`** | 按项目监督运行中的游戏，以支持 Live 操作。 |
 
-- **Headless 操作**一次性运行——没有 daemon、无需安装任何东西（创建场景、编辑脚本、
+- **Headless 操作**以一次性进程运行——无需安装 daemon 或编辑器插件（创建场景、编辑脚本、
   校验或启动场景、导出、分析）。
 - **Live 操作**需要一个正在运行的游戏——`gda-daemon` 启动它、注入一个默认处于休眠状态的游戏内 harness，
   并通过 Unix 域套接字中转请求（运行时树、输入、画面捕获、性能、诊断）。

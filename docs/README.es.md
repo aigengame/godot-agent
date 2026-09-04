@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=52dae55852b715d695d1cb49789dca82a930f5fab9f3ac2302f95df7305cbab1 -->
+<!-- gda-readme-i18n: source=README.md sha256=a7f521f06441d07917e5e56ee6630e5caf08b50979afc0cc93a0748cf87e9bb4 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -162,7 +162,7 @@ gda scene get scenes/main.tscn --json
 > ¿Sin proyecto? `gda` igualmente se ejecuta **sin proyecto** (projectless) sobre rutas simples del sistema de
 > archivos (relativas a tu directorio actual) — solo la resolución de `res://` necesita un proyecto. Consulta [Configuración](#configuration).
 
-**Inspecciona y controla el juego *en ejecución* con operaciones Live.** Estas operaciones ejecutan
+**Inspecciona el juego *en ejecución* con operaciones Live.** Estas operaciones ejecutan
 la **escena principal** del proyecto, así que apúntala a la que acabas de construir mediante el
 ajuste de proyecto `application/run/main_scene` de Godot (el *Application → Run → Main Scene* del
 editor), y luego arranca el daemon (macOS/Linux, Godot 4.6+):
@@ -336,11 +336,12 @@ modos de operación complementarios:
 | Componente       | Rol |
 | ---------------- | --- |
 | **`gda`**        | Ejecuta operaciones de Godot directamente como CLI y devuelve resultados estructurados con `--json`. |
-| **`gda-mcp`**    | Asigna las mismas operaciones y resultados estructurados a herramientas MCP a partir de `--schema`. |
+| **`gda-mcp`**    | Genera herramientas MCP a partir de `--schema`, invoca las mismas operaciones y devuelve sus resultados estructurados. |
 | **`gda-daemon`** | Supervisa un juego en ejecución por proyecto para las operaciones Live. |
 
-- **Las operaciones Headless** se ejecutan de una sola pasada — sin daemon, nada que instalar
-  (crear una escena, editar un script, validar o iniciar una escena, exportar, analizar).
+- **Las operaciones Headless** se ejecutan como procesos de una sola pasada — sin daemon ni
+  plugin del editor que instalar (crear una escena, editar un script, validar o iniciar una escena,
+  exportar, analizar).
 - **Las operaciones Live** requieren un juego en ejecución — `gda-daemon` lo lanza, inyecta un harness inerte
   dentro del juego e intermedia las peticiones a través de un socket de dominio Unix (árbol de runtime, entrada,
   captura de frames, rendimiento, diagnósticos).
