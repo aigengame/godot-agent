@@ -701,3 +701,103 @@ def test_target_location_anchors_a_res_address_in_the_namespace_it_names(tmp_pat
     assert target_location(str(project / "inner" / "main.gd"), project) == (
         (project / "inner" / "main.gd").resolve()
     )
+
+
+# --- The main-scene precondition for a live session launch (#829) -------------
+
+
+def _project_with(tmp_path, text: str):
+    (tmp_path / "project.godot").write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def test_main_scene_undefined_is_the_empty_or_absent_setting(tmp_path):
+    from gda.project import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
+
+    absent = _project_with(
+        tmp_path, 'config_version=5\n\n[application]\n\nconfig/name="t"\n'
+    )
+    verdict = main_scene_unrunnable(absent, None)
+    assert verdict is not None and verdict.code == MAIN_SCENE_UNDEFINED
+    assert (
+        "application/run/main_scene" in verdict.reason and "--scene" in verdict.reason
+    )
+
+    empty = _project_with(
+        tmp_path, 'config_version=5\n\n[application]\n\nrun/main_scene=""\n'
+    )
+    assert main_scene_unrunnable(empty, None) is not None
+    # No [application] section at all reads the same way.
+    bare = _project_with(tmp_path, "config_version=5\n")
+    assert main_scene_unrunnable(bare, None) is not None
+
+
+def test_a_declared_res_main_scene_or_a_selector_is_runnable(tmp_path):
+    from gda.project import main_scene_unrunnable
+
+    declared = _project_with(
+        tmp_path,
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n'
+        'run/main_scene="res://main.tscn"\n\n[debug]\n\nfile_logging/enable_file_logging=false\n',
+    )
+    assert main_scene_unrunnable(declared, None) is None
+    # The selector wins over an undefined main scene; an EMPTY selector is no selector.
+    undefined = _project_with(tmp_path, "config_version=5\n")
+    assert main_scene_unrunnable(undefined, "res://other.tscn") is None
+    assert main_scene_unrunnable(undefined, "") is not None
+
+
+def test_a_uid_main_scene_needs_the_uid_cache(tmp_path):
+    # The sibling engine alert (#829 review): Godot 4.4+ writes the setting as a
+    # uid:// and resolves it through .godot/uid_cache.bin, which a fresh clone does
+    # not have — the engine then alerts "could not be resolved from UID". Mirrors
+    # the engine's own condition: refused only while no cache file exists.
+    from gda.project import MAIN_SCENE_UNRESOLVED, main_scene_unrunnable
+
+    project = _project_with(
+        tmp_path, 'config_version=5\n\n[application]\n\nrun/main_scene="uid://c1abc"\n'
+    )
+    verdict = main_scene_unrunnable(project, None)
+    assert verdict is not None and verdict.code == MAIN_SCENE_UNRESOLVED
+    assert "uid_cache.bin" in verdict.reason and "gda resource import" in verdict.reason
+
+    (project / ".godot").mkdir()
+    (project / ".godot" / "uid_cache.bin").write_bytes(b"")
+    assert main_scene_unrunnable(project, None) is None
+
+
+def test_the_reader_does_not_refuse_what_the_engine_would_run(tmp_path):
+    # Two hand-written shapes the engine accepts (#831 review): a section header
+    # with a trailing comment, and only a feature-tagged override of the key.
+    from gda.project import main_scene_unrunnable
+
+    commented = _project_with(
+        tmp_path,
+        'config_version=5\n\n[application] ; the game\n\nrun/main_scene="res://main.tscn"\n',
+    )
+    assert main_scene_unrunnable(commented, None) is None
+    override_only = _project_with(
+        tmp_path,
+        'config_version=5\n\n[application]\n\nrun/main_scene.macos="res://main.tscn"\n',
+    )
+    assert main_scene_unrunnable(override_only, None) is None
+    # The base key wins over an override; a CRLF file reads the same.
+    crlf = _project_with(
+        tmp_path,
+        'config_version=5\r\n\r\n[application]\r\n\r\nrun/main_scene="res://a.tscn"\r\n'
+        'run/main_scene.macos=""\r\n',
+    )
+    assert main_scene_unrunnable(crlf, None) is None
+
+
+def test_an_unreadable_project_file_is_no_verdict(tmp_path):
+    # Not a decision about the scene: the harness install reports the permission
+    # failure as its own, in the order an existing daemon test pins.
+    from gda.project import main_scene_unrunnable
+
+    project = _project_with(tmp_path, "config_version=5\n")
+    (project / "project.godot").write_bytes(b"\xff\xfe not utf-8")
+    assert main_scene_unrunnable(project, None) is None
+    missing = tmp_path / "nowhere"
+    missing.mkdir()
+    assert main_scene_unrunnable(missing, None) is None

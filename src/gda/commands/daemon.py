@@ -75,7 +75,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.project import main_scene_undefined
+from gda.project import main_scene_unrunnable
 
 
 class DaemonStartParams(BaseModel):
@@ -890,14 +890,15 @@ def run_daemon_start_operation(
                 probe=unavailable.probe,
             )
 
-    # Nothing to run (#829): an empty `application/run/main_scene` with no `--scene`
-    # would make the lazily launched engine print "no main scene defined" and then
-    # block on a native alert (macOS, even headless) until the readiness deadline
-    # killed it. Refuse HERE — pre-launch, pre-harness-install, without spawning —
-    # with the typed live_main_scene_undefined (LIVE / 6); the daemon's launch
-    # boundary runs the same check authoritatively, reading the project file at
-    # launch time.
-    undefined = main_scene_undefined(project, scene)
+    # Nothing to run (#829): an empty `application/run/main_scene` with no `--scene`,
+    # or a `uid://` main scene on a never-imported checkout, would make the lazily
+    # launched engine print its "no main scene" / "could not be resolved from UID"
+    # error and then block on a native alert (macOS, even headless) until the
+    # readiness deadline killed it. Refuse HERE — before the daemon is spawned and
+    # before the harness install — with the typed live_main_scene_undefined /
+    # live_main_scene_unresolved (LIVE / 6); the daemon's launch boundary runs the
+    # same check authoritatively, reading the project files at launch time.
+    undefined = main_scene_unrunnable(project, scene)
     if undefined is not None:
         return make_failure(undefined.code, undefined.reason, "")
 

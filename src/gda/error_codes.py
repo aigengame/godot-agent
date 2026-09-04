@@ -830,6 +830,23 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " `--scene` selector, so Godot would refuse to start — and on macOS block on"
         " a native alert even headless; refused before spawning Godot.",
     ),
+    # The sibling verdict (#829): the main scene IS declared, as the `uid://` the
+    # editor writes since Godot 4.4, but the checkout was never imported so the
+    # engine has no UID cache to resolve it through (`main/main.cpp`: no
+    # uid_cache.bin under the project data directory) — the same unconditional
+    # alert, a different remedy (import once), hence a distinct code. Same bucket
+    # and source as its sibling, NOT GDScript-mirrored.
+    ErrorCodeSpec(
+        "live_main_scene_unresolved",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live Engine session's main scene is a `uid://` the engine cannot resolve:"
+        " the project has no UID cache (never imported on this checkout) and `gda"
+        " daemon start` was given no `--scene` selector, so Godot would refuse to"
+        " start — and on macOS block on a native alert even headless; refused before"
+        " spawning Godot.",
+    ),
     # Per live-operation failures the gda harness reports for `perf` (#223). Same
     # shape as the #220 game op-errors above: LIVE-category, classifier-source,
     # exit_code EXIT_LIVE, harness-mirrored (a test mirrors them against the harness

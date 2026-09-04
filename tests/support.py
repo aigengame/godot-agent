@@ -438,14 +438,14 @@ def minimal_project(directory: Path) -> Path:
 def runnable_project(directory: Path) -> Path:
     """Make ``directory`` a project a live session can RUN, and return it (#829).
 
-    :func:`minimal_project` plus a declared ``application/run/main_scene``. A
-    session launch — ``daemon start`` and the daemon's launch boundary — refuses
-    a project that defines no main scene (``live_main_scene_undefined``), so a
-    daemon test that expects the launch path to be reached needs this one. The
-    scene file itself is not written: the precondition reads the setting, and a
-    fake spawn never opens it.
+    Writes one ``project.godot`` that declares ``application/run/main_scene`` (a
+    ``res://`` path, so no UID cache is needed). A session launch — ``daemon
+    start`` and the daemon's launch boundary — refuses a project whose main scene
+    cannot be run, so a daemon test that expects the launch path to be reached
+    needs this rather than :func:`minimal_project`. The scene file itself is not
+    written: the precondition reads the setting, and a fake spawn never opens it.
     """
-    minimal_project(directory)
+    directory.mkdir(parents=True, exist_ok=True)
     (directory / "project.godot").write_text(
         'config_version=5\n\n[application]\n\nrun/main_scene="res://main.tscn"\n',
         encoding="utf-8",

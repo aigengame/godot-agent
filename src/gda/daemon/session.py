@@ -24,7 +24,7 @@ from typing import Optional
 
 from gda.daemon.protocol import error_reply, read_frame, write_message
 from gda.display import WindowedUnavailable
-from gda.project import MainSceneUndefined
+from gda.project import MainSceneUnrunnable
 
 LAUNCH_MARKER = "gda-daemon"
 # Engine boot + autoload + harness connect; a windowed/cold start can be slow.
@@ -86,19 +86,21 @@ class WindowedDisplayUnavailable(Exception):
         self.reason = verdict.reason
 
 
-class MainSceneUndefinedAtLaunch(Exception):
-    """A session cannot launch: the project defines no main scene to run (#829).
+class MainSceneUnrunnableAtLaunch(Exception):
+    """A session cannot launch: the project's main scene cannot be run (#829).
 
     Raised at the AUTHORITATIVE session-launch boundary (``_ensure_session``)
-    BEFORE :func:`launch_session` is ever called, when the project's
-    ``application/run/main_scene`` is empty and the daemon carries no ``--scene``
-    selector. Mirrors :class:`WindowedDisplayUnavailable`: a typed
-    launch-boundary signal the daemon maps to the verdict's own error code
-    (``live_main_scene_undefined``), carrying the whole ``verdict`` so the daemon
-    relays the same sentence the ``daemon start`` fail-fast reports.
+    BEFORE :func:`launch_session` is ever called, when the daemon carries no
+    ``--scene`` selector and the project's ``application/run/main_scene`` is
+    empty, or names a ``uid://`` scene the engine has no UID cache to resolve (a
+    never-imported checkout). Mirrors :class:`WindowedDisplayUnavailable`: a
+    typed launch-boundary signal the daemon maps to the verdict's own error code
+    (``live_main_scene_undefined`` / ``live_main_scene_unresolved``), carrying the
+    whole ``verdict`` so the daemon relays the same sentence the ``daemon start``
+    fail-fast reports.
     """
 
-    def __init__(self, verdict: MainSceneUndefined) -> None:
+    def __init__(self, verdict: MainSceneUnrunnable) -> None:
         super().__init__(verdict.reason)
         self.verdict = verdict
         self.reason = verdict.reason

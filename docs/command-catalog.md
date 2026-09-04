@@ -1631,10 +1631,12 @@ re-derives every verdict from a running engine.
   until a new session is established. It is the value a `screen capture` receipt's
   `session_id` correlates with; null before the first established session this daemon
   lifetime. `daemon start` refuses a project whose `application/run/main_scene` is empty when
-  no `--scene` selector is given — `live_main_scene_undefined` (LIVE, exit 6), decided from
-  the project file before anything is spawned and again at the daemon's launch boundary:
-  Godot would otherwise print "no main scene defined" and, on macOS, block on a native alert
-  even headless (#829). `daemon start --windowed` additionally
+  no `--scene` selector is given — `live_main_scene_undefined` (LIVE, exit 6) — and one
+  whose main scene is a `uid://` on a checkout that was never imported (no UID cache) —
+  `live_main_scene_unresolved`, remedy: run the import pass once. Both are decided from the
+  project files before the daemon or a session is spawned, and again at the daemon's launch
+  boundary: Godot would otherwise print its "no main scene" / "could not be resolved from
+  UID" error and, on macOS, block on a native alert even headless (#829). `daemon start --windowed` additionally
   requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
   `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two

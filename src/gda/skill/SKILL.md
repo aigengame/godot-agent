@@ -181,8 +181,9 @@ Every headless reply carries its floats at full binary64 precision, so a value r
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 
 Prerequisites: the project defines `application/run/main_scene`, or you pass `--scene`
-(without either, `daemon start` refuses with `live_main_scene_undefined` rather than let the
-engine block on a native alert). Run `gda daemon start` first (optionally `--scene <res://...>` to boot a
+(without either, `daemon start` refuses with `live_main_scene_undefined`; a `uid://` main
+scene on a never-imported checkout is `live_main_scene_unresolved` — run `gda resource
+import` once — rather than let the engine block on a native alert). Run `gda daemon start` first (optionally `--scene <res://...>` to boot a
 specific scene instead of the project's main scene); the engine session launches lazily on
 the first operation that requires one. To establish the session deterministically, run
 `gda daemon wait-ready` (`--timeout` budgets daemon waits and new-work decisions;

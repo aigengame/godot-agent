@@ -18,8 +18,8 @@ written by Godot's import pass, so a fast test can only plant a stand-in.
 """
 
 import json
-import time
 import os
+import time
 import subprocess
 
 import pytest
@@ -996,7 +996,6 @@ def test_daemon_start_scene_runs_the_chosen_scene_not_main(
 
 
 @pytest.mark.e2e
-@pytest.mark.e2e
 def test_daemon_start_without_a_main_scene_is_refused_before_any_engine(
     tmp_path, daemon_runtime_dir
 ):
@@ -1020,6 +1019,18 @@ def test_daemon_start_without_a_main_scene_is_refused_before_any_engine(
     assert "--scene" in error["message"]
     assert elapsed < 5.0, f"the refusal took {elapsed:.1f}s — did an engine boot?"
     assert not (tmp_path / "addons" / "gda_harness").exists()  # nothing installed
+
+    # The sibling: a uid:// main scene on a never-imported checkout (the Godot 4.4+
+    # editor's own shape, with .godot/ ignored) is refused the same way, with the
+    # remedy that differs — import once.
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="uid://c7f2q1w3e4r5t"'), encoding="utf-8"
+    )
+    unresolved = run("daemon", "start")
+    assert unresolved.returncode == 6, unresolved.stdout + unresolved.stderr
+    assert (
+        json.loads(unresolved.stdout)["error"]["code"] == "live_main_scene_unresolved"
+    )
 
     # The launch boundary, on a real daemon: start on a runnable project, then take
     # the main scene away before the lazy launch.
