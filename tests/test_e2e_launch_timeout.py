@@ -48,12 +48,14 @@ from tests.support import GODOT, Gda
 # The ceiling each arm gives its wedged engine, by the engine path it boots (#827).
 # The GAME path (the sentinel channel) boots and prints in well under a second, so
 # 4.0s bounds it with a wide margin. The EDITOR path (`--import`, `--export-*`)
-# measured 2.2–2.4s to reach the plugin on a quiet 8-core host, 4.3–4.6s with four
-# concurrent editor passes, 8.1–8.3s with eight, and up to 16.5s with stray CPU
+# takes seconds to reach the plugin, and more the more editors boot at once. On
+# one 8-core macOS host (2026-09-04): 1.6–2.4s serially, 2.1–4.6s with four
+# concurrent editor passes, 3.4–8.3s with eight (the low ends from a cool host,
+# the high ends right after an hour of full load), and up to 16.5s with stray CPU
 # load on top — so under pytest-xdist a 4.0s ceiling raced the boot and once lost:
-# the diagnostics held the banner but no plugin line. 30s clears the quiet
-# eight-way figure 3.6x and the loaded worst case 1.8x; each editor arm spends it
-# in full plus gda's terminate grace, which xdist parallelism absorbs.
+# the diagnostics held the banner but no plugin line. A slower CI runner scales
+# these up. 30s clears the eight-way figures 3.6x and the loaded worst case 1.8x;
+# each editor arm spends it in full, which xdist parallelism absorbs.
 GAME_CEILING_SECONDS = 4.0
 EDITOR_CEILING_SECONDS = 30.0
 
@@ -123,8 +125,10 @@ def _wedged_project(tmp_path: Path, *, autoload: bool, plugin: bool) -> Path:
 def _assert_bounded(elapsed: float, ceiling: float) -> None:
     """The run was ended by gda's ceiling, not by the engine and not by luck."""
     assert elapsed >= ceiling, f"the run ended early, at {elapsed:.1f}s"
-    # The ceiling plus gda's terminate-then-kill grace, generously. A wedged
-    # GDScript loop ignores the SIGTERM, so the grace is always spent in full.
+    # The ceiling plus gda's terminate-then-kill grace and its reader join,
+    # generously: the bound holds whether the wedged engine dies on the SIGTERM
+    # at once (observed: the arms end within 0.4s of the ceiling) or sits out the
+    # grace and takes the SIGKILL.
     assert elapsed < ceiling + 20, f"the run overran its bound: {elapsed:.1f}s"
 
 
