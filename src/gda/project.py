@@ -700,10 +700,10 @@ def _read_main_scene(project: Path) -> str | None:
     A minimal read of Godot's ``ConfigFile`` text: sections are ``[name]`` lines
     (a trailing comment allowed), keys are ``key=value`` lines inside them, and the
     main-scene value is a quoted string (``"res://main.tscn"`` or ``"uid://..."``).
-    The base key wins; failing that, a feature-tagged override
+    A non-empty base key or a non-empty feature-tagged override
     (``run/main_scene.<feature>``) counts as a declared scene — the engine reads the
-    setting with overrides applied, and this check must never refuse a project the
-    engine would run. No ``[application]`` section or no key reads as ``""`` —
+    setting with a matching override applied over the base, and this check must
+    never refuse a project the engine would run. No ``[application]`` section or no key reads as ``""`` —
     undefined, which is what the engine would conclude too. A file gda cannot READ
     or DECODE is ``None``: that is not a verdict about the scene, and the step that
     next touches the file (the harness install) reports the failure as its own.
@@ -730,9 +730,10 @@ def _read_main_scene(project: Path) -> str | None:
             base = value
         elif key.startswith("run/main_scene.") and value and not override:
             override = value
-    if base is not None:
-        return base
-    return override
+    # A matching feature override beats the base key in the engine, so a declared
+    # override counts even beside an EMPTY base key; a declared base key counts
+    # even beside an empty override.
+    return base or override
 
 
 def _uid_cache_present(project: Path) -> bool:

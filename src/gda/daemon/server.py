@@ -382,11 +382,11 @@ class DaemonServer:
                 diagnostics=unavailable.reason,
                 probe=unavailable.verdict.probe,
             )
-        except MainSceneUnrunnableAtLaunch as undefined:
+        except MainSceneUnrunnableAtLaunch as unrunnable:
             # The authoritative nothing-to-run guard fired at the launch boundary
             # (#829): no engine session was spawned. Same code and sentence as the
             # `daemon start` fail-fast, so the two sites cannot disagree.
-            return error_reply(undefined.verdict.code, undefined.reason)
+            return error_reply(unrunnable.verdict.code, unrunnable.reason)
         if established is None:
             return error_reply(
                 "engine_session_not_running",
@@ -494,9 +494,9 @@ class DaemonServer:
         # files at THIS instant — they can change after `daemon start`, which runs
         # the same check as its optional fail-fast — and refused before
         # launch_session, so no engine is spawned for it.
-        undefined = main_scene_unrunnable(self.paths.project, self.scene)
-        if undefined is not None:
-            raise MainSceneUnrunnableAtLaunch(undefined)
+        unrunnable = main_scene_unrunnable(self.paths.project, self.scene)
+        if unrunnable is not None:
+            raise MainSceneUnrunnableAtLaunch(unrunnable)
         # A res:// / filesystem scene selector that names no file is rejected HERE,
         # at the launch boundary (NOT per-request — finding 1), as a typed
         # SceneMismatch. Godot does not fall-back-and-run for a missing res:// path:

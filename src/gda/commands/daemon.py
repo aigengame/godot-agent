@@ -898,9 +898,9 @@ def run_daemon_start_operation(
     # before the harness install — with the typed live_main_scene_undefined /
     # live_main_scene_unresolved (LIVE / 6); the daemon's launch boundary runs the
     # same check authoritatively, reading the project files at launch time.
-    undefined = main_scene_unrunnable(project, scene)
-    if undefined is not None:
-        return make_failure(undefined.code, undefined.reason, "")
+    unrunnable = main_scene_unrunnable(project, scene)
+    if unrunnable is not None:
+        return make_failure(unrunnable.code, unrunnable.reason, "")
 
     # The harness install happens BEFORE the daemon exists, so everything from the
     # install onward runs against a project gda has already mutated. The snapshot is

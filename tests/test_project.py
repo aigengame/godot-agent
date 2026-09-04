@@ -764,6 +764,11 @@ def test_a_uid_main_scene_needs_the_uid_cache(tmp_path):
     (project / ".godot").mkdir()
     (project / ".godot" / "uid_cache.bin").write_bytes(b"")
     assert main_scene_unrunnable(project, None) is None
+    # The non-hidden project data directory (`godot/`) resolves the same way.
+    (project / ".godot" / "uid_cache.bin").unlink()
+    (project / "godot").mkdir()
+    (project / "godot" / "uid_cache.bin").write_bytes(b"")
+    assert main_scene_unrunnable(project, None) is None
 
 
 def test_the_reader_does_not_refuse_what_the_engine_would_run(tmp_path):
@@ -781,7 +786,14 @@ def test_the_reader_does_not_refuse_what_the_engine_would_run(tmp_path):
         'config_version=5\n\n[application]\n\nrun/main_scene.macos="res://main.tscn"\n',
     )
     assert main_scene_unrunnable(override_only, None) is None
-    # The base key wins over an override; a CRLF file reads the same.
+    # An EMPTY base key beside a declared override is still declared (the engine
+    # applies a matching override over the base); a CRLF file reads the same.
+    empty_base = _project_with(
+        tmp_path,
+        'config_version=5\n\n[application]\n\nrun/main_scene=""\n'
+        'run/main_scene.macos="res://main.tscn"\n',
+    )
+    assert main_scene_unrunnable(empty_base, None) is None
     crlf = _project_with(
         tmp_path,
         'config_version=5\r\n\r\n[application]\r\n\r\nrun/main_scene="res://a.tscn"\r\n'
