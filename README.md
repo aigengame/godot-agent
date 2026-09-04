@@ -57,6 +57,9 @@ complementary modes:
   `--schema` and the generated MCP tool surface.
 - **Godot-native operations.** Commands follow Godot objects and vocabulary, such as
   `gda scene create`, `gda node add`, and `gda game get`.
+- **Operate reliably in restricted environments.** Redirect user data and logs to
+  writable locations, isolate concurrent runs, and return typed environment failures
+  before Godot crashes.
 - **Three complementary access paths.** Run the CLI directly from an agent, shell, or
   CI; install the bundled Agent Skill for reusable guidance; or expose the same
   operations as MCP tools. See [CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/)

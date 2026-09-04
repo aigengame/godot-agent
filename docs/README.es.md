@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f65e91d217d6ee043126bb18ddf00ea4665f327f1bfe7a753a638a782702b56e -->
+<!-- gda-readme-i18n: source=README.md sha256=4988f376bd9c01bd7b63d97af582137e43fa369bcea42d519c37739a06e1b9ed -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -60,6 +60,9 @@ ese ciclo con dos modos complementarios:
   también sustentan `--schema` y la superficie de herramientas MCP generada.
 - **Operaciones nativas de Godot.** Los comandos siguen los objetos y el vocabulario de
   Godot, como `gda scene create`, `gda node add` y `gda game get`.
+- **Ejecución fiable en entornos restringidos.** Redirige los datos de usuario y los
+  registros a ubicaciones con permisos de escritura, aísla las ejecuciones simultáneas
+  y devuelve fallos de entorno tipados antes de que Godot se bloquee.
 - **Tres vías de acceso complementarias.** Ejecuta la CLI directamente desde un agente,
   shell o CI; instala la Agent Skill incluida para obtener orientación reutilizable; o
   expón las mismas operaciones como herramientas MCP. Consulta

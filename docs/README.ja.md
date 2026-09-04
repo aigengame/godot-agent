@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f65e91d217d6ee043126bb18ddf00ea4665f327f1bfe7a753a638a782702b56e -->
+<!-- gda-readme-i18n: source=README.md sha256=4988f376bd9c01bd7b63d97af582137e43fa369bcea42d519c37739a06e1b9ed -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -60,6 +60,8 @@
   MCP ツール体系にも使われます。
 - **Godot ネイティブな操作。** `gda scene create`、`gda node add`、`gda game get`
   のように、Godot のオブジェクトと用語に沿ったコマンドを提供します。
+- **制約された環境でも安定して実行。** ユーザーデータとログを書き込み可能な場所へ移し、
+  同時実行を分離し、Godot がクラッシュする前に型付きの環境エラーを返します。
 - **相補的な 3 つのアクセス方法。** エージェント、シェル、CI から CLI を直接実行する、
   再利用可能なガイダンスとして同梱の Agent Skill をインストールする、または同じ操作を
   MCP ツールとして公開できます。各方式の比較と違いは
