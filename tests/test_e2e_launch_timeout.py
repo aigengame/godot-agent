@@ -45,10 +45,17 @@ from gda.runner import SubprocessGodotRunner
 from tests.conftest import project_godot
 from tests.support import GODOT, Gda
 
-# The ceiling every arm gives its wedged engine. Long enough for a real Godot to
-# boot and print, short enough that three arms plus gda's terminate grace stay
-# well inside a test run.
-CEILING_SECONDS = 4.0
+# The ceiling each arm gives its wedged engine, by the engine path it boots (#827).
+# The GAME path (the sentinel channel) boots and prints in well under a second, so
+# 4.0s bounds it with a wide margin. The EDITOR path (`--import`, `--export-*`)
+# measured 2.2–2.4s to reach the plugin on a quiet 8-core host, 4.3–4.6s with four
+# concurrent editor passes, 8.1–8.3s with eight, and up to 16.5s with stray CPU
+# load on top — so under pytest-xdist a 4.0s ceiling raced the boot and once lost:
+# the diagnostics held the banner but no plugin line. 30s clears the quiet
+# eight-way figure 3.6x and the loaded worst case 1.8x; each editor arm spends it
+# in full plus gda's terminate grace, which xdist parallelism absorbs.
+GAME_CEILING_SECONDS = 4.0
+EDITOR_CEILING_SECONDS = 30.0
 
 # A blocking autoload: it announces itself on BOTH streams and then never returns.
 # `printerr` matters — gda's stdout carries the ADR-0002 result object, so the
@@ -113,12 +120,12 @@ def _wedged_project(tmp_path: Path, *, autoload: bool, plugin: bool) -> Path:
     return tmp_path
 
 
-def _assert_bounded(elapsed: float) -> None:
+def _assert_bounded(elapsed: float, ceiling: float) -> None:
     """The run was ended by gda's ceiling, not by the engine and not by luck."""
-    assert elapsed >= CEILING_SECONDS, f"the run ended early, at {elapsed:.1f}s"
+    assert elapsed >= ceiling, f"the run ended early, at {elapsed:.1f}s"
     # The ceiling plus gda's terminate-then-kill grace, generously. A wedged
     # GDScript loop ignores the SIGTERM, so the grace is always spent in full.
-    assert elapsed < CEILING_SECONDS + 20, f"the run overran its bound: {elapsed:.1f}s"
+    assert elapsed < ceiling + 20, f"the run overran its bound: {elapsed:.1f}s"
 
 
 def _assert_caller_first_remediation(message: str) -> None:
@@ -146,14 +153,14 @@ def _assert_caller_first_remediation(message: str) -> None:
 
 
 def _assert_timeout_envelope(
-    failure: Failure, label: str, *, expect: list[str]
+    failure: Failure, label: str, ceiling: float, *, expect: list[str]
 ) -> None:
     error = failure.error
     assert error.code == "launch_timeout", error
     assert error.category.value == "environment"
     assert error.message.startswith(f"{label} launched but did not return")
-    assert f"timeout of {CEILING_SECONDS}s" in error.message
-    assert "elapsed 4." in error.message, error.message
+    assert f"timeout of {ceiling}s" in error.message
+    assert f"elapsed {int(ceiling)}." in error.message, error.message
     assert "16384 UTF-8 bytes (16 KiB)" in error.message
     _assert_caller_first_remediation(error.message)
     for expected in expect:
@@ -163,18 +170,19 @@ def _assert_timeout_envelope(
 @pytest.mark.e2e
 def test_a_wedged_sentinel_op_reports_what_the_engine_printed(tmp_path):
     project = _wedged_project(tmp_path, autoload=True, plugin=False)
-    runner = SubprocessGodotRunner(GODOT, project=project, timeout=CEILING_SECONDS)
+    runner = SubprocessGodotRunner(GODOT, project=project, timeout=GAME_CEILING_SECONDS)
 
     started = time.monotonic()
     raw = runner.run("info", {})
     elapsed = time.monotonic() - started
 
-    _assert_bounded(elapsed)
+    _assert_bounded(elapsed, GAME_CEILING_SECONDS)
     outcome = classify_run(raw, GODOT, EngineVersion)
     assert isinstance(outcome, Failure)
     _assert_timeout_envelope(
         outcome,
         "Godot",
+        GAME_CEILING_SECONDS,
         # Both streams, and both from the engine itself: the banner it printed on
         # its own, and the autoload's two lines from before it stopped returning.
         expect=["Godot Engine v", "AUTOLOAD REACHED", "AUTOLOAD WEDGED"],
@@ -184,13 +192,15 @@ def test_a_wedged_sentinel_op_reports_what_the_engine_printed(tmp_path):
 @pytest.mark.e2e
 def test_a_wedged_export_reports_what_the_engine_printed(tmp_path):
     project = _wedged_project(tmp_path, autoload=False, plugin=True)
-    runner = SubprocessExportRunner(GODOT, project=project, timeout=CEILING_SECONDS)
+    runner = SubprocessExportRunner(
+        GODOT, project=project, timeout=EDITOR_CEILING_SECONDS
+    )
 
     started = time.monotonic()
     raw = runner.run("Linux/X11", "release", "build/game.x86_64")
     elapsed = time.monotonic() - started
 
-    _assert_bounded(elapsed)
+    _assert_bounded(elapsed, EDITOR_CEILING_SECONDS)
     outcome = classify_export_run(
         raw,
         GODOT,
@@ -202,7 +212,10 @@ def test_a_wedged_export_reports_what_the_engine_printed(tmp_path):
     )
     assert isinstance(outcome, Failure)
     _assert_timeout_envelope(
-        outcome, "Godot export", expect=["PLUGIN REACHED", "PLUGIN WEDGED"]
+        outcome,
+        "Godot export",
+        EDITOR_CEILING_SECONDS,
+        expect=["PLUGIN REACHED", "PLUGIN WEDGED"],
     )
 
 
@@ -220,18 +233,18 @@ def test_a_wedged_import_pass_reports_what_the_engine_printed(tmp_path):
         "import",
         "res://icon.png",
         "--timeout",
-        str(CEILING_SECONDS),
+        str(EDITOR_CEILING_SECONDS),
         "--json",
     )
     elapsed = time.monotonic() - started
 
-    _assert_bounded(elapsed)
+    _assert_bounded(elapsed, EDITOR_CEILING_SECONDS)
     assert run.returncode == 124, run.stdout + run.stderr
     error = json.loads(run.stdout)["error"]
     assert error["code"] == "launch_timeout"
     assert error["message"].startswith("Godot import launched but did not return")
-    assert f"timeout of {CEILING_SECONDS}s" in error["message"]
-    assert "elapsed 4." in error["message"]
+    assert f"timeout of {EDITOR_CEILING_SECONDS}s" in error["message"]
+    assert f"elapsed {int(EDITOR_CEILING_SECONDS)}." in error["message"]
     _assert_caller_first_remediation(error["message"])
     assert "PLUGIN WEDGED" in error["diagnostics"]
     # #687 (the ADR-0004 amendment) end to end, on a REAL wedged engine: the three
@@ -242,8 +255,8 @@ def test_a_wedged_import_pass_reports_what_the_engine_printed(tmp_path):
     # because the clock and the phase are readings of a real process: a fake
     # RunResult would assert only the can.
     evidence = error["evidence"]
-    assert evidence["timeout_seconds"] == CEILING_SECONDS
-    assert evidence["elapsed_seconds"] >= CEILING_SECONDS
+    assert evidence["timeout_seconds"] == EDITOR_CEILING_SECONDS
+    assert evidence["elapsed_seconds"] >= EDITOR_CEILING_SECONDS
     # The engine printed before it wedged, so it reached its own startup: this is the
     # phase that says raise the ceiling, not the one that says suspect the binary.
     assert evidence["termination_phase"] == "output_seen"
