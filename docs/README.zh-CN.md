@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ae73125c3874a073c1517d361baca2995e4caa1d4ac167ef753c6bf7d32f133b -->
+<!-- gda-readme-i18n: source=README.md sha256=f65e91d217d6ee043126bb18ddf00ea4665f327f1bfe7a753a638a782702b56e -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -25,7 +25,7 @@
 文件修改完成，不代表游戏改动已经通过验证。`gda` 用两种互补模式补上验证环节：
 
 - **Headless** — 无需编辑器插件或 daemon，即可创建和编辑项目内容、编译脚本、
-  校验并启动场景、检查项目以及导出构建产物。
+  校验并启动场景、分析项目结构以及导出构建产物。
 - **Live** — 通过项目级 daemon 检查并操控运行中的游戏：读取运行时场景树与状态、
   模拟输入、捕获画面、收集日志和错误以及测量性能。
 
@@ -52,7 +52,7 @@
 <a id="why-gda"></a>
 ## 为什么选择 `gda`？
 
-- **验证不止于文件修改。** Headless 校验确认项目已具备运行条件；Live 操作则以运行时
+- **贯穿游戏开发生命周期的验证。** Headless 校验确认项目已具备运行条件；Live 操作则以运行时
   证据验证实际行为。
 - **结构化结果与可发现的 Schema。** 使用 `--json` 时，每条命令只在 stdout 输出一个
   结果对象。带类型的输入和输出模型同时支撑 `--schema` 与自动生成的 MCP 工具界面。
@@ -75,7 +75,7 @@
 | 目标 | `gda` 提供 | 从这里开始 |
 | --- | --- | --- |
 | 构建 Godot 项目内容（Headless） | 创建和编辑场景、节点、脚本、资源、项目设置、着色器与主题 | `scene` / `node` / `script` / `resource` / `project` / `shader` / `theme` |
-| 验证项目就绪状态（Headless） | 编译脚本、校验依赖、在限定时间内启动场景、检查项目以及导出构建产物 | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
+| 验证项目就绪状态（Headless） | 编译脚本、校验依赖、在限定时间内启动场景、分析项目结构以及导出构建产物 | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
 | 验证运行时行为（Live） | 读取运行时状态、调用已声明的方法、模拟输入、捕获画面、收集日志和错误以及测量性能 | `gda daemon start`，然后使用 `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | 接入 Coding Agent | 使用 CLI 直接执行、Agent Skill 可复用指导，或 MCP 工具发现与调用 | `gda` / `gda skill` / `gda-mcp` |
 | 在自动化环境中可靠运行 | 获得结构化结果、带类型的 Schema 与失败信息、明确的执行边界、隔离日志和可直接处理的诊断信息 | `--json` / `--schema` / `--user-data-root` / 超时设置 |

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ae73125c3874a073c1517d361baca2995e4caa1d4ac167ef753c6bf7d32f133b -->
+<!-- gda-readme-i18n: source=README.md sha256=f65e91d217d6ee043126bb18ddf00ea4665f327f1bfe7a753a638a782702b56e -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -26,7 +26,7 @@ Editar un archivo no significa que el cambio en el juego esté verificado. `gda`
 ese ciclo con dos modos complementarios:
 
 - **Headless** — crea y edita contenido del proyecto, compila scripts, valida e inicia
-  escenas, inspecciona proyectos y exporta builds sin plugin de editor ni daemon.
+  escenas, analiza la estructura del proyecto y exporta builds sin plugin de editor ni daemon.
 - **Live** — inspecciona y controla el juego en ejecución mediante un daemon por proyecto:
   árbol y estado de runtime, simulación de entrada, captura de frames, registros, errores y rendimiento.
 
@@ -53,7 +53,7 @@ ese ciclo con dos modos complementarios:
 <a id="why-gda"></a>
 ## ¿Por qué `gda`?
 
-- **Verificación más allá de la edición de archivos.** La validación Headless confirma
+- **Verificación a lo largo del ciclo de vida del desarrollo de juegos.** La validación Headless confirma
   que el proyecto está listo; las operaciones Live aportan evidencia del comportamiento real.
 - **Resultados estructurados y esquemas consultables.** Con `--json`, cada comando emite
   exactamente un objeto de resultado en stdout. Los modelos tipados de entrada y salida
@@ -80,7 +80,7 @@ Estas capacidades se perfeccionaron mediante un
 | Objetivo | Lo que ofrece `gda` | Empieza por |
 | --- | --- | --- |
 | Crear contenido de proyectos Godot (Headless) | Crear y editar escenas, nodos, scripts, recursos, ajustes del proyecto, shaders y temas | `scene` / `node` / `script` / `resource` / `project` / `shader` / `theme` |
-| Verificar que el proyecto está listo (Headless) | Compilar scripts, validar dependencias, iniciar escenas con un preflight acotado, inspeccionar proyectos y exportar builds | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
+| Verificar que el proyecto está listo (Headless) | Compilar scripts, validar dependencias, iniciar escenas con un preflight acotado, analizar la estructura del proyecto y exportar builds | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
 | Verificar el comportamiento en runtime (Live) | Leer el estado de runtime, llamar a métodos declarados, simular entradas, capturar frames, recopilar registros y errores, y medir el rendimiento | `gda daemon start`, luego `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | Conectar un agente de programación con IA | Usar la CLI directamente, la orientación reutilizable de Agent Skill o el descubrimiento y las llamadas de herramientas MCP | `gda` / `gda skill` / `gda-mcp` |
 | Ejecutar automatización de forma fiable | Recibir resultados estructurados, esquemas y fallos tipados, ejecución acotada, registros aislados y diagnósticos útiles | `--json` / `--schema` / `--user-data-root` / timeouts |

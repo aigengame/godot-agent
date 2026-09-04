@@ -24,7 +24,7 @@ A file edit is not a verified game change. `gda` closes that loop in two
 complementary modes:
 
 - **Headless** — create and edit project content, compile scripts, validate and boot
-  scenes, inspect projects, and export builds without an editor plugin or daemon.
+  scenes, analyze project structure, and export builds without an editor plugin or daemon.
 - **Live** — inspect and drive the running game through a per-project daemon: runtime
   tree and state, input simulation, frame capture, logs, errors, and performance.
 
@@ -50,7 +50,7 @@ complementary modes:
 
 ## Why `gda`?
 
-- **Verification beyond file edits.** Headless validation confirms project readiness;
+- **Verification across the game development lifecycle.** Headless validation confirms project readiness;
   Live operations return runtime evidence about actual behavior.
 - **Structured results and discoverable schemas.** With `--json`, each command emits
   exactly one result object on stdout. Typed input and output models also power
@@ -75,7 +75,7 @@ These capabilities were refined through a
 | Goal | What `gda` provides | Start with |
 | --- | --- | --- |
 | Build Godot project content (Headless) | Create and edit scenes, nodes, scripts, resources, project settings, shaders, and themes | `scene` / `node` / `script` / `resource` / `project` / `shader` / `theme` |
-| Verify project readiness (Headless) | Compile scripts, validate dependencies, boot scenes in a bounded preflight, inspect projects, and export builds | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
+| Verify project readiness (Headless) | Compile scripts, validate dependencies, boot scenes in a bounded preflight, analyze project structure, and export builds | `script validate` / `scene validate` / `scene preflight` / `project` / `export` |
 | Verify runtime behavior (Live) | Read runtime state, call declared methods, simulate input, capture frames, collect logs and errors, and sample performance | `gda daemon start`, then `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | Connect an AI coding agent | Use direct CLI execution, reusable Agent Skill guidance, or MCP tool discovery and calling | `gda` / `gda skill` / `gda-mcp` |
 | Run reliably in automation | Receive structured results, typed schemas and failures, bounded execution, isolated logs, and actionable diagnostics | `--json` / `--schema` / `--user-data-root` / timeouts |
