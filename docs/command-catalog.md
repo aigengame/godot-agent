@@ -1630,7 +1630,11 @@ re-derives every verdict from a running engine.
   retained across a failed replacement launch (nothing replaced the session it names)
   until a new session is established. It is the value a `screen capture` receipt's
   `session_id` correlates with; null before the first established session this daemon
-  lifetime. `daemon start --windowed` additionally
+  lifetime. `daemon start` refuses a project whose `application/run/main_scene` is empty when
+  no `--scene` selector is given — `live_main_scene_undefined` (LIVE, exit 6), decided from
+  the project file before anything is spawned and again at the daemon's launch boundary:
+  Godot would otherwise print "no main scene defined" and, on macOS, block on a native alert
+  even headless (#829). `daemon start --windowed` additionally
   requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
   `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two

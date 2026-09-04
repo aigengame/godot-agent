@@ -18,6 +18,7 @@ written by Godot's import pass, so a fast test can only plant a stand-in.
 """
 
 import json
+import time
 import os
 import subprocess
 
@@ -990,6 +991,50 @@ def test_daemon_start_scene_runs_the_chosen_scene_not_main(
         assert 'run/main_scene="res://main.tscn"' in (
             tmp_path / "project.godot"
         ).read_text(encoding="utf-8")
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@pytest.mark.e2e
+def test_daemon_start_without_a_main_scene_is_refused_before_any_engine(
+    tmp_path, daemon_runtime_dir
+):
+    # #829: a real `daemon start` on a project that defines no main scene (and no
+    # `--scene`) is refused with the typed live_main_scene_undefined, fast and before
+    # anything is spawned — the engine would otherwise print "no main scene defined"
+    # and, on macOS, block on a native alert even headless. Then the AUTHORITATIVE
+    # guard: a daemon started on a runnable project whose main scene is removed
+    # afterwards refuses the first live op the same way, with no session launched.
+    from tests.conftest import project_godot
+
+    (tmp_path / "project.godot").write_text(project_godot(), encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    started_at = time.monotonic()
+    refused = run("daemon", "start")
+    elapsed = time.monotonic() - started_at
+    assert refused.returncode == 6, refused.stdout + refused.stderr
+    error = json.loads(refused.stdout)["error"]
+    assert error["code"] == "live_main_scene_undefined"
+    assert "--scene" in error["message"]
+    assert elapsed < 5.0, f"the refusal took {elapsed:.1f}s — did an engine boot?"
+    assert not (tmp_path / "addons" / "gda_harness").exists()  # nothing installed
+
+    # The launch boundary, on a real daemon: start on a runnable project, then take
+    # the main scene away before the lazy launch.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        (tmp_path / "project.godot").write_text(project_godot(), encoding="utf-8")
+
+        tree = run("game", "tree")
+        assert tree.returncode == 6, tree.stdout + tree.stderr
+        assert json.loads(tree.stdout)["error"]["code"] == "live_main_scene_undefined"
+        status = json.loads(run("daemon", "status").stdout)
+        assert status.get("session_id") is None  # no session was ever established
     finally:
         run("daemon", "stop")
 

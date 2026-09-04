@@ -465,7 +465,7 @@ names the file, and only `preflight` catches a first-frame failure.
 
 | Command | What it does |
 | ------- | ------------ |
-| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches lazily, on the first operation that needs one (`--windowed` for `screen` capture). |
+| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches lazily, on the first operation that needs one (`--windowed` for `screen` capture). The project must define `application/run/main_scene`, or pass `--scene`. |
 | `daemon wait-ready` | Launch the engine session now and wait for it; `--timeout` is the daemon's budget for that launch, not a hard ceiling on the call. Read-only `diag` / `logger` tails never launch a session, so run this first when such a read is your first live command. |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |

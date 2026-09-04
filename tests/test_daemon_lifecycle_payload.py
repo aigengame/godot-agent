@@ -67,8 +67,13 @@ def _project(tmp_path):
     needs a project.godot that carries one — a different file, not the shared
     minimum plus a second write of the same path.
     """
+    # `run/main_scene` declared (the file need not exist): a start on a project
+    # with no main scene is refused before the spawn (#829), which this suite's
+    # start paths must get past.
     (tmp_path / "project.godot").write_text(
-        'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n'
+        'run/main_scene="res://main.tscn"\n',
+        encoding="utf-8",
     )
     return tmp_path
 
@@ -272,6 +277,64 @@ def test_windowed_start_without_a_display_is_live_windowed_unavailable(
     assert outcome.error.probe is not None
     assert outcome.error.probe.name == "CGSessionCopyCurrentDictionary"
     assert outcome.error.probe.platform == "darwin"
+
+
+def test_start_with_no_main_scene_is_live_main_scene_undefined_without_spawning(
+    tmp_path, short_runtime, monkeypatch
+):
+    # #829: a project whose `application/run/main_scene` is empty, started with no
+    # `--scene`, has nothing for the session to run — Godot would print "no main
+    # scene defined" and then block on a native alert (macOS, even headless) until
+    # the readiness deadline killed it. Refused HERE, before the spawn and before
+    # the harness install, with the typed live_main_scene_undefined (LIVE / 6).
+    project = tmp_path
+    (project / "project.godot").write_text(
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list = []
+
+    outcome = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        spawn=lambda p, b, w, s: spawned.append((p, b, w, s)),
+        version_check=_OK_VERSION,
+    )
+
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.code == "live_main_scene_undefined"
+    assert outcome.error.category.value == "live"
+    assert outcome.exit_code == 6
+    # Both remedies are named, caller-first.
+    assert "application/run/main_scene" in outcome.error.message
+    assert "--scene" in outcome.error.message
+    assert spawned == []  # never spawned the daemon
+    # Pre-harness-install: a refused start must not mutate the project.
+    assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+
+
+def test_start_with_a_scene_selector_skips_the_main_scene_check(
+    tmp_path, short_runtime, fake_ready, monkeypatch
+):
+    # #829: `--scene` makes the main scene irrelevant — the session boots the
+    # selector — so the same project starts when one is given.
+    project = tmp_path
+    (project / "project.godot").write_text(
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list = []
+
+    outcome = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        scene="res://other.tscn",
+        spawn=lambda p, b, w, s: spawned.append((p, b, w, s)),
+        version_check=_OK_VERSION,
+    )
+
+    assert isinstance(outcome, DaemonStartResult), outcome
+    assert len(spawned) == 1 and spawned[0][3] == "res://other.tscn"
 
 
 def test_windowed_start_denied_by_a_sandbox_is_a_distinct_permission_code(

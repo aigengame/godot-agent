@@ -650,3 +650,77 @@ def resolve_project_dir(
     if (cwd / PROJECT_MARKER).exists():
         return cwd
     return None
+
+
+# --- The main-scene precondition for a live session launch (#829) -------------
+
+MAIN_SCENE_UNDEFINED = "live_main_scene_undefined"
+
+
+@dataclass(frozen=True)
+class MainSceneUndefined:
+    """The refusal for a session launch that has nothing to run (#829).
+
+    ``code`` is the :term:`Gda error code` (:data:`MAIN_SCENE_UNDEFINED`) and
+    ``reason`` the caller-first sentence both refusal sites relay verbatim — the
+    optional ``daemon start`` fail-fast and the daemon's authoritative launch
+    boundary — so the two never disagree about what was found or what to do.
+    """
+
+    code: str
+    reason: str
+
+
+def _read_main_scene(project: Path) -> str | None:
+    """The ``application/run/main_scene`` value in ``project.godot``.
+
+    A minimal read of Godot's ``ConfigFile`` text: sections are ``[name]`` lines,
+    keys are ``key=value`` lines inside them, and the main-scene value is a quoted
+    string (``"res://main.tscn"`` or ``"uid://..."``). No ``[application]``
+    section or no key reads as ``""`` — undefined, which is what the engine would
+    conclude too. A file gda cannot READ is ``None``: that is not a verdict about
+    the scene, and the step that next touches the file (the harness install)
+    reports the permission failure as its own.
+    """
+    try:
+        text = (project / PROJECT_MARKER).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    section = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+            continue
+        if section != "application" or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() == "run/main_scene":
+            return value.strip().strip('"')
+    return ""
+
+
+def main_scene_undefined(project: Path, scene: str | None) -> MainSceneUndefined | None:
+    """The pre-launch verdict for a live session: ``None`` when it has a scene to run.
+
+    Godot started on the GAME path with no ``--scene``/``--script`` and an empty
+    ``application/run/main_scene`` prints ``Can't run project: no main scene
+    defined`` and then calls ``OS::alert()`` unconditionally — on macOS a native
+    modal that ignores ``--headless`` and blocks the process until it is dismissed
+    or killed (#829). Every gda headless operation names a script, an import or an
+    export, so only a session launch can reach that path: this is the one check
+    the two launch sites share (the ``daemon start`` fail-fast and the daemon's
+    authoritative launch boundary), decided from the project file alone, without
+    spawning. A ``--scene`` selector makes the main scene irrelevant, so it wins.
+    """
+    if scene is not None or _read_main_scene(project) != "":
+        return None
+    return MainSceneUndefined(
+        MAIN_SCENE_UNDEFINED,
+        "the project defines no main scene to run: `application/run/main_scene` "
+        f"is empty in {project / PROJECT_MARKER} and no --scene selector was "
+        "given. Set it (`gda project set application/run/main_scene --value "
+        "res://<scene>.tscn`) or start with `gda daemon start --scene "
+        "<res://path|uid://...>`; Godot would otherwise refuse to run the project "
+        "and, on macOS, block on a native alert even under --headless",
+    )

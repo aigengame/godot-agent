@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ae73125c3874a073c1517d361baca2995e4caa1d4ac167ef753c6bf7d32f133b -->
+<!-- gda-readme-i18n: source=README.md sha256=d4dd7805af9f112ce08aef17ff6600d5e54bc020b81382478cfe487754114c92 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -462,7 +462,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话按需启动，只有操作需要时才会拉起（`screen` 截图需加 `--windowed`）。 |
+| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话按需启动，只有操作需要时才会拉起（`screen` 截图需加 `--windowed`）。 项目必须定义 `application/run/main_scene`，或传 `--scene`。 |
 | `daemon wait-ready` | 立即启动引擎会话并等待它就绪；`--timeout` 是 daemon 为这次启动分配的预算，不是这次调用的硬性上限。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ae73125c3874a073c1517d361baca2995e4caa1d4ac167ef753c6bf7d32f133b -->
+<!-- gda-readme-i18n: source=README.md sha256=d4dd7805af9f112ce08aef17ff6600d5e54bc020b81382478cfe487754114c92 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -479,7 +479,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 
 | コマンド | 機能 |
 | ------- | ------------ |
-| `daemon start` | プロジェクトごとのデーモンを起動し、ゲーム内ハーネスをインストールします。エンジンセッションは、最初に必要になった操作で起動します（`screen` キャプチャには `--windowed`）。 |
+| `daemon start` | プロジェクトごとのデーモンを起動し、ゲーム内ハーネスをインストールします。エンジンセッションは、最初に必要になった操作で起動します（`screen` キャプチャには `--windowed`）。 プロジェクトに `application/run/main_scene` が定義されているか、`--scene` を渡す必要があります。 |
 | `daemon wait-ready` | エンジンセッションを今すぐ起動し、準備完了まで待ちます。`--timeout` はデーモンがこの起動に割り当てる予算であって、呼び出し自体の厳密な上限ではありません。読み取り専用の `diag` / `logger` はセッションを起動しないため、それが最初の Live コマンドになるときは先にこれを実行してください。 |
 | `daemon stop` | プロジェクトのデーモンと、実行中のエンジンセッションを停止します。 |
 | `daemon status` | デーモンの状態(実行中か、ウィンドウモードか、セッション)を報告します。 |

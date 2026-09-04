@@ -812,6 +812,24 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " missing/invalid path or UID), verified by the harness at launch — gda never"
         " falls back.",
     ),
+    # A session launch with NOTHING to run (#829): the project's
+    # `application/run/main_scene` is empty and no `--scene` selector was given.
+    # Godot would print "Can't run project: no main scene defined" and then call
+    # OS::alert() unconditionally — on macOS a native modal that ignores --headless
+    # and blocks until dismissed or killed — so gda refuses BEFORE spawning, at the
+    # `daemon start` fail-fast and again at the daemon's authoritative launch
+    # boundary. Same LIVE / exit-6 bucket as `live_scene_not_found` (the session's
+    # scene cannot be run), classifier-source, NOT GDScript-mirrored.
+    ErrorCodeSpec(
+        "live_main_scene_undefined",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live Engine session had nothing to run: the project's"
+        " `application/run/main_scene` is empty and `gda daemon start` was given no"
+        " `--scene` selector, so Godot would refuse to start — and on macOS block on"
+        " a native alert even headless; refused before spawning Godot.",
+    ),
     # Per live-operation failures the gda harness reports for `perf` (#223). Same
     # shape as the #220 game op-errors above: LIVE-category, classifier-source,
     # exit_code EXIT_LIVE, harness-mirrored (a test mirrors them against the harness
