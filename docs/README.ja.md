@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4988f376bd9c01bd7b63d97af582137e43fa369bcea42d519c37739a06e1b9ed -->
+<!-- gda-readme-i18n: source=README.md sha256=d0416dc1a93c1149d22530e346d9559260465142baff5b6536a49aef22ce5614 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -69,8 +69,8 @@
 - **範囲を制御でき、失敗後に対応できる自動化。** タイムアウト、出力上限、型付きの失敗、
   診断情報、変更レポートにより、エージェントは何が起きたかと復旧方法を判断できます。
 
-これらの機能は、[実際のゲーム制作で行った公開 dogfooding の記録](https://github.com/aigengame/godot-agent/milestone/10)
-を通じて改善されました。
+これらの機能は[実際のゲーム制作](https://aigengame.xyz/#showcase)を通じて磨かれ、その過程は
+公開されている[dogfooding の記録](https://github.com/aigengame/godot-agent/milestone/10)にまとめられています。
 
 ---
 

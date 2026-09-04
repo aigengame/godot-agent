@@ -68,8 +68,9 @@ complementary modes:
   failures, diagnostics, and mutation reports help agents decide what happened and how
   to recover.
 
-These capabilities were refined through a
-[public real-game production dogfooding record](https://github.com/aigengame/godot-agent/milestone/10).
+These capabilities were refined while
+[building a real game](https://aigengame.xyz/#showcase), with the work documented in a public
+[dogfooding record](https://github.com/aigengame/godot-agent/milestone/10).
 
 ---
 

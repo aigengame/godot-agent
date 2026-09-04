@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4988f376bd9c01bd7b63d97af582137e43fa369bcea42d519c37739a06e1b9ed -->
+<!-- gda-readme-i18n: source=README.md sha256=d0416dc1a93c1149d22530e346d9559260465142baff5b6536a49aef22ce5614 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -72,8 +72,9 @@ ese ciclo con dos modos complementarios:
   fallos tipados, los diagnósticos y los informes de cambios ayudan al agente a saber qué
   ocurrió y cómo recuperarse.
 
-Estas capacidades se perfeccionaron mediante un
-[registro público de uso en la producción de un juego real](https://github.com/aigengame/godot-agent/milestone/10).
+Estas capacidades se perfeccionaron mientras
+[se desarrollaba un juego real](https://aigengame.xyz/#showcase); el trabajo quedó documentado
+en un [registro público de dogfooding](https://github.com/aigengame/godot-agent/milestone/10).
 
 ---
 

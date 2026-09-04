@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4988f376bd9c01bd7b63d97af582137e43fa369bcea42d519c37739a06e1b9ed -->
+<!-- gda-readme-i18n: source=README.md sha256=d0416dc1a93c1149d22530e346d9559260465142baff5b6536a49aef22ce5614 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -66,8 +66,8 @@
 - **边界明确，失败后可恢复。** 超时、输出上限、类型化失败、诊断信息和变更报告，能帮助
   Agent 判断发生了什么以及如何恢复。
 
-这些能力经过[真实游戏制作中的公开 dogfooding](https://github.com/aigengame/godot-agent/milestone/10)
-持续验证与打磨。
+这些能力在[真实游戏制作](https://aigengame.xyz/zh/#showcase)中持续打磨，相关过程记录在
+公开的[dogfooding 记录](https://github.com/aigengame/godot-agent/milestone/10)中。
 
 ---
 
