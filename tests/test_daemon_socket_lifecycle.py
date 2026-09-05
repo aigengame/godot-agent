@@ -50,7 +50,7 @@ from gda.daemon.session import (
 from gda.errors import Failure
 from gda.live_runner import DaemonRunner
 from gda.parser import build_result, parse_result
-from tests.support import FakeProc, minimal_project, no_engine_teardown
+from tests.support import FakeProc, runnable_project, no_engine_teardown
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -229,7 +229,7 @@ def _no_launch(*args, **kwargs):
 def test_serve_binds_both_sockets_and_answers_status(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_no_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -250,7 +250,7 @@ def test_a_stale_slot_left_by_a_crash_is_reclaimed(
 ):
     # A crashed predecessor leaves socket files bound-then-abandoned and a pidfile
     # whose advisory lock nobody holds. A fresh serve() must reclaim the slot.
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     for stale in (paths.cli_socket, paths.harness_socket):
         abandoned = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -273,7 +273,7 @@ def test_a_double_start_loses_without_touching_the_live_daemons_slot(
     # reachable ones), and not its pidfile CONTENT either — a pre-lock
     # truncation erases the winner's recorded identity, so status, attach, and
     # stop all read the live daemon as not running (#723 review).
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     winner = DaemonServer(paths, godot="godot", launch=_no_launch)
 
     with _serving(winner, paths, monkeypatch):
@@ -301,7 +301,7 @@ def test_cleanup_removes_the_slot_before_releasing_the_lock(
     # fresh slot inside the cleanup window — which the predecessor's remaining
     # unlinks then destroy. Instrumenting unlink pins the order: every slot
     # path must be removed while the lock is still held.
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_no_launch)
     slot = {paths.cli_socket, paths.harness_socket, paths.pidfile}
     held_at_unlink: dict = {}
@@ -333,7 +333,7 @@ def test_cleanup_removes_the_slot_before_releasing_the_lock(
 def test_stop_op_unlinks_the_sockets_and_pidfile(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_no_launch)
 
     with _serving(server, paths, monkeypatch) as thread:
@@ -354,7 +354,7 @@ def test_a_termination_signal_cleans_up_the_slot(tmp_path, daemon_runtime_dir):
     # re-enactment is deliberately NOT used here — on Linux, closing a listener
     # from another thread does not wake a blocked accept, which is a fact about
     # threads, not about the signal path under test.
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_no_launch)
 
     child = os.fork()
@@ -397,7 +397,7 @@ def test_an_overlong_socket_path_is_refused_at_start(tmp_path, monkeypatch):
     # spawn, instead of the daemon's bind() failing and start timing out vaguely.
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / ("x" * 150)))
 
-    outcome = run_daemon_start_operation(minimal_project(tmp_path), "godot")
+    outcome = run_daemon_start_operation(runnable_project(tmp_path), "godot")
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "daemon_not_running"
@@ -417,7 +417,7 @@ def test_the_first_live_op_launches_the_session_lazily_and_reuses_it(
         calls["n"] += 1
         return session
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -436,7 +436,7 @@ def test_a_failed_launch_is_the_typed_engine_session_not_running(
     def _launch(*args, **kwargs):
         return None
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -469,7 +469,7 @@ def test_a_session_dying_mid_request_reports_disconnect_then_relaunches(
             return dying
         return _ServedSession()
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -499,7 +499,7 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
         launches.append(kwargs.get("deadline"))
         return session
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -547,7 +547,7 @@ def test_status_reports_the_minted_session_identity_across_the_lifecycle(
         sessions.append(session)
         return session
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -597,7 +597,7 @@ def test_a_failed_replacement_launch_retains_the_last_established_identity(
         sessions.append(session)
         return session
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -635,7 +635,7 @@ def test_launch_session_places_the_identity_on_the_harness_tail(
 
     monkeypatch.setattr(subprocess, "Popen", _record_spawn)
     no_engine_teardown(monkeypatch)
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(paths.harness_socket))
@@ -675,7 +675,7 @@ def test_wait_ready_relays_the_typed_launch_failure(
     def _launch(*args, **kwargs):
         return None
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -698,7 +698,7 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
         subprocess, "Popen", lambda argv, **kw: FakeProc(returncode=None)
     )
     no_engine_teardown(monkeypatch)
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(paths.harness_socket))
@@ -743,7 +743,7 @@ def test_a_trickling_handshake_peer_cannot_hold_the_launch_past_the_deadline(
         subprocess, "Popen", lambda argv, **kw: FakeProc(returncode=None)
     )
     no_engine_teardown(monkeypatch)
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(paths.harness_socket))
@@ -803,7 +803,7 @@ def test_a_slow_spawn_cannot_revive_the_callers_expired_deadline(
         return FakeProc(returncode=None)
 
     monkeypatch.setattr(subprocess, "Popen", _slow_popen)
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(paths.harness_socket))
@@ -852,7 +852,7 @@ def test_launch_preparation_that_crosses_the_deadline_spawns_nothing(
     monkeypatch.setattr(subprocess, "Popen", _record_spawn)
     monkeypatch.setattr(Path, "write_bytes", _slow_write)
     no_engine_teardown(monkeypatch)
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(paths.harness_socket))
@@ -891,7 +891,7 @@ def test_a_deadline_spent_by_the_spawn_is_not_blamed_on_the_harness(
 
     monkeypatch.setattr(subprocess, "Popen", _slow_popen)
     no_engine_teardown(monkeypatch)
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(paths.harness_socket))
@@ -944,7 +944,7 @@ def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
         launches.append(kwargs.get("deadline"))
         return stale if len(launches) == 1 else None
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
     queued: list = []
 
@@ -1111,7 +1111,7 @@ def test_the_live_clients_ceiling_covers_the_whole_round_trip(
     # INACTIVITY timeout, not a round-trip ceiling — a trickling daemon could
     # hold the CLI indefinitely. Same absolute-instant rule as every other read.
     monkeypatch.setattr("gda.live_runner.LIVE_REQUEST_TIMEOUT", 0.3)
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(paths.cli_socket))
@@ -1372,7 +1372,7 @@ def test_a_stuck_handshake_does_not_freeze_the_daemon(
         subprocess, "Popen", lambda argv, **kw: FakeProc(returncode=None)
     )
     no_engine_teardown(monkeypatch)
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot")  # the real launch seam default
 
     with _serving(server, paths, monkeypatch):
@@ -1415,7 +1415,7 @@ def test_wait_ready_rebuilds_a_session_whose_channel_broke(
         launches.append(1)
         return zombie if len(launches) == 1 else _ServedSession()
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -1452,7 +1452,7 @@ def test_wait_ready_rebuilds_a_session_whose_relay_timed_out(
         launches.append(1)
         return desynced if len(launches) == 1 else _ServedSession()
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     try:
@@ -1488,7 +1488,7 @@ def test_a_teardown_cannot_outlast_the_readiness_deadline(
         return proc
 
     monkeypatch.setattr(subprocess, "Popen", _spawn_stubborn_child)
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot")  # the real launch + teardown
     queued: list = []
 
@@ -1554,7 +1554,7 @@ def test_launched_is_reported_by_the_launch_owner(
         launches.append(1)
         return flip if len(launches) == 1 else _ServedSession()
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -1591,7 +1591,7 @@ def test_every_declared_daemon_served_op_is_intercepted_not_relayed(
     def _launch(*args, **kwargs):
         return session
 
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_launch)
 
     with _serving(server, paths, monkeypatch):
@@ -1610,7 +1610,7 @@ def test_the_wire_boundary_re_enforces_the_wait_ready_bound(
     # #725 review finding 4: the finite (0, 50] rule holds at the IPC boundary
     # too — this socket can be driven by clients other than gda's CLI, and an
     # unbounded or non-finite value would defeat the bound the op promises.
-    paths = daemon_paths(minimal_project(tmp_path))
+    paths = daemon_paths(runnable_project(tmp_path))
     server = DaemonServer(paths, godot="godot", launch=_no_launch)
 
     with _serving(server, paths, monkeypatch):

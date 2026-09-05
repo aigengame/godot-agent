@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9ee455d8eacbad676baab58de7bf10903ba66bc48f64fb0c59f41c0a7cf92d54 -->
+<!-- gda-readme-i18n: source=README.md sha256=77bb050928bb00a8ba3ce8936b82593b68eeae2731f81332c327a0010235067d -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -498,7 +498,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se inicia solo cuando una operación la necesita (`--windowed` para la captura de `screen`). |
+| `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se inicia solo cuando una operación la necesita (`--windowed` para la captura de `screen`). El proyecto debe definir `application/run/main_scene`, o pasa `--scene`. |
 | `daemon wait-ready` | Lanza la sesión del motor ahora y espera a que esté lista; `--timeout` es el presupuesto que el daemon dedica a ese lanzamiento y no limita estrictamente la duración total de la llamada. Las consultas de solo lectura `diag` / `logger` nunca lanzan una sesión, así que ejecútalo primero cuando una de ellas sea tu primer comando live. |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |

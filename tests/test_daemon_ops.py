@@ -21,7 +21,7 @@ from gda.commands.daemon import (
     run_daemon_stop_operation,
 )
 from gda.harness.install import HARNESS_VERSION
-from tests.support import minimal_project
+from tests.support import runnable_project
 
 pytestmark = [
     pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"),
@@ -35,7 +35,7 @@ _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
 
 def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
-    project = minimal_project(tmp_path)
+    project = runnable_project(tmp_path)
     paths = daemon_paths(project)
 
     try:
@@ -77,7 +77,7 @@ def test_daemon_status_reports_a_windowed_daemons_mode(tmp_path, daemon_runtime_
     # read back by `daemon status`. No engine session is launched here (lazy launch,
     # ADR-0017) — the daemon process merely records the declared mode — so this needs
     # no display and is headless-CI safe.
-    project = minimal_project(tmp_path)
+    project = runnable_project(tmp_path)
 
     try:
         started = run_daemon_start_operation(
@@ -104,7 +104,7 @@ def test_daemon_status_reports_a_windowed_daemons_mode(tmp_path, daemon_runtime_
 def test_live_version_gate_rejects_below_4_6(tmp_path, daemon_runtime_dir):
     from gda.errors import Failure
 
-    project = minimal_project(tmp_path)
+    project = runnable_project(tmp_path)
     outcome = run_daemon_start_operation(
         project, None, version_check=lambda binary: (4, 5)
     )
@@ -114,7 +114,7 @@ def test_live_version_gate_rejects_below_4_6(tmp_path, daemon_runtime_dir):
 
 
 def test_daemon_status_and_stop_when_not_running(tmp_path, daemon_runtime_dir):
-    project = minimal_project(tmp_path)
+    project = runnable_project(tmp_path)
 
     status = run_daemon_status_operation(project)
     assert isinstance(status, DaemonStatusResult) and status.running is False

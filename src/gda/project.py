@@ -650,3 +650,200 @@ def resolve_project_dir(
     if (cwd / PROJECT_MARKER).exists():
         return cwd
     return None
+
+
+# --- The main-scene precondition for a live session launch (#829) -------------
+
+MAIN_SCENE_UNDEFINED = "live_main_scene_undefined"
+MAIN_SCENE_UNRESOLVED = "live_main_scene_unresolved"
+
+_MAIN_SCENE_KEY = "run/main_scene"
+_HIDDEN_DATA_DIR_KEY = "config/use_hidden_project_data_directory"
+_SETTINGS_OVERRIDE_KEY = "config/project_settings_override"
+_UID_CACHE = "uid_cache.bin"
+_OVERRIDE_CFG = "override.cfg"
+
+
+@dataclass(frozen=True)
+class MainSceneUnrunnable:
+    """The refusal for a session launch whose main scene cannot be run (#829).
+
+    ``code`` is the :term:`Gda error code` — :data:`MAIN_SCENE_UNDEFINED` when the
+    project declares no main scene, :data:`MAIN_SCENE_UNRESOLVED` when it declares a
+    ``uid://`` one the engine could not resolve because the project was never
+    imported — and ``reason`` the caller-first sentence both refusal sites relay
+    verbatim (the optional ``daemon start`` fail-fast and the daemon's
+    authoritative launch boundary), so the two never disagree about what was found
+    or what to do.
+    """
+
+    code: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class _MainSceneSetting:
+    """What ``project.godot`` says about the main scene, as far as gda reads it.
+
+    ``value`` is the base ``application/run/main_scene``; ``overridden`` records
+    that a feature-tagged override of it (``run/main_scene.<feature>``) or a
+    default/custom settings overlay exists. Either can change the effective value
+    in ways only the engine decides (its features and the overlay's contents), so
+    the verdict defers to the engine. ``hidden_data_dir`` is
+    ``application/config/use_hidden_project_data_directory`` (``.godot/`` when
+    true, ``godot/`` when false), which names the one UID cache the engine reads.
+    ``None`` means the directory depends on an override or an unrecognized value;
+    only the UID-cache verdict needs to defer in that case.
+    """
+
+    value: str
+    overridden: bool
+    hidden_data_dir: bool | None
+
+
+def _strip_comment(line: str) -> str:
+    """``line`` up to a ``;`` comment outside double quotes (Godot's comment char)."""
+    quoted = False
+    escaped = False
+    for index, char in enumerate(line):
+        if escaped:
+            escaped = False
+        elif char == "\\" and quoted:
+            escaped = True
+        elif char == '"':
+            quoted = not quoted
+        elif char == ";" and not quoted:
+            return line[:index]
+    return line
+
+
+def _unquote(token: str) -> str:
+    """Strip surrounding quotes; this is not a ``ConfigFile`` escape decoder."""
+    token = token.strip()
+    if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
+        return token[1:-1].replace('\\"', '"')
+    return token
+
+
+def _section_name(line: str) -> str | None:
+    """The section a ``[name]`` line opens, or ``None`` for any other line."""
+    if line.startswith("[") and line.endswith("]"):
+        return line[1:-1].strip()
+    return None
+
+
+def _read_main_scene(project: Path) -> _MainSceneSetting | None:
+    """Read the main-scene setting, or ``None`` when it cannot be determined.
+
+    A minimal read of Godot's ``ConfigFile`` text: ``;`` starts a comment outside
+    quotes, sections are ``[name]`` lines, keys are ``key=value`` lines inside them
+    (a key may be quoted), and a string value is a double-quoted literal. Only the
+    settings this verdict needs and their override declarations are read. Escaped
+    application keys are left to the engine's parser. A file gda cannot read or
+    decode is ``None``: that is not a verdict about the scene, and the next step
+    that touches the file (the harness install) reports the failure as its own.
+    """
+    try:
+        text = (project / PROJECT_MARKER).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    section = ""
+    value = ""
+    overridden = (project / _OVERRIDE_CFG).exists()
+    hidden: bool | None = True
+    for raw in text.splitlines():
+        line = _strip_comment(raw).strip()
+        opened = _section_name(line)
+        if opened is not None:
+            section = opened
+            continue
+        if section != "application" or "=" not in line:
+            continue
+        key, token = line.split("=", 1)
+        if "\\" in key:
+            # A quoted key can encode any setting name (e.g. run/\u006dain_scene).
+            # Do not mistake a declaration we cannot decode for an absent setting.
+            return None
+        key = _unquote(key)
+        if key == _MAIN_SCENE_KEY:
+            value = _unquote(token)
+        elif key.startswith(_MAIN_SCENE_KEY + "."):
+            overridden = True
+        elif key == _HIDDEN_DATA_DIR_KEY:
+            if hidden is not None:
+                hidden = {"true": True, "false": False}.get(token.strip())
+        elif key.startswith(_HIDDEN_DATA_DIR_KEY + "."):
+            hidden = None
+        elif key == _SETTINGS_OVERRIDE_KEY and _unquote(token):
+            overridden = True
+        elif key.startswith(_SETTINGS_OVERRIDE_KEY + "."):
+            overridden = True
+    return _MainSceneSetting(value=value, overridden=overridden, hidden_data_dir=hidden)
+
+
+def _uid_cache_present(project: Path, hidden_data_dir: bool) -> bool:
+    """Whether the ONE UID cache the engine reads exists (``.godot/`` or ``godot/``)."""
+    data_dir = ".godot" if hidden_data_dir else "godot"
+    return (project / data_dir / _UID_CACHE).is_file()
+
+
+def main_scene_unrunnable(
+    project: Path, scene: str | None
+) -> MainSceneUnrunnable | None:
+    """The pre-launch verdict for a live session: ``None`` unless it certainly cannot run.
+
+    Godot started on the GAME path with no ``--scene``/``--script`` prints
+    ``Can't run project: no main scene defined`` when ``application/run/main_scene``
+    is empty, and ``Main scene's path could not be resolved from UID`` when it is a
+    ``uid://`` the engine has no UID cache for (``main/main.cpp``: the cache file
+    under the project data directory does not exist — a fresh clone, since Godot
+    4.4 writes the setting as a UID and ``.godot/`` is normally ignored). Either
+    way it then calls ``OS::alert()`` unconditionally — on macOS a native modal that
+    ignores ``--headless`` and blocks the process until it is dismissed or killed
+    (#829). Every gda headless operation names a script, an import or an export, so
+    only a session launch can reach that path: this is the one check the two launch
+    sites share (the ``daemon start`` fail-fast and the daemon's authoritative
+    launch boundary), decided from the project files alone.
+
+    The verdict refuses only what it is CERTAIN of and must never refuse a project
+    the engine would run: a ``--scene`` selector makes the main scene irrelevant; a
+    feature-tagged override of the setting or a default/custom settings overlay
+    can change the effective value in ways only the engine decides (its features
+    and the overlay's contents), so their presence defers to the engine. The launch
+    behaves as before this check, bounded by the readiness deadline (a native alert
+    can still appear). Escaped application keys also defer to the engine. A
+    feature-tagged data-directory setting defers only the UID-cache verdict.
+    """
+    if scene:
+        return None
+    setting = _read_main_scene(project)
+    if setting is None or setting.overridden:
+        return None
+    if setting.value == "":
+        return MainSceneUnrunnable(
+            MAIN_SCENE_UNDEFINED,
+            "the project defines no main scene to run: `application/run/main_scene` "
+            f"is empty in {project / PROJECT_MARKER} and no --scene selector was "
+            "given. Set it (`gda project set application/run/main_scene --value "
+            "res://<scene>.tscn`) or start with `gda daemon start --scene "
+            "<res://path|uid://...>` (after `gda daemon stop` if a daemon is "
+            "running); Godot would otherwise refuse to run the project and, on "
+            "macOS, block on a native alert even under --headless",
+        )
+    if (
+        setting.value.startswith("uid://")
+        and setting.hidden_data_dir is not None
+        and not _uid_cache_present(project, setting.hidden_data_dir)
+    ):
+        return MainSceneUnrunnable(
+            MAIN_SCENE_UNRESOLVED,
+            f"the project's main scene is {setting.value!r} but the engine has no "
+            "UID cache to resolve it through (no uid_cache.bin under the project "
+            "data directory — the project has not been imported on this checkout). "
+            "Run the import pass once (`gda resource import <any existing res:// "
+            "asset>`, or open the project in the editor), or start with `gda daemon "
+            "start --scene <res://path>` (after `gda daemon stop` if a daemon is "
+            "running); Godot would otherwise refuse to run the project and, on "
+            "macOS, block on a native alert even under --headless",
+        )
+    return None

@@ -21,12 +21,14 @@ from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
 from gda.daemon.session import (
+    MainSceneUnrunnableAtLaunch,
     CONNECT_TIMEOUT,
     SceneMismatch,
     WindowedDisplayUnavailable,
     launch_session,
 )
 from gda.display import WindowedUnavailable, windowed_unavailable
+from gda.project import main_scene_unrunnable
 
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
@@ -380,6 +382,11 @@ class DaemonServer:
                 diagnostics=unavailable.reason,
                 probe=unavailable.verdict.probe,
             )
+        except MainSceneUnrunnableAtLaunch as unrunnable:
+            # The authoritative nothing-to-run guard fired at the launch boundary
+            # (#829): no engine session was spawned. Same code and sentence as the
+            # `daemon start` fail-fast, so the two sites cannot disagree.
+            return error_reply(unrunnable.verdict.code, unrunnable.reason)
         if established is None:
             return error_reply(
                 "engine_session_not_running",
@@ -467,6 +474,17 @@ class DaemonServer:
                     "session was retired; no replacement was launched"
                 )
             return None
+        # The AUTHORITATIVE nothing-to-run guard (#829): a session with no `--scene`
+        # whose `application/run/main_scene` is empty, or a `uid://` the engine has
+        # no UID cache for, would make Godot print its "no main scene" / "could not
+        # be resolved from UID" error and then block on a native alert (macOS, even
+        # headless) until the readiness deadline killed it. Read from the project
+        # files at THIS instant — they can change after `daemon start`, which runs
+        # the same check as its optional fail-fast — and refused before
+        # launch_session, so no engine is spawned for it.
+        unrunnable = main_scene_unrunnable(self.paths.project, self.scene)
+        if unrunnable is not None:
+            raise MainSceneUnrunnableAtLaunch(unrunnable)
         # The AUTHORITATIVE no-display guard (#345): a windowed session needs a usable
         # host DisplayServer, else a windowed Godot aborts during DisplayServer
         # registration. This is the launch boundary — where the lazy session launch

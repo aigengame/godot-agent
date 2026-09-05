@@ -19,6 +19,7 @@ written by Godot's import pass, so a fast test can only plant a stand-in.
 
 import json
 import os
+import time
 import subprocess
 
 import pytest
@@ -32,7 +33,7 @@ from gda.harness.install import (
 
 from tests.support import Gda, assert_windowed_ok, import_project
 
-from .conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT
+from .conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT, project_godot
 
 # A main scene so the launched session has a runtime SceneTree to read; a Player
 # Node2D child carries a Vector2 storage property (position) for the game get/set
@@ -990,6 +991,108 @@ def test_daemon_start_scene_runs_the_chosen_scene_not_main(
         assert 'run/main_scene="res://main.tscn"' in (
             tmp_path / "project.godot"
         ).read_text(encoding="utf-8")
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_start_without_a_main_scene_is_refused_before_session_launch(
+    tmp_path, daemon_runtime_dir
+):
+    # #829: a real `daemon start` on a project that defines no main scene (and no
+    # `--scene`) is refused with the typed live_main_scene_undefined, fast and before
+    # a daemon or session is spawned (the version probe is allowed). The engine
+    # would otherwise print "no main scene defined"
+    # and, on macOS, block on a native alert even headless. Then the AUTHORITATIVE
+    # guard: a daemon started on a runnable project whose main scene is removed
+    # afterwards refuses the first live op the same way, with no session launched.
+    (tmp_path / "project.godot").write_text(project_godot(), encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    started_at = time.monotonic()
+    refused = run("daemon", "start")
+    elapsed = time.monotonic() - started_at
+    assert refused.returncode == 6, refused.stdout + refused.stderr
+    error = json.loads(refused.stdout)["error"]
+    assert error["code"] == "live_main_scene_undefined"
+    assert "--scene" in error["message"]
+    assert elapsed < 5.0, f"the refusal took {elapsed:.1f}s — did a session launch?"
+    assert not (tmp_path / "addons" / "gda_harness").exists()  # nothing installed
+
+    # The sibling: a uid:// main scene on a never-imported checkout (the Godot 4.4+
+    # editor's own shape, with .godot/ ignored) is refused the same way, with the
+    # remedy that differs — import once.
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="uid://c7f2q1w3e4r5t"'), encoding="utf-8"
+    )
+    unresolved = run("daemon", "start")
+    assert unresolved.returncode == 6, unresolved.stdout + unresolved.stderr
+    assert (
+        json.loads(unresolved.stdout)["error"]["code"] == "live_main_scene_unresolved"
+    )
+
+    # The launch boundary, on a real daemon: start on a runnable project, then take
+    # the main scene away before the lazy launch.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        (tmp_path / "project.godot").write_text(project_godot(), encoding="utf-8")
+
+        tree = run("game", "tree")
+        assert tree.returncode == 6, tree.stdout + tree.stderr
+        assert json.loads(tree.stdout)["error"]["code"] == "live_main_scene_undefined"
+        status = json.loads(run("daemon", "status").stdout)
+        assert status.get("session_id") is None  # no session was ever established
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "configuration", ["custom_overlay", "escaped_key", "feature_data_directory"]
+)
+def test_daemon_runs_main_scenes_the_file_precheck_cannot_resolve(
+    tmp_path, daemon_runtime_dir, configuration
+):
+    # These are engine-valid declarations. Both the CLI precheck and the daemon's
+    # lazy launch boundary must let the engine resolve them (#831 re-review).
+    scene_text = LIVE_MAIN_TSCN
+    if configuration == "custom_overlay":
+        settings = 'config/project_settings_override="res://custom.cfg"'
+        (tmp_path / "custom.cfg").write_text(
+            '[application]\nrun/main_scene="res://main.tscn"\n', encoding="utf-8"
+        )
+    elif configuration == "escaped_key":
+        settings = r'"run/\u006dain_scene"="res://main.tscn"'
+    else:
+        # `pc` applies to both supported desktop hosts; the engine imports into
+        # .godot even though the base setting alone would select godot/.
+        settings = (
+            'run/main_scene="uid://c1abc"\n'
+            "config/use_hidden_project_data_directory=false\n"
+            "config/use_hidden_project_data_directory.pc=true"
+        )
+        scene_text = scene_text.replace(
+            "[gd_scene format=3]", '[gd_scene format=3 uid="uid://c1abc"]'
+        )
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra=settings), encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(scene_text, encoding="utf-8")
+    if configuration == "feature_data_directory":
+        imported = import_project(tmp_path)
+        assert imported.returncode == 0, imported.stdout + imported.stderr
+        assert (tmp_path / ".godot" / "uid_cache.bin").is_file()
+        assert not (tmp_path / "godot" / "uid_cache.bin").exists()
+    run = Gda(tmp_path, json_output=True)
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        assert json.loads(tree.stdout)["root"]["name"] == "Main"
     finally:
         run("daemon", "stop")
 

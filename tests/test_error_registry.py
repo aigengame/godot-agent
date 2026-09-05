@@ -39,6 +39,15 @@ LIVE_ERROR_CODES = (
     # launch; a mismatch is surfaced by the daemon as this daemon-channel
     # classifier-source LIVE code, NOT GDScript-mirrored.
     "live_scene_not_found",
+    # The nothing-to-run refusal (#829): an empty `application/run/main_scene`
+    # with no `--scene` selector is refused before any engine is spawned, at the
+    # `daemon start` fail-fast and at the daemon's launch boundary — Godot would
+    # otherwise block on a native alert (macOS, even headless). Classifier-source
+    # (both sites mint it from the project file), NOT GDScript-mirrored.
+    "live_main_scene_undefined",
+    # Its sibling (#829): a declared `uid://` main scene on a never-imported
+    # checkout — same refusal shape, a different remedy, so a distinct code.
+    "live_main_scene_unresolved",
     # The already-running + `--scene` refusal (#278 review): `--scene` only takes
     # effect at daemon start, so requesting it against a daemon that is already
     # running is a typed refusal rather than a silent no-op. Classifier-source (the

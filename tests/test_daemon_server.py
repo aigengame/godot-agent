@@ -25,7 +25,7 @@ from gda.commands.daemon import (
 )
 from gda.errors import Failure
 from gda.parser import build_result, parse_result
-from tests.support import FakeProc, minimal_project
+from tests.support import FakeProc, runnable_project
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -43,7 +43,7 @@ def _unavailable(
 
 
 def test_live_op_without_a_launchable_session_is_engine_session_not_running(tmp_path):
-    minimal_project(tmp_path)
+    runnable_project(tmp_path)
     # No Godot binary -> ensure_session cannot launch -> engine_session_not_running.
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
@@ -78,7 +78,7 @@ def test_malformed_control_request_is_dropped_not_raised(tmp_path):
 
 
 def _project_with_marker(tmp_path):
-    return daemon_paths(minimal_project(tmp_path))
+    return daemon_paths(runnable_project(tmp_path))
 
 
 def test_scene_mismatch_at_launch_is_a_typed_live_scene_not_found(
@@ -225,7 +225,7 @@ def test_windowed_no_display_is_live_windowed_unavailable_without_launching(
     # windowed daemon on a host with no usable DisplayServer refuses a live op with the
     # typed live_windowed_unavailable AND never calls launch_session — so a doomed
     # windowed Godot is never spawned, even if `daemon start --windowed` slipped through.
-    minimal_project(tmp_path)
+    runnable_project(tmp_path)
 
     def _must_not_launch(*a, **k):
         raise AssertionError("launch_session must not be called with no usable display")
@@ -249,6 +249,83 @@ def test_windowed_no_display_is_live_windowed_unavailable_without_launching(
     assert server._session is None  # nothing launched or cached
 
 
+@pytest.mark.parametrize("windowed", [False, True])
+@pytest.mark.parametrize(
+    "setting, code, reason",
+    [
+        ("", "live_main_scene_undefined", "application/run/main_scene"),
+        (
+            'run/main_scene="uid://c1abc"\n',
+            "live_main_scene_unresolved",
+            "uid_cache.bin",
+        ),
+    ],
+)
+def test_unrunnable_main_scene_is_refused_before_launch_and_display_probe(
+    tmp_path, monkeypatch, windowed, setting, code, reason
+):
+    # #829: the AUTHORITATIVE nothing-to-run guard lives at the session-launch
+    # boundary, read from the project file at launch time — a project.godot can
+    # lose its main scene after `daemon start` ran its own fail-fast. The lazy
+    # launch a live op triggers is refused with the typed live_main_scene_undefined
+    # and launch_session is never called, so no engine can reach Godot's native
+    # "no main scene defined" alert.
+    from tests.support import minimal_project
+
+    minimal_project(tmp_path)  # config_version only: no main scene declared
+    if setting:
+        (tmp_path / "project.godot").write_text(
+            "config_version=5\n[application]\n" + setting, encoding="utf-8"
+        )
+
+    def _must_not_launch(*a, **k):
+        raise AssertionError("launch_session must not be called with no main scene")
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", _must_not_launch)
+    server = DaemonServer(
+        daemon_paths(tmp_path),
+        godot="godot",
+        windowed=windowed,
+        display_check=lambda: _unavailable(),
+    )
+    server._harness_listener = cast(socket.socket, object())
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+
+    error = parse_result(reply["stdout"])["error"]
+    assert error["code"] == code
+    assert reason in error["message"]
+    assert server._session is None  # nothing launched or cached
+
+
+def test_a_scene_selector_passes_the_main_scene_guard_to_launch(tmp_path, monkeypatch):
+    # #829: with a `--scene` selector the main scene is irrelevant, so the guard
+    # lets the launch proceed (and the existing selector checks take over).
+    from tests.support import minimal_project
+
+    minimal_project(tmp_path)
+    (tmp_path / "other.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
+    reached: list = []
+
+    def _fake_launch(*a, **k):
+        reached.append(k.get("scene"))
+        return None  # a launch that fails AFTER the guards is fine for this test
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", _fake_launch)
+    server = DaemonServer(
+        daemon_paths(tmp_path), godot="godot", scene="res://other.tscn"
+    )
+    server._harness_listener = cast(socket.socket, object())
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+    assert reached == ["res://other.tscn"]
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+
+
 def test_windowed_denied_relays_the_permission_code_not_the_capability_one(
     tmp_path, monkeypatch
 ):
@@ -259,7 +336,7 @@ def test_windowed_denied_relays_the_permission_code_not_the_capability_one(
     # so it also carries the machine-readable `probe` — deliberately widening the live
     # wire envelope with that ONE optional key (#667 review), rather than reporting
     # less here than the optional CLI fail-fast reports.
-    minimal_project(tmp_path)
+    runnable_project(tmp_path)
 
     def _must_not_launch(*a, **k):
         raise AssertionError("launch_session must not be called with no usable display")
@@ -294,7 +371,7 @@ def test_a_relayed_refusal_without_a_probe_keeps_the_narrow_wire_shape(
     # The widening is OPTIONAL: every live reply that has no probe — which is all of
     # them except the windowed refusals — is byte-identical to before, so the key can
     # never appear as a null for the harness-emitted and daemon-synthesized codes.
-    minimal_project(tmp_path)
+    runnable_project(tmp_path)
     monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
     server = DaemonServer(daemon_paths(tmp_path), godot="godot")
     server._harness_listener = cast(socket.socket, object())
@@ -311,7 +388,7 @@ def test_windowed_with_a_usable_display_reaches_launch(tmp_path, monkeypatch):
     # The guard is display-gated: a usable display (the check returns None) does NOT
     # short-circuit — the launch proceeds (here to the generic engine_session_not_running
     # via a patched None launch), proving the guard fires ONLY on no-display.
-    minimal_project(tmp_path)
+    runnable_project(tmp_path)
     calls = {"n": 0}
 
     def _launch(*a, **k):
@@ -340,7 +417,7 @@ def test_headless_windowed_false_never_consults_the_display_check(
 ):
     # A default (headless) daemon must never consult the display check — a headless
     # session needs no window server; only a windowed session is gated.
-    minimal_project(tmp_path)
+    runnable_project(tmp_path)
 
     def _boom() -> WindowedUnavailable | None:
         raise AssertionError("a headless daemon must not run the display check")
@@ -361,7 +438,7 @@ def test_headless_windowed_false_never_consults_the_display_check(
 def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
     # The selector-less default is unchanged: straight to the launch path (which here
     # is engine_session_not_running with no real binary), no scene verification.
-    minimal_project(tmp_path)
+    runnable_project(tmp_path)
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
     reply = server._handle({"op": "game-tree", "params": {}})

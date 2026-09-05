@@ -67,8 +67,13 @@ def _project(tmp_path):
     needs a project.godot that carries one — a different file, not the shared
     minimum plus a second write of the same path.
     """
+    # `run/main_scene` declared (the file need not exist): a start on a project
+    # with no main scene is refused before the spawn (#829), which this suite's
+    # start paths must get past.
     (tmp_path / "project.godot").write_text(
-        'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n'
+        'run/main_scene="res://main.tscn"\n',
+        encoding="utf-8",
     )
     return tmp_path
 
@@ -272,6 +277,84 @@ def test_windowed_start_without_a_display_is_live_windowed_unavailable(
     assert outcome.error.probe is not None
     assert outcome.error.probe.name == "CGSessionCopyCurrentDictionary"
     assert outcome.error.probe.platform == "darwin"
+
+
+@pytest.mark.parametrize("windowed", [False, True])
+@pytest.mark.parametrize(
+    "setting, code, reason",
+    [
+        ("", "live_main_scene_undefined", "application/run/main_scene"),
+        (
+            'run/main_scene="uid://c1abc"\n',
+            "live_main_scene_unresolved",
+            "uid_cache.bin",
+        ),
+    ],
+)
+def test_unrunnable_main_scene_is_refused_before_spawn_and_display_probe(
+    tmp_path, short_runtime, monkeypatch, windowed, setting, code, reason
+):
+    # #829: a project whose `application/run/main_scene` is empty, or a `uid://`
+    # with no UID cache, started with no `--scene`, has nothing the session can run
+    # — Godot would print its "no main scene" / "could not be resolved from UID"
+    # error and then block on a native alert (macOS, even headless) until the
+    # readiness deadline killed it. Refused HERE, before the spawn and before the
+    # harness install, with the typed live_main_scene_undefined /
+    # live_main_scene_unresolved (LIVE / 6) — and before the windowed display probe,
+    # so a determinate scene verdict is reported even when the display is also
+    # unavailable (both modes are parametrized).
+    project = tmp_path
+    (project / "project.godot").write_text(
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n' + setting,
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list = []
+
+    outcome = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        windowed=windowed,
+        # A determinate scene error keeps its code even when the display also fails.
+        display_check=lambda: _unavailable(),
+        spawn=lambda p, b, w, s: spawned.append((p, b, w, s)),
+        version_check=_OK_VERSION,
+    )
+
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.code == code
+    assert outcome.error.category.value == "live"
+    assert outcome.exit_code == 6
+    # Both remedies are named, caller-first.
+    assert reason in outcome.error.message
+    assert "--scene" in outcome.error.message
+    assert spawned == []  # never spawned the daemon
+    # Pre-harness-install: a refused start must not mutate the project.
+    assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+
+
+def test_start_with_a_scene_selector_skips_the_main_scene_check(
+    tmp_path, short_runtime, fake_ready, monkeypatch
+):
+    # #829: `--scene` makes the main scene irrelevant — the session boots the
+    # selector — so the same project starts when one is given.
+    project = tmp_path
+    (project / "project.godot").write_text(
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list = []
+
+    outcome = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        scene="res://other.tscn",
+        spawn=lambda p, b, w, s: spawned.append((p, b, w, s)),
+        version_check=_OK_VERSION,
+    )
+
+    assert isinstance(outcome, DaemonStartResult), outcome
+    assert len(spawned) == 1 and spawned[0][3] == "res://other.tscn"
 
 
 def test_windowed_start_denied_by_a_sandbox_is_a_distinct_permission_code(

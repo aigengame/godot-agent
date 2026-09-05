@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9ee455d8eacbad676baab58de7bf10903ba66bc48f64fb0c59f41c0a7cf92d54 -->
+<!-- gda-readme-i18n: source=README.md sha256=77bb050928bb00a8ba3ce8936b82593b68eeae2731f81332c327a0010235067d -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -474,7 +474,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话按需启动，只有操作需要时才会拉起（`screen` 截图需加 `--windowed`）。 |
+| `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话按需启动，只有操作需要时才会拉起（`screen` 截图需加 `--windowed`）。项目必须定义 `application/run/main_scene`，或传 `--scene`。 |
 | `daemon wait-ready` | 立即启动引擎会话并等待它就绪；`--timeout` 是 daemon 为这次启动分配的预算，不是这次调用的硬性上限。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
