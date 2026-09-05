@@ -26,7 +26,7 @@ const RESULT_END := "<<<GDA:END>>>"
 # Python parser (gda.daemon.diag.LOG_BEGIN) recognises the prefix and decodes the
 # JSON into a field-carrying LogRecord. A SEPARATE marker family from RESULT_BEGIN
 # above, so a log line is never mistaken for an op result. Mirrored in Python
-# (gda.daemon.diag.LOG_BEGIN); a const test (tests/test_error_registry.py) keeps
+# (gda.daemon.diag.LOG_BEGIN); a const test (tests/cli/test_error_registry.py) keeps
 # the two byte-identical.
 const LOG_MARKER := "<<<GDA:LOG>>>"
 
@@ -48,7 +48,7 @@ const OP_SCREEN_FRAMES := "screen-frames"
 # The per-op LIVE failure codes the harness reports in-band (#220, #223). Each MUST
 # be a registered LIVE-category code (src/gda/error_codes.py) so the daemon's exit-0
 # relay is mapped by classify_live, not misrouted to contract_violation; a Python
-# mirror test (tests/test_error_registry.py) keeps these in sync with the registry.
+# mirror test (tests/cli/test_error_registry.py) keeps these in sync with the registry.
 const LIVE_ERROR_NODE_NOT_FOUND := "live_node_not_found"
 const LIVE_ERROR_NOT_CONTROL := "live_not_control"
 const LIVE_ERROR_UNKNOWN_PROPERTY := "live_unknown_property"
@@ -1225,7 +1225,7 @@ func gda_log(level: String, message: String, fields: Dictionary = {}) -> void:
 # verbatim into src/gda/harness/gda_harness.gd: operations.gd runs via
 # `godot --headless --script <abs-fs-path>` (often projectless) while the harness
 # is a res:// autoload, so no single preload() reaches both and install.py copies
-# one file. tests/test_harness_coercion_mirror.py asserts the two blocks are
+# one file. tests/harness/test_harness_coercion_mirror.py asserts the two blocks are
 # byte-identical (modulo leading tabs), so an edit here must be mirrored there.
 # Whether a property-list entry is a STORAGE property — the ones node get
 # reports and node set targets: the properties that serialize into the .tscn,

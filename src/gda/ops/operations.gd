@@ -6343,7 +6343,7 @@ func _int_param(params: Dictionary, key: String) -> int:
 # verbatim into src/gda/harness/gda_harness.gd: operations.gd runs via
 # `godot --headless --script <abs-fs-path>` (often projectless) while the harness
 # is a res:// autoload, so no single preload() reaches both and install.py copies
-# one file. tests/test_harness_coercion_mirror.py asserts the two blocks are
+# one file. tests/harness/test_harness_coercion_mirror.py asserts the two blocks are
 # byte-identical (modulo leading tabs), so an edit here must be mirrored there.
 # Whether a property-list entry is a STORAGE property — the ones node get
 # reports and node set targets: the properties that serialize into the .tscn,
