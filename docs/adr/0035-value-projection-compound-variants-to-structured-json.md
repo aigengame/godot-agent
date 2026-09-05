@@ -13,7 +13,7 @@ and any `Object` — degrades to the Variant's `str()` debug string**. So a comp
 deadzone or enumerate the bound keys, and the event list is not even valid JSON. For a tool whose
 positioning is structured, machine-readable output, compound values are exactly where the structure is
 missing. `_jsonify` is **byte-identical mirrored** into the [gda harness](../../CONTEXT.md) (the
-`--- shared coercion ---` block, enforced by `tests/test_harness_coercion_mirror.py`), so it is also the
+`--- shared coercion ---` block, enforced by `tests/harness/test_harness_coercion_mirror.py`), so it is also the
 projector for the live `game get` read (and any future live value-returning operation) — where a value
 can be an **arbitrary runtime Object (a live `Node`) or a cyclic graph**.
 
@@ -64,7 +64,7 @@ get-exports`, and the live `game get` read (and any future live value-returning 
   huge payloads). The whitelist admits only small, path-less value Objects, so headless and live share
   one projection while the live-only risk stays isolated behind the list.
 - **Both `.gd` files change byte-identically**; the mirror invariant and
-  `tests/test_harness_coercion_mirror.py` are preserved, not bypassed.
+  `tests/harness/test_harness_coercion_mirror.py` are preserved, not bypassed.
 
 ## Considered options
 
@@ -145,7 +145,7 @@ get-exports`, and the live `game get` read (and any future live value-returning 
 > value shape everywhere); the headless read commands do not expose the opt-in flag today — a
 > path-less texture only exists where runtime code constructed one, so on the headless side the
 > digest field is always `null`. The mirrored shared-coercion block and
-> `tests/test_harness_coercion_mirror.py` are preserved.
+> `tests/harness/test_harness_coercion_mirror.py` are preserved.
 >
 > Two boundary rules complete the kind. **Path-less means EMPTY**: a non-empty, non-`res://`
 > `resource_path` (a `user://` path, `take_over_path`) stays the string fallback it always was —

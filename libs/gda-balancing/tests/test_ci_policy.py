@@ -37,9 +37,9 @@ def test_balancing_paths_and_shared_release_surfaces_are_affecting():
             ".github/workflows/release.yml",
             "scripts/release_scope_guard.py",
             "scripts/release_tags.py",
-            "tests/test_balancing_ci_wiring.py",
-            "tests/test_release_scope_guard.py",
-            "tests/test_release_tags.py",
+            "tests/repo/test_balancing_ci_wiring.py",
+            "tests/repo/test_release_scope_guard.py",
+            "tests/repo/test_release_tags.py",
         ]
     )
 

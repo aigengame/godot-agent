@@ -112,7 +112,7 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
     JSON channel is model-driven (``model_dump_json``), which means a sixth field would
     ship there whatever this function does — so the model's field set is not an
     authority this code inherits, it is one a TEST has to hold it to (#798 review).
-    ``tests/test_human_failure_output.py`` does that in two halves: a sample table
+    ``tests/cli/test_human_failure_output.py`` does that in two halves: a sample table
     asserted equal to ``FailureEvidence.model_fields``, and one render per sample.
 
     The clock is rendered to two decimals, the same precision the ``launch_timeout``

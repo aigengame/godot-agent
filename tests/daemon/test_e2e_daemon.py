@@ -1,0 +1,1407 @@
+"""S1 (e2e): the full gda-daemon live loop through the gda CLI (#7, #225).
+
+The Step-6 proof: a real ``gda daemon start`` (real detached daemon, real harness
+install, live-version gate) → a real engine session it launches on demand →
+``gda game tree`` returns the RUNNING game's runtime scene tree, observed live via
+the harness over Unix domain sockets → ``gda daemon stop`` tears it down. Run e2e
+serially; not a fresh empty HOME (Godot first-run). The ``daemon_runtime_dir``
+fixture keeps the daemon's UDS path within the OS ``sun_path`` limit.
+
+#225 adds the harness-lifecycle e2e: start re-syncs the harness after a version
+bump (the installed copy declares an older version), and the paired
+``gda daemon uninstall`` (install→uninstall idempotent; refused while running).
+
+#654 adds the FULL round trip on a tracked project — start → live op → stop →
+uninstall must leave ``project.godot`` byte-identical and no ``addons/`` residue.
+Only a real engine proves it: the ``.uid`` sidecar that used to survive uninstall is
+written by Godot's import pass, so a fast test can only plant a stand-in.
+"""
+
+import json
+import os
+import time
+import subprocess
+
+import pytest
+
+from gda.harness.install import (
+    HARNESS_FILE,
+    HARNESS_RES_DIR,
+    HARNESS_VERSION,
+    installed_harness_version,
+)
+
+from tests.support import Gda, assert_windowed_ok, import_project
+
+from tests.conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT, project_godot
+
+# A main scene so the launched session has a runtime SceneTree to read; a Player
+# Node2D child carries a Vector2 storage property (position) for the game get/set
+# round trip (#220). File logging stays disabled via project_godot (issue #180).
+RECT_MAIN_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="Main" type="Control"]\n\n'
+    '[node name="HUD" type="VBoxContainer" parent="."]\n'
+    "offset_left = 24.0\n"
+    "offset_top = 24.0\n"
+    "offset_right = 184.0\n"
+    "offset_bottom = 72.0\n\n"
+    '[node name="Stats" type="Label" parent="HUD"]\n'
+    "custom_minimum_size = Vector2(160, 48)\n"
+    'text = "HP"\n'
+)
+CONTROL_POSITION_MAIN_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="Main" type="Control"]\n\n'
+    '[node name="Panel" type="Control" parent="."]\n'
+    "offset_left = 5.0\n"
+    "offset_top = 7.0\n"
+    "offset_right = 105.0\n"
+    "offset_bottom = 57.0\n"
+)
+
+pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+
+
+@pytest.mark.e2e
+def test_daemon_serves_a_real_runtime_tree(tmp_path, daemon_runtime_dir):
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+
+    # XDG_RUNTIME_DIR is set short by the daemon_runtime_dir fixture; the spawned
+    # daemon inherits it through the subprocess environment.
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        assert json.loads(started.stdout)["installed_harness"] is True
+
+        # The daemon launches the engine session on demand and relays the live op;
+        # the result is the running game's runtime scene tree.
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        root = json.loads(tree.stdout)["root"]
+        assert root["name"] == "Main"
+        assert root["type"] == "Node2D"
+
+        assert json.loads(run("daemon", "status").stdout)["running"] is True
+        assert json.loads(run("daemon", "stop").stdout)["stopped"] is True
+        assert json.loads(run("daemon", "status").stdout)["running"] is False
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_wait_ready_makes_a_first_diag_errors_serve(tmp_path, daemon_runtime_dir):
+    # #657's acceptance path, end to end: start a daemon, reach a SERVED
+    # `diag errors` through the documented bounded wait as the FIRST live read —
+    # no warm-up live op, no sleep loop. Without the wait, the first
+    # `diag errors` reports engine_session_not_running by design (it must never
+    # be the thing that launches the project's code, ADR-0022).
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        ready = run("daemon", "wait-ready")
+        assert ready.returncode == 0, ready.stdout + ready.stderr
+        verdict = json.loads(ready.stdout)
+        assert verdict["launched"] is True
+
+        # The very next read serves — the session the wait established is the
+        # one the daemon holds, so the read launches nothing.
+        errors = run("diag", "errors")
+        assert errors.returncode == 0, errors.stdout + errors.stderr
+        assert "errors" in json.loads(errors.stdout)
+
+        # The launched session carries its identity on `daemon status` (#660):
+        # a real daemon-minted 16-hex value, stable across status reads.
+        status = json.loads(run("daemon", "status").stdout)
+        assert isinstance(status["session_id"], str)
+        assert len(status["session_id"]) == 16
+        assert set(status["session_id"]) <= set("0123456789abcdef")
+        assert (
+            json.loads(run("daemon", "status").stdout)["session_id"]
+            == status["session_id"]
+        )
+
+        # Idempotent while the session is alive: nothing is relaunched.
+        again = run("daemon", "wait-ready")
+        assert again.returncode == 0, again.stdout + again.stderr
+        assert json.loads(again.stdout)["launched"] is False
+
+        assert json.loads(run("daemon", "stop").stdout)["stopped"] is True
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
+    # The #220 DoD: a real daemon → engine session → `game set` mutates a runtime
+    # property, applied at a frame boundary, and `game get` observes the change —
+    # State consistency (ADR-0020) end-to-end through the real harness over UDS.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        # set: mutate the Player's runtime position (a Vector2), coerced harness-side
+        # from the CLI string "10,20" exactly as headless `node set` coerces it.
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "position",
+            "--value",
+            "10,20",
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        set_doc = json.loads(was_set.stdout)
+        assert set_doc["path"] == "/root/Main/Player"
+        assert set_doc["property"] == "position"
+        assert set_doc["type"] == "Vector2"
+        assert set_doc["value"] == [10.0, 20.0]
+        assert set_doc["verified"] is True
+
+        # get: the SAME session observes the preceding write (single writer,
+        # frame-coherent — ADR-0020). The session is held across the two ops.
+        got = run("game", "get", "/root/Main/Player", "--property", "position")
+        assert got.returncode == 0, got.stdout + got.stderr
+        get_doc = json.loads(got.stdout)
+        assert get_doc["path"] == "/root/Main/Player"
+        position = next(p for p in get_doc["properties"] if p["name"] == "position")
+        assert position["type"] == "Vector2"
+        assert position["value"] == [10.0, 20.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_rect_reads_free_positioned_control_rect(
+    tmp_path, daemon_runtime_dir
+):
+    # #419: `game rect` reads rendered viewport-space geometry, not storage
+    # properties, so a free-positioned Control reports get_global_rect().
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        rect = run("game", "rect", "/root/Main/HUD")
+        assert rect.returncode == 0, rect.stdout + rect.stderr
+        doc = json.loads(rect.stdout)
+        assert doc["path"] == "/root/Main/HUD"
+        assert doc["name"] == "HUD"
+        assert doc["type"] == "VBoxContainer"
+        assert doc["position"] == [24.0, 24.0]
+        assert doc["size"] == [160.0, 48.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_control_position_updates_offsets_preserving_size(
+    tmp_path, daemon_runtime_dir
+):
+    # #464: live `game set` mirrors headless `node set` for Control.position by
+    # applying an actionable offset write while preserving the current size.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(CONTROL_POSITION_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Panel",
+            "--property",
+            "position",
+            "--value",
+            "20,30",
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        set_doc = json.loads(was_set.stdout)
+        assert set_doc["path"] == "/root/Main/Panel"
+        assert (set_doc["property"], set_doc["type"]) == ("position", "Vector2")
+        assert set_doc["value"] == [20.0, 30.0]
+
+        props = {}
+        for name in ("offset_left", "offset_top", "offset_right", "offset_bottom"):
+            got = run("game", "get", "/root/Main/Panel", "--property", name)
+            assert got.returncode == 0, got.stdout + got.stderr
+            props[name] = json.loads(got.stdout)["properties"][0]["value"]
+        assert props == {
+            "offset_left": 20.0,
+            "offset_top": 30.0,
+            "offset_right": 120.0,
+            "offset_bottom": 80.0,
+        }
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_container_managed_control_position_names_offset_alternatives(
+    tmp_path, daemon_runtime_dir
+):
+    # A Container owns direct-child layout; `game set position` reports an
+    # actionable live error instead of claiming a write the next layout pass owns.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/HUD/Stats",
+            "--property",
+            "position",
+            "--value",
+            "20,30",
+        )
+        assert was_set.returncode == 6, was_set.stdout + was_set.stderr
+        error = json.loads(was_set.stdout)["error"]
+        assert error["category"] == "live"
+        assert error["code"] == "live_unknown_property"
+        for name in ("offset_left", "offset_top", "offset_right", "offset_bottom"):
+            assert name in error["message"]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_rect_reads_container_managed_child_rect(
+    tmp_path, daemon_runtime_dir
+):
+    # #419: container-managed Controls have layout output even when a storage
+    # property read is the wrong surface. `game rect` returns the rendered rect.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        position = run(
+            "game",
+            "get",
+            "/root/Main/HUD/Stats",
+            "--property",
+            "position",
+        )
+        assert position.returncode == 6, position.stdout + position.stderr
+        assert json.loads(position.stdout)["error"]["code"] == "live_unknown_property"
+
+        rect = run("game", "rect", "/root/Main/HUD/Stats")
+        assert rect.returncode == 0, rect.stdout + rect.stderr
+        doc = json.loads(rect.stdout)
+        assert doc["path"] == "/root/Main/HUD/Stats"
+        assert doc["name"] == "Stats"
+        assert doc["type"] == "Label"
+        assert doc["position"] == [24.0, 24.0]
+        assert doc["size"] == [160.0, 48.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_rect_rejects_non_control_node(tmp_path, daemon_runtime_dir):
+    # #419: the command is intentionally Control-specific; a live node that
+    # exists but is not a Control gets a typed LIVE error.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        rect = run("game", "rect", "/root/Main/Player")
+        assert rect.returncode == 6, rect.stdout + rect.stderr
+        error = json.loads(rect.stdout)["error"]
+        assert error["code"] == "live_not_control"
+        assert error["category"] == "live"
+    finally:
+        run("daemon", "stop")
+
+
+# A Player script for the live half of the value projection (ADR-0035, #381):
+# an exported Dictionary (compound -> structured) and an exported Node
+# reference assigned at _ready (a NON-whitelisted runtime Object -> the str()
+# fallback, the live-side risk boundary).
+PROJECTION_PLAYER_GD = (
+    "extends Node2D\n"
+    '@export var stats: Dictionary = {"hp": 5, "label": "panda"}\n'
+    "@export var buddy: Node\n"
+    "func _ready() -> void:\n"
+    "\tbuddy = get_parent()\n"
+)
+PROJECTION_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="Player" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n'
+)
+
+SCRIPT_VARIABLE_PLAYER_GD = (
+    'extends Node2D\nvar _items := {"wine": 1}\nvar _tags := ["starter"]\n'
+)
+READONLY_SCRIPT_VARIABLE_PLAYER_GD = (
+    "extends Node2D\nvar readonly: int:\n\tget:\n\t\treturn 1\n"
+)
+EDGE_TRIGGER_SCRIPT_VARIABLE_PLAYER_GD = (
+    "extends Node2D\n"
+    "var spawn_count: int = 0\n"
+    "var spawn: bool:\n"
+    "\tget:\n"
+    "\t\treturn false\n"
+    "\tset(value):\n"
+    "\t\tif value:\n"
+    "\t\t\tspawn_count += 1\n"
+)
+SCRIPT_VARIABLE_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="Player" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n'
+)
+
+
+@pytest.mark.e2e
+def test_daemon_game_get_projects_compound_values_with_live_fallback(
+    tmp_path, daemon_runtime_dir
+):
+    # The live half of ADR-0035, through the byte-identical mirrored harness
+    # projection: `game get` of an exported Dictionary arrives as a structured
+    # JSON object, while a Node-valued property — a non-whitelisted runtime
+    # Object — stays the str() fallback (the whitelist keeps the shared
+    # projection safe against projecting a whole live scene tree).
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(PROJECTION_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(PROJECTION_PLAYER_GD, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        got = run("game", "get", "/root/Main/Player")
+        assert got.returncode == 0, got.stdout + got.stderr
+        props = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+
+        stats = props["stats"]
+        assert stats["type"] == "Dictionary"
+        assert stats["value"] == {"hp": 5, "label": "panda"}
+
+        # The live Node reference is NOT projected — no structure, no descent
+        # into the runtime tree — just the existing string form.
+        buddy = props["buddy"]
+        assert isinstance(buddy["value"], str)
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_get_reads_explicit_plain_script_dictionary_variable(
+    tmp_path, daemon_runtime_dir
+):
+    # #422: a plain non-exported script variable is addressable when explicitly
+    # named, but it remains outside the unfiltered storage-property listing.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        got = run("game", "get", "/root/Main/Player", "--property", "_items")
+        assert got.returncode == 0, got.stdout + got.stderr
+        doc = json.loads(got.stdout)
+        assert doc["path"] == "/root/Main/Player"
+        assert doc["properties"] == [
+            {"name": "_items", "type": "Dictionary", "value": {"wine": 1}}
+        ]
+
+        unfiltered = run("game", "get", "/root/Main/Player")
+        assert unfiltered.returncode == 0, unfiltered.stdout + unfiltered.stderr
+        prop_names = {p["name"] for p in json.loads(unfiltered.stdout)["properties"]}
+        assert "_items" not in prop_names
+        assert "_tags" not in prop_names
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_mutates_explicit_plain_script_dictionary_variable(
+    tmp_path, daemon_runtime_dir
+):
+    # #422: script-variable writes are live-session state seeding only. A later
+    # read in the same session observes the mutation; nothing is persisted.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "_items",
+            "--value",
+            '{"wine":2}',
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        assert json.loads(was_set.stdout) == {
+            "path": "/root/Main/Player",
+            "property": "_items",
+            "type": "Dictionary",
+            "value": {"wine": 2},
+            "verified": True,
+        }
+
+        got = run("game", "get", "/root/Main/Player", "--property", "_items")
+        assert got.returncode == 0, got.stdout + got.stderr
+        assert json.loads(got.stdout)["properties"] == [
+            {"name": "_items", "type": "Dictionary", "value": {"wine": 2}}
+        ]
+
+        tags_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "_tags",
+            "--value",
+            '["rare","consumable"]',
+        )
+        assert tags_set.returncode == 0, tags_set.stdout + tags_set.stderr
+        assert json.loads(tags_set.stdout) == {
+            "path": "/root/Main/Player",
+            "property": "_tags",
+            "type": "Array",
+            "value": ["rare", "consumable"],
+            "verified": True,
+        }
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_preserves_json_container_integer_and_float_types(
+    tmp_path, daemon_runtime_dir
+):
+    # #427 live-side parity: the mirrored harness coercion must preserve JSON
+    # integer vs float values in the same session state that game get observes.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "_items",
+            "--value",
+            '{"a":2,"b":2.0,"items":[1,1.5]}',
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        set_value = json.loads(was_set.stdout)["value"]
+        assert type(set_value["a"]) is int
+        assert type(set_value["b"]) is float
+        assert type(set_value["items"][0]) is int
+        assert type(set_value["items"][1]) is float
+
+        got = run("game", "get", "/root/Main/Player", "--property", "_items")
+        assert got.returncode == 0, got.stdout + got.stderr
+        got_value = json.loads(got.stdout)["properties"][0]["value"]
+        assert type(got_value["a"]) is int
+        assert type(got_value["b"]) is float
+        assert type(got_value["items"][0]) is int
+        assert type(got_value["items"][1]) is float
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_get_unknown_explicit_script_variable_reports_unknown_property(
+    tmp_path, daemon_runtime_dir
+):
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        got = run("game", "get", "/root/Main/Player", "--property", "_typo")
+        assert got.returncode == 6, got.stdout + got.stderr
+        error = json.loads(got.stdout)["error"]
+        assert error["code"] == "live_unknown_property"
+        assert error["message"] == (
+            "node /root/Main/Player has no runtime, storage, or script property: _typo"
+        )
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_uncoercible_script_variable_reports_target_type(
+    tmp_path, daemon_runtime_dir
+):
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "_items",
+            "--value",
+            "not-json",
+        )
+        assert was_set.returncode == 6, was_set.stdout + was_set.stderr
+        error = json.loads(was_set.stdout)["error"]
+        assert error["code"] == "live_uncoercible_value"
+        assert error["message"] == (
+            "cannot coerce value not-json to Dictionary for script variable _items "
+            "on node /root/Main/Player"
+        )
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_readonly_script_variable_reports_unverified_observed_value(
+    tmp_path, daemon_runtime_dir
+):
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(
+        READONLY_SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8"
+    )
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        got = run("game", "get", "/root/Main/Player", "--property", "readonly")
+        assert got.returncode == 0, got.stdout + got.stderr
+        assert json.loads(got.stdout)["properties"] == [
+            {"name": "readonly", "type": "int", "value": 1}
+        ]
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "readonly",
+            "--value",
+            "2",
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        assert json.loads(was_set.stdout) == {
+            "path": "/root/Main/Player",
+            "property": "readonly",
+            "type": "int",
+            "value": 1,
+            "verified": False,
+        }
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_edge_trigger_reports_unverified_then_side_effect_is_readable(
+    tmp_path, daemon_runtime_dir
+):
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(
+        EDGE_TRIGGER_SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8"
+    )
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "spawn",
+            "--value",
+            "true",
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        assert json.loads(was_set.stdout) == {
+            "path": "/root/Main/Player",
+            "property": "spawn",
+            "type": "bool",
+            "value": False,
+            "verified": False,
+        }
+
+        got = run("game", "get", "/root/Main/Player", "--property", "spawn_count")
+        assert got.returncode == 0, got.stdout + got.stderr
+        assert json.loads(got.stdout)["properties"] == [
+            {"name": "spawn_count", "type": "int", "value": 1}
+        ]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_start_re_syncs_harness_after_a_version_bump(
+    tmp_path, daemon_runtime_dir
+):
+    # #225 D1: the daemon self-syncs the installed harness to the running gda's
+    # version. A real start installs at HARNESS_VERSION; we then SIMULATE a
+    # previously-installed OLDER copy by rewriting its leading version header to a
+    # stale value, stop the daemon, and start again. The second start must detect
+    # the mismatch and re-materialize (harness_synced True), syncing the on-disk
+    # version back to HARNESS_VERSION.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+    harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
+
+    try:
+        first = run("daemon", "start")
+        assert first.returncode == 0, first.stdout + first.stderr
+        first_doc = json.loads(first.stdout)
+        assert (
+            first_doc["harness_synced"] is False
+        )  # a first install is NOT a sync (#247)
+        assert first_doc["harness_version"] == HARNESS_VERSION
+        assert installed_harness_version(tmp_path) == HARNESS_VERSION
+
+        # Stop, then corrupt the installed header to a stale older version so the
+        # next start sees a version mismatch.
+        assert run("daemon", "stop").returncode == 0
+        lines = harness.read_text(encoding="utf-8").splitlines()
+        lines[0] = "# gda-harness-version: stale-old"
+        harness.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        assert installed_harness_version(tmp_path) == "stale-old"
+
+        resynced = run("daemon", "start")
+        assert resynced.returncode == 0, resynced.stdout + resynced.stderr
+        resynced_doc = json.loads(resynced.stdout)
+        assert resynced_doc["harness_synced"] is True  # version mismatch -> resync
+        assert resynced_doc["harness_version"] == HARNESS_VERSION
+        assert installed_harness_version(tmp_path) == HARNESS_VERSION  # synced back
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_install_then_uninstall_is_paired_and_idempotent(
+    tmp_path, daemon_runtime_dir
+):
+    # #225 D2: a real start installs the harness; with the daemon stopped,
+    # `daemon uninstall` removes BOTH the [autoload] entry and the files (paired),
+    # and a second uninstall is an idempotent no-op success.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+    harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
+
+    try:
+        assert run("daemon", "start").returncode == 0
+        assert harness.exists()
+        assert run("daemon", "stop").returncode == 0
+
+        first = run("daemon", "uninstall")
+        assert first.returncode == 0, first.stdout + first.stderr
+        assert json.loads(first.stdout)["removed"] is True
+        assert not harness.exists()  # files gone
+        text = (tmp_path / "project.godot").read_text(encoding="utf-8")
+        assert "GdaHarness" not in text  # autoload entry stripped
+
+        # Idempotent: a second uninstall removes nothing (no-op success).
+        again = run("daemon", "uninstall")
+        assert again.returncode == 0, again.stdout + again.stderr
+        assert json.loads(again.stdout)["removed"] is False
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_round_trip_restores_the_project_it_started_from(
+    tmp_path, daemon_runtime_dir
+):
+    # #654, the acceptance criterion of GDA-DF-009 / GDA-DF-020 / GDA-DF-039: after a
+    # REAL start -> live session -> stop -> uninstall, a tracked project must show no
+    # diff at all. Only a real engine proves it: the `.uid` sidecar that used to keep
+    # `addons/gda_harness/` alive is written by Godot's import pass, not by gda, so a
+    # fast test can only plant a stand-in. Here the engine writes it for real, and the
+    # assertions below are on the project's BYTES, not on the absence of a substring.
+    #
+    # The import is an explicit step because a plain game run does NOT write the
+    # sidecar — verified on Godot 4.6: `--headless --path <p> --quit` leaves
+    # `addons/gda_harness/` with the script alone. It appears once the project is
+    # SCANNED (`--import`, or a human opening the editor on it — ADR-0018's concurrent
+    # external editor, which is precisely how the dogfooding project grew one). Without
+    # this step the sidecar assertions below would pass vacuously.
+    #
+    # The project is a real GIT WORKING TREE (PR #680 review, claim 7): the acceptance
+    # criterion is about a TRACKED project, and byte comparisons on the files this test
+    # happens to name cannot see a stray file it forgot to name. `git status
+    # --porcelain` can — it is the same check the dogfooding sessions failed. Only
+    # `.godot/` is ignored (the engine's import cache, which no one commits); the
+    # harness, its sidecar and `addons/` are deliberately NOT ignored, so any residue
+    # shows up.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".godot/\n", encoding="utf-8")
+    before = project_godot.read_bytes()
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    assert git("init", "-q").returncode == 0
+    assert git("config", "user.email", "e2e@example.invalid").returncode == 0
+    assert git("config", "user.name", "gda e2e").returncode == 0
+    assert git("add", "-A").returncode == 0
+    committed = git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "baseline")
+    assert committed.returncode == 0, committed.stdout + committed.stderr
+    assert git("status", "--porcelain").stdout == ""  # a clean baseline to diff against
+
+    run = Gda(tmp_path, json_output=True)
+    harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        started_doc = json.loads(started.stdout)
+        # The start's mutation receipt names exactly what it wrote into the project.
+        assert started_doc["created_paths"] == [
+            "res://addons",
+            f"res://{HARNESS_RES_DIR}",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+        ]
+        assert started_doc["created_sections"] == ["[autoload]"]
+        assert harness.exists()
+        started_installed_bytes = project_godot.read_bytes()
+
+        # Drive one live op, so the harness is exercised the way a live-QA session
+        # exercises it, then tear the daemon down.
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        assert run("daemon", "stop").returncode == 0
+
+        # Now let the ENGINE scan the project, the way a human opening the editor on
+        # it does. This is what writes the .uid sidecar next to the installed harness.
+        imported = import_project(tmp_path)
+        sidecar = harness.with_name(f"{HARNESS_FILE}.uid")
+        assert sidecar.exists(), (
+            "the engine did not write the .uid sidecar, so the removal assertions "
+            f"below would be vacuous\n{imported.stdout}{imported.stderr}"
+        )
+        # The scan itself must not have rewritten project.godot, or the byte
+        # comparison at the end would be measuring the engine, not the uninstall.
+        assert project_godot.read_bytes() == started_installed_bytes, (
+            "the engine's import rewrote project.godot"
+        )
+
+        uninstalled = run("daemon", "uninstall")
+        assert uninstalled.returncode == 0, uninstalled.stdout + uninstalled.stderr
+        removed = json.loads(uninstalled.stdout)
+        assert removed["removed"] is True
+        assert removed["removed_paths"] == [
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}.uid",
+            f"res://{HARNESS_RES_DIR}",
+        ]
+        assert removed["removed_sections"] == ["[autoload]"]
+
+        # Nothing of the harness survives: no script, no sidecar, no addon directory.
+        assert not harness.exists()
+        assert not sidecar.exists()
+        assert not (tmp_path / HARNESS_RES_DIR).exists()
+        # And project.godot is back to the bytes the project started with.
+        assert project_godot.read_bytes() == before
+
+        # The criterion itself: git sees NOTHING. This catches residue the byte
+        # assertions above cannot, because it does not depend on naming the file.
+        # The now-empty `addons/` survives on disk and is correctly invisible here —
+        # git does not track empty directories, which is why uninstall leaves it.
+        status = git("status", "--porcelain")
+        assert status.stdout == "", (
+            "the round trip left the tracked project dirty:\n" + status.stdout
+        )
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_uninstall_is_refused_while_running(tmp_path, daemon_runtime_dir):
+    # #225 D2: uninstall is refused while a daemon is running — it would yank the
+    # harness autoload out from under the live engine session. The CLI surfaces the
+    # daemon_running error at the LIVE exit (6), and the install is untouched.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+    harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
+
+    try:
+        assert run("daemon", "start").returncode == 0
+        assert harness.exists()
+
+        refused = run("daemon", "uninstall")
+        assert refused.returncode == 6, refused.stdout + refused.stderr
+        assert json.loads(refused.stdout)["error"]["code"] == "daemon_running"
+        assert harness.exists()  # refusal left the install intact
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
+def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runtime_dir):
+    # #251: `daemon status` reports the running daemon's launch-time display mode,
+    # read over STATUS_OP through the `gda` CLI, so an agent can tell whether a
+    # live session can serve a `screen` capture before issuing one. No daemon ->
+    # `windowed` null (clean, hang-free fallback); a default start -> false; a
+    # `--windowed` start -> true. The daemon records the mode at start; no engine
+    # session is launched here (lazy launch, ADR-0017), so this needs no display.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    # No daemon running yet: running False, windowed null.
+    before = json.loads(run("daemon", "status").stdout)
+    assert before["running"] is False
+    assert before["windowed"] is None
+
+    try:
+        # The default start is headless -> status reports windowed False.
+        assert run("daemon", "start").returncode == 0
+        headless = json.loads(run("daemon", "status").stdout)
+        assert headless["running"] is True
+        assert headless["windowed"] is False
+        assert run("daemon", "stop").returncode == 0
+
+        # A `--windowed` start -> status reports windowed True. `daemon start
+        # --windowed` now refuses PRE-LAUNCH with live_windowed_unavailable on a host
+        # with no usable DisplayServer (#345), so gate this half on the shared display
+        # helper — the headless portions above already ran.
+        from tests.support import require_windowed_host
+
+        require_windowed_host()
+        # Two separate observations: the precheck above and the CLI's own guard.
+        # A capability verdict slipping in between must SKIP (permission-denied
+        # must fail loudly) — the shared policy, not a bare returncode assertion.
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        windowed = json.loads(run("daemon", "status").stdout)
+        assert windowed["running"] is True
+        assert windowed["windowed"] is True
+    finally:
+        run("daemon", "stop")
+
+
+# A SECOND scene the session can boot via `--scene`, distinct from main.tscn so the
+# runtime tree's root name proves WHICH scene ran. Its root is "B" (not "Main").
+B_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="B" type="Node2D"]\n\n'
+    '[node name="Marker" type="Node2D" parent="."]\n'
+)
+
+
+@pytest.mark.e2e
+def test_daemon_start_scene_runs_the_chosen_scene_not_main(
+    tmp_path, daemon_runtime_dir
+):
+    # #278 (ADR-0017 amendment): `daemon start --scene res://B.tscn` boots the chosen
+    # scene B — `game tree` reports B's root (not Main's), proving the engine received
+    # `--scene` (before `--path`) — and `project.godot`'s `main_scene` is UNCHANGED
+    # (no mutation, F6-equivalent). With scenes A (main) + B present.
+    project_text = LIVE_PROJECT_GODOT
+    (tmp_path / "project.godot").write_text(project_text, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "B.tscn").write_text(B_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start", "--scene", "res://B.tscn")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        root = json.loads(tree.stdout)["root"]
+        # The chosen scene B ran — NOT the project's main_scene (Main).
+        assert root["name"] == "B"
+        assert any(c["name"] == "Marker" for c in root.get("children", []))
+
+        # main_scene is untouched on disk (running a scene is not setting it).
+        assert 'run/main_scene="res://main.tscn"' in (
+            tmp_path / "project.godot"
+        ).read_text(encoding="utf-8")
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_start_without_a_main_scene_is_refused_before_session_launch(
+    tmp_path, daemon_runtime_dir
+):
+    # #829: a real `daemon start` on a project that defines no main scene (and no
+    # `--scene`) is refused with the typed live_main_scene_undefined, fast and before
+    # a daemon or session is spawned (the version probe is allowed). The engine
+    # would otherwise print "no main scene defined"
+    # and, on macOS, block on a native alert even headless. Then the AUTHORITATIVE
+    # guard: a daemon started on a runnable project whose main scene is removed
+    # afterwards refuses the first live op the same way, with no session launched.
+    (tmp_path / "project.godot").write_text(project_godot(), encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    started_at = time.monotonic()
+    refused = run("daemon", "start")
+    elapsed = time.monotonic() - started_at
+    assert refused.returncode == 6, refused.stdout + refused.stderr
+    error = json.loads(refused.stdout)["error"]
+    assert error["code"] == "live_main_scene_undefined"
+    assert "--scene" in error["message"]
+    assert elapsed < 5.0, f"the refusal took {elapsed:.1f}s — did a session launch?"
+    assert not (tmp_path / "addons" / "gda_harness").exists()  # nothing installed
+
+    # The sibling: a uid:// main scene on a never-imported checkout (the Godot 4.4+
+    # editor's own shape, with .godot/ ignored) is refused the same way, with the
+    # remedy that differs — import once.
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='run/main_scene="uid://c7f2q1w3e4r5t"'), encoding="utf-8"
+    )
+    unresolved = run("daemon", "start")
+    assert unresolved.returncode == 6, unresolved.stdout + unresolved.stderr
+    assert (
+        json.loads(unresolved.stdout)["error"]["code"] == "live_main_scene_unresolved"
+    )
+
+    # The launch boundary, on a real daemon: start on a runnable project, then take
+    # the main scene away before the lazy launch.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        (tmp_path / "project.godot").write_text(project_godot(), encoding="utf-8")
+
+        tree = run("game", "tree")
+        assert tree.returncode == 6, tree.stdout + tree.stderr
+        assert json.loads(tree.stdout)["error"]["code"] == "live_main_scene_undefined"
+        status = json.loads(run("daemon", "status").stdout)
+        assert status.get("session_id") is None  # no session was ever established
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "configuration", ["custom_overlay", "escaped_key", "feature_data_directory"]
+)
+def test_daemon_runs_main_scenes_the_file_precheck_cannot_resolve(
+    tmp_path, daemon_runtime_dir, configuration
+):
+    # These are engine-valid declarations. Both the CLI precheck and the daemon's
+    # lazy launch boundary must let the engine resolve them (#831 re-review).
+    scene_text = LIVE_MAIN_TSCN
+    if configuration == "custom_overlay":
+        settings = 'config/project_settings_override="res://custom.cfg"'
+        (tmp_path / "custom.cfg").write_text(
+            '[application]\nrun/main_scene="res://main.tscn"\n', encoding="utf-8"
+        )
+    elif configuration == "escaped_key":
+        settings = r'"run/\u006dain_scene"="res://main.tscn"'
+    else:
+        # `pc` applies to both supported desktop hosts; the engine imports into
+        # .godot even though the base setting alone would select godot/.
+        settings = (
+            'run/main_scene="uid://c1abc"\n'
+            "config/use_hidden_project_data_directory=false\n"
+            "config/use_hidden_project_data_directory.pc=true"
+        )
+        scene_text = scene_text.replace(
+            "[gd_scene format=3]", '[gd_scene format=3 uid="uid://c1abc"]'
+        )
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra=settings), encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(scene_text, encoding="utf-8")
+    if configuration == "feature_data_directory":
+        imported = import_project(tmp_path)
+        assert imported.returncode == 0, imported.stdout + imported.stderr
+        assert (tmp_path / ".godot" / "uid_cache.bin").is_file()
+        assert not (tmp_path / "godot" / "uid_cache.bin").exists()
+    run = Gda(tmp_path, json_output=True)
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        assert json.loads(tree.stdout)["root"]["name"] == "Main"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_start_nonexistent_scene_is_typed_live_scene_not_found(
+    tmp_path, daemon_runtime_dir
+):
+    # #278: a non-existent `--scene` selector surfaces a TYPED `live_scene_not_found`
+    # (LIVE exit 6) on the first live op — NEVER a silent fall back to main_scene.
+    # Detected at launch by the harness (the loaded scene != the requested selector),
+    # surfaced when the lazy launch is triggered by `game tree`.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start", "--scene", "res://does_not_exist.tscn")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        tree = run("game", "tree")
+        assert tree.returncode == 6, tree.stdout + tree.stderr
+        assert json.loads(tree.stdout)["error"]["code"] == "live_scene_not_found"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_start_nonexistent_uid_is_typed_not_silent_main_scene(
+    tmp_path, daemon_runtime_dir
+):
+    # #278 review finding 2: Godot given a BAD `uid://` selector silently falls back
+    # to main_scene. Launch-time harness verification catches this — the loaded scene
+    # (main) != the requested uid — and surfaces a typed `live_scene_not_found`, NOT a
+    # silent success on main_scene.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start", "--scene", "uid://doesnotexist000")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        tree = run("game", "tree")
+        assert tree.returncode == 6, tree.stdout + tree.stderr
+        assert json.loads(tree.stdout)["error"]["code"] == "live_scene_not_found"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_start_scene_against_a_running_daemon_is_a_typed_refusal(
+    tmp_path, daemon_runtime_dir
+):
+    # #278 review finding 3: `--scene` only takes effect at daemon START. Against a
+    # daemon that is already running it is a typed `daemon_already_running` refusal,
+    # NOT a silent no-op that quietly ignores the chosen scene.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "B.tscn").write_text(B_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        refused = run("daemon", "start", "--scene", "res://B.tscn")
+        assert refused.returncode == 6, refused.stdout + refused.stderr
+        assert json.loads(refused.stdout)["error"]["code"] == "daemon_already_running"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_scene_verified_once_at_launch_survives_deleting_the_file(
+    tmp_path, daemon_runtime_dir
+):
+    # #278 review finding 1: scene is verified ONCE at launch, never per-request. A
+    # live session bound to scene B keeps serving B after B.tscn is deleted on disk —
+    # the running game does not reload disk edits (ADR-0017/0020 session-bound state),
+    # so a later `game tree` STILL reports B, not `live_scene_not_found`.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+    b_scene = tmp_path / "B.tscn"
+    b_scene.write_text(B_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        assert run("daemon", "start", "--scene", "res://B.tscn").returncode == 0
+
+        first = run("game", "tree")
+        assert first.returncode == 0, first.stdout + first.stderr
+        assert json.loads(first.stdout)["root"]["name"] == "B"
+
+        # Delete the scene file out from under the LIVE session.
+        b_scene.unlink()
+
+        # The session is bound to B and verified once at launch — it STILL serves B
+        # (no per-request disk re-validation).
+        again = run("game", "tree")
+        assert again.returncode == 0, again.stdout + again.stderr
+        assert json.loads(again.stdout)["root"]["name"] == "B"
+    finally:
+        run("daemon", "stop")
+
+
+# #656 (GDA-DF-013): a real pause menu sets SceneTree.paused; a "Resumer" node
+# forwards SceneTree.paused through a script-variable property so a live `game
+# set`/`game get` can drive and observe it (no Node exposes `paused` directly), and
+# reacts to an injected resume key ONLY because it opts into PROCESS_MODE_ALWAYS —
+# the same pattern a real pause-menu script needs to keep handling input while
+# paused. A sibling "Ticker" node keeps the DEFAULT process mode, so its tick count
+# is the control that proves the pause (and later the resume) is real, not just a
+# flag read back.
+PAUSE_PLAYER_GD = (
+    "extends Node2D\n"
+    "@export var is_resumer: bool = false\n"
+    "@export var ticks: int = 0\n"
+    "func _ready() -> void:\n"
+    "\tif is_resumer:\n"
+    "\t\tprocess_mode = Node.PROCESS_MODE_ALWAYS\n"
+    "func _process(_delta: float) -> void:\n"
+    "\tticks += 1\n"
+    "func _input(event: InputEvent) -> void:\n"
+    "\tif not is_resumer:\n"
+    "\t\treturn\n"
+    "\tif event is InputEventKey and event.pressed and event.keycode == KEY_R:\n"
+    "\t\tget_tree().paused = false\n"
+    "var tree_paused: bool:\n"
+    "\tget:\n"
+    "\t\treturn get_tree().paused\n"
+    "\tset(value):\n"
+    "\t\tget_tree().paused = value\n"
+)
+PAUSE_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="Resumer" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n'
+    "is_resumer = true\n\n"
+    '[node name="Ticker" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n\n'
+    '[node name="Rect" type="ColorRect" parent="."]\n'
+    "offset_right = 64.0\n"
+    "offset_bottom = 64.0\n"
+    "color = Color(0.8, 0.2, 0.2, 1)\n"
+)
+
+
+@pytest.mark.e2e
+def test_daemon_serves_live_ops_while_scenetree_paused(tmp_path, daemon_runtime_dir):
+    # The #656 DoD's headless core: opening a real pause menu sets SceneTree.paused,
+    # and the harness must keep serving `game get` / `input sequence` through it —
+    # and an injected "resume" input must be able to unpause the session, proving
+    # this is not the dead-end the dogfooding note (GDA-DF-013) reported (input
+    # injection is itself a harness op, so if the harness stopped ticking on pause
+    # there would be no way back in). A default (headless) session, so this runs
+    # everywhere a daemon e2e runs — including CI's display-less godot-e2e job; the
+    # `screen capture` leg needs a real DisplayServer and lives in the windowed-gated
+    # test below instead.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(PAUSE_PLAYER_GD, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    def ticker_ticks() -> int:
+        got = run("game", "get", "/root/Main/Ticker", "--property", "ticks")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    def tree_is_paused() -> bool:
+        got = run("game", "get", "/root/Main/Resumer", "--property", "tree_paused")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        assert tree_is_paused() is False
+
+        # Pause the game the way a real pause menu does: a live `game set` flips
+        # SceneTree.paused through the Resumer's forwarding property.
+        paused_set = run(
+            "game",
+            "set",
+            "/root/Main/Resumer",
+            "--property",
+            "tree_paused",
+            "--value",
+            "true",
+        )
+        assert paused_set.returncode == 0, paused_set.stdout + paused_set.stderr
+        assert json.loads(paused_set.stdout)["verified"] is True
+        assert tree_is_paused() is True
+
+        # Control: the DEFAULT-process-mode Ticker genuinely stops advancing while
+        # paused — proving the pause took effect, not just that the flag reads back.
+        stalled_before = ticker_ticks()
+        stalled_after = ticker_ticks()
+        assert stalled_after == stalled_before
+
+        # The harness-served ops the #656 acceptance criteria name must still serve
+        # while paused: a live read and an input injection.
+        read_while_paused = run("game", "get", "/root/Main/Resumer")
+        assert read_while_paused.returncode == 0, (
+            read_while_paused.stdout + read_while_paused.stderr
+        )
+
+        # Resume input: inject KEY_R via `input sequence`. It reaches ONLY the
+        # Resumer (PROCESS_MODE_ALWAYS) — mirroring a real pause menu's resume
+        # handler — which flips SceneTree.paused back off.
+        events = json.dumps([{"type": "key", "key": "R", "frame": 0}])
+        resumed = run("input", "sequence", "--events", events)
+        assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+        assert json.loads(resumed.stdout)["kind"] == "sequence"
+
+        # The session is genuinely responsive again: the paused flag cleared, and
+        # the default-process-mode Ticker resumes advancing.
+        assert tree_is_paused() is False
+        resumed_before = ticker_ticks()
+        resumed_after = ticker_ticks()
+        assert resumed_after > resumed_before
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
+def test_daemon_serves_screen_capture_while_scenetree_paused(
+    tmp_path, daemon_runtime_dir
+):
+    # The #656 DoD's windowed leg, split from the headless core above because
+    # `screen capture` needs a real DisplayServer (`daemon start --windowed`) —
+    # gated like the other windowed e2e tests, so it runs on a developer's local
+    # GUI macOS session (or under xvfb on Linux) but skips on CI's display-less
+    # godot-e2e job, unlike the headless core test.
+    #
+    # This restores the issue's INTEGRATED paused-session sequence on the one path
+    # that can exercise every op it names in a single session: capture alone could
+    # pass even with a capture-specific regression elsewhere in the harness, so
+    # after the paused capture this continues in the SAME session with a live read,
+    # a resume `input sequence` injection, and a responsiveness proof — the same
+    # read/resume/responsiveness shape the headless test proves without a display,
+    # here proven end-to-end alongside the capture that needs one.
+    from tests.support import require_windowed_host
+
+    require_windowed_host()
+
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(PAUSE_PLAYER_GD, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True, timeout=120)
+
+    def ticker_ticks() -> int:
+        got = run("game", "get", "/root/Main/Ticker", "--property", "ticks")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    def tree_is_paused() -> bool:
+        got = run("game", "get", "/root/Main/Resumer", "--property", "tree_paused")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    try:
+        # Display refusals on the windowed start / capture branches go through the
+        # shared policy first (capability -> skip, permission -> loud fail); anything
+        # else still falls through to the ordinary assertion.
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+
+        # Pause the game the way a real pause menu does: a live `game set` flips
+        # SceneTree.paused through the Resumer's forwarding property.
+        paused_set = run(
+            "game",
+            "set",
+            "/root/Main/Resumer",
+            "--property",
+            "tree_paused",
+            "--value",
+            "true",
+        )
+        assert paused_set.returncode == 0, paused_set.stdout + paused_set.stderr
+        assert json.loads(paused_set.stdout)["verified"] is True
+        assert tree_is_paused() is True
+
+        capture_path = tmp_path / "paused.png"
+        assert_windowed_ok(run("screen", "capture", "--output", str(capture_path)))
+        assert capture_path.exists()
+        assert capture_path.stat().st_size > 0
+
+        # The SAME paused session still serves a live read right after the
+        # capture — the capture's time-windowed harness state did not wedge it.
+        read_while_paused = run("game", "get", "/root/Main/Resumer")
+        assert read_while_paused.returncode == 0, (
+            read_while_paused.stdout + read_while_paused.stderr
+        )
+
+        # Resume input: inject KEY_R via `input sequence`. It reaches ONLY the
+        # Resumer (PROCESS_MODE_ALWAYS) — mirroring a real pause menu's resume
+        # handler — which flips SceneTree.paused back off.
+        events = json.dumps([{"type": "key", "key": "R", "frame": 0}])
+        resumed = run("input", "sequence", "--events", events)
+        assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+        assert json.loads(resumed.stdout)["kind"] == "sequence"
+
+        # The session is genuinely responsive again: the paused flag cleared, and
+        # the default-process-mode Ticker resumes advancing.
+        assert tree_is_paused() is False
+        resumed_before = ticker_ticks()
+        resumed_after = ticker_ticks()
+        assert resumed_after > resumed_before
+    finally:
+        run("daemon", "stop")

@@ -433,7 +433,7 @@ the problem: `project.godot` held `3.141592653589793` while the reply said `3.14
 NEGATIVE ZERO reads back as `0.0`, which the engine decides (`JSON::_stringify` returns `"0.0"`
 for anything equal to zero) before the precision argument applies. It is the same engine writer
 the live harness uses, so it is measured against the same corpus and the same partition —
-`gda.live_numbers` is the authority, and `tests/test_e2e_headless_number_reads.py` re-derives the
+`gda.live_numbers` is the authority, and `tests/value_projection/test_e2e_headless_number_reads.py` re-derives the
 verdict from a real engine.
 
 **Number coercion** ([#772](https://github.com/aigengame/godot-agent/issues/772)) — the WRITE
@@ -471,7 +471,7 @@ later `node get` / `project get` read it as JSON `null`. A literal **below binar
 refused** anyway — `1e-400` fails exactly as `1e-320` does, although zero is the
 correctly-rounded answer there; the coercion cannot tell a true underflow from the engine's −309 cliff without modelling
 the parser it asks instead, and a caller who means zero writes `0`. `gda.live_numbers` records the
-measurement; `tests/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both
+measurement; `tests/value_projection/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both
 channels.
 
 A number nested inside a **Dictionary or Array `--value`** is refused by the same rule, with the

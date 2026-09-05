@@ -3,7 +3,7 @@
 
 The English ``README.md`` is the authoritative source; each translated README
 under ``docs/README.<lang>.md`` carries a leading marker recording the sha256 of
-the English README it was translated from (see ``tests/test_readme_i18n_sync.py``):
+the English README it was translated from (see ``tests/repo/test_readme_i18n_sync.py``):
 
     <!-- gda-readme-i18n: source=README.md sha256=<64-hex> -->
 
@@ -11,7 +11,7 @@ Run this after re-translating the affected files to "re-bless" them:
 
     uv run python scripts/update_readme_i18n.py
 
-The marker format is mirrored in ``tests/test_readme_i18n_sync.py``; keep them in
+The marker format is mirrored in ``tests/repo/test_readme_i18n_sync.py``; keep them in
 sync if it ever changes.
 """
 

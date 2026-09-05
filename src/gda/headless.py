@@ -477,7 +477,7 @@ def _takes_a_json_value(
     ``oneOf`` — the nullable-compound shape (``list | null``) that
     ``--await-events`` introduced (#661); a registration test keeps this
     detector and the published bindings agreeing
-    (``tests/test_schema_command.py``).
+    (``tests/meta/test_schema_command.py``).
     """
     spec = properties.get(bound or "")
     if not isinstance(spec, dict) or multiple:

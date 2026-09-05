@@ -54,7 +54,7 @@ __all__ = ["parse_errors", "parse_log_records", "LOG_BEGIN"]
 # ADR-0002's single `<<<GDA:RESULT>>>` (gda.parser.RESULT_BEGIN), so a log line is
 # never mistaken for an op result and a result-shaped print is never a log record.
 # Mirrors the harness `LOG_MARKER` const (src/gda/harness/gda_harness.gd); a const
-# test (tests/test_error_registry.py) keeps the two byte-identical.
+# test (tests/cli/test_error_registry.py) keeps the two byte-identical.
 LOG_BEGIN = "<<<GDA:LOG>>>"
 
 # The closed, ordered severity enum (ADR-0026): `debug < info < warning < error`.

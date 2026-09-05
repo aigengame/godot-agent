@@ -43,7 +43,7 @@ NEGATIVE ZERO reads back as ``0.0``.
 
 A headless read needs no separate corpus and gets none: it is measured against the
 same rows and the same ``full_precision`` partition, re-derived from a real engine by
-``tests/test_e2e_headless_number_reads.py``. Its REQUEST half is a different
+``tests/value_projection/test_e2e_headless_number_reads.py``. Its REQUEST half is a different
 question from the live one — a headless ``--value`` is a STRING the operation coerces
 with ``String.to_float``, not a JSON number the parser reads — and it is answered
 under **Write direction** below (#772).
@@ -58,7 +58,7 @@ not theirs: gda's serializer keeps a negative zero, and a real daemon returning
 ``{"value": 1.0, "min": -0.0, "max": -0.0}`` is what the #770 review used to
 falsify the blanket claim. Hence TWO published sentences, each naming its writer
 — :data:`LIVE_ENGINE_PRECISION` and :data:`LIVE_DERIVED_PRECISION`. Which one a
-field carries is not a matter of taste: ``tests/test_live_contract_guards.py``
+field carries is not a matter of taste: ``tests/live/test_live_contract_guards.py``
 MEASURES the provenance (a probe drives each result-assembling recipe with a
 sentinel-bearing reply and sees which fields the sentinels reach) and fails a
 field disclosing the wrong writer.
@@ -112,7 +112,7 @@ reads as ``0.0``.
 The predicate below is not a decimal heuristic: it recomputes the engine's own
 ``exp`` intermediate from the literal gda is about to write. ``tests/
 test_live_numbers.py`` pins it against the recorded engine verdicts, and
-``tests/test_e2e_live_number_transport.py`` re-derives those verdicts from a real
+``tests/value_projection/test_e2e_live_number_transport.py`` re-derives those verdicts from a real
 engine, in both directions. Note it answers only the FLATTENING question; the
 drift bands above are recorded, not predicted, because nothing branches on them.
 
@@ -156,8 +156,8 @@ where the property's DECLARED TYPE is known — ``--value 1e-320`` on a String p
 is an ordinary string and must not be refused — and it asks the engine rather than
 modelling it, so there is nothing a Python twin could be a second opinion about. It is
 mirrored byte-identically in ``ops/operations.gd`` and ``harness/gda_harness.gd``
-(``tests/test_harness_coercion_mirror.py``), and
-``tests/test_e2e_write_value_fidelity.py`` re-derives the verdict from a real engine on
+(``tests/harness/test_harness_coercion_mirror.py``), and
+``tests/value_projection/test_e2e_write_value_fidelity.py`` re-derives the verdict from a real engine on
 both channels.
 
 Keying on what the parser PRODUCED draws two edges, named here so the contract is not

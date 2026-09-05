@@ -272,7 +272,7 @@ it — is a citation rather than part of the code's meaning, so it is not compar
 Many rows here carry one, and some registry descriptions do too: that is allowed,
 not a mistake to tidy away. A bare `(Phase N)` is *not* a citation and IS compared,
 which is why the live rows below state their phase through the `Category` column
-instead. `tests/test_error_registry.py` is the single home of that rule.
+instead. `tests/cli/test_error_registry.py` is the single home of that rule.
 
 Each row carries the process `Exit Code` a shell consumer keys on. It is
 per-code, not per-category: within `environment`, `binary_not_found` exits `127`

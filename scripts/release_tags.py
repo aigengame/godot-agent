@@ -20,7 +20,7 @@ strategy metadata (a package name, a strategy's default), and reimplementing
 that resolution here would be a second, drifting copy of release-please's
 internals. So this module does not infer: a package that puts a component in its
 tag without naming one raises `TagDerivationError` rather than guessing. The
-repo's config satisfies the contract today, and `tests/test_release_tags.py`
+repo's config satisfies the contract today, and `tests/repo/test_release_tags.py`
 holds a drift alarm that fails if it stops doing so.
 
 Stdlib only, so it runs with **no project environment synced** — a workflow
