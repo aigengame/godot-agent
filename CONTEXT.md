@@ -397,10 +397,11 @@ _Avoid_: command spec, command config, command registry entry
 The single authoritative core phrase naming what `gda` *is* — "Godot automation for AI
 agents" — front-loading the product category, engine, and audience. The README **H1** uses
 that phrase in Title Case. The `pyproject` and GitHub repository descriptions lead with the
-same phrase and extend it with the three access paths and the main verification capabilities:
-"Godot automation for AI agents through a CLI, Agent Skill, and MCP server, with structured
-results, headless validation, and live runtime control." These three surfaces change together
-and must not drift. The phrase names an automation toolchain, not an agent.
+same phrase and extend it with the primary user outcome, three access paths, structured results,
+and the two operation modes: "Godot automation for AI agents to build and verify projects through
+a CLI, Agent Skill, or MCP server, with structured results, headless operations, and live runtime
+control." These three surfaces change together and must not drift. The phrase names an automation
+toolchain, not an agent.
 _Avoid_: tagline, slogan, hero, the value sentence
 
 **Brand slogan**:

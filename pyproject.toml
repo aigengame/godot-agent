@@ -1,14 +1,14 @@
 [project]
 name = "gda"
 version = "0.13.0"
-description = "Godot automation for AI agents through a CLI, Agent Skill, and MCP server, with structured results, headless validation, and live runtime control."
+description = "Godot automation for AI agents to build and verify projects through a CLI, Agent Skill, or MCP server, with structured results, headless operations, and live runtime control."
 readme = "README.md"
 authors = [
     { name = "haihong.qin", email = "haihongqin@gmail.com" }
 ]
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["godot", "godot-engine", "godot-ai", "godot-mcp", "cli", "mcp", "model-context-protocol", "ai-agent", "coding-agent", "agent", "agent-skill", "skill", "gdscript", "structured-output", "game-development", "automation", "llm"]
+keywords = ["godot", "godot-engine", "godot-ai", "godot-mcp", "cli", "mcp", "mcp-server", "model-context-protocol", "ai-agent", "coding-agent", "agent", "agent-skill", "skill", "gdscript", "structured-output", "headless", "runtime-verification", "game-development", "automation", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
