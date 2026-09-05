@@ -294,11 +294,15 @@ def test_windowed_start_without_a_display_is_live_windowed_unavailable(
 def test_unrunnable_main_scene_is_refused_before_spawn_and_display_probe(
     tmp_path, short_runtime, monkeypatch, windowed, setting, code, reason
 ):
-    # #829: a project whose `application/run/main_scene` is empty, started with no
-    # `--scene`, has nothing for the session to run — Godot would print "no main
-    # scene defined" and then block on a native alert (macOS, even headless) until
-    # the readiness deadline killed it. Refused HERE, before the spawn and before
-    # the harness install, with the typed live_main_scene_undefined (LIVE / 6).
+    # #829: a project whose `application/run/main_scene` is empty, or a `uid://`
+    # with no UID cache, started with no `--scene`, has nothing the session can run
+    # — Godot would print its "no main scene" / "could not be resolved from UID"
+    # error and then block on a native alert (macOS, even headless) until the
+    # readiness deadline killed it. Refused HERE, before the spawn and before the
+    # harness install, with the typed live_main_scene_undefined /
+    # live_main_scene_unresolved (LIVE / 6) — and before the windowed display probe,
+    # so a determinate scene verdict is reported even when the display is also
+    # unavailable (both modes are parametrized).
     project = tmp_path
     (project / "project.godot").write_text(
         'config_version=5\n\n[application]\n\nconfig/name="t"\n' + setting,

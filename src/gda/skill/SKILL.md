@@ -185,8 +185,8 @@ For settings it can determine from the project files, `daemon start` refuses an 
 scene with `live_main_scene_undefined`, or a `uid://` main scene without its UID cache with
 `live_main_scene_unresolved` — run `gda resource import <any existing res:// asset>` once,
 or open the project in the editor. Main-scene feature overrides, default/custom settings
-overlays (`override.cfg` / `application/config/project_settings_override`, including feature
-overrides of that path), and escaped application keys defer to the engine; feature overrides
+overlays (`override.cfg`, or a nonempty `application/config/project_settings_override` path,
+including feature overrides of that path), and escaped application keys defer to the engine; feature overrides
 or unrecognized boolean values for `application/config/use_hidden_project_data_directory` defer only
 the UID-cache check. Deferred cases can still show a native alert on macOS even headless
 until the readiness deadline tears down the session. An explicit valid `--scene res://<scene>.tscn`
