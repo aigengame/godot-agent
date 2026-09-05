@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/aigengame/godot-agent/compare/v0.13.0...v0.14.0) (2026-09-05)
+
+
+### Features
+
+* **gda:** align package metadata with product positioning ([#835](https://github.com/aigengame/godot-agent/issues/835)) ([6fb6129](https://github.com/aigengame/godot-agent/commit/6fb6129642a9b9ef65f8634cdca8caeebc466bd1))
+* **gda:** daemon start refuses a project with no main scene before the engine can pop a native alert ([#829](https://github.com/aigengame/godot-agent/issues/829)) ([#831](https://github.com/aigengame/godot-agent/issues/831)) ([fb649f3](https://github.com/aigengame/godot-agent/commit/fb649f33c0b7f5e173406644046e415d1ab788d7))
+
 ## [0.13.0](https://github.com/aigengame/godot-agent/compare/v0.12.0...v0.13.0) (2026-09-03)
 
 
