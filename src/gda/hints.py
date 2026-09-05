@@ -144,6 +144,31 @@ NEAR_MISSES: dict[tuple[str, ...], NearMiss] = {
         "`script run` takes the script as its positional argument, "
         "project-relative or `res://`",
     ),
+    # GDA-DF-069: the same positional form, missed under a SECOND spelling. Keyed
+    # separately and correcting to the same invocation ON PURPOSE — the table keys on
+    # the spelling a caller typed, and the record shows both — so this row is not a
+    # duplicate to fold into the one above.
+    ("script", "run", "--path"): NearMiss(
+        "gda script run <path>",
+        "`script run` takes the script as its positional argument, "
+        "project-relative or `res://`",
+    ),
+    # GDA-DF-069: `--path VALUE` maps exactly onto `validate`'s positional PATH, which
+    # takes several paths for one batched engine launch.
+    ("script", "validate", "--path"): NearMiss(
+        "gda script validate <path>",
+        "`script validate` takes the scripts as its positional arguments, "
+        "project-relative or `res://` — or `--all` for the whole project",
+    ),
+    # PIPE-DF-165: `--strict` carried over from `script run`, where it is the
+    # failing-exit gate (ADR-0031). `validate` has no such gate, and saying so is the
+    # correction — so the contract goes in the message, never in the `hint`, which is
+    # the corrected invocation and nothing else.
+    ("script", "validate", "--strict"): NearMiss(
+        "gda script validate <path>",
+        "validate reports 'valid' per script and an aggregate under --all; the "
+        "failing-exit gate is 'script run --strict'",
+    ),
 }
 
 
