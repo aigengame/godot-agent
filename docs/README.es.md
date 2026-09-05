@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7645aa9bfcabd98aa3e48cf84b793a38351886bae203d11baba7cffcb9b70bd5 -->
+<!-- gda-readme-i18n: source=README.md sha256=9ee455d8eacbad676baab58de7bf10903ba66bc48f64fb0c59f41c0a7cf92d54 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -97,9 +97,9 @@ en un [registro público de dogfooding](https://github.com/aigengame/godot-agent
 ## Instalación
 
 **Requisitos:** Python 3.13+ y un binario de [Godot](https://godotengine.org) — 4.4+ para
-los comandos headless, 4.6+ en macOS/Linux para los comandos live (daemon).
+las operaciones Headless, 4.6+ en macOS/Linux para las operaciones Live.
 
-Instala la CLI desde PyPI en tu `PATH`:
+Instala `gda`, la CLI de Godot para agentes de IA, desde PyPI en tu `PATH`:
 
 ```bash
 uv tool install gda      # or: pipx install gda
@@ -138,7 +138,8 @@ gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
 
-stdout siempre es JSON limpio que puedes canalizar; todos los diagnósticos del motor y de los scripts van a stderr:
+Con `--json`, stdout contiene JSON limpio que puedes canalizar; todos los diagnósticos del motor
+y de los scripts van a stderr:
 
 ```bash
 gda info --json | jq .major   # → 4
@@ -153,6 +154,7 @@ export GDA_PROJECT="/path/to/your/godot-project"   # or pass --project to any co
 gda scene create scenes/main.tscn --root-type Node2D --json
 gda node add  scenes/main.tscn --type Sprite2D --name Hero --json
 gda node set  scenes/main.tscn --node Hero --property position --value 10,20 --json
+gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
@@ -160,9 +162,10 @@ gda scene get scenes/main.tscn --json
 > ¿Sin proyecto? `gda` igualmente se ejecuta **sin proyecto** (projectless) sobre rutas simples del sistema de
 > archivos (relativas a tu directorio actual) — solo la resolución de `res://` necesita un proyecto. Consulta [Configuración](#configuration).
 
-**Controla un juego *en ejecución* en vivo.** Las operaciones live ejecutan la **escena principal** del proyecto, así que
-apúntala a la que acabas de construir mediante el ajuste de proyecto `application/run/main_scene` de Godot (el
-*Application → Run → Main Scene* del editor), y luego arranca el daemon (macOS/Linux, Godot 4.6+):
+**Inspecciona y controla el juego *en ejecución* con operaciones Live.** Estas operaciones ejecutan
+la **escena principal** del proyecto, así que apúntala a la que acabas de construir mediante el
+ajuste de proyecto `application/run/main_scene` de Godot (el *Application → Run → Main Scene* del
+editor), y luego arranca el daemon (macOS/Linux, Godot 4.6+):
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -180,19 +183,25 @@ con `gda daemon start --windowed`.)
 <a id="choose-your-integration"></a>
 ## Elige tu integración
 
-`gda` expone la **misma superficie de comandos** de tres formas — elige la que tu agente (o tú) admita:
+`gda` ofrece una sola superficie de operaciones mediante tres vías de acceso complementarias.
+Usa la CLI, la Agent Skill, el servidor MCP o una combinación que se adapte a tu flujo de trabajo.
+Las operaciones subyacentes y los resultados estructurados son los mismos.
 
-| Punto de entrada | Ideal para | Cómo |
+¿No sabes qué vía se adapta mejor a tu flujo de trabajo? Consulta
+[Godot MCP vs CLI vs Agent Skill](https://aigengame.xyz/godot-mcp/).
+
+| Vía de acceso | Ideal para | Cómo |
 | --- | --- | --- |
 | **CLI** (`gda`) | humanos, scripts de shell, CI y agentes que pueden ejecutar comandos | `gda <group> <command> --json` |
-| **Skill** (`gda skill`) | agentes de programación que admiten Agent Skills y prefieren un flujo de CLI ligero en tokens | imprimir/instalar `SKILL.md` (abajo) |
-| **MCP** (`gda-mcp`) | agentes que invocan herramientas mediante el Model Context Protocol | ejecutar el servidor stdio (abajo) |
+| **Agent Skill** (`gda skill`) | agentes de programación que admiten Agent Skills y prefieren un flujo de CLI ligero en tokens | imprimir o instalar la guía incluida (abajo) |
+| **MCP** (`gda-mcp`) | clientes compatibles con MCP que descubren e invocan herramientas | ejecutar el servidor stdio (abajo) |
 
-### Úsalo como Skill
+### Usa la Agent Skill
 
-`gda` incluye una **Skill** para agentes — un `SKILL.md` que enseña a un agente de IA *cómo y cuándo* manejar
-Godot desde la CLI. Es la forma más ligera de entrar (no hay servidor que registrar), viene incluida en el paquete y
-queda fijada a la versión de tu instalación. Imprímela, o instálala en el directorio de skills de tu agente:
+`gda` incluye una **Agent Skill** que enseña a un agente de IA *cuándo y cómo* manejar Godot
+desde la CLI. Úsala cuando tu agente de programación admita Agent Skills y quieras una guía
+reutilizable sin registrar un servidor. La guía se mantiene alineada con la versión instalada de
+`gda`. Imprímela o instálala en el directorio de skills de tu agente:
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -200,18 +209,20 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-Las [recetas de skills](gda-skill.md) listan el directorio de skills de cada agente. O bien obtén el
-mismo archivo directamente del repositorio — aun así instalas `gda`, ya que la Skill lo invoca:
+Las [recetas de Agent Skill](gda-skill.md) indican el directorio de skills de cada agente. También
+puedes obtener el mismo archivo directamente del repositorio — aun así necesitas instalar `gda`,
+ya que la Agent Skill invoca su CLI:
 
 ```bash
 curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
   https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
 ```
 
-### Úsalo como servidor MCP
+### Usa el servidor MCP
 
-`gda` incluye un servidor [MCP](https://modelcontextprotocol.io) por stdio detrás de un extra `[mcp]`,
-de modo que cualquier agente MCP (Claude Code, Codex, Cursor, …) puede manejar Godot. Pruébalo sin instalar nada:
+`gda-mcp` es el servidor MCP de Godot incluido para clientes compatibles. Implementa el
+[Model Context Protocol](https://modelcontextprotocol.io) mediante stdio y está disponible a través
+del extra `[mcp]`. Ejecútalo con `uvx` sin una instalación permanente:
 
 ```bash
 uvx --from "gda[mcp]" gda-mcp
@@ -319,19 +330,24 @@ funciona en el ámbito de proyecto; usa el ámbito de proyecto para varios proye
 <a id="how-it-works"></a>
 ## Cómo funciona
 
-`gda` son tres componentes que sirven operaciones en dos modos:
+`gda` es una sola cadena de herramientas de automatización de Godot con tres componentes y dos
+modos de operación complementarios:
 
-| Componente       | Rol                                                                   |
-| ---------------- | --------------------------------------------------------------------- |
-| **`gda`**        | La CLI orientada a agentes — expone Godot con salida estructurada `--json`. |
-| **`gda-mcp`**    | Un servidor MCP que expone las mismas operaciones como herramientas, a partir de `--schema`. |
-| **`gda-daemon`** | Un proceso por proyecto que supervisa un juego en ejecución para las operaciones live. |
+| Componente       | Rol |
+| ---------------- | --- |
+| **`gda`**        | Ejecuta operaciones de Godot directamente como CLI y devuelve resultados estructurados con `--json`. |
+| **`gda-mcp`**    | Asigna las mismas operaciones y resultados estructurados a herramientas MCP generadas a partir de `--schema`. |
+| **`gda-daemon`** | Supervisa un juego en ejecución por proyecto para las operaciones Live. |
 
-- **Las operaciones headless** se ejecutan de una sola pasada — sin daemon, nada que instalar (crear una escena, editar
-  un script, exportar, analizar).
-- **Las operaciones live** requieren un juego en ejecución — `gda-daemon` lo lanza, inyecta un harness inerte
+- **Las operaciones Headless** se ejecutan como procesos de una sola pasada — sin daemon ni
+  plugin del editor que instalar (crear una escena, editar un script, validar o iniciar una escena,
+  exportar, analizar).
+- **Las operaciones Live** requieren un juego en ejecución — `gda-daemon` lo lanza, inyecta un harness inerte
   dentro del juego e intermedia las peticiones a través de un socket de dominio Unix (árbol de runtime, entrada,
-  capturas de pantalla, rendimiento, diagnósticos).
+  captura de frames, rendimiento, diagnósticos).
+
+La validación Headless confirma que el proyecto está listo; las operaciones Live devuelven
+evidencia en runtime sobre el comportamiento real.
 
 El harness dentro del juego que `gda-daemon` inyecta es **solo para desarrollo**: `gda export run` lo elimina por
 completo del artefacto y, si se compila de cualquier otra forma (GUI del editor, `godot --export` directo), igualmente
