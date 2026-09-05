@@ -26,11 +26,22 @@ edits, where all the integration cost concentrates:
 - renderer / plugin / handler maps
 - shared model or schema registration
 - shared test files / fixtures
+- generated or stamped shared artifacts — checksums/markers computed over other
+  content (translation-sync stamps, lockfiles, generated indexes)
 - public docs, command catalogs, generated/translated docs, and bundled agent skills
   that mirror the public surface
 
 A wave whose slices all hammer the same hotspot is *not* a good parallel candidate —
 expect a conflict-heavy serial merge, or fix it structurally first (§8).
+
+**Generated/stamped artifacts break the disjointness heuristic.** A file carrying a
+checksum, stamp, or marker computed over other content (a translation-sync stamp, a
+lockfile hash) conflicts even when two slices edit DISJOINT content regions — both sides
+regenerate the marker to different values. Treat every such file as a guaranteed-conflict
+hotspot: give it an owner like any other, expect the second slice's merge to need a
+serialized rebase, and resolve by re-running the generator on the merged tree (§4) — a
+hosting service's "mergeable" verdict taken before the sibling merged is not durable for
+these files.
 
 **Assign each hotspot exactly one owner slice per wave.** When two slices *could*
 legitimately touch the same shared file (one refactors a module, another instances it),
@@ -42,6 +53,17 @@ slice — never suppresses it (the disjointness guardrail below still holds) —
 non-owner's needed change lands via the owner, a lead-reassigned ownership, or a
 serialized follow-up. One real wave ran a view-layer refactor in parallel with a
 consumer of those same files at zero conflicts this way.
+
+**Ownership is a wave-time lease, not a lock that outlives its owner — and a flagged
+change must end in a landed edit.** Two real failure modes: (1) *Deferral is not
+delivery.* A shared-file change parked in a report or change-request description is a
+coordination message to the lead, not a shipped artifact — a reviewer will correctly fail
+an acceptance criterion whose text exists only outside the artifact, especially for
+user/agent-facing guidance. Every flagged change lands in a file before the flagging
+slice's change request merges — pick one of the three routes above and schedule it.
+(2) *The lease expires with the owner.*
+When the owner slice finishes WITHOUT touching the shared file, the lead reassigns it to
+the slice that needs it rather than keeping a now-pointless deferral alive.
 
 **Guardrail: disjointness is a merge-cost heuristic, not an architecture goal.** When
 slicing for disjointness would suppress or distort a sound design decision, the design
@@ -76,8 +98,15 @@ pre-flight verdict is not durable.
 
 ## 2. Wave sizing
 
-- **≤ ~5 independent slices per wave.** (A run that tried ~9 at once hit two failure
-  modes: subagents truncated at run limits, and a merge treadmill.)
+- **≤ ~5 independent slices per wave, as the default.** (An early run in this skill's
+  first era tried ~9 at once and hit two failure modes: subagents truncated at run
+  limits, and a merge treadmill.)
+- **Waves above ~5 are workable when three things hold, and are a treadmill without
+  them:** every append hotspot has a named owner and each expected conflict has a
+  pre-tested resolution; review rounds are batched across the wave (one round
+  re-reviews every slice) instead of run per slice; and the whole wave merges in a
+  single serial pass rather than one merge at a time. Waves of six and nine shipped
+  this way. Below that discipline, ~5 is the ceiling.
 - **Merge the whole wave before starting the next.** Each rebase then lands on a stable
   base. Skipping this creates the *treadmill*: merge one change request, every other open
   change becomes conflicting, rebase them all, merge the next, then repeat.
@@ -112,6 +141,10 @@ You are implementing <slice> in an ISOLATED git worktree.
   `git rev-parse --show-toplevel` is your worktree root — NEVER run git ops against the
   shared checkout.
 - To name your branch, RENAME the pre-created branch in place: `git branch -m <name>`.
+  Do it BEFORE the first push: renaming a branch that already carries an open change
+  request CLOSES that request on the host (`head_ref_deleted`), and reopening is
+  refused — the only recovery is a successor request from the renamed branch plus
+  cross-links, which scatters one slice's review trail across two.
   Do NOT use `git switch -c <name>` (your shell cwd can reset to the shared checkout
   between calls, so `switch -c` may create a stray branch there).
 - If local commits are authorized, follow the repository's commit-history and checkpoint policy.
@@ -172,6 +205,39 @@ remote-write authority.
    asynchronously, so a previously mergeable change can become conflicting after a sibling merges.
 3. **A clean auto-merge still gets the integration gate** (§6) — the marker-free traps
    in §5 hide precisely in conflict-free rebases.
+4. **Regenerate, don't hand-merge, stamped markers — and resolve hunk-scoped, never by
+   whole-file side-picking.** When the conflicting hunk is a generated checksum/stamp over
+   content both sides changed, take either side's MARKER LINE only, merge the content
+   normally, then re-run the project's generator on the merged tree and commit its output —
+   the regenerated value is the only correct resolution (§1). A whole-file `checkout
+   --theirs/--ours` for a one-line marker conflict silently erases the other side's already-
+   merged content (a real run clobbered a merged sibling's translated rows this way). After
+   ANY regenerate-style resolution, verify BOTH sides' content survived — grep the merged
+   file for each slice's landmark content, don't trust a clean rebase.
+5. **A clean rebase of disjoint files is not integration: re-test invariant handoffs.** Two
+   slices can each be independently correct and collide only on the merged tree — one slice
+   changes what a shared function GUARANTEES (a normalizer made total, an error path
+   reshaped), the other adds a NEW CALLER relying on the old guarantee. Neither slice's own
+   gates can see it; only the integrated tree can. At each serial merge, re-run the
+   integration gate from item 3 and, at minimum, the consuming slice's tests on the
+   REBASED tree before pushing, and
+   treat a failure there as an integration defect to fix at the shared seam's altitude — as
+   a commit on the branch being merged, not a band-aid in either slice.
+6. **Designate the sentinel test for a known silent-sever point ahead of time.** When the
+   planned rebase collision includes a hunk where one side DELETES the anchor line the other
+   side's call is appended after (the wired-to-nothing trap), name — before merging — the
+   single test that proves the wiring after resolution, and run it first. One test, named in
+   advance, converts a silent sever into a loud check.
+
+**Waves can land on an integration branch rather than the base branch.** When a
+milestone runs several waves, slices merge into one long-lived integration branch and
+that branch is promoted to the base branch per wave as its own change request. Two host
+behaviours bite here. The allowed merge methods can differ between the two hops (slices
+squashed, the promotion a merge commit so per-issue commits survive) — check and arrange
+the method before the promotion, not during it. And a host with delete-on-merge
+**destroys the integration branch when the promotion merges** (one milestone's ten
+promotions deleted it ten times, seconds after each merge): recreate it from the
+promoted base before dispatching the next wave, or the wave has no branch to land on.
 
 **Base remediation invalidates dependent-change evidence.** If change A is the base for
 change B, then every review fix, documentation fix, or history rewrite on A requires a
@@ -277,7 +343,7 @@ for those remote writes:
 If the required remote writes are not authorized, report each pending update and the
 remaining merge risk without performing it.
 
-## 5. The two silent merge hazards (no conflict marker; fast tests still pass)
+## 5. The silent merge hazards (no conflict marker; fast tests still pass)
 
 Resolve append conflicts **keep-both**, but watch for these — neither leaves a marker,
 and a stubbed fast tier passes anyway. **Only the integration tier catches them.**
@@ -292,6 +358,13 @@ and a stubbed fast tier passes anyway. **Only the integration tier catches them.
    adjacent duplicates — **with no conflict marker**. It fails at compile/parse, not at
    merge. Seen: two slices each defining a same-named helper, merged into a duplicate
    definition that broke every integration run.
+
+A third trap appears on MULTI-COMMIT rebases resolved keep-both: a later commit in the
+same branch may REWORD the hunk an earlier commit introduced, so the keep-both you applied
+at the earlier commit leaves the superseded version sitting beside the final one — stale
+prose/bullets or an outdated definition that no conflict marks. Audit the FINAL tree, not
+each resolution: grep for duplicated headings/bullets/definitions after the rebase
+completes.
 
 **After resolving, always audit:**
 
@@ -308,6 +381,8 @@ parse/compile check in §6 (a `--check-only` / build step), which fails on the d
 the grep heuristic might miss in another language.
 
 ## 6. Verification & Definition of Done
+
+### Gate classification and reporting
 
 Classify every required gate before execution:
 
@@ -328,6 +403,14 @@ the documented environment can be reproduced safely. If it cannot, record the li
   (fakes/mocks/in-memory doubles) never executes the merged artifact, so it passes on a
   broken merge. After touching an integration point, run the real tier (integration /
   e2e / compile / parse-check).
+- **Report gate numbers you measured, and name the environment that produced them.** A count
+  written from memory ("1899 passed") differed from the run ("1898 passed, 538 deselected"),
+  and a display-capable host's "N passed" is not the CI line when tests are capability-gated
+  (CI: "N-2 passed, 2 skipped" for the same selection). Reviewers re-run the gate, so a
+  mismatched count reads as a defect in the claim and costs a round. Quote the tool's own
+  summary line, distinguish selected/passed/skipped, and say which host ran it.
+### Integration and cross-slice checks
+
 - **A green DoD is not requirement conformance — re-read each slice against its source
   requirement.** Passing its own tests and hosted gates shows what the implementation does, not what
   the spec/decision required; the author's tests inherit the author's blind spot. Before
@@ -345,12 +428,30 @@ the documented environment can be reproduced safely. If it cannot, record the li
   on-disk fixture/path — concurrent runs across worktrees race and produce spurious
   failures (or crashes) that look like product bugs. Serialize those runs; keep only the
   isolated fast tier parallel.
+  A working mechanism is a shared lock DIRECTORY in a scratch path every dispatch prompt
+  names: `mkdir` to acquire (atomic), `rmdir` to release, bounded retries while held. Two
+  hygiene rules keep it live: acquire immediately BEFORE the serialized run and release
+  immediately after it returns (also on failure) — never pre-acquire ahead of other work,
+  and never hold the lock across the agent's own pause or handoff (a real run stranded a
+  pre-acquired lock for half an hour when its holder was suspended, starving every
+  sibling). The lead arbitrates staleness on evidence, not patience: no relevant process
+  running anywhere plus an old lock mtime ⇒ reclaim it. And a bounded retry must
+  FAIL on exhaustion — report and stop, never fall through to running anyway: a real
+  agent's retry loop proceeded lock-less after its attempts ran out and then released
+  a lock a sibling held, silently unserializing both suites. Exhaustion is a signal
+  for the lead (likely a stale lock), not permission to skip the protocol.
 - **Guard against silent skips.** A test that *skips* when a precondition is unmet (a
   missing binary, absent templates, a feature-detect that quietly returns false) leaves
   CI green while coverage silently drops. Turn on your runner's skip-reason reporting
   (so every skip and its reason is visible) and add a **hard assertion** that when the
   resource *is* present on disk, the precondition must be true — so a broken detector
   goes red, not silently skipped.
+  The capability-split variant of the same trap: a test gated on an environment capability
+  (a display server, a device, an external binary) can pass on a developer machine yet
+  skip in EVERY enforced CI tier — the suite stays green while the guard protects nothing.
+  Split such a test: the core behavior ungated so the enforced tiers execute it, and only
+  the capability-dependent leg behind the gate; then confirm each new test actually runs
+  in at least one enforced tier, or record it as CI-only with substitute evidence.
 - **Fix a finding at the right altitude.** A defect that surfaces on one slice may be a
   *cross-cutting cause*. Fix it in a shared follow-up rather than band-aiding the one
   slice — especially when sibling slices each grew their own *partial* handling that the
@@ -368,13 +469,72 @@ the documented environment can be reproduced safely. If it cannot, record the li
   per-change hosted validation running only the cheap tiers, and one full-tier run on the
   integrated base after the wave's last merge. The trade is deferred detection on the integrated base —
   make it deliberately, not by default.
+### Review rounds and guard design
+
+- **Fix a wording/model finding by the CLAIM, not the reviewer's site list.** When a review
+  says a statement or mental model is wrong and cites locations, the citations are examples,
+  not the boundary: sweep the whole repo (code comments, docs, tests, sibling packages) for
+  the claim and fix every instance. Two real rounds re-opened because the fix was scoped to
+  the enumerated sites while the same falsified sentence survived elsewhere.
 - **Close the review loop.** For actionable review comments, implement the fix,
   rerun the relevant gates, then push and reply or resolve only when those remote writes
   are authorized. Follow the host's convention. Review remediation can touch shared surfaces, so
   update the overlap map and dependent-change plan after each review fix.
+- **Fix an admission/validation predicate by its full grammar, not by the reproduced bypass.**
+  An adversarial reviewer's next round is the NEIGHBORHOOD of the last fix: a prefix test was
+  bypassed by a longer name, the next-character fix by an unclosed header — three rounds for one
+  predicate. When a guard is falsified, enumerate the bypass family (prefix, unterminated,
+  same-line trailing junk, …), close it in one round, and pin each neighbor as its own
+  regression on the reviewer's exact fixture shape.
+- **A claimed fallback must hold on every path the fix takes.** "The loader has the final word"
+  was cited as the safety net for a lenient admission check — but the very code under review
+  skips that loader when an earlier scan finds problems, so the net did not exist on the path
+  that mattered. Before citing mechanism B as the backstop for a weakened mechanism A, trace
+  that B actually runs in A's failure arms; a reply's every claim gets checked verbatim.
+- **The rendered surface is the contract, not its source text.** Published help dropped its
+  bracketed file-format tokens because they parse as Rich style tags; the docstring read fine
+  while the shipped output said `no complete  header` (two spaces where the dropped token
+  was — kept in a code span so rendering preserves the evidence). Pin agent-facing text at the rendering
+  boundary (CLI help output, emitted schema descriptions), not at the source string — and
+  red-proof the pin against the unescaped text.
+- **Serial waves inherit this discipline unchanged.** A wave whose every slice touches the same
+  hotspots (one op-dispatch file, one error registry, one skill manifest) is correctly run as
+  wave size ONE: same worktree isolation, same per-slice adversarial review and independent
+  re-verification, same merge-before-next-slice — parallelism is the only thing removed (§1's
+  serialization rule; §8's cure applies when the conflict tax justifies the split). A five-slice
+  serial wave shipped this way with zero merge conflicts and no cross-slice contamination.
+- **Red-proof a fix round against the head that was REVIEWED, from committed state.**
+  (Red-proof: run the new regression before the fix and confirm it fails.) Two
+  rules, both learned the hard way. (a) Commit first. The red-proof swaps the source tree for
+  another revision's (`git checkout <other-head> -- <src>`), which silently destroys an
+  uncommitted fix. One round lost its edits that way, and the manual replay then dropped a
+  file (a bundled agent-guidance doc) that the next review caught as "the response claims a
+  change absent from the diff". (b) Check the regression against the REVIEWED head, not the wave
+  base: red on the base only proves the feature is new, while red on the reviewed head proves
+  the test would have caught the reported defect. Honest corollary: a guard that prevents
+  FUTURE drift (a rename guard, a mirror check) does not go red on the reviewed head — say so
+  instead of listing it as regression coverage.
+- **A drift guard must be anchored to an authority the same change cannot rewrite.** An
+  "append-only" version/hash history kept inside the test file was defeated in one edit —
+  change the artifact, update the current pin, rewrite the last history row, and both guard
+  tests still passed. The replacement compares the merge base against the head in CI, so the
+  authority is git history rather than data the change can touch. Ask of every guard: what
+  stops this change from editing the evidence?
+- **A hand-transcribed mirror of another system's rules is a second authority — pin it with
+  that system as the ORACLE.** A conversion table copied by hand from an engine's source
+  rejected inputs the engine actually accepts (two rows missed), and the misses were invisible
+  because the test compared the table to itself. The fix extracted the rows mechanically AND
+  added a differential matrix whose reference is the system itself: the target reports whether
+  it really ran, and the guard must agree with it on every case. Where you cannot avoid
+  mirroring, make the mirror falsifiable by the original.
 
 ## 7. Resilience & takeover
 
+- **A reviewing or re-verifying agent works in its own detached scratch worktree.**
+  Never run a checkout, rebase, or gate inside an implementer's worktree or the shared
+  checkout: an implementer's uncommitted work does not survive a revision swap (§6),
+  and it is not the reviewer's to lose. Create the scratch worktree at the pinned
+  head, and remove it when the round closes.
 - **Create durable local artifacts at safe boundaries when authorized.** Follow the repository's
   commit-history and checkpoint policy. Without commit authority, keep the diff reviewable and
   report its state at each handoff.
@@ -394,6 +554,12 @@ the documented environment can be reproduced safely. If it cannot, record the li
 - **Trivial mechanical validation failures are the lead's to fix in place when authorized.** A formatter diff or
   an import sort on an otherwise-verified branch is cheaper to fix, test, and push
   yourself than to re-dispatch an agent for.
+- **Two missed rounds on one finding flips the fix to the lead.** Re-dispatching a review
+  finding to its implementer is right the first time — its context is warm. When a second
+  round still misses the finding's essence, a third dispatch costs more than doing the
+  work: the lead implements the fix directly (same worktree, same gates, same report duty)
+  and tells the implementer what changed. Complements the takeover recipe above; the
+  trigger is repeated misunderstanding, not a missing artifact.
 - **"Completed but no artifact" = needs-takeover.** Never trust a completion claim —
   independently verify with `git status` (clean?), `git log` (recent commits?), and
   remote-tracking when a push was authorized and expected. An agent report with no
@@ -404,6 +570,11 @@ the documented environment can be reproduced safely. If it cannot, record the li
   every acceptance criterion. A foundation slice, dependent follow-up slice, or stacked
   partial change must remain non-closing. Without remote-write authority, report the
   required record and do not create or update it.
+- **Worktree scripting: derive git state paths with `git rev-parse --git-path`.** In a
+  linked worktree `.git` is a FILE, so a hardcoded `.git/rebase-merge` (or MERGE_HEAD etc.)
+  existence check silently reports "no rebase in progress" mid-rebase — a real automation
+  loop exited early on exactly that. `git rev-parse --git-path rebase-merge` resolves
+  correctly in both layouts.
 - **Verify the shared checkout after every worktree agent.** Confirm the shared checkout is
   still on its branch and clean (`git -C <shared-checkout> branch --show-current`, `git status
   --short`, no stray branches) before relying on it — worktree agents have leaked git
@@ -425,7 +596,10 @@ design decision record.
 ## 9. Pre-launch checklist
 
 - [ ] Slices in this wave are independent (no shared module/group); coupled ones serialized.
-- [ ] Wave ≤ ~5; the plan integrates it before the next wave when execution is authorized.
+- [ ] Wave ≤ ~5, or above it only with the §2 lifting discipline (owned hotspots with
+      pre-tested resolutions, wave-batched review rounds, one serial merge pass); the plan
+      integrates it before the next wave when execution is authorized.
+- [ ] Every slice branch carries its final name before its first push (§3).
 - [ ] Operating mode is explicit: planning-only stops after the plan; execution lists allowed local mutations.
 - [ ] Every push, change-request write, merge, review reply, and tracker update has separate explicit authority or is marked pending.
 - [ ] Every append hotspot has exactly ONE owner slice this wave; sibling prompts say "flag, don't edit" (§1).
@@ -439,6 +613,10 @@ design decision record.
       or receives review fixes; the original local tip is recorded before mutation, and the expected
       remote SHA is recorded when a published branch will be rewritten and pushed.
 - [ ] Shared-global-resource tests will run serially across worktrees.
+- [ ] Review/verification agents have their own scratch worktrees; none enters an
+      implementer's worktree or the shared checkout (§7).
+- [ ] If waves land on an integration branch: the promotion's merge method is arranged,
+      and the branch is recreated from the promoted base after each promotion merge (§4).
 - [ ] Orchestrator will independently re-verify before each merge.
 - [ ] Any public-surface change has the applicable documentation/schema/help/generated-artifact consistency gates in the orchestrator's verification plan.
 - [ ] Hosted integration records are orchestrator-owned when authorized; partial slices do not close their source work item.
