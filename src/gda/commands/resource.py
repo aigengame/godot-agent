@@ -790,7 +790,7 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
     - it refused ``res://foo/../bar.png``, which collapses net-INSIDE and is an
       address the engine resolves happily — the same spelling ``script validate``
       and ``script run`` both accept, so one input had two verdicts (pinned by
-      ``tests/test_project.py`` as this issue's to-reconcile);
+      ``tests/project/test_project.py`` as this issue's to-reconcile);
     - it split on ``PurePosixPath`` parts, so ``res://..\\x.png`` was ONE segment
       carrying no ``..`` at all and passed. On POSIX the later ``is_file()`` check
       happened to stop it; on native Windows ``\\`` IS a separator and the join

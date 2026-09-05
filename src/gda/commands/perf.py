@@ -202,7 +202,7 @@ class PerfMonitorResult(BaseModel):
 # CLI-side mirror of the harness's ``_perf_monitors`` table (gda-owned constants,
 # not engine-queried), so ``perf monitors --monitor`` validates model-side
 # (ADR-0015) and an unknown name never costs a live round trip. A sync test
-# (tests/test_error_registry.py) parses the harness table and holds the two
+# (tests/cli/test_error_registry.py) parses the harness table and holds the two
 # identical, the same way MAX_WINDOW_FRAMES is mirrored.
 class PerfMonitorName(StrEnum):
     """The engine performance monitors the gda harness exposes, by public name.
@@ -647,7 +647,7 @@ class PerfMonitorsResult(BaseModel):
 
 
 # The wire op the window mode dispatches (#662). Named once: the recipe sends
-# it, and tests/test_live_contract_guards.py counts it into the relayed-op
+# it, and tests/live/test_live_contract_guards.py counts it into the relayed-op
 # mirror — `perf monitors`' descriptor operation is the snapshot op, so this is
 # the one harness op a recipe reaches beside its descriptor's own.
 PERF_SAMPLE_OP = "perf-sample"

@@ -70,7 +70,7 @@ def _await_schema_extra(schema: dict) -> None:
     events need the trio; the events are non-empty and process-clock only. The
     imported event union publishes its scalar constraints, modifier vocabulary,
     and shared total-window offset ceiling. A parity corpus
-    (tests/test_screen_commands.py) keeps validator and model agreeing.
+    (tests/live/test_screen_commands.py) keeps validator and model agreeing.
     """
     scalar = {"type": ["boolean", "integer", "number", "string"]}
     trio = {

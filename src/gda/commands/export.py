@@ -389,7 +389,7 @@ def classify_export_run(
 # instead of emitting the public result or exiting — so the command body below
 # shrinks to the same thin shape as every other command and the recipe gets its
 # own engine-free test surface (driven with the two injected seams; see
-# ``tests/test_export_run_operation.py``). It is not side-effect-free: phase 1's
+# ``tests/export/test_export_run_operation.py``). It is not side-effect-free: phase 1's
 # ``HeadlessCommand.execute`` still forwards the ``export-get`` engine stderr to
 # this process's stderr as advisory diagnostics, and phase 3 emits a native-export
 # progress line to stderr; only the public result/error envelope and the process

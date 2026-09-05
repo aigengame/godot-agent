@@ -62,7 +62,7 @@ jobs:
 
       # Both the releasing-commit types and the member directory are derived
       # from release-please-config.json by scripts/release_scope_guard.py — the
-      # single authority, covered by tests/test_release_scope_guard.py. The
+      # single authority, covered by tests/repo/test_release_scope_guard.py. The
       # types are resolved PER PACKAGE (a package's own changelog-sections
       # override the top-level ones, by key presence) and combined
       # conservatively: releasing for any touched package is releasing. A

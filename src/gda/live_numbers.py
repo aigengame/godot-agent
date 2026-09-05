@@ -41,12 +41,12 @@ either channel. One residual, kept in the public contract because it is an engin
 early return (``JSON::_stringify`` emits ``"0.0"`` for anything equal to zero): a
 NEGATIVE ZERO reads back as ``0.0``.
 
-A headless read needs no separate corpus and gets none: it is measured against the
-same rows and the same ``full_precision`` partition, re-derived from a real engine by
-``tests/test_e2e_headless_number_reads.py``. Its REQUEST half is a different
-question from the live one — a headless ``--value`` is a STRING the operation coerces
-with ``String.to_float``, not a JSON number the parser reads — and it is answered
-under **Write direction** below (#772).
+A headless read needs no separate corpus and gets none: it is measured against the same
+rows and the same ``full_precision`` partition, re-derived from a real engine by
+``tests/value_projection/test_e2e_headless_number_reads.py``. Its REQUEST half is a
+different question from the live one — a headless ``--value`` is a STRING the operation
+coerces with ``String.to_float``, not a JSON number the parser reads — and it is
+answered under **Write direction** below (#772).
 
 **The result path has TWO writers, and each float has exactly one of them.** The
 paragraph above is about the engine's: a value the game reports is stringified by
@@ -58,7 +58,7 @@ not theirs: gda's serializer keeps a negative zero, and a real daemon returning
 ``{"value": 1.0, "min": -0.0, "max": -0.0}`` is what the #770 review used to
 falsify the blanket claim. Hence TWO published sentences, each naming its writer
 — :data:`LIVE_ENGINE_PRECISION` and :data:`LIVE_DERIVED_PRECISION`. Which one a
-field carries is not a matter of taste: ``tests/test_live_contract_guards.py``
+field carries is not a matter of taste: ``tests/live/test_live_contract_guards.py``
 MEASURES the provenance (a probe drives each result-assembling recipe with a
 sentinel-bearing reply and sees which fields the sentinels reach) and fails a
 field disclosing the wrong writer.
@@ -109,12 +109,13 @@ non-finite float (JSON has no literal for one), an integer outside
 :data:`MAX_EXACT_JSON_INT`, and a float this module's predicate says the parser
 reads as ``0.0``.
 
-The predicate below is not a decimal heuristic: it recomputes the engine's own
-``exp`` intermediate from the literal gda is about to write. ``tests/
-test_live_numbers.py`` pins it against the recorded engine verdicts, and
-``tests/test_e2e_live_number_transport.py`` re-derives those verdicts from a real
-engine, in both directions. Note it answers only the FLATTENING question; the
-drift bands above are recorded, not predicted, because nothing branches on them.
+The predicate below is not a decimal heuristic: it recomputes the engine's own ``exp``
+intermediate from the literal gda is about to write.
+``tests/value_projection/test_live_numbers.py`` pins it against the recorded engine
+verdicts, and ``tests/value_projection/test_e2e_live_number_transport.py`` re-derives
+those verdicts from a real engine, in both directions. Note it answers only the
+FLATTENING question; the drift bands above are recorded, not predicted, because nothing
+branches on them.
 
 **Write direction — refused engine-side, by observation (#772).** A ``--value``
 string is a THIRD path to the parser above: ``node set``, ``resource set``,
@@ -151,14 +152,14 @@ come back EXACT as ``1.2345678901234567e-3`` and ``1.4285714285714284e-4``. What
 spelling avoids is the 1-ULP rounding, disclosed and not refused for the reason it
 always was: refusing it would reject ordinary game values.
 
-The predicate itself lives in GDScript, not here, and deliberately so. It must run
-where the property's DECLARED TYPE is known — ``--value 1e-320`` on a String property
-is an ordinary string and must not be refused — and it asks the engine rather than
-modelling it, so there is nothing a Python twin could be a second opinion about. It is
-mirrored byte-identically in ``ops/operations.gd`` and ``harness/gda_harness.gd``
-(``tests/test_harness_coercion_mirror.py``), and
-``tests/test_e2e_write_value_fidelity.py`` re-derives the verdict from a real engine on
-both channels.
+The predicate itself lives in GDScript, not here, and deliberately so. It must run where
+the property's DECLARED TYPE is known — ``--value 1e-320`` on a String property is an
+ordinary string and must not be refused — and it asks the engine rather than modelling
+it, so there is nothing a Python twin could be a second opinion about. It is mirrored
+byte-identically in ``ops/operations.gd`` and ``harness/gda_harness.gd``
+(``tests/harness/test_harness_coercion_mirror.py``), and
+``tests/value_projection/test_e2e_write_value_fidelity.py`` re-derives the verdict from
+a real engine on both channels.
 
 Keying on what the parser PRODUCED draws two edges, named here so the contract is not
 read wider — or narrower — than it is. They are separated by what gets STORED, not by

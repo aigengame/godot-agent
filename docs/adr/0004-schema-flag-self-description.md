@@ -257,7 +257,7 @@ status: accepted
 > [ADR-0006's 2026-08-31 amendment](0006-project-context-and-path-resolution.md)
 > (#697/#763) — `target_outside_project_failure` and
 > `target_owned_by_another_project_failure`. The set is asserted in
-> `tests/test_error_registry.py`, read out of the source, so a further producer
+> `tests/cli/test_error_registry.py`, read out of the source, so a further producer
 > cannot join the axis without this paragraph being revisited in the same change.
 >
 > The last two are the axis's first producers that are **not** reporting on a run.

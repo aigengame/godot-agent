@@ -137,7 +137,7 @@ src/gda/
 ## Consequences
 
 - Adding a command touches its group module, the SKILL.md command table (CI-gated
-  by `tests/test_skill_surface_sync.py`), and its test file — plus
+  by `tests/meta/test_skill_surface_sync.py`), and its test file — plus
   `ops/operations.gd` for a sentinel op (out of scope here). The five-file change
   amplification across the shared core is gone.
 - The `cli.py` whole-file suppressions (`F811`, `reportRedeclaration`) are
@@ -173,7 +173,7 @@ src/gda/
 >   string. The form moved to `gda.script_errors` as `script_error_line()`, a lexical
 >   projection of the type that module owns, so `errors -> script_errors <- render` and
 >   both edges point downward. Pinned by
->   `tests/test_render.py::test_the_core_never_imports_the_presentation_module`.
+>   `tests/cli/test_render.py::test_the_core_never_imports_the_presentation_module`.
 >
 > No general import-boundary gate was added. The one test above pins the single
 > direction this review found inverted; a repo-wide gate is a larger decision with its
@@ -196,6 +196,6 @@ src/gda/
 > code precisely so a command cannot grow a private one, so no group owns it and
 > none can supply it. Nor may the edge widen: the allowance is pinned to that single
 > symbol by
-> `tests/test_render.py::test_the_failure_channel_takes_only_the_renderer_no_group_can_supply`,
+> `tests/cli/test_render.py::test_the_failure_channel_takes_only_the_renderer_no_group_can_supply`,
 > so headless cannot become a general consumer of presentation. The guard test the
 > #687 note names was renamed and widened to state both halves.

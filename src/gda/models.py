@@ -730,7 +730,7 @@ class RelayedLiveParams(BaseModel):
     dict from these same fields is covered with it. A relayed command that
     carries no number inherits this too: the guarantee is that no relayed params
     model can acquire a numeric field the wire silently changes, which a
-    per-model opt-in could not give. ``tests/test_live_contract_guards.py``
+    per-model opt-in could not give. ``tests/live/test_live_contract_guards.py``
     partitions the live Typer tree by ``DAEMON_SERVED_OPS`` and fails BOTH ways —
     a relayed descriptor that does not inherit this, and a daemon-served one that
     does.
@@ -992,5 +992,5 @@ RUNTIME_NODE_DESC = (
 # (ADR-0015) — the model is the input source of truth for BOTH argv and
 # ``--params-json``, so the bound is checked before a request ever reaches the
 # harness, which therefore no longer clamps. The mirror is asserted by a harness-
-# const test (``tests/test_error_registry.py``).
+# const test (``tests/cli/test_error_registry.py``).
 MAX_WINDOW_FRAMES = 600

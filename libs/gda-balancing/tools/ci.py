@@ -82,9 +82,9 @@ _AFFECTING_EXACT: Final = {
     "release-please-config.json",
     "scripts/release_scope_guard.py",
     "scripts/release_tags.py",
-    "tests/test_balancing_ci_wiring.py",
-    "tests/test_release_scope_guard.py",
-    "tests/test_release_tags.py",
+    "tests/repo/test_balancing_ci_wiring.py",
+    "tests/repo/test_release_scope_guard.py",
+    "tests/repo/test_release_tags.py",
     "uv.lock",
 }
 _AFFECTING_PREFIXES: Final = (

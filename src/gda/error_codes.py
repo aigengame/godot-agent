@@ -6,7 +6,7 @@ emitted in a public ``GdaError`` must be declared here.
 **Editing a ``description``.** Its wording is pinned against that ADR's ``Meaning``
 column, so a change here needs the same change there (#701). What the pin
 normalizes away — markup, wrapping, and a trailing ADR/issue citation — is stated
-with its reasoning in ``tests/test_error_registry.py``, the single home of that
+with its reasoning in ``tests/cli/test_error_registry.py``, the single home of that
 rule.
 
 **What ``source`` means.** It names a code's *authoritative origin channel* — the
