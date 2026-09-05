@@ -976,6 +976,19 @@ the list distinguishes three states: absent (this channel does not parse stderr)
 failure that computed none, and the prose above is unchanged: `diagnostics` still
 carries the same recognized-error lines and both labelled streams, rendered from the
 same single parse.
+
+A successful run also reports the launch's **`User-data placement`** (#850) — where its
+`user://` actually was, so a failed persistence write is attributable to the environment
+rather than read as a game regression. `engine_data_path` is always present (null only
+when the platform's own variable is unset); `user_data_root` and `log_file` appear only
+under the global `--user-data-root DIR` — which precedes the subcommand, `gda
+--user-data-root DIR script run <path>` — since that is the one case in which the log
+outlives the launch, the default being a private temporary file gda removes. Both are
+omitted rather than null when they are not facts. The facts come off the shared launch
+primitive's `Raw run`, and `script run` is the only channel that publishes them:
+`scene preflight`, `export run`, `resource import` and the sentinel commands read the
+same run and disclose none.
+
 The script executes in full, within the trusted-project assumption (ADR-0009).
 
 ### `project`
