@@ -22,10 +22,16 @@ import tempfile
 from collections import deque
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Protocol, runtime_checkable
+from typing import Any, Optional, Protocol, runtime_checkable
 
 import typer
-from pydantic import BaseModel, Field, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from gda import dispatch
 from gda.binary import resolve_godot_binary
@@ -977,11 +983,17 @@ class ScriptRunResult(BaseModel):
     swallowed — leaving a clean ``exit_status`` — is still visible structurally
     rather than only as prose inside ``stderr``.
 
-    ``path`` is the one field that is gda's own rather than the run's: the two
-    accepted input forms (project-relative and ``res://``) converge on a single
-    canonical ``res://`` address, and this reports which one ran (#675). Without
-    it a project-relative caller would have no way to connect the path they typed
-    to the one every failure message quotes.
+    Two groups of fields are gda's own rather than the run's. ``path`` is the
+    canonical address: the two accepted input forms (project-relative and
+    ``res://``) converge on a single ``res://`` spelling, and this reports which
+    one ran (#675) — without it a project-relative caller would have no way to
+    connect the path they typed to the one every failure message quotes. And the
+    launch's **`User-data placement`** — ``engine_data_path`` always,
+    ``user_data_root`` and ``log_file`` only under a root (#850) — says where this
+    run's ``user://`` actually was, so a failed persistence write is attributable
+    to the environment instead of read as a game regression. Those three come from
+    the launch primitive's own :class:`~gda.runner.UserDataReport`, which decides
+    what is a fact; this model only publishes it.
 
     NOTE: a second passthrough consumer should promote the raw
     ``{exit_status, stdout, stderr}`` core to a shared ``RawRunResult`` model. Do
@@ -1045,10 +1057,60 @@ class ScriptRunResult(BaseModel):
             "best-effort — the verbatim stream stays in 'stderr'."
         ),
     )
+    engine_data_path: str | None = Field(
+        description=(
+            "The platform application-data directory the engine resolved "
+            "'user://' beneath for THIS run — under 'user_data_root' when one was "
+            "given (the engine appends its own platform layout to it), else the "
+            "host's own. Always present; null only when the platform's variable "
+            "($HOME, %APPDATA%, $XDG_DATA_HOME) is unset, which gda reports rather "
+            "than guessing a path. Read it before blaming a failed 'user://' write "
+            "on the script (#850)."
+        ),
+    )
+    user_data_root: str | None = Field(
+        default=None,
+        description=(
+            "The --user-data-root / $GDA_USER_DATA_ROOT directory this run was "
+            "launched under. Present ONLY when one was given: the key is omitted "
+            "rather than null on a default run, where gda redirects nothing but "
+            "the engine log. Pass 'gda --user-data-root DIR script run <path>' — "
+            "the option is global, so it precedes the subcommand — when the script "
+            "writes 'user://' and the host's application-data directory is not "
+            "writable (#850)."
+        ),
+    )
+    log_file: str | None = Field(
+        default=None,
+        description=(
+            "The engine log file of this run, present ONLY under a "
+            "--user-data-root — the one case in which it outlives the launch. By "
+            "default gda writes the log to a private temporary file and removes it "
+            "on the way out, so there would be no file left to name; the key is "
+            "then omitted rather than null (#850)."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": lambda schema: _script_run_result_schema_extra(schema)
     }
+
+    @model_serializer(mode="wrap")
+    def _omit_the_placement_keys_that_are_not_facts(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        # OMITTED, never null (the same rule `scene preflight`'s timeout pair and
+        # the Error envelope's evidence follow): a null 'user_data_root' would claim
+        # gda knows a root it was never given, and a null 'log_file' a file that was
+        # deleted. Dropping them also keeps a default run's result byte-identical to
+        # what it emitted before #850, for every consumer that reads it. Only these
+        # two keys are considered: 'engine_data_path' is required-but-nullable and
+        # its null MEANS the platform variable is unset.
+        serialized = handler(self)
+        for key in ("user_data_root", "log_file"):
+            if serialized.get(key) is None:
+                serialized.pop(key, None)
+        return serialized
 
     @model_validator(mode="after")
     def _check_stdout_projection(self) -> "ScriptRunResult":
@@ -1661,6 +1723,17 @@ def run_script_run_operation(
     if isinstance(bounded, Failure):
         return bounded
     stdout, full_bytes, truncated, spill = bounded
+    # The launch's own placement, published as strings (#850). Read off the Raw run
+    # rather than resolved again here: the root and the platform-derived data path
+    # are the launch's answers, and asking a second time would let this channel
+    # report a placement the run did not have.
+    # A missing report is a hand-built run at a test seam — every real launch
+    # attaches one — and reads as "gda knows no placement", which the model then
+    # renders as one nullable key and two omitted ones.
+    placement = raw.user_data
+    root = placement.root if placement is not None else None
+    data_path = placement.data_path if placement is not None else None
+    log_file = placement.log_file if placement is not None else None
     return ScriptRunResult(
         path=script,
         exit_status=raw.exit_code,
@@ -1670,6 +1743,9 @@ def run_script_run_operation(
         stdout_truncated=truncated,
         stdout_file=spill,
         diagnostics=diagnostics,
+        engine_data_path=str(data_path) if data_path is not None else None,
+        user_data_root=str(root) if root is not None else None,
+        log_file=str(log_file) if log_file is not None else None,
     )
 
 
@@ -2632,6 +2708,16 @@ def run_script(
     invert that one default and get the ``script_failed`` envelope (exit 4) for a
     non-zero status, so a shell ``&&`` chain or CI gate stops on it; that envelope
     carries the script's own stdout and stderr in its ``diagnostics``.
+
+    A script that WRITES ``user://`` needs a writable Godot application-data
+    directory, which a restricted profile often does not have. Redirect both it and
+    the engine log with the GLOBAL ``--user-data-root``, which PRECEDES the
+    subcommand — ``gda --user-data-root DIR script run <path>`` — or set
+    ``$GDA_USER_DATA_ROOT``. Every result says where the run actually was:
+    ``engine_data_path``, the directory the engine resolved ``user://`` beneath, is
+    always present; ``user_data_root`` and ``log_file`` are reported only when a
+    root was given — the one case in which the log outlives the launch, since by
+    default it is a private temporary file gda removes.
 
     A script that never RAN is a failure either way. Godot reports these on stderr and
     still exits 0, so gda decides them from the engine's error stream, not its exit

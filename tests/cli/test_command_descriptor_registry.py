@@ -231,3 +231,27 @@ def test_every_dispatchable_command_resolves_to_exactly_one_channel():
         # test_every_dispatchable_command_carries_a_renderer); restated here as the
         # reason a recipe command needs no separate emission path.
         assert cmd.render is not None, f"{name}: no renderer for its emission tail"
+
+
+# The user-data placement `gda script run` publishes (#850). Every launch-backed
+# channel gets the same facts from the ONE launch primitive, so nothing but a
+# result-model field stops the disclosure leaking into the others' `--json`.
+_PLACEMENT_FIELDS = {"user_data_root", "engine_data_path", "log_file"}
+
+
+def test_only_script_run_publishes_the_launch_user_data_placement():
+    # #850 disclosed the placement on `script run` alone. `scene preflight`,
+    # `export run`, `resource import` and every sentinel command share the primitive
+    # that now carries those facts on its Raw run, so their results must stay
+    # byte-identical: this fails the moment another output model grows one of the
+    # three keys without its own issue deciding it should.
+    carriers = {
+        name
+        for name, cmd in _dispatchable()
+        if _PLACEMENT_FIELDS & set(cmd.output_model.model_fields)
+    }
+
+    assert carriers == {"script run"}
+    from gda.commands.script import ScriptRunResult
+
+    assert _PLACEMENT_FIELDS <= set(ScriptRunResult.model_fields)

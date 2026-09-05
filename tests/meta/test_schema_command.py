@@ -1279,6 +1279,11 @@ def test_script_run_command_schema_is_model_derived():
         "stdout_truncated",
         "stdout_file",
         "diagnostics",
+        # The launch's user-data placement (#850): where this run's `user://`
+        # actually was, so a persistence failure is attributable from the result.
+        "user_data_root",
+        "engine_data_path",
+        "log_file",
     }
     # The markers are ALWAYS present (#665): a standard consumer sees them
     # required, with the spill file required-but-nullable.
@@ -1287,6 +1292,13 @@ def test_script_run_command_schema_is_model_derived():
     )
     spill_branches = doc["output"]["properties"]["stdout_file"]["anyOf"]
     assert {"type": "null"} in spill_branches
+    # The placement's own presence rule (#850): `engine_data_path` is
+    # required-but-nullable (null = the platform's variable is unset), while the
+    # two root-only keys are OPTIONAL — omitted, not null, on a default run.
+    required = set(doc["output"]["required"])
+    assert "engine_data_path" in required
+    assert {"user_data_root", "log_file"} & required == set()
+    assert {"type": "null"} in doc["output"]["properties"]["engine_data_path"]["anyOf"]
     # `--strict` is a params field, so the JSON/MCP callers can opt in like argv (#651).
     # `timeout` / `completion_marker` are params for the same reason (#655): the
     # per-invocation ceiling and the opt-in early-termination marker have to be
