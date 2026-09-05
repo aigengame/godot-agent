@@ -383,7 +383,7 @@ func _run(request) -> Variant:
 		params = {}
 	match op:
 		OP_GAME_TREE:
-			return _handle_game_tree()
+			return _handle_game_tree(params)
 		OP_GAME_GET:
 			return _handle_game_get(params)
 		OP_GAME_RECT:
@@ -418,11 +418,38 @@ func _run(request) -> Variant:
 			return _error("operation_failed", "unsupported live operation")
 
 
-func _handle_game_tree() -> String:
-	var scene: Node = get_tree().current_scene
-	if scene == null:
-		scene = get_tree().root
-	return _ok({"root": _serialize(scene)})
+# game tree: serialize the running SceneTree, optionally BOUNDED (#849). Without
+# params it reports the whole current scene, as it always has. `root` names the
+# subtree to read by its absolute runtime path — an unknown one is the same
+# live_node_not_found every other live op reports for a path that resolves to
+# nothing, so an empty --root is a refusal here too rather than a silent whole-tree
+# read. `max_depth` bounds the walk (0 = the addressed node alone); absent, it is
+# unbounded, which stays the caller's choice on a large tree. Both counters ride
+# back so a partial read is never mistaken for a complete one.
+func _handle_game_tree(params: Dictionary) -> String:
+	var scene: Node
+	var root_param: Variant = params.get("root")
+	if root_param is String:
+		scene = _resolve_runtime_node(root_param)
+		if scene == null:
+			return _error(LIVE_ERROR_NODE_NOT_FOUND,
+					"no node at runtime path: " + String(root_param))
+	else:
+		scene = get_tree().current_scene
+		if scene == null:
+			scene = get_tree().root
+
+	# A missing bound is -1, the "unbounded" sentinel _serialize reads; the CLI
+	# refuses a negative --max-depth, so a caller cannot spell it.
+	var max_depth := _int_param(params, "max_depth", -1)
+	var counts := {"omitted_nodes": 0}
+	var tree := _serialize(scene, max_depth, counts)
+	var omitted := int(counts["omitted_nodes"])
+	return _ok({
+		"root": tree,
+		"truncated": omitted > 0,
+		"omitted_nodes": omitted,
+	})
 
 
 # game get: resolve a node by its ABSOLUTE runtime path (as game tree reports it,
@@ -1802,16 +1829,48 @@ func _resolve_runtime_node(path: String) -> Node:
 	return get_tree().root.get_node_or_null(NodePath(path))
 
 
-func _serialize(node: Node) -> Dictionary:
-	var children: Array = []
-	for child in node.get_children():
-		children.append(_serialize(child))
-	return {
+# The ONE depth-bounded, counting tree serializer (#849) — the shape `game tree`
+# reports and the walk any later node-search op bounds itself with. `max_depth` is
+# the number of levels BELOW `node` to serialize: 0 stops at `node` itself, and a
+# NEGATIVE value is unbounded. `counts` is the caller's mutable accumulator
+# (Dictionary, so it is shared by reference): its "omitted_nodes" entry grows by
+# every node this walk did not serialize, at every depth — the total the result
+# reports. A node whose children were left out carries `children_omitted`, the
+# count of its DIRECT children only; the key is ABSENT when nothing was omitted, so
+# an unbounded read carries no per-node weight for a bound it never had.
+func _serialize(node: Node, max_depth: int, counts: Dictionary) -> Dictionary:
+	var children: Array = node.get_children()
+	var serialized: Dictionary = {
 		"name": String(node.name),
 		"type": node.get_class(),
 		"path": String(node.get_path()),
-		"children": children,
+		"children": [],
 	}
+	if max_depth == 0:
+		if not children.is_empty():
+			serialized["children_omitted"] = children.size()
+			var omitted := 0
+			for child in children:
+				omitted += _subtree_size(child)
+			counts["omitted_nodes"] = int(counts["omitted_nodes"]) + omitted
+		return serialized
+	# Unbounded stays unbounded; a bound spends one level per descent.
+	var next_depth := max_depth if max_depth < 0 else max_depth - 1
+	var rendered: Array = []
+	for child in children:
+		rendered.append(_serialize(child, next_depth, counts))
+	serialized["children"] = rendered
+	return serialized
+
+
+# The number of nodes in `node`'s subtree, `node` included — what one omitted
+# child costs the result's omitted_nodes total. Counts only; it builds nothing,
+# so bounding a huge tree still pays a walk but not a serialization.
+func _subtree_size(node: Node) -> int:
+	var total := 1
+	for child in node.get_children():
+		total += _subtree_size(child)
+	return total
 
 
 # The ONE JSON writer for everything this harness sends back (#752). Godot's

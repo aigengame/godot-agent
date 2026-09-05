@@ -1363,6 +1363,7 @@ def test_sample_game_results_validate_against_emitted_output_schemas():
         GAME_RECT_RESULT,
         GAME_SET_RESULT,
         GAME_TREE_RESULT,
+        GAME_TREE_TRUNCATED_RESULT,
     )
 
     tree_doc = json.loads(CliRunner().invoke(app, ["game", "tree", "--schema"]).stdout)
@@ -1371,6 +1372,9 @@ def test_sample_game_results_validate_against_emitted_output_schemas():
     set_doc = json.loads(CliRunner().invoke(app, ["game", "set", "--schema"]).stdout)
 
     jsonschema.validate(instance=GAME_TREE_RESULT, schema=tree_doc["output"])
+    # The bounded read's shape is published too (#849): the optional per-node
+    # `children_omitted` and the two result totals.
+    jsonschema.validate(instance=GAME_TREE_TRUNCATED_RESULT, schema=tree_doc["output"])
     jsonschema.validate(instance=GAME_GET_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=GAME_RECT_RESULT, schema=rect_doc["output"])
     jsonschema.validate(instance=GAME_SET_RESULT, schema=set_doc["output"])
