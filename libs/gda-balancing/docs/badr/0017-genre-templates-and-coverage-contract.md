@@ -55,6 +55,75 @@ distribution contract and a falsifiable definition of genre completeness.
 > manifests, dependency vectors, Package Lock/RIR identities, examples, receipts, and production
 > and independent conformance evidence are rebuilt and revalidated together.
 
+> **Amendment (2026-09-05, #547):** The `RPG-TARGET-01` and `RPG-CHECK-01` tracer rows are
+> delivered through one bounded combat decision path. bADR-0028 admits the Kernel nodes
+> `where-equal`, `order-by`, `take`, and `count`, exposed by `standard.schema@2.5.0`; this
+> amendment records the package ownership that consumes them.
+>
+> - `game.entity@1.0.0` owns identity and membership: `EntityRef` (a `Ref` to `Entity`),
+>   `Faction{ally, enemy, neutral}`, `LifeState{alive, defeated}` as state storage without transition
+>   policy, `Entity{ref, faction, life_state}`, and `EntitySet` (a `List<Entity, max=8>`). It
+>   provides the `game.entity.dynamic-sets` capability and owns no targeting, combat, or action rule.
+> - `game.query@1.0.0` owns the typed candidate view and selection: `TargetCandidate{entity:
+>   EntityRef, faction, life_state, order_key, tie_key}`, `TargetCandidateSet` (a
+>   `List<TargetCandidate, max=8>`), `SortDirection{ascending, descending}`,
+>   `EmptyTargetPolicy{no-target}`, and `TargetPolicy{faction, life_state, direction, cardinality,
+>   on_empty: List<EmptyTargetPolicy, max=1>}`. Its `game.query.select@1` Operation filters the
+>   candidate set by faction and life state with `where-equal`, orders by `order_key` in the declared
+>   direction with `tie_key` and then input order as tie-breakers, takes `cardinality` elements, and
+>   commits the ordered result to a `TargetCandidateSet` port and its `count` to a `target_count`
+>   port. A candidate row is a query-owned view whose faction and life state are declared by the
+>   producer of the set; identity is bound only through `EntityRef`. The tracer authors the set as
+>   Experiment state; a later encounter-composition Operation (#563) derives it. An empty filtered
+>   set with one declared `on_empty` value completes as the `no-target` gameplay alternative and
+>   commits an empty resolution with `target_count` zero. An empty set without that value raises the
+>   `game.query.reason.empty-policy-missing` refusal before any state write. A `cardinality` below
+>   one raises `game.query.reason.cardinality-invalid`. The package provides
+>   `game.query.dynamic-targets`.
+> - `game.check@1.2.0` preserves `hit-v1` and `critical-v1` and adds typed resolution:
+>   `CheckMode{threshold, opposed}`, `TiePolicy{actor, target}`, `CheckPolicy{mode, tie_policy:
+>   List<TiePolicy, max=1>}`, and `game.check.resolve@1`. The Operation refuses with
+>   `game.check.reason.tie-policy-missing` before any draw when `tie_policy` is empty. It draws
+>   `check-actor` from 1 to 100 and computes `actor_total = actor_score + draw`. In `threshold`
+>   mode the success degree is `actor_total - target_score`; in `opposed` mode it also draws
+>   `check-target` and the degree is `actor_total - (target_score + draw)`. A positive degree
+>   completes as `succeeded`, a negative degree as `failed`, and a zero degree follows the declared
+>   tie policy. Both outcomes commit the degree to a writable `hit_degree` port; `failed` is a
+>   gameplay alternative with commit state policy so the negative margin remains observable. The
+>   degree is the exact integer margin; banding is Model Source Formula policy. The package provides
+>   `game.check.typed-resolution`.
+> - `game.combat@2.3.0` preserves every `2.2.0` Operation and adds the decision path:
+>   `CombatProfile{entity: EntityRef, defense}`, `CombatProfileSet` (a `List<CombatProfile,
+>   max=8>`), and `game.combat.target-check@1`. The Operation invokes `game.query.select@1`, reads
+>   the first resolved candidate's `entity`, finds its profile with `where-equal` over the profile
+>   set, and invokes `game.check.resolve@1` with the actor's `accuracy` against that `defense`. It
+>   completes as `hit`, `miss`, or `no-target`; it propagates the query and check refusals and adds
+>   `game.combat.reason.combat-profile-missing` when the selected target has no profile row. It
+>   applies no damage and spends no resource: damage stages belong to #549 and cost commitment to
+>   #548. It does not define target eligibility beyond the declared policy.
+>
+> The RNG record for the check is the Event trace: every named-stream draw already carries its
+> stream identity, draw index, candidate, bounds, and value, and exact Replay re-derives each row.
+> That per-draw record satisfies the `RPG-CHECK-01` observable; the check result does not repeat it.
+>
+> The Golden Model Source `rpg.target-check-v1` requires `core.quantity@2.2.0`, `game.query@1.0.0`,
+> `game.check@1.2.0`, and `game.combat@2.3.0`. Its exact selected dependency edges are:
+>
+> - `core.quantity@2.2.0` → `standard.compiler@1.1.0`;
+> - `game.entity@1.0.0` → `core.quantity@2.2.0`, `standard.schema@2.5.0`;
+> - `game.query@1.0.0` → `core.quantity@2.2.0`, `game.entity@1.0.0`, `standard.runtime@1.1.0`,
+>   `standard.schema@2.5.0`;
+> - `game.check@1.2.0` → `core.quantity@2.2.0`, `standard.runtime@1.1.0`, `standard.schema@2.5.0`;
+> - `game.resource@1.1.0` → `core.quantity@2.2.0`, `standard.runtime@1.1.0`; and
+> - `game.combat@2.3.0` → `core.quantity@2.2.0`, `game.check@1.2.0`, `game.entity@1.0.0`,
+>   `game.query@1.0.0`, `game.resource@1.1.0`, `standard.runtime@1.1.0`, `standard.schema@2.5.0`.
+>
+> The check and combat releases use minor boundaries because they preserve every earlier export and
+> behavior. All earlier releases remain available unchanged. The Golden scenario lives in a separate
+> maintained example until #548 admits Action plans and folds the path into `rpg.combat.cast-v1`.
+> Verification publishes `candidate`/open results: authenticated Verifier receipts and claim
+> aggregation remain deferred to the future-feature milestone, so neither row closes in this slice.
+
 > **Amendment (2026-08-18, #708):** `game.combat` owns explicit defeat transition policy and
 > combat-action eligibility. `game.combat.eligible-cast-v1` checks the authored actor-health and
 > non-negative defeat-threshold ports before it delegates to the ordinary cast. A negative

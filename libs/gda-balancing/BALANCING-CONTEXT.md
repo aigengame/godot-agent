@@ -622,6 +622,14 @@ legality and loss behavior. Source must request it and Typed HIR records it; no 
 survives name/type resolution (bADR-0016).
 _Avoid_: automatic cast, unit normalization (when implicit), compatibility shim
 
+**Bounded collection primitive**:
+One of the Kernel expression nodes that reads one admitted bounded `List` and produces a filtered,
+ordered, truncated, or counted result without constructing elements, mutating state, or iterating
+past the List's static maximum length: `where-equal`, `order-by`, `take`, and `count`. Each node
+charges one step plus one per input element and defines its own element order, including ties;
+host-container order never decides a result (bADR-0028).
+_Avoid_: loop, iterator, query builder, aggregate function (SQL sense)
+
 **Capability manifest**:
 The generated inventory of exact packages, operations, types, conversions, Numeric profiles, and
 runtime capabilities available in one Resolved Model. Its inventory payload is a complete
@@ -852,9 +860,32 @@ _Avoid_: unequip then equip, best-effort replacement, compensating add
 
 **Target query**:
 A deterministic, typed selection expression over a dynamic entity set, with filters, ordering,
-cardinality, tie-breaking, and empty-result behavior. Action and effect operations receive its
-resolved targets; they do not implement private target-selection rules (bADR-0017).
+cardinality, tie-breaking, and empty-result behavior. It is composed from `Bounded collection
+primitive`s over a `Target candidate` list and commits a `Target resolution`. Action, combat, and
+effect operations receive its resolved targets; they do not implement private target-selection
+rules (bADR-0017).
 _Avoid_: target list (when dynamically selected), selector callback, implicit area target
+
+**Target candidate**:
+One typed row of the dynamic set a `Target query` selects from: an `EntityRef` plus the faction,
+life state, ordering key, and tie key the query reads. The producer of the set declares the row,
+`game.query` owns the row type and reads it, and `game.entity` owns the identity the row refers to.
+A candidate is a query-owned view of an entity, never a second entity (bADR-0017, #547).
+_Avoid_: enemy list entry, target struct, entity copy
+
+**Target resolution**:
+The committed, ordered `Target candidate` list and its count that one `Target query` produced,
+written to declared state so that a later Operation, the Snapshot series, and Metric samples observe
+the same targets in the same order (bADR-0017, #547).
+_Avoid_: target list (unordered), selection cache, hit list
+
+**Check resolution**:
+The typed outcome of one `game.check` resolution: a success degree equal to the exact integer
+margin between the actor total and the target total or threshold, and the declared tie policy's
+verdict when that margin is zero. Success and failure both commit the degree. The named-stream
+draws that produced it are recorded per draw in the Event trace, not repeated in the result
+(bADR-0017, #547).
+_Avoid_: hit roll, success flag (alone), banded result
 
 **Run scope**:
 The lifecycle boundary for state created for one Roguelike run and cleared by an explicit run-reset
