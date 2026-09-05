@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a7f521f06441d07917e5e56ee6630e5caf08b50979afc0cc93a0748cf87e9bb4 -->
+<!-- gda-readme-i18n: source=README.md sha256=9ee455d8eacbad676baab58de7bf10903ba66bc48f64fb0c59f41c0a7cf92d54 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -162,7 +162,7 @@ gda scene get scenes/main.tscn --json
 > ¿Sin proyecto? `gda` igualmente se ejecuta **sin proyecto** (projectless) sobre rutas simples del sistema de
 > archivos (relativas a tu directorio actual) — solo la resolución de `res://` necesita un proyecto. Consulta [Configuración](#configuration).
 
-**Inspecciona el juego *en ejecución* con operaciones Live.** Estas operaciones ejecutan
+**Inspecciona y controla el juego *en ejecución* con operaciones Live.** Estas operaciones ejecutan
 la **escena principal** del proyecto, así que apúntala a la que acabas de construir mediante el
 ajuste de proyecto `application/run/main_scene` de Godot (el *Application → Run → Main Scene* del
 editor), y luego arranca el daemon (macOS/Linux, Godot 4.6+):
@@ -336,7 +336,7 @@ modos de operación complementarios:
 | Componente       | Rol |
 | ---------------- | --- |
 | **`gda`**        | Ejecuta operaciones de Godot directamente como CLI y devuelve resultados estructurados con `--json`. |
-| **`gda-mcp`**    | Genera herramientas MCP a partir de `--schema`, invoca las mismas operaciones y devuelve sus resultados estructurados. |
+| **`gda-mcp`**    | Asigna las mismas operaciones y resultados estructurados a herramientas MCP generadas a partir de `--schema`. |
 | **`gda-daemon`** | Supervisa un juego en ejecución por proyecto para las operaciones Live. |
 
 - **Las operaciones Headless** se ejecutan como procesos de una sola pasada — sin daemon ni

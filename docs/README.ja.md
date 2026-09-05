@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a7f521f06441d07917e5e56ee6630e5caf08b50979afc0cc93a0748cf87e9bb4 -->
+<!-- gda-readme-i18n: source=README.md sha256=9ee455d8eacbad676baab58de7bf10903ba66bc48f64fb0c59f41c0a7cf92d54 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -159,7 +159,7 @@ gda scene get scenes/main.tscn --json
 > 相対)に対して **projectless(プロジェクトなし)** で動作します — プロジェクトが必要なのは `res://`
 > の解決だけです。[設定](#configuration) を参照してください。
 
-**Live 操作で実行中のゲームを検査します。** これらの操作はプロジェクトの
+**Live 操作で実行中のゲームを検査・操作します。** これらの操作はプロジェクトの
 **メインシーン**を実行します。そのため、いま構築したシーンを Godot の
 `application/run/main_scene` プロジェクト設定(エディタの *Application → Run → Main Scene*)で
 指定し、デーモンを起動します(macOS/Linux、Godot 4.6 以上)。
@@ -333,7 +333,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | コンポーネント | 役割 |
 | ---------------- | ---- |
 | **`gda`**        | CLI として Godot 操作を直接実行し、構造化された `--json` 結果を返します。 |
-| **`gda-mcp`**    | `--schema` から MCP ツールを生成し、同じ操作を呼び出して構造化結果を返します。 |
+| **`gda-mcp`**    | 同じ操作と構造化結果を、`--schema` から生成された MCP ツールにマッピングします。 |
 | **`gda-daemon`** | Live 操作のために、プロジェクトごとに実行中ゲームを監督します。 |
 
 - **Headless 操作** はワンショットプロセスとして実行されます — デーモンやエディタプラグインを

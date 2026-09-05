@@ -153,7 +153,7 @@ gda scene get scenes/main.tscn --json
 > No project? `gda` still runs **projectless** on plain filesystem paths (relative to your current
 > directory) — only `res://` resolution needs a project. See [Configuration](#configuration).
 
-**Inspect the *running* game with Live operations.** These operations run the
+**Inspect and drive the *running* game with Live operations.** These operations run the
 project's **main scene**, so point it at the one you just built via Godot's
 `application/run/main_scene` project setting (the editor's *Application → Run → Main Scene*),
 then start the daemon (macOS/Linux, Godot 4.6+):
@@ -323,7 +323,7 @@ operation modes:
 | Component        | Role                                                                         |
 | ---------------- | ---------------------------------------------------------------------------- |
 | **`gda`**        | Runs Godot operations directly as a CLI and returns structured `--json` results. |
-| **`gda-mcp`**    | Generates MCP tools from `--schema`, invokes the same operations, and returns their structured results. |
+| **`gda-mcp`**    | Maps the same operations and structured results to MCP tools generated from `--schema`. |
 | **`gda-daemon`** | Supervises a running game per project for Live operations.                  |
 
 - **Headless operations** run as one-shot processes — no daemon or editor plugin to install
