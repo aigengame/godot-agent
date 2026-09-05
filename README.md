@@ -89,10 +89,10 @@ These capabilities were refined while
 
 ## Installation
 
-**Requirements:** Python 3.13+, and a [Godot](https://godotengine.org) binary — 4.4+ for
-headless commands, 4.6+ on macOS/Linux for live (daemon) commands.
+**Requirements:** Python 3.13+ and a [Godot](https://godotengine.org) binary — 4.4+ for
+Headless operations, 4.6+ on macOS/Linux for Live operations.
 
-Install the CLI from PyPI onto your `PATH`:
+Install `gda`, the Godot CLI for AI agents, from PyPI onto your `PATH`:
 
 ```bash
 uv tool install gda      # or: pipx install gda
@@ -130,7 +130,7 @@ gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
 
-stdout is always clean JSON you can pipe; all engine and script diagnostics go to stderr:
+With `--json`, stdout is clean JSON you can pipe; all engine and script diagnostics go to stderr:
 
 ```bash
 gda info --json | jq .major   # → 4
@@ -145,6 +145,7 @@ export GDA_PROJECT="/path/to/your/godot-project"   # or pass --project to any co
 gda scene create scenes/main.tscn --root-type Node2D --json
 gda node add  scenes/main.tscn --type Sprite2D --name Hero --json
 gda node set  scenes/main.tscn --node Hero --property position --value 10,20 --json
+gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
@@ -152,9 +153,10 @@ gda scene get scenes/main.tscn --json
 > No project? `gda` still runs **projectless** on plain filesystem paths (relative to your current
 > directory) — only `res://` resolution needs a project. See [Configuration](#configuration).
 
-**Drive a *running* game live.** Live ops run the project's **main scene**, so point it at the
-one you just built via Godot's `application/run/main_scene` project setting (the editor's
-*Application → Run → Main Scene*), then start the daemon (macOS/Linux, Godot 4.6+):
+**Inspect and drive the *running* game with Live operations.** These operations run the
+project's **main scene**, so point it at the one you just built via Godot's
+`application/run/main_scene` project setting (the editor's *Application → Run → Main Scene*),
+then start the daemon (macOS/Linux, Godot 4.6+):
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -171,19 +173,25 @@ with `gda daemon start --windowed`.)
 
 ## Choose your integration
 
-`gda` exposes the **same command surface** three ways — pick whichever your agent (or you) supports:
+`gda` provides one operation surface through three complementary access paths. Use the CLI,
+the Agent Skill, the MCP server, or a combination that fits your workflow. The underlying
+operations and structured results stay the same.
 
-| Entry point | Best for | How |
+Not sure which path fits your workflow? See
+[Godot MCP vs CLI vs Agent Skill](https://aigengame.xyz/godot-mcp/).
+
+| Access path | Best for | How |
 | --- | --- | --- |
 | **CLI** (`gda`) | humans, shell scripts, CI, and agents that can run commands | `gda <group> <command> --json` |
-| **Skill** (`gda skill`) | coding agents that support Agent Skills and prefer a token-light CLI workflow | print/install `SKILL.md` (below) |
-| **MCP** (`gda-mcp`) | agents that call tools over the Model Context Protocol | run the stdio server (below) |
+| **Agent Skill** (`gda skill`) | coding agents that support Agent Skills and prefer a token-light CLI workflow | print or install the bundled guidance (below) |
+| **MCP** (`gda-mcp`) | MCP-compatible clients that discover and call tools | run the stdio server (below) |
 
-### Use it as a Skill
+### Use the Agent Skill
 
-`gda` ships an agent **Skill** — a `SKILL.md` that teaches an AI agent *how and when* to drive
-Godot from the CLI. It's the lightest way in (no server to register), bundled in the package and
-version-locked to your install. Print it, or install it into your agent's skills directory:
+`gda` ships a bundled **Agent Skill** that teaches an AI agent *when and how* to drive Godot
+from the CLI. Use it when your coding agent supports Agent Skills and you want reusable guidance
+without registering a server. The guidance stays aligned with your installed `gda` version.
+Print it, or install it into your agent's skills directory:
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -191,18 +199,19 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-The [skill recipes](docs/gda-skill.md) list each agent's skills directory. Or fetch the same
-file straight from the repo — you still install `gda`, since the Skill drives it:
+The [Agent Skill recipes](docs/gda-skill.md) list each agent's skills directory. Or fetch the
+same file straight from the repo — you still install `gda`, since the Agent Skill drives it:
 
 ```bash
 curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
   https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
 ```
 
-### Use it as an MCP server
+### Use the MCP server
 
-`gda` ships a stdio [MCP](https://modelcontextprotocol.io) server behind a `[mcp]` extra,
-so any MCP agent (Claude Code, Codex, Cursor, …) can drive Godot. Try it with no install:
+`gda-mcp` is the bundled Godot MCP server for compatible clients. It implements the
+[Model Context Protocol](https://modelcontextprotocol.io) over stdio and is available through
+the `[mcp]` extra. Run it through `uvx` without a permanent install:
 
 ```bash
 uvx --from "gda[mcp]" gda-mcp
@@ -308,19 +317,23 @@ command — register via the JSON above or the Settings → MCP UI.
 
 ## How it works
 
-`gda` is three components serving operations in two modes:
+`gda` is one Godot automation toolchain with three components and two complementary
+operation modes:
 
-| Component        | Role                                                                  |
-| ---------------- | --------------------------------------------------------------------- |
-| **`gda`**        | The agent-facing CLI — exposes Godot with structured `--json` output. |
-| **`gda-mcp`**    | An MCP server exposing the same operations as tools, from `--schema`. |
-| **`gda-daemon`** | A per-project process supervising a running game for live operations. |
+| Component        | Role                                                                         |
+| ---------------- | ---------------------------------------------------------------------------- |
+| **`gda`**        | Runs Godot operations directly as a CLI and returns structured `--json` results. |
+| **`gda-mcp`**    | Maps the same operations and structured results to MCP tools generated from `--schema`. |
+| **`gda-daemon`** | Supervises a running game per project for Live operations.                  |
 
-- **Headless operations** run one-shot — no daemon, nothing to install (create a scene, edit
-  a script, export, analyze).
+- **Headless operations** run as one-shot processes — no daemon or editor plugin to install
+  (create a scene, edit a script, validate or boot a scene, export, analyze).
 - **Live operations** require a running game — `gda-daemon` launches it, injects an inert
   in-game harness, and brokers requests over a Unix domain socket (runtime tree, input,
-  screenshots, performance, diagnostics).
+  frame capture, performance, diagnostics).
+
+Headless validation confirms project readiness; Live operations return runtime evidence about
+actual behavior.
 
 The in-game harness `gda-daemon` injects is **dev-only**: `gda export run` strips it from the
 artifact entirely, and built any other way (editor GUI, raw `godot --export`) it still

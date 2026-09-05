@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ff71c57fd774bc54d9bf9af04f9a7e6c4e7939ad4a38e5f9d12b693cc9bb379e -->
+<!-- gda-readme-i18n: source=README.md sha256=77bb050928bb00a8ba3ce8936b82593b68eeae2731f81332c327a0010235067d -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -92,10 +92,10 @@
 <a id="installation"></a>
 ## インストール
 
-**要件:** Python 3.13 以上、および [Godot](https://godotengine.org) バイナリ — Headless コマンドには
-4.4 以上、macOS/Linux での Live(デーモン)コマンドには 4.6 以上。
+**要件:** Python 3.13 以上、および [Godot](https://godotengine.org) バイナリ — Headless 操作には
+4.4 以上、macOS/Linux での Live 操作には 4.6 以上。
 
-PyPI から CLI を `PATH` 上にインストールします。
+AI エージェント向け Godot CLI の `gda` を PyPI から `PATH` 上にインストールします。
 
 ```bash
 uv tool install gda      # or: pipx install gda
@@ -134,8 +134,8 @@ gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
 
-stdout は常にパイプ可能なクリーンな JSON です。エンジンとスクリプトの診断出力はすべて stderr に
-流れます。
+`--json` を使うと、stdout はパイプ可能なクリーンな JSON になります。エンジンとスクリプトの
+診断出力はすべて stderr に流れます。
 
 ```bash
 gda info --json | jq .major   # → 4
@@ -150,6 +150,7 @@ export GDA_PROJECT="/path/to/your/godot-project"   # or pass --project to any co
 gda scene create scenes/main.tscn --root-type Node2D --json
 gda node add  scenes/main.tscn --type Sprite2D --name Hero --json
 gda node set  scenes/main.tscn --node Hero --property position --value 10,20 --json
+gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
@@ -158,9 +159,10 @@ gda scene get scenes/main.tscn --json
 > 相対)に対して **projectless(プロジェクトなし)** で動作します — プロジェクトが必要なのは `res://`
 > の解決だけです。[設定](#configuration) を参照してください。
 
-**実行中のゲームを Live で操作します。** Live 操作はプロジェクトの **メインシーン** を実行します。
-そのため、いま構築したシーンを Godot の `application/run/main_scene` プロジェクト設定(エディタの
-*Application → Run → Main Scene*)で指定し、デーモンを起動します(macOS/Linux、Godot 4.6 以上)。
+**Live 操作で実行中のゲームを検査・操作します。** これらの操作はプロジェクトの
+**メインシーン**を実行します。そのため、いま構築したシーンを Godot の
+`application/run/main_scene` プロジェクト設定(エディタの *Application → Run → Main Scene*)で
+指定し、デーモンを起動します(macOS/Linux、Godot 4.6 以上)。
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -178,21 +180,25 @@ start --windowed` でデーモンを起動してください。)
 <a id="choose-your-integration"></a>
 ## 統合方法を選ぶ
 
-`gda` は **同じコマンド体系** を 3 通りで公開します — エージェント(またはあなた)が対応している
-方法を選んでください。
+`gda` は、1 つの操作体系を 3 つの相補的なアクセス方法で提供します。CLI、Agent Skill、
+MCP サーバー、またはワークフローに合う組み合わせを使用できます。基盤となる操作と構造化結果は
+どの方法でも同じです。
 
-| 入口 | 適した用途 | 方法 |
+どの方法がワークフローに合うかわからない場合は、
+[Godot MCP vs CLI vs Agent Skill](https://aigengame.xyz/godot-mcp/) を参照してください。
+
+| アクセス方法 | 適した用途 | 方法 |
 | --- | --- | --- |
 | **CLI**(`gda`) | 人間、シェルスクリプト、CI、コマンドを実行できるエージェント | `gda <group> <command> --json` |
-| **Skill**(`gda skill`) | Agent Skills に対応し、トークン消費の少ない CLI ワークフローを好むコーディングエージェント | `SKILL.md` を出力/インストール(下記) |
-| **MCP**(`gda-mcp`) | Model Context Protocol 経由でツールを呼び出すエージェント | stdio サーバーを実行(下記) |
+| **Agent Skill**(`gda skill`) | Agent Skills に対応し、トークン消費の少ない CLI ワークフローを好むコーディングエージェント | 同梱ガイダンスを出力またはインストール(下記) |
+| **MCP**(`gda-mcp`) | ツールを検出・呼び出しできる MCP 互換クライアント | stdio サーバーを実行(下記) |
 
-### Skill として使う
+### Agent Skill を使う
 
-`gda` はエージェント **Skill** を同梱しています — `SKILL.md` であり、AI エージェントに CLI から Godot を
-操作する *方法とタイミング* を教えます。これは最も軽量な入口で(登録するサーバーがありません)、
-パッケージに同梱され、インストール済みのバージョンに固定されています。出力するか、エージェントの
-スキルディレクトリにインストールします。
+`gda` は、AI エージェントに CLI から Godot を操作する *タイミングと方法* を教える
+**Agent Skill** を同梱しています。コーディングエージェントが Agent Skills に対応し、サーバーを
+登録せずに再利用可能なガイダンスを使いたい場合に適しています。ガイダンスはインストール済みの
+`gda` バージョンと一致します。出力するか、エージェントのスキルディレクトリにインストールします。
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -200,19 +206,20 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-[Skill レシピ](gda-skill.md) には各エージェントのスキルディレクトリが記載されています。あるいは同じファイルを
-リポジトリから直接取得することもできます — Skill は `gda` を呼び出して動くので、`gda` 自体のインストールは引き続き必要です。
+[Agent Skill レシピ](gda-skill.md)には各エージェントのスキルディレクトリが記載されています。
+同じファイルをリポジトリから直接取得することもできますが、Agent Skill は `gda` の CLI を
+呼び出すため、`gda` 自体のインストールは引き続き必要です。
 
 ```bash
 curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
   https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
 ```
 
-### MCP サーバーとして使う
+### MCP サーバーを使う
 
-`gda` は `[mcp]` エクストラの背後に stdio の [MCP](https://modelcontextprotocol.io) サーバーを同梱しており、
-あらゆる MCP エージェント(Claude Code、Codex、Cursor など)が Godot を操作できます。インストールせずに
-試すには:
+`gda-mcp` は、互換クライアント向けに同梱された Godot MCP サーバーです。stdio 経由で
+[Model Context Protocol](https://modelcontextprotocol.io) を実装し、`[mcp]` エクストラから利用できます。
+永続的にインストールせず `uvx` で実行するには:
 
 ```bash
 uvx --from "gda[mcp]" gda-mcp
@@ -320,19 +327,23 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 <a id="how-it-works"></a>
 ## 仕組み
 
-`gda` は、2 つのモードで操作を提供する 3 つのコンポーネントから成ります。
+`gda` は、3 つのコンポーネントと 2 つの相補的な操作モードを備えた 1 つの Godot
+オートメーションツールチェーンです。
 
 | コンポーネント | 役割 |
-| ---------------- | --------------------------------------------------------------------- |
-| **`gda`**        | エージェント向けの CLI — Godot を構造化された `--json` 出力で公開します。 |
-| **`gda-mcp`**    | 同じ操作を `--schema` からツールとして公開する MCP サーバー。 |
-| **`gda-daemon`** | Live 操作のために実行中ゲームを監督する、プロジェクトごとのプロセス。 |
+| ---------------- | ---- |
+| **`gda`**        | CLI として Godot 操作を直接実行し、構造化された `--json` 結果を返します。 |
+| **`gda-mcp`**    | 同じ操作と構造化結果を、`--schema` から生成された MCP ツールにマッピングします。 |
+| **`gda-daemon`** | Live 操作のために、プロジェクトごとに実行中ゲームを監督します。 |
 
-- **Headless 操作** はワンショットで実行されます — デーモンも、インストールするものも不要です
-  (シーンの作成、スクリプトの編集、エクスポート、解析)。
+- **Headless 操作** はワンショットプロセスとして実行されます — デーモンやエディタプラグインを
+  インストールする必要はありません(シーンの作成、スクリプトの編集、シーンの検証または起動、
+  エクスポート、解析)。
 - **Live 操作** には実行中のゲームが必要です — `gda-daemon` がそれを起動し、不活性なゲーム内ハーネスを
-  注入し、Unix ドメインソケット経由でリクエストを仲介します(ランタイムツリー、入力、スクリーン
-  ショット、パフォーマンス、診断)。
+  注入し、Unix ドメインソケット経由でリクエストを仲介します(ランタイムツリー、入力、フレーム取得、
+  パフォーマンス、診断)。
+
+Headless 検証はプロジェクトの実行準備を確認し、Live 操作は実際の挙動に関するランタイム証拠を返します。
 
 `gda-daemon` が注入するゲーム内ハーネスは **開発専用** です。`gda export run` は成果物からそれを完全に
 取り除きます。また、それ以外の方法(エディタの GUI、素の `godot --export`)でビルドしても、エクスポート
