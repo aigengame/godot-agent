@@ -882,9 +882,9 @@ _Avoid_: target list (unordered), selection cache, hit list
 **Check resolution**:
 The typed outcome of one `game.check` resolution: a success degree equal to the exact integer
 margin between the actor total and the target total or threshold, and the declared tie policy's
-verdict when that margin is zero. Success and failure both commit the degree. The named-stream
-draws that produced it are recorded per draw in the Event trace, not repeated in the result
-(bADR-0017, #547).
+gameplay outcome when that margin is zero. Success and failure both commit the degree. The
+named-stream draws that produced it are recorded per draw in the Event trace, not repeated in the
+result (bADR-0017, #547).
 _Avoid_: hit roll, success flag (alone), banded result
 
 **Run scope**:

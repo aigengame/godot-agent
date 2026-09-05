@@ -95,10 +95,16 @@ distribution contract and a falsifiable definition of genre completeness.
 > - `game.combat@2.3.0` preserves every `2.2.0` Operation and adds the decision path:
 >   `CombatProfile{entity: EntityRef, defense}`, `CombatProfileSet` (a `List<CombatProfile,
 >   max=8>`), and `game.combat.target-check@1`. The Operation invokes `game.query.select@1`, reads
->   the first resolved candidate's `entity`, finds its profile with `where-equal` over the profile
->   set, and invokes `game.check.resolve@1` with the actor's `accuracy` against that `defense`. It
->   completes as `hit`, `miss`, or `no-target`; it propagates the query and check refusals and adds
->   `game.combat.reason.combat-profile-missing` when the selected target has no profile row. It
+>   the first resolved candidate's `entity`, filters the profile set with `where-equal` on that
+>   `entity`, and requires exactly one matching row: the `count` of the filtered set must equal one,
+>   checked with `require` before any named-stream draw. It then invokes `game.check.resolve@1`
+>   with the actor's `accuracy` against that row's `defense`. It completes as `hit`, `miss`, or
+>   `no-target`; it propagates the query and check refusals and adds
+>   `game.combat.reason.combat-profile-missing` for zero matching rows and
+>   `game.combat.reason.combat-profile-ambiguous` for more than one. `standard.schema.list`
+>   preserves duplicates and the `Ref` law does not make `entity` unique within a `List`, so
+>   uniqueness is an Operation rule, not a type rule; the package binds a vector in which two rows
+>   reference one entity with different `defense` values and the refusal leaves state unchanged. It
 >   applies no damage and spends no resource: damage stages belong to #549 and cost commitment to
 >   #548. It does not define target eligibility beyond the declared policy.
 >

@@ -1138,17 +1138,18 @@ that test falsifies Standard Schema 2.0's architecture and reopens its design ga
 papered over with a genre exception. Shipping support artifacts for every genre is out of scope,
 but preserving this extension route for every later genre is not.
 
-Issues #640, #546, and #547 record successive provisional-baseline reopenings. The #585 Roguelike
-product-feedback slice showed that the earlier Kernel could not observe empty admitted Lists, raise
-an Operation-declared typed refusal, or skip RNG, lookup, and effect nodes on an unselected path.
-Issue #640 added the generic `is-empty`, `require`, and `guard-block` primitives. The later
-`RPG-STAT-01` tracer showed that exact integer percentage rules also require
-`integer-floor-divide`. The `RPG-TARGET-01` tracer showed that a Target query cannot filter, order,
-truncate, or count an admitted `List`; bADR-0028 admits the generic `where-equal`, `order-by`,
-`take`, and `count` primitives, and the #547 implementation replaces the #546 identity. Evidence
-bound to a superseded Kernel identity does not carry to the current replacement. Gate 5 and Gate 6
-must validate the current baseline again. Section 12.2 records these dogfooding results and their
-open boundaries.
+Issues #640 and #546 record two completed provisional-baseline reopenings, and #547 records the
+next planned one. The #585 Roguelike product-feedback slice showed that the earlier Kernel could not
+observe empty admitted Lists, raise an Operation-declared typed refusal, or skip RNG, lookup, and
+effect nodes on an unselected path. Issue #640 added the generic `is-empty`, `require`, and
+`guard-block` primitives. The later `RPG-STAT-01` tracer showed that exact integer percentage rules
+also require `integer-floor-divide`; the #546 identity is the current baseline. The `RPG-TARGET-01`
+requirement exposes a vocabulary gap in that baseline: a Target query cannot filter, order,
+truncate, or count an admitted `List`. bADR-0028 (proposed) admits the generic `where-equal`,
+`order-by`, `take`, and `count` primitives, and its implementation will replace the #546 identity.
+Evidence bound to a superseded Kernel identity does not carry to its replacement, so Gate 5 and
+Gate 6 must validate each replacement baseline again. Section 12.2 records the completed #640 and
+#546 dogfooding results and their open boundaries; #547 has no product-run evidence yet.
 
 ### 7.2 Package ownership and boundaries
 

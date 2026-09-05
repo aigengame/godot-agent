@@ -39,14 +39,17 @@ contain a body.
 | --- | --- | --- | --- |
 | `where-equal` | `node`, `target`, `value`, `key`, `operand` | `List` with the input element type and maximum length | Keeps every element whose Record field `key` is canonically equal to `operand`; input order is preserved. `operand` is a local reference or a typed literal with the same value contract as the field. |
 | `order-by` | `node`, `target`, `value`, `key`, `direction`, `tie_key` | `List` with the input element type and maximum length | Stable sort. Elements are ordered by field `key` in `direction` (`ascending` or `descending`), then by field `tie_key` in the same direction, then by input order. Both fields must be exact-int64 scalar Quantities. |
-| `take` | `node`, `target`, `value`, `count` | `List` with the input element type and maximum length | Keeps the first `count` elements in input order. `count` is a local reference or an integer literal. A `count` larger than the length keeps every element. A negative `count` raises the `structured-take-negative` refusal. |
+| `take` | `node`, `target`, `value`, `count` | `List` with the input element type and maximum length | Keeps the first `count` elements in input order. `count` is a local reference or an integer literal. A literal must select exactly one reachable integer Literal Typing Profile that the selected Runtime profile admits (bADR-0022); a local must carry only value contracts that match such a profile, the law that already types a `lookup` local index. A `count` larger than the length keeps every element. A negative `count` raises the `structured-take-negative` refusal. |
 | `count` | `node`, `target`, `value` | exact-int64 scalar with unit `1`, typed like an integer `constant` | The element count of the input `List`. |
 
 Common rules:
 
 - **Static typing.** Lowering refuses a `key` or `tie_key` that is not a field of the element
   Record, an `operand` whose value contract differs from the field, an `order-by` field that is not
-  an exact-int64 scalar Quantity, and a `value` that is not an admitted bounded `List`. These are
+  an exact-int64 scalar Quantity, a `value` that is not an admitted bounded `List`, and a `count`
+  whose value contract matches no integer Literal Typing Profile admitted by the selected Runtime
+  profile: a Kernel Boolean, a local or literal with a different kind, unit, representation, or
+  Numeric policy, and a literal with zero or several matching profiles are all refused. These are
   `static`-stage refusals under the existing `language.structured_value_type_mismatch` diagnostic
   family owned by `standard.schema`; Runtime never guesses a type from a same-name local.
 - **Deterministic charge.** Each node charges `1 + n` `event-steps`, where `n` is the input element
@@ -83,23 +86,30 @@ Package Lock and RIR semantic payloads; only their wrapper and downstream identi
 
 ### Non-goals
 
-The following are not admitted by this decision. Each is a later minor addition when a consumer
-demonstrates the need before the freeze, and a Schema-major change after it:
+The following bounded operations are not admitted by this decision. Each is a later minor addition
+when a consumer demonstrates the need before the freeze, and a Schema-major change after it:
 
 - a `where` node with a parametric comparison operator;
 - ordering over `Enum` or `Ref` fields, or over a nested key path;
-- `map`, `fold`, `join`, `distinct`, or any node that constructs or updates elements;
-- unbounded iteration, recursion, or a host callback.
+- `map`, `fold`, `join`, `distinct`, or any node that constructs or updates elements.
+
+Unbounded iteration, recursion, and host callbacks remain architectural exclusions under bADR-0022.
+They are not deferred additions: a provisional reopening revises the bounded primitive set, and a
+decision that admitted one of them would have to reopen bADR-0022 and its termination and effect
+guarantees explicitly.
 
 ## Theory and external references
 
 These are design inputs with explicit provenance. None is normative for Standard Schema 2.0.
 
-- Relational algebra separates selection, ordering, and truncation into composable operators; SQL
-  exposes them as `WHERE`, `ORDER BY`, and `LIMIT` and leaves tie order unspecified unless the
-  query states it. The decision keeps the separation and removes the unspecified case by defining
-  tie order. Source: ISO/IEC 9075 (SQL) general concepts; Codd, "A Relational Model of Data for
-  Large Shared Data Banks" (1970).
+- SQL query operators separate selection, ordering, and truncation into composable clauses over an
+  ordered result: `WHERE`, `ORDER BY`, and `FETCH FIRST` (`LIMIT` in common dialects). SQL leaves
+  tie order unspecified unless the query states it. The decision keeps the separation and removes
+  the unspecified case by defining tie order. Codd's relational model is the ancestor of these
+  operators, but its relations are sets in which row order is immaterial (§1.3), so it does not
+  establish this ordered-`List` contract; the analogy is to the SQL query pipeline, not to
+  relational algebra. Source: ISO/IEC 9075 (SQL) general concepts; Codd, "A Relational Model of
+  Data for Large Shared Data Banks" (1970), §1.3.
 - Total functional programming admits structural recursion over finite data and rejects general
   recursion so that every program terminates. Statically bounded `List` types plus the four nodes
   give the same guarantee without a recursion construct. Source: Turner, "Total Functional
@@ -146,8 +156,10 @@ These are design inputs with explicit provenance. None is normative for Standard
 - `standard.schema@2.5.0` package vectors cover: an empty input; every element filtered out; equal
   primary keys resolved by `tie_key`; equal primary and tie keys resolved by input order after an
   input permutation; `descending` order; `take` larger than the length; `take` of zero; a negative
-  `take` refusal that leaves state unchanged; `count` of an empty and a full `List`; and the exact
-  `1 + n` charge for each node.
+  `take` refusal that leaves state unchanged; a `take` whose `count` is a Kernel Boolean, has a unit
+  other than `1`, is not a scalar, or selects a Numeric policy the Runtime profile does not admit,
+  each refused at the `static` stage; `count` of an empty and a full `List`; and the exact `1 + n`
+  charge for each node.
 - The production evaluator and the independent reference evaluator each compare their observations
   with every shipped vector expectation. Agreement between the two consumers alone is not evidence.
 - Maintained examples that select `standard.schema@2.4.0` keep byte-identical Package Lock and RIR
