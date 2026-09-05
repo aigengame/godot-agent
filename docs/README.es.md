@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=77bb050928bb00a8ba3ce8936b82593b68eeae2731f81332c327a0010235067d -->
+<!-- gda-readme-i18n: source=README.md sha256=de18d3f4225e4b4b473921f121ef9f086dddb68cc38e5868433893a52b18ae4b -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -452,7 +452,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project set` | Define un ajuste del proyecto, forzando el valor a su tipo declarado. |
 | `project add-autoload` | Registra un singleton autoload (nombre → script/escena). |
 | `project remove-autoload` | Cancela el registro de un singleton autoload por nombre. |
-| `project add-input-action` | Registra una acción del InputMap vinculada a teclas (`--key` nombre o keycode, `--deadzone`, `--physical`). |
+| `project add-input-action` | Registra una acción del InputMap vinculada a teclas y/o a un mando (`--key`, `--joy-button`, `--joy-axis` como `<eje>[:<signo>]`, `--device`, `--deadzone`, `--physical`); se requiere al menos una vinculación. |
 | `project remove-input-action` | Cancela el registro de una acción del InputMap por nombre. |
 | `project find-references` | Encuentra todos los archivos del proyecto que referencian un recurso dado. |
 | `project dependencies` | Mapea cada escena/recurso a los recursos de los que depende. |
