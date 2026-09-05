@@ -160,38 +160,25 @@ another environment can have different capabilities._
 
 ## Godot game-path launch with no scene on macOS blocks on a native alert
 
-- **Applies when:** On macOS, the engine starts on the GAME path — `--path <project>`
-  with no `--script`, `--scene`, `--import`, or `--export-*` argument — and has no scene
-  it can run: `application/run/main_scene` is empty, or it is a `uid://` the engine has
-  no UID cache for (a checkout that was never imported). Two ways to get there: a
-  hand-written launch (a probe, a script, an ad-hoc `subprocess` call), or a `gda`
-  Engine session launch that `gda` deferred to the engine because the effective setting
-  depends on a feature override, a settings overlay (`override.cfg`, a nonempty
-  `application/config/project_settings_override`), or an escaped key (#829).
-- **Symptom:** The engine prints `Error: Can't run project: no main scene defined in the
-  project.` (or `Main scene's path could not be resolved from UID. Make sure the project
-  is imported first.`) and a native ALERT dialog with that text appears on the desktop,
-  even with `--headless`. The process does not exit; it blocks until the dialog is
-  dismissed or the process is killed, so a caller waits out its full timeout — for a
-  `gda` session, the readiness deadline.
-- **Cause:** Godot's startup (`main/main.cpp`, 4.6.3) calls `OS::alert()` unconditionally
-  on both paths, and the macOS implementation shows an `NSAlert` regardless of the
-  display server. No command-line flag suppresses it.
-- **Prevention:** Name what the engine should run: pass `--script <res://...>`,
-  `--scene <path|UID>`, `--import`, or `--export-*`, or point the launch at a project
-  whose `run/main_scene` is set and, for a `uid://`, imported once. Every `gda` headless
-  operation already names one of these. Since #829, `gda daemon start` and the daemon's
-  session-launch boundary refuse the two shapes they can determine from the project
-  files — `live_main_scene_undefined` (empty setting) and `live_main_scene_unresolved`
-  (`uid://` without `uid_cache.bin` under the configured project data directory) —
-  before the daemon or a session is spawned; a deferred configuration (above) is not
-  refused and can still reach the alert. Passing `--scene res://<scene>.tscn` avoids
-  main-scene resolution entirely.
-- **Recovery:** Kill the engine — `pkill -f "Godot.*<project dir>"` — which also closes
-  the dialog; a launch made through `gda`'s runner ends it at its own timeout
-  (SIGTERM, then SIGKILL after the grace), and a `gda` session at the readiness
-  deadline. Check `pgrep -fl Godot` afterwards. For the `uid://` case, run the import
-  pass once (`gda resource import <any existing res:// asset>`, or open the project in
-  the editor) before starting the daemon again.
-- **Last verified:** 2026-09-04 with Godot 4.6.3 on macOS, from a test probe; the `gda`
-  refusal and deferral scope are #829's, merged 2026-09-05 (PR #831).
+- **Applies when:** On macOS, the engine starts on the GAME path (`--path <project>` with
+  no `--script`, `--scene`, `--import`, or `--export-*`) and has no scene it can run:
+  `application/run/main_scene` is empty, or a `uid://` with no UID cache (a checkout
+  never imported). Reached by a hand-written launch, or by a `gda` session launch that
+  `gda` deferred to the engine (a main-scene feature override, a settings overlay, or an
+  escaped key in `project.godot`, #829).
+- **Symptom:** The engine prints `Can't run project: no main scene defined` (or `Main
+  scene's path could not be resolved from UID`), shows a native ALERT even with
+  `--headless`, and blocks until the dialog is dismissed or the process is killed — a
+  caller waits out its full timeout.
+- **Cause:** `main/main.cpp` (4.6.3) calls `OS::alert()` unconditionally on both paths;
+  the macOS implementation shows an `NSAlert` regardless of display server; no flag
+  suppresses it.
+- **Prevention:** Name what to run (`--script`, `--scene`, `--import`, `--export-*`), or
+  set `run/main_scene` and import once for a `uid://`. Since #829, `gda daemon start`
+  and the daemon's launch boundary refuse the two determinable shapes before spawning
+  (`live_main_scene_undefined`, `live_main_scene_unresolved`); a deferred configuration
+  is not refused and can still reach the alert.
+- **Recovery:** `pkill -f "Godot.*<project dir>"` closes the dialog; a `gda` launch ends
+  at its timeout or readiness deadline. For a `uid://`, run `gda resource import <any
+  existing res:// asset>` (or open the project in the editor) before starting again.
+- **Last verified:** 2026-09-04, Godot 4.6.3 on macOS; `gda`'s refusal scope is #829's (PR #831).
