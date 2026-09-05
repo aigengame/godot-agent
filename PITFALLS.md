@@ -157,3 +157,28 @@ another environment can have different capabilities._
   Report the passing headless evidence and the remaining rendered-validation gap
   separately.
 - **Last verified:** 2026-08 in managed Godot review environments.
+
+## Godot game-path launch with no scene on macOS blocks on a native alert
+
+- **Applies when:** On macOS, the engine starts on the GAME path (`--path <project>` with
+  no `--script`, `--scene`, `--import`, or `--export-*`) and has no scene it can run:
+  `application/run/main_scene` is empty, or a `uid://` with no UID cache (a checkout
+  never imported). Reached by a hand-written launch, or by a `gda` session launch that
+  `gda` deferred to the engine (a main-scene feature override, a settings overlay, or an
+  escaped key in `project.godot`, #829).
+- **Symptom:** The engine prints `Can't run project: no main scene defined` (or `Main
+  scene's path could not be resolved from UID`), shows a native ALERT even with
+  `--headless`, and blocks until the dialog is dismissed or the process is killed — a
+  caller waits out its full timeout.
+- **Cause:** `main/main.cpp` (4.6.3) calls `OS::alert()` unconditionally on both paths;
+  the macOS implementation shows an `NSAlert` regardless of display server; no flag
+  suppresses it.
+- **Prevention:** Name what to run (`--script`, `--scene`, `--import`, `--export-*`), or
+  set `run/main_scene` and import once for a `uid://`. Since #829, `gda daemon start`
+  and the daemon's launch boundary refuse the two determinable shapes before spawning
+  (`live_main_scene_undefined`, `live_main_scene_unresolved`); a deferred configuration
+  is not refused and can still reach the alert.
+- **Recovery:** `pkill -f "Godot.*<project dir>"` closes the dialog; a `gda` launch ends
+  at its timeout or readiness deadline. For a `uid://`, run `gda resource import <any
+  existing res:// asset>` (or open the project in the editor) before starting again.
+- **Last verified:** 2026-09-04, Godot 4.6.3 on macOS; `gda`'s refusal scope is #829's (PR #831).
