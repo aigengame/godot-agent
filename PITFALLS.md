@@ -160,24 +160,38 @@ another environment can have different capabilities._
 
 ## Godot game-path launch with no scene on macOS blocks on a native alert
 
-- **Applies when:** A hand-written Godot launch (a probe, a script, an ad-hoc
-  `subprocess` call) starts the engine on the GAME path — `--path <project>` with no
-  `--script`, `--scene`, `--import`, or `--export-*` argument — against a project whose
-  `application/run/main_scene` is empty, on macOS.
+- **Applies when:** On macOS, the engine starts on the GAME path — `--path <project>`
+  with no `--script`, `--scene`, `--import`, or `--export-*` argument — and has no scene
+  it can run: `application/run/main_scene` is empty, or it is a `uid://` the engine has
+  no UID cache for (a checkout that was never imported). Two ways to get there: a
+  hand-written launch (a probe, a script, an ad-hoc `subprocess` call), or a `gda`
+  Engine session launch that `gda` deferred to the engine because the effective setting
+  depends on a feature override, a settings overlay (`override.cfg`, a nonempty
+  `application/config/project_settings_override`), or an escaped key (#829).
 - **Symptom:** The engine prints `Error: Can't run project: no main scene defined in the
-  project.` and a native ALERT dialog with that text appears on the desktop, even with
-  `--headless`. The process does not exit; it blocks until the dialog is dismissed or the
-  process is killed, so a caller waits out its full timeout.
+  project.` (or `Main scene's path could not be resolved from UID. Make sure the project
+  is imported first.`) and a native ALERT dialog with that text appears on the desktop,
+  even with `--headless`. The process does not exit; it blocks until the dialog is
+  dismissed or the process is killed, so a caller waits out its full timeout — for a
+  `gda` session, the readiness deadline.
 - **Cause:** Godot's startup (`main/main.cpp`, 4.6.3) calls `OS::alert()` unconditionally
-  on this path, and the macOS implementation shows an `NSAlert` regardless of the display
-  server. No command-line flag suppresses it. A sibling call site alerts the same way
-  for a `run/main_scene` UID that cannot be resolved.
+  on both paths, and the macOS implementation shows an `NSAlert` regardless of the
+  display server. No command-line flag suppresses it.
 - **Prevention:** Name what the engine should run: pass `--script <res://...>`,
   `--scene <path|UID>`, `--import`, or `--export-*`, or point the launch at a project
-  whose `run/main_scene` is set. Every `gda` headless operation already does one of
-  these, so the gate matters for direct engine launches; `gda daemon start` on such a
-  project without `--scene` would reach it (tracked as #829).
+  whose `run/main_scene` is set and, for a `uid://`, imported once. Every `gda` headless
+  operation already names one of these. Since #829, `gda daemon start` and the daemon's
+  session-launch boundary refuse the two shapes they can determine from the project
+  files — `live_main_scene_undefined` (empty setting) and `live_main_scene_unresolved`
+  (`uid://` without `uid_cache.bin` under the configured project data directory) —
+  before the daemon or a session is spawned; a deferred configuration (above) is not
+  refused and can still reach the alert. Passing `--scene res://<scene>.tscn` avoids
+  main-scene resolution entirely.
 - **Recovery:** Kill the engine — `pkill -f "Godot.*<project dir>"` — which also closes
   the dialog; a launch made through `gda`'s runner ends it at its own timeout
-  (SIGTERM, then SIGKILL after the grace). Check `pgrep -fl Godot` afterwards.
-- **Last verified:** 2026-09-04 with Godot 4.6.3 on macOS, from a test probe.
+  (SIGTERM, then SIGKILL after the grace), and a `gda` session at the readiness
+  deadline. Check `pgrep -fl Godot` afterwards. For the `uid://` case, run the import
+  pass once (`gda resource import <any existing res:// asset>`, or open the project in
+  the editor) before starting the daemon again.
+- **Last verified:** 2026-09-04 with Godot 4.6.3 on macOS, from a test probe; the `gda`
+  refusal and deferral scope are #829's, merged 2026-09-05 (PR #831).
