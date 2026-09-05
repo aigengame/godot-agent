@@ -1,8 +1,8 @@
 """S1 (e2e): the HEADLESS read direction, measured on a real engine (#771).
 
-The live counterpart is ``tests/value_projection/test_e2e_live_number_transport.py``. This module
-asks the same question of the other channel: does a headless reply report the
-float the project holds, or a rounded — sometimes zeroed — approximation of it?
+The live counterpart is ``tests/value_projection/test_e2e_live_number_transport.py``.
+This module asks the same question of the other channel: does a headless reply report
+the float the project holds, or a rounded — sometimes zeroed — approximation of it?
 
 Both tiers read ONE table, ``tests/live_number_corpus.py``. That is not tidiness:
 the writer under test here is the same engine function #752 measured, so a second
@@ -15,7 +15,8 @@ as ``DBL_MIN`` and ``5e-324`` cannot be spelled at all for this engine's parser
 (``gda.live_numbers``), so no literal-authored scene could hold them to be read.
 
 What the write path does to a ``--value`` STRING is the other question, answered by
-#772 and measured in ``tests/value_projection/test_e2e_write_value_fidelity.py``; nothing here
+#772 and measured in ``tests/value_projection/test_e2e_write_value_fidelity.py``;
+#nothing here
 claims anything about it.
 """
 

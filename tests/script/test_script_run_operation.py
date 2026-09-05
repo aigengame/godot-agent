@@ -478,10 +478,10 @@ def test_result_is_the_thin_promotion_dropping_launch_failure():
 #
 # Godot exits 0 for a missing entry script, for one that fails to parse, AND for one
 # that is not a SceneTree/MainLoop, so the passthrough reported a phantom success for
-# all three. These drive the operation with stderr captured VERBATIM from a real
-# engine run (the same captures the parser's own tests use, see
-# tests/script/test_script_error_parser.py) so the fixtures cannot drift into something the
-# engine never prints.
+# all three. These drive the operation with stderr captured VERBATIM from a real engine
+# run (the same captures the parser's own tests use, see
+# tests/script/test_script_error_parser.py) so the fixtures cannot drift into something
+# the engine never prints.
 
 MISSING_STDERR = """\
 ERROR: Attempt to open script 'res://tests/logic.gd' resulted in error 'File not found'.

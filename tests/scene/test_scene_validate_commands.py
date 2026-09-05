@@ -256,14 +256,13 @@ def test_an_operation_failure_is_still_an_error_envelope(monkeypatch, tmp_path):
 
 # --- The cross-language enum contract (#664) --------------------------------
 #
-# `operations.gd` WRITES these strings into the sentinel and the pydantic enums
-# READ them, so a drift in either spelling turns a real verdict into a
-# `contract_violation` at parse time. Pinned the way every other cross-language
-# mirror in this repo is (cf. `VALIDATE_MARKER` in tests/script/test_script_commands.py):
-# scrape the const VALUES out of the payload, so the pin survives any change to
-# where they are used and fails only when the CONTRACT moves. It is a non-e2e test
-# on purpose — the drift is invisible without a real engine otherwise, and the e2e
-# tier does not run in PR CI.
+# `operations.gd` WRITES these strings into the sentinel and the pydantic enums READ
+# them, so a drift in either spelling turns a real verdict into a `contract_violation`
+# at parse time. Pinned the way every other cross-language mirror in this repo is (cf.
+# `VALIDATE_MARKER` in tests/script/test_script_commands.py): scrape the const VALUES
+# out of the payload, so the pin survives any change to where they are used and fails
+# only when the CONTRACT moves. It is a non-e2e test on purpose — the drift is invisible
+# without a real engine otherwise, and the e2e tier does not run in PR CI.
 
 _SCENE_PROBLEM_CONST = re.compile(
     r'^const SCENE_PROBLEM_[A-Z_]+ := "(.*)"$', re.MULTILINE

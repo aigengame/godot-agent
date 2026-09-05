@@ -54,9 +54,9 @@ on demand is not possible from project contents, and asserting only the weak
 signal — so this shape stays unit-covered, with real captured stderr.
 
 The launch-timeout and signal-crash arms of the shared classifier are covered by
-``tests/script/test_script_run_operation.py`` and ``tests/runtime/test_classify_launch_or_crash.py``
-(forcing them live is flaky and needs no ``script run``-specific wiring — the
-classifier is the same one ``export run`` uses).
+``tests/script/test_script_run_operation.py`` and
+``tests/runtime/test_classify_launch_or_crash.py`` (forcing them live is flaky and needs
+no ``script run``-specific wiring — the classifier is the same one ``export run`` uses).
 
 The standalone entry script uses the ``extends SceneTree`` + ``_initialize`` +
 ``quit(<code>)`` pattern (the same one ``operations.gd`` runs on), which is how a

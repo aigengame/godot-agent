@@ -1,9 +1,10 @@
 """S1 (e2e): the WRITE direction — what a ``--value`` literal becomes (#772).
 
-The sibling of ``tests/value_projection/test_e2e_headless_number_reads.py`` (the headless READ half,
-#771) and of ``tests/value_projection/test_e2e_live_number_transport.py`` (both live halves, #752).
-This module asks the remaining question of both channels: when a caller spells a
-number on the command line, does the project end up holding it?
+The sibling of ``tests/value_projection/test_e2e_headless_number_reads.py`` (the
+headless READ half, #771) and of
+``tests/value_projection/test_e2e_live_number_transport.py`` (both live halves, #752).
+This module asks the remaining question of both channels: when a caller spells a number
+on the command line, does the project end up holding it?
 
 It reads the SAME table the other two do, ``tests/live_number_corpus.py``. That is
 not tidiness: ``String.to_float`` is ``built_in_strtod``, the very function

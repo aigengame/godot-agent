@@ -51,9 +51,8 @@ def _write_engine_uid_sidecar(project):
     """Stand in for the engine's import pass, which writes the ``.uid`` sidecar.
 
     The real sidecar comes from a Godot import (covered end-to-end by
-    ``tests/daemon/test_e2e_daemon.py``); here only its PRESENCE matters, so the fast tests
-    plant one with the shape the engine writes.
-    """
+    ``tests/daemon/test_e2e_daemon.py``); here only its PRESENCE matters, so the fast
+    tests plant one with the shape the engine writes."""
     _harness_uid(project).write_text("uid://bxxxxxxxxxxxxx\n", encoding="utf-8")
 
 

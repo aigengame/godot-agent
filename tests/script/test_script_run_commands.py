@@ -371,9 +371,9 @@ def test_an_unexpandable_tilde_keeps_the_structured_refusal(
 
 
 # --- #655: the two new options at the CLI boundary. The classification behind them
-# lives in ``tests/script/test_script_run_operation.py``; what only shows here is that argv
-# and ``--params-json`` reach the same place (ADR-0015) and that a nonsensical value
-# is a usage error rather than a launch.
+# lives in ``tests/script/test_script_run_operation.py``; what only shows here is that
+# argv and ``--params-json`` reach the same place (ADR-0015) and that a nonsensical
+# value is a usage error rather than a launch.
 
 
 def test_timeout_reaches_the_launch_from_argv(monkeypatch, tmp_path):

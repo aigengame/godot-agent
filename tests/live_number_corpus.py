@@ -1,16 +1,16 @@
 """The #752 number corpus, and the verdicts a real engine gave it.
 
-Three tests read these rows, so no tier can disagree with another about what the
-corpus says: a unit test (``tests/value_projection/test_live_numbers.py``, which checks gda's model
-of the engine against this table) and two e2e tests that re-derive it from a real
-engine — ``tests/value_projection/test_e2e_live_number_transport.py`` for the live legs, and
-``tests/value_projection/test_e2e_headless_number_reads.py`` for the headless reply (#771). It is
-also the ONE place the published counts come from: :data:`PARTITIONS` derives them
-from the rows below, and ``tests/value_projection/test_live_numbers.py`` reads back the two surfaces
-allowed to state them — ``gda.live_numbers``'s module docstring and
-``docs/command-catalog.md`` — requiring the derived strings verbatim, so a
-hand-edited count cannot survive. ADR-0041 and the two engine-side writer comments
-quote no count at all; they point at ``gda.live_numbers`` instead.
+Three tests read these rows, so no tier can disagree with another about what the corpus
+says: a unit test (``tests/value_projection/test_live_numbers.py``, which checks gda's
+model of the engine against this table) and two e2e tests that re-derive it from a real
+engine — ``tests/value_projection/test_e2e_live_number_transport.py`` for the live legs,
+and ``tests/value_projection/test_e2e_headless_number_reads.py`` for the headless reply
+(#771). It is also the ONE place the published counts come from: :data:`PARTITIONS`
+derives them from the rows below, and ``tests/value_projection/test_live_numbers.py``
+reads back the two surfaces allowed to state them — ``gda.live_numbers``'s module
+docstring and ``docs/command-catalog.md`` — requiring the derived strings verbatim, so a
+hand-edited count cannot survive. ADR-0041 and the two engine-side writer comments quote
+no count at all; they point at ``gda.live_numbers`` instead.
 
 The corpus is named for the issue that measured it, not for a leg. The
 ``default_stringify`` column records what one ENGINE FUNCTION does to a value, so
@@ -189,12 +189,12 @@ class Partition(NamedTuple):
         return self.exact + self.changed + self.zero
 
 
-# The three published rows, DERIVED from the table above rather than transcribed
-# beside it (#770 review found the result row's split misreported). The two
-# surfaces allowed to quote a corpus count — ``gda.live_numbers``'s module
-# docstring and ``docs/command-catalog.md`` — are read back against these by
-# ``tests/value_projection/test_live_numbers.py``, and the engine tier re-derives the same three
-# rows from a running Godot.
+# The three published rows, DERIVED from the table above rather than transcribed beside
+# it (#770 review found the result row's split misreported). The two surfaces allowed to
+# quote a corpus count — ``gda.live_numbers``'s module docstring and
+# ``docs/command-catalog.md`` — are read back against these by
+# ``tests/value_projection/test_live_numbers.py``, and the engine tier re-derives the
+# same three rows from a running Godot.
 PARTITIONS: dict[str, Partition] = {
     # `JSON.parse_string` on the literal `json.dumps` writes for the value.
     "request": Partition(

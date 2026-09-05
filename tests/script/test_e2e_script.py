@@ -719,10 +719,10 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(godot_pr
 @pytest.mark.parametrize("form", ["ok.gd", "res://ok.gd"])
 def test_script_validate_accepts_both_path_forms(godot_project, form):
     # The `script validate` half of #675's AC: the group has always taken both the
-    # project-relative and the res:// form, and `script run` now takes the same two
-    # (see tests/script/test_e2e_script_run.py). Pinned here so the shared representation is
-    # a guarded contract on BOTH commands rather than an accident of this build —
-    # the property that lets an agent address a script once and use it for either.
+    # project-relative and the res:// form, and `script run` now takes the same two (see
+    # tests/script/test_e2e_script_run.py). Pinned here so the shared representation is
+    # a guarded contract on BOTH commands rather than an accident of this build — the
+    # property that lets an agent address a script once and use it for either.
     gda = Gda(godot_project)
     (godot_project / "ok.gd").write_text("extends Node\n", encoding="utf-8")
 

@@ -11,12 +11,12 @@ descriptor-bound renderers are behavior-pinned end-to-end, not just unit-tested
 in isolation.
 
 The canned success payloads mirror the per-command ``--json`` tests
-(``tests/scene/test_scene_commands.py``, ``tests/node/test_node_commands.py``, ``tests/script/test_script_commands.py``,
-``tests/meta/test_info_command.py``) so the faked results match each command's result-model
-shape. The expected strings are transcribed directly from the group modules'
-renderers: a renderer produces a newline-free string and the CLI's ``typer.echo``
-appends exactly one trailing newline, so each case asserts
-``stdout == expected + "\n"``.
+(``tests/scene/test_scene_commands.py``, ``tests/node/test_node_commands.py``,
+``tests/script/test_script_commands.py``, ``tests/meta/test_info_command.py``) so the
+faked results match each command's result-model shape. The expected strings are
+transcribed directly from the group modules' renderers: a renderer produces a
+newline-free string and the CLI's ``typer.echo`` appends exactly one trailing newline,
+so each case asserts ``stdout == expected + "\n"``.
 
 These run engine-free (FakeRunner) under ``-m "not e2e"``.
 """

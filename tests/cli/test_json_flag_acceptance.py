@@ -270,13 +270,13 @@ def test_the_walker_refuses_to_replace_a_groups_own_callback():
 
 
 def test_the_json_adoption_reaches_a_nested_sub_group():
-    # The negative sentinel for the walk itself: a group mounted on a GROUP — not on
-    # the root — is the shape a flat adoption would miss. The live tree is two levels
-    # deep, so every group-`--json` test above exercises a FIRST-level group and the
-    # walk's recursion rode along unproven: deleting it passed the whole suite (#788).
-    # So the recursion is proven on a tree built here, rather than left until someone
-    # mounts a sub-group and finds the flag dead under it. The twin on the refusal side
-    # is tests/cli/test_unknown_invocation.py::test_the_adoption_reaches_a_nested_sub_group.
+    # The negative sentinel for the walk itself: a group mounted on a GROUP — not on the
+    # root — is the shape a flat adoption would miss. The live tree is two levels deep,
+    # so every group-`--json` test above exercises a FIRST-level group and the walk's
+    # recursion rode along unproven: deleting it passed the whole suite (#788). So the
+    # recursion is proven on a tree built here, rather than left until someone mounts a
+    # sub-group and finds the flag dead under it. The twin on the refusal side is
+    # tests/cli/test_unknown_invocation.py::test_the_adoption_reaches_a_nested_sub_group.
     inner = typer.Typer()
 
     @inner.command("leaf")

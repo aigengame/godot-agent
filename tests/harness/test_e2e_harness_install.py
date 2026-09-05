@@ -13,10 +13,10 @@ run (#225) — the harness packed into a templateless ``.pck`` and run with no
 
 The PCK boot packs via a RAW ``godot --export-pack`` (NOT ``gda export run``): since
 ADR-0018's export-strip, ``gda export run`` removes the harness from its artifacts
-(verified in ``tests/export/test_e2e_export_run.py``), so to exercise the DEFENSE-IN-DEPTH
-property here — that a harness which *did* reach a shipped build stays inert — the
-pack must come from a route that does not strip it, and the harness's presence in
-the pack is asserted so "inert" is never trivially true.
+(verified in ``tests/export/test_e2e_export_run.py``), so to exercise the
+DEFENSE-IN-DEPTH property here — that a harness which *did* reach a shipped build stays
+inert — the pack must come from a route that does not strip it, and the harness's
+presence in the pack is asserted so "inert" is never trivially true.
 
 NOTE on what the PCK boot proves: it runs the pack with the EDITOR (tools) binary via
 ``--main-pack``, where ``OS.has_feature("template")`` is FALSE — so it exercises the
@@ -100,12 +100,12 @@ def test_installed_harness_boots_inert_in_a_real_engine(tmp_path):
 @pytest.mark.e2e
 def test_exported_pck_with_harness_runs_inert(tmp_path):
     # #225 / ADR-0018 point 2 (defense in depth): a harness that DID reach a SHIPPED
-    # build must stay inert. `gda export run` now strips the harness from its
-    # artifacts (see tests/export/test_e2e_export_run.py), so to exercise the residual case
-    # we pack via a RAW `godot --export-pack` (which does NOT strip), assert the
-    # harness is genuinely IN the pack, then RUN that .pck with no `gda-daemon`
-    # marker — the packed GdaHarness autoload must boot clean and open nothing (the
-    # exact failure ADR-0018 guards: a dangling/active autoload in an exported game).
+    # build must stay inert. `gda export run` now strips the harness from its artifacts
+    # (see tests/export/test_e2e_export_run.py), so to exercise the residual case we
+    # pack via a RAW `godot --export-pack` (which does NOT strip), assert the harness is
+    # genuinely IN the pack, then RUN that .pck with no `gda-daemon` marker — the packed
+    # GdaHarness autoload must boot clean and open nothing (the exact failure ADR-0018
+    # guards: a dangling/active autoload in an exported game).
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
     install_harness(tmp_path)

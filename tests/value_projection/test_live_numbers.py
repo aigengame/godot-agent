@@ -11,9 +11,8 @@ wait-ready``) send no number to Godot's parser, so they ACCEPT those values, and
 the last block here pins that half.
 
 The engine tier that re-derives those verdicts (and covers the result direction) is
-``tests/value_projection/test_e2e_live_number_transport.py``; this module never launches an engine,
-so it stays in the default suite.
-"""
+``tests/value_projection/test_e2e_live_number_transport.py``; this module never launches
+an engine, so it stays in the default suite."""
 
 import json
 from pathlib import Path

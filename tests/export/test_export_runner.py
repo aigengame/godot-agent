@@ -1,10 +1,10 @@
 """S2: SubprocessExportRunner spawn shape — pure unit (issue #121, #185).
 
-The native-export seam builds the ``godot --headless --export-release`` argv tail
-and the export-only working directory, then delegates the spawn / timeout /
-``OSError`` / UTF-8-decode handling to the shared ``launch`` primitive (tested in
-``tests/runtime/test_launch.py``). This suite covers only what is *specific* to the export
-channel: the argv tail and the working directory.
+The native-export seam builds the ``godot --headless --export-release`` argv tail and
+the export-only working directory, then delegates the spawn / timeout / ``OSError`` /
+UTF-8-decode handling to the shared ``launch`` primitive (tested in
+``tests/runtime/test_launch.py``). This suite covers only what is *specific* to the
+export channel: the argv tail and the working directory.
 
 The one behavior load-bearing for #121's acceptance criterion (export to the
 preset's *configured* ``export_path``) is that working directory: Godot resolves
