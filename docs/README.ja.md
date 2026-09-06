@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=de18d3f4225e4b4b473921f121ef9f086dddb68cc38e5868433893a52b18ae4b -->
+<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -448,7 +448,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `project set` | プロジェクト設定を設定します。値は宣言された型に変換されます。 |
 | `project add-autoload` | オートロードのシングルトンを登録します(名前 → スクリプト/シーン)。 |
 | `project remove-autoload` | オートロードのシングルトンを名前で指定して登録解除します。 |
-| `project add-input-action` | キーやコントローラーに割り当てた InputMap アクションを登録します(`--key`、`--joy-button`、`--joy-axis` は `<軸>[:<符号>]` 形式、`--device`、`--deadzone`、`--physical`)。バインドは 1 つ以上必要です。 |
+| `project add-input-action` | キーに割り当てた InputMap アクションを登録します(`--key` はキー名またはキーコード、`--deadzone`、`--physical`)。 |
 | `project remove-input-action` | InputMap アクションを名前で指定して登録解除します。 |
 | `project find-references` | 指定したリソースを参照するすべてのプロジェクトファイルを見つけます。 |
 | `project dependencies` | 各シーン/リソースを、それが依存するリソースに対応付けます。 |
@@ -540,8 +540,8 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `input key` | キーイベントを(修飾キー付きで)注入します。 |
 | `input mouse-click` | `(x, y)` の位置に完全なクリックジェスチャ(移動、押下、解放)を注入します。 |
 | `input mouse-move` | `(x, y)` へのマウス移動を注入します。 |
-| `input action` | マッピング済みの入力アクションを押下/解放します。 |
-| `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行)。 |
+| `input action` | マッピング済みの入力アクションを押下/解放します(ポーリング状態のみが変化し、`_input`/`_gui_input` には届きません)。 |
+| `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行。`--key` はイベントを届け、`--action` はポーリング状態のみを変えます)。 |
 | `input sequence` | 複数フレームにわたるイベントのタイムラインを注入します。 |
 
 注入されたマウス座標は `event.position` から読み取ってください——デーモンセッションでは

@@ -676,11 +676,12 @@ def test_mouse_click_performs_the_complete_activation_gesture(
         first = gda("input", "mouse-click", "50", "20")
         assert first.returncode == 0, first.stdout + first.stderr
         doc = json.loads(first.stdout)
-        # The structured gesture evidence: the three phases at their frames.
+        # The structured gesture evidence: the three phases at their frames, each
+        # naming the route it took into the game (#838).
         assert doc["phases"] == [
-            {"frame": 0, "phase": "move"},
-            {"frame": 1, "phase": "press"},
-            {"frame": 2, "phase": "release"},
+            {"frame": 0, "phase": "move", "injection_route": "viewport_event"},
+            {"frame": 1, "phase": "press", "injection_route": "viewport_event"},
+            {"frame": 2, "phase": "release", "injection_route": "viewport_event"},
         ]
 
         # The Button observed the COMPLETE activation: down, up, and `pressed`.
@@ -789,8 +790,8 @@ def test_tap_advances_a_focus_driven_ui_exactly_once_repeatably(
         assert first.returncode == 0, first.stdout + first.stderr
         doc = json.loads(first.stdout)
         assert doc["phases"] == [
-            {"frame": 0, "phase": "press"},
-            {"frame": 2, "phase": "release"},
+            {"frame": 0, "phase": "press", "injection_route": "viewport_event"},
+            {"frame": 2, "phase": "release", "injection_route": "viewport_event"},
         ]
         # Exactly one step: A -> B, evidenced by the op's own focus read-back.
         assert doc["focus_before"] == "/root/Main/A", doc
@@ -835,6 +836,68 @@ def test_tap_action_produces_exactly_one_press_and_release_edge(
         assert second.returncode == 0, second.stdout + second.stderr
         assert _property_value(gda, node, "pressed_edges") == 2
         assert _property_value(gda, node, "released_edges") == 2
+    finally:
+        gda("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_input_results_name_the_injection_route_against_a_live_session(
+    tmp_path, daemon_runtime_dir
+):
+    # The #838 live regression: against a REAL engine session, each injected form
+    # reports the route it actually took — a key event pushed through the root
+    # viewport, an action driven as polled state, and a tap holding an action
+    # reporting that route on every phase. The routes are what the two dogfooding
+    # rounds could not see (GDA-DF-048, GDA-DF-075), so they are asserted where the
+    # daemon, the harness and the engine are all real.
+    (tmp_path / "project.godot").write_text(ACTION_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(ACTION_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(TAP_ACTION_PLAYER_GD, encoding="utf-8")
+    gda = Gda(tmp_path, json_output=True)
+
+    try:
+        assert gda("daemon", "start").returncode == 0
+
+        key = gda("input", "key", "Right")
+        assert key.returncode == 0, key.stdout + key.stderr
+        assert json.loads(key.stdout)["injection_route"] == "viewport_event"
+
+        action = gda("input", "action", "move_right")
+        assert action.returncode == 0, action.stdout + action.stderr
+        assert json.loads(action.stdout)["injection_route"] == "action_state"
+        released = gda("input", "action", "move_right", "--release")
+        assert released.returncode == 0, released.stdout + released.stderr
+
+        tap = gda("input", "tap", "--action", "move_right")
+        assert tap.returncode == 0, tap.stdout + tap.stderr
+        tap_doc = json.loads(tap.stdout)
+        assert [phase["injection_route"] for phase in tap_doc["phases"]] == [
+            "action_state",
+            "action_state",
+        ]
+        # The tap really did drive the action it named the route for: the game's
+        # own polling saw its edges. Two of each by now — the standalone press and
+        # release above are the first pair, the tap is the second.
+        node = "/root/Main/Player"
+        assert _property_value(gda, node, "pressed_edges") == 2
+        assert _property_value(gda, node, "released_edges") == 2
+
+        sequence = gda(
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(
+                [
+                    {"type": "action", "action": "move_right", "frame": 0},
+                    {"type": "key", "key": "Right", "frame": 1},
+                ]
+            ),
+        )
+        assert sequence.returncode == 0, sequence.stdout + sequence.stderr
+        assert json.loads(sequence.stdout)["phases"] == [
+            {"frame": 0, "phase": "press", "injection_route": "action_state"},
+            {"frame": 1, "phase": "press", "injection_route": "viewport_event"},
+        ]
     finally:
         gda("daemon", "stop")
 

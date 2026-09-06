@@ -250,6 +250,17 @@ Every live reply carries its floats at full binary64 precision, so a value read 
 
 In the other direction the wire is narrower, and EVERY live command RELAYED to the game applies the same rule — not just `game call`; the three the daemon answers itself (`diag errors`, `logger tail`, `daemon wait-ready`) send no number to the engine and are outside it. A number gda cannot send unchanged is refused before the request leaves: a float whose wire literal Godot's parser reads as `0.0` (`DBL_MIN`, any subnormal, many-digit values such as `1.2345678901234567e-300`) and a JSON integer beyond ±(2^53−1). It is a usage error on the argv path and `invalid_params` on `--params-json`, decided without a running daemon, and it reaches nested values — a sequence event's `x`, a `game call` argument inside a dictionary. A float the parser DOES read still arrives changed in its low-order bits: 1 ULP at ordinary magnitudes, tens of doubles for a full-precision literal between `1e-4` and `1e-2`. That residual is disclosed, not refused (#752). `game set --value` is OUTSIDE that rule — the value travels as a STRING, so the wire never sees a number — and has a refusal of its own, decided in the session by the harness: the string is coerced with the engine's own parser and a literal it reads as `0.0` when you did not write zero, or as `NaN` at all, fails with `live_uncoercible_value` (exit 6, the running game untouched), the same rule headless `--value` follows (#772) — containers included, so a destroyed number inside a Dictionary or Array value is refused here too (#805).
 
+`gda input` injects through two routes, and every result names the one it used
+(`injection_route`). `input action`, `input tap --action` and a sequence `action`
+event drive `Input.action_press`/`action_release`: the `action_state` route, a
+change to the POLLED action state that reaches no `_input`, `_gui_input` or
+`_unhandled_input` handler. `input key`, the mouse commands and the `key` /
+`mouse_*` sequence kinds push an InputEvent through the root viewport: the
+`viewport_event` route. Rule of thumb — drive event-driven UI (a Control, a
+modal, a scrollable) with a key or mouse event, and use an action where the game
+polls `Input.is_action_*`. A successful action injection is not evidence that the
+event path works.
+
 For a UI activation, use the gesture commands, not a lone event. Godot activates a
 `Button` on the RELEASE, so a bare press never emits `pressed`; and a focused UI
 does not advance when the press and the release land on the same process frame.

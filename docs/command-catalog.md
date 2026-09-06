@@ -1476,7 +1476,18 @@ re-derives every verdict from a running engine.
   `mouse` sub-group, so each maps to a single `<group>_<command>` MCP tool name
   (ADR-0005/0011/0012). Key/mouse events ride the game's real input flow via the
   root viewport's `push_input` (scene-aware); actions go through
-  `Input.action_press`/`action_release` against the running `InputMap`. For mouse
+  `Input.action_press`/`action_release` against the running `InputMap`. Those are
+  two DISJOINT routes and every result names the one it used (`injection_route`,
+  #838): `viewport_event` for an `InputEvent` pushed through the viewport, and
+  `action_state` for an action — a change to the POLLED action state that builds no
+  `InputEvent` and so reaches no `_input` / `_gui_input` / `_unhandled_input`
+  handler. gda derives the route CLI-side from the event kind; the phased ops
+  (`input tap`, `input mouse-click`, `input sequence`) report it per phase, since
+  one sequence can mix the two — a tap targets exactly one of `--key` / `--action`,
+  and that target selects the route both its phases take. Drive event-driven UI
+  with a key or mouse event and use an action where the game polls
+  `Input.is_action_*`: a successful action injection is not evidence that the event
+  path works (GDA-DF-048, GDA-DF-075). For mouse
   ops and sequence mouse events, the reliable injected coordinate is
   `InputEventMouseButton.position` / `InputEventMouseMotion.position`; Godot may
   leave `Viewport.get_mouse_position()` and `Node2D.get_global_mouse_position()`

@@ -529,8 +529,8 @@ names the file, and only `preflight` catches a first-frame failure.
 | `input key` | Inject a key event (with modifiers). |
 | `input mouse-click` | Inject a complete click gesture (move, press, release) at `(x, y)`. |
 | `input mouse-move` | Inject mouse motion to `(x, y)`. |
-| `input action` | Press/release a mapped input action. |
-| `input tap` | Tap one key or action: press, hold, release across frames. |
+| `input action` | Press/release a mapped input action — polled state only, never delivered to `_input`/`_gui_input`. |
+| `input tap` | Tap one key or action: press, hold, release across frames (`--key` delivers an event, `--action` only sets polled state). |
 | `input sequence` | Inject a multi-frame event timeline. |
 
 Read injected mouse coordinates from `event.position` — in a daemon session
