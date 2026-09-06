@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
+<!-- gda-readme-i18n: source=README.md sha256=150ed6831b06c9466fc94b1a74fc01750974b5285c215a4cbb7cd852cc5c1c4a -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -8,6 +8,7 @@
 
 [产品概览](https://aigengame.xyz/zh/) ·
 [CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/) ·
+[可玩示例](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **让 Coding Agent、Shell 脚本与 CI 构建并验证 Godot 项目。**

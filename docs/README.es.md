@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
+<!-- gda-readme-i18n: source=README.md sha256=150ed6831b06c9466fc94b1a74fc01750974b5285c215a4cbb7cd852cc5c1c4a -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -8,6 +8,7 @@
 
 [Descripción del producto](https://aigengame.xyz/) ·
 [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·
+[Demos jugables](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
