@@ -13,6 +13,8 @@ observed via ``game get``) is the e2e in ``test_e2e_input``.
 import json
 import re
 
+import pytest
+
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -183,9 +185,9 @@ def test_input_mouse_click_injects_the_whole_gesture_through_the_live_channel(
     # The result carries the COMPLETE gesture's evidence (#652): the three
     # phases at their window frames, and the focus state around the gesture.
     assert data["phases"] == [
-        {"frame": 0, "phase": "move"},
-        {"frame": 1, "phase": "press"},
-        {"frame": 2, "phase": "release"},
+        {"frame": 0, "phase": "move", "injection_route": "viewport_event"},
+        {"frame": 1, "phase": "press", "injection_route": "viewport_event"},
+        {"frame": 2, "phase": "release", "injection_route": "viewport_event"},
     ]
     assert data["focus_before"] is None
     assert data["focus_after"] == "/root/Main/Btn"
@@ -460,8 +462,8 @@ def test_input_tap_key_dispatches_the_press_hold_release_window(monkeypatch, tmp
     # The gesture evidence (#652): press at frame 0, release at frame
     # hold_frames, and the focus state around the tap.
     assert data["phases"] == [
-        {"frame": 0, "phase": "press"},
-        {"frame": 2, "phase": "release"},
+        {"frame": 0, "phase": "press", "injection_route": "viewport_event"},
+        {"frame": 2, "phase": "release", "injection_route": "viewport_event"},
     ]
     assert data["focus_before"] == "/root/Main/A"
     assert data["focus_after"] == "/root/Main/B"
@@ -1238,7 +1240,17 @@ def test_input_sequence_at_the_window_boundary_argv_is_accepted(monkeypatch, tmp
     # MAX_WINDOW_FRAMES). It passes the model and reaches the live seam unchanged.
     fake = inject_live_runner(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+        RunResult(
+            stdout=sentinel(
+                {
+                    **INPUT_SEQUENCE_RESULT,
+                    "events": 1,
+                    "frames": MAX_WINDOW_FRAMES,
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
     )
 
     result = CliRunner().invoke(
@@ -1296,14 +1308,17 @@ def test_input_sequence_help_documents_mouse_tracked_position_limitation():
     result = CliRunner().invoke(app, ["input", "sequence", "--help"])
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    assert "mouse_click" in result.stdout
-    assert "mouse_move" in result.stdout
-    assert "mouse event" in result.stdout
-    assert "position" in result.stdout
-    assert "get_mouse_position()" in result.stdout
-    assert "get_global_mouse_position()" in result.stdout
-    assert "stale in" in result.stdout
-    assert "daemon sessions" in result.stdout
+    # Flattened, so a phrase the renderer wraps is still one phrase (the same
+    # reason the mouse-op help tests read `_flat_help`).
+    flat = _flat_help(result)
+    assert "mouse_click" in flat
+    assert "mouse_move" in flat
+    assert "mouse event" in flat
+    assert "position" in flat
+    assert "get_mouse_position()" in flat
+    assert "get_global_mouse_position()" in flat
+    assert "stale in" in flat
+    assert "daemon sessions" in flat
 
 
 # --- model validation via --params-json (ADR-0015) ----------------------------
@@ -1587,7 +1602,17 @@ def test_input_sequence_params_json_at_the_window_boundary_dispatches(
     # dispatches through the same live seam the argv path uses.
     fake = inject_live_runner(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+        RunResult(
+            stdout=sentinel(
+                {
+                    **INPUT_SEQUENCE_RESULT,
+                    "events": 1,
+                    "frames": MAX_WINDOW_FRAMES,
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
     )
 
     result = CliRunner().invoke(
@@ -1954,7 +1979,11 @@ def test_an_explicit_null_button_still_means_the_left_button(monkeypatch, tmp_pa
     # sent an explicit null. It stays accepted, and normalizes to a named button.
     fake = inject_live_runner(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+        RunResult(
+            stdout=sentinel({**INPUT_SEQUENCE_RESULT, "events": 2, "frames": 1}),
+            stderr="",
+            exit_code=0,
+        ),
     )
     events = [
         {"type": "mouse_click", "x": 1.0, "y": 2.0, "button": None},
@@ -2118,3 +2147,348 @@ def test_a_sequence_variant_keeps_its_single_frame_ops_constraints():
     assert _MIRRORED_NULLABLE_EXEMPTIONS <= pinned, (
         _MIRRORED_NULLABLE_EXEMPTIONS - pinned
     )
+
+
+# --- the injection route every input result names (#838) ----------------------
+# gda injects an action as a STATE change (Input.action_press/action_release) and
+# a key or mouse event as an EVENT pushed through the root viewport. The two are
+# not interchangeable — a state change reaches no `_input` / `_gui_input` /
+# `_unhandled_input` handler — and a success result that named neither read as
+# GUI-path validation twice in dogfooding (GDA-DF-048, GDA-DF-075). Every result
+# now names the route it used; the CLI derives it from the event kind, so the
+# harness reply below is the UNCHANGED one it already sends.
+
+
+def _input_json(monkeypatch, tmp_path, payload, *argv):
+    """Run one `gda input` command over a faked live seam; return its result JSON."""
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+    result = CliRunner().invoke(
+        app,
+        ["input", *argv, "--project", str(minimal_project(tmp_path)), "--json"],
+    )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    return json.loads(result.stdout)
+
+
+def test_input_key_result_names_the_viewport_event_route(monkeypatch, tmp_path):
+    data = _input_json(monkeypatch, tmp_path, INPUT_KEY_RESULT, "key", "Right")
+
+    assert data["injection_route"] == "viewport_event"
+
+
+def test_input_mouse_move_result_names_the_viewport_event_route(monkeypatch, tmp_path):
+    data = _input_json(
+        monkeypatch, tmp_path, INPUT_MOUSE_MOVE_RESULT, "mouse-move", "50", "60"
+    )
+
+    assert data["injection_route"] == "viewport_event"
+
+
+def test_input_action_result_names_the_action_state_route(monkeypatch, tmp_path):
+    data = _input_json(monkeypatch, tmp_path, INPUT_ACTION_RESULT, "action", "jump")
+
+    assert data["injection_route"] == "action_state"
+
+
+def test_input_mouse_click_phases_each_name_the_viewport_event_route(
+    monkeypatch, tmp_path
+):
+    data = _input_json(
+        monkeypatch, tmp_path, INPUT_MOUSE_CLICK_RESULT, "mouse-click", "100", "200"
+    )
+
+    assert [phase["injection_route"] for phase in data["phases"]] == [
+        "viewport_event",
+        "viewport_event",
+        "viewport_event",
+    ]
+
+
+def test_input_tap_key_phases_name_the_viewport_event_route(monkeypatch, tmp_path):
+    data = _input_json(
+        monkeypatch, tmp_path, INPUT_TAP_KEY_RESULT, "tap", "--key", "Right"
+    )
+
+    assert [phase["injection_route"] for phase in data["phases"]] == [
+        "viewport_event",
+        "viewport_event",
+    ]
+
+
+def test_input_tap_action_phases_name_the_action_state_route(monkeypatch, tmp_path):
+    # The tap is the one command whose route depends on the target it was given,
+    # which is why the field rides the PHASE and not the result's head.
+    data = _input_json(
+        monkeypatch, tmp_path, INPUT_TAP_ACTION_RESULT, "tap", "--action", "jump"
+    )
+
+    assert [phase["injection_route"] for phase in data["phases"]] == [
+        "action_state",
+        "action_state",
+    ]
+
+
+def test_input_sequence_reports_one_phase_per_event_naming_its_route(
+    monkeypatch, tmp_path
+):
+    # A sequence can MIX the routes, so each injected phase names its own. The
+    # phases are derived from the request: the harness reply counts the events,
+    # it does not enumerate them.
+    events = [
+        {"type": "action", "action": "jump", "frame": 0},
+        {"type": "key", "key": "Right", "frame": 1},
+        {"type": "mouse_click", "x": 10, "y": 20, "frame": 2},
+    ]
+    data = _input_json(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 3},
+        "sequence",
+        "--events",
+        json.dumps(events),
+    )
+
+    assert data["phases"] == [
+        {"frame": 0, "phase": "press", "injection_route": "action_state"},
+        {"frame": 1, "phase": "press", "injection_route": "viewport_event"},
+        {"frame": 2, "phase": "press", "injection_route": "viewport_event"},
+        {"frame": 2, "phase": "release", "injection_route": "viewport_event"},
+    ]
+
+
+def test_input_sequence_phases_report_releases_and_the_physics_clock(
+    monkeypatch, tmp_path
+):
+    # A release event reports a release phase, and the phase offsets are the
+    # offsets on the clock the result reports — physics here, not process.
+    events = [
+        {"type": "action", "action": "jump", "physics_frame": 0},
+        {"type": "action", "action": "jump", "release": True, "physics_frame": 30},
+        {"type": "mouse_move", "x": 1, "y": 2, "physics_frame": 30},
+    ]
+    data = _input_json(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_SEQUENCE_RESULT, "clock": "physics", "events": 3, "frames": 31},
+        "sequence",
+        "--events",
+        json.dumps(events),
+    )
+
+    assert data["clock"] == "physics"
+    assert data["phases"] == [
+        {"frame": 0, "phase": "press", "injection_route": "action_state"},
+        {"frame": 30, "phase": "release", "injection_route": "action_state"},
+        {"frame": 30, "phase": "move", "injection_route": "viewport_event"},
+    ]
+
+
+def test_every_event_kind_declares_its_route_and_only_action_takes_the_state_one():
+    # The route table must be COMPLETE over the union's own membership, and the
+    # derivation must have no fallback: with one, a sixth kind that changes state
+    # would silently inherit `viewport_event` — the common answer — and this test
+    # would still pass. So the key set is pinned against `InputEventType`, and the
+    # absence of a declared route is an error rather than a default.
+    import gda.commands.input as input_module
+
+    kinds = {kind.value for kind in input_module.InputEventType}
+    assert set(input_module.INJECTION_ROUTES) == kinds, (
+        input_module.INJECTION_ROUTES,
+        kinds,
+    )
+    assert input_module.INJECTION_ROUTES["action"] == "action_state"
+    assert {
+        route
+        for kind, route in input_module.INJECTION_ROUTES.items()
+        if kind != "action"
+    } == {"viewport_event"}
+    assert all(
+        input_module.injection_route(kind) == input_module.INJECTION_ROUTES[kind]
+        for kind in kinds
+    )
+    with pytest.raises(ValueError, match="no injection route is declared"):
+        input_module.injection_route("joypad_button")
+
+
+def test_input_sequence_phases_are_reported_in_application_order(monkeypatch, tmp_path):
+    # The harness applies a sequence by advancing the clock one index at a time and,
+    # at each index, walking the events in REQUEST order — so the reported phases
+    # are sorted by frame with request order kept inside a frame, and a request
+    # written out of frame order still reads like the gesture ops' phase lists.
+    events = [
+        {"type": "key", "key": "Right", "frame": 5},
+        {"type": "action", "action": "jump", "frame": 0},
+        {"type": "mouse_move", "x": 1, "y": 2, "frame": 0},
+    ]
+    data = _input_json(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 6},
+        "sequence",
+        "--events",
+        json.dumps(events),
+    )
+
+    assert data["phases"] == [
+        {"frame": 0, "phase": "press", "injection_route": "action_state"},
+        {"frame": 0, "phase": "move", "injection_route": "viewport_event"},
+        {"frame": 5, "phase": "press", "injection_route": "viewport_event"},
+    ]
+
+
+def test_input_sequence_refuses_a_reply_that_applied_a_different_event_count(
+    monkeypatch, tmp_path
+):
+    # The phases are derived from the REQUEST, so a reply that says it applied a
+    # different sequence must not be published beside them: the result would state
+    # two sequences at once. A self-consistent reply for a DIFFERENT request is a
+    # contract_violation, the rule `perf monitors` already applies to its window.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({**INPUT_SEQUENCE_RESULT, "events": 1, "frames": 1}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(
+                [
+                    {"type": "action", "action": "jump", "frame": 0},
+                    {"type": "key", "key": "Right", "frame": 1},
+                    {"type": "key", "key": "Left", "frame": 2},
+                ]
+            ),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "contract_violation"
+    assert error["message"] == "the harness applied 1 events for a 3-event request."
+
+
+def test_input_sequence_publishes_phases_when_the_reply_agrees(monkeypatch, tmp_path):
+    # The other half of the correlation: an agreeing reply still publishes the
+    # derived phases, so the guard refuses drift rather than the feature.
+    data = _input_json(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_SEQUENCE_RESULT, "events": 2, "frames": 2},
+        "sequence",
+        "--events",
+        json.dumps(
+            [
+                {"type": "action", "action": "jump", "frame": 0},
+                {"type": "key", "key": "Right", "frame": 1},
+            ]
+        ),
+    )
+
+    assert data["events"] == 2
+    assert [phase["injection_route"] for phase in data["phases"]] == [
+        "action_state",
+        "viewport_event",
+    ]
+
+
+def test_input_action_help_states_the_route_and_what_it_never_reaches():
+    # The #838 acceptance, and the retraction of the claim that the game
+    # "observes the action exactly as a real binding would fire".
+    result = CliRunner().invoke(app, ["input", "action", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    flat = _flat_help(result)
+    assert "real binding would fire" not in flat
+    assert "action_state" in flat
+    assert "polled action state" in flat
+    assert "_input" in flat
+    assert "_gui_input" in flat
+    assert "_unhandled_input" in flat
+    assert "Input.is_action_" in flat
+
+
+def test_input_tap_help_states_the_route_of_each_target():
+    result = CliRunner().invoke(app, ["input", "tap", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    flat = _flat_help(result)
+    assert "action_state" in flat
+    assert "viewport_event" in flat
+    assert "_gui_input" in flat
+    assert "Input.is_action_" in flat
+
+
+def test_input_sequence_help_states_the_route_of_each_event_kind():
+    result = CliRunner().invoke(app, ["input", "sequence", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    flat = _flat_help(result)
+    assert "action_state" in flat
+    assert "viewport_event" in flat
+    assert "_unhandled_input" in flat
+
+
+def test_input_action_schema_publishes_the_route_it_takes():
+    result = CliRunner().invoke(app, ["input", "action", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    schema = json.loads(result.stdout)
+    assert "action_state" in schema["input"]["description"]
+    assert "_gui_input" in schema["input"]["description"]
+    route = schema["output"]["properties"]["injection_route"]
+    assert route["enum"] == ["action_state", "viewport_event"]
+    assert route["default"] == "action_state"
+
+
+def test_input_tap_schema_publishes_the_route_on_every_phase():
+    result = CliRunner().invoke(app, ["input", "tap", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    schema = json.loads(result.stdout)
+    assert "action_state" in schema["input"]["description"]
+    assert "_gui_input" in schema["input"]["description"]
+    phase = schema["output"]["$defs"]["InputEventPhase"]
+    assert phase["properties"]["injection_route"]["enum"] == [
+        "action_state",
+        "viewport_event",
+    ]
+    assert "injection_route" in phase["required"]
+
+
+def test_input_sequence_schema_publishes_the_route_per_event_kind():
+    result = CliRunner().invoke(app, ["input", "sequence", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    schema = json.loads(result.stdout)
+    assert "action_state" in schema["input"]["description"]
+    assert "_unhandled_input" in schema["input"]["description"]
+    assert "action_state" in _variants()["action"]["description"]
+    assert "viewport_event" in _variants()["key"]["description"]
+    phases = schema["output"]["properties"]["phases"]
+    assert "route" in phases["description"]
+
+
+def test_the_bundled_skill_states_which_route_each_input_command_takes():
+    # ADR-0024 ships the skill in-package, so the guidance an agent reads is
+    # version-locked to this CLI: the route distinction must be in it, not only
+    # in --help.
+    from gda.commands.meta import read_skill_text
+
+    skill = read_skill_text()
+
+    assert "action_state" in skill
+    assert "viewport_event" in skill
+    assert "_gui_input" in skill
+    assert "Input.is_action_" in skill

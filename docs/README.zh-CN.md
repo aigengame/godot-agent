@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=de18d3f4225e4b4b473921f121ef9f086dddb68cc38e5868433893a52b18ae4b -->
+<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -428,7 +428,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project set` | 设置一个项目设置，并把值强制转换为它声明的类型。 |
 | `project add-autoload` | 注册一个 autoload 单例（名称 → 脚本/场景）。 |
 | `project remove-autoload` | 按名称注销一个 autoload 单例。 |
-| `project add-input-action` | 注册一个绑定按键和/或手柄的 InputMap 动作（`--key`、`--joy-button`、`--joy-axis` 形如 `<轴>[:<符号>]`、`--device`、`--deadzone`、`--physical`）；至少需要一个绑定。 |
+| `project add-input-action` | 注册一个绑定按键的 InputMap 动作（`--key` 键名或键码、`--deadzone`、`--physical`）。 |
 | `project remove-input-action` | 按名称注销一个 InputMap 动作。 |
 | `project find-references` | 找出引用了给定资源的每一个项目文件。 |
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
@@ -520,8 +520,8 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `input key` | 注入一个按键事件（带修饰键）。 |
 | `input mouse-click` | 在 `(x, y)` 处注入完整的点击手势(移动、按下、释放)。 |
 | `input mouse-move` | 将鼠标移动到 `(x, y)`。 |
-| `input action` | 按下/释放一个已映射的输入动作。 |
-| `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放。 |
+| `input action` | 按下/释放一个已映射的输入动作 —— 仅改变轮询状态，绝不会送达 `_input`/`_gui_input`。 |
+| `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放（`--key` 送达事件，`--action` 仅改变轮询状态）。 |
 | `input sequence` | 注入一条跨多帧的事件时间线。 |
 
 注入的鼠标坐标请从 `event.position` 读取——daemon 会话中 `get_mouse_position()` /

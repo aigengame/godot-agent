@@ -209,6 +209,11 @@ _RECIPE_OPERATIONS = {
     # calls the shared launch primitive with the engine's project-wide
     # `--import` argv — not a sentinel op, like `export run`'s native channel.
     "resource-import",
+    # `input sequence` (#838) names the injection route of each phase it applied,
+    # and the harness reply counts the events without enumerating them: only the
+    # request holds the per-event kinds, so the recipe completes the sentinel op's
+    # result the way `perf monitors` correlates its reply.
+    "input-sequence",
 }
 
 

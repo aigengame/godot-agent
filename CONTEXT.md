@@ -86,6 +86,19 @@ the state is bound to the session, not surviving its relaunch. A Phase-2 live-la
 property only — Phase-1 headless calls are stateless (ADR-0020).
 _Avoid_: consistency, coherence, sync
 
+**Injection route**:
+The door a live input injection takes into the running game, and there are exactly
+two: `action_state` drives `Input.action_press` / `action_release`, changing the
+polled state `Input.is_action_*` reads and reaching no `_input` / `_gui_input` /
+`_unhandled_input` handler; `viewport_event` pushes an `InputEvent` through the root
+viewport's `push_input`, reaching those handlers and changing no polled state. The
+two are disjoint by construction — a state change is not an event — so a successful
+action injection is not evidence the event path works, which twice read as one in
+dogfooding. Every `input` result names the route it used (`injection_route`,
+top-level on the single-event commands and per phase on the phased ones), derived
+CLI-side from the event kind (#838). The opt-in event mode for actions is #854.
+_Avoid_: input mode, injection method, path
+
 **Headless launch**:
 The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
 the sentinel op-dispatch runner, the native-export runner, the `gda resource
