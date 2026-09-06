@@ -322,17 +322,14 @@ def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, An
     return policy
 
 
-def formula_schema_version(
+def _formula_source_schema(
     authority_context: AdmittedAuthorityContext,
-) -> str:
+) -> dict[str, Any]:
     packages = cast(
         list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
     )
-    versions = [
-        definition.get("schema", {})
-        .get("properties", {})
-        .get("schema_version", {})
-        .get("const")
+    schemas = [
+        definition.get("schema")
         for package in packages
         if package.get("id") == "standard.schema"
         for closure in cast(list[dict[str, Any]], package["semantic_closure"])
@@ -340,9 +337,23 @@ def formula_schema_version(
         for definition in cast(list[dict[str, Any]], closure["definitions"])
         if definition.get("artifact_kind") == "model-source-package"
     ]
-    if len(versions) != 1 or not isinstance(versions[0], str):
+    if len(schemas) != 1 or not isinstance(schemas[0], dict):
+        raise ValueError("Formula conversion has no exact source schema")
+    return schemas[0]
+
+
+def formula_schema_version(
+    authority_context: AdmittedAuthorityContext,
+) -> str:
+    version = (
+        _formula_source_schema(authority_context)
+        .get("properties", {})
+        .get("schema_version", {})
+        .get("const")
+    )
+    if not isinstance(version, str):
         raise ValueError("Formula conversion has no exact source schema version")
-    return versions[0]
+    return version
 
 
 def _module_imports(
@@ -379,16 +390,16 @@ def _module_imports(
     imports = module.get(profile["imports_member"])
     if not isinstance(imports, list):
         raise ValueError("Formula module context has no imports")
+    source_schema = _formula_source_schema(authority_context)
+    import_schema = source_schema["properties"][profile["modules_member"]]["items"][
+        "properties"
+    ][profile["imports_member"]]["items"]
+    import_validator = jsonschema.Draft202012Validator(source_schema).evolve(
+        schema=import_schema
+    )
     resolved: dict[str, dict[str, str]] = {}
     for item in imports:
-        if not isinstance(item, dict) or not all(
-            isinstance(item.get(profile[member]), str)
-            for member in (
-                "import_alias_member",
-                "import_package_member",
-                "import_symbol_member",
-            )
-        ):
+        if not import_validator.is_valid(item):
             raise ValueError("Formula module import is malformed")
         alias = cast(str, item[profile["import_alias_member"]])
         if alias in resolved:
