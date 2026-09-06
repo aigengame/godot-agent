@@ -139,20 +139,11 @@ def checked_model_template_facts(checked: CheckedModel) -> dict[str, JsonValue]:
         checked.language_bundle, cast(str, lowering["resolution_profile"])
     )
     requirements_member = cast(str, profile["requirements_member"])
-    requirement_package_member = cast(str, profile["requirement_package_member"])
-    requirement_version_member = cast(str, profile["requirement_version_member"])
-    root_requirements = [
-        {
-            "id": item[requirement_package_member],
-            "version": item[requirement_version_member],
-        }
-        for item in cast(list[dict[str, str]], checked.source[requirements_member])
-    ]
+    root_requirements = list(cast(list[str], checked.source[requirements_member]))
     lock = _package_lock(checked)
     resolved_packages = [
         {
             "id": item["id"],
-            "version": item["version"],
             "content_identity": item["content_identity"],
         }
         for item in cast(list[dict[str, JsonValue]], lock["packages"])
@@ -228,24 +219,14 @@ def _resolved_source_symbols(
     symbols_member = cast(str, profile["symbols_member"])
     alias_member = cast(str, profile["import_alias_member"])
     package_member = cast(str, profile["import_package_member"])
-    version_member = cast(str, profile["import_version_member"])
     import_symbol_member = cast(str, profile["import_symbol_member"])
     source_symbol_member = cast(str, profile["symbol_name_member"])
     fact_symbol_member = cast(str, profile["symbol_fact_member"])
     source_type_member = cast(str, profile["symbol_type_member"])
     requirements_member = cast(str, profile["requirements_member"])
-    requirement_package_member = cast(str, profile["requirement_package_member"])
-    requirement_version_member = cast(str, profile["requirement_version_member"])
-    requirements = {
-        (
-            item[requirement_package_member],
-            item[requirement_version_member],
-        )
-        for item in cast(list[dict[str, str]], source[requirements_member])
-    }
+    requirements = set(cast(list[str], source[requirements_member]))
     packages = {
-        (item["id"], item["version"]): item
-        for item in cast(list[dict[str, Any]], language["packages"])
+        item["id"]: item for item in cast(list[dict[str, Any]], language["packages"])
     }
     selected_source_rows = {
         pointer: value
@@ -269,7 +250,7 @@ def _resolved_source_symbols(
             alias = item[alias_member]
             if alias in imports:
                 raise ValueError(f"duplicate import alias: {alias}")
-            package_key = (item[package_member], item[version_member])
+            package_key = item[package_member]
             if package_key not in requirements:
                 raise ValueError(f"import is not declared as a requirement: {alias}")
             package = packages.get(package_key)
@@ -319,14 +300,12 @@ def _resolved_source_symbols(
             fields["resolved_symbol"] = resolved_symbol
             fields["type_identity"] = {
                 "package": imported[package_member],
-                "version": imported[version_member],
-                "symbol": imported[import_symbol_member],
+                "id": imported[import_symbol_member],
             }
             nominal_matches = [
                 definition
                 for definition in cast(list[dict[str, Any]], language["nominal_types"])
                 if definition.get("package") == imported[package_member]
-                and definition.get("version") == imported[version_member]
                 and definition.get("id") == imported[import_symbol_member]
             ]
             if len(nominal_matches) == 1:
@@ -367,8 +346,7 @@ def _formula_contract_mismatch_reason(
             isinstance(formula_type, dict)
             and isinstance(target_type, dict)
             and formula_type.get("package") == target_type.get("package")
-            and formula_type.get("version") == target_type.get("version")
-            and formula_type.get("symbol") == target_type.get("id")
+            and formula_type.get("id") == target_type.get("id")
             and formula_contract.get("representation")
             == target_contract.get("representation")
         )
@@ -396,7 +374,6 @@ def _formula_contract_mismatch_reason(
 def _formula_operation_identity(
     domains: dict[str, str],
     package: str,
-    version: str,
     operation_id: str,
 ) -> str:
     """Identify the exact selected coordinate independently of specialization."""
@@ -404,7 +381,6 @@ def _formula_operation_identity(
         domains["operation"],
         {
             "package": package,
-            "version": version,
             "id": operation_id,
         },
     )
@@ -658,7 +634,6 @@ def _resolved_formula_programs_and_bindings_impl(
             cast(str, item[cast(str, profile["import_alias_member"])]): {
                 "alias": cast(str, item[cast(str, profile["import_alias_member"])]),
                 "package": cast(str, item[cast(str, profile["import_package_member"])]),
-                "version": cast(str, item[cast(str, profile["import_version_member"])]),
                 "symbol": cast(str, item[cast(str, profile["import_symbol_member"])]),
             }
             for item in cast(
@@ -791,7 +766,6 @@ def _resolved_formula_programs_and_bindings_impl(
     operations_by_coordinate = {
         (
             cast(str, row["package"]),
-            cast(str, cast(dict[str, Any], row["definition"])["version"]),
             cast(str, cast(dict[str, Any], row["definition"])["id"]),
         ): cast(dict[str, Any], row["definition"])
         for row in cast(list[dict[str, Any]], lock["operations"])
@@ -886,11 +860,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 )
             elif node_kind == "operation-call":
                 operation_ref = cast(dict[str, str], source_node["operation"])
-                coordinate = (
-                    operation_ref["package"],
-                    operation_ref["version"],
-                    operation_ref["id"],
-                )
+                coordinate = (operation_ref["package"], operation_ref["id"])
                 operation = operations_by_coordinate.get(coordinate)
                 if (
                     operation is None
@@ -960,8 +930,7 @@ def _resolved_formula_programs_and_bindings_impl(
                         operand_contract = {
                             "type_identity": {
                                 "package": literal_type["package"],
-                                "version": literal_type["version"],
-                                "symbol": literal_type["id"],
+                                "id": literal_type["id"],
                             },
                             **{
                                 member: literal_context[member]
@@ -1004,7 +973,7 @@ def _resolved_formula_programs_and_bindings_impl(
                         "Formula local result is incompatible with its Operation"
                     )
                 operation_identity = _formula_operation_identity(
-                    domains, coordinate[0], coordinate[1], coordinate[2]
+                    domains, coordinate[0], coordinate[1]
                 )
                 node_body = cast(
                     dict[str, JsonValue],
@@ -1013,8 +982,7 @@ def _resolved_formula_programs_and_bindings_impl(
                         "node": "operation-call",
                         "operation": {
                             "package": coordinate[0],
-                            "version": coordinate[1],
-                            "id": coordinate[2],
+                            "id": coordinate[1],
                             "identity": operation_identity,
                         },
                         "arguments": arguments,
@@ -1046,8 +1014,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 boolean_type = cast(dict[str, str], boolean_contract["type"])
                 if condition_contract.get("type_identity") != {
                     "package": boolean_type["package"],
-                    "version": boolean_type["version"],
-                    "symbol": boolean_type["id"],
+                    "id": boolean_type["id"],
                 } or any(
                     condition_contract.get(member) != boolean_contract.get(member)
                     for member in (
@@ -1186,19 +1153,11 @@ def _resolved_formula_programs_and_bindings_impl(
                 pending.append(dependency)
 
     resolved_bindings: list[dict[str, JsonValue]] = []
-    package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
-        for row in cast(list[dict[str, Any]], lock["packages"])
-    }
     selected_slots: dict[
-        tuple[str, str, str, str], tuple[dict[str, Any], dict[str, Any], str]
+        tuple[str, str, str], tuple[dict[str, Any], dict[str, Any], str]
     ] = {}
     formula_operation_roots = {
-        (
-            cast(str, operation["package"]),
-            cast(str, operation["version"]),
-            cast(str, operation["id"]),
-        )
+        (cast(str, operation["package"]), cast(str, operation["id"]))
         for key in selected_formula_keys
         for node in cast(
             list[dict[str, Any]],
@@ -1207,7 +1166,7 @@ def _resolved_formula_programs_and_bindings_impl(
         if node.get("node") == "operation-call"
         and isinstance((operation := node.get("operation")), dict)
     }
-    concrete_operation_calls: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    concrete_operation_calls: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for key in selected_formula_keys:
         resolved_formula = resolved_by_key[key]
         for node in cast(
@@ -1221,7 +1180,6 @@ def _resolved_formula_programs_and_bindings_impl(
                 continue
             coordinate = (
                 cast(str, operation_ref["package"]),
-                cast(str, operation_ref["version"]),
                 cast(str, operation_ref["id"]),
             )
             concrete_operation_calls.setdefault(coordinate, []).append(
@@ -1237,11 +1195,7 @@ def _resolved_formula_programs_and_bindings_impl(
             )
     for source_entrypoint in cast(list[dict[str, Any]], checked.source["entrypoints"]):
         operation_ref = cast(dict[str, str], source_entrypoint["operation"])
-        coordinate = (
-            operation_ref["package"],
-            operation_ref["version"],
-            operation_ref["id"],
-        )
+        coordinate = (operation_ref["package"], operation_ref["id"])
         operation = operations_by_coordinate.get(coordinate)
         if operation is None:
             continue
@@ -1275,15 +1229,11 @@ def _resolved_formula_programs_and_bindings_impl(
     for operation_row in cast(list[dict[str, Any]], lock["operations"]):
         package_id = cast(str, operation_row["package"])
         definition = cast(dict[str, Any], operation_row["definition"])
-        coordinate = (
-            package_id,
-            package_versions[package_id],
-            cast(str, definition["id"]),
-        )
+        coordinate = (package_id, cast(str, definition["id"]))
         if coordinate not in selected_operation_coordinates:
             continue
         operation_identity = _formula_operation_identity(
-            domains, coordinate[0], coordinate[1], coordinate[2]
+            domains, coordinate[0], coordinate[1]
         )
         for slot in _operation_formula_slots(definition):
             slot_key = (*coordinate, cast(str, slot["id"]))
@@ -1292,7 +1242,7 @@ def _resolved_formula_programs_and_bindings_impl(
             selected_slots[slot_key] = (definition, slot, operation_identity)
 
     bound_derived_sites: set[tuple[str, str]] = set()
-    bound_operation_slots: set[tuple[str, str, str, str]] = set()
+    bound_operation_slots: set[tuple[str, str, str]] = set()
     for binding_index, source_binding in enumerate(source_bindings):
         binding_pointer = f"/{bindings_member}/{binding_index}"
         failure_context[:] = [binding_pointer]
@@ -1386,7 +1336,6 @@ def _resolved_formula_programs_and_bindings_impl(
             source_operation = cast(dict[str, Any], source_site.get("operation"))
             slot_key = (
                 cast(str, source_operation.get("package")),
-                cast(str, source_operation.get("version")),
                 cast(str, source_operation.get("id")),
                 cast(str, source_site.get("slot")),
             )
@@ -1414,7 +1363,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(str, parameter["id"]): parameter
                 for parameter in cast(list[dict[str, Any]], slot["parameters"])
             }
-            concrete_calls = concrete_operation_calls.get(slot_key[:3], [])
+            concrete_calls = concrete_operation_calls.get(slot_key[:2], [])
             for source_argument in source_arguments:
                 parameter_id = cast(str, source_argument[binding_parameter_member])
                 source_operand = cast(
@@ -1541,8 +1490,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 dict[str, JsonValue],
                 {
                     "package": slot_key[0],
-                    "version": slot_key[1],
-                    "id": slot_key[2],
+                    "id": slot_key[1],
                     "identity": operation_identity,
                 },
             )
@@ -1552,7 +1500,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 {
                     "kind": "operation-slot",
                     "operation": exact_operation,
-                    "slot": slot_key[3],
+                    "slot": slot_key[2],
                     "context": context,
                 },
             )
@@ -1742,6 +1690,7 @@ def _resolved_formulas_and_bindings(
             kernel=checked.kernel,
             language_bundle=checked.language_bundle,
             authority_context=checked.authority_context,
+            namespace_selection=checked.namespace_selection,
         )
         if changed
         else checked
@@ -1948,12 +1897,10 @@ def _assignment_mode_for_declaration(
 
 def _exact_operation_coordinate(
     operation_row: dict[str, Any],
-    package_versions: dict[str, str],
 ) -> dict[str, str]:
     package = cast(str, operation_row["package"])
     return {
         "package": package,
-        "version": package_versions[package],
         "id": cast(str, operation_row["definition"]["id"]),
     }
 
@@ -1967,8 +1914,7 @@ def _value_contract_matches(
         "type_identity"
     ) == {
         "package": expected_type.get("package"),
-        "version": expected_type.get("version"),
-        "symbol": expected_type.get("id"),
+        "id": expected_type.get("id"),
     }
     if not type_matches:
         return False
@@ -2018,14 +1964,9 @@ def _specialize_operation_formula_slots(
         list[dict[str, Any]],
         specialized["operations"],
     )
-    package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
-        for row in cast(list[dict[str, Any]], specialized["packages"])
-    }
     operations = {
         (
             cast(str, row["package"]),
-            package_versions[cast(str, row["package"])],
             cast(str, cast(dict[str, Any], row["definition"])["id"]),
         ): cast(dict[str, Any], row["definition"])
         for row in operation_rows
@@ -2093,7 +2034,6 @@ def _specialize_operation_formula_slots(
                 called_operation = operations[
                     (
                         cast(str, operation_ref["package"]),
-                        cast(str, operation_ref["version"]),
                         cast(str, operation_ref["id"]),
                     )
                 ]
@@ -2229,11 +2169,11 @@ def _specialize_operation_formula_slots(
         return instructions
 
     replacements: dict[
-        tuple[str, str, str],
+        tuple[str, str],
         list[tuple[int, int, list[dict[str, JsonValue]], str]],
     ] = {}
     snapshot_sources_by_operation: dict[
-        tuple[str, str, str],
+        tuple[str, str],
         dict[str, dict[str, JsonValue]],
     ] = {}
     for binding in bindings:
@@ -2243,7 +2183,6 @@ def _specialize_operation_formula_slots(
         operation_ref = cast(dict[str, Any], site["operation"])
         coordinate = (
             cast(str, operation_ref["package"]),
-            cast(str, operation_ref["version"]),
             cast(str, operation_ref["id"]),
         )
         operation = operations[coordinate]
@@ -2337,14 +2276,9 @@ def _compile_initialization_programs(
     policy: dict[str, Any],
 ) -> list[dict[str, JsonValue]]:
     """Lower derived bindings to closed generic value-instruction programs."""
-    package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
-        for row in cast(list[dict[str, Any]], selected_semantics["packages"])
-    }
     operations = {
         (
             cast(str, row["package"]),
-            package_versions[cast(str, row["package"])],
             cast(str, cast(dict[str, Any], row["definition"])["id"]),
         ): cast(dict[str, Any], row["definition"])
         for row in cast(
@@ -2462,7 +2396,6 @@ def _compile_initialization_programs(
                     operation = operations[
                         (
                             cast(str, operation_ref["package"]),
-                            cast(str, operation_ref["version"]),
                             cast(str, operation_ref["id"]),
                         )
                     ]
@@ -2823,7 +2756,7 @@ def _formula_symbol_dependencies(
     bindings: list[dict[str, Any]],
 ) -> tuple[
     dict[tuple[str, str, str], list[dict[str, JsonValue]]],
-    dict[tuple[str, str, str], list[dict[str, JsonValue]]],
+    dict[tuple[str, str], list[dict[str, JsonValue]]],
 ]:
     formulas_by_identity = {
         cast(str, formula["identity"]): formula for formula in formulas
@@ -2934,7 +2867,7 @@ def _formula_symbol_dependencies(
         for key in sorted(direct_by_site)
     }
     operation_dependencies: dict[
-        tuple[str, str, str],
+        tuple[str, str],
         set[tuple[str, str, str]],
     ] = {}
     for binding in bindings:
@@ -2942,11 +2875,7 @@ def _formula_symbol_dependencies(
         if site.get("kind") != "operation-slot":
             continue
         operation = cast(dict[str, str], site["operation"])
-        coordinate = (
-            operation["package"],
-            operation["version"],
-            operation["id"],
-        )
+        coordinate = (operation["package"], operation["id"])
         formula_ref = cast(dict[str, str], binding["formula"])
         dependencies = operation_dependencies.setdefault(coordinate, set())
         for dependency in close_formula(formula_ref["identity"], frozenset()):
@@ -2964,10 +2893,10 @@ def _formula_symbol_dependencies(
 
 
 def _reachable_operation_formula_dependencies(
-    root: tuple[str, str, str],
-    operations: dict[tuple[str, str, str], dict[str, Any]],
+    root: tuple[str, str],
+    operations: dict[tuple[str, str], dict[str, Any]],
     dependencies: dict[
-        tuple[str, str, str],
+        tuple[str, str],
         list[dict[str, JsonValue]],
     ],
     *,
@@ -3017,18 +2946,12 @@ def _resolved_entrypoints(
         for declaration in declarations
     ):
         raise ValueError("Model declarations do not close Symbol assignment policy")
-    package_versions = {
-        row["id"]: row["version"]
-        for row in cast(list[dict[str, str]], selected_semantics["packages"])
-    }
     operation_rows = cast(list[dict[str, Any]], selected_semantics["operations"])
+    selected_package_names = {
+        row["id"] for row in cast(list[dict[str, Any]], selected_semantics["packages"])
+    }
     operations = {
-        (
-            row["package"],
-            package_versions[row["package"]],
-            row["definition"]["id"],
-        ): row
-        for row in operation_rows
+        (row["package"], row["definition"]["id"]): row for row in operation_rows
     }
     declarations_by_source = {
         (
@@ -3067,18 +2990,10 @@ def _resolved_entrypoints(
             )
         seen_entrypoints.add(entrypoint_id)
         operation_ref = cast(dict[str, str], source_entrypoint["operation"])
-        operation_row = operations.get(
-            (
-                operation_ref["package"],
-                operation_ref["version"],
-                operation_ref["id"],
-            )
-        )
+        operation_row = operations.get((operation_ref["package"], operation_ref["id"]))
         if operation_row is None:
-            if operation_ref["package"] not in package_versions:
+            if operation_ref["package"] not in selected_package_names:
                 member = "package"
-            elif package_versions[operation_ref["package"]] != operation_ref["version"]:
-                member = "version"
             else:
                 member = "id"
             raise _EntrypointBindingError(
@@ -3086,7 +3001,7 @@ def _resolved_entrypoints(
                 f"entrypoint Operation is not selected: {entrypoint_id}",
             )
         operation = cast(dict[str, Any], operation_row["definition"])
-        exact_operation = _exact_operation_coordinate(operation_row, package_versions)
+        exact_operation = _exact_operation_coordinate(operation_row)
         formal_ports = cast(list[dict[str, Any]], operation["inputs"])
         source_arguments = cast(list[dict[str, Any]], source_entrypoint["arguments"])
         argument_names = [row["port"] for row in source_arguments]
@@ -3436,11 +3351,7 @@ def _resolved_entrypoints(
                 )
             )
         for dependency_symbol in _reachable_operation_formula_dependencies(
-            (
-                exact_operation["package"],
-                exact_operation["version"],
-                exact_operation["id"],
-            ),
+            (exact_operation["package"], exact_operation["id"]),
             operations,
             operation_formula_dependencies,
             operation_node_ids=_operation_reference_node_ids(checked.kernel),
@@ -3626,18 +3537,9 @@ def _resolved_call_sites(
     effect_policy = cast(dict[str, str], composition_policy["effects"])
     refusal_policy = cast(dict[str, str], composition_policy["refusals"])
     resource_policy = cast(dict[str, str], composition_policy["resources"])
-    package_versions = {
-        row["id"]: row["version"]
-        for row in cast(list[dict[str, str]], selected_semantics["packages"])
-    }
     operation_rows = cast(list[dict[str, Any]], selected_semantics["operations"])
     operations = {
-        (
-            row["package"],
-            package_versions[row["package"]],
-            row["definition"]["id"],
-        ): row
-        for row in operation_rows
+        (row["package"], row["definition"]["id"]): row for row in operation_rows
     }
     domains = cast(
         dict[str, str],
@@ -3665,19 +3567,15 @@ def _resolved_call_sites(
         if node["semantics"]["operator"] == "invoke-operation"
     }
     closure_cache: dict[
-        tuple[str, str, str], tuple[frozenset[str], frozenset[str], int]
+        tuple[str, str], tuple[frozenset[str], frozenset[str], int]
     ] = {}
 
     def operation_closure(
         operation_row: dict[str, Any],
-        stack: tuple[tuple[str, str, str], ...],
+        stack: tuple[tuple[str, str], ...],
     ) -> tuple[frozenset[str], frozenset[str], int]:
-        parent_ref = _exact_operation_coordinate(operation_row, package_versions)
-        parent_key = (
-            parent_ref["package"],
-            parent_ref["version"],
-            parent_ref["id"],
-        )
+        parent_ref = _exact_operation_coordinate(operation_row)
+        parent_key = (parent_ref["package"], parent_ref["id"])
         if parent_key in stack:
             raise ValueError("Operation call graph contains a cycle")
         if parent_key in closure_cache:
@@ -3708,12 +3606,10 @@ def _resolved_call_sites(
                 raise ValueError("Operation repeats a nested call-site id")
             seen_sites.add(site)
             child_ref = cast(dict[str, str], instruction["operation"])
-            child_row = operations.get(
-                (child_ref["package"], child_ref["version"], child_ref["id"])
-            )
+            child_row = operations.get((child_ref["package"], child_ref["id"]))
             if child_row is None:
                 raise ValueError("nested Operation is not in the selected closure")
-            exact_child = _exact_operation_coordinate(child_row, package_versions)
+            exact_child = _exact_operation_coordinate(child_row)
             child = cast(dict[str, Any], child_row["definition"])
             child_ports = cast(list[dict[str, Any]], child["inputs"])
             authored_arguments = cast(list[dict[str, Any]], instruction["arguments"])
@@ -3976,60 +3872,16 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
     profile = _resolution_profile(
         checked.language_bundle, cast(str, lowering["resolution_profile"])
     )
-    requirements_member = cast(str, profile["requirements_member"])
-    requirement_package_member = cast(str, profile["requirement_package_member"])
-    requirement_version_member = cast(str, profile["requirement_version_member"])
+    selection = checked.namespace_selection
     available = {
-        (item["id"], item["version"]): item
-        for item in cast(list[dict[str, Any]], language["packages"])
+        item["id"]: item for item in cast(list[dict[str, Any]], language["packages"])
     }
-    requirements = sorted(
-        [
-            {
-                "id": item[requirement_package_member],
-                "version": item[requirement_version_member],
-            }
-            for item in cast(list[dict[str, str]], checked.source[requirements_member])
-        ],
-        key=lambda item: (item["id"], item["version"]),
-    )
-    selected: dict[str, dict[str, Any]] = {}
-    pending = list(requirements)
-    dependency_edges: list[dict[str, JsonValue]] = []
-    while pending:
-        requirement = pending.pop(0)
-        package = available.get((requirement["id"], requirement["version"]))
-        if package is None:
-            raise ValueError("an admitted source requirement has no exact package")
-        previous = selected.get(package["id"])
-        if previous is not None:
-            if previous["semantic_identity"] != package["semantic_identity"]:
-                raise ValueError("one package id resolved to conflicting releases")
-            continue
-        selected[package["id"]] = package
-        for dependency_constraint in sorted(
-            package["dependencies"]["required"],
-            key=lambda item: (item["id"], item["version"]),
-        ):
-            dependency = available.get(
-                (
-                    dependency_constraint["id"],
-                    dependency_constraint["version"],
-                )
-            )
-            if dependency is None:
-                raise ValueError("required dependency coordinate is unavailable")
-            dependency_edges.append(
-                {
-                    "from_package": package["id"],
-                    "kind": "required",
-                    "to_package": dependency["id"],
-                    "to_version": dependency["version"],
-                }
-            )
-            pending.append({"id": dependency["id"], "version": dependency["version"]})
-
-    selected_packages = [selected[name] for name in sorted(selected)]
+    requirements = list(selection.roots)
+    selected_packages = [available[item.namespace] for item in selection.packages]
+    dependency_edges: list[dict[str, JsonValue]] = [
+        {"from_package": owner, "kind": "required", "to_package": dependency}
+        for owner, dependency in selection.dependency_edges
+    ]
 
     def package_definitions(package: dict[str, Any], authority_path: str) -> list[Any]:
         matches = [
@@ -4051,16 +3903,7 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
             if entry["authority_path"] in runtime_paths
         ]
 
-    providers: dict[str, str] = {}
-    for package in selected_packages:
-        for capability in package["capabilities"]["provided"]:
-            if capability in providers:
-                raise ValueError("selected capability has multiple providers")
-            providers[capability] = package["id"]
-    for package in selected_packages:
-        for capability in package["capabilities"]["required"]:
-            if capability not in providers:
-                raise ValueError("selected capability has no provider")
+    providers = dict(selection.capability_bindings)
 
     def exported(collection: str) -> list[dict[str, JsonValue]]:
         rows: list[dict[str, JsonValue]] = []
@@ -4080,7 +3923,11 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
                     }
                 )
         return sorted(
-            rows, key=lambda item: cast(dict[str, Any], item["definition"])["id"]
+            rows,
+            key=lambda item: (
+                item["package"],
+                cast(dict[str, Any], item["definition"])["id"],
+            ),
         )
 
     numeric_definitions = {
@@ -4136,7 +3983,6 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
         key=lambda edge: (
             cast(str, edge["from_package"]),
             cast(str, edge["to_package"]),
-            cast(str, edge["to_version"]),
         )
     )
     selected_types: list[dict[str, JsonValue]] = [
@@ -4144,7 +3990,9 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
         for package in selected_packages
         for exported_type in package["exports"]["types"]
     ]
-    selected_types.sort(key=lambda item: cast(str, item["id"]))
+    selected_types.sort(
+        key=lambda item: (cast(str, item["package"]), cast(str, item["id"]))
+    )
     body = cast(
         dict[str, JsonValue],
         {
@@ -4153,7 +4001,6 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
             "packages": [
                 {
                     "id": package["id"],
-                    "version": package["version"],
                     "content_identity": package["content_identity"],
                     "semantic_identity": package["semantic_identity"],
                 }
@@ -4197,7 +4044,6 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
         "packages": [
             {
                 "id": package["id"],
-                "version": package["version"],
                 "semantic_identity": package["semantic_identity"],
             }
             for package in selected_packages
@@ -4335,29 +4181,25 @@ def _runtime_projection(
         "target_type_collection",
     }:
         raise ValueError("runtime projection type-reference closure is incomplete")
-    package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
-        for row in cast(list[dict[str, Any]], lock["packages"])
-    }
 
-    def nested_type_terms(root: Any) -> tuple[set[tuple[str, str, str]], set[str]]:
+    def nested_type_terms(root: Any) -> tuple[set[tuple[str, str]], set[str]]:
         coordinate_members = cast(
             list[str], type_reference_closure["coordinate_members"]
         )
         structural_kind_member = cast(
             str, type_reference_closure["structural_kind_member"]
         )
-        coordinates: set[tuple[str, str, str]] = set()
+        coordinates: set[tuple[str, str]] = set()
         structural_kinds: set[str] = set()
 
         def visit(value: Any) -> None:
             budget.consume()
             if isinstance(value, dict):
                 coordinate = tuple(value.get(member) for member in coordinate_members)
-                if len(coordinate) == 3 and all(
+                if len(coordinate) == 2 and all(
                     isinstance(item, str) and item for item in coordinate
                 ):
-                    coordinates.add(cast(tuple[str, str, str], coordinate))
+                    coordinates.add(cast(tuple[str, str], coordinate))
                 kind = value.get(structural_kind_member)
                 if isinstance(kind, str) and kind:
                     structural_kinds.add(kind)
@@ -4430,7 +4272,7 @@ def _runtime_projection(
         constructor_kind_path = cast(
             list[str], type_reference_closure["constructor_kind_path"]
         )
-        coordinates: set[tuple[str, str, str]] = set()
+        coordinates: set[tuple[str, str]] = set()
         structural_kinds: set[str] = set()
         for source_index in tuple(selected[source_id]):
             nested_coordinates, nested_kinds = nested_type_terms(
@@ -4446,10 +4288,8 @@ def _runtime_projection(
             if (
                 budget.consume() is None
                 and any(
-                    row["package"] == package
-                    and row["value"].get("id") == type_id
-                    and package_versions.get(package) == version
-                    for package, version, type_id in coordinates
+                    row["package"] == package and row["value"].get("id") == type_id
+                    for package, type_id in coordinates
                 )
             )
         }

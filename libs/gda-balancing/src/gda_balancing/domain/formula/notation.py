@@ -32,7 +32,7 @@ class _Token:
 
 @dataclass(frozen=True)
 class _OperationNotation:
-    coordinate: tuple[str, str, str]
+    coordinate: tuple[str, str]
     declaration: dict[str, Any]
     notation: dict[str, Any]
 
@@ -173,19 +173,18 @@ def _identifier(value: object, grammar: dict[str, Any]) -> str:
 
 def _operation_catalog(
     authority_context: AdmittedAuthorityContext,
-) -> dict[tuple[str, str, str], dict[str, Any]]:
-    catalog: dict[tuple[str, str, str], dict[str, Any]] = {}
+) -> dict[tuple[str, str], dict[str, Any]]:
+    catalog: dict[tuple[str, str], dict[str, Any]] = {}
     packages = cast(
         list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
     )
     for package in packages:
         package_id = cast(str, package["id"])
-        version = cast(str, package["version"])
         for closure in cast(list[dict[str, Any]], package["semantic_closure"]):
             if closure.get("authority_path") != "language.operations":
                 continue
             for operation in cast(list[dict[str, Any]], closure["definitions"]):
-                catalog[(package_id, version, cast(str, operation["id"]))] = operation
+                catalog[(package_id, cast(str, operation["id"]))] = operation
     return catalog
 
 
@@ -246,14 +245,10 @@ def _selected_operation_notations(
     requirements = request.get("package_requirements")
     if not isinstance(requirements, list):
         raise ValueError("Formula context has no package requirements")
-    selected = {
-        (item.get("id"), item.get("version"))
-        for item in requirements
-        if isinstance(item, dict)
-    }
+    selected = set(requirements)
     declarations: list[_OperationNotation] = []
     for coordinate, operation in _operation_catalog(authority_context).items():
-        if coordinate[:2] not in selected or operation.get("purity") != "pure":
+        if coordinate[0] not in selected or operation.get("purity") != "pure":
             continue
         notation = _validated_operation_notation(operation, grammar, notation_schema)
         if notation is not None:
@@ -359,25 +354,18 @@ def _module_imports(
     requirements = request.get(profile["requirements_member"])
     if not isinstance(requirements, list):
         raise ValueError("Formula context has no package requirements")
-    requirement_keys: set[tuple[str, str]] = set()
+    requirement_keys: set[str] = set()
     for requirement in requirements:
-        if not isinstance(requirement, dict) or not all(
-            isinstance(requirement.get(profile[member]), str)
-            for member in ("requirement_package_member", "requirement_version_member")
-        ):
+        if not isinstance(requirement, str) or not requirement:
             raise ValueError("Formula package requirement is malformed")
-        key = (
-            cast(str, requirement[profile["requirement_package_member"]]),
-            cast(str, requirement[profile["requirement_version_member"]]),
-        )
-        if key in requirement_keys:
+        if requirement in requirement_keys:
             raise _FormulaContextError(
                 "model.reason.name-ambiguity",
                 "Formula package requirement is duplicate",
             )
-        requirement_keys.add(key)
+        requirement_keys.add(requirement)
     packages = {
-        (cast(str, item["id"]), cast(str, item["version"])): item
+        cast(str, item["id"]): item
         for item in cast(
             list[dict[str, Any]],
             authority_context.language_bundle["language"]["packages"],
@@ -387,13 +375,6 @@ def _module_imports(
         raise _FormulaContextError(
             "model.reason.unresolved-name",
             "Formula package requirement is unresolved",
-        )
-    if len({package for package, _version in requirement_keys}) != len(
-        requirement_keys
-    ):
-        raise _FormulaContextError(
-            "model.reason.name-ambiguity",
-            "Formula package requirement version is ambiguous",
         )
     imports = module.get(profile["imports_member"])
     if not isinstance(imports, list):
@@ -405,7 +386,6 @@ def _module_imports(
             for member in (
                 "import_alias_member",
                 "import_package_member",
-                "import_version_member",
                 "import_symbol_member",
             )
         ):
@@ -416,10 +396,7 @@ def _module_imports(
                 "model.reason.name-ambiguity",
                 "Formula module import alias is ambiguous",
             )
-        package_key = (
-            cast(str, item[profile["import_package_member"]]),
-            cast(str, item[profile["import_version_member"]]),
-        )
+        package_key = cast(str, item[profile["import_package_member"]])
         package = packages.get(package_key)
         if package_key not in requirement_keys or package is None:
             raise _FormulaContextError(
@@ -438,8 +415,7 @@ def _module_imports(
                 f"Formula import {alias!r} is unresolved",
             )
         resolved[alias] = {
-            "package": package_key[0],
-            "version": package_key[1],
+            "package": package_key,
             "symbol": symbol,
         }
     return resolved
@@ -611,7 +587,7 @@ class _FormulaParser:
                 )
         self.imports = imports_by_module[module_id]
         self.source_type_aliases = {
-            (identity["package"], identity["version"], identity["symbol"]): alias
+            (identity["package"], identity["symbol"]): alias
             for alias, identity in self.imports.items()
         }
         fixed_contracts = cast(
@@ -625,11 +601,7 @@ class _FormulaParser:
             fixed_type = fixed.get("type") if isinstance(fixed, dict) else None
             if isinstance(fixed_type, dict):
                 self.source_type_aliases[
-                    (
-                        cast(str, fixed_type["package"]),
-                        cast(str, fixed_type["version"]),
-                        cast(str, fixed_type["id"]),
-                    )
+                    (cast(str, fixed_type["package"]), cast(str, fixed_type["id"]))
                 ] = row["alias"]
         self.formula_declarations: dict[
             tuple[str, str], tuple[dict[str, Any], dict[str, dict[str, str]]]
@@ -1232,8 +1204,7 @@ class _FormulaParser:
             "node": "operation-call",
             "operation": {
                 "package": operation.coordinate[0],
-                "version": operation.coordinate[1],
-                "id": operation.coordinate[2],
+                "id": operation.coordinate[1],
             },
             "arguments": arguments,
             "result": result,
@@ -1409,7 +1380,7 @@ def _render_operand(operand: object, grammar: dict[str, Any]) -> str:
 
 def _render_operation_call(
     node: dict[str, Any],
-    catalog: dict[tuple[str, str, str], dict[str, Any]],
+    catalog: dict[tuple[str, str], dict[str, Any]],
     grammar: dict[str, Any],
     notation_schema: dict[str, Any],
 ) -> str:
@@ -1417,11 +1388,7 @@ def _render_operation_call(
     if not isinstance(coordinate, dict):
         raise ValueError("Formula operation call has no exact coordinate")
     operation = catalog.get(
-        (
-            cast(str, coordinate.get("package")),
-            cast(str, coordinate.get("version")),
-            cast(str, coordinate.get("id")),
-        )
+        (cast(str, coordinate.get("package")), cast(str, coordinate.get("id")))
     )
     if operation is None or operation.get("purity") != "pure":
         raise FormulaNotationRefusal(
