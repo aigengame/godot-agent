@@ -86,6 +86,11 @@ def test_the_published_error_schema_declares_the_optional_evidence_key():
         "target_location",
         "project_root",
         "owning_project",
+        # The two export-templates directories a --user-data-root redirect puts at
+        # odds (#840): the one this run checked, and the host one holding the
+        # templates it could not see.
+        "templates_root_checked",
+        "templates_root_host",
     }
     assert doc["error"]["$defs"]["TerminationPhase"]["enum"] == [
         "launched",

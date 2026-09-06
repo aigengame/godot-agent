@@ -26,6 +26,7 @@ from gda.commands.export import (  # EXPORT_RUN_COMMAND: the single fully-bound 
     EXPORT_RUN_COMMAND,
     ExportRunMode,
     ExportRunResult,
+    host_data_path,
     run_export_operation,
 )
 from gda.errors import Failure
@@ -41,6 +42,10 @@ from tests.support import (
     sentinel,
 )
 
+
+# The host data directory gda hands the export-get op (#840), computed by the
+# production default so the assertion follows the host it runs on.
+_HOST_DATA_PATH = host_data_path()
 
 # The two export-templates directories of #840: the one an isolated
 # ``--user-data-root`` makes the engine check, and the host's standard one.
@@ -123,7 +128,9 @@ def test_success_returns_typed_result_to_configured_path(tmp_path):
     assert outcome.warnings == []
     # Phase sequencing: export-get ran first, then the native export to the
     # configured path keyed on the export-get-resolved name.
-    assert get_runner.calls == [("export-get", {"preset": "Linux/X11"})]
+    assert get_runner.calls == [
+        ("export-get", {"preset": "Linux/X11", "host_data_path": _HOST_DATA_PATH})
+    ]
     assert export_runner.calls == [("Linux/X11", "release", expected)]
 
 
@@ -150,7 +157,9 @@ def test_export_run_reports_native_export_progress_on_stderr(capsys, tmp_path):
         created_dirs=[str(project / "build")],
         warnings=[],
     )
-    assert get_runner.calls == [("export-get", {"preset": "Linux/X11"})]
+    assert get_runner.calls == [
+        ("export-get", {"preset": "Linux/X11", "host_data_path": _HOST_DATA_PATH})
+    ]
     assert export_runner.calls == [("Linux/X11", "release", expected_output)]
 
 
