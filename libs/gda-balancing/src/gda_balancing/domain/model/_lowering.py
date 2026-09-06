@@ -140,13 +140,8 @@ def checked_model_template_facts(checked: CheckedModel) -> dict[str, JsonValue]:
     )
     requirements_member = cast(str, profile["requirements_member"])
     root_requirements = list(cast(list[str], checked.source[requirements_member]))
-    lock = _package_lock(checked)
     resolved_packages = [
-        {
-            "id": item["id"],
-            "content_identity": item["content_identity"],
-        }
-        for item in cast(list[dict[str, JsonValue]], lock["packages"])
+        package.namespace for package in checked.namespace_selection.packages
     ]
     source_symbols = []
     for fields, _source_pointer in _resolved_source_symbols(
