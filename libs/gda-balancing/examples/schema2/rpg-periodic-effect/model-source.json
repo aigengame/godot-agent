@@ -2,22 +2,12 @@
   "schema_version": "2.0.0",
   "manifest": {
     "id": "example.rpg-periodic-effect",
-    "version": "1.0.0",
     "entry_module": "effect"
   },
   "package_requirements": [
-    {
-      "id": "core.quantity",
-      "version": "2.2.0"
-    },
-    {
-      "id": "game.combat",
-      "version": "2.2.0"
-    },
-    {
-      "id": "game.effect",
-      "version": "2.0.0"
-    }
+    "core.quantity",
+    "game.combat",
+    "game.effect"
   ],
   "modules": [
     {
@@ -26,7 +16,6 @@
         {
           "alias": "quantity",
           "package": "core.quantity",
-          "version": "2.2.0",
           "symbol": "Quantity"
         }
       ],
@@ -295,7 +284,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.subtract"
                 },
                 "arguments": [
@@ -332,7 +320,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.floor-zero"
                 },
                 "arguments": [
@@ -414,7 +401,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.subtract"
                 },
                 "arguments": [
@@ -451,7 +437,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.floor-zero"
                 },
                 "arguments": [
@@ -493,7 +478,6 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.effect",
-          "version": "2.0.0",
           "id": "game.effect.apply-snapshot-periodic-v1"
         },
         "slot": "magnitude-policy"
@@ -524,7 +508,6 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.effect",
-          "version": "2.0.0",
           "id": "game.effect.tick-live-periodic-v1"
         },
         "slot": "magnitude-policy"
@@ -555,7 +538,6 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.combat",
-          "version": "2.2.0",
           "id": "game.combat.damage-v1"
         },
         "slot": "damage-policy"
@@ -587,7 +569,6 @@
       "id": "effect.apply-snapshot-periodic",
       "operation": {
         "package": "game.effect",
-        "version": "2.0.0",
         "id": "game.effect.apply-snapshot-periodic-v1"
       },
       "arguments": [
@@ -599,22 +580,22 @@
             "symbol": "target_health"
           }
         },
-      {
-        "port": "effect_active",
-        "operand": {
-          "kind": "symbol",
-          "module": "effect",
-          "symbol": "effect_active"
-        }
-      },
-      {
-        "port": "effect_instance_id",
-        "operand": {
-          "kind": "symbol",
-          "module": "effect",
-          "symbol": "effect_instance_id"
-        }
-      },
+        {
+          "port": "effect_active",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "effect_active"
+          }
+        },
+        {
+          "port": "effect_instance_id",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "effect_instance_id"
+          }
+        },
         {
           "port": "threshold",
           "operand": {
@@ -632,7 +613,6 @@
       "id": "effect.apply-live-periodic",
       "operation": {
         "package": "game.effect",
-        "version": "2.0.0",
         "id": "game.effect.apply-live-periodic-v1"
       },
       "arguments": [
@@ -677,7 +657,6 @@
       "id": "combat.damage-target",
       "operation": {
         "package": "game.combat",
-        "version": "2.2.0",
         "id": "game.combat.cast-v1"
       },
       "arguments": [

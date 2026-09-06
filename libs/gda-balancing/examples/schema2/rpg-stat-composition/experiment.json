@@ -1,7 +1,6 @@
 {
   "schema_version": "2.0.0",
   "id": "example.rpg-stat-composition.golden-attack",
-  "version": "1.0.0",
   "kernel_identity": "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d",
   "language_bundle_identity": "sha256:cddf6f50b5ba759b42c70918a0db5f22674ab711a6ff2e0d153bda45be458aa6",
   "model": {

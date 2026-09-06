@@ -85,8 +85,7 @@
           "value": {
             "type": {
               "id": "SelectionState",
-              "package": "standard.conformance.structured",
-              "version": "2.0.0"
+              "package": "standard.conformance.structured"
             },
             "value": {
               "candidates": [
@@ -134,8 +133,7 @@
           "value": {
             "type": {
               "id": "SelectionResult",
-              "package": "standard.conformance.structured",
-              "version": "2.0.0"
+              "package": "standard.conformance.structured"
             },
             "value": {
               "kind": "secondary",
@@ -179,6 +177,5 @@
   "seed": {
     "algorithm": "splitmix64-v1",
     "value": 20260811
-  },
-  "version": "1.0.0"
+  }
 }

@@ -2,22 +2,12 @@
   "schema_version": "2.0.0",
   "manifest": {
     "id": "example.progression-periodic-effect",
-    "version": "1.0.0",
     "entry_module": "effect"
   },
   "package_requirements": [
-    {
-      "id": "core.quantity",
-      "version": "2.2.0"
-    },
-    {
-      "id": "game.effect",
-      "version": "2.0.0"
-    },
-    {
-      "id": "game.progression",
-      "version": "1.0.0"
-    }
+    "core.quantity",
+    "game.effect",
+    "game.progression"
   ],
   "modules": [
     {
@@ -26,7 +16,6 @@
         {
           "alias": "quantity",
           "package": "core.quantity",
-          "version": "2.2.0",
           "symbol": "Quantity"
         }
       ],
@@ -186,7 +175,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.subtract"
                 },
                 "arguments": [
@@ -223,7 +211,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.floor-zero"
                 },
                 "arguments": [
@@ -305,7 +292,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.multiply"
                 },
                 "arguments": [
@@ -394,7 +380,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "game.progression",
-                  "version": "1.0.0",
                   "id": "game.progression.contribution@1"
                 },
                 "arguments": [
@@ -443,7 +428,6 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.effect",
-          "version": "2.0.0",
           "id": "game.effect.apply-snapshot-periodic-v1"
         },
         "slot": "magnitude-policy"
@@ -503,7 +487,6 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.progression",
-          "version": "1.0.0",
           "id": "game.progression.contribution@1"
         },
         "slot": "progression-policy"
@@ -535,7 +518,6 @@
       "id": "effect.apply-snapshot-periodic",
       "operation": {
         "package": "game.effect",
-        "version": "2.0.0",
         "id": "game.effect.apply-snapshot-periodic-v1"
       },
       "arguments": [

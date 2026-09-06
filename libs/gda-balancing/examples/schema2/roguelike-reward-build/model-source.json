@@ -2,13 +2,12 @@
   "schema_version": "2.0.0",
   "manifest": {
     "id": "roguelike.reward-build-feedback",
-    "version": "1.0.0",
     "entry_module": "reward-build"
   },
   "package_requirements": [
-    {"id": "core.quantity", "version": "2.2.0"},
-    {"id": "game.build", "version": "2.0.0"},
-    {"id": "game.generation", "version": "1.1.0"}
+    "core.quantity",
+    "game.build",
+    "game.generation"
   ],
   "formula_bindings": [
     {
@@ -16,7 +15,6 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.generation",
-          "version": "1.1.0",
           "id": "game.generation.select-reward-v1"
         },
         "slot": "rare-threshold-policy"
@@ -32,7 +30,6 @@
       "id": "reward.select",
       "operation": {
         "package": "game.generation",
-        "version": "1.1.0",
         "id": "game.generation.select-reward-v1"
       },
       "arguments": [
@@ -47,7 +44,6 @@
       "id": "build.replace",
       "operation": {
         "package": "game.build",
-        "version": "2.0.0",
         "id": "game.build.replace-reward-v1"
       },
       "arguments": [
@@ -64,12 +60,12 @@
     {
       "id": "reward-build",
       "imports": [
-        {"alias": "quantity", "package": "core.quantity", "version": "2.2.0", "symbol": "Quantity"},
-        {"alias": "build-plan-set", "package": "game.build", "version": "2.0.0", "symbol": "BuildPlanSet"},
-        {"alias": "build-state", "package": "game.build", "version": "2.0.0", "symbol": "BuildState"},
-        {"alias": "build-decision", "package": "game.build", "version": "2.0.0", "symbol": "BuildDecision"},
-        {"alias": "reward-pool", "package": "game.generation", "version": "1.1.0", "symbol": "RewardPool"},
-        {"alias": "reward-selection", "package": "game.generation", "version": "1.1.0", "symbol": "RewardSelection"}
+        {"alias": "quantity", "package": "core.quantity", "symbol": "Quantity"},
+        {"alias": "build-plan-set", "package": "game.build", "symbol": "BuildPlanSet"},
+        {"alias": "build-state", "package": "game.build", "symbol": "BuildState"},
+        {"alias": "build-decision", "package": "game.build", "symbol": "BuildDecision"},
+        {"alias": "reward-pool", "package": "game.generation", "symbol": "RewardPool"},
+        {"alias": "reward-selection", "package": "game.generation", "symbol": "RewardSelection"}
       ],
       "symbols": [
         {"symbol": "reward_pool", "type": "reward-pool", "role": "state", "value_policy": {"mode": "experiment-required"}},
