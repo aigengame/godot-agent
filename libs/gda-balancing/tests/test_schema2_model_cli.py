@@ -45,8 +45,6 @@ from gda_balancing.domain.authority.graph import (
     derive_language_index,
 )
 from gda_balancing.interfaces.cli.surface import descriptor_identity
-from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
-from gda_balancing.interfaces.cli.errors import UsageError
 from gda_balancing.infrastructure.input_bytes import InputTooLargeError
 from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
@@ -4049,23 +4047,34 @@ def test_model_build_rejects_direct_and_symlink_input_output_aliases(tmp_path, r
 
 
 def test_cli_rejects_a_known_source_alias_after_the_source_disappears(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, run_cli
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    alias = tmp_path / "source-alias.json"
+    alias.symlink_to(source)
     source.unlink()
     store = tmp_path / "store"
     monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
 
-    with pytest.raises(UsageError) as caught:
-        reject_input_aliasing(
-            str(source),
-            str(source),
-            input_is_known_path=True,
+    for out in (source, alias):
+        exit_code, stdout, stderr = run_cli(
+            [
+                "model",
+                "build",
+                str(source),
+                "--out",
+                str(out),
+                "--invocation-key",
+                "d" * 64,
+            ]
         )
 
-    assert caught.value.code == "argument_conflict"
+        assert (exit_code, stdout) == (3, "")
+        assert json.loads(stderr)["error"]["code"] == "argument_conflict"
     assert not source.exists()
+    assert alias.is_symlink()
+    assert not alias.exists()
     assert not store.exists()
 
 
