@@ -16,7 +16,7 @@ a real engine in ``test_e2e_project_walk.py``.
 import re
 from pathlib import Path
 
-from gda.commands import resource
+from gda import import_evidence
 
 ROOT = Path(__file__).resolve().parents[2]
 OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
@@ -254,7 +254,7 @@ def _const_value(source: str, name: str) -> str:
 
 def test_the_two_spellings_of_the_skip_markers_agree():
     # #808 review: the rule crossed the language seam. `_should_descend` decides
-    # it for the walk; `_engine_skips_directory_of` (src/gda/commands/resource.py)
+    # it for the walk; `_engine_skips_directory_of` (src/gda/import_evidence.py)
     # predicts the SAME engine behaviour for the import gap listing, which reads
     # the project's files from Python and so genuinely cannot ask the walk. Two
     # independently editable spellings of two literals is how a rule drifts, and
@@ -273,9 +273,11 @@ def test_the_two_spellings_of_the_skip_markers_agree():
     source = _source()
 
     engine_side = {name: _const_value(source, name) for name in SKIP_MARKER_CONSTANTS}
-    python_side = {name: getattr(resource, name) for name in SKIP_MARKER_CONSTANTS}
+    python_side = {
+        name: getattr(import_evidence, name) for name in SKIP_MARKER_CONSTANTS
+    }
 
     assert engine_side == python_side, (
         f"the skip markers must read the same on both sides of the seam; "
-        f"operations.gd says {engine_side}, resource.py says {python_side}"
+        f"operations.gd says {engine_side}, import_evidence.py says {python_side}"
     )

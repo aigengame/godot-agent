@@ -181,7 +181,7 @@ const ENGINE_CACHE_DIR := "res://.godot"
 # Values only — the decision that uses them is _should_descend's alone (#804).
 #
 # The same two literals are spelled a second time in Python, in
-# `_engine_skips_directory_of` (src/gda/commands/resource.py), which predicts the
+# `_engine_skips_directory_of` (src/gda/import_evidence.py), which predicts the
 # same rule for an inventory that never spawns the engine. The two spellings are
 # held together by `test_the_two_spellings_of_the_skip_markers_agree` (#808
 # review), not by derivation.
