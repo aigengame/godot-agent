@@ -1,0 +1,504 @@
+{
+  "required_tests_before": 668,
+  "required_tests_after": 676,
+  "current_collected_tests": 1501,
+  "test_dispositions": [
+    {
+      "before": "tests/test_schema2_authority_cli.py::test_authority_loader_refuses_an_unreadable_declared_child[packages/core-quantity/core.quantity@2.2.0.conformance-vectors.json-language-bundle.package_descriptors.0.conformance_vectors]",
+      "after": [
+        "tests/test_schema2_authority_cli.py::test_authority_loader_refuses_an_unreadable_declared_child[packages/core-quantity/core.quantity.conformance-vectors.json-language-bundle.package_descriptors.0.conformance_vectors]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_authority_cli.py::test_authority_loader_refuses_an_unreadable_declared_child[packages/core-quantity/core.quantity@2.2.0.json-language-bundle.package_descriptors.0]",
+      "after": [
+        "tests/test_schema2_authority_cli.py::test_authority_loader_refuses_an_unreadable_declared_child[packages/core-quantity/core.quantity.json-language-bundle.package_descriptors.0]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_authority_cli.py::test_package_dependencies_are_closed_exact_coordinates",
+      "after": [
+        "tests/test_schema2_authority_cli.py::test_package_dependencies_are_closed_namespace_references"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_bootstrap_conformance.py::test_reidentified_ldb_and_package_shapes_remain_closed[package-version-type]",
+      "after": [
+        "tests/test_schema2_bootstrap_conformance.py::test_reidentified_ldb_and_package_shapes_remain_closed[package-id-type]",
+        "tests/test_schema2_bootstrap_conformance.py::test_reidentified_ldb_and_package_shapes_remain_closed[retired-package-version-member]"
+      ],
+      "reason": "Native descriptor field types remain closed and the removed version member must refuse."
+    },
+    {
+      "before": "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_adversarial_graph_membership_and_binding[wrong-dependency-version-kernel.binding_mismatch]",
+      "after": [
+        "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_adversarial_graph_membership_and_binding[legacy-dependency-coordinate-kernel.member_set_mismatch]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[argument-contract-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.arguments]",
+      "after": [
+        "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[argument-contract-language.operations.game.combat.game.combat.cast-v1.body.hit-check.arguments]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[cycle-language.operations.game.check@1.1.0.game.check.hit-v1.body.cycle.operation]",
+      "after": [
+        "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[cycle-language.operations.game.check.game.check.hit-v1.body.cycle.operation]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[effect-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.effects]",
+      "after": [
+        "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[effect-language.operations.game.combat.game.combat.cast-v1.body.hit-check.effects]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[literal-contract-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.apply-damage.arguments]",
+      "after": [
+        "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[literal-contract-language.operations.game.combat.game.combat.cast-v1.body.apply-damage.arguments]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[refusal-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.refusals]",
+      "after": [
+        "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[refusal-language.operations.game.combat.game.combat.cast-v1.body.hit-check.refusals]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[resource-language.operations.game.combat@2.2.0.game.combat.cast-v1.resource_bounds]",
+      "after": [
+        "tests/test_schema2_bootstrap_conformance.py::test_two_consumers_refuse_every_reidentified_operation_composition_violation[resource-language.operations.game.combat.game.combat.cast-v1.resource_bounds]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_model_check_classifies_an_unavailable_exact_package_as_resolution",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_model_check_classifies_an_unavailable_namespace_as_resolution"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_model_check_refuses_conflicting_transitive_dependency_versions",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_model_source_checks_transitive_selected_capability_cardinality[0]",
+        "tests/test_schema2_model_cli.py::test_model_source_checks_transitive_selected_capability_cardinality[1]",
+        "tests/test_schema2_model_cli.py::test_model_source_checks_transitive_selected_capability_cardinality[2]"
+      ],
+      "reason": "Retired version conflict becomes actual selected capability cardinality: zero and two providers refuse, one provider builds."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_model_entrypoint_refuses_stale_exact_operation_coordinates[id-quantity.missing]",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_model_entrypoint_refuses_invalid_namespace_operation_references[id-quantity.missing]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_model_entrypoint_refuses_stale_exact_operation_coordinates[package-missing.package]",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_model_entrypoint_refuses_invalid_namespace_operation_references[package-missing.package]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_model_entrypoint_refuses_stale_exact_operation_coordinates[version-9.0.0]",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_model_entrypoint_refuses_invalid_namespace_operation_references[version-9.0.0]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[argument-contract-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.arguments]",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[argument-contract-language.operations.game.combat.game.combat.cast-v1.body.hit-check.arguments]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[cycle-language.operations.game.check@1.1.0.game.check.hit-v1.body.cycle.operation]",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[cycle-language.operations.game.check.game.check.hit-v1.body.cycle.operation]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[effect-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.effects]",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[effect-language.operations.game.combat.game.combat.cast-v1.body.hit-check.effects]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[refusal-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.refusals]",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[refusal-language.operations.game.combat.game.combat.cast-v1.body.hit-check.refusals]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    },
+    {
+      "before": "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[resource-language.operations.game.combat@2.2.0.game.combat.cast-v1.resource_bounds]",
+      "after": [
+        "tests/test_schema2_model_cli.py::test_package_admission_closes_every_operation_composition_axis[resource-language.operations.game.combat.game.combat.cast-v1.resource_bounds]"
+      ],
+      "reason": "Preserve the obligation with native resource names, namespace coordinates, and the appropriate current refusal boundary."
+    }
+  ],
+  "added_public_obligations": [
+    "tests/test_current_namespace_public.py::test_public_namespace_binding_refusals_are_atomic[duplicate-namespace]",
+    "tests/test_current_namespace_public.py::test_public_namespace_binding_refusals_are_atomic[missing-namespace]",
+    "tests/test_current_namespace_public.py::test_public_namespace_binding_refusals_are_atomic[nominal-owner]",
+    "tests/test_current_namespace_public.py::test_public_namespace_binding_refusals_are_atomic[operation-owner]",
+    "tests/test_current_namespace_public.py::test_public_namespace_owned_operations_and_literal_data",
+    "tests/test_current_namespace_public.py::test_public_same_owner_duplicate_refuses_after_reidentification"
+  ],
+  "vector_dispositions": [
+    {
+      "before": "core.quantity@2.2.0:model.compile.boundary-max-symbols",
+      "after": "core.quantity:model.compile.boundary-max-symbols"
+    },
+    {
+      "before": "core.quantity@2.2.0:model.compile.boundary-max-symbols-plus-one",
+      "after": "core.quantity:model.compile.boundary-max-symbols-plus-one"
+    },
+    {
+      "before": "core.quantity@2.2.0:model.compile.mutation-role-change",
+      "after": "core.quantity:model.compile.mutation-role-change"
+    },
+    {
+      "before": "core.quantity@2.2.0:model.compile.negative-duplicate",
+      "after": "core.quantity:model.compile.negative-duplicate"
+    },
+    {
+      "before": "core.quantity@2.2.0:model.compile.negative-unavailable-package",
+      "after": "core.quantity:model.compile.negative-unavailable-package"
+    },
+    {
+      "before": "core.quantity@2.2.0:model.compile.positive",
+      "after": "core.quantity:model.compile.positive"
+    },
+    {
+      "before": "core.quantity@2.2.0:model.compile.semantic-equivalent-order",
+      "after": "core.quantity:model.compile.semantic-equivalent-order"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.accept.domain",
+      "after": "core.quantity:quantity.accept.domain"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.accept.kind",
+      "after": "core.quantity:quantity.accept.kind"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.accept.resources-boundary",
+      "after": "core.quantity:quantity.accept.resources-boundary"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.accept.unique",
+      "after": "core.quantity:quantity.accept.unique"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.accept.unit",
+      "after": "core.quantity:quantity.accept.unit"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.assignment-policy.optional-override",
+      "after": "core.quantity:quantity.assignment-policy.optional-override"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.declare.valid",
+      "after": "core.quantity:quantity.declare.valid"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.literal.integer-admitted",
+      "after": "core.quantity:quantity.literal.integer-admitted"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.lower.valid",
+      "after": "core.quantity:quantity.lower.valid"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.refuse.domain",
+      "after": "core.quantity:quantity.refuse.domain"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.refuse.duplicate",
+      "after": "core.quantity:quantity.refuse.duplicate"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.refuse.kind",
+      "after": "core.quantity:quantity.refuse.kind"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.refuse.resources",
+      "after": "core.quantity:quantity.refuse.resources"
+    },
+    {
+      "before": "core.quantity@2.2.0:quantity.refuse.unit",
+      "after": "core.quantity:quantity.refuse.unit"
+    },
+    {
+      "before": "game.check@1.1.0:game.check.critical.boundary",
+      "after": "game.check:game.check.critical.boundary"
+    },
+    {
+      "before": "game.check@1.1.0:game.check.hit.named-rng",
+      "after": "game.check:game.check.hit.named-rng"
+    },
+    {
+      "before": "game.combat@2.2.0:formula.combat.accept.damage-slot-binding",
+      "after": "game.combat:formula.combat.accept.damage-slot-binding"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.cast.insufficient-resource",
+      "after": "game.combat:game.combat.cast.insufficient-resource"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.cast.miss-outcome",
+      "after": "game.combat:game.combat.cast.miss-outcome"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.cast.miss-rollback",
+      "after": "game.combat:game.combat.cast.miss-rollback"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.cast.positive",
+      "after": "game.combat:game.combat.cast.positive"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.cast.refusals",
+      "after": "game.combat:game.combat.cast.refusals"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.cast.resource-bound",
+      "after": "game.combat:game.combat.cast.resource-bound"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.cast.tuned-damage",
+      "after": "game.combat:game.combat.cast.tuned-damage"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.damage.effects",
+      "after": "game.combat:game.combat.damage.effects"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.dependencies.closed",
+      "after": "game.combat:game.combat.dependencies.closed"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.contract-stale-id",
+      "after": "game.combat:game.combat.model-binding.contract-stale-id"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.contract-stale-package",
+      "after": "game.combat:game.combat.model-binding.contract-stale-package"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.contract-stale-version",
+      "after": "game.combat:game.combat.model-binding.contract-version-member-forbidden"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.contract-wrong-kind",
+      "after": "game.combat:game.combat.model-binding.contract-wrong-kind"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.contract-wrong-numeric-policy",
+      "after": "game.combat:game.combat.model-binding.contract-wrong-numeric-policy"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.contract-wrong-representation",
+      "after": "game.combat:game.combat.model-binding.contract-wrong-representation"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.contract-wrong-type",
+      "after": "game.combat:game.combat.model-binding.contract-wrong-type"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.contract-wrong-unit",
+      "after": "game.combat:game.combat.model-binding.contract-wrong-unit"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.distinct-defenses",
+      "after": "game.combat:game.combat.model-binding.distinct-defenses"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.duplicate",
+      "after": "game.combat:game.combat.model-binding.duplicate"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.extra",
+      "after": "game.combat:game.combat.model-binding.extra"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.illegal-role-access",
+      "after": "game.combat:game.combat.model-binding.illegal-role-access"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.literal-wrong-type",
+      "after": "game.combat:game.combat.model-binding.literal-wrong-type"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.missing",
+      "after": "game.combat:game.combat.model-binding.missing"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.multiple-entrypoints",
+      "after": "game.combat:game.combat.model-binding.multiple-entrypoints"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.symbol-rename",
+      "after": "game.combat:game.combat.model-binding.symbol-rename"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.unknown",
+      "after": "game.combat:game.combat.model-binding.unknown"
+    },
+    {
+      "before": "game.combat@2.2.0:game.combat.model-binding.writable-alias",
+      "after": "game.combat:game.combat.model-binding.writable-alias"
+    },
+    {
+      "before": "game.resource@1.1.0:game.resource.dependencies.closed",
+      "after": "game.resource:game.resource.dependencies.closed"
+    },
+    {
+      "before": "game.resource@1.1.0:game.resource.spend.effects",
+      "after": "game.resource:game.resource.spend.effects"
+    },
+    {
+      "before": "game.resource@1.1.0:game.resource.spend.resource-bound",
+      "after": "game.resource:game.resource.spend.resource-bound"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.name-ambiguity",
+      "after": "standard.compiler:model.accept.name-ambiguity"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.package-version",
+      "after": "standard.compiler:model.accept.package-version"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.resolution-ambiguity",
+      "after": "standard.compiler:model.accept.resolution-ambiguity"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.resolution-binding",
+      "after": "standard.compiler:model.accept.resolution-binding"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.resolution-step-boundary",
+      "after": "standard.compiler:model.accept.resolution-step-boundary"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.resolved-authority",
+      "after": "standard.compiler:model.accept.resolved-authority"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.runtime-projection-step-boundary",
+      "after": "standard.compiler:model.accept.runtime-projection-step-boundary"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.source-contract",
+      "after": "standard.compiler:model.accept.source-contract"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.source-parse",
+      "after": "standard.compiler:model.accept.source-parse"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.source-size",
+      "after": "standard.compiler:model.accept.source-size"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.accept.unresolved-name",
+      "after": "standard.compiler:model.accept.unresolved-name"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.name-ambiguity",
+      "after": "standard.compiler:model.refuse.name-ambiguity"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.package-version",
+      "after": "standard.compiler:model.refuse.package-version"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.resolution-ambiguity",
+      "after": "standard.compiler:model.refuse.resolution-ambiguity"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.resolution-binding",
+      "after": "standard.compiler:model.refuse.resolution-binding"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.resolution-step-budget",
+      "after": "standard.compiler:model.refuse.resolution-step-budget"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.resolved-authority",
+      "after": "standard.compiler:model.refuse.resolved-authority"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.runtime-projection-step-budget",
+      "after": "standard.compiler:model.refuse.runtime-projection-step-budget"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.source-contract",
+      "after": "standard.compiler:model.refuse.source-contract"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.source-parse",
+      "after": "standard.compiler:model.refuse.source-parse"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.source-size",
+      "after": "standard.compiler:model.refuse.source-size"
+    },
+    {
+      "before": "standard.compiler@1.1.0:model.refuse.unresolved-name",
+      "after": "standard.compiler:model.refuse.unresolved-name"
+    },
+    {
+      "before": "standard.experiment@1.1.0:evaluation.accept.observation",
+      "after": "standard.experiment:evaluation.accept.observation"
+    },
+    {
+      "before": "standard.experiment@1.1.0:evaluation.refuse.observation",
+      "after": "standard.experiment:evaluation.refuse.observation"
+    },
+    {
+      "before": "standard.runtime@1.1.0:runtime.accept.capability",
+      "after": "standard.runtime:runtime.accept.capability"
+    },
+    {
+      "before": "standard.runtime@1.1.0:runtime.accept.numeric-overflow",
+      "after": "standard.runtime:runtime.accept.numeric-overflow"
+    },
+    {
+      "before": "standard.runtime@1.1.0:runtime.accept.step-limit",
+      "after": "standard.runtime:runtime.accept.step-limit"
+    },
+    {
+      "before": "standard.runtime@1.1.0:runtime.refuse.capability",
+      "after": "standard.runtime:runtime.refuse.capability"
+    },
+    {
+      "before": "standard.runtime@1.1.0:runtime.refuse.numeric-overflow",
+      "after": "standard.runtime:runtime.refuse.numeric-overflow"
+    },
+    {
+      "before": "standard.runtime@1.1.0:runtime.refuse.step-limit",
+      "after": "standard.runtime:runtime.refuse.step-limit"
+    }
+  ],
+  "allowed_skips_unchanged": true
+}

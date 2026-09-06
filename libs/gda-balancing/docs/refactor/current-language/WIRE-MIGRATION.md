@@ -5,8 +5,9 @@ Issue [#871](https://github.com/aigengame/godot-agent/issues/871) starts from
 `codex/gda-balancing-refactor-delete-dev`. Its branch is
 `codex/gda-balancing-871-current-wire-migration`. This record fixes implementation
 choices under [bADR-0028](../../badr/0028-current-language-refactor-and-pre-1.0-retirement.md);
-it does not assert that migration or the final #872 contract gate has passed.
-The issue PR owns validation, intermediate failures and the actual integration receipt.
+it does not close the final #872 contract gate. The evidence below records checked
+migration behavior. The issue PR owns the exact reviewed head, CI results,
+intermediate failures and actual integration receipt.
 
 ## Native forms and deletion boundary
 
@@ -120,6 +121,61 @@ owner. Do not retain a form merely to leave work for that issue: #872 verifies t
 complete contracted path and removes any actual residue. Neither slice merges
 independently into main. Broader execution bindings retain their separate mandatory
 #874 closure → #875 deletion sequence.
+
+## Migration evidence and limits
+
+The native graph keeps 13 namespaces, 28 authority JSON resources and 313 vector
+obligations. Namespace-owned references and required closure now pass through
+Source, Formula, Lock, RIR, Template, Runtime, Replay and complete-run HTTP consumers.
+Broad execution identity bindings remain pending #874 closure and mandatory #875
+removal; this migration does not establish that RIR already contains every input.
+
+The checked public witnesses are reproducible from the maintained tests:
+
+| Witness | Retained observation |
+| --- | --- |
+| `tests/test_current_namespace_public.py` | Two owners execute different bodies under the same local Operation id; distinct nominal types remain distinct; authored Record data named `version` survives. Four Source negatives retain ownership/type/dependency diagnostics. A resealed invalid installed graph refuses without publishing artifacts. |
+| Model CLI tests | Missing/duplicate roots reach machine-defined judgments before selection finalization. Zero or two selected capability providers refuse; one provider builds and appears in Lock. |
+| Formula CLI tests | Both production and independent consumers reject a retired import version member under the admitted closed Source import schema. |
+| Model lowerer conformance | All 34 declared Model vectors retain their verdict obligations. Positive artifact observations agree with the independently implemented consumer and declared oracles. |
+| Runtime and Replay tests | Scheduled calls retain qualified ownership even with a preceding same-local-id decoy. Restoring the old bare-id lookup makes the strengthened tests fail. |
+| Maintained consumers | Six actual Model builds bind eight checked-in Experiments. All eight CLI runs, exact Replay comparisons and real HTTP sessions pass; HTTP artifact dictionaries equal the corresponding CLI artifacts. |
+| Godot Reward consumer | Three obsolete nominal version fields are removed. Seven real headless scripts pass 87 assertions across Reward, combat, periodic Effect and stat composition. This is not rendered player acceptance. |
+| Template and subprocess tests | 41 Template tests and 27 subprocess E2E tests pass, including the maintained examples and version-free Template selection. |
+
+Only 56 identity values in the eight Experiment files changed during final
+rebinding from actual CLI Build receipts. Their remaining authored values and
+formatting were preserved. No offline converter or execution fallback was added.
+The positive Model oracle update follows independent artifact comparison; the old
+unavailable-version negative now names an actually missing namespace and retains
+its resolution refusal. A new forbidden-version-member vector replaces the old
+version-mismatch condition without dropping its negative obligation.
+
+An invalid installed graph exposed registry initialization outside the CLI's
+existing emission boundary. Initialization now occurs inside that boundary, and
+cached failures retain the original immutable bootstrap result. CLI, application
+and direct Template consumers preserve its stage, diagnostics, identities and
+truncation. Raw preflight failures still report ingress. The same-owner duplicate
+witness reaches the existing semantic-closure check first and reports
+`ingress / kernel.identity_mismatch`; it does not claim a later uniqueness-law
+stage that the public invocation never reaches.
+
+Intermediate checks were deliberately recorded as failures: old checked-in
+Experiment bindings caused 15 Runtime tests to fail before rebinding; old
+composition/resource/reference expectations caused 15 further failures; one wheel
+check failed before execution because its default cache was not writable. The
+Runtime selection subsequently passed 264 tests, resource/reachability checks
+passed 39, and the final residue selection passed 114 with a task-scoped writable
+cache. These are overlapping, scoped checks, not a claimed single full-suite count.
+Ruff, Pyright and sealed-graph verification pass at the checked integration state.
+
+The [inventory disposition](evidence/wire-migration/inventory-disposition.json)
+maps 21 changed required test identifiers and all 84 required vector identifiers
+to native obligations. The required test floor is now 676; all 1,501 collected
+cases belong to exactly one CI shard. No allowed-skip entry was changed. Full CI
+and independent review remain the PR's responsibility. These witnesses do not
+close #872, #875, incremental Runtime #745, simulation policy #509, or the later
+non-RPG extension challenge #878.
 
 ## Rollback
 
