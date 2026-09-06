@@ -103,7 +103,7 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         for package in ldb["language"]["packages"]
         if package["id"] == "game.check"
     )
-    check["dependencies"]["required"].append({"id": "game.combat", "version": "2.2.0"})
+    check["dependencies"]["required"].append("game.combat")
     _reidentify_package_release(check)
     _reidentify_graph_root(ldb)
 
@@ -130,7 +130,7 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         ("size-mismatch", "kernel.binding_mismatch"),
         ("coordinate-mismatch", "kernel.binding_mismatch"),
         ("unresolved-dependency", "kernel.binding_mismatch"),
-        ("wrong-dependency-version", "kernel.binding_mismatch"),
+        ("legacy-dependency-coordinate", "kernel.binding_mismatch"),
         ("same-coordinate-different-content", "kernel.duplicate_identifier"),
     ),
 )
@@ -155,9 +155,7 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
     elif mutation in {"duplicate", "same-coordinate-different-content"}:
         duplicate = deepcopy(ldb.package_releases[-1])
         if mutation == "same-coordinate-different-content":
-            duplicate["dependencies"]["optional"].append(
-                {"id": "game.check", "version": "1.1.0"}
-            )
+            duplicate["dependencies"]["optional"].append("game.check")
             _reidentify_package_release(duplicate)
         ldb["language"]["packages"].append(duplicate)
         _reidentify_graph_root(ldb)
@@ -173,12 +171,13 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
         ldb.root["package_descriptors"][0]["id"] = "core.substituted"
     else:
         package = ldb["language"]["packages"][0]
-        if mutation == "wrong-dependency-version":
-            package["dependencies"]["required"][0]["version"] = "9.0.0"
+        if mutation == "legacy-dependency-coordinate":
+            package["dependencies"]["required"][0] = {
+                "id": package["dependencies"]["required"][0],
+                "version": "9.0.0",
+            }
         else:
-            package["dependencies"]["required"].append(
-                {"id": "host.missing", "version": "1.0.0"}
-            )
+            package["dependencies"]["required"].append("host.missing")
         _reidentify_package_release(package)
         _reidentify_graph_root(ldb)
 

@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d"
+    "sha256:a1a0b6b93cf9bb6ec8813c8af044ce473cce2e53db361f9ae1bf87d7c89b3a5f"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -116,7 +116,6 @@ def _package_vector_set(
         vector_set
         for vector_set in ldb.package_conformance_vector_sets
         if vector_set["package_id"] == package["id"]
-        and vector_set["package_version"] == package["version"]
     )
 
 
@@ -1125,7 +1124,6 @@ def _consumer_b_package_vector_set_is_closed(
         "artifact_kind",
         "content_identity",
         "package_id",
-        "package_version",
         "vector_definitions",
         "vectors",
     }
@@ -1137,9 +1135,7 @@ def _consumer_b_package_vector_set_is_closed(
     }
     field_types = contract.get("field_types") if isinstance(contract, dict) else None
     coordinate_contracts = (
-        [field_types.get("package_id"), field_types.get("package_version")]
-        if isinstance(field_types, dict)
-        else []
+        [field_types.get("package_id")] if isinstance(field_types, dict) else []
     )
     return (
         isinstance(contract, dict)
@@ -1255,17 +1251,17 @@ def _consumer_b_operation_value_is_admitted(
             and isinstance(type_member, str)
             and isinstance(value_member, str)
             and set(value) == set(envelope_members) == {type_member, value_member}
-            and coordinate_members == ["package", "version", "id"]
+            and coordinate_members == ["package", "id"]
             and isinstance(optional_kind, str)
             and isinstance(optional_value, str)
             and isinstance(value[type_member], dict)
         ):
             type_expression = value[type_member]
-            expected_members = {"package", "version", "id"}
+            expected_members = {"package", "id"}
             if optional_kind in type_expression:
                 expected_members.add(optional_kind)
             coordinate = tuple(
-                type_expression.get(member) for member in ("package", "version", "id")
+                type_expression.get(member) for member in ("package", "id")
             )
             if (
                 set(type_expression) == expected_members
@@ -1285,13 +1281,12 @@ def _consumer_b_operation_value_is_admitted(
                 )
                 == 1
             ):
-                package, version, type_id = cast(tuple[str, str, str], coordinate)
+                package, type_id = cast(tuple[str, str], coordinate)
                 contracts.append(
                     {
                         "type": {
                             "id": type_id,
                             "package": package,
-                            "version": version,
                         },
                         "value_kind": "nominal-structured",
                     }
@@ -2969,18 +2964,6 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
                 or law.get("pointer_field") not in fields
             ):
                 return False
-        elif operator == "require-single-value":
-            fields = relation_fields.get(law.get("relation"))
-            if (
-                fields is None
-                or not field_list(law, "scope", fields)
-                or not field_list(law, "group", fields)
-                or not field_list(law, "value", fields)
-                or not law["group"]
-                or not law["value"]
-                or law.get("pointer_field") not in fields
-            ):
-                return False
         else:
             return False
     return [operation["id"] for operation in operations] == [
@@ -3582,7 +3565,7 @@ def _consumer_b_runtime_projection_is_closed(
                 "structural_kind_member",
                 "constructor_kind_path",
             ],
-            "coordinate_match": "exact-package-version-type-id",
+            "coordinate_match": "exact-package-type-id",
             "structural_match": "definition-kind-to-constructor-kind",
         }
         or contract.get("path_typing")
@@ -3647,7 +3630,7 @@ def _consumer_b_runtime_projection_is_closed(
         or type_reference_closure
         != {
             "constructor_kind_path": ["value_rule", "definition_kind"],
-            "coordinate_members": ["package", "version", "id"],
+            "coordinate_members": ["package", "id"],
             "source_collection": "nominal_types",
             "source_definition_path": ["definition"],
             "structural_kind_member": "kind",
@@ -5402,7 +5385,7 @@ def _consumer_b_literal_typing_profiles_are_closed(
             "admission": {
                 "envelope_members": ["type", "value"],
                 "nominal_type_reference": {
-                    "coordinate_members": ["package", "version", "id"],
+                    "coordinate_members": ["package", "id"],
                     "optional_kind_member": "kind",
                     "optional_kind_value": "nominal",
                 },
@@ -5522,7 +5505,6 @@ def _consumer_b_literal_typing_profiles_are_closed(
         exported_types = cast(dict[str, Any], owner["exports"]).get("types")
         if (
             type_ref.get("package") != owner.get("id")
-            or type_ref.get("version") != owner.get("version")
             or not isinstance(exported_types, list)
             or sum(
                 1
@@ -5923,16 +5905,44 @@ def _consumer_b_duplicate_subjects(
         if item["id"] == "kernel.identifiers.unique"
     )
     authorities = {"kernel": kernel, "language_bundle": ldb}
+    packages = ldb["language"]["packages"]
+    reserved_contracts = _project(
+        authorities, law["arguments"]["reserved_namespace_source"]
+    )
+    reserved = {
+        contract["type"]["package"]
+        for mapping in reserved_contracts
+        if isinstance(mapping, dict)
+        for contract in mapping.values()
+        if isinstance(contract, dict)
+        and isinstance(contract.get("type"), dict)
+        and isinstance(contract["type"].get("package"), str)
+    }
     duplicates: set[str] = set()
+    if any(package.get("id") in reserved for package in packages):
+        duplicates.add("language.packages")
     for contract in law["arguments"]["collections"]:
         keys = contract["keys"]
         subject = contract["subject"]
         identities: list[tuple[Any, ...]] = []
-        for item in _project(authorities, contract["path"]):
+        if contract.get("scope") == "package":
+            path = contract["path"].removeprefix("language_bundle.")
+            owned_values = [
+                (package["id"], item)
+                for package in packages
+                for entry in package["semantic_closure"]
+                if entry["authority_path"] == path
+                for item in entry["definitions"]
+            ]
+        else:
+            owned_values = [
+                (None, item) for item in _project(authorities, contract["path"])
+            ]
+        for owner, item in owned_values:
             if not isinstance(item, dict) or any(key not in item for key in keys):
                 duplicates.add(subject)
                 break
-            identities.append(tuple(item[key] for key in keys))
+            identities.append((owner, *(item[key] for key in keys)))
         try:
             if len(identities) != len(set(identities)):
                 duplicates.add(subject)
@@ -6599,7 +6609,7 @@ def _consumer_b_runtime_authority_is_closed(
     fixed_value_contracts = runtime.get("fixed_value_contracts")
     if not isinstance(nodes, list) or fixed_value_contracts != {
         "kernel-boolean": {
-            "type": {"package": "kernel", "version": "2.0.0", "id": "Boolean"},
+            "type": {"package": "kernel", "id": "Boolean"},
             "representation": "Bool",
             "kind": "boolean",
             "unit": "1",
@@ -6607,7 +6617,7 @@ def _consumer_b_runtime_authority_is_closed(
             "numeric_policy": "exact-bool",
         },
         "kernel-unit": {
-            "type": {"package": "kernel", "version": "2.0.0", "id": "Unit"},
+            "type": {"package": "kernel", "id": "Unit"},
             "representation": "Unit",
             "kind": "unit",
             "unit": "1",
@@ -6617,7 +6627,6 @@ def _consumer_b_runtime_authority_is_closed(
         "kernel-event-reference": {
             "type": {
                 "package": "kernel",
-                "version": "2.0.0",
                 "id": "EventReference",
             },
             "representation": "EventRef",
@@ -6924,22 +6933,26 @@ def _consumer_b_runtime_authority_is_closed(
     operations = ldb.get("language", {}).get("operations", [])
     if not isinstance(operations, list):
         return False
-    operations_by_id = {
-        operation.get("id"): operation
-        for operation in operations
-        if isinstance(operation, dict) and isinstance(operation.get("id"), str)
+    operations_by_owner = {
+        (package["id"], operation["id"]): operation
+        for package in ldb["language"]["packages"]
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+        for operation in entry["definitions"]
     }
 
     def referenced_outcomes(
-        operation: dict[str, Any], stack: set[str]
+        coordinate: tuple[str, str],
+        operation: dict[str, Any],
+        stack: set[tuple[str, str]],
     ) -> set[str] | None:
         operation_id = operation.get("id")
-        if not isinstance(operation_id, str) or operation_id in stack:
+        if not isinstance(operation_id, str) or coordinate in stack:
             return None
         body = operation.get("body")
         if not isinstance(body, list):
             return None
-        nested_stack = {*stack, operation_id}
+        nested_stack = {*stack, coordinate}
         referenced: set[str] = set()
         produced_locals: dict[str, str] = {}
         formal_ports = {
@@ -7014,11 +7027,12 @@ def _consumer_b_runtime_authority_is_closed(
                 operation_ref = instruction.get("operation")
                 if not isinstance(operation_ref, dict) or set(operation_ref) != {
                     "package",
-                    "version",
                     "id",
                 }:
                     return None
-                invoked = operations_by_id.get(operation_ref["id"])
+                invoked = operations_by_owner.get(
+                    (operation_ref["package"], operation_ref["id"])
+                )
                 if not isinstance(invoked, dict):
                     return None
                 invoked_formal_ports = [
@@ -7074,7 +7088,11 @@ def _consumer_b_runtime_authority_is_closed(
                     )
                 ):
                     return None
-                nested = referenced_outcomes(invoked, nested_stack)
+                nested = referenced_outcomes(
+                    (operation_ref["package"], operation_ref["id"]),
+                    invoked,
+                    nested_stack,
+                )
                 if nested is None:
                     return None
             binding = instruction.get("result")
@@ -7085,7 +7103,7 @@ def _consumer_b_runtime_authority_is_closed(
                 produced_locals[name] = node["result"]["kind"]
         return referenced
 
-    for operation in operations:
+    for coordinate, operation in operations_by_owner.items():
         if not isinstance(operation, dict):
             return False
         operation_kind = operation.get("operation_kind")
@@ -7113,7 +7131,7 @@ def _consumer_b_runtime_authority_is_closed(
             or source_kind not in {"local", "port", "operation-result", "unit"}
         ):
             return False
-        referenced = referenced_outcomes(operation, set())
+        referenced = referenced_outcomes(coordinate, operation, set())
         if referenced is None:
             return False
         outcomes = operation.get("outcomes")
@@ -7224,28 +7242,19 @@ def _consumer_b_operation_composition_subjects(
     nominal_type_definitions = {
         (
             cast(str, definition["package"]),
-            cast(str, definition["version"]),
             cast(str, definition["id"]),
         ): definition
         for definition in cast(list[dict[str, Any]], language.get("nominal_types", []))
         if isinstance(definition, dict)
-        and all(
-            isinstance(definition.get(member), str)
-            for member in ("package", "version", "id")
-        )
+        and all(isinstance(definition.get(member), str) for member in ("package", "id"))
     }
-    by_coordinate: dict[tuple[str, str, str], dict[str, Any]] = {}
+    by_coordinate: dict[tuple[str, str], dict[str, Any]] = {}
     for package in packages:
         if not isinstance(package, dict):
             continue
         package_id = package.get("id")
-        package_version = package.get("version")
         semantic_closure = package.get("semantic_closure")
-        if (
-            not isinstance(package_id, str)
-            or not isinstance(package_version, str)
-            or not isinstance(semantic_closure, list)
-        ):
+        if not isinstance(package_id, str) or not isinstance(semantic_closure, list):
             continue
         operations_entry = next(
             (
@@ -7267,21 +7276,21 @@ def _consumer_b_operation_composition_subjects(
             operation_id = operation.get("id") if isinstance(operation, dict) else None
             if not isinstance(operation_id, str):
                 continue
-            coordinate = (package_id, package_version, operation_id)
+            coordinate = (package_id, operation_id)
             if coordinate in by_coordinate:
-                return (f"language.operations.{package_id}@{package_version}",)
+                return (f"language.operations.{package_id}",)
             by_coordinate[coordinate] = operation
     found: set[str] = set()
-    closed: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
-    guard_body_coordinates: set[tuple[str, str, str]] = set()
+    closed: dict[tuple[str, str], tuple[set[str], set[str], int]] = {}
+    guard_body_coordinates: set[tuple[str, str]] = set()
 
     def subject(
-        coordinate: tuple[str, str, str],
+        coordinate: tuple[str, str],
         site: str | None,
         member: str,
     ) -> str:
-        package, version, operation_id = coordinate
-        base = f"language.operations.{package}@{version}.{operation_id}"
+        package, operation_id = coordinate
+        base = f"language.operations.{package}.{operation_id}"
         return (
             f"{base}.body.{site}.{member}" if site is not None else f"{base}.{member}"
         )
@@ -7308,7 +7317,7 @@ def _consumer_b_operation_composition_subjects(
             )
         )
 
-    def type_key(type_expression: Any) -> tuple[str, str, str] | None:
+    def type_key(type_expression: Any) -> tuple[str, str] | None:
         if not isinstance(type_expression, dict):
             return None
         contract = typed_profiles[0]["admission"].get("nominal_type_reference")
@@ -7319,7 +7328,7 @@ def _consumer_b_operation_composition_subjects(
         kind_value = contract.get("optional_kind_value")
         if (
             not isinstance(coordinate_members, list)
-            or coordinate_members != ["package", "version", "id"]
+            or coordinate_members != ["package", "id"]
             or not isinstance(kind_member, str)
             or not isinstance(kind_value, str)
         ):
@@ -7331,7 +7340,7 @@ def _consumer_b_operation_composition_subjects(
                 return None
         values = tuple(type_expression.get(member) for member in coordinate_members)
         return (
-            cast(tuple[str, str, str], values)
+            cast(tuple[str, str], values)
             if set(type_expression) == expected
             and all(isinstance(value, str) and value for value in values)
             else None
@@ -7413,8 +7422,8 @@ def _consumer_b_operation_composition_subjects(
             return None
         coordinate = type_key(type_expression)
         if coordinate is not None:
-            package, version, type_id = coordinate
-            exact_type = {"id": type_id, "package": package, "version": version}
+            package, type_id = coordinate
+            exact_type = {"id": type_id, "package": package}
             scalar_profiles = [
                 profile
                 for profile in literal_profiles
@@ -7585,13 +7594,12 @@ def _consumer_b_operation_composition_subjects(
                 len(typed_profiles) == 1
                 and (coordinate := type_key(type_expression)) is not None
             ):
-                package, version, type_id = coordinate
+                package, type_id = coordinate
                 return (
                     {
                         "type": {
                             "id": type_id,
                             "package": package,
-                            "version": version,
                         },
                         "value_kind": "nominal-structured",
                     },
@@ -7610,8 +7618,8 @@ def _consumer_b_operation_composition_subjects(
         )
 
     def close(
-        coordinate: tuple[str, str, str],
-        stack: tuple[tuple[str, str, str], ...],
+        coordinate: tuple[str, str],
+        stack: tuple[tuple[str, str], ...],
     ) -> tuple[set[str], set[str], int] | None:
         if coordinate in closed:
             return closed[coordinate]
@@ -7919,8 +7927,7 @@ def _consumer_b_operation_composition_subjects(
                         return None
                     guard_coordinate = (
                         coordinate[0],
-                        coordinate[1],
-                        f"{coordinate[2]}#guard-{instruction_index}",
+                        f"{coordinate[1]}#guard-{instruction_index}",
                     )
                     synthetic_inputs = [
                         {
@@ -7951,7 +7958,7 @@ def _consumer_b_operation_composition_subjects(
                         "body": guard_body,
                         "default_outcome": guarded_outcome,
                         "effects": list(effects),
-                        "id": guard_coordinate[2],
+                        "id": guard_coordinate[1],
                         "inputs": synthetic_inputs,
                         "outcomes": list(parent_outcome_definitions.values()),
                         "refusals": list(refusals),
@@ -8107,14 +8114,13 @@ def _consumer_b_operation_composition_subjects(
                 or not isinstance(operation_ref, dict)
                 or not all(
                     isinstance(operation_ref.get(member), str)
-                    for member in ("package", "version", "id")
+                    for member in ("package", "id")
                 )
             ):
                 found.add(subject(coordinate, cast(str | None, site), "operation"))
                 return None
             child_coordinate = (
                 operation_ref["package"],
-                operation_ref["version"],
                 operation_ref["id"],
             )
             if child_coordinate in stack or child_coordinate == coordinate:
@@ -8329,8 +8335,7 @@ def _consumer_b_operation_composition_subjects(
             )
             or (
                 source_kind == "unit"
-                and result_contract.get("type")
-                == {"package": "kernel", "version": "2.0.0", "id": "Unit"}
+                and result_contract.get("type") == {"package": "kernel", "id": "Unit"}
                 and result_contract.get("representation") == "Unit"
                 and result_contract.get("kind") == "unit"
                 and result_contract.get("unit") == "1"
@@ -8538,17 +8543,14 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     )
                     or descriptor.get("artifact_kind") != release.get("artifact_kind")
                     or descriptor.get("id") != release.get("id")
-                    or descriptor.get("version") != release.get("version")
                     or descriptor.get("content_identity")
                     != release.get("content_identity")
                     or descriptor.get("byte_size") != package_byte_size
                 ):
                     refuse("kernel.binding_mismatch", "ingress", subject)
                     continue
-                if isinstance(descriptor["id"], str) and isinstance(
-                    descriptor["version"], str
-                ):
-                    coordinates.append((descriptor["id"], descriptor["version"]))
+                if isinstance(descriptor["id"], str):
+                    coordinates.append(descriptor["id"])
                 else:
                     coordinates_are_strings = False
                 if release.get("content_identity") != _identity_from_kernel(
@@ -8567,7 +8569,6 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     != vector_set.get("content_identity")
                     or vector_descriptor.get("byte_size") != vector_set_byte_size
                     or vector_set.get("package_id") != release.get("id")
-                    or vector_set.get("package_version") != release.get("version")
                 ):
                     refuse("kernel.binding_mismatch", "ingress", vector_subject)
                 elif vector_set.get("content_identity") != _identity_from_kernel(
@@ -8587,58 +8588,39 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     "language-bundle.package_descriptors",
                 )
             package_coordinates = set(coordinates)
-            dependency_graph: dict[tuple[str, str], set[tuple[str, str]]] = {}
+            dependency_graph: dict[str, set[str]] = {}
             for release in graph_releases:
                 dependencies = release.get("dependencies")
                 package_id = release.get("id")
-                package_version = release.get("version")
-                if (
-                    not isinstance(dependencies, dict)
-                    or not isinstance(package_id, str)
-                    or not isinstance(package_version, str)
+                if not isinstance(dependencies, dict) or not isinstance(
+                    package_id, str
                 ):
                     continue
                 required = dependencies.get("required")
                 optional = dependencies.get("optional")
                 if not isinstance(required, list) or not isinstance(optional, list):
                     continue
-                if all(
-                    isinstance(dependency, dict)
-                    and set(dependency) == {"id", "version"}
-                    and isinstance(dependency["id"], str)
-                    and bool(dependency["id"])
-                    and isinstance(dependency["version"], str)
-                    and bool(dependency["version"])
-                    for dependency in [*required, *optional]
+                all_dependencies = [*required, *optional]
+                strings = all(
+                    isinstance(item, str) and item for item in all_dependencies
+                )
+                if strings:
+                    dependency_graph[package_id] = set(required)
+                if (
+                    not strings
+                    or any(item not in package_coordinates for item in all_dependencies)
+                    or len(set(all_dependencies)) != len(all_dependencies)
                 ):
-                    dependency_graph[(package_id, package_version)] = {
-                        (dependency["id"], dependency["version"])
-                        for dependency in required
-                    }
-                if any(
-                    not isinstance(dependency, dict)
-                    or set(dependency) != {"id", "version"}
-                    or (dependency.get("id"), dependency.get("version"))
-                    not in package_coordinates
-                    for dependency in [*required, *optional]
-                ) or len(
-                    {
-                        (dependency["id"], dependency["version"])
-                        for dependency in [*required, *optional]
-                        if isinstance(dependency, dict)
-                        and set(dependency) == {"id", "version"}
-                    }
-                ) != len([*required, *optional]):
                     refuse(
                         "kernel.binding_mismatch",
                         "ingress",
                         f"language-bundle.packages.{package_id}.dependencies",
                     )
 
-            visiting: set[tuple[str, str]] = set()
-            visited: set[tuple[str, str]] = set()
+            visiting: set[str] = set()
+            visited: set[str] = set()
 
-            def cyclic(coordinate: tuple[str, str]) -> bool:
+            def cyclic(coordinate: str) -> bool:
                 if coordinate in visiting:
                     return True
                 if coordinate in visited:
@@ -8691,9 +8673,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 )
                 dependency_depth = 0
                 if not has_dependency_cycle:
-                    depths: dict[tuple[str, str], int] = {}
+                    depths: dict[str, int] = {}
 
-                    def depth_of(coordinate: tuple[str, str]) -> int:
+                    def depth_of(coordinate: str) -> int:
                         known = depths.get(coordinate)
                         if known is not None:
                             return known
@@ -8998,7 +8980,6 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     vector_set, package_vector_set_contract
                 )
                 or vector_set.get("package_id") != package.get("id")
-                or vector_set.get("package_version") != package.get("version")
                 or (
                     literal_typing_profiles_are_closed
                     and not composition_subjects
@@ -9432,7 +9413,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         if not _consumer_b_reason_vectors_cover(ldb, reason, vectors, meta):
             refuse("kernel.vector_mismatch", "static", reason_id)
 
-    package_coordinates = [(item["id"], item["version"]) for item in packages]
+    package_coordinates = [item["id"] for item in packages]
     if len(package_coordinates) != len(set(package_coordinates)):
         refuse("kernel.duplicate_identifier", "static", "language.packages")
     vector_ids = {item["id"] for item in valid_vectors}
@@ -9442,15 +9423,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         item["id"] for item in ldb["language"]["quantity"]["numeric_policies"]
     }
     vector_sets_by_coordinate = {
-        (vector_set["package_id"], vector_set["package_version"]): vector_set
-        for vector_set in graph_vector_sets
+        vector_set["package_id"]: vector_set for vector_set in graph_vector_sets
     }
     for package in packages:
         exports = package["exports"]
         profiles = package["profiles"]
-        vector_set = vector_sets_by_coordinate.get(
-            (package["id"], package["version"]), {}
-        )
+        vector_set = vector_sets_by_coordinate.get(package["id"], {})
         references_close = (
             set(vector_set.get("vectors", [])) <= vector_ids
             and vector_set.get("vector_definitions")
@@ -9655,15 +9633,14 @@ def _reidentify(kernel: dict[str, Any], ldb: dict[str, Any]) -> None:
 
 def _graph_metrics(ldb: LanguageBundleIndex) -> dict[str, int]:
     dependencies = {
-        (package["id"], package["version"]): {
-            (dependency["id"], dependency["version"])
-            for dependency in package["dependencies"]["required"]
+        package["id"]: {
+            dependency for dependency in package["dependencies"]["required"]
         }
         for package in ldb.package_releases
     }
-    depths: dict[tuple[str, str], int] = {}
+    depths: dict[str, int] = {}
 
-    def depth_of(coordinate: tuple[str, str]) -> int:
+    def depth_of(coordinate: str) -> int:
         known = depths.get(coordinate)
         if known is not None:
             return known
@@ -9714,10 +9691,9 @@ def _consumer_b_evaluate_structured_value_vector(
         for constructor in entry.get("definitions", [])
     }
     definitions = {
-        (package["id"], package["version"], exported["id"]): {
+        (package["id"], exported["id"]): {
             **exported,
             "package": package["id"],
-            "version": package["version"],
         }
         for package in nominal_types
         for exported in package.get("exports", {}).get("types", [])
@@ -9729,7 +9705,6 @@ def _consumer_b_evaluate_structured_value_vector(
             for definition in entry.get("definitions", []):
                 key = (
                     definition["package"],
-                    definition["version"],
                     definition["id"],
                 )
                 if key not in definitions:
@@ -9784,7 +9759,7 @@ def _consumer_b_evaluate_structured_value_vector(
             self.code = code
             self.pointer = pointer
 
-    def type_key(type_expression: Any) -> tuple[str, str, str] | None:
+    def type_key(type_expression: Any) -> tuple[str, str] | None:
         if not isinstance(type_expression, dict):
             return None
         contract = typed_profiles[0]["admission"]["nominal_type_reference"]
@@ -9799,7 +9774,7 @@ def _consumer_b_evaluate_structured_value_vector(
         if set(type_expression) == expected and all(
             isinstance(value, str) and value for value in values
         ):
-            return cast(tuple[str, str, str], values)
+            return cast(tuple[str, str], values)
         return None
 
     def child(pointer, member):
@@ -9809,8 +9784,8 @@ def _consumer_b_evaluate_structured_value_vector(
     def canonical_type(type_expression):
         nominal = type_key(type_expression)
         if nominal is not None:
-            package, version, type_id = nominal
-            return {"id": type_id, "package": package, "version": version}
+            package, type_id = nominal
+            return {"id": type_id, "package": package}
         if not isinstance(type_expression, dict):
             if isinstance(type_expression, list):
                 return [canonical_type(item) for item in type_expression]
