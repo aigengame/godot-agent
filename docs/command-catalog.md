@@ -1054,10 +1054,12 @@ required (a call naming none is a usage error, exit 2). `--key` accepts a Godot 
 `TriggerRight`), since an axis names a whole stick dimension and the sign is what makes it one
 binding — an omitted sign is `+`. Joypad names are case- and separator-insensitive (`DPadLeft`,
 `dpad_left`, `DPAD_LEFT` are one button), and `gda project add-input-action --help` / `--schema`
-list the accepted set; an unresolvable token of any kind is a clean `invalid_key` error naming that
-set (exit 4, nothing saved). `--device` pins this call's joypad events to one joypad; it defaults to
-`-1` (`InputMap.ALL_DEVICES`, every joypad) and is set explicitly, because a script-constructed event
-starts at device `0` — key events are always `-1` and `--device` never touches them. `--deadzone`
+list the accepted set; an unresolvable joypad token is a clean `invalid_key` error naming that set
+(exit 4, nothing saved), and an unresolvable key name is `invalid_key` naming the token alone.
+`--device` pins this call's joypad events to one joypad, `-1`..`2147483647` (the engine's 32-bit
+device field — a larger number is refused, since it would wrap to a different joypad); it defaults
+to `-1` (`InputMap.ALL_DEVICES`, every joypad) and is set explicitly, because a script-constructed
+event starts at device `0` — key events are always `-1` and `--device` never touches them. `--deadzone`
 overrides Godot's `0.5` default; `--physical` binds physical keycodes (keyboard position,
 layout-independent) instead of layout keycodes. The action is built from real `InputEventKey`,
 `InputEventJoypadButton` and `InputEventJoypadMotion` objects — appended in that kind order — and

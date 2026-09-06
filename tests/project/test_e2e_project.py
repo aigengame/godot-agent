@@ -15,6 +15,7 @@ import json
 
 import pytest
 
+from gda.commands.project import INPUT_EVENT_DEVICE_MAX
 from tests.support import Gda, panel_text
 
 from tests.conftest import project_godot
@@ -782,6 +783,45 @@ def test_project_add_input_action_device_pins_the_joypad_events(godot_project):
     events = {event["type"]: event for event in value["events"]}
     assert events["InputEventKey"]["device"] == -1
     assert events["InputEventJoypadButton"]["device"] == 1
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_refuses_a_device_the_engine_field_cannot_hold(
+    godot_project,
+):
+    # InputEvent.device is a 32-bit field: the engine ACCEPTED 4294967295 and
+    # stored -1 (every joypad), so a binding meant for one joypad silently
+    # matched all of them. The ceiling is refused before any engine is spawned,
+    # and the project is untouched; the largest representable device round-trips.
+    before = (godot_project / "project.godot").read_text(encoding="utf-8")
+
+    refused = Gda(godot_project)(
+        "project",
+        "add-input-action",
+        "overflow",
+        "--joy-button",
+        "A",
+        "--device",
+        "4294967295",
+        "--json",
+    )
+
+    assert refused.returncode == 2, refused.stdout + refused.stderr
+    assert (godot_project / "project.godot").read_text(encoding="utf-8") == before
+
+    added = Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "last_pad",
+        "--joy-button",
+        "A",
+        "--device",
+        str(INPUT_EVENT_DEVICE_MAX),
+    )
+    assert added["events"][0]["device"] == INPUT_EVENT_DEVICE_MAX
+
+    value = Gda(godot_project).json("project", "get", "input/last_pad")["value"]
+    assert value["events"][0]["device"] == INPUT_EVENT_DEVICE_MAX
 
 
 @pytest.mark.e2e

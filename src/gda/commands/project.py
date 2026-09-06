@@ -554,10 +554,18 @@ JOY_AXIS_DESC = (
     "left. One direction is one binding."
 )
 
+# InputEvent.device is a 32-bit field in the engine. A larger integer is not
+# refused by GDScript's 64-bit int but WRAPS on assignment (4294967295 becomes
+# -1, every joypad; 2147483648 becomes -2147483648), so the bound is the model's,
+# refused before any engine is spawned.
+INPUT_EVENT_DEVICE_MAX = 2**31 - 1
+
 DEVICE_DESC = (
     "The joypad device this call's joypad bindings match: -1 (the default) is "
     "InputMap.ALL_DEVICES and matches every joypad, 0 and up name one specific "
-    "joypad. Key bindings are always -1 and are unaffected."
+    f"joypad, at most {INPUT_EVENT_DEVICE_MAX} (the engine stores an event's "
+    "device as a 32-bit integer; a larger number would wrap and match a "
+    "different joypad). Key bindings are always -1 and are unaffected."
 )
 
 
@@ -619,6 +627,7 @@ class ProjectAddInputActionParams(BaseModel):
     device: int = Field(
         default=-1,
         ge=-1,
+        le=INPUT_EVENT_DEVICE_MAX,
         description=DEVICE_DESC,
     )
     deadzone: float = Field(

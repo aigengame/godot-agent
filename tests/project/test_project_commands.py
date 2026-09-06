@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.project import (
+    INPUT_EVENT_DEVICE_MAX,
     ProjectAddAutoloadParams,
     ProjectAddAutoloadResult,
     ProjectAddInputActionParams,
@@ -649,6 +650,28 @@ def test_project_add_input_action_rejects_a_device_below_all_devices(monkeypatch
     assert fake.calls == []
 
 
+def test_project_add_input_action_rejects_a_device_above_the_engine_field(monkeypatch):
+    # InputEvent.device is 32-bit: 2147483648 would be stored as -2147483648 and
+    # 4294967295 as -1 (every joypad), so the ceiling is refused before dispatch.
+    result, fake = invoke_cli(
+        monkeypatch,
+        [
+            "project",
+            "add-input-action",
+            "jump",
+            "--joy-button",
+            "A",
+            "--device",
+            str(INPUT_EVENT_DEVICE_MAX + 1),
+        ],
+        stdout=sentinel(ADD_INPUT_ACTION_JOYPAD_RESULT),
+    )
+
+    assert result.exit_code == 2
+    assert "device" in usage_error_text(result)
+    assert fake.calls == []
+
+
 def test_project_add_input_action_human_output_lists_joypad_bindings(monkeypatch):
     result, _ = invoke_cli(
         monkeypatch,
@@ -690,12 +713,14 @@ def test_add_input_action_schema_and_model_agree_on_the_binding_rule():
         ({"name": "j", "joy_axes": ["LeftX:-"]}, True),
         ({"name": "j", "keys": ["Space"], "joy_buttons": [], "joy_axes": []}, True),
         ({"name": "j", "joy_buttons": ["A"], "device": 0}, True),
+        ({"name": "j", "joy_buttons": ["A"], "device": INPUT_EVENT_DEVICE_MAX}, True),
         # No binding of any kind, spelled both ways.
         ({"name": "jump"}, False),
         ({"name": "jump", "keys": [], "joy_buttons": [], "joy_axes": []}, False),
         ({"name": "jump", "keys": []}, False),
         # The scalar bounds ride the same contract.
         ({"name": "j", "keys": ["Space"], "device": -2}, False),
+        ({"name": "j", "keys": ["Space"], "device": INPUT_EVENT_DEVICE_MAX + 1}, False),
         ({"name": "j", "keys": ["Space"], "deadzone": 1.5}, False),
     ]
 

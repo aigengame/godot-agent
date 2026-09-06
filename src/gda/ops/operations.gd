@@ -226,6 +226,10 @@ const AUTOLOAD_ENABLED_PREFIX := "*"
 # are real InputEventKey Objects, persisted via ProjectSettings.save() so the
 # serialization is exactly the engine's own var_to_str form.
 const INPUT_SETTING_PREFIX := "input/"
+# InputEvent.device is a 32-bit field: a larger int wraps on assignment (issue
+# #842 review), so the op refuses it as the CLI does rather than storing a
+# different device than the caller named.
+const INPUT_EVENT_DEVICE_MAX := 2147483647
 
 # The exit code the process will use. Defaults to failure, so an operation that
 # aborts before recording an outcome (e.g. an uncaught runtime error) still
@@ -3981,8 +3985,10 @@ func _op_project_add_input_action(params: Dictionary) -> void:
 	var deadzone := float(raw_deadzone)
 	var physical := bool(params.get("physical", false))
 	var raw_device: Variant = params.get("device", -1)
-	if not (raw_device is int or raw_device is float) or int(raw_device) < -1:
-		_fail(OP_ERROR_INVALID_PARAMS, "device must be an integer >= -1 (-1 matches every joypad)")
+	if (not (raw_device is int or raw_device is float) or int(raw_device) < -1
+			or int(raw_device) > INPUT_EVENT_DEVICE_MAX):
+		_fail(OP_ERROR_INVALID_PARAMS, "device must be an integer in -1.." + str(INPUT_EVENT_DEVICE_MAX)
+				+ " (-1 matches every joypad; the engine stores the device as a 32-bit integer)")
 		return
 	var device := int(raw_device)
 
