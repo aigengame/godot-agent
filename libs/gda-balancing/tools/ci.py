@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import subprocess
@@ -17,6 +18,25 @@ REPO_ROOT: Final = Path(__file__).resolve().parents[3]
 TEST_ROOT: Final = MEMBER_ROOT / "tests"
 BASELINE_PATH: Final = TEST_ROOT / "schema2-test-inventory-v1.json"
 MIGRATION_PATH: Final = TEST_ROOT / "schema2-bootstrap-migration-map.json"
+
+
+def _experiment_test_selectors() -> tuple[str, ...]:
+    """Split the slow module by test definition, keeping parameters together."""
+    filename = "test_schema2_experiment_cli.py"
+    module = ast.parse((TEST_ROOT / filename).read_text(encoding="utf-8"))
+    names = sorted(
+        node.name
+        for node in module.body
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+        )
+        or (isinstance(node, ast.ClassDef) and node.name.startswith("Test"))
+    )
+    return tuple(f"{filename}::{name}" for name in names)
+
+
+_EXPERIMENT_TESTS: Final = _experiment_test_selectors()
 
 SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "fast": (
@@ -50,7 +70,8 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_schema2_model_cli.py",
         "test_schema2_model_lowerer_conformance.py",
     ),
-    "experiment": ("test_schema2_experiment_cli.py",),
+    "experiment": _EXPERIMENT_TESTS[::2],
+    "experiment-continuation": _EXPERIMENT_TESTS[1::2],
     "composition": (
         "test_current_package_composition.py",
         "test_cli_conformance.py",
