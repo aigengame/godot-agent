@@ -92,19 +92,16 @@ class ConformanceFixtures:
 class RefusalDetailSpec:
     """The one closed, stage-specific detail field admitted in 2.x."""
 
-    stage: Literal["migration", "runtime"]
-    field_name: Literal["migration_report", "terminal_audit"]
+    stage: Literal["runtime"]
+    field_name: Literal["terminal_audit"]
     schema: Callable[[], dict[str, object]]
     required: bool = True
 
     def __post_init__(self) -> None:
-        if (self.stage, self.field_name) not in {
-            ("migration", "migration_report"),
-            ("runtime", "terminal_audit"),
-        }:
+        if (self.stage, self.field_name) != ("runtime", "terminal_audit"):
             raise ValueError(
-                "migration-report and terminal-audit are the only Schema 2.x "
-                "refusal details and each belongs to its declared stage"
+                "terminal-audit is the only Schema 2.x refusal detail "
+                "and belongs to the runtime stage"
             )
 
 
@@ -112,10 +109,10 @@ class RefusalDetailSpec:
 class RefusalVariantSpec:
     """One descriptor-owned variant within a shared refusal stage."""
 
-    stage: Literal["migration", "runtime"]
+    stage: Literal["runtime"]
     id: str
-    required_details: tuple[Literal["migration_report", "terminal_audit"], ...] = ()
-    forbidden_details: tuple[Literal["migration_report", "terminal_audit"], ...] = ()
+    required_details: tuple[Literal["terminal_audit"], ...] = ()
+    forbidden_details: tuple[Literal["terminal_audit"], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -206,8 +203,7 @@ class CommandDescriptor:
     # Receipt fields and accepted member sets are derived from their producer
     # descriptors. A consumer cannot maintain a parallel artifact-role list.
     input_artifact_sets: tuple[ArtifactSetInputSpec, ...] = field(default=())
-    # The active surface is Standard Schema 2.x. Standard Schema 1.x is
-    # consumed only by the Model migration application flow.
+    # The active surface is Standard Schema 2.x.
     schema_major: Literal[2] = field(default=2)
     structured_params: bool = field(default=False)
     # Exact per-command error authority for Schema 2.x.  The catalog is a

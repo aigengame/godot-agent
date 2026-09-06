@@ -35,7 +35,6 @@ from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
 from gda_balancing.interfaces.cli.model_check import MODEL_CHECK
 from gda_balancing.interfaces.cli.model_inspect import MODEL_INSPECT
 from gda_balancing.interfaces.cli.experiment_check import EXPERIMENT_CHECK
-from gda_balancing.interfaces.cli.model_migration import MODEL_MIGRATE
 from gda_balancing.interfaces.cli.package import (
     package_get_success_schema,
     package_list_success_schema,
@@ -1435,17 +1434,6 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
     assert "rpg." not in serialized
 
 
-def test_unchanged_migration_package_keeps_its_existing_release_coordinate(run_cli):
-    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
-    migration = next(
-        release
-        for release in authority["package_releases"]
-        if release["id"] == "tooling.migration"
-    )
-
-    assert migration["version"] == "1.0.0"
-
-
 def test_standard_compiler_owns_generic_model_admission_contracts(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     releases = {release["id"]: release for release in authority["package_releases"]}
@@ -1841,11 +1829,8 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "genre-coverage-matrix",
         "golden-scenario",
         "metric-dataset",
-        "migration-refusal-report",
-        "migration-report",
         "model-build-command-input",
         "model-explanation",
-        "model-migrate-command-input",
         "package-lock",
         "publication-index",
         "negative-vector",
@@ -1858,7 +1843,6 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "runtime-terminal-audit",
         "schema-major-kernel",
         "snapshot-series",
-        "source-converter-specification",
         "language-definition-bundle",
         "model-source-package",
         "template-compatibility",
@@ -1971,7 +1955,6 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "model check",
         "model build",
         "model inspect",
-        "model migrate",
         "template list",
         "template get",
         "template instantiate",
@@ -2078,7 +2061,6 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "model build": MODEL_BUILD,
                 "model check": MODEL_CHECK,
                 "model inspect": MODEL_INSPECT,
-                "model migrate": MODEL_MIGRATE,
             }[path]
             source = tmp_path / f"{path.replace(' ', '-')}.json"
             source.write_text(
@@ -2289,7 +2271,6 @@ def test_kernel_stage_vocabulary_is_the_runtime_discriminant(run_cli):
         "resolution",
         "runtime",
         "evaluation",
-        "migration",
         "approval",
     )
     assert set(declared) == set(get_args(RefusalStage))

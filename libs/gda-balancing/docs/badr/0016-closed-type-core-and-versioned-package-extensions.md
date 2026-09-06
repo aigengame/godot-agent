@@ -301,8 +301,8 @@ therefore requires a small closed type language and a constrained package extens
   bADR-0003.** It replaces the fixed root/reserved-section extension model, attribute-specific core
   facets, float-only parameter surface, and untyped reference assumptions for 2.x. It retains the
   principles of closed input, orthogonal composition, explicit named tuning controls, closed
-  operations, bounded formulas, and hard refusal. Their 1.x contracts remain normative for 1.x and
-  migration. Effect-domain semantics in bADR-0006 require a separate 2.x package decision.
+  operations, bounded formulas, and hard refusal. Their 1.x contracts remain historical after #868
+  retires source conversion. Effect-domain semantics in bADR-0006 require a separate 2.x package decision.
 
 ## Considered options
 

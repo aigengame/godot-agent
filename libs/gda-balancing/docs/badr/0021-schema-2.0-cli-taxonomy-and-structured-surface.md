@@ -4,6 +4,10 @@ status: accepted
 
 # Align the Schema 2.0 CLI with model, experiment, and evidence artifacts
 
+> **Source-path retirement (2026-09-06, #868):** `model migrate` and its descriptor,
+> result and refusal-report contracts are removed. Current Model Source uses `model check|build`.
+> Historical conversion details remain in bADR-0019; unrelated planned commands retain their scope.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 supersedes model migrate as a permanent forward command and requires removal of
 > obsolete version selectors and execution-binding fields from descriptors and every derived
@@ -71,7 +75,7 @@ structured-params adapter part of the first vertical tracer.
   |---|---|---|
   | `schema` | `get language-bundle`, `get wire-schema`, `get diagnostic-catalog` | emit the Language Definition Bundle or a named generated projection |
   | `package` | `list`, `get` | enumerate root-declared packages or retrieve an exact Package Release manifest/conformance-vector member from one exact language bundle |
-  | `model` | `check`, `build`, `inspect`, `diff`, `migrate` | validate/resolve source, build or compare RIR artifacts, or attempt limited 1.x source conversion |
+  | `model` | `check`, `build`, `inspect`, `diff` | validate/resolve current source, build or compare RIR artifacts |
   | `template` | `list`, `get`, `instantiate` | enumerate template releases or create a new Model Source Package identity |
   | `experiment` | `check`, `run`, `replay`, `compare` | validate Experiment Specifications or produce/compare deterministic Evaluation runs and Metric datasets |
   | `evidence` | `inspect`, `verify` | inspect or verify the immutable evidence graph and content identities |
@@ -213,8 +217,8 @@ structured-params adapter part of the first vertical tracer.
   rather than defers `manifest`/`--params-json`, expands per-command schema outcomes, and extends the
   descriptor/harness. It retains one binary, noun groups, explicit help, JSON channel discipline,
   schema projection, safe output, input immutability, one descriptor registry, and exhaustive
-  conformance. The current 1.x CLI remains only until the clean-break tracer replaces it
-  (bADR-0019).
+  conformance. The original 1.x CLI is historical, and #868 removes its remaining source-conversion
+  entrypoint (bADR-0019).
 
 ## Considered options
 

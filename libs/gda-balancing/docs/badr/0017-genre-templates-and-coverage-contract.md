@@ -401,7 +401,7 @@ distribution contract and a falsifiable definition of genre completeness.
   fixed template attribute-tier assumptions, and the monolithic Effect/Modifier shape for 2.x. It
   retains data-defined genre baselines, orthogonal attribute composition, formula-capable values,
   explicit duration/stacking/reapplication concepts, and hard refusal. Their complete 1.x behavior
-  remains normative for 1.x and migration.
+  remains historical; #868 retires its source conversion and creates no template compatibility path.
 
 ## Considered options
 

@@ -4,6 +4,13 @@ status: accepted
 
 # Make Schema 2.0 the clean baseline and limit migration to safe source conversion
 
+> **Retirement delivered (2026-09-06, #868):** the converter, `model migrate`,
+> `tooling.migration`, migration-only contracts and refusal stage/report are removed.
+> The [retirement record](../refactor/current-language/RETIREMENT.md) deliberately deprecates the
+> only tracked authored fixture; no current-model conversion or equivalence is claimed.
+> No named unresolved source or offline converter remains. The clean-forward/no-lossy-success
+> principles remain accepted; all converter behavior below is historical, not a current API.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 replaces ongoing converter availability and the rejection of converter removal as
 > the final target. S1b inventories actual source inputs, records rewrite/retirement or bounded
@@ -20,11 +27,11 @@ gda-balancing has published no Standard Schema product artifacts and carries lit
 compatibility burden. Designing a production compatibility subsystem now would spend complexity on
 states that do not exist and would constrain the 2.0 model before its tracer is implemented.
 
-Standard Schema 1.x remains useful design history and current implementation input, but it is not a
-released compatibility line. PRD #534 therefore adopts 2.0 as the sole forward standard and keeps
-only a narrow, semantics-preserving source-conversion opportunity.
+Standard Schema 1.x remains useful design history, not current implementation input or a released
+compatibility line. The bounded conversion opportunity below was implemented and later retired
+under bADR-0028/#868; current authors use the normal Model Source path.
 
-## Decision
+## Historical source-conversion decision
 
 - **Standard Schema 2.0 is a clean forward baseline.** New templates, models, experiments,
   evaluators, metrics, evidence, and approvals target 2.x. There is no promise that a 2.x compiler
@@ -90,7 +97,7 @@ only a narrow, semantics-preserving source-conversion opportunity.
   design evolution is auditable, but implementation issues must target the 2.x decisions and may
   not invoke 1.x compatibility as an unstated acceptance criterion.
 
-## Considered options
+## Historical options
 
 - **Clean break plus best-effort source conversion** (chosen) — preserves cheaply recoverable
   authored work without imposing runtime compatibility for artifacts that were never published.
@@ -105,7 +112,7 @@ only a narrow, semantics-preserving source-conversion opportunity.
 - **Schema 2.0 implies package 2.0.0** (rejected) — Schema and product release versions remain
   independent under bADR-0001/0012 and repository release policy.
 
-## Consequences
+## Historical consequences
 
 - The 2.0 specification can choose coherent type, package, runtime, and evidence contracts without
   reserving compatibility holes for unpublished 1.x runtime artifacts.

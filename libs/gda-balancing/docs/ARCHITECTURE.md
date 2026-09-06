@@ -717,9 +717,9 @@ imports must not form a cycle. An AST test enforces these rules. The test also r
 owner for every production module. Removed top-level modules and active Schema 2.x implementation
 modules in old locations therefore fail the test.
 
-The historical `schema2/` package contains only packaged machine-authority resources. The `schema/`
-package contains the accepted Standard Schema 1.x source-migration input protocol. Active Standard
-Schema 2.x Domain code does not use that protocol.
+The historical `schema2/` package contains only packaged machine-authority resources. #868 removes
+the `schema/` input stack and its converter boundary. Source-authoring paths consume current
+Model Source; there is no legacy compatibility namespace or offline converter.
 
 These layers are the durable macro structure. Code and bADR-0025 own the detailed module placement.
 This document does not maintain a second file-level module map.
@@ -2080,43 +2080,27 @@ cross-artifact authority boundary.
 
 ## 14. Migration and compatibility
 
-**Accepted retirement:** Under bADR-0028, internal artifacts can be replaced or withdrawn without
-a historical support promise. S1b inventories the named 1.x source inputs, dispositions each by
-rewrite, retirement or bounded one-time conversion, then deletes the converter command, code,
-schemas, packaged resources and obsolete tests. Its current behavior is documented below until
-that deletion; ongoing converter availability is superseded. Unknown hypothetical inputs do not
-justify permanent retention. #517's Panda cutover must still preserve the real consumer's source
-and comparison contract before its distinct embedded pipeline is removed.
+Under bADR-0028, internal artifacts may be replaced or withdrawn without a historical support
+promise. #868 retires the Schema 1 input stack, `model migrate`, `tooling.migration`, conversion
+schemas/defaults/diagnostics, and the `migration` refusal stage/report. Current Model Source enters
+normal `model check` and `model build`; no converter or old-input fallback remains.
 
-Standard Schema 2.0 is a clean forward baseline because no Standard Schema product artifacts have
-been released. New models, templates, experiments, and evidence use 2.0 authority and identity from
-the start.
+The [retirement record](refactor/current-language/RETIREMENT.md) identifies the exact baseline,
+full tracked-JSON search scope, old authored fixture and generated/test-only exclusions. The fixture
+contains no numeric declarations and is deliberately deprecated, not converted into invented
+current semantics. No named unresolved source requires an offline converter. Unknown external
+coverage is stated explicitly and does not postpone deletion.
 
-Schema version and `gda-balancing` product/package version are independent compatibility axes.
-Adopting Standard Schema 2.0 does not by itself require a `gda-balancing` 2.0.0 release, and a
-toolkit release cannot silently change the Schema major, exact Kernel, or LDB identity.
+Panda's real embedded stack remains independently owned by #517. Its source and comparison
+contract must be preserved through its own consumer cutover before that implementation is removed.
+Retiring the toolkit converter supplies no Panda parity or cutover evidence.
 
-A limited converter may migrate 1.x **source** only when the mapping is semantics-preserving and
-auditable. It emits a migration report binding the input identity, an embedded, independently
-rehashable LDB-validated Source Converter Specification, LDB identity, successful mappings,
-defaults, warnings, and refusals. A concept without a safe mapping is declared
-deprecated/unsupported and refused. Exact input identity is claimed only for regular files whose
-complete stream fits the converter's 16 MiB observation cap; non-regular or larger inputs fail at
-usage ingress without a fabricated identity.
-Before success, the converter canonicalizes the candidate Model Source Package and applies the LDB's
-`max_source_bytes` as well as `max_symbols`; either target-bound overflow is a typed migration
-refusal and publishes no partial Model Source Package.
-
-Successful conversion atomically publishes the new Model Source Package and a separately typed
-`migration-report`. A pre-runtime conversion refusal publishes no command success artifact; its
-exit-2 envelope carries an LDB-validated `migration-refusal-report` that binds the attempted safe
-mappings and the complete bounded refusal evidence. The refusal report is auditable evidence of
-the failed attempt, not a partial Model Source Package, success receipt, or terminal-audit artifact
-set.
-
-There is no dual 1.x/2.x semantic stack, gray runtime rollout, reverse migration, or compatibility
-promise for saves, replays, runtime behavior, rulesets, or partial Evidence. Standard Schema 1.x
-remains design history and conversion input, not a constraint that can weaken 2.0 invariants.
+Standard Schema 2.0 is the forward language. The owner-defined formal product release is distinct
+from existing internal tags and distribution versions and occurs no earlier than toolkit v1.0.
+Current content changes receive truthful new identities; a toolkit version cannot silently rewrite
+an admitted execution. Historical source and reports remain design provenance, not a compatibility
+requirement or valid current Evidence. There is no dual Runtime, save/replay converter, reverse
+migration service, or newly versionless adapter for old input.
 
 ## 15. External design provenance
 
@@ -2141,7 +2125,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Closed core and package extension | [bADR-0016](badr/0016-closed-type-core-and-versioned-package-extensions.md) | Package and orthogonality vectors |
 | Genre templates and coverage | [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md) | [Genre coverage matrix](standard-schema-2.0/genre-coverage.md) |
 | Metrics schema, calibration, comparisons, Evidence | [bADR-0018](badr/0018-unified-metrics-calibration-and-evidence-chain.md) | Evidence graph and independent validation vectors |
-| Clean break and limited source migration | [bADR-0019](badr/0019-schema-2.0-clean-break-and-limited-source-migration.md) | Migration fixtures and reports |
+| Clean break and completed Schema 1 retirement | [bADR-0019](badr/0019-schema-2.0-clean-break-and-limited-source-migration.md), [bADR-0028](badr/0028-current-language-refactor-and-pre-1.0-retirement.md) | [Named-source disposition and current-path gates](refactor/current-language/RETIREMENT.md) |
 | External-standard mappings | [bADR-0020](badr/0020-explicit-mappings-to-external-modeling-standards.md) | Mapping-specific conformance vectors |
 | CLI taxonomy and structured surface | [bADR-0021](badr/0021-schema-2.0-cli-taxonomy-and-structured-surface.md) | Command descriptors and Surface manifest |
 | Executable Kernel/LDB semantics | [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md) | Completed bounded Gate 1 evidence and permanent conformance suite |

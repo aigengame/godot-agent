@@ -18,7 +18,6 @@ RefusalStage = Literal[
     "resolution",
     "runtime",
     "evaluation",
-    "migration",
     "approval",
 ]
 
@@ -73,7 +72,6 @@ class Schema2RefusalReport(BaseModel):
     variant: str | None = None
     diagnostics: tuple[Schema2Diagnostic, ...] = Field(min_length=1)
     truncated: bool
-    migration_report: dict[str, Any] | None = None
     terminal_audit: dict[str, Any] | None = None
 
 

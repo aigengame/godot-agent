@@ -130,9 +130,10 @@ an explicit boundary for lowering equivalence.
   may erase representation overhead but cannot reintroduce ambient symbol capture.
 
 - **Conformance, not a universal proof obligation, guards RIR-to-EIR lowering.** The specification
-  provides a reference evaluator for RIR plus normative positive, negative, limit, replay, and
-  migration vectors. Optimizing evaluators run differential tests against the reference behavior
-  under the same runtime/numeric profile. A backend may additionally provide formal proofs, but
+  provides a reference evaluator for RIR plus normative positive, negative, limit, and replay
+  vectors. Retired Schema 1 conversion vectors are historical after #868. Optimizing evaluators run
+  differential tests against the reference behavior under the same runtime/numeric profile.
+  A backend may additionally provide formal proofs, but
   Standard Schema conformance does not require proof of every optimization.
 
 - **The proof boundary is stated honestly.** Parsing and static semantics are judged by normative
@@ -143,8 +144,8 @@ an explicit boundary for lowering equivalence.
 - **This decision supersedes direct authored-tree execution for Standard Schema 2.x.** It replaces
   the 2.x applicability of bADR-0003's expression tree as the form directly consumed for
   evaluation, while retaining its closed-operator, pure data, no-infix-authority, and explicit
-  parameter principles. Standard Schema 1.x behavior remains governed by its accepted bADRs and
-  enters this pipeline only through a separately decided migration.
+  parameter principles. Standard Schema 1.x behavior remains historical under its accepted bADRs;
+  #868 removes its converter, so it does not enter the current pipeline.
 
 ## Considered options
 

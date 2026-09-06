@@ -4,6 +4,10 @@ status: accepted
 
 # Preserve the exit algebra while generalizing refusals by stage and diagnostic location
 
+> **Refusal contraction (2026-09-06, #868):** retiring the sole Schema 1 converter
+> removes the `migration` stage and `migration_report` detail. The current seven-stage
+> contract below retains all unrelated outcome, diagnostic and publication guarantees.
+
 bADR-0008 gives the current CLI a useful five-way outcome algebra: success, negative verdict,
 typed refusal, usage error, and internal error. Standard Schema 2.x introduces failures that the
 1.x envelope cannot represent honestly. A dependency conflict is not a JSON element, a runtime
@@ -45,18 +49,17 @@ refusal payload stage-aware and artifact-aware.
   preventing the judgment is a typed refusal at the applicable stage. A positive judgment returns
   the command's exit-0 result.
 
-- **Standard Schema 2.x defines eight stable Refusal stages:** `ingress`, `parse`, `static`,
-  `resolution`, `runtime`, `evaluation`, `migration`, and `approval`.
+- **Standard Schema 2.x defines seven stable Refusal stages:** `ingress`, `parse`, `static`,
+  `resolution`, `runtime`, `evaluation`, and `approval`.
   - `ingress` owns byte/resource caps, artifact identity/version dispatch, and safe admission.
   - `parse` owns wire grammar and source construction.
   - `static` owns structural, name, type, unit, and other compile-time semantic rules.
   - `resolution` owns package dependency/capability binding and HIR-to-RIR lowering preconditions.
   - `runtime` owns legal execution under bADR-0014.
   - `evaluation` owns metric computability and statistical evaluation preconditions.
-  - `migration` owns source/artifact conversion preconditions and loss classification.
   - `approval` owns evidence, attestation, and governance-policy preconditions.
   A refusal envelope names the earliest stage that cannot complete; later stages do not run.
-  “Bundle admission” is a process name, not a ninth stage: byte caps, artifact identity/version,
+  “Bundle admission” is a process name, not an eighth stage: byte caps, artifact identity/version,
   Kernel/LDB binding, and safe format admission are `ingress`; after those pass, malformed rule/fact
   structure and rule-semantic illegality are `static`. The non-self-hosted Kernel Specification
   publishes this admission meta-diagnostic-to-stage projection; an LDB can publish only the
@@ -70,11 +73,9 @@ refusal payload stage-aware and artifact-aware.
   closed refusal variant contains `category: refusal`, one `stage`, a non-empty `diagnostics` array,
   and `truncated`. It may additionally carry only the closed, stage-bound fields defined here:
   `reproduction` after stochastic identity exists, a `terminal_audit` receipt after runtime
-  dispatch has begun, and `migration_report` only for a migration-stage refusal. The migration
-  field is the inline, LDB-validated refusal report: it records attempted mappings and deprecated
-  constructs but never claims or publishes a successful Model Source Package. Other stages cannot
-  fabricate these fields, and no ambient refusal-detail extension bag exists. The envelope has no
-  envelope-level diagnostic code: stable codes belong to individual entries.
+  dispatch has begun. Other stages cannot fabricate these fields, and no ambient refusal-detail
+  extension bag exists. The retired `migration_report` is not a current envelope member.
+  The envelope has no envelope-level diagnostic code: stable codes belong to individual entries.
 
 - **Every Diagnostic has one stable code, explanatory message, tagged primary location, and zero
   or more related locations.** Primary and related locations use a closed tagged union:
@@ -89,7 +90,7 @@ refusal payload stage-aware and artifact-aware.
 
 - **Report-all behavior is stage-bounded.** Parse and static stages report all safely discoverable
   diagnostics up to the deterministic cap. Resolution reports the complete bounded conflict set.
-  Runtime, evaluation, migration, and approval may produce one terminal diagnostic plus related
+  Runtime, evaluation, and approval may produce one terminal diagnostic plus related
   locations, or a bounded set when the operation can establish independence. Diagnostics sort by
   the location-kind order above, canonical location key, then code; duplicates are removed by
   `(code, primary location, related locations)`. `truncated` records cap exhaustion.
@@ -150,7 +151,7 @@ refusal payload stage-aware and artifact-aware.
 - **Kernel and LDB split Diagnostic authority at the admission boundary.** The non-self-hosted
   Schema-major Kernel contract owns the closed meta-diagnostic codes, payloads, precedence, and
   `ingress`/`static` assignments required to admit or reject a Kernel/LDB. Once admitted, the LDB
-  owns language, compiler, runtime, evaluation, migration, and approval typed-refusal codes and
+  owns language, compiler, runtime, evaluation, and approval typed-refusal codes and
   stage membership; Core and extension packages declare versioned, namespaced codes only through
   that bundle. The CLI usage family and fixed internal code remain command-surface concerns. A code
   cannot move stages or change meaning within a compatible Schema line, and the closed stage
@@ -177,8 +178,8 @@ refusal payload stage-aware and artifact-aware.
   bADR-0011.** It replaces the three-phase-only refusal boundary, JSON-Pointer-only refusal entry,
   and 1.x closed envelope for 2.x. It retains gated validation, preflight caps, typed/report-all
   refusal, the 0–4 exit/channel meanings, single JSON payload, sanitized internal failures, one
-  Command descriptor seam, and registry-walking conformance. Their existing contracts remain
-  normative for Standard Schema 1.x and the current CLI until 2.x commands ship.
+  Command descriptor seam, and registry-walking conformance. Their 1.x-only shapes remain
+  historical after #868 retires that input path; the retained laws above govern the current CLI.
 
 ## Considered options
 
@@ -201,17 +202,18 @@ refusal payload stage-aware and artifact-aware.
 
 - The 2.x wire specification needs closed schemas for all location variants, refusal envelopes,
   terminal-audit artifact sets/receipts, and verdict reports.
-- Existing refusal codes need an explicit 1.x-to-2.x mapping and stage assignment during migration.
-- Runtime, evaluation, migration, and approval implementations gain typed failure paths and may not
+- Historical 1.x refusal codes are retired with their converter; current Diagnostics retain their
+  exact stage ownership.
+- Runtime, evaluation, and approval implementations gain typed failure paths and may not
   signal expected conditions with exceptions.
 - CLI taxonomy may change only through a separate decision that updates command descriptors and
   their projections; this bADR fixes outcome behavior, not command names.
-- Issue #534's capability mismatch, `not_evaluable`, Runtime refusal, migration, and approval gates
+- Issue #534's capability mismatch, `not_evaluable`, Runtime refusal, and approval gates
   now have one carrier and stable automation contract.
 
 ## Validation
 
-- Enumerate all eight Refusal stages from the authoritative stage contract and reject missing,
+- Enumerate all seven Refusal stages from the authoritative stage contract and reject missing,
   duplicate, misspelled, unknown, or category-valued stages before command dispatch.
 - For every registered command, execute each declared reachable success/Verdict, every applicable
   Refusal stage, usage, and injected internal failure; assert exact exit, channel, closed schema,

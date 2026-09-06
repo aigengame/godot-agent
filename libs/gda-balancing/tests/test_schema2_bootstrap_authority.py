@@ -1155,51 +1155,6 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
 @pytest.mark.parametrize(
     "mutation",
     (
-        "identity-only",
-        "reidentified-specification",
-        "artifact-schema",
-    ),
-)
-def test_two_consumers_refuse_unilateral_embedded_artifact_binding_drift(mutation):
-    authority = _authority_candidate()
-    kernel = authority["kernel"]
-    ldb = authority["language_bundle"]
-    schemas = {
-        entry["artifact_kind"]: entry["schema"]
-        for entry in ldb["language"]["artifact_wire_schemas"]
-    }
-    refusal_schema = schemas["migration-refusal-report"]
-    properties = refusal_schema["properties"]
-    if mutation == "identity-only":
-        properties["converter_identity"]["const"] = "sha256:" + "0" * 64
-    elif mutation == "reidentified-specification":
-        specification = properties["converter_specification"]["const"]
-        specification["mapping_rules"][0]["report_mapping"] = "unilateral drift"
-        specification["content_identity"] = _identity(
-            "source-converter-specification-v1", specification
-        )
-        properties["converter_identity"]["const"] = specification["content_identity"]
-    else:
-        schemas["source-converter-specification"]["properties"]["mapping_rules"][
-            "minItems"
-        ] = 5
-    _reidentify(kernel, ldb)
-
-    first = _consumer_a(kernel, ldb)
-    second = _consumer_b(kernel, ldb)
-
-    assert first == second
-    assert first["admitted"] is False
-    assert (
-        "ingress",
-        "kernel.identity_mismatch",
-        "language-bundle.admitted-index",
-    ) in first["diagnostics"]
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    (
         "relation-missing-path",
         "relation-wrong-result-type",
         "projection-missing-path",

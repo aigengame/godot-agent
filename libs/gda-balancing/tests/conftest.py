@@ -13,12 +13,6 @@ and appends the path as the positional argument. Content (never a committed
 ``.json`` path) keeps fixtures cwd-independent and off the isolation gate's
 per-game-config scan.
 
-``minimal_design_path`` is the one committed golden of the V1 minimal Design
-document (``tests/fixtures/minimal_design.json``) — the single source the
-boundary tests point at instead of each re-inlining the same minimal literal.
-A test needing the text (to mutate it) reads it off the path; a test needing a
-dict loads it. It lives under ``tests/`` so the isolation gate's per-game-config
-scan (``src/`` only) never sees it, and it names no game identity.
 """
 
 import io
@@ -30,7 +24,6 @@ from pathlib import Path
 import pytest
 
 from gda_balancing.interfaces.cli.registry import REGISTRY
-from _legacy_design_adapters import run_legacy_cli as _run_legacy_cli
 from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
 from gda_balancing.interfaces.cli.dispatch import dispatch
 from gda_balancing.domain.authority.context import (
@@ -40,8 +33,6 @@ from gda_balancing.domain.authority.context import (
 from schema2_authority_support import mutable_authorities
 
 RunResult = tuple[int, str, str]
-
-_FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def reject_non_strict_xfails(items: list[pytest.Item]) -> None:
@@ -92,13 +83,6 @@ def isolated_schema2_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a5" * 32)
 
 
-@pytest.fixture
-def minimal_design_path() -> Path:
-    """The committed V1 minimal Design document — the one golden the boundary
-    tests point at instead of re-inlining the minimal literal."""
-    return _FIXTURES_DIR / "minimal_design.json"
-
-
 def _run(
     argv: list[str],
     registry: tuple[CommandDescriptor, ...] | None = None,
@@ -118,12 +102,6 @@ def _run(
 @pytest.fixture
 def run_cli() -> Callable[..., RunResult]:
     return _run
-
-
-@pytest.fixture
-def run_legacy_cli() -> Callable[..., RunResult]:
-    """Drive the test-only 1.x source-input regression harness."""
-    return _run_legacy_cli
 
 
 def _command_path(descriptor: CommandDescriptor) -> list[str]:

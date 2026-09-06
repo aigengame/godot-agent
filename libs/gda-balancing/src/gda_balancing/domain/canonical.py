@@ -62,19 +62,22 @@ def parse_canonical_object(data: bytes, *, artifact_name: str) -> dict[str, Any]
         value: dict[str, Any] = {}
         for key, item in pairs:
             if key in value:
-                raise ValueError(f"duplicate object key: {key}")
+                raise ValueError(f"duplicate object key: {key!r}")
             value[key] = item
         return value
 
-    value = json.loads(
-        data.decode("utf-8"),
-        object_pairs_hook=closed_object,
-        parse_float=reject_number,
-        parse_constant=reject_number,
-    )
-    if not isinstance(value, dict):
-        raise ValueError(f"{artifact_name} must be an object")
-    canonical_bytes(cast(JsonValue, value))
+    try:
+        value = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=closed_object,
+            parse_float=reject_number,
+            parse_constant=reject_number,
+        )
+        if not isinstance(value, dict):
+            raise ValueError(f"{artifact_name} must be an object")
+        canonical_bytes(cast(JsonValue, value))
+    except RecursionError as err:
+        raise ValueError("JSON nesting exceeds decoder capacity") from err
     return value
 
 

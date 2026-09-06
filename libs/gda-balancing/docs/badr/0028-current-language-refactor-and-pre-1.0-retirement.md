@@ -4,6 +4,12 @@ status: accepted
 
 # Replace internal release history with one current language and remove redundant execution bindings
 
+> **S1b delivery (2026-09-06, #868):** the Schema 1 input stack, converter command,
+> `tooling.migration` and migration-only contracts are retired after deliberate deprecation of
+> the sole tracked authored fixture. [RETIREMENT.md](../refactor/current-language/RETIREMENT.md)
+> records inventory, exclusions, coverage routing and rollback. This delivers source retirement,
+> not the later version-selection or execution-binding deletions, Panda cutover or full validation.
+
 Decision date: 2026-09-06. The project owner accepted the refactor direction and requested its
 implementation plan, tracked work, and explicit deletion acceptance criteria. This decision adopts
 that direction; it does not claim that the production schemas or Runtime already implement it.

@@ -13,8 +13,7 @@ extends `gda`; its CLI follows the family's interface conventions.
 - Milestones: [Phase 1 — Schema 2.0 language & model foundation](https://github.com/aigengame/godot-agent/milestone/8) ·
   [Phase 2 — runtime, evidence & genre closure](https://github.com/aigengame/godot-agent/milestone/9)
 - Status: Phase 1's permanent Schema 2.0 surface includes the Kernel/LDB authority, command
-  discovery, one typed-Quantity Model build, one minimal Template release, and limited
-  semantics-preserving 1.x source migration. Phase 2 now includes a bounded deterministic
+  discovery, one typed-Quantity Model build, and one minimal Template release. Phase 2 includes a bounded deterministic
   multi-Event Experiment Runtime and RPG and Roguelike product-feedback examples; evidence and
   complete RPG/Roguelike Template closure remain ahead. The package is **not published to PyPI
   yet**.
@@ -23,8 +22,9 @@ The [current-language refactor](docs/refactor/current-language/PLAN.md) removes 
 history, version selection and unnecessary execution bindings while retaining the typed language,
 compiler and deterministic Runtime. Internal definitions may be changed or withdrawn; formal
 compatibility will be considered no earlier than toolkit v1.0. The commands below describe the
-current implementation, including source migration scheduled for removal after known inputs are
-dispositioned. See [bADR-0028](docs/badr/0028-current-language-refactor-and-pre-1.0-retirement.md)
+current implementation. The Schema 1 converter, `model migrate` command and `tooling.migration`
+package are retired; use current Model Source directly. The [retirement record](docs/refactor/current-language/RETIREMENT.md)
+documents source disposition and validation boundaries. See [bADR-0028](docs/badr/0028-current-language-refactor-and-pre-1.0-retirement.md)
 for the accepted direction and its distinction from completed implementation.
 
 ## Commands
@@ -38,7 +38,6 @@ gda-balancing formula render <source>      # render a structured body as canonic
 gda-balancing model check <source>         # admit a Schema 2.0 Model Source
 gda-balancing model build <source> [...]   # build and atomically publish a Model
 gda-balancing model inspect <receipt> [...] # render a stored Model explanation
-gda-balancing model migrate <source> [...] # migrate only the safe Schema 1.x source subset
 gda-balancing experiment check <source>    # admit an exact Experiment without running it
 gda-balancing experiment run <source> [...] # run and atomically publish evaluation artifacts
 gda-balancing template list                # list admitted Template releases
@@ -55,9 +54,8 @@ envelope — `refusal` (exit 2, on stdout), `usage` (exit 3) or `internal` (exit
 artifact-emitting command to write the artifact to a file and get a receipt on stdout. Every
 Schema 2.0 command also accepts `--params-json <json | ->`; `-` reads the same descriptor-owned
 input object from stdin, and structured input is mutually exclusive with individual argv fields.
-`model migrate` is the only 1.x public entrypoint: success atomically publishes a new 2.0 Model
-Source and its Migration report; an unsupported or lossy construct returns an auditable migration
-refusal and publishes neither a partial Source nor a compatibility artifact.
+There is no Schema 1 input entrypoint or compatibility adapter. Author or deliberately rewrite
+source as a current Model Source Package, then use normal `model check` and `model build`.
 
 Unlike the one-shot commands, `serve` stays in the foreground. It binds only to a numeric loopback
 address. It prints one readiness document with its local URL and process capability, and then keeps

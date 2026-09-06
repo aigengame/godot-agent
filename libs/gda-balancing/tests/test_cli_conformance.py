@@ -25,7 +25,6 @@ from gda_balancing.interfaces.cli.envelope import (
     USAGE_CODES,
 )
 from gda_balancing.domain.errors import UnreadableInputError
-from gda_balancing.schema.refusal import REFUSAL_BOUND, Refusal, RefusalReport
 from gda_balancing.interfaces.cli.surface import schema2_error_envelope_schema
 
 
@@ -377,47 +376,6 @@ class TestSurfaceLaws:
             exit_code, stdout, stderr = run_cli([reserved])
             assert (exit_code, stdout) == (3, "")
             assert _assert_envelope(stderr, "usage")["code"] == "unknown_command"
-
-    def test_legacy_refusal_cannot_enter_the_schema2_dispatch_path(
-        self, run_cli, invocation
-    ):
-        # Standard Schema 1.x exists only behind the source-migration boundary.
-        # Returning its refusal type from any active 2.x descriptor is a host
-        # bug and must not serialize as a public Schema 2.x refusal.
-        minimal = RefusalReport(
-            refusals=(Refusal(code="some_refusal", path="", detail="why"),),
-            truncated=False,
-        )
-        at_bound = RefusalReport(
-            refusals=tuple(
-                Refusal(code="some_refusal", path=f"/attributes/{i}", detail="why")
-                for i in range(REFUSAL_BOUND)
-            ),
-            truncated=True,
-        )
-        prepared_invocations = [
-            (descriptor, invocation(descriptor)) for descriptor in REGISTRY
-        ]
-        for report in (minimal, at_bound):
-            for descriptor, argv in prepared_invocations:
-
-                def emit_legacy(_input, emit_ready, _stderr, *, value=report):
-                    emit_ready(value)
-                    return 0
-
-                registry = tuple(
-                    (
-                        dataclasses.replace(item, foreground_runner=emit_legacy)
-                        if item.execution_lifecycle == "foreground-service"
-                        else dataclasses.replace(item, handler=lambda _i, _r=report: _r)
-                    )
-                    if item is descriptor
-                    else item
-                    for item in REGISTRY
-                )
-                exit_code, stdout, stderr = run_cli(argv, registry)
-                assert (exit_code, stdout) == (4, "")
-                assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
 
     def test_duplicate_command_registration_is_rejected(self):
         with pytest.raises(ValueError, match="duplicate command registration"):

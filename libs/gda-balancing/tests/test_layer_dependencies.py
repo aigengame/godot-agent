@@ -14,7 +14,6 @@ _ROOT_ENTRYPOINTS = frozenset({"__init__.py", "__main__.py"})
 _SCHEMA2_RESOURCE_PACKAGES = frozenset(
     {"schema2/__init__.py", "schema2/authorities/__init__.py"}
 )
-_SCHEMA1_MIGRATION_CONSUMERS = frozenset({"gda_balancing.application.migration"})
 
 
 def _module_name(path: Path) -> str:
@@ -100,8 +99,6 @@ def _declared_owner(path: Path) -> str | None:
         return "entrypoint"
     if relative.parts[0] in _LAYERS:
         return relative.parts[0]
-    if relative.parts[0] == "schema":
-        return "schema1-migration-input"
     if relative.as_posix() in _SCHEMA2_RESOURCE_PACKAGES:
         return "schema2-authority-resources"
     return None
@@ -176,37 +173,7 @@ def test_unowned_production_namespaces_cannot_bypass_the_layer_gate() -> None:
     assert _declared_owner(_SOURCE_ROOT / "commands" / "new.py") is None
     assert _declared_owner(_SOURCE_ROOT / "schema2" / "new.py") is None
     assert _declared_owner(_SOURCE_ROOT / "new.py") is None
-
-
-def test_schema1_is_imported_only_by_the_model_migration_boundary() -> None:
-    known_modules = _production_modules()
-    violations: list[str] = []
-    for path in _SOURCE_ROOT.rglob("*.py"):
-        module = _module_name(path)
-        if module.startswith("gda_balancing.schema"):
-            continue
-        schema_imports = {
-            imported
-            for imported in _resolved_imports(module, path, known_modules)
-            if imported == "gda_balancing.schema"
-            or imported.startswith("gda_balancing.schema.")
-        }
-        if schema_imports and module not in _SCHEMA1_MIGRATION_CONSUMERS:
-            violations.append(f"{module} imports {sorted(schema_imports)}")
-
-    assert violations == []
-
-
-def test_schema1_migration_input_does_not_import_active_layers() -> None:
-    known_modules = _production_modules()
-    violations = [
-        f"{_module_name(path)} imports active layer {imported}"
-        for path in (_SOURCE_ROOT / "schema").rglob("*.py")
-        for imported in _resolved_imports(_module_name(path), path, known_modules)
-        if _layer(imported) is not None
-    ]
-
-    assert violations == []
+    assert _declared_owner(_SOURCE_ROOT / "schema" / "new.py") is None
 
 
 def test_architectural_modules_are_acyclic() -> None:

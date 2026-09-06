@@ -19,8 +19,8 @@ content integrity, nominal ownership, actual execution policies, and consistent 
 The toolkit itself. The `gda-` prefix is the **product-family brand** — this is a sibling
 product of `gda`, not a `gda` component (contrast `gda-mcp` / `gda-daemon`, which are gda's
 own components). It neither depends on nor extends `gda`; its CLI *interface style* follows
-gda's conventions (PRD #501 addendum). bADR-0007…0011 preserve the historical 1.x surface contract
-used only to define migration input; bADR-0015/0021 are the forward Standard Schema 2.x invocation
+gda's conventions (PRD #501 addendum). bADR-0007…0011 preserve the historical 1.x surface contract;
+its input implementation is retired under #868. bADR-0015/0021 are the forward Standard Schema 2.x invocation
 and taxonomy contract.
 _Avoid_: gda balancing module, balancing plugin
 
@@ -690,32 +690,25 @@ not the full Modelica language or a general DAE solver contract (bADR-0020).
 _Avoid_: Modelica support, equation script, symbolic escape hatch
 
 **Design document (Standard Schema 1.x)**:
-_Historical source kind; S1b dispositions known inputs and removes toolkit source conversion under
-bADR-0028. The converter-specific terms below describe current behavior until that deletion._
+The retired single-root JSON source kind described by bADR-0001, identified by its
+`schema_version`. Model Source Package is the current authored authority. #868 deliberately
+retires the only tracked authored fixture and removes the Schema 1 input implementation; no
+conversion or semantic equivalence is claimed. The [retirement record](docs/refactor/current-language/RETIREMENT.md)
+records the bounded inventory and explicit disposition. Old source must be deliberately rewritten
+or deprecated rather than passed to a compatibility path (bADR-0019/0028).
+_Avoid_: current model source, compatible legacy input
 
-The legacy single root JSON document holding one game's complete numeric design — an instance of
-Standard Schema 1.x declaring the `schema_version` it targets. Subsystems are sections within it;
-there is no multi-file document set (bADR-0001). Standard Schema 2.x supersedes this authoring
-granularity with the `Model Source Package`. Because no 1.x artifact was published, migration is a
-best-effort source conversion only: semantics-preserving constructs migrate and unsupported ones
-are explicitly deprecated and must be re-authored (bADR-0012/0019). The document names its game;
-the toolkit stays game-agnostic.
-_Avoid_: config file, numbers file, design config
-
-**Migration report**:
-The deterministic result of attempting the limited Standard Schema 1.x source conversion. It binds
-the original Design-document identity, converter/Language Definition Bundle identity, every
-successfully mapped construct, explicit default, warning, and every explicitly deprecated
-construct. On success, the `migration-report` and new 2.x Model Source Package are one atomic
-success artifact set. On refusal, an LDB-validated `migration-refusal-report` is carried inside the
-typed exit-2 envelope; it is not a command success artifact and no 2.x Model Source Package is
-published. Partial or lossy migration is never presented as success (bADR-0019/0021).
-_Avoid_: upgrade log, compatibility report, converted file
+**Migration report (retired)**:
+The historical success or refusal artifact from the removed Schema 1 converter, described in
+bADR-0019. It is no longer an admitted current artifact or a producible command result. Historical
+reports and probes remain provenance and cannot claim that current Model validation succeeded.
+_Avoid_: current artifact, upgrade capability, converted current source
 
 **Deprecated 1.x construct**:
-A Standard Schema 1.x source concept with no semantics-preserving 2.x mapping. The converter emits
-a `migration` refusal and records it in the Migration report; the construct must be re-authored or
-removed. There is no runtime compatibility adapter or best-effort reinterpretation (bADR-0019).
+An old source concept explicitly retired or requiring deliberate current re-authoring. The toolkit
+has no converter, migration refusal stage or runtime compatibility adapter for it. Deprecating
+source is not a successful conversion and fabricates neither a Model nor validation evidence
+(bADR-0019/0028).
 _Avoid_: legacy fallback, unsupported warning, lossy migration
 
 **Wire representation**:
@@ -931,7 +924,7 @@ _Avoid_: placeholder section, stub, TODO section
 ### Validation & self-description
 
 **Boundary funnel (Standard Schema 1.x)**:
-The single validation boundary every 1.x Design document crosses before any use — three phases,
+The retired validation boundary for 1.x Design documents — three historical phases,
 each gating the next: preflight (ingress caps + version dispatch), structural (against the
 structural schema), semantic (the rules the semantic rule catalog indexes). Validity is a property
 of a document *state*: any mutation re-enters the funnel before evaluation or emission. Standard
@@ -942,7 +935,7 @@ _Avoid_: input guard, validation pass (as something repeatable downstream)
 **Typed refusal**:
 An expected, machine-actionable inability to accept or complete the requested domain operation.
 In 1.x it rejects invalid input through bounded JSON-Pointer entries (bADR-0004). In 2.x it may
-stop ingress, parsing, static analysis, resolution, runtime, evaluation, migration, or approval and
+stop ingress, parsing, static analysis, resolution, runtime, evaluation, or approval and
 carries bounded, stably ordered `Diagnostic` entries in the `Error envelope` (bADR-0015). It never
 represents a negative but successfully computed `Verdict`, a malformed invocation, or an internal
 exception.
@@ -950,7 +943,8 @@ _Avoid_: validation error (too narrow), failed verdict, exception
 
 **Refusal stage**:
 The one pipeline boundary at which a Standard Schema 2.x typed refusal stopped an invocation:
-`ingress`, `parse`, `static`, `resolution`, `runtime`, `evaluation`, `migration`, or `approval`.
+`ingress`, `parse`, `static`, `resolution`, `runtime`, `evaluation`, or `approval`.
+The unused `migration` stage and its report field are retired with #868.
 Stages gate later work and are stable machine vocabulary; they classify diagnostics without
 creating new exit codes (bADR-0015).
 _Avoid_: error type, compiler pass (implementation-specific), exit code

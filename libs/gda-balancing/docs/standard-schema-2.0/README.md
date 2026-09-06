@@ -4,9 +4,9 @@ This directory holds acceptance artifacts for the Standard Schema 2.0 specificat
 PRD #534. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the human-readable macro architecture
 authority; bADR-0012…0028 own the binding detailed decisions; and PRD #534 owns requirements,
 acceptance criteria, and live completion status. These documents do not by themselves make the 2.0
-language, runtime, CLI, or genre templates implemented. Issues #538, #539, #540, #553, #554, and
-#592 now supply the permanent authority, Model-build tracer, first minimal Template release,
-limited clean-forward source migration, sealed LDB graph, and bounded RPG loop described below.
+language, runtime, CLI, or genre templates implemented. Issues #538, #539, #540, #553, and #592
+supply the permanent authority, Model-build tracer, first minimal Template release, sealed LDB graph,
+and bounded RPG loop described below. #554 supplied a limited source converter later retired by #868.
 All broader delivery claims and live sequencing remain bounded by PRD #534, its linked issues, and
 the coverage matrix.
 
@@ -16,8 +16,9 @@ release-retention and version-selection obligations. The
 [plan and bounded evidence](../refactor/current-language/PLAN.md) record the capability union,
 early converter retirement, compiler preparation, execution-input closure followed by mandatory
 deletion of irrelevant whole-LDB/Build-receipt bindings, and early non-RPG witness. The delivered
-coordinates and artifact tuples below remain a record of current implementation, not a required
-future inventory. No genre row or production-conformance gate closes through the documentation
+coordinates and artifact tuples below document their delivered slices, not a required future
+inventory. The #554 converter is historical: #868 removes `model migrate`, `tooling.migration` and
+the Schema 1 input stack after the [named-source disposition](../refactor/current-language/RETIREMENT.md). No genre row or production-conformance gate closes through the documentation
 or disposable trials. Existing #542–#544 activation conditions remain deferred; functional slices
 may complete with `candidate`/open results.
 
@@ -87,23 +88,14 @@ only the minimal Quantity Template-distribution tracer: it delivers no evaluatio
 Replay, Evidence, complete RPG/Roguelike template, or Genre support claim, and it closes no row in
 the normative RPG/Roguelike coverage matrix.
 
-Issue #554 adds `model migrate` as the sole public Standard Schema 1.x entrypoint. It converts only
-integral signed-Int64 parameters and unmodified integral direct-number attributes into equal
-singleton Quantity domains. The conversion binds the exact input bytes, converter, Kernel, LDB,
-successful mappings, explicit defaults, warnings, and output identity. Success atomically
-publishes the new `model-source-package` with a `migration-report`, and that source builds through
-#539. Any unsupported, lossy, or over-limit construct returns a typed migration refusal with an
-inline, LDB-validated `migration-refusal-report`; it publishes no command success artifact and no
-partial Model Source. This adds no 1.x runtime, reverse path, save/replay/ruleset adapter, gray
-rollout, or Schema/toolkit version coupling.
-The target Model Source is canonicalized before success and must fit the LDB's
-`max_source_bytes` and `max_symbols` bounds; either overflow follows the same typed refusal path.
-
-The converter binding is the complete embedded `source-converter-specification` artifact, not an
-opaque digest; the report consumer can validate and rehash it against the exact LDB artifact
-contract. Exact byte identity is limited to regular files no larger than the specification's
-16 MiB observation cap. Non-regular or larger inputs fail at usage ingress before any identity or
-migration report is claimed.
+**Retired source-conversion slice (#554 → #868):** #554 originally delivered a bounded,
+semantics-preserving Schema 1 converter with exact source/report binding and typed refusals.
+#868 removes that command, its `tooling.migration` package, schemas/defaults/diagnostics and
+migration-only input stack after deliberate deprecation of the one tracked authored fixture.
+The detailed conversion contract remains historical in
+[bADR-0019](../badr/0019-schema-2.0-clean-break-and-limited-source-migration.md); it is not current
+CLI usage or a compatibility commitment. Current authors use `model check|build` directly.
+No Model conversion, semantic-equivalence claim or Panda cutover follows from that retirement.
 
 Issue #540 publishes the exact
 [`rpg-combat-cast` Model Source and Experiment](../../examples/schema2/rpg-combat-cast/) and drives
