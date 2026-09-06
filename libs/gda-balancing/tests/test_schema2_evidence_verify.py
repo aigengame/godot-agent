@@ -145,7 +145,6 @@ def test_packaged_ldb_owns_the_complete_evaluable_claim_kind() -> None:
     assert language["evidence_claim_kinds"] == [
         {
             "id": "evaluable",
-            "version": "1.0.0",
             "subject_roles": [
                 "kernel",
                 "language-bundle",

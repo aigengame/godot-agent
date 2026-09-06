@@ -192,8 +192,6 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execut
     assert comparison.value["policy"] == {
         "id": "exact-replay-v1",
         "package": "standard.experiment",
-        "package_version": "1.1.0",
-        "version": "1.0.0",
     }
     assert comparison.value["result"] == "matched"
     assert [row["key"] for row in comparison.value["checks"]] == [

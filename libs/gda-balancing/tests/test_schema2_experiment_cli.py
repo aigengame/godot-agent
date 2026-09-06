@@ -151,7 +151,6 @@ def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
             "type": {
                 "id": "Quantity",
                 "package": "core.quantity",
-                "version": "2.2.0",
             },
             "value": 1,
         },
@@ -159,7 +158,6 @@ def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
             "type": {
                 "id": "RewardRarity",
                 "package": "game.generation",
-                "version": "1.1.0",
             },
             "value": 1,
         },
@@ -301,7 +299,6 @@ def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
             "type": {
                 "id": "Candidate",
                 "package": "standard.conformance.structured",
-                "version": "2.0.0",
             },
             "value": {"key": {"key": "candidate_a"}, "kind": "primary"},
         },
@@ -326,7 +323,6 @@ def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
         "type": {
             "id": "CandidateKind",
             "package": "standard.conformance.structured",
-            "version": "2.0.0",
         },
         "value": "primary",
     }
@@ -353,7 +349,6 @@ def test_list_lookup_requires_the_statically_resolved_index_local():
                     "id": "Candidate",
                     "kind": "nominal",
                     "package": "standard.conformance.structured",
-                    "version": "2.0.0",
                 },
                 "kind": "list",
                 "maximum_length": 16,
@@ -489,7 +484,6 @@ def _rpg_model_source() -> dict[str, Any]:
     plan_entrypoint["id"] = "combat.plan-casts"
     plan_entrypoint["operation"] = {
         "package": "game.combat",
-        "version": "2.2.0",
         "id": "game.combat.plan-casts-v1",
     }
     plan_entrypoint["result"] = {"kind": "discard"}
@@ -890,7 +884,6 @@ def _assert_observation_evidence_matches_package_vector(
         row
         for vector_set in language_bundle.package_conformance_vector_sets
         if vector_set["package_id"] == "standard.runtime"
-        and vector_set["package_version"] == "1.1.0"
         for row in vector_set["vector_definitions"]
         if row.get("kind") == "value-program"
         and row.get("input", {}).get("site") == evidence["site"]
@@ -961,7 +954,6 @@ def _experiment(
     return {
         "schema_version": "2.0.0",
         "id": "example.rpg-combat-cast.one-action",
-        "version": "1.0.0",
         "kernel_identity": kernel_identity,
         "language_bundle_identity": language_bundle_identity,
         "model": {
@@ -1992,7 +1984,6 @@ def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
     edited_source = json.loads(
         (_ROGUELIKE_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
     )
-    edited_source["manifest"]["version"] = "1.1.0"
     formula = deepcopy(edited_source["modules"][0]["formulas"][0])
     formula["id"] = "alternate-rare-threshold"
     edited_source["modules"][0]["formulas"].append(formula)
@@ -3474,12 +3465,12 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
         row
         for row in selected_semantics["operations"]
         if row["package"] == root_coordinate[0]
-        and row["definition"]["id"] == root_coordinate[2]
+        and row["definition"]["id"] == root_coordinate[1]
     )
     decoy = deepcopy(selected)
     decoy["package"] = "example.decoy"
     decoy["definition"]["body"] = []
-    selected_semantics["packages"].append({"id": "example.decoy", "version": "1.0.0"})
+    selected_semantics["packages"].append({"id": "example.decoy"})
     selected_semantics["operations"].append(decoy)
     budget = audit["budget_counters"]
     replay_profile = next(
@@ -3679,25 +3670,25 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     checked = experiment_admission_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
     schedule = deepcopy(
         next(
             instruction
-            for instruction in operations["game.combat.plan-casts-v1"]["body"]
+            for instruction in operations[("game.combat", "game.combat.plan-casts-v1")][
+                "body"
+            ]
             if instruction["node"] == "schedule"
         )
     )
     schedule["site"] = f"review-{schedule_shape}-schedule"
     schedule["operation"] = {
         "package": "game.resource",
-        "version": "1.1.0",
         "id": "game.resource.spend-v1",
     }
     schedule["result"] = {"kind": "local", "name": "review_scheduled_event"}
-    damage_operation = operations["game.combat.damage-v1"]
+    damage_operation = operations[("game.combat", "game.combat.damage-v1")]
     if schedule_shape == "local":
         constant_index = next(
             index
@@ -3728,6 +3719,14 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
         ]
         damage_operation["body"].insert(0, schedule)
     damage_operation["resource_bounds"]["max_steps"] = 10_000
+    # A same-local-id declaration under another owner must not capture Replay's
+    # schedule lookup, even when it precedes the actual parent in the selected view.
+    decoy = deepcopy(damage_operation)
+    decoy["body"] = []
+    rir["selected_semantics"]["packages"].append({"id": "example.decoy"})
+    rir["selected_semantics"]["operations"].insert(
+        0, {"package": "example.decoy", "definition": decoy}
+    )
     checked = replace(checked, rir=rir)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
@@ -3779,21 +3778,21 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
     checked = experiment_admission_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
     schedule = deepcopy(
         next(
             instruction
-            for instruction in operations["game.combat.plan-casts-v1"]["body"]
+            for instruction in operations[("game.combat", "game.combat.plan-casts-v1")][
+                "body"
+            ]
             if instruction["node"] == "schedule"
         )
     )
     schedule["site"] = "review-rng-derived-schedule"
     schedule["operation"] = {
         "package": "game.resource",
-        "version": "1.1.0",
         "id": "game.resource.spend-v1",
     }
     schedule["arguments"] = [
@@ -3807,7 +3806,7 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
         },
     ]
     schedule["result"] = {"kind": "local", "name": "review_rng_event"}
-    hit_operation = operations["game.check.hit-v1"]
+    hit_operation = operations[("game.check", "game.check.hit-v1")]
     draw_index = next(
         index
         for index, instruction in enumerate(hit_operation["body"])
@@ -3983,12 +3982,12 @@ def test_runtime_selects_same_named_operation_by_exact_coordinate(tmp_path, run_
         row
         for row in selected_semantics["operations"]
         if row["package"] == root_coordinate[0]
-        and row["definition"]["id"] == root_coordinate[2]
+        and row["definition"]["id"] == root_coordinate[1]
     )
     decoy = deepcopy(selected)
     decoy["package"] = "example.decoy"
     decoy["definition"]["default_outcome"] = "decoy-must-not-run"
-    selected_semantics["packages"].append({"id": "example.decoy", "version": "1.0.0"})
+    selected_semantics["packages"].append({"id": "example.decoy"})
     selected_semantics["operations"].append(decoy)
 
     artifacts = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
@@ -3999,7 +3998,7 @@ def test_runtime_selects_same_named_operation_by_exact_coordinate(tmp_path, run_
         for event in artifacts.members["event-trace"].value["events"]
         if event["operation"] is not None
     )
-    assert runtime_event["operation"] == root_coordinate[2]
+    assert runtime_event["operation"] == root_coordinate[1]
     assert runtime_event["outcome"]["id"] != "decoy-must-not-run"
 
 
@@ -4702,7 +4701,6 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
                             "node": "operation-call",
                             "operation": {
                                 "package": "core.quantity",
-                                "version": "2.2.0",
                                 "id": "quantity.identity",
                             },
                             "arguments": [
@@ -5048,7 +5046,6 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.2.0",
                     "id": "quantity.less-than",
                 },
                 "arguments": [
@@ -5178,7 +5175,6 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.2.0",
                     "id": "quantity.subtract",
                 },
                 "arguments": [
@@ -5636,7 +5632,6 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
             "id": "combat.cast",
             "operation": {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.cast-v1",
             },
             "arguments": [
@@ -5835,6 +5830,25 @@ def test_scenario_assignments_exactly_close_the_entrypoint_contract(
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
     assert error["diagnostics"][0]["primary"]["pointer"] == ("/scenarios/0/assignments")
+
+
+def test_experiment_refuses_retired_own_version_at_the_source_boundary(
+    tmp_path, run_cli
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    value["version"] = "1.0.0"
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [row["code"] for row in error["diagnostics"]] == [
+        "language.source_contract_mismatch"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/version"
 
 
 def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
@@ -6504,7 +6518,7 @@ def test_reference_runtime_canonical_equality_compares_kernel_booleans():
     event = reference_execute_event(
         kernel,
         operation,
-        {operation["id"]: operation},
+        {("test", operation["id"]): operation},
         {
             "id": "boolean-equality",
             "values": [
@@ -6512,6 +6526,7 @@ def test_reference_runtime_canonical_equality_compares_kernel_booleans():
                 {"name": "right", "value": True},
             ],
         },
+        root_operation_coordinate=("test", operation["id"]),
         seed=0,
         state_names=set(),
         language_bundle=ldb,
@@ -6522,14 +6537,13 @@ def test_reference_runtime_canonical_equality_compares_kernel_booleans():
 
 def test_package_operation_execution_vectors_preserve_integer_runtime_behavior():
     kernel, ldb = mutable_authorities()
-    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    operations = conformance_operation_index(ldb)
     vectors = [
         vector
         for vector in next(
             vector_set["vector_definitions"]
             for vector_set in ldb.package_conformance_vector_sets
             if vector_set["package_id"] == "game.combat"
-            and vector_set["package_version"] == "2.2.0"
         )
         if vector.get("kind") == "operation-execution"
     ]
@@ -6544,7 +6558,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
 
     expected_by_id = {}
     for vector in vectors:
-        operation = operations[vector["operation"]]
+        operation = operations[("game.combat", vector["operation"])]
         scenario = {
             "id": vector["id"],
             "values": vector["input"]["values"],
@@ -6554,6 +6568,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
             operation,
             operations,
             scenario,
+            root_operation_coordinate=("game.combat", vector["operation"]),
             seed=vector["input"]["seed"],
             state_names={
                 row["id"]
@@ -6566,6 +6581,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
             operation,
             operations,
             scenario,
+            root_operation_coordinate=("game.combat", vector["operation"]),
             seed=vector["input"]["seed"],
             state_names={
                 row["id"]
@@ -6605,7 +6621,6 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
         vector_set["vector_definitions"]
         for vector_set in ldb.package_conformance_vector_sets
         if vector_set["package_id"] == "game.combat"
-        and vector_set["package_version"] == "2.2.0"
     )
 
     assert {"actor_health", "defeat_threshold"} <= {
@@ -6630,7 +6645,7 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
     vectors_by_id = {vector["id"]: vector for vector in vectors}
     defeated = vectors_by_id["game.combat.cast.target-defeated"]
     ineligible = vectors_by_id["game.combat.cast.actor-ineligible"]
-    coordinate = ("game.combat", "2.2.0", "game.combat.eligible-cast-v1")
+    coordinate = ("game.combat", "game.combat.eligible-cast-v1")
     harness = operation_conformance_module.compile_operation_execution_harness(
         context, coordinate, operation
     )
@@ -6659,7 +6674,6 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
             vector,
             context=context,
             package_id="game.combat",
-            package_version="2.2.0",
             harness=harness,
         )
         assert observations["production"] == observations["independent"]
@@ -6671,11 +6685,11 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
     context = authority_module.admit_authority_context(kernel, ldb)
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
     vectors = [
-        (package_id, package_version, vector)
-        for package_id, package_version, vector in operation_execution_vectors(ldb)
+        (package_id, vector)
+        for package_id, vector in operation_execution_vectors(ldb)
         if package_id == "standard.conformance.structured"
     ]
-    assert {vector["id"] for _package, _version, vector in vectors} == {
+    assert {vector["id"] for _package, vector in vectors} == {
         "structured.select.success",
         "structured.select.empty-outcome",
         "structured.select.guard-refusal",
@@ -6684,8 +6698,8 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
 
     harnesses = {}
     operations = conformance_operation_index(ldb)
-    for package_id, package_version, vector in vectors:
-        coordinate = (package_id, package_version, vector["operation"])
+    for package_id, vector in vectors:
+        coordinate = (package_id, vector["operation"])
         harness = harnesses.get(coordinate)
         if harness is None:
             harness = operation_conformance_module.compile_operation_execution_harness(
@@ -6698,7 +6712,6 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
             vector,
             context=context,
             package_id=package_id,
-            package_version=package_version,
             harness=harness,
         )
         assert observations["production"] == observations["independent"]
@@ -6731,7 +6744,6 @@ def test_operation_conformance_indexes_same_named_package_definitions_exactly():
         "packages": [
             {
                 "id": package_id,
-                "version": "1.0.0",
                 "semantic_closure": [
                     {
                         "authority_path": "language.operations",
@@ -6746,8 +6758,8 @@ def test_operation_conformance_indexes_same_named_package_definitions_exactly():
     conformance = conformance_operation_index({"language": language})
     production = production_operation_index(language)
 
-    assert conformance[("example.a", "1.0.0", "shared")]["marker"] == "a"
-    assert conformance[("example.b", "1.0.0", "shared")]["marker"] == "b"
+    assert conformance[("example.a", "shared")]["marker"] == "a"
+    assert conformance[("example.b", "shared")]["marker"] == "b"
     assert production == conformance
 
 
@@ -6765,8 +6777,8 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
     }
     vectors = {
         vector["id"]: vector["category"]
-        for package_id, package_version, vector in operation_execution_vectors(ldb)
-        if package_id == "game.generation" and package_version == "1.1.0"
+        for package_id, vector in operation_execution_vectors(ldb)
+        if package_id == "game.generation"
     }
     assert vectors == expected
 
@@ -6777,20 +6789,20 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
     operations = conformance_operation_index(ldb)
     vectors = [
-        (package_id, package_version, vector)
-        for package_id, package_version, vector in operation_execution_vectors(ldb)
+        (package_id, vector)
+        for package_id, vector in operation_execution_vectors(ldb)
         if package_id in {"game.generation", "game.build"}
         and vector["category"] == "rollback-replay"
     ]
-    assert {vector["id"] for _package, _version, vector in vectors} == {
+    assert {vector["id"] for _package, vector in vectors} == {
         "generation.select.invalid-fallback-policy-before-refusal",
         "generation.select.invalid-fallback-policy-after-refusal",
         "build.replace.invalid-plan-refusal",
     }
 
     harnesses = {}
-    for package_id, package_version, vector in vectors:
-        coordinate = (package_id, package_version, vector["operation"])
+    for package_id, vector in vectors:
+        coordinate = (package_id, vector["operation"])
         operation = operations[coordinate]
         harness = harnesses.get(coordinate)
         if harness is None:
@@ -6816,7 +6828,6 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
                 vector,
                 context=context,
                 package_id=package_id,
-                package_version=package_version,
                 harness=harness,
             )
             for _ in range(2)
@@ -6854,7 +6865,6 @@ def test_generation_operation_owns_the_no_reward_discriminator():
                 "type": {
                     "id": "RewardDisposition",
                     "package": "game.generation",
-                    "version": "1.1.0",
                 },
                 "value": "no-reward",
             },
@@ -6876,7 +6886,7 @@ def test_build_operation_vectors_cover_success_alternatives_and_refusal():
 
     assert {
         vector["id"]: vector["category"]
-        for package_id, _package_version, vector in operation_execution_vectors(ldb)
+        for package_id, vector in operation_execution_vectors(ldb)
         if package_id == "game.build"
     } == {
         "build.replace.success": "positive",
@@ -6914,7 +6924,6 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
                 "type": {
                     "id": "RewardDisposition",
                     "package": "game.generation",
-                    "version": "1.1.0",
                 },
                 "value": "no-reward",
             },
@@ -6951,7 +6960,6 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
             "type": {
                 "id": "RewardDisposition",
                 "package": "game.generation",
-                "version": "1.1.0",
             },
             "value": "no-reward",
         },
@@ -6959,7 +6967,6 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
             "type": {
                 "id": "RewardRarity",
                 "package": "game.generation",
-                "version": "1.1.0",
             },
             "value": "rare",
         },
@@ -6967,7 +6974,6 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
             "type": {
                 "id": "BuildConstraint",
                 "package": "game.build",
-                "version": "2.0.0",
             },
             "value": "replace",
         },
@@ -6975,7 +6981,6 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
             "type": {
                 "id": "BuildDecisionKind",
                 "package": "game.build",
-                "version": "2.0.0",
             },
             "value": "replaced",
         },
@@ -7010,21 +7015,20 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers(monkey
             kernel,
             ldb,
             execution_evidence_expectations={
-                ("game.combat", "2.2.0", "game.combat.cast.eligible-action"): {
+                ("game.combat", "game.combat.cast.eligible-action"): {
                     "ordering_key": root_ordering_key,
                     "resource_charge": 30,
                 },
-                ("game.combat", "2.2.0", "game.combat.cast.target-defeated"): {
+                ("game.combat", "game.combat.cast.target-defeated"): {
                     "ordering_key": root_ordering_key,
                     "resource_charge": 30,
                 },
-                ("game.combat", "2.2.0", "game.combat.cast.actor-ineligible"): {
+                ("game.combat", "game.combat.cast.actor-ineligible"): {
                     "ordering_key": root_ordering_key,
                     "resource_charge": 5,
                 },
                 (
                     "game.combat",
-                    "2.2.0",
                     "game.combat.cast.invalid-defeat-threshold",
                 ): {
                     "ordering_key": root_ordering_key,
@@ -7035,8 +7039,7 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers(monkey
         == []
     )
     expected_coordinates = {
-        (package_id, package_version, vector["operation"])
-        for package_id, package_version, vector in vectors
+        (package_id, vector["operation"]) for package_id, vector in vectors
     }
     assert len(compiled_coordinates) == len(set(compiled_coordinates))
     assert set(compiled_coordinates) == expected_coordinates
@@ -7044,9 +7047,9 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers(monkey
 
 def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
     kernel, ldb = mutable_authorities()
-    package_id, package_version, vector = next(
-        (package_id, package_version, deepcopy(candidate))
-        for package_id, package_version, candidate in operation_execution_vectors(ldb)
+    package_id, vector = next(
+        (package_id, deepcopy(candidate))
+        for package_id, candidate in operation_execution_vectors(ldb)
         if candidate["id"] == "structured.select.empty-outcome"
     )
     vector["expect"]["completion"]["id"] = "mutated-outcome"
@@ -7054,7 +7057,7 @@ def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
         kernel,
         ldb,
         vector_overrides={vector["id"]: vector},
-        vector_coordinates={(package_id, package_version, vector["id"])},
+        vector_coordinates={(package_id, vector["id"])},
     )
 
     assert len(failures) == 1
@@ -7068,10 +7071,10 @@ def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
 def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
     kernel, ldb = mutable_authorities()
     target = "game.combat.cast.eligible-action"
-    package_id, package_version, _vector = next(
+    package_id, _vector = next(
         candidate
         for candidate in operation_execution_vectors(ldb)
-        if candidate[2]["id"] == target
+        if candidate[1]["id"] == target
     )
     evaluate = (
         operation_conformance_module.evaluate_operation_execution_vector_with_evidence
@@ -7094,9 +7097,9 @@ def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
     failures = candidate_conformance_failures(
         kernel,
         ldb,
-        vector_coordinates={(package_id, package_version, target)},
+        vector_coordinates={(package_id, target)},
         execution_evidence_expectations={
-            (package_id, package_version, target): {
+            (package_id, target): {
                 "ordering_key": {
                     "logical_time": 0,
                     "phase": "transition",
@@ -7129,7 +7132,7 @@ def test_operation_execution_projection_preserves_declared_state_order():
     operation["inputs"] = [*read_only, *reversed(writable)]
     vectors = [
         vector
-        for _package_id, _package_version, vector in operation_execution_vectors(ldb)
+        for _package_id, vector in operation_execution_vectors(ldb)
         if vector["operation"] == operation["id"]
     ]
     input_order = [row["id"] for row in operation["inputs"]]
@@ -7159,7 +7162,6 @@ def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations
             vector_set["vector_definitions"]
             for vector_set in ldb.package_conformance_vector_sets
             if vector_set["package_id"] == "standard.runtime"
-            and vector_set["package_version"] == "1.1.0"
         )
         if vector.get("kind") == "scheduler-scenario"
     }
@@ -7436,7 +7438,6 @@ def test_package_value_program_vectors_execute_in_two_consumers():
             vector_set["vector_definitions"]
             for vector_set in ldb.package_conformance_vector_sets
             if vector_set["package_id"] == "standard.runtime"
-            and vector_set["package_version"] == "1.1.0"
         )
         if vector.get("kind") == "value-program"
     ]
@@ -7466,7 +7467,6 @@ def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
             vector_set["vector_definitions"]
             for vector_set in ldb.package_conformance_vector_sets
             if vector_set["package_id"] == "standard.runtime"
-            and vector_set["package_version"] == "1.1.0"
         )
         if ".observation." in vector["id"]
     ]
@@ -7809,6 +7809,7 @@ def test_evaluator_manifest_binds_the_selected_runtime_profile(tmp_path, run_cli
     runtime = _member(receipt, "resolved-runtime-profile")
     assert evaluator["runtime_profiles"] == ["standard.exact-int64-event-v1"]
     assert runtime["runtime_profile"]["id"] in evaluator["runtime_profiles"]
+    assert "version" not in runtime["runtime_profile"]
 
 
 def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance(
@@ -7950,8 +7951,8 @@ def test_evaluator_build_identity_covers_only_domain_implementation(monkeypatch)
 
 
 def test_operation_closure_includes_guard_body_nodes_and_invocations():
-    root = ("example", "1.0.0", "example.root")
-    child = ("example", "1.0.0", "example.child")
+    root = ("example", "example.root")
+    child = ("example", "example.child")
     operations = {
         root: {
             "id": "example.root",
@@ -7967,7 +7968,6 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
                             "node": "invoke",
                             "operation": {
                                 "package": "example",
-                                "version": "1.0.0",
                                 "id": "example.child",
                             },
                             "site": "child",
@@ -8011,9 +8011,9 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
 
 
 def test_operation_program_resolves_same_named_operations_by_exact_coordinate():
-    root = ("example.root", "1.0.0", "example.root")
-    wrong = ("example.a", "1.0.0", "shared")
-    selected = ("example.b", "1.0.0", "shared")
+    root = ("example.root", "example.root")
+    wrong = ("example.a", "shared")
+    selected = ("example.b", "shared")
     operations = {
         root: {
             "id": "example.root",
@@ -8022,8 +8022,7 @@ def test_operation_program_resolves_same_named_operations_by_exact_coordinate():
                     "node": "invoke",
                     "operation": {
                         "package": selected[0],
-                        "version": selected[1],
-                        "id": selected[2],
+                        "id": selected[1],
                     },
                     "site": "selected",
                 }
@@ -8042,15 +8041,14 @@ def test_operation_program_resolves_same_named_operations_by_exact_coordinate():
 
 
 def test_operation_program_projects_descendants_for_each_invocation_path():
-    root = ("example", "1.0.0", "root")
-    child = ("example", "1.0.0", "child")
-    grandchild = ("example", "1.0.0", "grandchild")
+    root = ("example", "root")
+    child = ("example", "child")
+    grandchild = ("example", "grandchild")
 
     def reference(coordinate):
         return {
             "package": coordinate[0],
-            "version": coordinate[1],
-            "id": coordinate[2],
+            "id": coordinate[1],
         }
 
     operations = {
@@ -8408,16 +8406,19 @@ def _assert_high_damage_event_behavior(
     ]
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
     kernel, ldb = mutable_authorities()
-    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    operations = conformance_operation_index(ldb)
     rir = _member(build_receipt, "rir-semantic-payload")
     resolved_entrypoint = next(
         row for row in rir["entrypoints"] if row["id"] == "combat.cast"
     )
     reference = reference_execute_event(
         kernel,
-        operations["game.combat.cast-v1"],
+        operations[("game.combat", "game.combat.cast-v1")],
         operations,
         specification["scenarios"][0],
+        root_operation_coordinate=operation_program_module.operation_coordinate(
+            resolved_entrypoint["operation"]
+        ),
         seed=specification["seed"]["value"],
         resolved_entrypoint=resolved_entrypoint,
         resolved_declarations=rir["declarations"],
@@ -8537,11 +8538,10 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     checked = experiment_admission_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
-    damage = operations["game.combat.damage-v1"]
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
+    damage = operations[("game.combat", "game.combat.damage-v1")]
     damage["alias_policy"]["writable_groups"] = [
         {
             "ports": ["mitigation", "target_health"],
@@ -8555,7 +8555,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     )
     damage["body"].remove(write)
     damage["body"].insert(0, {**write, "value": "base_damage"})
-    cast_operation = operations["game.combat.cast-v1"]
+    cast_operation = operations[("game.combat", "game.combat.cast-v1")]
     damage_call = next(
         instruction
         for instruction in cast_operation["body"]
@@ -8610,9 +8610,12 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
     reference_event = reference_execute_event(
         checked.kernel,
-        operations["game.combat.cast-v1"],
+        operations[("game.combat", "game.combat.cast-v1")],
         operations,
         value["scenarios"][0],
+        root_operation_coordinate=operation_program_module.operation_coordinate(
+            entrypoint["operation"]
+        ),
         seed=value["seed"]["value"],
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
@@ -8643,11 +8646,10 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
     checked = experiment_admission_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
-    cast_operation = operations["game.combat.cast-v1"]
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
+    cast_operation = operations[("game.combat", "game.combat.cast-v1")]
     spend_call = next(
         instruction
         for instruction in cast_operation["body"]
@@ -8675,6 +8677,9 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
         cast_operation,
         operations,
         checked.value["scenarios"][0],
+        root_operation_coordinate=operation_program_module.operation_coordinate(
+            entrypoint["operation"]
+        ),
         seed=checked.value["seed"]["value"],
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
@@ -8707,11 +8712,10 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
     checked = experiment_admission_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
-    cast_operation = operations["game.combat.cast-v1"]
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
+    cast_operation = operations[("game.combat", "game.combat.cast-v1")]
     damage_call = next(
         instruction
         for instruction in cast_operation["body"]
@@ -8740,6 +8744,9 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         cast_operation,
         operations,
         checked.value["scenarios"][0],
+        root_operation_coordinate=operation_program_module.operation_coordinate(
+            entrypoint["operation"]
+        ),
         seed=checked.value["seed"]["value"],
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
@@ -8769,11 +8776,10 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
     checked = experiment_admission_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
-    cast_operation = operations["game.combat.cast-v1"]
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
+    cast_operation = operations[("game.combat", "game.combat.cast-v1")]
     cast_operation["alias_policy"]["writable_groups"] = [
         {
             "ports": ["actor_resource", "accuracy"],
@@ -8841,6 +8847,9 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
         cast_operation,
         operations,
         value["scenarios"][0],
+        root_operation_coordinate=operation_program_module.operation_coordinate(
+            entrypoint["operation"]
+        ),
         seed=value["seed"]["value"],
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
@@ -9333,11 +9342,17 @@ def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
     ]
     assert len(lifecycle) == 4
     apply_event, *children = lifecycle
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
-    apply_operation = operations[apply_event["operation"]]
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
+    apply_entrypoint = next(
+        row
+        for row in rir["entrypoints"]
+        if row["id"] == apply_event["entrypoint"]["id"]
+    )
+    apply_operation = operations[
+        operation_program_module.operation_coordinate(apply_entrypoint["operation"])
+    ]
     periodic = apply_operation["extensions"]["game.effect.periodic"]
     timing = periodic["timing"]
     independently_derived_tick_times = list(
