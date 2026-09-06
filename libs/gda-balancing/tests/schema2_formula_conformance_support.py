@@ -11,24 +11,35 @@ import re
 from copy import deepcopy
 from typing import Any, cast
 
+import jsonschema
+
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
+
+
+def _source_schema(language_bundle: dict[str, Any]) -> dict[str, Any]:
+    schemas = [
+        definition["schema"]
+        for package in language_bundle["language"]["packages"]
+        if package.get("id") == "standard.schema"
+        for closure in package["semantic_closure"]
+        if closure.get("authority_path") == "language.wire_schemas"
+        for definition in closure["definitions"]
+        if definition.get("artifact_kind") == "model-source-package"
+    ]
+    if len(schemas) != 1:
+        raise ValueError("independent consumer found no unique Model Source schema")
+    return schemas[0]
 
 
 def _authority(
     language_bundle: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    grammar: dict[str, Any] | None = None
-    for package in cast(list[dict[str, Any]], language_bundle["language"]["packages"]):
-        if package.get("id") != "standard.schema":
-            continue
-        for closure in cast(list[dict[str, Any]], package["semantic_closure"]):
-            if closure.get("authority_path") != "language.wire_schemas":
-                continue
-            for definition in cast(list[dict[str, Any]], closure["definitions"]):
-                if definition.get("artifact_kind") != "model-source-package":
-                    continue
-                definitions = definition["schema"].get("$defs", {})
-                grammar = definitions.get("formulaNotationGrammar", {}).get("const")
+    grammar = (
+        _source_schema(language_bundle)
+        .get("$defs", {})
+        .get("formulaNotationGrammar", {})
+        .get("const")
+    )
     if not isinstance(grammar, dict):
         raise ValueError("independent consumer found no Formula grammar")
     return grammar, cast(
@@ -84,20 +95,16 @@ def _validate_context(
 ) -> list[dict[str, Any]]:
     language = language_bundle["language"]
     profile = _resolution_profile(language_bundle)
-    schema_versions = [
-        definition.get("schema", {})
-        .get("properties", {})
-        .get("schema_version", {})
-        .get("const")
-        for package in language["packages"]
-        if package.get("id") == "standard.schema"
-        for closure in package["semantic_closure"]
-        if closure.get("authority_path") == "language.wire_schemas"
-        for definition in closure["definitions"]
-        if definition.get("artifact_kind") == "model-source-package"
-    ]
-    if len(schema_versions) != 1 or request.get("schema_version") != schema_versions[0]:
+    source_schema = _source_schema(language_bundle)
+    schema_version = source_schema["properties"]["schema_version"]["const"]
+    if request.get("schema_version") != schema_version:
         raise ValueError("independent Formula source schema version is unavailable")
+    import_schema = source_schema["properties"][profile["modules_member"]]["items"][
+        "properties"
+    ][profile["imports_member"]]["items"]
+    import_validator = jsonschema.Draft202012Validator(source_schema).evolve(
+        schema=import_schema
+    )
     requirements = request.get(profile["requirements_member"])
     if not isinstance(requirements, list):
         raise ValueError("independent Formula requirements are malformed")
@@ -149,7 +156,7 @@ def _validate_context(
             raise ValueError("independent Formula imports are malformed")
         aliases: set[str] = set()
         for imported in imports:
-            if not isinstance(imported, dict):
+            if not import_validator.is_valid(imported):
                 raise ValueError("independent Formula import is malformed")
             alias = imported.get(profile["import_alias_member"])
             package_key = imported.get(profile["import_package_member"])
@@ -237,6 +244,7 @@ def _selected_notations(
 def render_body(
     body: dict[str, Any], request: dict[str, Any], language_bundle: dict[str, Any]
 ) -> str:
+    _validate_context(request, language_bundle)
     grammar, _operations = _authority(language_bundle)
     if set(body) == {"node", "parameter"} and body.get("node") == "parameter":
         return _identifier(body["parameter"], grammar)
