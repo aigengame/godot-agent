@@ -254,7 +254,6 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
         "runtime_semantic_paths",
         "semantic_closure",
         "semantic_identity",
-        "version",
     }
     assert package["artifact_kind"] == "domain-package-release"
     assert package["content_identity"] == _identity(
@@ -265,7 +264,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["semantic_identity"] == expected_package["semantic_identity"]
     assert package["dependencies"] == {
         "optional": [],
-        "required": [{"id": "standard.compiler", "version": "1.1.0"}],
+        "required": ["standard.compiler"],
     }
     assert package["capabilities"]["required"] == []
     assert package["exports"]["components"] == ["quantity.symbol"]
@@ -301,12 +300,9 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
 
 def test_current_quantity_owns_complete_composition_operations():
     ldb = _authority_candidate()["language_bundle"]
-    releases = {
-        (package["id"], package["version"]): package
-        for package in ldb["language"]["packages"]
-    }
+    releases = {package["id"]: package for package in ldb["language"]["packages"]}
 
-    quantity_2_2 = releases[("core.quantity", "2.2.0")]
+    quantity_2_2 = releases["core.quantity"]
     assert quantity_2_2["exports"]["operations"] == [
         "quantity.add",
         "quantity.floor-divide",
@@ -348,13 +344,10 @@ def test_current_quantity_owns_complete_composition_operations():
     assert floor_divide["refusals"] == []
 
 
-def test_quantity_2_2_composition_inference_and_positive_divisor_contract():
+def test_current_quantity_composition_inference_and_positive_divisor_contract():
     ldb = _authority_candidate()["language_bundle"]
-    releases = {
-        (package["id"], package["version"]): package
-        for package in ldb["language"]["packages"]
-    }
-    quantity = releases[("core.quantity", "2.2.0")]
+    releases = {package["id"]: package for package in ldb["language"]["packages"]}
+    quantity = releases["core.quantity"]
     operations = {
         operation["id"]: operation
         for operation in next(
@@ -363,7 +356,7 @@ def test_quantity_2_2_composition_inference_and_positive_divisor_contract():
             if entry["authority_path"] == "language.operations"
         )
     }
-    compiler = releases[("standard.compiler", "1.1.0")]
+    compiler = releases["standard.compiler"]
     profile = next(
         definition
         for entry in compiler["semantic_closure"]
@@ -382,8 +375,7 @@ def test_quantity_2_2_composition_inference_and_positive_divisor_contract():
             "representation": "Int",
             "type_identity": {
                 "package": "core.quantity",
-                "symbol": "Quantity",
-                "version": "2.2.0",
+                "id": "Quantity",
             },
             "unit": "1",
         }
@@ -429,40 +421,37 @@ def test_quantity_2_2_composition_inference_and_positive_divisor_contract():
 
 def test_current_downstream_packages_close_quantity_dependencies():
     ldb = _authority_candidate()["language_bundle"]
-    releases = {
-        (package["id"], package["version"]): package
-        for package in ldb["language"]["packages"]
-    }
+    releases = {package["id"]: package for package in ldb["language"]["packages"]}
     expected_dependencies = {
-        ("game.check", "1.1.0"): [
-            {"id": "core.quantity", "version": "2.2.0"},
-            {"id": "standard.runtime", "version": "1.1.0"},
+        "game.check": [
+            "core.quantity",
+            "standard.runtime",
         ],
-        ("game.resource", "1.1.0"): [
-            {"id": "core.quantity", "version": "2.2.0"},
-            {"id": "standard.runtime", "version": "1.1.0"},
+        "game.resource": [
+            "core.quantity",
+            "standard.runtime",
         ],
-        ("game.generation", "1.1.0"): [
-            {"id": "core.quantity", "version": "2.2.0"},
-            {"id": "standard.runtime", "version": "1.1.0"},
-            {"id": "standard.schema", "version": "2.4.0"},
+        "game.generation": [
+            "core.quantity",
+            "standard.runtime",
+            "standard.schema",
         ],
-        ("game.combat", "2.2.0"): [
-            {"id": "core.quantity", "version": "2.2.0"},
-            {"id": "game.check", "version": "1.1.0"},
-            {"id": "game.resource", "version": "1.1.0"},
-            {"id": "standard.runtime", "version": "1.1.0"},
+        "game.combat": [
+            "core.quantity",
+            "game.check",
+            "game.resource",
+            "standard.runtime",
         ],
     }
     for coordinate, dependencies in expected_dependencies.items():
         release = releases[coordinate]
         assert release["dependencies"]["required"] == dependencies
-        assert [row for row in releases if row[0] == coordinate[0]] == [coordinate]
+        assert [row for row in releases if row == coordinate] == [coordinate]
 
         vector_set = next(
             item
             for item in ldb.package_conformance_vector_sets
-            if (item["package_id"], item["package_version"]) == coordinate
+            if item["package_id"] == coordinate
         )
         dependency_vectors = [
             vector
@@ -476,32 +465,29 @@ def test_current_downstream_packages_close_quantity_dependencies():
 
 def test_stat_contribution_releases_own_pure_formula_slots():
     ldb = _authority_candidate()["language_bundle"]
-    releases = {
-        (package["id"], package["version"]): package
-        for package in ldb["language"]["packages"]
-    }
+    releases = {package["id"]: package for package in ldb["language"]["packages"]}
     expected = {
-        ("game.progression", "1.0.0"): {
-            "dependencies": [{"id": "core.quantity", "version": "2.2.0"}],
+        "game.progression": {
+            "dependencies": ["core.quantity"],
             "operation": "game.progression.contribution@1",
             "slot": "progression-policy",
             "parameters": ["level", "damage_per_level"],
         },
-        ("game.build", "2.0.0"): {
+        "game.build": {
             "dependencies": [
-                {"id": "core.quantity", "version": "2.2.0"},
-                {"id": "game.generation", "version": "1.1.0"},
-                {"id": "standard.runtime", "version": "1.1.0"},
-                {"id": "standard.schema", "version": "2.4.0"},
+                "core.quantity",
+                "game.generation",
+                "standard.runtime",
+                "standard.schema",
             ],
             "operation": "game.build.contribution@1",
             "slot": "build-policy",
             "parameters": ["weapon_damage_bonus"],
         },
-        ("game.effect", "2.0.0"): {
+        "game.effect": {
             "dependencies": [
-                {"id": "core.quantity", "version": "2.2.0"},
-                {"id": "standard.runtime", "version": "1.1.0"},
+                "core.quantity",
+                "standard.runtime",
             ],
             "operation": "game.effect.contribute@1",
             "slot": "effect-policy",
@@ -565,7 +551,7 @@ def test_current_build_and_effect_packages_own_their_complete_operations(
 ):
     ldb = _authority_candidate()["language_bundle"]
     [release] = [row for row in ldb["language"]["packages"] if row["id"] == package_id]
-    assert release["version"] == "2.0.0"
+    assert "version" not in release
     assert set(release["exports"]["operations"]) == expected_operations
 
 
@@ -758,7 +744,6 @@ def test_reidentified_open_fact_shape_is_refused_by_both_consumers():
         candidate
         for candidate in ldb["language"]["packages"]
         if candidate["id"] == vector_set["package_id"]
-        and candidate["version"] == vector_set["package_version"]
     )
     _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
@@ -872,7 +857,6 @@ def test_reidentified_fact_enum_drift_is_refused_by_both_consumers():
         candidate
         for candidate in ldb["language"]["packages"]
         if candidate["id"] == vector_set["package_id"]
-        and candidate["version"] == vector_set["package_version"]
     )
     _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
@@ -945,7 +929,6 @@ def test_reidentified_reason_vector_with_non_boolean_outcome_is_a_total_refusal(
         candidate
         for candidate in ldb["language"]["packages"]
         if candidate["id"] == vector_set["package_id"]
-        and candidate["version"] == vector_set["package_version"]
     )
     _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
@@ -1448,3 +1431,190 @@ def test_reidentified_extra_members_cannot_extend_kernel_ldb_or_rule_shapes():
         second = _consumer_b(authority["kernel"], authority["language_bundle"])
         assert first == second
         assert first["admitted"] is False
+
+
+def test_two_consumers_refuse_even_an_empty_reserved_kernel_namespace():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    _append_empty_namespace(ldb, "kernel")
+    _reidentify_graph_root(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert ("static", "kernel.duplicate_identifier", "language.packages") in first[
+        "diagnostics"
+    ]
+
+
+@pytest.mark.parametrize("duplicate_within_owner", (False, True))
+def test_operation_local_identifier_uniqueness_uses_attached_namespace_ownership(
+    duplicate_within_owner,
+):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = deepcopy(
+        next(
+            item
+            for item in ldb["language"]["operations"]
+            if item["id"] == "quantity.identity"
+        )
+    )
+    operation["vectors"] = []
+    other = _append_empty_namespace(ldb, "test.other")
+    other["dependencies"]["required"] = ["core.quantity"]
+    other["exports"]["operations"] = [operation["id"]]
+    entry = next(
+        item
+        for item in other["semantic_closure"]
+        if item["authority_path"] == "language.operations"
+    )
+    entry["definitions"] = [operation]
+    if duplicate_within_owner:
+        entry["definitions"].append(deepcopy(operation))
+    _reidentify_graph_root(ldb)
+
+    attached = next(
+        package for package in ldb.package_releases if package["id"] == "test.other"
+    )
+    resealed = deepcopy(attached)
+    _reidentify_package_release(resealed)
+    assert resealed["semantic_identity"] == attached["semantic_identity"]
+    assert resealed["content_identity"] == attached["content_identity"]
+    attached_operations = next(
+        closure["definitions"]
+        for closure in attached["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+    )
+    assert len(attached_operations) == (2 if duplicate_within_owner else 1)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is not duplicate_within_owner
+    if duplicate_within_owner:
+        assert (
+            "language.operations"
+            in bootstrap_support._consumer_b_duplicate_subjects(
+                authority["kernel"], ldb
+            )
+        )
+        assert any(
+            code == "kernel.identity_mismatch"
+            and subject.endswith(".semantic_identity")
+            for _, code, subject in first["diagnostics"]
+        )
+    else:
+        definitions = [
+            (package["id"], definition)
+            for package in ldb["language"]["packages"]
+            for closure in package["semantic_closure"]
+            if closure["authority_path"] == "language.operations"
+            for definition in closure["definitions"]
+            if definition["id"] == "quantity.identity"
+        ]
+        assert [owner for owner, _ in definitions] == ["core.quantity", "test.other"]
+        assert definitions[1][1]["body"] == operation["body"]
+
+
+def test_fixture_reidentification_preserves_colliding_operation_owners():
+    from schema2_authority_support import refresh_package_semantic_closures
+
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    original = next(
+        row for row in ldb["language"]["operations"] if row["id"] == "quantity.identity"
+    )
+    other = _append_empty_namespace(ldb, "test.other")
+    other["dependencies"]["required"] = ["core.quantity"]
+    other["exports"]["operations"] = [original["id"]]
+    replacement = deepcopy(original)
+    replacement["vectors"] = []
+    entry = next(
+        row
+        for row in other["semantic_closure"]
+        if row["authority_path"] == "language.operations"
+    )
+    entry["definitions"] = [replacement]
+    _reidentify_graph_root(ldb)
+    before = {
+        package["id"]: deepcopy(closure["definitions"])
+        for package in ldb["language"]["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+    }
+
+    refresh_package_semantic_closures(ldb, authority["kernel"])
+
+    assert {
+        package["id"]: closure["definitions"]
+        for package in ldb["language"]["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+    } == before
+    ambiguous = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "quantity.identity" and row["vectors"] == []
+    )
+    ambiguous["body"][0]["host_invented_mutation"] = True
+    with pytest.raises(AssertionError, match="ambiguous flat mutation"):
+        refresh_package_semantic_closures(ldb, authority["kernel"])
+    assert {
+        package["id"]: closure["definitions"]
+        for package in ldb["language"]["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+    } == before
+
+
+def test_two_consumers_admit_cross_owner_calls_with_the_same_local_operation_id():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    other = _append_empty_namespace(ldb, "test.other")
+    other["dependencies"]["required"] = ["game.resource"]
+    operation = deepcopy(
+        next(
+            item
+            for item in ldb["language"]["operations"]
+            if item["id"] == "game.resource.spend-v1"
+        )
+    )
+    operation["vectors"] = []
+    operation["body"] = [
+        {
+            "node": "invoke",
+            "site": "spend-resource",
+            "operation": {"package": "game.resource", "id": operation["id"]},
+            "arguments": [
+                {"port": port, "operand": {"kind": "port", "port": port}}
+                for port in ("resource", "cost")
+            ],
+            "outcomes": [
+                {"outcome": "spent", "action": {"kind": "continue"}},
+                {
+                    "outcome": "insufficient-resource",
+                    "action": {"kind": "propagate", "outcome": "insufficient-resource"},
+                },
+            ],
+            "result": {"kind": "discard"},
+        }
+    ]
+    other["exports"]["operations"] = [operation["id"]]
+    entry = next(
+        item
+        for item in other["semantic_closure"]
+        if item["authority_path"] == "language.operations"
+    )
+    entry["definitions"] = [operation]
+    _reidentify_graph_root(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True
+    assert first["diagnostics"] == []

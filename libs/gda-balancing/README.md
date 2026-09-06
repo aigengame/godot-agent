@@ -22,7 +22,11 @@ The [current-language refactor](docs/refactor/current-language/PLAN.md) removes 
 history, version selection and unnecessary execution bindings while retaining the typed language,
 compiler and deterministic Runtime. Internal definitions may be changed or withdrawn; formal
 compatibility will be considered no earlier than toolkit v1.0. The commands below describe the
-current implementation. The Schema 1 converter, `model migrate` command and `tooling.migration`
+current implementation: package requirements are namespace strings, nominal Type and Operation
+references use `{package, id}`, and Template retrieval selects only `--id`. Model, Template and
+Experiment definitions have no own-version field. Schema/artifact format markers and actual
+Runtime/grammar contracts remain. Whole-LDB and Build-receipt execution bindings still require
+closure and mandatory deletion in #874–#875. The Schema 1 converter, `model migrate` command and `tooling.migration`
 package are retired; use current Model Source directly. The [retirement record](docs/refactor/current-language/RETIREMENT.md)
 documents source disposition and validation boundaries. See [bADR-0028](docs/badr/0028-current-language-refactor-and-pre-1.0-retirement.md)
 for the accepted direction and its distinction from completed implementation.
@@ -41,7 +45,7 @@ gda-balancing model inspect <receipt> [...] # render a stored Model explanation
 gda-balancing experiment check <source>    # admit an exact Experiment without running it
 gda-balancing experiment run <source> [...] # run and atomically publish evaluation artifacts
 gda-balancing template list                # list admitted Template releases
-gda-balancing template get [...]           # retrieve an exact Template release
+gda-balancing template get --id <id>        # retrieve the current Template definition
 gda-balancing template instantiate [...]   # publish a new editable Model Source
 gda-balancing serve [--host 127.0.0.1] [--port 0] # run the local HTTP execution service
 gda-balancing manifest                     # live Schema 2.0 command surface

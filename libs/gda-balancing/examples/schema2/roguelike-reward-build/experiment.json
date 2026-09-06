@@ -1,15 +1,14 @@
 {
   "schema_version": "2.0.0",
   "id": "roguelike.reward-build-feedback.baseline",
-  "version": "1.0.0",
-  "kernel_identity": "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d",
-  "language_bundle_identity": "sha256:cddf6f50b5ba759b42c70918a0db5f22674ab711a6ff2e0d153bda45be458aa6",
+  "kernel_identity": "sha256:a1a0b6b93cf9bb6ec8813c8af044ce473cce2e53db361f9ae1bf87d7c89b3a5f",
+  "language_bundle_identity": "sha256:ff86be8a48e1286a0e7d9e3727823e2bb37ea5f436976fd912c7733f53043afc",
   "model": {
-    "source_identity": "sha256:979a46a4450b47fcd912758f77fc2fe6c726931d0a898277ce947bb0a25e2782",
-    "build_receipt_identity": "sha256:3bf86e6bcc6b88017be643ff161036571bf2f3d30c7a8630d9a70cab26e80122",
-    "resolved_model_identity": "sha256:3adf1ad20f80cf1206110897eacb218d8c441d704b404c9e1ad1a42b7ce04d0d",
-    "package_lock_identity": "sha256:35a78ea1afe016e9dba01770a1fd65552e5ba28fbc4a233fa472e04408dab635",
-    "rir_identity": "sha256:9412216b1f452fb46a9475dcc335f49739a377d0ce570f54341b765cb265ed06"
+    "source_identity": "sha256:f1a200ab6df10fa43d95f5e43d494d9c88a56a67baafb1dad83d41ab0d6737f7",
+    "build_receipt_identity": "sha256:a6c680813d5b4ada75d54a5f3af1c6410ac64ec58890a9d0a606b737b01208f3",
+    "resolved_model_identity": "sha256:d40377ef35a17491fc4c536d306b9d9d78a48e00e7f3299d7766b2812b6d4339",
+    "package_lock_identity": "sha256:2c7496771dc190fdff797ec705ad9feca97379a34ca489e69bbf80d1c70cad24",
+    "rir_identity": "sha256:0f034edc892726182dc70166e326aaa1a11b58ec7c9fdfa0e1d27f69ad02c180"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -44,7 +43,7 @@
         {
           "target": {"model": "roguelike.reward-build-feedback", "module": "reward-build", "name": "reward_pool"},
           "value": {
-            "type": {"package": "game.generation", "version": "1.1.0", "id": "RewardPool"},
+            "type": {"package": "game.generation", "id": "RewardPool"},
             "value": {
               "options": [
                 {
@@ -80,7 +79,7 @@
         {
           "target": {"model": "roguelike.reward-build-feedback", "module": "reward-build", "name": "selected_reward"},
           "value": {
-            "type": {"package": "game.generation", "version": "1.1.0", "id": "RewardSelection"},
+            "type": {"package": "game.generation", "id": "RewardSelection"},
             "value": {
               "selected": {"key": "steady_guard"},
               "rarity": "common",
@@ -103,7 +102,7 @@
         {
           "target": {"model": "roguelike.reward-build-feedback", "module": "reward-build", "name": "build_plans"},
           "value": {
-            "type": {"package": "game.build", "version": "2.0.0", "id": "BuildPlanSet"},
+            "type": {"package": "game.build", "id": "BuildPlanSet"},
             "value": {
               "plans": [
                 {
@@ -141,14 +140,14 @@
         {
           "target": {"model": "roguelike.reward-build-feedback", "module": "reward-build", "name": "build_state"},
           "value": {
-            "type": {"package": "game.build", "version": "2.0.0", "id": "BuildState"},
+            "type": {"package": "game.build", "id": "BuildState"},
             "value": {"slot": {"key": "starter_blade"}, "power": 10}
           }
         },
         {
           "target": {"model": "roguelike.reward-build-feedback", "module": "reward-build", "name": "build_decision"},
           "value": {
-            "type": {"package": "game.build", "version": "2.0.0", "id": "BuildDecision"},
+            "type": {"package": "game.build", "id": "BuildDecision"},
             "value": {
               "kind": "no-reward",
               "previous": {"key": "starter_blade"},

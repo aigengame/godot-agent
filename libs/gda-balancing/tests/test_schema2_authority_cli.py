@@ -137,7 +137,6 @@ def _reidentify_graph(kernel, ldb):
                 "byte_size": byte_size,
                 "content_identity": release["content_identity"],
                 "id": release["id"],
-                "version": release["version"],
             }
         )
     root["package_descriptors"] = descriptors
@@ -249,7 +248,7 @@ def test_packaged_authority_loader_refuses_noncanonical_transport_bytes(
     monkeypatch, transport
 ):
     logical_members = _authority_resource_bytes()
-    target = "packages/standard-runtime/standard.runtime@1.1.0.conformance-vectors.json"
+    target = "packages/standard-runtime/standard.runtime.conformance-vectors.json"
     decoded = json.loads(logical_members[target])
     if transport == "whitespace":
         logical_members[target] = json.dumps(
@@ -300,7 +299,7 @@ def test_rebuild_tool_projects_kernel_package_coordinate_patterns(tmp_path):
     root["package_descriptors"][0]["id"] = "core/quantity"
     root_path.write_text(json.dumps(root), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Kernel-valid package coordinate"):
+    with pytest.raises(ValueError, match="Kernel-valid package namespace"):
         tool["_build"](candidate)
 
 
@@ -483,11 +482,11 @@ def test_authority_loader_identity_is_independent_of_physical_member_location(
     ("unreadable", "subject"),
     [
         (
-            "packages/core-quantity/core.quantity@2.2.0.json",
+            "packages/core-quantity/core.quantity.json",
             "language-bundle.package_descriptors.0",
         ),
         (
-            "packages/core-quantity/core.quantity@2.2.0.conformance-vectors.json",
+            "packages/core-quantity/core.quantity.conformance-vectors.json",
             "language-bundle.package_descriptors.0.conformance_vectors",
         ),
     ],
@@ -559,22 +558,18 @@ def test_language_bundle_returns_the_admitted_sealed_graph(run_cli):
     descriptors = authority["language_bundle"]["package_descriptors"]
     releases = authority["package_releases"]
     assert len(descriptors) == len(releases) > 1
-    assert [(item["id"], item["version"]) for item in descriptors] == sorted(
-        (item["id"], item["version"]) for item in descriptors
+    assert [item["id"] for item in descriptors] == sorted(
+        item["id"] for item in descriptors
     )
     assert [
         {
             "artifact_kind": release["artifact_kind"],
             "id": release["id"],
-            "version": release["version"],
             "content_identity": release["content_identity"],
         }
         for release in releases
     ] == [
-        {
-            key: descriptor[key]
-            for key in ("artifact_kind", "id", "version", "content_identity")
-        }
+        {key: descriptor[key] for key in ("artifact_kind", "id", "content_identity")}
         for descriptor in descriptors
     ]
     assert authority["admission"] == {
@@ -604,7 +599,6 @@ def test_language_bundle_exposes_manifest_bound_conformance_vector_children(run_
         }
         assert vector_set["artifact_kind"] == "package-conformance-vector-set"
         assert vector_set["package_id"] == release["id"]
-        assert vector_set["package_version"] == release["version"]
         assert [item["id"] for item in vector_set["vector_definitions"]] == vector_set[
             "vectors"
         ]
@@ -638,8 +632,6 @@ def test_package_list_and_exact_get_return_root_declared_children(run_cli):
                 "get",
                 "--id",
                 descriptor["id"],
-                "--version",
-                descriptor["version"],
             ]
         )
         assert (get_exit, get_stderr) == (0, "")
@@ -655,8 +647,6 @@ def test_package_list_and_exact_get_return_root_declared_children(run_cli):
                 "get",
                 "--id",
                 descriptor["id"],
-                "--version",
-                descriptor["version"],
                 "--member",
                 "conformance-vectors",
             ]
@@ -681,11 +671,8 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
     assert nodes["lookup"]["semantics"] == {"operator": "bounded-lookup"}
     assert nodes["equal"]["semantics"] == {"operator": "canonical-equal"}
 
-    releases = {
-        (release["id"], release["version"]): release
-        for release in authority["package_releases"]
-    }
-    schema = releases[("standard.schema", "2.4.0")]
+    releases = {release["id"]: release for release in authority["package_releases"]}
+    schema = releases["standard.schema"]
     assert schema["exports"]["types"] == [
         {"constructor": "standard.schema.enum", "id": "Enum"},
         {"constructor": "standard.schema.list", "id": "List"},
@@ -707,11 +694,11 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
     }
     assert constructors["standard.schema.ref"] == ["target", "key_pattern"]
 
-    conformance = releases[("standard.conformance.structured", "2.0.0")]
+    conformance = releases["standard.conformance.structured"]
     assert conformance["dependencies"]["required"] == [
-        {"id": "core.quantity", "version": "2.2.0"},
-        {"id": "standard.runtime", "version": "1.1.0"},
-        {"id": "standard.schema", "version": "2.4.0"},
+        "core.quantity",
+        "standard.runtime",
+        "standard.schema",
     ]
     assert conformance["exports"]["types"] == [
         {"constructor": "standard.schema.enum", "id": "CandidateKind"},
@@ -906,7 +893,7 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
     coordinate_contracts = kernel_meta["language_bundle"]["package_descriptor"][
         "field_types"
     ]
-    assert set(type_coordinate["required"]) == {"id", "package", "version"}
+    assert set(type_coordinate["required"]) == {"id", "package"}
     assert type_coordinate["properties"] == {
         "id": {"type": "string", "minLength": 1},
         "kind": {"const": "nominal"},
@@ -914,11 +901,6 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
             "type": "string",
             "minLength": 1,
             "pattern": coordinate_contracts["id"]["pattern"],
-        },
-        "version": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": coordinate_contracts["version"]["pattern"],
         },
     }
     assert type_coordinate["unevaluatedProperties"] is False
@@ -944,14 +926,9 @@ def test_package_get_input_projects_kernel_coordinate_patterns(run_cli):
     input_properties = command_schema["input"]["properties"]
 
     assert input_properties["id"]["pattern"] == coordinate_contracts["id"]["pattern"]
-    assert (
-        input_properties["version"]["pattern"]
-        == coordinate_contracts["version"]["pattern"]
-    )
+    assert "version" not in input_properties
 
-    exit_code, stdout, stderr = run_cli(
-        ["package", "get", "--id", "game/combat", "--version", "1.0.0"]
-    )
+    exit_code, stdout, stderr = run_cli(["package", "get", "--id", "game/combat"])
 
     assert (exit_code, stdout) == (3, "")
     error = json.loads(stderr)["error"]
@@ -974,12 +951,16 @@ def test_package_get_schema_rejects_values_forbidden_by_kernel_meta_format(run_c
     invalid_releases.append(invalid_nested_list)
 
     invalid_dependency = deepcopy(release)
-    invalid_dependency["dependencies"]["required"] = [{"id": None, "version": "2.0.0"}]
+    invalid_dependency["dependencies"]["required"] = [
+        {
+            "id": None,
+        }
+    ]
     invalid_releases.append(invalid_dependency)
 
     open_dependency = deepcopy(release)
     open_dependency["dependencies"]["required"] = [
-        {"id": "core.quantity", "version": "2.2.0", "peer": True}
+        {"id": "core.quantity", "peer": True}
     ]
     invalid_releases.append(open_dependency)
 
@@ -1203,7 +1184,7 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
         *{
             "gda_balancing/schema2/authorities/packages/"
             f"{descriptor['id'].replace('.', '-')}/"
-            f"{descriptor['id']}@{descriptor['version']}{suffix}"
+            f"{descriptor['id']}{suffix}"
             for descriptor in source_root["package_descriptors"]
             for suffix in (".json", ".conformance-vectors.json")
         },
@@ -1256,8 +1237,6 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
             "get",
             "--id",
             descriptor["id"],
-            "--version",
-            descriptor["version"],
             "--member",
             member,
         ]
@@ -1297,23 +1276,18 @@ def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
     assert root_contract["package_descriptor"]["required_members"] == [
         "artifact_kind",
         "id",
-        "version",
         "content_identity",
         "byte_size",
     ]
     assert root_contract["package_descriptor"]["canonical_order"] == [
         "id",
-        "version",
     ]
     coordinate_contract = root_contract["package_descriptor"]["field_types"]
     assert coordinate_contract["id"] == {
         "type": "non-empty-string",
         "pattern": r"^[a-z0-9]+(?:\.[a-z0-9]+)*$",
     }
-    assert coordinate_contract["version"] == {
-        "type": "non-empty-string",
-        "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$",
-    }
+    assert "version" not in coordinate_contract
     identity_law = next(
         law
         for law in authority["kernel"]["admission"]["laws"]
@@ -1398,7 +1372,6 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.resource",
-                "version": "1.1.0",
                 "id": "game.resource.spend-v1",
             },
         ),
@@ -1406,7 +1379,6 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.check",
-                "version": "1.1.0",
                 "id": "game.check.hit-v1",
             },
         ),
@@ -1414,7 +1386,6 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.check",
-                "version": "1.1.0",
                 "id": "game.check.critical-v1",
             },
         ),
@@ -1422,7 +1393,6 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.damage-v1",
             },
         ),
@@ -1456,7 +1426,7 @@ def test_standard_compiler_owns_generic_model_admission_contracts(run_cli):
     assert {
         "language.duplicate_symbol",
         "language.name_ambiguity",
-        "language.package_version_unavailable",
+        "language.package_unavailable",
         "language.resolution_ambiguity",
         "language.resolution_binding_mismatch",
         "language.resolved_authority_mismatch",
@@ -1474,32 +1444,19 @@ def test_standard_compiler_owns_generic_model_admission_contracts(run_cli):
     }
     assert compiler["exports"]["model_checks"] == []
     assert compiler["exports"]["model_lowerings"] == []
-    assert quantity["dependencies"]["required"] == [
-        {"id": "standard.compiler", "version": "1.1.0"}
-    ]
+    assert quantity["dependencies"]["required"] == ["standard.compiler"]
     assert quantity["exports"]["model_checks"]
     assert quantity["exports"]["model_lowerings"] == ["quantity.model-lowering"]
 
 
-def test_package_dependencies_are_closed_exact_coordinates(run_cli):
+def test_package_dependencies_are_closed_namespace_references(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     dependency_contract = authority["kernel"]["meta_format"][
         "package_dependency_constraint"
     ]
     assert dependency_contract == {
-        "closed": True,
-        "field_types": {
-            "id": {
-                "pattern": r"^[a-z0-9]+(?:\.[a-z0-9]+)*$",
-                "type": "non-empty-string",
-            },
-            "version": {
-                "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$",
-                "type": "non-empty-string",
-            },
-        },
-        "required_members": ["id", "version"],
-        "type": "closed-object",
+        "pattern": r"^[a-z0-9]+(?:\.[a-z0-9]+)*$",
+        "type": "non-empty-string",
     }
     dependency_fields = authority["kernel"]["meta_format"]["package_release"][
         "nested_field_types"
@@ -1507,16 +1464,14 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
     assert dependency_fields["required"]["items"] == dependency_contract
     assert dependency_fields["optional"]["items"] == dependency_contract
 
-    coordinates = {
-        (release["id"], release["version"]) for release in authority["package_releases"]
-    }
+    coordinates = {release["id"] for release in authority["package_releases"]}
     for release in authority["package_releases"]:
         for dependency in [
             *release["dependencies"]["required"],
             *release["dependencies"]["optional"],
         ]:
-            assert set(dependency) == {"id", "version"}
-            assert (dependency["id"], dependency["version"]) in coordinates
+            assert isinstance(dependency, str)
+            assert dependency in coordinates
 
     schema_package = next(
         release
@@ -1538,7 +1493,6 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
         "from_package",
         "kind",
         "to_package",
-        "to_version",
     }
 
     quantity = next(
@@ -1547,20 +1501,18 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
         if release["id"] == "core.quantity"
     )
     vector_sets = {
-        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        vector_set["package_id"]: vector_set
         for vector_set in authority["package_conformance_vector_sets"]
     }
     admitted_oracles = [
         vector["expect"]["lock_oracle"]
-        for vector in vector_sets[(quantity["id"], quantity["version"])][
-            "vector_definitions"
-        ]
+        for vector in vector_sets[quantity["id"]]["vector_definitions"]
         if isinstance(vector.get("expect"), dict)
         and vector["expect"].get("outcome") == "admitted"
     ]
     assert admitted_oracles
     assert all(
-        set(edge) == {"from_package", "kind", "to_package", "to_version"}
+        set(edge) == {"from_package", "kind", "to_package"}
         for oracle in admitted_oracles
         for edge in oracle["dependency_edges"]
     )
@@ -1612,12 +1564,8 @@ def test_standard_experiment_owns_closed_exact_replay_policy(run_cli):
             "checks": {"type": "string-list"},
             "comparator": {"enum": ["canonical-equal"]},
             "id": {"type": "non-empty-string"},
-            "version": {
-                "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$",
-                "type": "non-empty-string",
-            },
         },
-        "required_members": ["checks", "comparator", "id", "version"],
+        "required_members": ["checks", "comparator", "id"],
         "type": "closed-object",
     }
 
@@ -1631,9 +1579,8 @@ def test_standard_experiment_owns_closed_exact_replay_policy(run_cli):
         ],
         "comparator": "canonical-equal",
         "id": "exact-replay-v1",
-        "version": "1.0.0",
     }
-    assert experiment["version"] == "1.1.0"
+    assert "version" not in experiment
     assert experiment["exports"]["replay_comparison_policies"] == ["exact-replay-v1"]
     assert next(
         entry["definitions"]
@@ -2017,8 +1964,6 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         elif path == "template instantiate":
             argv = [
@@ -2026,8 +1971,6 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "instantiate",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
                 "--package-id",
                 "example.manifest-projection",
                 "--out",
@@ -2043,8 +1986,6 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "get",
                 "--id",
                 "core.quantity",
-                "--version",
-                "2.2.0",
             ]
         elif path in {"formula parse", "formula render"}:
             descriptor = {
@@ -2111,7 +2052,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("language.formula_resource_exhausted", "static"),
         ("language.formula_cycle", "static"),
         ("language.formula_notation_mismatch", "static"),
-        ("language.package_version_unavailable", "resolution"),
+        ("language.package_unavailable", "resolution"),
         ("language.resolution_ambiguity", "resolution"),
     }
     experiment_check = {

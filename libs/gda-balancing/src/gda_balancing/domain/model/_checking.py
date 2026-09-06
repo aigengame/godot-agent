@@ -11,6 +11,10 @@ from gda_balancing.domain.authority.context import (
     admit_authority_context,
     packaged_authority_context,
 )
+from gda_balancing.domain.authority.graph import (
+    admit_namespace_selection,
+    project_required_namespace_closure,
+)
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
@@ -202,6 +206,13 @@ def _check_model_source_bytes(
         dict[str, Any],
         cast(dict[str, Any], kernel["meta_format"])["resolution_judgment"],
     )
+    raw_requirements = source.get(cast(str, profile["requirements_member"]))
+    namespace_projection = project_required_namespace_closure(
+        authority_context.current_namespace_packages(),
+        tuple(item for item in raw_requirements if isinstance(item, str))
+        if isinstance(raw_requirements, list)
+        else (),
+    )
     for stage in cast(list[str], resolution_contract["stage_order"]):
         diagnostics = list(static_diagnostics) if stage == "static" else []
         try:
@@ -211,6 +222,7 @@ def _check_model_source_bytes(
                     source_identity,
                     kernel,
                     ldb,
+                    namespace_projection,
                     stage=stage,
                 )
             )
@@ -240,6 +252,7 @@ def _check_model_source_bytes(
         kernel=kernel,
         language_bundle=ldb,
         authority_context=authority_context,
+        namespace_selection=admit_namespace_selection(namespace_projection),
     )
     invalid_policy_pointer = _invalid_source_value_policy_pointer(source, ldb)
     if invalid_policy_pointer is not None:

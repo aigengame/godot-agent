@@ -166,7 +166,7 @@ def derive_language_index(
     vector_set_byte_sizes: list[int],
     descriptor_order: list[str],
 ) -> LanguageBundleIndex:
-    """Derive the legacy-shaped consumer index from package-owned definitions."""
+    """Derive the consumer index from package-owned definitions."""
     (
         root,
         package_releases,
@@ -189,7 +189,7 @@ def derive_language_index(
     vectors: list[Any] = []
 
     def extend_unique(target: list[Any], definitions: list[Any]) -> None:
-        """Coalesce equal definitions contributed by compatible releases."""
+        """Project distinct content; ownership stays in the attached packages."""
         for definition in definitions:
             if definition not in target:
                 target.append(deepcopy(definition))
@@ -272,24 +272,34 @@ class CurrentPackage:
 
 
 @dataclass(frozen=True)
+class NamespaceClosureProjection:
+    """Facts from one closure, retaining incomplete Source selection for judgments."""
+
+    roots: tuple[str, ...]
+    packages: tuple[CurrentPackage, ...]
+    dependency_edges: tuple[tuple[str, str], ...]
+    capability_providers: tuple[tuple[str, str], ...]
+    definitions: Mapping[tuple[str, str, str], Any]
+
+
+@dataclass(frozen=True)
 class NamespaceSelection:
-    """One selected current closure; definition keys include their nominal owner."""
+    """One admitted selection without a second dependency traversal."""
 
     packages: tuple[CurrentPackage, ...]
     dependency_edges: tuple[tuple[str, str], ...]
     capability_bindings: tuple[tuple[str, str], ...]
     definitions: Mapping[tuple[str, str, str], Any]
+    roots: tuple[str, ...]
 
 
-def resolve_current_namespaces(
+def project_required_namespace_closure(
     packages: Sequence[CurrentPackage], roots: Iterable[str]
-) -> NamespaceSelection:
-    """Select required dependencies from one graph with unique namespace owners.
+) -> NamespaceClosureProjection:
+    """Traverse once, preserving raw roots and all selected capability providers.
 
-    Graph membership is closed even for optional edges, which do not select a
-    provider. Capability requirements are checked only in the selected closure.
-    These internal errors are not public Model diagnostics: #871 migrates that
-    boundary with its owning Kernel/LDB contracts.
+    Invalid graph structure is an authority defect. Missing Source roots and
+    provider cardinality remain facts for the machine-owned Model judgments.
     """
     by_namespace: dict[str, CurrentPackage] = {}
     definitions: dict[tuple[str, str, str], Any] = {}
@@ -317,77 +327,86 @@ def resolve_current_namespaces(
     except CycleError as error:
         raise ValueError("cyclic required namespace dependencies") from error
 
-    pending = sorted(set(roots), reverse=True)
+    raw_roots = tuple(roots)
+    pending = sorted(set(raw_roots), reverse=True)
     selected: set[str] = set()
     while pending:
         namespace = pending.pop()
-        if namespace not in by_namespace:
-            raise ValueError(f"missing root namespace: {namespace}")
-        if namespace in selected:
+        if namespace not in by_namespace or namespace in selected:
             continue
         selected.add(namespace)
         pending.extend(reversed(by_namespace[namespace].required))
     selected_packages = tuple(by_namespace[name] for name in sorted(selected))
-
-    providers: dict[str, str] = {}
-    for package in selected_packages:
-        for capability in package.provides:
-            if capability in providers:
-                raise ValueError(
-                    f"selected capability has multiple providers: {capability}"
-                )
-            providers[capability] = package.namespace
-    for package in selected_packages:
-        for capability in package.requires:
-            if capability not in providers:
-                raise ValueError(f"selected capability has no provider: {capability}")
-
-    return NamespaceSelection(
+    return NamespaceClosureProjection(
+        roots=raw_roots,
         packages=selected_packages,
         dependency_edges=tuple(
             (package.namespace, dependency)
             for package in selected_packages
             for dependency in package.required
         ),
-        capability_bindings=tuple(sorted(providers.items())),
+        capability_providers=tuple(
+            sorted(
+                (capability, package.namespace)
+                for package in selected_packages
+                for capability in package.provides
+            )
+        ),
         definitions=MappingProxyType(
             {key: definitions[key] for key in sorted(definitions) if key[0] in selected}
         ),
     )
 
 
-def project_current_namespace_packages(
+def admit_namespace_selection(
+    projection: NamespaceClosureProjection,
+) -> NamespaceSelection:
+    """Finalize already projected facts; Model calls this after its judgments."""
+    selected = {package.namespace for package in projection.packages}
+    for namespace in projection.roots:
+        if namespace not in selected:
+            raise ValueError(f"missing root namespace: {namespace}")
+    providers: dict[str, str] = {}
+    for capability, namespace in projection.capability_providers:
+        if capability in providers:
+            raise ValueError(
+                f"selected capability has multiple providers: {capability}"
+            )
+        providers[capability] = namespace
+    for package in projection.packages:
+        for capability in package.requires:
+            if capability not in providers:
+                raise ValueError(f"selected capability has no provider: {capability}")
+    return NamespaceSelection(
+        packages=projection.packages,
+        dependency_edges=projection.dependency_edges,
+        capability_bindings=tuple(sorted(providers.items())),
+        definitions=projection.definitions,
+        roots=tuple(sorted(set(projection.roots))),
+    )
+
+
+def resolve_current_namespaces(
+    packages: Sequence[CurrentPackage], roots: Iterable[str]
+) -> NamespaceSelection:
+    """Strict namespace selection for callers without a Model judgment phase."""
+    return admit_namespace_selection(
+        project_required_namespace_closure(packages, roots)
+    )
+
+
+def derive_current_namespace_packages(
     kernel: dict[str, Any], graph: LanguageBundleIndex
 ) -> tuple[CurrentPackage, ...]:
-    """Temporary #870 projection of an admitted, frozen exact-coordinate graph.
-
-    The caller owns admission and lifetime. Do not infer owners from the flattened
-    language index or silently discard conflicting release coordinates. #872 must
-    remove this coordinate bridge after the authored graph and consumers migrate.
-    """
-    releases = sorted(graph.package_releases, key=lambda package: package["id"])
-    by_namespace: dict[str, dict[str, Any]] = {}
-    for release in releases:
-        namespace = release["id"]
-        if namespace in by_namespace:
-            raise ValueError(f"duplicate namespace owner: {namespace}")
-        by_namespace[namespace] = release
-
+    """Derive namespace facts directly from the attached admitted package graph."""
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
     ]
     packages: list[CurrentPackage] = []
-    for release in releases:
-        for dependency in (
-            *release["dependencies"]["required"],
-            *release["dependencies"]["optional"],
-        ):
-            target = by_namespace.get(dependency["id"])
-            if target is None or target["version"] != dependency["version"]:
-                raise ValueError("current namespace projection has no exact dependency")
+    for package in sorted(graph.package_releases, key=lambda package: package["id"]):
         definitions: list[tuple[str, str, Any]] = []
         for entry, projection in zip(
-            release["semantic_closure"], projections, strict=True
+            package["semantic_closure"], projections, strict=True
         ):
             for definition in entry["definitions"]:
                 member = projection["key_member"]
@@ -395,15 +414,11 @@ def project_current_namespace_packages(
                 definitions.append((projection["authority_path"], key, definition))
         packages.append(
             CurrentPackage(
-                namespace=release["id"],
-                required=tuple(
-                    item["id"] for item in release["dependencies"]["required"]
-                ),
-                optional=tuple(
-                    item["id"] for item in release["dependencies"]["optional"]
-                ),
-                provides=tuple(release["capabilities"]["provided"]),
-                requires=tuple(release["capabilities"]["required"]),
+                namespace=package["id"],
+                required=tuple(package["dependencies"]["required"]),
+                optional=tuple(package["dependencies"]["optional"]),
+                provides=tuple(package["capabilities"]["provided"]),
+                requires=tuple(package["capabilities"]["required"]),
                 definitions=tuple(definitions),
             )
         )

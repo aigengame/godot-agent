@@ -15,7 +15,7 @@ def infer_formula_operation_local_contract(
     local: str,
     fallback: dict[str, Any],
     conversion_policy: dict[str, Any],
-    source_type_aliases: dict[tuple[str, str, str], str],
+    source_type_aliases: dict[tuple[str, str], str],
     known_operand_values: dict[str, Any] | None = None,
     known_local_contracts: dict[str, dict[str, Any]] | None = None,
     ignore_unmatched_instructions: bool = False,
@@ -206,8 +206,7 @@ def infer_formula_operation_local_contract(
                 alias = source_type_aliases.get(
                     (
                         identity["package"],
-                        identity["version"],
-                        identity["symbol"],
+                        identity["id"],
                     )
                 )
                 if alias is None:
@@ -274,7 +273,7 @@ def infer_formula_operation_result(
     operand_contracts: list[dict[str, Any]],
     fallback: dict[str, Any],
     conversion_policy: dict[str, Any],
-    source_type_aliases: dict[tuple[str, str, str], str],
+    source_type_aliases: dict[tuple[str, str], str],
 ) -> dict[str, Any]:
     """Infer one Operation-call result by interpreting compiler-owned transfer rules."""
     result_source_policy = conversion_policy.get("operation_result_source")

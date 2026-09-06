@@ -19,7 +19,10 @@ from gda_balancing.domain.artifacts import (
 )
 from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.domain.operation_program import (
+    OperationCoordinate,
     instruction_evaluation_sites,
+    operation_coordinate,
+    selected_operation_index,
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.experiment import (
@@ -78,22 +81,7 @@ def _evaluate_formula_evidence_result(
     arguments: list[dict[str, Any]],
 ) -> JsonValue | object:
     """Independently evaluate one traced Formula from admitted RIR semantics."""
-    package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
-        for row in cast(
-            list[dict[str, Any]], checked.rir["selected_semantics"]["packages"]
-        )
-    }
-    operations = {
-        (
-            cast(str, row["package"]),
-            package_versions[cast(str, row["package"])],
-            cast(str, row["definition"]["id"]),
-        ): cast(dict[str, Any], row["definition"])
-        for row in cast(
-            list[dict[str, Any]], checked.rir["selected_semantics"]["operations"]
-        )
-    }
+    operations = selected_operation_index(checked.rir["selected_semantics"])
     formulas = {
         cast(str, row["identity"]): row
         for row in cast(list[dict[str, Any]], checked.rir["formulas"])
@@ -120,13 +108,7 @@ def _evaluate_formula_evidence_result(
     def evaluate_operation(
         reference: dict[str, Any], values: dict[str, JsonValue]
     ) -> JsonValue | object:
-        operation = operations.get(
-            (
-                cast(str, reference.get("package")),
-                cast(str, reference.get("version")),
-                cast(str, reference.get("id")),
-            )
-        )
+        operation = operations.get(operation_coordinate(reference))
         if operation is None:
             return _INVALID_FORMULA_EVIDENCE
         variables: dict[str, Any] = dict(values)
@@ -209,8 +191,67 @@ def _evaluate_formula_evidence_result(
     return evaluate_formula(formula, parameters)
 
 
+def _event_operation_executions(
+    event: dict[str, Any],
+    root_reference: dict[str, Any] | None,
+) -> dict[str, OperationCoordinate] | None:
+    """Retain the qualified owner of each traced invocation path."""
+    executions: dict[str, OperationCoordinate] = {}
+    if isinstance(event.get("operation"), str):
+        if root_reference is None or root_reference.get("id") != event["operation"]:
+            return None
+        entrypoint = event.get("entrypoint")
+        root_path = (
+            cast(str, entrypoint["id"])
+            if isinstance(entrypoint, dict)
+            else f"scheduled:{event.get('schedule_call_site_identity')}"
+        )
+        executions[root_path] = operation_coordinate(root_reference)
+    for call in cast(list[dict[str, Any]], event.get("calls", [])):
+        call_operation = call.get("operation")
+        call_path = call.get("site")
+        if (
+            not isinstance(call_path, str)
+            or not isinstance(call_operation, dict)
+            or call_path in executions
+        ):
+            return None
+        executions[call_path] = operation_coordinate(call_operation)
+    return executions
+
+
+def _trace_formula_evaluations_are_authoritative(
+    checked: CheckedExperiment,
+    events: Sequence[dict[str, Any]],
+) -> bool:
+    """Check Formula evidence against explicitly qualified trace invocations."""
+    entrypoints = {row["id"]: row["operation"] for row in checked.rir["entrypoints"]}
+    scheduled_operations: dict[str, dict[str, Any]] = {}
+    for event in events:
+        for schedule in cast(list[dict[str, Any]], event.get("schedules", [])):
+            event_id = cast(str, schedule["event_id"])
+            if event_id in scheduled_operations:
+                return False
+            scheduled_operations[event_id] = cast(dict[str, Any], schedule["operation"])
+    for event in events:
+        entrypoint = event.get("entrypoint")
+        root_reference = (
+            entrypoints.get(entrypoint["id"])
+            if isinstance(entrypoint, dict)
+            else scheduled_operations.get(cast(str, event.get("event_id")))
+        )
+        executions = _event_operation_executions(event, root_reference)
+        if executions is None or not _event_formula_evaluations_are_authoritative(
+            checked, event, executions
+        ):
+            return False
+    return True
+
+
 def _event_formula_evaluations_are_authoritative(
-    checked: CheckedExperiment, event: dict[str, Any]
+    checked: CheckedExperiment,
+    event: dict[str, Any],
+    executions: dict[str, OperationCoordinate],
 ) -> bool:
     evaluations = event.get("formula_evaluations")
     if not isinstance(evaluations, list):
@@ -220,40 +261,7 @@ def _event_formula_evaluations_are_authoritative(
         cast(str, row["identity"]): row
         for row in cast(list[dict[str, Any]], checked.rir["formulas"])
     }
-    package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
-        for row in cast(
-            list[dict[str, Any]], checked.rir["selected_semantics"]["packages"]
-        )
-    }
-    operations = {
-        (
-            cast(str, row["package"]),
-            package_versions[cast(str, row["package"])],
-            cast(str, row["definition"]["id"]),
-        ): cast(dict[str, Any], row["definition"])
-        for row in cast(
-            list[dict[str, Any]], checked.rir["selected_semantics"]["operations"]
-        )
-    }
-    executions: dict[str, str] = {}
-    entrypoint = event.get("entrypoint")
-    operation_id = event.get("operation")
-    if isinstance(operation_id, str):
-        root_path = (
-            cast(str, entrypoint["id"])
-            if isinstance(entrypoint, dict)
-            else f"scheduled:{event.get('schedule_call_site_identity')}"
-        )
-        executions[root_path] = operation_id
-    for call in cast(list[dict[str, Any]], event.get("calls", [])):
-        call_operation = call.get("operation")
-        if not isinstance(call.get("site"), str) or not isinstance(
-            call_operation, dict
-        ):
-            return False
-        executions[cast(str, call["site"])] = cast(str, call_operation.get("id"))
-
+    operations = selected_operation_index(checked.rir["selected_semantics"])
     seen: set[tuple[str, str]] = set()
     for evaluation in evaluations:
         if not isinstance(evaluation, dict):
@@ -273,13 +281,7 @@ def _event_formula_evaluations_are_authoritative(
         binding = matches[0]
         site = cast(dict[str, Any], binding["site"])
         operation_reference = cast(dict[str, Any], site["operation"])
-        operation = operations.get(
-            (
-                cast(str, operation_reference["package"]),
-                cast(str, operation_reference["version"]),
-                cast(str, operation_reference["id"]),
-            )
-        )
+        operation = operations.get(operation_coordinate(operation_reference))
         formula_reference = cast(dict[str, Any], binding["formula"])
         formula = formulas.get(cast(str, formula_reference["identity"]))
         slot = (
@@ -296,7 +298,7 @@ def _event_formula_evaluations_are_authoritative(
             or evaluation.get("slot") != site["slot"]
             or evaluation.get("context") != site["context"]
             or evaluation.get("frame_identity") != event.get("snapshot_before_identity")
-            or executions.get(call_path) != operation_reference["id"]
+            or executions.get(call_path) != operation_coordinate(operation_reference)
             or site_identity not in instruction_evaluation_sites(operation).values()
             or (call_path, cast(str, site_identity)) in seen
         ):
@@ -729,23 +731,39 @@ def _scheduled_catalog_record_is_authoritative(
         != event_spec["event_id"]
     ):
         return False
-    operation = next(
-        (
-            row["definition"]
-            for row in checked.rir["selected_semantics"]["operations"]
-            if row["definition"]["id"] == schedule_parent_operation
-        ),
-        None,
+    parent_entrypoint = parent_event.get("entrypoint")
+    root_reference = (
+        next(
+            (
+                row["operation"]
+                for row in checked.rir["entrypoints"]
+                if row["id"] == parent_entrypoint["id"]
+            ),
+            None,
+        )
+        if isinstance(parent_entrypoint, dict)
+        else parent_spec.get("operation")
+    )
+    if not isinstance(root_reference, dict):
+        return False
+    executions = _event_operation_executions(
+        cast(dict[str, Any], parent_event), root_reference
+    )
+    if executions is None:
+        return False
+    parent_coordinate = executions.get(schedule_call_path)
+    if parent_coordinate is None or parent_coordinate[1] != schedule_parent_operation:
+        return False
+    operation = selected_operation_index(checked.rir["selected_semantics"]).get(
+        parent_coordinate
     )
     if operation is None:
         return False
-    if schedule_parent_operation != parent_operation and not any(
-        call.get("site") == schedule_call_path
-        and cast(dict[str, JsonValue], call["operation"]).get("id")
-        == schedule_parent_operation
-        for call in cast(list[dict[str, JsonValue]], parent_event["calls"])
-    ):
-        return False
+    root_path = (
+        cast(str, parent_entrypoint["id"])
+        if isinstance(parent_entrypoint, dict)
+        else f"scheduled:{parent_event.get('schedule_call_site_identity')}"
+    )
     schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
     matching_instructions = []
     for instruction in operation["body"]:
@@ -817,7 +835,7 @@ def _scheduled_catalog_record_is_authoritative(
             catalog_by_id=catalog_by_id,
             events_by_id=events_by_id,
         )
-        if schedule_parent_operation == parent_operation
+        if schedule_call_path == root_path
         else None
     )
     direct_arguments = parent_arguments[0] if parent_arguments is not None else {}
@@ -1030,16 +1048,13 @@ def validate_experiment_member(
         return False
     kind = value.get("artifact_kind")
     if kind == "event-trace":
-        return all(
-            _event_formula_evaluations_are_authoritative(checked, event)
-            for event in cast(list[dict[str, Any]], value.get("events", []))
+        return _trace_formula_evaluations_are_authoritative(
+            checked, cast(list[dict[str, Any]], value.get("events", []))
         )
     if kind == "runtime-terminal-audit":
-        return all(
-            _event_formula_evaluations_are_authoritative(checked, event)
-            for event in cast(
-                list[dict[str, Any]], value.get("committed_trace_prefix", [])
-            )
+        return _trace_formula_evaluations_are_authoritative(
+            checked,
+            cast(list[dict[str, Any]], value.get("committed_trace_prefix", [])),
         )
     return True
 
@@ -1089,10 +1104,7 @@ def _artifact_set_runtime_journals_are_valid(
             snapshot.get("index") != index for index, snapshot in enumerate(snapshots)
         )
         or any(event.get("index") != index for index, event in enumerate(events))
-        or any(
-            not _event_formula_evaluations_are_authoritative(checked, event)
-            for event in events
-        )
+        or not _trace_formula_evaluations_are_authoritative(checked, events)
     ):
         return False
     catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
@@ -1487,10 +1499,7 @@ def _terminal_audit_is_valid(
     }
     if (
         any(not _event_catalog_record_is_valid(checked, record) for record in catalog)
-        or any(
-            not _event_formula_evaluations_are_authoritative(checked, event)
-            for event in events
-        )
+        or not _trace_formula_evaluations_are_authoritative(checked, events)
         or not _event_catalog_records_are_authoritative(
             checked,
             catalog,

@@ -1,15 +1,14 @@
 {
   "schema_version": "2.0.0",
   "id": "example.progression-periodic-effect.snapshot",
-  "version": "1.0.0",
-  "kernel_identity": "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d",
-  "language_bundle_identity": "sha256:cddf6f50b5ba759b42c70918a0db5f22674ab711a6ff2e0d153bda45be458aa6",
+  "kernel_identity": "sha256:a1a0b6b93cf9bb6ec8813c8af044ce473cce2e53db361f9ae1bf87d7c89b3a5f",
+  "language_bundle_identity": "sha256:ff86be8a48e1286a0e7d9e3727823e2bb37ea5f436976fd912c7733f53043afc",
   "model": {
-    "source_identity": "sha256:ad16503330915ac454fedb44bf71ee0ddefc90f83f70b4b45f6ecf92d413f367",
-    "build_receipt_identity": "sha256:fbd423e53148ed3c7184804c943315e34f2c113e54d7c9ca30158323bd9dfbe1",
-    "resolved_model_identity": "sha256:afe1802e3f06ef6a6f12c9405960f01fe8b8543dad78a0f79935aa78959107f2",
-    "package_lock_identity": "sha256:78949747bbcf00eef84b6fe81c9ac69211275155f76eba92508a4de1ffc95d66",
-    "rir_identity": "sha256:60ff6255758620857ee0656ee207551ad832d67d3ffc4f4cebcc1b256f7440d5"
+    "source_identity": "sha256:e600d71b0600862f9a9f82e260f297b06274d1eab47577af291b36108a26faa2",
+    "build_receipt_identity": "sha256:951d7c4dd9de43b1bc4f14c56280ff1b4bdcfb978ae7a974b1e42c189484ad77",
+    "resolved_model_identity": "sha256:e3fe4e4fe7517240664ad31c7f8acc700afb5dd9c225083608a66d05e213a6c0",
+    "package_lock_identity": "sha256:7643269c0d49f725094103cd2017edc10a3c78acc5ece86aa40a5e22dd9f7192",
+    "rir_identity": "sha256:367ff0f55b2498c1daeb2fc2f26e52eab6d3306972c0fd0ffadbc4292288efe0"
   },
   "seed": {
     "algorithm": "splitmix64-v1",

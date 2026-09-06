@@ -3,6 +3,8 @@
 from copy import deepcopy
 from typing import cast
 
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.authority.graph import resolve_current_namespaces
 from gda_balancing.domain.canonical import JsonValue, content_identity
 from gda_balancing.domain.model import model_source_identity_domain
 
@@ -14,43 +16,15 @@ from ._release_semantics import (
 )
 
 
-def minimal_release(
-    kernel: dict[str, JsonValue],
-    language_bundle: dict[str, JsonValue],
-) -> dict[str, JsonValue]:
-    """Build the packaged minimal Quantity Template for one exact authority."""
+def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
+    """Build the packaged minimal Quantity Template from one admitted context."""
+    kernel = context.kernel
+    language_bundle = context.language_bundle
     kernel_identity = cast(str, kernel["content_identity"])
     language_bundle_identity = cast(str, language_bundle["content_identity"])
-    language = cast(dict[str, JsonValue], language_bundle["language"])
-    packages = cast(list[dict[str, JsonValue]], language["packages"])
-    package_matches = [
-        package
-        for package in packages
-        if (package.get("id"), package.get("version")) == ("core.quantity", "2.2.0")
-    ]
-    if len(package_matches) != 1:
-        raise ValueError("minimal Template package is unavailable or ambiguous")
-    packages_by_coordinate = {
-        (cast(str, package["id"]), cast(str, package["version"])): package
-        for package in packages
-        if isinstance(package.get("id"), str)
-        and isinstance(package.get("version"), str)
-    }
-    selected_coordinates = {("core.quantity", "2.2.0")}
-    pending = [("core.quantity", "2.2.0")]
-    while pending:
-        coordinate = pending.pop()
-        package = packages_by_coordinate[coordinate]
-        dependencies = cast(dict[str, JsonValue], package["dependencies"])
-        for dependency in cast(list[dict[str, str]], dependencies["required"]):
-            dependency_coordinate = (dependency["id"], dependency["version"])
-            if dependency_coordinate not in selected_coordinates:
-                selected_coordinates.add(dependency_coordinate)
-                pending.append(dependency_coordinate)
-    selected_packages = [
-        packages_by_coordinate[coordinate]
-        for coordinate in sorted(selected_coordinates)
-    ]
+    selection = resolve_current_namespaces(
+        context.current_namespace_packages(), ["core.quantity"]
+    )
     quantity_contract: dict[str, JsonValue] = {
         "type": "quantity",
         "representation": "Int",
@@ -64,10 +38,9 @@ def minimal_release(
         "schema_version": "2.0.0",
         "manifest": {
             "id": "standard.quantity-minimal.starter",
-            "version": "1.1.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
+        "package_requirements": ["core.quantity"],
         "modules": [
             {
                 "id": "main",
@@ -75,7 +48,6 @@ def minimal_release(
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.2.0",
                         "symbol": "Quantity",
                     }
                 ],
@@ -111,7 +83,6 @@ def minimal_release(
                                     "node": "operation-call",
                                     "operation": {
                                         "package": "core.quantity",
-                                        "version": "2.2.0",
                                         "id": "quantity.identity",
                                     },
                                     "arguments": [
@@ -158,7 +129,6 @@ def minimal_release(
                 "id": "quantity.identity",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.2.0",
                     "id": "quantity.identity",
                 },
                 "arguments": [
@@ -220,7 +190,6 @@ def minimal_release(
             {
                 "schema_version": "2.0.0",
                 "id": experiment_id,
-                "version": "1.1.0",
                 "kernel_identity": kernel_identity,
                 "language_bundle_identity": language_bundle_identity,
                 "model_source_identity": starter_identity,
@@ -241,14 +210,7 @@ def minimal_release(
             schema_identities["declared-package-dependencies"],
             {
                 "schema_version": "2.0.0",
-                "packages": [
-                    {
-                        "id": package["id"],
-                        "version": package["version"],
-                        "content_identity": package["content_identity"],
-                    }
-                    for package in selected_packages
-                ],
+                "packages": [package.namespace for package in selection.packages],
             },
         ),
         build_member(
@@ -268,7 +230,7 @@ def minimal_release(
                 "schema_version": "2.0.0",
                 "kernel_identity": kernel_identity,
                 "language_bundle_identity": language_bundle_identity,
-                "packages": [{"id": "core.quantity", "version": "2.2.0"}],
+                "packages": ["core.quantity"],
             },
         ),
         build_member(
@@ -359,7 +321,6 @@ def minimal_release(
         "artifact_version": "2.0.0",
         "wire_schema_identity": schema_identities["template-release"],
         "id": "standard.quantity-minimal",
-        "version": "2.1.0",
         "kernel_identity": kernel_identity,
         "language_bundle_identity": language_bundle_identity,
         "manifest": cast(JsonValue, manifest),

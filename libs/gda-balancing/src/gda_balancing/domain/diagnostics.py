@@ -9,7 +9,10 @@ from gda_balancing.domain.authority.admission import (
     BOOTSTRAP_REFUSAL_CATALOG,
     BootstrapAdmission,
 )
-from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.authority.context import (
+    AuthorityLoadError,
+    packaged_authority_context,
+)
 
 RefusalStage = Literal[
     "ingress",
@@ -222,3 +225,10 @@ def ingress_refusal(code: str, subject: str, message: str) -> Schema2RefusalRepo
         ),
         truncated=False,
     )
+
+
+def authority_load_refusal(error: AuthorityLoadError) -> Schema2RefusalReport:
+    """Preserve bootstrap evidence when packaged initialization fails."""
+    if error.admission is not None:
+        return bootstrap_refusal(error.admission)
+    return ingress_refusal(error.code, error.subject, error.message)

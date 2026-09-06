@@ -22,7 +22,7 @@ from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
     derive_language_index,
-    project_current_namespace_packages,
+    derive_current_namespace_packages,
 )
 from gda_balancing.domain.authority.admission import (
     BootstrapAdmission,
@@ -259,7 +259,6 @@ def _replay_comparison_policy_index(
         index[policy_id] = {
             "owner": {
                 "package": owner["id"],
-                "package_version": owner["version"],
             },
             "policy": policy,
         }
@@ -333,13 +332,8 @@ class AdmittedAuthorityContext:
         return deepcopy(self.kernel), language_bundle
 
     def current_namespace_packages(self) -> tuple[CurrentPackage, ...]:
-        """Derive the #870 integration view from this admitted immutable graph.
-
-        Existing public consumers migrate in #871. This opt-in view must not make
-        the current exact-coordinate admission path silently accept another wire
-        contract. #872 removes the temporary coordinate projection.
-        """
-        return project_current_namespace_packages(
+        """Read namespace ownership and selection facts from the attached graph."""
+        return derive_current_namespace_packages(
             self.kernel, cast(LanguageBundleIndex, self.language_bundle)
         )
 
@@ -356,15 +350,28 @@ _PACKAGED_CONTEXT_ADMISSION_ATTEMPTS = 0
 
 
 class AuthorityLoadError(Exception):
-    """A candidate authority failed the non-self-hosted ingress preflight."""
+    """A packaged authority failed raw preflight or atomic admission."""
 
-    stage = "ingress"
-
-    def __init__(self, *, code: str, subject: str, message: str) -> None:
+    def __init__(
+        self,
+        *,
+        code: str,
+        subject: str,
+        message: str,
+        admission: BootstrapAdmission | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.subject = subject
         self.message = message
+        self.admission = admission
+
+    @property
+    def stage(self) -> str:
+        """Retain the raw-loader API while exposing the actual admission stage."""
+        if self.admission is not None:
+            return self.admission.diagnostics[0].stage
+        return "ingress"
 
 
 @dataclass(frozen=True)
@@ -374,12 +381,14 @@ class _AuthorityFailureSnapshot:
     code: str
     subject: str
     message: str
+    admission: BootstrapAdmission | None
 
     def exception(self) -> AuthorityLoadError:
         return AuthorityLoadError(
             code=self.code,
             subject=self.subject,
             message=self.message,
+            admission=self.admission,
         )
 
 
@@ -507,7 +516,6 @@ def _package_resource_names(
     descriptor: dict[str, Any], kernel: dict[str, Any]
 ) -> tuple[str, str]:
     package_id = descriptor.get("id")
-    version = descriptor.get("version")
     field_types = (
         kernel.get("meta_format", {})
         .get("language_bundle", {})
@@ -515,27 +523,19 @@ def _package_resource_names(
         .get("field_types")
     )
     id_contract = field_types.get("id") if isinstance(field_types, dict) else None
-    version_contract = (
-        field_types.get("version") if isinstance(field_types, dict) else None
-    )
     if (
         not _matches_coordinate_contract(package_id, id_contract)
-        or not _matches_coordinate_contract(version, version_contract)
         or "/" in cast(str, package_id)
         or "\\" in cast(str, package_id)
-        or "/" in cast(str, version)
-        or "\\" in cast(str, version)
     ):
         raise AuthorityLoadError(
             code="kernel.member_set_mismatch",
             subject="language-bundle.package_descriptors",
-            message="package descriptor coordinate is not a safe canonical coordinate",
+            message="package namespace is not a safe canonical identifier",
         )
     safe_package_id = cast(str, package_id)
-    safe_version = cast(str, version)
-    coordinate = f"{safe_package_id}@{safe_version}"
     directory = safe_package_id.replace(".", "-")
-    prefix = f"packages/{directory}/{coordinate}"
+    prefix = f"packages/{directory}/{safe_package_id}"
     return f"{prefix}.json", f"{prefix}.conformance-vectors.json"
 
 
@@ -689,6 +689,7 @@ def _load_packaged_authority_context_uncached() -> AdmittedAuthorityContext:
             code=diagnostic.code,
             subject=diagnostic.subject,
             message="packaged authority graph failed atomic admission",
+            admission=admission,
         )
     index = derive_language_index(
         root,
@@ -708,7 +709,7 @@ def packaged_authority_context() -> AdmittedAuthorityContext:
 
     Initialization is single-flight under the lifecycle lock. A failed packaged
     admission is remembered so concurrent and later callers observe the same
-    deterministic ingress refusal rather than a partially initialized context.
+    deterministic refusal rather than a partially initialized context.
     """
     global _PACKAGED_CONTEXT
     global _PACKAGED_CONTEXT_ERROR
@@ -727,6 +728,7 @@ def packaged_authority_context() -> AdmittedAuthorityContext:
                 code=err.code,
                 subject=err.subject,
                 message=err.message,
+                admission=err.admission,
             )
             _PACKAGED_CONTEXT_ERROR = failure
             raise failure.exception() from err

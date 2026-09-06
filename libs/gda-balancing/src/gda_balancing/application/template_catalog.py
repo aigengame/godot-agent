@@ -22,7 +22,6 @@ class TemplateReleaseSummary:
     """Identity of one admitted packaged Template release."""
 
     id: str
-    version: str
     content_identity: str
 
 
@@ -39,7 +38,6 @@ def list_templates(
     return (
         TemplateReleaseSummary(
             id=cast(str, release["id"]),
-            version=cast(str, release["version"]),
             content_identity=cast(str, release["content_identity"]),
         ),
     )
@@ -47,22 +45,21 @@ def list_templates(
 
 def get_template(
     template_id: str,
-    version: str,
     provider: TemplateProvider = minimal_release,
     *,
     authority_context_provider: AuthorityContextProvider = packaged_authority_context,
 ) -> dict[str, Any] | Schema2RefusalReport:
-    """Get one exact admitted packaged Template release."""
+    """Get the current admitted packaged Template by id."""
     admitted = load_admitted_template(provider, authority_context_provider)
     if isinstance(admitted, Schema2RefusalReport):
         return admitted
     release = admitted.release
-    if (template_id, version) != (release["id"], release["version"]):
+    if template_id != release["id"]:
         return template_refusal(
-            "language.package_version_unavailable",
+            "language.package_unavailable",
             "resolution",
             cast(str, release["content_identity"]),
             "/id",
-            f"Template release {template_id}@{version} is unavailable",
+            f"Template {template_id} is unavailable",
         )
     return deepcopy(cast(dict[str, Any], release))

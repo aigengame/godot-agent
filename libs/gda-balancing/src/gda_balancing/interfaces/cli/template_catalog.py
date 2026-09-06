@@ -27,7 +27,6 @@ class TemplateSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str
-    version: str
     content_identity: str
 
 
@@ -41,7 +40,6 @@ class TemplateGetInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
-    version: str = Field(min_length=1)
 
 
 class TemplateReleaseResult(RootModel[dict[str, Any]]):
@@ -68,7 +66,6 @@ def template_list_handler(
             templates=[
                 TemplateSummary(
                     id=release.id,
-                    version=release.version,
                     content_identity=release.content_identity,
                 )
                 for release in result
@@ -90,7 +87,6 @@ def template_get_handler(
     ) -> TemplateReleaseResult | Schema2RefusalReport:
         result = get_template(
             inp.id,
-            inp.version,
             provider,
             authority_context_provider=authority_context_provider,
         )
@@ -142,7 +138,6 @@ def template_get_success_schema() -> dict[str, object]:
             "artifact_version": {"const": "2.0.0"},
             "wire_schema_identity": identity,
             "id": {"type": "string", "minLength": 1},
-            "version": {"type": "string", "minLength": 1},
             "kernel_identity": identity,
             "language_bundle_identity": identity,
             "manifest": {
@@ -162,7 +157,6 @@ def template_get_success_schema() -> dict[str, object]:
             "artifact_version",
             "wire_schema_identity",
             "id",
-            "version",
             "kernel_identity",
             "language_bundle_identity",
             "manifest",
@@ -201,14 +195,10 @@ TEMPLATE_GET = CommandDescriptor(
         valid_args=(
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ),
         refusing_args=(
             "--id",
             "missing.template",
-            "--version",
-            "2.1.0",
         ),
     ),
     schema_major=2,

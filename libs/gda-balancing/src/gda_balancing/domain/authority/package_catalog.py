@@ -43,7 +43,6 @@ def list_package_releases(
 def get_package_release(
     context: AdmittedAuthorityContext,
     package_id: str,
-    version: str,
     member: Literal["release", "conformance-vectors"],
 ) -> PackageArtifactContent | Schema2RefusalReport:
     """Select one exact member from the admitted Package Release graph."""
@@ -57,11 +56,11 @@ def get_package_release(
             "the admitted LDB has no sealed package graph",
         )
     for release, vector_set in zip(releases, vector_sets, strict=True):
-        if release.get("id") == package_id and release.get("version") == version:
+        if release.get("id") == package_id:
             selected = release if member == "release" else vector_set
             return PackageArtifactContent(root=deepcopy(cast(dict[str, Any], selected)))
     return ingress_refusal(
         "kernel.binding_mismatch",
-        f"{package_id}@{version}",
-        "the exact package coordinate is absent from the admitted LDB",
+        package_id,
+        "the package namespace is absent from the admitted LDB",
     )

@@ -148,9 +148,8 @@ def _declared_value_fault(
 ) -> StructuredValueFault | None:
     type_identity = cast(dict[str, str], declaration["type_identity"])
     declared_type: JsonValue = {
-        "id": type_identity["symbol"],
+        "id": type_identity["id"],
         "package": type_identity["package"],
-        "version": type_identity["version"],
     }
     if declaration.get("value_kind") == "nominal-structured":
         type_member, _value_member = typed_envelope_members(structured_authority)
@@ -612,9 +611,7 @@ def _check_experiment_value(
 
     rir = artifacts["rir-semantic-payload"]
     selected = rir["selected_semantics"]
-    operations = {
-        row["definition"]["id"]: row["definition"] for row in selected["operations"]
-    }
+    operations = selected_operation_index(selected)
     entrypoints = {row["id"]: row for row in rir["entrypoints"]}
     runtime_profiles = {row["id"]: row for row in selected["runtime_profiles"]}
     declarations = {
@@ -658,7 +655,7 @@ def _check_experiment_value(
                     pointer=pointer,
                     message="Root Event entrypoint is absent from the selected RIR",
                 )
-            operation = operations.get(entrypoint["operation"]["id"])
+            operation = operations.get(operation_coordinate(entrypoint["operation"]))
             if operation is None or operation["runtime_profile"] != required_profile:
                 return _refusal(
                     stage="resolution",

@@ -16,7 +16,7 @@ from schema2_operation_execution_production_support import (
 )
 
 
-OperationCoordinate = tuple[str, str, str]
+OperationCoordinate = tuple[str, str]
 
 
 def _operation_index(ldb: Any) -> dict[OperationCoordinate, dict[str, Any]]:
@@ -24,7 +24,6 @@ def _operation_index(ldb: Any) -> dict[OperationCoordinate, dict[str, Any]]:
     return {
         (
             cast(str, package["id"]),
-            cast(str, package["version"]),
             cast(str, definition["id"]),
         ): definition
         for package in cast(list[dict[str, Any]], language["packages"])
@@ -36,10 +35,10 @@ def _operation_index(ldb: Any) -> dict[OperationCoordinate, dict[str, Any]]:
 
 def operation_execution_vectors(
     ldb: Any,
-) -> list[tuple[str, str, dict[str, Any]]]:
+) -> list[tuple[str, dict[str, Any]]]:
     """Discover every manifest-bound Operation execution vector."""
     return [
-        (vector_set["package_id"], vector_set["package_version"], vector)
+        (vector_set["package_id"], vector)
         for vector_set in ldb.package_conformance_vector_sets
         for vector in vector_set["vector_definitions"]
         if vector.get("kind") == "operation-execution"
@@ -51,13 +50,12 @@ def independent_operation_execution_projection(
     ldb: Any,
     operations: dict[OperationCoordinate, dict[str, Any]],
     package_id: str,
-    package_version: str,
     vector: dict[str, Any],
     *,
     include_execution_evidence: bool = False,
 ) -> dict[str, Any]:
     """Project the independent adapter result to the canonical vector shape."""
-    coordinate = (package_id, package_version, cast(str, vector["operation"]))
+    coordinate = (package_id, cast(str, vector["operation"]))
     operation = operations[coordinate]
     event = reference_execute_event(
         kernel,
@@ -124,14 +122,12 @@ def _operation_execution_results(
     *,
     context: AdmittedAuthorityContext,
     package_id: str,
-    package_version: str,
     harness: OperationExecutionHarness | None = None,
 ) -> dict[str, dict[str, Any]]:
     production = evaluate_operation_execution_vector_with_evidence(
         context,
         vector,
         package_id=package_id,
-        package_version=package_version,
         harness=harness,
     )
     return {
@@ -141,7 +137,6 @@ def _operation_execution_results(
             ldb,
             production["resolved_operations"],
             package_id,
-            package_version,
             vector,
             include_execution_evidence=True,
         ),
@@ -155,29 +150,27 @@ def operation_execution_observations(
     *,
     context: AdmittedAuthorityContext | None = None,
     package_id: str | None = None,
-    package_version: str | None = None,
     harness: OperationExecutionHarness | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Observe one vector through both adapters in the canonical shape."""
     resolved_context = context or admit_authority_context(kernel, ldb)
     assert isinstance(resolved_context, AdmittedAuthorityContext)
-    if package_id is None or package_version is None:
+    if package_id is None:
         owners = [
-            (owner_id, owner_version)
-            for owner_id, owner_version, declared in operation_execution_vectors(ldb)
+            owner_id
+            for owner_id, declared in operation_execution_vectors(ldb)
             if declared["id"] == vector["id"]
             and declared["operation"] == vector["operation"]
         ]
         if len(owners) != 1:
             raise ValueError("operation execution vector owner is not unique")
-        package_id, package_version = owners[0]
+        package_id = owners[0]
     results = _operation_execution_results(
         kernel,
         ldb,
         vector,
         context=resolved_context,
         package_id=package_id,
-        package_version=package_version,
         harness=harness,
     )
     return {
@@ -192,8 +185,8 @@ def candidate_conformance_failures(
     ldb: Any,
     *,
     vector_overrides: dict[str, dict[str, Any]] | None = None,
-    vector_coordinates: set[tuple[str, str, str]] | None = None,
-    execution_evidence_expectations: dict[tuple[str, str, str], dict[str, Any]]
+    vector_coordinates: set[tuple[str, str]] | None = None,
+    execution_evidence_expectations: dict[tuple[str, str], dict[str, Any]]
     | None = None,
 ) -> list[dict[str, Any]]:
     """Return bounded candidate-graph and execution-vector disagreements."""
@@ -220,14 +213,13 @@ def candidate_conformance_failures(
     operations = _operation_index(ldb)
     harnesses: dict[OperationCoordinate, OperationExecutionHarness] = {}
     overrides = vector_overrides or {}
-    for package_id, package_version, declared in operation_execution_vectors(ldb):
-        coordinate = (package_id, package_version, cast(str, declared["id"]))
+    for package_id, declared in operation_execution_vectors(ldb):
+        coordinate = (package_id, cast(str, declared["id"]))
         if vector_coordinates is not None and coordinate not in vector_coordinates:
             continue
         vector = overrides.get(declared["id"], declared)
         operation_coordinate = (
             package_id,
-            package_version,
             cast(str, vector["operation"]),
         )
         harness = harnesses.get(operation_coordinate)
@@ -243,7 +235,6 @@ def candidate_conformance_failures(
             vector,
             context=context,
             package_id=package_id,
-            package_version=package_version,
             harness=harness,
         )
         observations = {

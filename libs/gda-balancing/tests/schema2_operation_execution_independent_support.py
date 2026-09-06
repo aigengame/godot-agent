@@ -4,13 +4,12 @@ import hashlib
 from collections.abc import Mapping
 from typing import Any, cast
 
-OperationCoordinate = tuple[str, str, str]
+OperationCoordinate = tuple[str, str]
 
 
 def _operation_coordinate(reference: dict[str, Any]) -> OperationCoordinate:
     return (
         cast(str, reference["package"]),
-        cast(str, reference["version"]),
         cast(str, reference["id"]),
     )
 
@@ -99,7 +98,7 @@ class _ReferenceRuntimeRefusal(Exception):
 def reference_execute_event(
     kernel: dict[str, Any],
     operation: dict[str, Any],
-    operations: Mapping[Any, dict[str, Any]],
+    operations: Mapping[OperationCoordinate, dict[str, Any]],
     scenario: dict[str, Any],
     *,
     seed: int,
@@ -109,7 +108,7 @@ def reference_execute_event(
     resolved_call_sites: list[dict[str, Any]] | None = None,
     resolved_initialization_programs: list[dict[str, Any]] | None = None,
     language_bundle: dict[str, Any] | None = None,
-    root_operation_coordinate: OperationCoordinate | None = None,
+    root_operation_coordinate: OperationCoordinate,
     include_execution_evidence: bool = False,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
@@ -299,14 +298,12 @@ def reference_execute_event(
         language_bundle.get("language") if isinstance(language_bundle, dict) else None
     )
     nominal_types = {
-        (row["package"], row["version"], row["id"]): row
+        (row["package"], row["id"]): row
         for row in (
             language.get("nominal_types", []) if isinstance(language, dict) else []
         )
         if isinstance(row, dict)
-        and all(
-            isinstance(row.get(member), str) for member in ("package", "version", "id")
-        )
+        and all(isinstance(row.get(member), str) for member in ("package", "id"))
     }
     constructors = {
         row["id"]: row
@@ -331,12 +328,10 @@ def reference_execute_event(
         if isinstance(type_expression, dict) and set(type_expression) >= {
             "id",
             "package",
-            "version",
         }:
             nominal = nominal_types[
                 (
                     type_expression["package"],
-                    type_expression["version"],
                     type_expression["id"],
                 )
             ]
@@ -384,9 +379,7 @@ def reference_execute_event(
             result_type = definition[rule["element_member"]]
             result_value = envelope["value"][key]
         if isinstance(result_type, dict) and result_type.get("kind") == "nominal":
-            result_type = {
-                member: result_type[member] for member in ("id", "package", "version")
-            }
+            result_type = {member: result_type[member] for member in ("id", "package")}
         return {"type": result_type, "value": result_value}
 
     def structured_is_empty(envelope: Any) -> bool:
@@ -456,9 +449,7 @@ def reference_execute_event(
                 operator = semantics["operator"]
                 if operator == "invoke-operation":
                     child_coordinate = _operation_coordinate(instruction["operation"])
-                    child = operations.get(child_coordinate)
-                    if child is None:
-                        child = operations[instruction["operation"]["id"]]
+                    child = operations[child_coordinate]
                     child_arguments: dict[str, dict[str, Any]] = {}
                     for binding in instruction["arguments"]:
                         operand = binding["operand"]
@@ -745,11 +736,7 @@ def reference_execute_event(
                 actual = {"value": operand["value"]}
             root_frame[argument["port"]["name"]] = actual
     try:
-        selected_root_coordinate = root_operation_coordinate or (
-            "",
-            cast(str, operation.get("version", "")),
-            cast(str, operation["id"]),
-        )
+        selected_root_coordinate = root_operation_coordinate
         outcome, result = execute(
             selected_root_coordinate,
             operation,

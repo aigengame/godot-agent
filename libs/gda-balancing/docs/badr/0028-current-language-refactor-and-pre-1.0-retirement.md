@@ -26,6 +26,29 @@ whole target.
 The [implementation plan](../refactor/current-language/PLAN.md) owns sequencing, detailed
 acceptance, bounded experiments, and rollback. Machine laws remain Kernel/LDB-owned.
 
+## Native wire delivery (#871, 2026-09-07)
+
+The current implementation uses namespace strings for Source/Lock requirements and package
+dependencies, `{alias, package, symbol}` for imports, and `{package, id}` for nominal Type and
+Operation references. Package manifests/vector owners have no version coordinate. Model, Template,
+Experiment, Runtime profile, evidence claim-kind and Replay policy definitions have no own-version
+label or provenance echo. Template retrieval/instantiation selects its id without `--version`.
+The dated S2 coordinates above and the superseded coordinate clauses in earlier bADRs remain
+historical records.
+
+Package-owned Operations, Components, Conversions and nominal Types retain local ids scoped to the
+owner derived from the attached closure. Different namespaces may share local ids; duplicates
+within one owner refuse. Kernel fixed-value Type owners are reserved through the existing Kernel
+contracts. Global constructors/structured Operations and unique selected capability providers retain
+their laws. No new owner registry or authored owner field is introduced. Namespace closure, missing
+package/capability refusal, canonical integrity and active-session stability remain.
+
+This implements the native forms; it does not close #872, #879 or the full refactor. Distribution,
+Schema/artifact format and actual Runtime/grammar contract markers retain their distinct purposes.
+Whole-LDB and Build-receipt execution prerequisites still require closure in #874 followed by
+mandatory field/gate/propagation/fallback deletion in #875. Policy contents and their actual checks
+remain binding.
+
 ## Context and evidence
 
 The project owner states that gda-balancing has not had a formal product release: existing
@@ -118,8 +141,9 @@ mandatory binding deletion is #875.
 ## Exact supersession scope
 
 The following earlier records remain accepted outside these clauses. Their reciprocal dated notes
-distinguish retained historical/current-wire descriptions from the new target. No machine schema
-changes merely because this decision is accepted.
+distinguish historical descriptions from retained laws. The native-wire delivery above records
+which coordinate clauses have now been replaced; broad execution bindings remain current pending
+#874–#875. No machine schema changes merely because a prose decision is accepted.
 
 | Earlier decision | Superseded target or obligation | Retained boundary |
 | --- | --- | --- |
@@ -130,15 +154,16 @@ changes merely because this decision is accepted.
 | bADR-0017 | The 2026-08-26 old-release-retention and exact release-lineage mandate; historical template compatibility selection | Complete current capability union, template member ownership, all genre rows |
 | bADR-0018 | Build/whole-bundle provenance as a mandatory semantic comparison or execution input | Authored evaluation intent, truthful observations, comparison scope, approval and claim activation boundaries |
 | bADR-0019 | Ongoing converter availability and rejection of converter removal as the target | Explicit source disposition, no lossy success or dual Runtime, honest evidence |
+| bADR-0020 | ONNX-derived internal package/opset version locking and exact-version selection vectors | Explicit external-source versions, namespaced ownership, scoped adoption and independent conformance |
 | bADR-0021 | The migration command as a permanent forward command; propagation of retired version/execution-binding fields | Descriptor ownership, outcomes, diagnostics, idempotent atomic publication |
 | bADR-0022 | Internal version-coordinate meta-formats and a pre-v1.0 frozen-Kernel commitment | Machine-owned laws, deterministic admission, independent conformance; every replaced law is reidentified |
 | bADR-0023 | Versioned collection descriptors and irrelevant whole-LDB identity propagation into execution | Closed declared membership, canonical bytes/digests, no ambient discovery, selected semantic closure |
 | bADR-0024 | Historical version selectors and the whole-LDB wrapper as the permanent notation identity boundary | Pure Formula semantics, canonical reversible notation, body/expression validation |
 | bADR-0026/0027 | Inherited obsolete Standard Schema bindings in nested payloads | Shared application owner, local process capability, active-session stability; no cosmetic `/v1` rename |
 
-bADR-0015's outcome contract, bADR-0020's scoped external-source adoption, and bADR-0025's layering
-remain in force. Historical 1.x decisions remain readable provenance rather than renewed input
-support obligations.
+bADR-0015's outcome contract, bADR-0020's external-source adoption outside the version-selection
+clauses above, and bADR-0025's layering remain in force. Historical 1.x decisions remain readable
+provenance rather than renewed input support obligations.
 
 ## Acceptance and rollback
 

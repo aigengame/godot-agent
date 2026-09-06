@@ -70,7 +70,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d"
+    "sha256:a1a0b6b93cf9bb6ec8813c8af044ce473cce2e53db361f9ae1bf87d7c89b3a5f"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -815,17 +815,72 @@ def _duplicate_identifier_subjects(
         ):
             duplicates.add(str(subject or path or "kernel.admission.laws"))
             continue
+        scoped_items: list[tuple[tuple[str, ...], Any]] = []
+        if contract.get("scope") == "package":
+            if not isinstance(path, str) or not path.startswith("language_bundle."):
+                duplicates.add(subject)
+                continue
+            authority_path = path.removeprefix("language_bundle.")
+            packages = getattr(language_bundle, "package_releases", None)
+            if not isinstance(packages, list):
+                duplicates.add(subject)
+                continue
+            for package in packages:
+                if not isinstance(package, dict) or not isinstance(
+                    package.get("id"), str
+                ):
+                    duplicates.add(subject)
+                    continue
+                for entry in package.get("semantic_closure", []):
+                    if (
+                        isinstance(entry, dict)
+                        and entry.get("authority_path") == authority_path
+                    ):
+                        scoped_items.extend(
+                            ((package["id"], authority_path), item)
+                            for item in entry.get("definitions", [])
+                        )
+        elif "scope" in contract:
+            duplicates.add(subject)
+            continue
+        else:
+            scoped_items = [((), item) for item in items]
         identities: list[tuple[Any, ...]] = []
-        for item in items:
+        for owner, item in scoped_items:
             if not isinstance(item, dict) or any(key not in item for key in keys):
                 duplicates.add(subject)
                 break
-            identities.append(tuple(item[key] for key in keys))
+            identities.append((*owner, *(item[key] for key in keys)))
         try:
             if len(identities) != len(set(identities)):
                 duplicates.add(subject)
         except TypeError:
             duplicates.add(subject)
+    source = uniqueness_law.get("arguments", {}).get("reserved_namespace_source")
+    if source != "kernel.meta_format.runtime_program.fixed_value_contracts":
+        duplicates.add("kernel.admission.laws")
+    else:
+        fixed = (
+            kernel.get("meta_format", {})
+            .get("runtime_program", {})
+            .get("fixed_value_contracts")
+        )
+        if not isinstance(fixed, dict):
+            duplicates.add("kernel.admission.laws")
+        else:
+            reserved: set[str] = set()
+            for value in fixed.values():
+                reference = value.get("type") if isinstance(value, dict) else None
+                namespace = (
+                    reference.get("package") if isinstance(reference, dict) else None
+                )
+                if not isinstance(namespace, str) or not namespace:
+                    duplicates.add("kernel.admission.laws")
+                else:
+                    reserved.add(namespace)
+            for package in getattr(language_bundle, "package_releases", []):
+                if isinstance(package, dict) and package.get("id") in reserved:
+                    duplicates.add("language.packages")
     return duplicates
 
 
@@ -1152,31 +1207,17 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
                     )
                 ):
                     return False
-        elif operator in {"require-unique", "require-single-value"}:
+        elif operator == "require-unique":
             fields = relation_fields.get(law.get("relation"))
-            list_members = (
-                ("scope", "key")
-                if operator == "require-unique"
-                else ("scope", "group", "value")
-            )
             if (
                 fields is None
                 or law.get("pointer_field") not in fields
                 or any(
                     not isinstance(law.get(member), list)
                     or not all(field in fields for field in law[member])
-                    for member in list_members
+                    for member in ("scope", "key")
                 )
-                or (
-                    operator == "require-unique" and not cast(list[Any], law.get("key"))
-                )
-                or (
-                    operator == "require-single-value"
-                    and (
-                        not cast(list[Any], law.get("group"))
-                        or not cast(list[Any], law.get("value"))
-                    )
-                )
+                or not cast(list[Any], law.get("key"))
             ):
                 return False
         else:
@@ -1829,7 +1870,7 @@ def _runtime_projection_is_closed(
                 "structural_kind_member",
                 "constructor_kind_path",
             ],
-            "coordinate_match": "exact-package-version-type-id",
+            "coordinate_match": "exact-package-type-id",
             "structural_match": "definition-kind-to-constructor-kind",
         }
         or contract.get("path_typing")
@@ -1894,7 +1935,7 @@ def _runtime_projection_is_closed(
         or type_reference_closure
         != {
             "constructor_kind_path": ["value_rule", "definition_kind"],
-            "coordinate_members": ["package", "version", "id"],
+            "coordinate_members": ["package", "id"],
             "source_collection": "nominal_types",
             "source_definition_path": ["definition"],
             "structural_kind_member": "kind",
@@ -3036,7 +3077,7 @@ def _literal_typing_profiles_are_closed(
             "admission": {
                 "envelope_members": ["type", "value"],
                 "nominal_type_reference": {
-                    "coordinate_members": ["package", "version", "id"],
+                    "coordinate_members": ["package", "id"],
                     "optional_kind_member": "kind",
                     "optional_kind_value": "nominal",
                 },
@@ -3165,7 +3206,6 @@ def _literal_typing_profiles_are_closed(
         type_ref = cast(dict[str, Any], profile["type"])
         if (
             type_ref.get("package") != owner.get("id")
-            or type_ref.get("version") != owner.get("version")
             or not isinstance(exported_types, list)
             or len(
                 [
@@ -3255,7 +3295,8 @@ def _operation_composition_diagnostic_subjects(
     language_bundle: dict[str, Any],
 ) -> tuple[str, ...]:
     language = language_bundle.get("language")
-    if not isinstance(language, dict) or not isinstance(language.get("packages"), list):
+    packages = getattr(language_bundle, "package_releases", None)
+    if not isinstance(language, dict) or not isinstance(packages, list):
         return ("language.operations",)
     invocation_contract = (
         kernel.get("meta_format", {})
@@ -3293,16 +3334,11 @@ def _operation_composition_diagnostic_subjects(
         reason_id = reason.get("id") if isinstance(reason, dict) else None
         if isinstance(signal, str) and isinstance(reason_id, str):
             reasons_by_signal.setdefault(signal, []).append(reason_id)
-    operations: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
-    for package in cast(list[dict[str, Any]], language["packages"]):
+    operations: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
+    for package in cast(list[dict[str, Any]], packages):
         package_id = package.get("id")
-        version = package.get("version")
         closure = package.get("semantic_closure")
-        if (
-            not isinstance(package_id, str)
-            or not isinstance(version, str)
-            or not isinstance(closure, list)
-        ):
+        if not isinstance(package_id, str) or not isinstance(closure, list):
             return ("language.operations",)
         for entry in closure:
             if (
@@ -3312,16 +3348,16 @@ def _operation_composition_diagnostic_subjects(
                 continue
             definitions = entry.get("definitions")
             if not isinstance(definitions, list):
-                return (f"language.operations.{package_id}@{version}",)
+                return (f"language.operations.{package_id}",)
             for operation in definitions:
                 if not isinstance(operation, dict) or not isinstance(
                     operation.get("id"), str
                 ):
-                    return (f"language.operations.{package_id}@{version}",)
-                key = (package_id, version, cast(str, operation["id"]))
+                    return (f"language.operations.{package_id}",)
+                key = (package_id, cast(str, operation["id"]))
                 if key in operations:
-                    return (f"language.operations.{package_id}@{version}",)
-                operations[key] = (f"{package_id}@{version}", operation)
+                    return (f"language.operations.{package_id}",)
+                operations[key] = (f"{package_id}", operation)
     if not all(
         _operation_alias_policy_is_closed(operation)
         for _owner, operation in operations.values()
@@ -3337,16 +3373,16 @@ def _operation_composition_diagnostic_subjects(
         for node_id, node in node_definitions.items()
         if node["semantics"]["operator"] == "invoke-operation"
     }
-    cache: dict[tuple[str, str, str], tuple[frozenset[str], frozenset[str], int]] = {}
-    guard_body_keys: set[tuple[str, str, str]] = set()
+    cache: dict[tuple[str, str], tuple[frozenset[str], frozenset[str], int]] = {}
+    guard_body_keys: set[tuple[str, str]] = set()
     found: set[str] = set()
 
     def refuse(owner: str, operation: dict[str, Any], site: str, member: str) -> None:
         found.add(f"language.operations.{owner}.{operation['id']}.body.{site}.{member}")
 
     def close(
-        key: tuple[str, str, str],
-        stack: tuple[tuple[str, str, str], ...],
+        key: tuple[str, str],
+        stack: tuple[tuple[str, str], ...],
     ) -> tuple[frozenset[str], frozenset[str], int] | None:
         if key in stack:
             owner, operation = operations[key]
@@ -3677,8 +3713,7 @@ def _operation_composition_diagnostic_subjects(
                         return None
                     guard_key = (
                         key[0],
-                        key[1],
-                        f"{key[2]}#guard-{instruction_index}",
+                        f"{key[1]}#guard-{instruction_index}",
                     )
                     unit_contract = cast(
                         dict[str, Any], fixed_value_contracts["kernel-unit"]
@@ -3708,7 +3743,7 @@ def _operation_composition_diagnostic_subjects(
                         "body": body,
                         "default_outcome": guarded_outcome,
                         "effects": list(effects),
-                        "id": guard_key[2],
+                        "id": guard_key[1],
                         "inputs": synthetic_inputs,
                         "outcomes": list(parent_outcome_definitions.values()),
                         "refusals": list(refusals),
@@ -3864,13 +3899,12 @@ def _operation_composition_diagnostic_subjects(
                 return None
             child_key = (
                 child_ref.get("package"),
-                child_ref.get("version"),
                 child_ref.get("id"),
             )
             if child_key not in operations:
                 refuse(owner, operation, site, "operation")
                 return None
-            _child_owner, child = operations[cast(tuple[str, str, str], child_key)]
+            _child_owner, child = operations[cast(tuple[str, str], child_key)]
             child_ports = cast(list[dict[str, Any]], child["inputs"])
             arguments = instruction.get("arguments")
             if not isinstance(arguments, list) or [
@@ -4035,7 +4069,7 @@ def _operation_composition_diagnostic_subjects(
                     return None
                 if produces_source:
                     source_producer_reached = True
-            child_closure = close(cast(tuple[str, str, str], child_key), (*stack, key))
+            child_closure = close(cast(tuple[str, str], child_key), (*stack, key))
             if child_closure is None:
                 return None
             child_effects, child_refusals, _child_charge = child_closure
@@ -4272,7 +4306,7 @@ def admit_authorities(
         ):
             refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
         else:
-            coordinates: list[tuple[str, str]] = []
+            coordinates: list[str] = []
             for index, (
                 descriptor,
                 release,
@@ -4306,18 +4340,15 @@ def admit_authorities(
                     or not isinstance(release, dict)
                     or descriptor.get("artifact_kind") != release.get("artifact_kind")
                     or descriptor.get("id") != release.get("id")
-                    or descriptor.get("version") != release.get("version")
                     or descriptor.get("content_identity")
                     != release.get("content_identity")
                     or descriptor.get("byte_size") != package_byte_size
                 ):
                     refuse("kernel.binding_mismatch", "ingress", subject)
                     continue
-                if not isinstance(descriptor["id"], str) or not isinstance(
-                    descriptor["version"], str
-                ):
+                if not isinstance(descriptor["id"], str):
                     continue
-                coordinate = (descriptor["id"], descriptor["version"])
+                coordinate = descriptor["id"]
                 coordinates.append(coordinate)
                 if release.get("content_identity") != _safe_artifact_identity(
                     package_release_domain, release, canonical_encoding
@@ -4336,7 +4367,6 @@ def admit_authorities(
                     != vector_set.get("content_identity")
                     or vector_descriptor.get("byte_size") != vector_set_byte_size
                     or vector_set.get("package_id") != release.get("id")
-                    or vector_set.get("package_version") != release.get("version")
                 ):
                     refuse("kernel.binding_mismatch", "ingress", vector_subject)
                 elif vector_set.get("content_identity") != _safe_artifact_identity(
@@ -4356,10 +4386,9 @@ def admit_authorities(
                     "language-bundle.package_descriptors",
                 )
             available = set(coordinates)
-            dependency_graph: dict[tuple[str, str], set[tuple[str, str]]] = {}
+            dependency_graph: dict[str, set[str]] = {}
             for release in graph_releases:
                 package_id = str(release.get("id", ""))
-                package_version = str(release.get("version", ""))
                 dependencies = release.get("dependencies")
                 required = (
                     dependencies.get("required")
@@ -4375,12 +4404,7 @@ def admit_authorities(
                     not isinstance(required, list)
                     or not isinstance(optional, list)
                     or not all(
-                        isinstance(item, dict)
-                        and set(item) == {"id", "version"}
-                        and isinstance(item["id"], str)
-                        and bool(item["id"])
-                        and isinstance(item["version"], str)
-                        and bool(item["version"])
+                        isinstance(item, str) and bool(item)
                         for item in [*required, *optional]
                     )
                 ):
@@ -4390,13 +4414,9 @@ def admit_authorities(
                         f"language-bundle.packages.{package_id}.dependencies",
                     )
                     continue
-                required_coordinates = {
-                    (item["id"], item["version"]) for item in required
-                }
-                all_coordinates = {
-                    (item["id"], item["version"]) for item in [*required, *optional]
-                }
-                dependency_graph[(package_id, package_version)] = required_coordinates
+                required_coordinates = set(required)
+                all_coordinates = set([*required, *optional])
+                dependency_graph[package_id] = required_coordinates
                 if len(all_coordinates) != len([*required, *optional]) or not (
                     all_coordinates <= available
                 ):
@@ -4406,10 +4426,10 @@ def admit_authorities(
                         f"language-bundle.packages.{package_id}.dependencies",
                     )
 
-            visiting: set[tuple[str, str]] = set()
-            visited: set[tuple[str, str]] = set()
+            visiting: set[str] = set()
+            visited: set[str] = set()
 
-            def cyclic(coordinate: tuple[str, str]) -> bool:
+            def cyclic(coordinate: str) -> bool:
                 if coordinate in visiting:
                     return True
                 if coordinate in visited:
@@ -4465,9 +4485,9 @@ def admit_authorities(
                 )
                 dependency_depth = 0
                 if not has_dependency_cycle:
-                    depth_by_package: dict[tuple[str, str], int] = {}
+                    depth_by_package: dict[str, int] = {}
 
-                    def dependency_depth_of(coordinate: tuple[str, str]) -> int:
+                    def dependency_depth_of(coordinate: str) -> int:
                         known = depth_by_package.get(coordinate)
                         if known is not None:
                             return known
@@ -4779,7 +4799,6 @@ def admit_authorities(
                     vector_set, package_vector_set_contract
                 )
                 or vector_set.get("package_id") != package.get("id")
-                or vector_set.get("package_version") != package.get("version")
                 or (
                     literal_typing_profiles_are_closed
                     and not composition_subjects
@@ -5097,7 +5116,7 @@ def admit_authorities(
 
     if isinstance(packages, list):
         package_coordinates = [
-            (str(package.get("id", "")), str(package.get("version", "")))
+            str(package.get("id", ""))
             for package in packages
             if isinstance(package, dict)
         ]
@@ -5117,10 +5136,7 @@ def admit_authorities(
             if isinstance(item, dict)
         }
         vector_sets_by_coordinate = {
-            (
-                vector_set.get("package_id"),
-                vector_set.get("package_version"),
-            ): vector_set
+            vector_set.get("package_id"): vector_set
             for vector_set in graph_vector_sets
             if isinstance(vector_set, dict)
         }
@@ -5129,9 +5145,7 @@ def admit_authorities(
                 continue
             exports = cast(dict[str, Any], package.get("exports", {}))
             profiles = cast(dict[str, Any], package.get("profiles", {}))
-            vector_set = vector_sets_by_coordinate.get(
-                (package.get("id"), package.get("version")), {}
-            )
+            vector_set = vector_sets_by_coordinate.get(package.get("id"), {})
             references_close = (
                 set(map(str, vector_set.get("vectors", []))) <= vector_ids
                 and vector_set.get("vector_definitions")

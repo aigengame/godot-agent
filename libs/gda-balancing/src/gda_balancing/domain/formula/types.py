@@ -88,8 +88,7 @@ def formula_contract_matches_operation(
         isinstance(formula_type, dict)
         and isinstance(operation_type, dict)
         and formula_type.get("package") == operation_type.get("package")
-        and formula_type.get("version") == operation_type.get("version")
-        and formula_type.get("symbol") == operation_type.get("id")
+        and formula_type.get("id") == operation_type.get("id")
         and domain_matches
         and all(
             formula_contract.get(member) == operation_contract.get(member)
@@ -109,8 +108,7 @@ def formula_contract_from_operation(
     """Project an Operation or literal-profile contract into Formula form."""
     contract_type = operation_contract.get("type")
     if not isinstance(contract_type, dict) or not all(
-        isinstance(contract_type.get(member), str)
-        for member in ("package", "version", "id")
+        isinstance(contract_type.get(member), str) for member in ("package", "id")
     ):
         raise ValueError("Operation value contract has no exact type")
     return cast(
@@ -123,8 +121,7 @@ def formula_contract_from_operation(
         | {
             "type_identity": {
                 "package": contract_type["package"],
-                "version": contract_type["version"],
-                "symbol": contract_type["id"],
+                "id": contract_type["id"],
             }
         },
     )
@@ -175,8 +172,7 @@ def resolve_formula_contract(
             **expected_members,
             "type_identity": {
                 "package": fixed_type["package"],
-                "version": fixed_type["version"],
-                "symbol": fixed_type["id"],
+                "id": fixed_type["id"],
             },
         }
     if imported is None or fixed_aliases:
@@ -191,8 +187,7 @@ def resolve_formula_contract(
         | {
             "type_identity": {
                 "package": imported["package"],
-                "version": imported["version"],
-                "symbol": imported["symbol"],
+                "id": imported["symbol"],
             }
         },
     )

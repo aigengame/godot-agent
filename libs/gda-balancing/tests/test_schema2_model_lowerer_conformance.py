@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, cast
 
 import gda_balancing.domain.model._resolution as model_module
@@ -17,6 +18,10 @@ from gda_balancing.domain.authority.context import (
     admit_authority_context,
 )
 from gda_balancing.domain.authority.graph import (
+    CurrentPackage,
+    NamespaceSelection,
+    project_required_namespace_closure,
+    derive_current_namespace_packages,
     LanguageBundleIndex,
     derive_language_index,
 )
@@ -34,7 +39,7 @@ from gda_balancing.domain.model import (
 )
 from gda_balancing.domain.model._compilation import lower_checked_model
 from schema2_authority_support import (
-    definition_matches_package_coordinate,
+    refresh_package_semantic_closures,
     mutable_authorities,
 )
 
@@ -92,8 +97,18 @@ def _reference_validate_canonical(value: Any) -> None:
 
 def _reference_encoded(value: Any) -> bytes:
     _reference_validate_canonical(value)
+
+    def plain(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {key: plain(child) for key, child in item.items()}
+        if isinstance(item, list):
+            return [plain(child) for child in item]
+        return item
+
     return (
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        json.dumps(
+            plain(value), ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
         + "\n"
     ).encode()
 
@@ -165,10 +180,9 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
         "schema_version": "2.0.0",
         "manifest": {
             "id": "example.quantity-model",
-            "version": "1.0.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
+        "package_requirements": ["core.quantity"],
         "entrypoints": [],
         "modules": [
             {
@@ -177,7 +191,6 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.2.0",
                         "symbol": "Quantity",
                     }
                 ],
@@ -258,6 +271,81 @@ def _reference_lowering(language: dict[str, Any]) -> dict[str, Any]:
     return matches[0]
 
 
+def _reference_namespace_selection(
+    source, kernel, language_bundle
+) -> NamespaceSelection:
+    """Construct expected selection facts with an independent required traversal."""
+    language = language_bundle["language"]
+    profiles = [
+        row for row in language["resolution_profiles"] if row.get("default") is True
+    ]
+    assert len(profiles) == 1
+    roots = tuple(sorted(source[profiles[0]["requirements_member"]]))
+    assert len(roots) == len(set(roots))
+    available = {row["id"]: row for row in language["packages"]}
+    assert len(available) == len(language["packages"])
+    selected = set()
+    frontier = list(roots)
+    while frontier:
+        namespace = frontier.pop()
+        assert namespace in available
+        if namespace in selected:
+            continue
+        selected.add(namespace)
+        frontier.extend(available[namespace]["dependencies"]["required"])
+    projections = {
+        row["authority_path"]: row
+        for row in kernel["meta_format"]["package_release"]["semantic_closure"][
+            "projections"
+        ]
+    }
+    packages = []
+    definitions = {}
+    providers = {}
+    edges = []
+    for namespace in sorted(selected):
+        package = available[namespace]
+        owned = []
+        for entry in package["semantic_closure"]:
+            path = entry["authority_path"]
+            key_member = projections[path]["key_member"]
+            for definition in entry["definitions"]:
+                key = definition if key_member is None else definition[key_member]
+                owner = (namespace, path, key)
+                assert owner not in definitions
+                definitions[owner] = definition
+                owned.append((path, key, definition))
+        for capability in package["capabilities"]["provided"]:
+            assert capability not in providers
+            providers[capability] = namespace
+        edges.extend(
+            (namespace, dependency)
+            for dependency in package["dependencies"]["required"]
+        )
+        packages.append(
+            CurrentPackage(
+                namespace=namespace,
+                required=tuple(package["dependencies"]["required"]),
+                optional=tuple(package["dependencies"]["optional"]),
+                provides=tuple(package["capabilities"]["provided"]),
+                requires=tuple(package["capabilities"]["required"]),
+                definitions=tuple(owned),
+            )
+        )
+    assert all(
+        capability in providers
+        for package in packages
+        for capability in package.requires
+    )
+    return NamespaceSelection(
+        packages=tuple(packages),
+        dependency_edges=tuple(sorted(edges)),
+        capability_bindings=tuple(sorted(providers.items())),
+        definitions=MappingProxyType(dict(sorted(definitions.items()))),
+        roots=roots,
+    )
+
+
 def _exact_path(root: Any, dotted: str) -> Any:
     value = root
     for segment in dotted.split("."):
@@ -268,37 +356,13 @@ def _exact_path(root: Any, dotted: str) -> Any:
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     assert isinstance(language_bundle, LanguageBundleIndex)
     kernel, _ = mutable_authorities()
-    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
-        "projections"
-    ]
-    projections_by_path = {
-        projection["authority_path"]: projection for projection in projections
-    }
+    refresh_package_semantic_closures(language_bundle, kernel)
     vector_sets_by_coordinate = {
-        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        vector_set["package_id"]: vector_set
         for vector_set in language_bundle.package_conformance_vector_sets
     }
     projected_vectors = {vector["id"]: vector for vector in language_bundle["vectors"]}
     for package in language_bundle["language"]["packages"]:
-        for entry in package["semantic_closure"]:
-            projection = projections_by_path[entry["authority_path"]]
-            definitions = _exact_path(language_bundle, entry["authority_path"])
-            owned = _reference_path(package, projection["owners_path"])
-            key_member = projection["key_member"]
-            entry["definitions"] = deepcopy(
-                [
-                    definition
-                    for definition in definitions
-                    if (definition if key_member is None else definition[key_member])
-                    in owned
-                    and definition_matches_package_coordinate(
-                        definition,
-                        authority_path=entry["authority_path"],
-                        package_id=package["id"],
-                        package_version=package["version"],
-                    )
-                ]
-            )
         runtime_paths = set(package["runtime_semantic_paths"])
         excluded_extensions = set(package["runtime_semantic_excluded_extensions"])
         runtime_closure = deepcopy(
@@ -327,7 +391,7 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             "domain-package-semantic-closure-v2",
             runtime_closure,
         )
-        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        vector_set = vector_sets_by_coordinate[package["id"]]
         existing_vectors = {
             vector["id"]: vector for vector in vector_set["vector_definitions"]
         }
@@ -358,7 +422,7 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             deepcopy(language_bundle.package_conformance_vector_sets),
             strict=True,
         ),
-        key=lambda member: (member[0]["id"], member[0]["version"]),
+        key=lambda member: member[0]["id"],
     )
     packages = [package for package, _vector_set in members]
     vector_sets = [vector_set for _package, vector_set in members]
@@ -374,7 +438,6 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             "byte_size": size,
             "content_identity": package["content_identity"],
             "id": package["id"],
-            "version": package["version"],
         }
         for package, size in zip(packages, package_sizes, strict=True)
     ]
@@ -656,27 +719,16 @@ def _reference_check_source(
     relations: dict[str, list[dict[str, dict[str, str]]]] = {}
     available_packages = language["packages"]
     requirements_member = profile["requirements_member"]
-    requirement_package_member = profile["requirement_package_member"]
-    requirement_version_member = profile["requirement_version_member"]
-    packages_by_coordinate = {
-        (package["id"], package["version"]): package for package in available_packages
-    }
+    packages_by_coordinate = {package["id"]: package for package in available_packages}
     selected_packages: dict[str, dict[str, Any]] = {}
-    pending = [
-        (
-            requirement[requirement_package_member],
-            requirement[requirement_version_member],
-        )
-        for requirement in source[requirements_member]
-    ]
+    pending = list(source[requirements_member])
     while pending:
-        coordinate = pending.pop(0)
-        package = packages_by_coordinate.get(coordinate)
-        if package is None or package["id"] in selected_packages:
+        namespace = pending.pop(0)
+        package = packages_by_coordinate.get(namespace)
+        if package is None or namespace in selected_packages:
             continue
-        selected_packages[package["id"]] = package
-        for dependency in package["dependencies"]["required"]:
-            pending.append((dependency["id"], dependency["version"]))
+        selected_packages[namespace] = package
+        pending.extend(package["dependencies"]["required"])
     selected_package_values = [
         selected_packages[package_id] for package_id in sorted(selected_packages)
     ]
@@ -809,24 +861,6 @@ def _reference_check_source(
                 else:
                     failures.append((item, previous))
             return failures
-        if operator == "require-single-value":
-            grouped: dict[
-                tuple[str, ...],
-                tuple[tuple[str, ...], dict[str, Any]],
-            ] = {}
-            failures = []
-            for item in relations[law["relation"]]:
-                consume()
-                group = tuple(
-                    item["values"][field] for field in [*law["scope"], *law["group"]]
-                )
-                value = tuple(item["values"][field] for field in law["value"])
-                previous = grouped.get(group)
-                if previous is None:
-                    grouped[group] = (value, item)
-                elif previous[0] != value:
-                    failures.append((item, previous[1]))
-            return failures
         raise AssertionError(
             f"reference consumer observed unknown resolution law: {operator}"
         )
@@ -835,16 +869,10 @@ def _reference_check_source(
     operations = {item["id"]: item for item in resolution_meta["operations"]}
 
     def resolution_pointer(code: str) -> str:
-        if code == "language.package_version_unavailable":
-            for index, requirement in enumerate(source[requirements_member]):
-                coordinate = (
-                    requirement[requirement_package_member],
-                    requirement[requirement_version_member],
-                )
-                if coordinate not in packages_by_coordinate:
-                    return _reference_pointer(
-                        [requirements_member, index, requirement_version_member]
-                    )
+        if code == "language.package_unavailable":
+            for index, namespace in enumerate(source[requirements_member]):
+                if namespace not in packages_by_coordinate:
+                    return _reference_pointer([requirements_member, index])
         return ""
 
     for stage in resolution_meta["stage_order"]:
@@ -881,6 +909,9 @@ def _reference_check_source(
         ),
         kernel=kernel,
         language_bundle=language_bundle,
+        namespace_selection=_reference_namespace_selection(
+            source, kernel, language_bundle
+        ),
     )
     try:
         _reference_semantic_artifacts(checked)
@@ -1013,14 +1044,8 @@ def _reference_resolved_symbols(checked: CheckedModel) -> list[dict[str, Any]]:
         for item in language["resolution_profiles"]
         if item["id"] == lowering["resolution_profile"]
     )
-    requirements = {
-        (
-            item[profile["requirement_package_member"]],
-            item[profile["requirement_version_member"]],
-        )
-        for item in checked.source[profile["requirements_member"]]
-    }
-    packages = {(item["id"], item["version"]): item for item in language["packages"]}
+    requirements = set(checked.source[profile["requirements_member"]])
+    packages = {item["id"]: item for item in language["packages"]}
     selected_symbols = _reference_select(checked.source, lowering["source_selector"])
     selected_symbol_ids = {id(item) for item in selected_symbols}
     resolved_symbol_ids: set[int] = set()
@@ -1038,10 +1063,7 @@ def _reference_resolved_symbols(checked: CheckedModel) -> list[dict[str, Any]]:
                 continue
             resolved_symbol_ids.add(id(symbol))
             imported = imports[symbol[profile["symbol_type_member"]]]
-            package_key = (
-                imported[profile["import_package_member"]],
-                imported[profile["import_version_member"]],
-            )
+            package_key = imported[profile["import_package_member"]]
             assert package_key in requirements
             package = packages[package_key]
             assert imported[profile["import_symbol_member"]] in {
@@ -1065,9 +1087,8 @@ def _reference_resolved_symbols(checked: CheckedModel) -> list[dict[str, Any]]:
                 "name": symbol[profile["symbol_name_member"]],
             }
             fields["type_identity"] = {
-                "package": package_key[0],
-                "version": package_key[1],
-                "symbol": imported[profile["import_symbol_member"]],
+                "package": package_key,
+                "id": imported[profile["import_symbol_member"]],
             }
             rows.append(fields)
     assert resolved_symbol_ids == selected_symbol_ids
@@ -1128,44 +1149,26 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
         for item in language["resolution_profiles"]
         if item["id"] == lowering["resolution_profile"]
     )
-    available = {(item["id"], item["version"]): item for item in language["packages"]}
-    requirements = sorted(
-        [
-            {
-                "id": item[profile["requirement_package_member"]],
-                "version": item[profile["requirement_version_member"]],
-            }
-            for item in checked.source[profile["requirements_member"]]
-        ],
-        key=lambda item: (item["id"], item["version"]),
-    )
+    available = {item["id"]: item for item in language["packages"]}
+    requirements = sorted(checked.source[profile["requirements_member"]])
     selected: dict[str, dict[str, Any]] = {}
     pending = list(requirements)
     dependency_edges = []
     while pending:
-        requirement = pending.pop(0)
-        package = available[(requirement["id"], requirement["version"])]
-        previous = selected.get(package["id"])
-        if previous is not None:
-            assert previous["semantic_identity"] == package["semantic_identity"]
+        namespace = pending.pop(0)
+        package = available[namespace]
+        if namespace in selected:
             continue
-        selected[package["id"]] = package
-        for dependency_constraint in sorted(
-            package["dependencies"]["required"],
-            key=lambda item: (item["id"], item["version"]),
-        ):
-            dependency = available[
-                (dependency_constraint["id"], dependency_constraint["version"])
-            ]
+        selected[namespace] = package
+        for dependency in sorted(package["dependencies"]["required"]):
             dependency_edges.append(
                 {
-                    "from_package": package["id"],
+                    "from_package": namespace,
                     "kind": "required",
-                    "to_package": dependency["id"],
-                    "to_version": dependency["version"],
+                    "to_package": dependency,
                 }
             )
-            pending.append({"id": dependency["id"], "version": dependency["version"]})
+            pending.append(dependency)
     selected_packages = [selected[name] for name in sorted(selected)]
 
     def definitions(package: dict[str, Any], authority_path: str) -> list[Any]:
@@ -1202,7 +1205,9 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
                 }
                 for identity in package["exports"][collection]
             )
-        return sorted(rows, key=lambda item: item["definition"]["id"])
+        return sorted(
+            rows, key=lambda item: (item["package"], item["definition"]["id"])
+        )
 
     numeric_definitions = {
         item["id"]: item
@@ -1248,7 +1253,6 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
         key=lambda item: (
             item["from_package"],
             item["to_package"],
-            item["to_version"],
         )
     )
     types = sorted(
@@ -1257,7 +1261,7 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
             for package in selected_packages
             for exported_type in package["exports"]["types"]
         ],
-        key=lambda item: item["id"],
+        key=lambda item: (item["package"], item["id"]),
     )
     payload = {
         "resolution_profile": profile,
@@ -1265,7 +1269,6 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
         "packages": [
             {
                 "id": package["id"],
-                "version": package["version"],
                 "content_identity": package["content_identity"],
                 "semantic_identity": package["semantic_identity"],
             }
@@ -1311,7 +1314,6 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
         "packages": [
             {
                 "id": package["id"],
-                "version": package["version"],
                 "semantic_identity": package["semantic_identity"],
             }
             for package in selected_packages
@@ -1343,8 +1345,7 @@ def _reference_formula_contract(
     } | {
         "type_identity": {
             "package": imported["package"],
-            "version": imported["version"],
-            "symbol": imported["symbol"],
+            "id": imported["symbol"],
         }
     }
 
@@ -1378,8 +1379,7 @@ def _reference_formula_contract_matches_operation(
         formula_type
         == {
             "package": operation_type["package"],
-            "version": operation_type["version"],
-            "symbol": operation_type["id"],
+            "id": operation_type["id"],
         }
         and domain_matches
         and all(
@@ -1392,12 +1392,11 @@ def _reference_formula_contract_matches_operation(
 def _reference_selected_operation_coordinates(
     checked: CheckedModel,
     lock: dict[str, Any],
-) -> set[tuple[str, str, str]]:
-    package_versions = {row["id"]: row["version"] for row in lock["packages"]}
+) -> set[tuple[str, str]]:
+
     operations = {
         (
             row["package"],
-            package_versions[row["package"]],
             row["definition"]["id"],
         ): row["definition"]
         for row in lock["operations"]
@@ -1405,7 +1404,6 @@ def _reference_selected_operation_coordinates(
     selected = {
         (
             entrypoint["operation"]["package"],
-            entrypoint["operation"]["version"],
             entrypoint["operation"]["id"],
         )
         for entrypoint in checked.source.get("entrypoints", [])
@@ -1422,7 +1420,6 @@ def _reference_selected_operation_coordinates(
                 continue
             dependency = (
                 instruction["operation"]["package"],
-                instruction["operation"]["version"],
                 instruction["operation"]["id"],
             )
             if dependency not in selected:
@@ -1476,7 +1473,6 @@ def _reference_formulas_and_bindings(
         imports = {
             item[profile["import_alias_member"]]: {
                 "package": item[profile["import_package_member"]],
-                "version": item[profile["import_version_member"]],
                 "symbol": item[profile["import_symbol_member"]],
             }
             for item in module[profile["imports_member"]]
@@ -1523,23 +1519,20 @@ def _reference_formulas_and_bindings(
     for key in sorted(prototypes):
         visit(key)
 
-    package_versions = {row["id"]: row["version"] for row in lock["packages"]}
     operations = {
         (
             row["package"],
-            package_versions[row["package"]],
             row["definition"]["id"],
         ): row["definition"]
         for row in lock["operations"]
     }
 
-    def operation_identity(coordinate: tuple[str, str, str]) -> str:
+    def operation_identity(coordinate: tuple[str, str]) -> str:
         return _reference_content_identity(
             domains["operation"],
             {
                 "package": coordinate[0],
-                "version": coordinate[1],
-                "id": coordinate[2],
+                "id": coordinate[1],
             },
         )
 
@@ -1646,7 +1639,6 @@ def _reference_formulas_and_bindings(
             elif source_node["node"] == "operation-call":
                 coordinate = (
                     source_node["operation"]["package"],
-                    source_node["operation"]["version"],
                     source_node["operation"]["id"],
                 )
                 operation = operations[coordinate]
@@ -1705,8 +1697,7 @@ def _reference_formulas_and_bindings(
                     "node": "operation-call",
                     "operation": {
                         "package": coordinate[0],
-                        "version": coordinate[1],
-                        "id": coordinate[2],
+                        "id": coordinate[1],
                         "identity": identity,
                     },
                     "arguments": arguments,
@@ -1822,7 +1813,6 @@ def _reference_formulas_and_bindings(
     for row in lock["operations"]:
         coordinate = (
             row["package"],
-            package_versions[row["package"]],
             row["definition"]["id"],
         )
         if coordinate not in selected_operation_coordinates:
@@ -1834,7 +1824,7 @@ def _reference_formulas_and_bindings(
             slots[(*coordinate, slot["id"])] = (slot, identity)
 
     bindings = []
-    bound_slots: set[tuple[str, str, str, str]] = set()
+    bound_slots: set[tuple[str, str, str]] = set()
     for binding_index, source_binding in enumerate(source_bindings):
         formula_key = (
             source_binding["formula"]["module"],
@@ -1851,7 +1841,6 @@ def _reference_formulas_and_bindings(
             source_operation = source_binding["site"]["operation"]
             key = (
                 source_operation["package"],
-                source_operation["version"],
                 source_operation["id"],
                 source_binding["site"]["slot"],
             )
@@ -1890,11 +1879,10 @@ def _reference_formulas_and_bindings(
                     "kind": "operation-slot",
                     "operation": {
                         "package": key[0],
-                        "version": key[1],
-                        "id": key[2],
+                        "id": key[1],
                         "identity": operation_identity_value,
                     },
-                    "slot": key[3],
+                    "slot": key[2],
                     "context": slot["context"],
                 }
             ]
@@ -1963,11 +1951,10 @@ def _reference_specialize_formula_slots(
     bindings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     specialized = deepcopy(selected_semantics)
-    package_versions = {row["id"]: row["version"] for row in specialized["packages"]}
+
     operations = {
         (
             row["package"],
-            package_versions[row["package"]],
             row["definition"]["id"],
         ): row["definition"]
         for row in specialized["operations"]
@@ -2015,7 +2002,6 @@ def _reference_specialize_formula_slots(
                 called = operations[
                     (
                         operation_ref["package"],
-                        operation_ref["version"],
                         operation_ref["id"],
                     )
                 ]
@@ -2162,11 +2148,11 @@ def _reference_specialize_formula_slots(
         return instructions
 
     replacements: dict[
-        tuple[str, str, str],
+        tuple[str, str],
         list[tuple[int, int, list[dict[str, Any]], str]],
     ] = {}
     snapshot_sources_by_operation: dict[
-        tuple[str, str, str],
+        tuple[str, str],
         dict[str, dict[str, Any]],
     ] = {}
     for binding in bindings:
@@ -2176,7 +2162,6 @@ def _reference_specialize_formula_slots(
         operation_ref = site["operation"]
         coordinate = (
             operation_ref["package"],
-            operation_ref["version"],
             operation_ref["id"],
         )
         operation = operations[coordinate]
@@ -2274,13 +2259,10 @@ def _reference_initialization_programs(
     checked: CheckedModel,
 ) -> list[dict[str, Any]]:
     """Independently compile derived bindings to generic value programs."""
-    package_versions = {
-        row["id"]: row["version"] for row in selected_semantics["packages"]
-    }
+
     operations = {
         (
             row["package"],
-            package_versions[row["package"]],
             row["definition"]["id"],
         ): row["definition"]
         for row in selected_semantics["operations"]
@@ -2378,7 +2360,6 @@ def _reference_initialization_programs(
                     operation = operations[
                         (
                             operation_ref["package"],
-                            operation_ref["version"],
                             operation_ref["id"],
                         )
                     ]
@@ -2619,12 +2600,10 @@ def _reference_rir(
 
 def _reference_exact_operation(
     operation_row: dict[str, Any],
-    package_versions: dict[str, str],
 ) -> dict[str, str]:
     package = operation_row["package"]
     return {
         "package": package,
-        "version": package_versions[package],
         "id": operation_row["definition"]["id"],
     }
 
@@ -2636,8 +2615,7 @@ def _reference_value_contract_matches(
     expected_type = contract["type"]
     return declaration["type_identity"] == {
         "package": expected_type["package"],
-        "version": expected_type["version"],
-        "symbol": expected_type["id"],
+        "id": expected_type["id"],
     } and all(
         declaration[member] == contract[member]
         for member in ("representation", "kind", "unit", "numeric_policy")
@@ -2752,14 +2730,12 @@ def _reference_entrypoints(
     assert set(roles) == set(
         checked.language_bundle["language"]["quantity"]["symbol_roles"]
     )
-    package_versions = {
-        row["id"]: row["version"] for row in selected_semantics["packages"]
-    }
+
+    selected_namespaces = {row["id"] for row in selected_semantics["packages"]}
     operation_rows = selected_semantics["operations"]
     operations = {
         (
             row["package"],
-            package_versions[row["package"]],
             row["definition"]["id"],
         ): row
         for row in operation_rows
@@ -2807,17 +2783,13 @@ def _reference_entrypoints(
         operation_row = operations.get(
             (
                 operation_ref["package"],
-                operation_ref["version"],
                 operation_ref["id"],
             )
         )
         if operation_row is None:
-            selected_version = package_versions.get(operation_ref["package"])
             member = (
                 "package"
-                if selected_version is None
-                else "version"
-                if selected_version != operation_ref["version"]
+                if operation_ref["package"] not in selected_namespaces
                 else "id"
             )
             raise _ReferenceEntrypointError(
@@ -2825,7 +2797,7 @@ def _reference_entrypoints(
                 "entrypoint Operation is not selected",
             )
         operation = operation_row["definition"]
-        exact_operation = _reference_exact_operation(operation_row, package_versions)
+        exact_operation = _reference_exact_operation(operation_row)
         formals = operation["inputs"]
         authored_arguments = source_entrypoint["arguments"]
         if [row["port"] for row in authored_arguments] != [
@@ -3237,14 +3209,11 @@ def _reference_call_sites(
     effect_policy = composition_policy["effects"]
     refusal_policy = composition_policy["refusals"]
     resource_policy = composition_policy["resources"]
-    package_versions = {
-        row["id"]: row["version"] for row in selected_semantics["packages"]
-    }
+
     operation_rows = selected_semantics["operations"]
     operations = {
         (
             row["package"],
-            package_versions[row["package"]],
             row["definition"]["id"],
         ): row
         for row in operation_rows
@@ -3266,16 +3235,15 @@ def _reference_call_sites(
         return instructions
 
     rows = []
-    cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+    cache: dict[tuple[str, str], tuple[set[str], set[str], int]] = {}
 
     def close(
         operation_row: dict[str, Any],
-        stack: tuple[tuple[str, str, str], ...],
+        stack: tuple[tuple[str, str], ...],
     ) -> tuple[set[str], set[str], int]:
-        parent_ref = _reference_exact_operation(operation_row, package_versions)
+        parent_ref = _reference_exact_operation(operation_row)
         parent_key = (
             parent_ref["package"],
-            parent_ref["version"],
             parent_ref["id"],
         )
         if parent_key in stack:
@@ -3296,7 +3264,6 @@ def _reference_call_sites(
             child_row = operations.get(
                 (
                     child_ref["package"],
-                    child_ref["version"],
                     child_ref["id"],
                 )
             )
@@ -3331,14 +3298,13 @@ def _reference_call_sites(
             child_row = operations.get(
                 (
                     child_ref["package"],
-                    child_ref["version"],
                     child_ref["id"],
                 )
             )
             if child_row is None:
                 raise ValueError("nested Operation is not selected")
             child = child_row["definition"]
-            exact_child = _reference_exact_operation(child_row, package_versions)
+            exact_child = _reference_exact_operation(child_row)
             child_ports = child["inputs"]
             authored_arguments = instruction["arguments"]
             if [row["port"] for row in authored_arguments] != [
@@ -3906,9 +3872,7 @@ def _lock_oracle(lock: dict[str, Any]) -> dict[str, Any]:
     return {
         "resolution_profile": lock["resolution_profile"]["id"],
         "root_requirements": lock["root_requirements"],
-        "packages": [
-            {"id": item["id"], "version": item["version"]} for item in lock["packages"]
-        ],
+        "packages": [{"id": item["id"]} for item in lock["packages"]],
         "dependency_edges": lock["dependency_edges"],
         "capability_bindings": lock["capability_bindings"],
         "types": lock["types"],
@@ -3937,7 +3901,7 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         "formula.combat.refuse.missing-or-duplicate-slot-binding",
         "quantity.literal.integer-admitted",
         "game.combat.model-binding.contract-stale-package",
-        "game.combat.model-binding.contract-stale-version",
+        "game.combat.model-binding.contract-version-member-forbidden",
         "game.combat.model-binding.contract-stale-id",
         "game.combat.model-binding.contract-wrong-type",
         "game.combat.model-binding.contract-wrong-representation",
@@ -3957,14 +3921,11 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         for vector_id in vector_ids
     }
     assert all(len(owners) == 1 for owners in vector_owners.values())
-    owner_coordinates = {
-        (owners[0]["package_id"], owners[0]["package_version"])
-        for owners in vector_owners.values()
-    }
+    owner_coordinates = {owners[0]["package_id"] for owners in vector_owners.values()}
     packages = [
         package
         for package in language_bundle["language"]["packages"]
-        if (package["id"], package["version"]) in owner_coordinates
+        if package["id"] in owner_coordinates
     ]
     assert {item["category"] for item in vectors} == {
         "positive",
@@ -4134,7 +4095,6 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         "type": {
             "id": "Quantity",
             "package": "core.quantity",
-            "version": "2.2.0",
         },
         "unit": "1",
     }
@@ -4254,7 +4214,6 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
                     "site": "identity",
                     "operation": {
                         "package": "core.quantity",
-                        "version": "2.2.0",
                         "id": "quantity.identity",
                     },
                 },
@@ -4283,8 +4242,8 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
 
 
 def test_operation_formula_dependency_closure_includes_guard_invocations():
-    root = ("example", "1.0.0", "root")
-    child = ("example", "1.0.0", "child")
+    root = ("example", "root")
+    child = ("example", "child")
     operations = {
         root: {
             "definition": {
@@ -4296,8 +4255,7 @@ def test_operation_formula_dependency_closure_includes_guard_invocations():
                                 "node": "invoke",
                                 "operation": {
                                     "package": child[0],
-                                    "version": child[1],
-                                    "id": child[2],
+                                    "id": child[1],
                                 },
                             }
                         ],
@@ -4307,7 +4265,7 @@ def test_operation_formula_dependency_closure_includes_guard_invocations():
         },
         child: {"definition": {"body": []}},
     }
-    dependencies: dict[tuple[str, str, str], list[dict[str, JsonValue]]] = {
+    dependencies: dict[tuple[str, str], list[dict[str, JsonValue]]] = {
         root: [{"model": "model", "module": "module", "name": "root"}],
         child: [{"model": "model", "module": "module", "name": "child"}],
     }
@@ -4436,7 +4394,6 @@ def test_nested_integer_literal_is_identical_across_lowerers(
             "type": {
                 "id": "Quantity",
                 "package": "core.quantity",
-                "version": "2.2.0",
             },
             "unit": "1",
         },
@@ -4459,8 +4416,8 @@ def test_resolution_stage_order_is_authoritative_across_independent_consumers(
     tmp_path,
 ):
     source = _source([_symbol("health", "state")])
-    source["package_requirements"][0]["version"] = "9.9.9"
-    source["modules"][0]["imports"][0]["version"] = "9.9.9"
+    source["package_requirements"][0] = "host.missing"
+    source["modules"][0]["imports"][0]["package"] = "host.missing"
     source["modules"][0]["imports"].append(deepcopy(source["modules"][0]["imports"][0]))
     path = tmp_path / "source.json"
     _write_source(path, source)
@@ -4504,6 +4461,10 @@ def test_resolution_step_budget_drives_both_independent_consumers():
         _reference_content_identity("model-source-package-v2", source),
         kernel,
         language_bundle,
+        projection=project_required_namespace_closure(
+            derive_current_namespace_packages(kernel, language_bundle),
+            source["package_requirements"],
+        ),
         stage="static",
     )
     reference = _reference_check_source(source, kernel, language_bundle)
@@ -4572,6 +4533,10 @@ def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
         _reference_content_identity("model-source-package-v2", source),
         kernel,
         language_bundle,
+        projection=project_required_namespace_closure(
+            derive_current_namespace_packages(kernel, language_bundle),
+            source["package_requirements"],
+        ),
         stage="static",
     )
     reference = _reference_check_source(source, kernel, language_bundle)
@@ -4607,6 +4572,10 @@ def test_resolution_relation_recipes_drive_both_independent_interpreters(tmp_pat
         _reference_content_identity("model-source-package-v2", source),
         kernel,
         language_bundle,
+        projection=project_required_namespace_closure(
+            derive_current_namespace_packages(kernel, language_bundle),
+            source["package_requirements"],
+        ),
         stage="static",
     )
     reference = _reference_check_source(source, kernel, language_bundle)
@@ -4680,13 +4649,7 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
         manifest["model_key"] = manifest.pop("id")
         manifest["start_module"] = manifest.pop("entry_module")
         document["header"] = manifest
-        document["dependencies"] = [
-            {
-                "package_id": item["id"],
-                "release": item["version"],
-            }
-            for item in document.pop("package_requirements")
-        ]
+        document["dependencies"] = document.pop("package_requirements")
         sections = document.pop("modules")
         for section in sections:
             section["module_key"] = section.pop("id")
@@ -4694,7 +4657,6 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
             for use in uses:
                 use["prefix"] = use.pop("alias")
                 use["package_id"] = use.pop("package")
-                use["release"] = use.pop("version")
                 use["export_name"] = use.pop("symbol")
             section["uses"] = uses
             declarations = section.pop("symbols")
@@ -4722,14 +4684,11 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     profile["manifest_id_path"] = "header.model_key"
     profile["manifest_entry_module_path"] = "header.start_module"
     profile["requirements_member"] = "dependencies"
-    profile["requirement_package_member"] = "package_id"
-    profile["requirement_version_member"] = "release"
     profile["modules_member"] = "sections"
     profile["module_id_member"] = "module_key"
     profile["imports_member"] = "uses"
     profile["import_alias_member"] = "prefix"
     profile["import_package_member"] = "package_id"
-    profile["import_version_member"] = "release"
     profile["import_symbol_member"] = "export_name"
     profile["symbols_member"] = "declarations"
     profile["symbol_name_member"] = "name"
@@ -4749,7 +4708,6 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
         if term["root"] != "binding":
             return
         field_renames = {
-            "requirement": {"id": "package_id", "version": "release"},
             "module": {
                 "id": "module_key",
                 "imports": "uses",
@@ -4758,7 +4716,6 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
             "import": {
                 "alias": "prefix",
                 "package": "package_id",
-                "version": "release",
                 "symbol": "export_name",
             },
             "symbol": {"symbol": "name", "type": "type_ref"},
@@ -4819,14 +4776,6 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
         "dependencies" if item == "package_requirements" else item
         for item in source_schema["required"]
     ]
-    requirement_schema = source_schema["properties"]["dependencies"]["items"]
-    requirement_schema["properties"]["package_id"] = requirement_schema[
-        "properties"
-    ].pop("id")
-    requirement_schema["properties"]["release"] = requirement_schema["properties"].pop(
-        "version"
-    )
-    requirement_schema["required"] = ["package_id", "release"]
     source_schema["properties"]["sections"] = source_schema["properties"].pop("modules")
     source_schema["required"] = [
         "sections" if item == "modules" else item for item in source_schema["required"]
@@ -4849,7 +4798,6 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     for old, new in (
         ("alias", "prefix"),
         ("package", "package_id"),
-        ("version", "release"),
         ("symbol", "export_name"),
     ):
         use_schema["properties"][new] = use_schema["properties"].pop(old)
@@ -4857,7 +4805,6 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
         {
             "alias": "prefix",
             "package": "package_id",
-            "version": "release",
             "symbol": "export_name",
         }.get(item, item)
         for item in use_schema["required"]
@@ -4958,6 +4905,9 @@ def test_rir_output_member_follows_the_ldb_lowering_and_wire_schema(tmp_path):
         ),
         kernel=kernel,
         language_bundle=candidate_ldb,
+        namespace_selection=_reference_namespace_selection(
+            source, kernel, candidate_ldb
+        ),
     )
 
     production = lower_checked_model(checked)["rir-semantic-payload"]
@@ -5053,6 +5003,9 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
         source_identity=checked.source_identity,
         kernel=checked.kernel,
         language_bundle=candidate_ldb,
+        namespace_selection=_reference_namespace_selection(
+            checked.source, checked.kernel, candidate_ldb
+        ),
     )
 
     artifacts = lower_checked_model(candidate)
@@ -5112,12 +5065,12 @@ def test_independent_frontends_follow_a_renamed_resolution_reason_without_host_c
 ):
     path = tmp_path / "renamed-resolution-reason.json"
     source = _source([_symbol("health", "state")])
-    source["package_requirements"][0]["version"] = "9.0.0"
-    source["modules"][0]["imports"][0]["version"] = "9.0.0"
+    source["package_requirements"][0] = "host.missing"
+    source["modules"][0]["imports"][0]["package"] = "host.missing"
     _write_source(path, source)
     kernel, candidate_ldb, new_diagnostic = _renamed_reason_authorities(
-        "model.reason.package-version-unavailable",
-        "language.package_version_unavailable",
+        "model.reason.package-unavailable",
+        "language.package_unavailable",
     )
     _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
@@ -5131,7 +5084,7 @@ def test_independent_frontends_follow_a_renamed_resolution_reason_without_host_c
         == tuple(code for code, _pointer in reference)
         == (new_diagnostic,)
     )
-    assert reference == ((new_diagnostic, "/package_requirements/0/version"),)
+    assert reference == ((new_diagnostic, "/package_requirements/0"),)
 
 
 def test_frontend_failure_boundaries_follow_renamed_ldb_diagnostics_without_host_changes(
@@ -5199,6 +5152,9 @@ def test_resolved_admission_follows_a_renamed_ldb_diagnostic_without_host_change
         ),
         kernel=kernel,
         language_bundle=candidate_ldb,
+        namespace_selection=_reference_namespace_selection(
+            source, kernel, candidate_ldb
+        ),
     )
     artifacts = lower_checked_model(checked)
     semantic_artifacts: dict[str, dict[str, Any]] = {

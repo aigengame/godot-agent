@@ -131,11 +131,11 @@
             },
             {
               "keys": [
-                "id",
-                "version"
+                "id"
               ],
               "path": "language_bundle.language.components",
-              "subject": "language.components"
+              "subject": "language.components",
+              "scope": "package"
             },
             {
               "keys": [
@@ -146,11 +146,11 @@
             },
             {
               "keys": [
-                "id",
-                "version"
+                "id"
               ],
               "path": "language_bundle.language.conversions",
-              "subject": "language.conversions"
+              "subject": "language.conversions",
+              "scope": "package"
             },
             {
               "keys": [
@@ -168,16 +168,15 @@
             },
             {
               "keys": [
-                "id",
-                "version"
+                "id"
               ],
               "path": "language_bundle.language.operations",
-              "subject": "language.operations"
+              "subject": "language.operations",
+              "scope": "package"
             },
             {
               "keys": [
-                "id",
-                "version"
+                "id"
               ],
               "path": "language_bundle.language.packages",
               "subject": "language.packages"
@@ -268,12 +267,11 @@
             },
             {
               "keys": [
-                "package",
-                "version",
                 "id"
               ],
               "path": "language_bundle.language.nominal_types",
-              "subject": "language-bundle.nominal-types"
+              "subject": "language-bundle.nominal-types",
+              "scope": "package"
             },
             {
               "keys": [
@@ -289,7 +287,8 @@
               "path": "language_bundle.language.replay_comparison_policies",
               "subject": "language.replay_comparison_policies"
             }
-          ]
+          ],
+          "reserved_namespace_source": "kernel.meta_format.runtime_program.fixed_value_contracts"
         },
         "effects": [],
         "id": "kernel.identifiers.unique",
@@ -647,10 +646,6 @@
               "targets": {
                 "capabilities.provided": "language_bundle.language.capabilities.id",
                 "capabilities.required": "language_bundle.language.capabilities.id",
-                "dependencies.optional.id": "language_bundle.language.packages.id",
-                "dependencies.optional.version": "language_bundle.language.packages.version",
-                "dependencies.required.id": "language_bundle.language.packages.id",
-                "dependencies.required.version": "language_bundle.language.packages.version",
                 "exports.components": "language_bundle.language.components.id",
                 "exports.conversions": "language_bundle.language.conversions.id",
                 "exports.diagnostics": "language_bundle.diagnostics.code",
@@ -669,7 +664,9 @@
                 "profiles.numeric": "language_bundle.language.quantity.numeric_policies.id",
                 "profiles.resolution": "language_bundle.language.resolution_profiles.id",
                 "profiles.runtime": "language_bundle.language.runtime_profiles.id",
-                "exports.structured_operations": "language_bundle.language.structured_operations.id"
+                "exports.structured_operations": "language_bundle.language.structured_operations.id",
+                "dependencies.required": "language_bundle.language.packages.id",
+                "dependencies.optional": "language_bundle.language.packages.id"
               }
             }
           ]
@@ -915,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d",
+  "content_identity": "sha256:a1a0b6b93cf9bb6ec8813c8af044ce473cce2e53db361f9ae1bf87d7c89b3a5f",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -1001,17 +998,13 @@
               "package": {
                 "type": "non-empty-string"
               },
-              "symbol": {
-                "type": "non-empty-string"
-              },
-              "version": {
+              "id": {
                 "type": "non-empty-string"
               }
             },
             "required_members": [
               "package",
-              "version",
-              "symbol"
+              "id"
             ],
             "type": "closed-object"
           },
@@ -1059,17 +1052,13 @@
               "package": {
                 "type": "non-empty-string"
               },
-              "symbol": {
-                "type": "non-empty-string"
-              },
-              "version": {
+              "id": {
                 "type": "non-empty-string"
               }
             },
             "required_members": [
               "package",
-              "version",
-              "symbol"
+              "id"
             ],
             "type": "closed-object"
           },
@@ -2240,8 +2229,7 @@
       },
       "package_descriptor": {
         "canonical_order": [
-          "id",
-          "version"
+          "id"
         ],
         "closed": true,
         "field_types": {
@@ -2250,10 +2238,6 @@
           },
           "id": {
             "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
-            "type": "non-empty-string"
-          },
-          "version": {
-            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
             "type": "non-empty-string"
           },
           "content_identity": {
@@ -2266,7 +2250,6 @@
         "required_members": [
           "artifact_kind",
           "id",
-          "version",
           "content_identity",
           "byte_size"
         ]
@@ -2476,14 +2459,10 @@
             },
             "id": {
               "type": "non-empty-string"
-            },
-            "version": {
-              "type": "non-empty-string"
             }
           },
           "required_members": [
             "id",
-            "version",
             "constructor",
             "fields"
           ]
@@ -2658,14 +2637,10 @@
             },
             "to_type": {
               "type": "non-empty-string"
-            },
-            "version": {
-              "type": "non-empty-string"
             }
           },
           "required_members": [
             "id",
-            "version",
             "from_type",
             "to_type",
             "operation",
@@ -3103,9 +3078,6 @@
             "vectors": {
               "type": "string-list"
             },
-            "version": {
-              "type": "non-empty-string"
-            },
             "default_outcome": {
               "type": "non-empty-string"
             },
@@ -3118,7 +3090,6 @@
           },
           "required_members": [
             "id",
-            "version",
             "operation_kind",
             "owner_type",
             "inputs",
@@ -3153,9 +3124,6 @@
             "dependency_closure": {
               "const": "required-transitive"
             },
-            "dependency_selection": {
-              "const": "exact-version"
-            },
             "id": {
               "type": "non-empty-string"
             },
@@ -3166,9 +3134,6 @@
               "type": "non-empty-string"
             },
             "import_symbol_member": {
-              "type": "non-empty-string"
-            },
-            "import_version_member": {
               "type": "non-empty-string"
             },
             "imports_member": {
@@ -3197,11 +3162,11 @@
                       "bind-symbol-aliases",
                       "close-required-dependencies",
                       "require-entry-module",
-                      "require-single-package-version",
                       "require-unique-import-aliases",
                       "require-unique-module-ids",
                       "require-unique-symbol-identities",
-                      "select-exact-packages"
+                      "select-exact-packages",
+                      "require-unique-package-requirements"
                     ]
                   },
                   "reason": {
@@ -3221,15 +3186,6 @@
               "type": "non-empty-string"
             },
             "modules_member": {
-              "type": "non-empty-string"
-            },
-            "package_conflict": {
-              "const": "single-version-per-id"
-            },
-            "requirement_package_member": {
-              "type": "non-empty-string"
-            },
-            "requirement_version_member": {
               "type": "non-empty-string"
             },
             "requirements_member": {
@@ -3266,23 +3222,18 @@
             "manifest_id_path",
             "manifest_entry_module_path",
             "requirements_member",
-            "requirement_package_member",
-            "requirement_version_member",
             "modules_member",
             "module_id_member",
             "imports_member",
             "import_alias_member",
             "import_package_member",
-            "import_version_member",
             "import_symbol_member",
             "symbols_member",
             "symbol_name_member",
             "structural_reason",
             "symbol_fact_member",
             "symbol_type_member",
-            "dependency_selection",
             "dependency_closure",
-            "package_conflict",
             "capability_selection",
             "default",
             "model_lowering",
@@ -3406,9 +3357,6 @@
             "resource_bounds": {
               "type": "canonical-value"
             },
-            "version": {
-              "type": "non-empty-string"
-            },
             "budget_scopes": {
               "type": "canonical-value"
             },
@@ -3427,7 +3375,6 @@
           },
           "required_members": [
             "id",
-            "version",
             "numeric_policy",
             "evaluation",
             "effects",
@@ -3544,14 +3491,10 @@
                 },
                 "package": {
                   "type": "non-empty-string"
-                },
-                "version": {
-                  "type": "non-empty-string"
                 }
               },
               "required_members": [
                 "package",
-                "version",
                 "id"
               ],
               "type": "closed-object"
@@ -3593,14 +3536,10 @@
             },
             "package": {
               "type": "non-empty-string"
-            },
-            "version": {
-              "type": "non-empty-string"
             }
           },
           "required_members": [
             "package",
-            "version",
             "id",
             "constructor",
             "definition"
@@ -3689,14 +3628,10 @@
                 "max_steps"
               ],
               "type": "closed-object"
-            },
-            "version": {
-              "type": "non-empty-string"
             }
           },
           "required_members": [
             "id",
-            "version",
             "owner_constructor",
             "law",
             "resource_bounds"
@@ -3705,10 +3640,6 @@
         "evidence_claim_kinds": {
           "field_types": {
             "id": {
-              "type": "non-empty-string"
-            },
-            "version": {
-              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
               "type": "non-empty-string"
             },
             "subject_roles": {
@@ -3834,7 +3765,6 @@
           },
           "required_members": [
             "id",
-            "version",
             "subject_roles",
             "prerequisite_edges",
             "eligibility",
@@ -3855,17 +3785,12 @@
             },
             "id": {
               "type": "non-empty-string"
-            },
-            "version": {
-              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-              "type": "non-empty-string"
             }
           },
           "required_members": [
             "checks",
             "comparator",
-            "id",
-            "version"
+            "id"
           ]
         }
       },
@@ -3927,22 +3852,8 @@
       }
     },
     "package_dependency_constraint": {
-      "closed": true,
-      "field_types": {
-        "id": {
-          "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
-          "type": "non-empty-string"
-        },
-        "version": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-          "type": "non-empty-string"
-        }
-      },
-      "required_members": [
-        "id",
-        "version"
-      ],
-      "type": "closed-object"
+      "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
+      "type": "non-empty-string"
     },
     "package_release": {
       "closed": true,
@@ -3966,10 +3877,6 @@
         "semantic_identity": {
           "type": "non-empty-string"
         },
-        "version": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-          "type": "non-empty-string"
-        },
         "runtime_semantic_excluded_extensions": {
           "type": "string-list"
         }
@@ -3986,43 +3893,15 @@
         "dependencies": {
           "optional": {
             "items": {
-              "closed": true,
-              "field_types": {
-                "id": {
-                  "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
-                  "type": "non-empty-string"
-                },
-                "version": {
-                  "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-                  "type": "non-empty-string"
-                }
-              },
-              "required_members": [
-                "id",
-                "version"
-              ],
-              "type": "closed-object"
+              "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
+              "type": "non-empty-string"
             },
             "type": "list-of"
           },
           "required": {
             "items": {
-              "closed": true,
-              "field_types": {
-                "id": {
-                  "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
-                  "type": "non-empty-string"
-                },
-                "version": {
-                  "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-                  "type": "non-empty-string"
-                }
-              },
-              "required_members": [
-                "id",
-                "version"
-              ],
-              "type": "closed-object"
+              "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
+              "type": "non-empty-string"
             },
             "type": "list-of"
           }
@@ -4186,8 +4065,7 @@
         "runtime_semantic_excluded_extensions",
         "runtime_semantic_paths",
         "semantic_closure",
-        "semantic_identity",
-        "version"
+        "semantic_identity"
       ],
       "semantic_closure": {
         "domain": "domain-package-semantic-closure-v2",
@@ -4683,6 +4561,34 @@
       },
       "operations": [
         {
+          "id": "require-unique-package-requirements",
+          "stage": "static",
+          "law": {
+            "operator": "require-unique",
+            "relation": "requirements",
+            "scope": [],
+            "key": [
+              "package"
+            ],
+            "pointer_field": "package"
+          },
+          "input": {
+            "fact_kind": "resolution-state"
+          },
+          "result": {
+            "fact_kind": "resolution-state"
+          },
+          "effects": [],
+          "refusals": [
+            "reason-bound-diagnostic"
+          ],
+          "resources": [
+            "max_diagnostics",
+            "max_rule_match_steps",
+            "max_symbols"
+          ]
+        },
+        {
           "id": "require-unique-module-ids",
           "stage": "static",
           "law": {
@@ -4751,10 +4657,6 @@
               {
                 "subject": "package",
                 "target": "package"
-              },
-              {
-                "subject": "version",
-                "target": "version"
               }
             ],
             "cardinality": "exactly-one",
@@ -4789,10 +4691,6 @@
                 "target": "package"
               },
               {
-                "subject": "version",
-                "target": "version"
-              },
-              {
                 "subject": "import_symbol",
                 "target": "symbol"
               }
@@ -4803,10 +4701,6 @@
                 {
                   "subject": "package",
                   "target": "package"
-                },
-                {
-                  "subject": "version",
-                  "target": "version"
                 }
               ],
               "cardinality": "exactly-one"
@@ -4940,14 +4834,10 @@
               {
                 "subject": "package",
                 "target": "package"
-              },
-              {
-                "subject": "version",
-                "target": "version"
               }
             ],
             "cardinality": "exactly-one",
-            "pointer_field": "version"
+            "pointer_field": "package"
           },
           "input": {
             "fact_kind": "resolution-state"
@@ -4976,45 +4866,10 @@
               {
                 "subject": "dependency",
                 "target": "package"
-              },
-              {
-                "subject": "dependency_version",
-                "target": "version"
               }
             ],
             "cardinality": "exactly-one",
             "pointer_field": "dependency"
-          },
-          "input": {
-            "fact_kind": "resolution-state"
-          },
-          "result": {
-            "fact_kind": "resolution-state"
-          },
-          "effects": [],
-          "refusals": [
-            "reason-bound-diagnostic"
-          ],
-          "resources": [
-            "max_diagnostics",
-            "max_rule_match_steps",
-            "max_symbols"
-          ]
-        },
-        {
-          "id": "require-single-package-version",
-          "stage": "resolution",
-          "law": {
-            "operator": "require-single-value",
-            "relation": "selected_packages",
-            "scope": [],
-            "group": [
-              "package"
-            ],
-            "value": [
-              "version"
-            ],
-            "pointer_field": "version"
           },
           "input": {
             "fact_kind": "resolution-state"
@@ -5087,19 +4942,16 @@
         {
           "id": "requirements",
           "fields": [
-            "package",
-            "version"
+            "package"
           ],
           "pointer_fields": [
-            "package",
-            "version"
+            "package"
           ]
         },
         {
           "id": "packages",
           "fields": [
-            "package",
-            "version"
+            "package"
           ],
           "pointer_fields": []
         },
@@ -5118,13 +4970,11 @@
             "module",
             "alias",
             "package",
-            "version",
             "import_symbol"
           ],
           "pointer_fields": [
             "alias",
             "package",
-            "version",
             "import_symbol"
           ]
         },
@@ -5145,7 +4995,6 @@
           "id": "exported_types",
           "fields": [
             "package",
-            "version",
             "symbol"
           ],
           "pointer_fields": []
@@ -5163,8 +5012,7 @@
           "id": "selected_dependencies",
           "fields": [
             "owner",
-            "dependency",
-            "dependency_version"
+            "dependency"
           ],
           "pointer_fields": []
         },
@@ -5187,8 +5035,7 @@
         {
           "id": "selected_packages",
           "fields": [
-            "package",
-            "version"
+            "package"
           ],
           "pointer_fields": []
         }
@@ -5220,18 +5067,6 @@
               "relation",
               "scope",
               "key",
-              "pointer_field"
-            ],
-            "optional_members": []
-          },
-          {
-            "id": "require-single-value",
-            "required_members": [
-              "operator",
-              "relation",
-              "scope",
-              "group",
-              "value",
               "pointer_field"
             ],
             "optional_members": []
@@ -5328,20 +5163,6 @@
           "subject_kind": "binding-source"
         },
         {
-          "profile_member": "requirement_package_member",
-          "projection": "last-segment",
-          "recipe": "requirements",
-          "subject": "package",
-          "subject_kind": "field-term"
-        },
-        {
-          "profile_member": "requirement_version_member",
-          "projection": "last-segment",
-          "recipe": "requirements",
-          "subject": "version",
-          "subject_kind": "field-term"
-        },
-        {
           "profile_member": "modules_member",
           "projection": "last-segment",
           "recipe": "modules",
@@ -5374,13 +5195,6 @@
           "projection": "last-segment",
           "recipe": "imports",
           "subject": "package",
-          "subject_kind": "field-term"
-        },
-        {
-          "profile_member": "import_version_member",
-          "projection": "last-segment",
-          "recipe": "imports",
-          "subject": "version",
           "subject_kind": "field-term"
         },
         {
@@ -5521,7 +5335,7 @@
           "structural_kind_member",
           "constructor_kind_path"
         ],
-        "coordinate_match": "exact-package-version-type-id",
+        "coordinate_match": "exact-package-type-id",
         "structural_match": "definition-kind-to-constructor-kind"
       },
       "path_typing": {
@@ -5574,8 +5388,7 @@
           "representation": "Bool",
           "type": {
             "id": "Boolean",
-            "package": "kernel",
-            "version": "2.0.0"
+            "package": "kernel"
           },
           "unit": "1"
         },
@@ -5588,8 +5401,7 @@
           "representation": "Unit",
           "type": {
             "id": "Unit",
-            "package": "kernel",
-            "version": "2.0.0"
+            "package": "kernel"
           },
           "unit": "1"
         },
@@ -5602,8 +5414,7 @@
           "representation": "EventRef",
           "type": {
             "id": "EventReference",
-            "package": "kernel",
-            "version": "2.0.0"
+            "package": "kernel"
           },
           "unit": "1"
         }
@@ -8207,10 +8018,6 @@
           "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
           "type": "non-empty-string"
         },
-        "package_version": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-          "type": "non-empty-string"
-        },
         "vector_definitions": {
           "type": "list"
         },
@@ -8222,7 +8029,6 @@
         "artifact_kind",
         "content_identity",
         "package_id",
-        "package_version",
         "vector_definitions",
         "vectors"
       ]
@@ -8262,7 +8068,6 @@
           "nominal_type_reference": {
             "coordinate_members": [
               "package",
-              "version",
               "id"
             ],
             "optional_kind_member": "kind",
@@ -8298,7 +8103,6 @@
       "active_runtime": {
         "required_members": [
           "id",
-          "version",
           "evaluation",
           "numeric_policy",
           "runtime_program_version",
@@ -8372,17 +8176,12 @@
         },
         "id": {
           "type": "non-empty-string"
-        },
-        "version": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-          "type": "non-empty-string"
         }
       },
       "required_members": [
         "checks",
         "comparator",
-        "id",
-        "version"
+        "id"
       ],
       "type": "closed-object"
     }

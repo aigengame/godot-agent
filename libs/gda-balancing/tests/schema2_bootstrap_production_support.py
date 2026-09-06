@@ -17,6 +17,7 @@ from gda_balancing.domain.authority.graph import (
     derive_language_index,
 )
 from gda_balancing.domain.authority.admission import admit_authorities
+from schema2_authority_support import refresh_package_semantic_closures
 from schema2_bootstrap_conformance_support import (
     _bind_package_vector_set,
     _encoded,
@@ -61,63 +62,24 @@ def _consumer_a(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
 
 def _refresh_package_closure_and_reidentify(ldb: LanguageBundleIndex) -> None:
     kernel = packaged_authority_context().kernel
-    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
-        "projections"
-    ]
-    uniqueness_law = next(
-        law
-        for law in kernel["admission"]["laws"]
-        if law["id"] == "kernel.identifiers.unique"
-    )
-    identity_keys = {
-        collection["path"].removeprefix("language_bundle."): collection["keys"]
-        for collection in uniqueness_law["arguments"]["collections"]
-    }
-
-    def path_values(root: Any, dotted: str) -> list[Any]:
-        values = [root]
-        for segment in dotted.split("."):
-            selected: list[Any] = []
-            for value in values:
-                if not isinstance(value, dict) or segment not in value:
-                    continue
-                child = value[segment]
-                selected.extend(child if isinstance(child, list) else [child])
-            values = selected
-        return values
-
+    refresh_package_semantic_closures(ldb, kernel)
     for package in ldb["language"]["packages"]:
-        for entry, projection in zip(
-            package["semantic_closure"], projections, strict=True
-        ):
-            definitions = path_values(ldb, entry["authority_path"])
-            owners = path_values(package, projection["owners_path"])
-            key_member = projection["key_member"]
-            coordinate_members = identity_keys.get(entry["authority_path"], [])
-            entry["definitions"] = deepcopy(
-                [
-                    definition
-                    for definition in definitions
-                    if (
-                        definition.get(key_member)
-                        if key_member is not None and isinstance(definition, dict)
-                        else definition
-                    )
-                    in owners
-                    and (
-                        not isinstance(definition, dict)
-                        or "package" not in coordinate_members
-                        or definition.get("package") == package["id"]
-                    )
-                    and (
-                        not isinstance(definition, dict)
-                        or "version" not in coordinate_members
-                        or definition.get("version") == package["version"]
-                    )
-                ]
-            )
         _bind_package_vector_set(package, _package_vector_set(ldb, package))
     _reidentify_graph_root(ldb)
+
+
+def _append_empty_namespace(ldb, namespace):
+    package = deepcopy(ldb["language"]["packages"][0])
+    package["id"] = namespace
+    package["capabilities"] = {"provided": [], "required": []}
+    package["dependencies"] = {"optional": [], "required": []}
+    package["exports"] = {member: [] for member in package["exports"]}
+    package["profiles"] = {member: [] for member in package["profiles"]}
+    package["runtime_semantic_excluded_extensions"] = []
+    for entry in package["semantic_closure"]:
+        entry["definitions"] = []
+    ldb["language"]["packages"].append(package)
+    return package
 
 
 def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
@@ -125,21 +87,18 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
     if isinstance(graph_root, dict):
         packages = deepcopy(ldb["language"]["packages"])
         vector_sets_by_coordinate = {
-            (vector_set["package_id"], vector_set["package_version"]): deepcopy(
-                vector_set
-            )
+            vector_set["package_id"]: deepcopy(vector_set)
             for vector_set in ldb.package_conformance_vector_sets
         }
         vector_sets = []
         for package in packages:
-            coordinate = (package["id"], package["version"])
+            coordinate = package["id"]
             vector_set = vector_sets_by_coordinate.get(coordinate)
             if vector_set is None:
                 vector_set = {
                     "artifact_kind": "package-conformance-vector-set",
                     "content_identity": "",
                     "package_id": package["id"],
-                    "package_version": package["version"],
                     "vector_definitions": [],
                     "vectors": [],
                 }
@@ -147,7 +106,7 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
             vector_sets.append(vector_set)
         members = sorted(
             zip(packages, vector_sets, strict=True),
-            key=lambda member: _encoded([member[0]["id"], member[0]["version"]]),
+            key=lambda member: _encoded(member[0]["id"]),
         )
         packages = [package for package, _vector_set in members]
         vector_sets = [vector_set for _package, vector_set in members]
@@ -160,7 +119,6 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
                 "byte_size": size,
                 "content_identity": package["content_identity"],
                 "id": package["id"],
-                "version": package["version"],
             }
             for package, size in zip(packages, package_sizes, strict=True)
         ]
@@ -201,6 +159,7 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
 
 
 __all__ = [
+    "_append_empty_namespace",
     "_authority_candidate",
     "_consumer_a",
     "_refresh_package_closure_and_reidentify",

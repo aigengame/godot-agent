@@ -9,8 +9,8 @@ from gda_balancing.domain.authority.context import (
 )
 from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
+    authority_load_refusal,
     bootstrap_refusal,
-    ingress_refusal,
 )
 
 
@@ -21,7 +21,7 @@ def admit_command_authority(
     try:
         context = resolve_authority_context(provider)
     except AuthorityLoadError as err:
-        return ingress_refusal(err.code, err.subject, err.message)
+        return authority_load_refusal(err)
     if isinstance(context, BootstrapAdmission):
         return bootstrap_refusal(context)
     return context

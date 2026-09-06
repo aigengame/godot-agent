@@ -8,8 +8,9 @@ status: accepted
 > bADR-0028 supersedes internal version-coordinate meta-formats and the rule that a pre-v1.0
 > Kernel freeze creates a permanent Schema-major compatibility commitment. Fixed baselines
 > remain exact conformance inputs; a replaced law receives a new content identity and
-> invalidates evidence that depended on the old law. Current machine schemas remain implemented
-> until coordinated replacement. Admission, irreducible law ownership, bounded resources, and
+> invalidates evidence that depended on the old law. #871 replaces the internal coordinate schemas
+> with [native wire forms](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07);
+> the version-coordinate clauses below are historical. Admission, irreducible law ownership, bounded resources, and
 > independent conformance remain; proposed collection primitives require promotion evidence and
 > are not admitted by prose.
 
