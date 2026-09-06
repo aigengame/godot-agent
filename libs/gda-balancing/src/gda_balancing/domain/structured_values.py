@@ -13,7 +13,7 @@ from typing import Any, Iterable, cast
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 
 
-_TypeKey = tuple[str, str, str]
+_TypeKey = tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -171,7 +171,7 @@ def package_structured_value_index(
     *,
     kernel: dict[str, Any],
 ) -> StructuredValueIndex:
-    """Project structured-value rules from admitted Package Releases."""
+    """Project structured-value rules from admitted namespace-owned packages."""
     typed_profile, fixed_contracts, value_nodes = _kernel_structured_value_contracts(
         kernel
     )
@@ -203,7 +203,6 @@ def package_structured_value_index(
         for exported_type in cast(list[dict[str, Any]], exports.get("types", [])):
             key = (
                 cast(str, package["id"]),
-                cast(str, package["version"]),
                 cast(str, exported_type["id"]),
             )
             if key in definitions:
@@ -211,13 +210,11 @@ def package_structured_value_index(
             definitions[key] = {
                 **exported_type,
                 "package": package["id"],
-                "version": package["version"],
             }
     for package in packages:
         for definition in _semantic_definitions(package, "language.nominal_types"):
             key = (
                 cast(str, definition["package"]),
-                cast(str, definition["version"]),
                 cast(str, definition["id"]),
             )
             if key not in definitions:
@@ -246,23 +243,17 @@ def language_structured_value_index(
     if not isinstance(language, dict):
         raise ValueError("admitted language content is unavailable")
     packages = cast(list[dict[str, Any]], language.get("packages"))
-    package_coordinates = {
-        (cast(str, package["id"]), cast(str, package["version"]))
-        for package in packages
-    }
     definitions: dict[_TypeKey, dict[str, Any]] = {}
     for package in packages:
         exports = cast(dict[str, Any], package["exports"])
         for exported_type in cast(list[dict[str, Any]], exports.get("types", [])):
             key = (
                 cast(str, package["id"]),
-                cast(str, package["version"]),
                 cast(str, exported_type["id"]),
             )
             definitions[key] = {
                 **exported_type,
                 "package": package["id"],
-                "version": package["version"],
             }
     rows = language.get("nominal_types")
     if not isinstance(rows, (list, tuple)):
@@ -270,10 +261,9 @@ def language_structured_value_index(
     for definition in cast(Iterable[dict[str, Any]], rows):
         key = (
             cast(str, definition["package"]),
-            cast(str, definition["version"]),
             cast(str, definition["id"]),
         )
-        if key not in definitions or key[:2] not in package_coordinates:
+        if key not in definitions:
             raise ValueError("nominal definition has no selected exported type")
         definitions[key] = definition
     constructors = {
@@ -308,22 +298,20 @@ def selected_structured_value_index(
     typed_profile, fixed_contracts, value_nodes = _kernel_structured_value_contracts(
         kernel
     )
-    package_versions = {
-        cast(str, package["id"]): cast(str, package["version"])
+    namespaces = {
+        cast(str, package["id"])
         for package in cast(list[dict[str, Any]], selected_semantics["packages"])
     }
     definitions: dict[_TypeKey, dict[str, Any]] = {}
     for exported_type in cast(list[dict[str, Any]], selected_semantics["types"]):
         package = cast(str, exported_type["package"])
-        definitions[(package, package_versions[package], exported_type["id"])] = {
-            **exported_type,
-            "version": package_versions[package],
-        }
+        if package not in namespaces:
+            raise ValueError("RIR exported type has no selected owning package")
+        definitions[(package, exported_type["id"])] = dict(exported_type)
     for row in cast(list[dict[str, Any]], selected_semantics["nominal_types"]):
         definition = cast(dict[str, Any], row["definition"])
         key = (
             cast(str, definition["package"]),
-            cast(str, definition["version"]),
             cast(str, definition["id"]),
         )
         if key not in definitions:
@@ -361,7 +349,7 @@ def selected_structured_value_index(
 
 def nominal_type_key(
     type_expression: Any, admission_law: dict[str, Any]
-) -> tuple[str, str, str] | None:
+) -> _TypeKey | None:
     """Read one nominal coordinate through the selected typed-envelope law."""
     if not isinstance(type_expression, dict):
         return None
@@ -373,7 +361,7 @@ def nominal_type_key(
     optional_kind_value = contract.get("optional_kind_value")
     if (
         not isinstance(coordinate_members, list)
-        or coordinate_members != ["package", "version", "id"]
+        or coordinate_members != ["package", "id"]
         or not isinstance(optional_kind_member, str)
         or not optional_kind_member
         or not isinstance(optional_kind_value, str)
@@ -389,13 +377,13 @@ def nominal_type_key(
         return None
     values = tuple(type_expression.get(name) for name in coordinate_members)
     if all(isinstance(value, str) and value for value in values):
-        return cast(tuple[str, str, str], values)
+        return cast(_TypeKey, values)
     return None
 
 
 def _nominal_key(
     type_expression: Any, authority: StructuredValueIndex
-) -> tuple[str, str, str] | None:
+) -> _TypeKey | None:
     profile = authority.typed_envelope_profile
     admission = profile.get("admission") if isinstance(profile, dict) else None
     return (
@@ -416,8 +404,8 @@ def _canonical_type_expression(
     """Normalize equivalent nominal spellings at public value boundaries."""
     nominal = _nominal_key(type_expression, authority)
     if nominal is not None:
-        package, version, type_id = nominal
-        return {"id": type_id, "package": package, "version": version}
+        package, type_id = nominal
+        return {"id": type_id, "package": package}
     if not isinstance(type_expression, dict):
         if isinstance(type_expression, list):
             return cast(

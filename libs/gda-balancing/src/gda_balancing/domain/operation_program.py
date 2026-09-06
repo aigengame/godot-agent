@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, TypeAlias, cast
 
 
-OperationCoordinate: TypeAlias = tuple[str, str, str]
+OperationCoordinate: TypeAlias = tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -21,10 +21,9 @@ class OperationProgramProjection:
 
 
 def operation_coordinate(reference: Mapping[str, Any]) -> OperationCoordinate:
-    """Return one exact Package Release and Operation coordinate."""
+    """Return the owning namespace and local Operation identifier."""
     return (
         cast(str, reference["package"]),
-        cast(str, reference["version"]),
         cast(str, reference["id"]),
     )
 
@@ -32,19 +31,19 @@ def operation_coordinate(reference: Mapping[str, Any]) -> OperationCoordinate:
 def selected_operation_index(
     selected_semantics: Mapping[str, Any],
 ) -> dict[OperationCoordinate, dict[str, Any]]:
-    """Index selected Operations by exact Package Release coordinate."""
-    package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
+    """Index selected Operations without losing their namespace ownership."""
+    namespaces = {
+        cast(str, row["id"])
         for row in cast(list[dict[str, Any]], selected_semantics["packages"])
     }
-    return {
-        (
-            cast(str, row["package"]),
-            package_versions[cast(str, row["package"])],
-            cast(str, cast(dict[str, Any], row["definition"])["id"]),
-        ): cast(dict[str, Any], row["definition"])
-        for row in cast(list[dict[str, Any]], selected_semantics["operations"])
-    }
+    operations: dict[OperationCoordinate, dict[str, Any]] = {}
+    for row in cast(list[dict[str, Any]], selected_semantics["operations"]):
+        namespace = cast(str, row["package"])
+        if namespace not in namespaces:
+            raise ValueError("selected Operation has no owning package")
+        definition = cast(dict[str, Any], row["definition"])
+        operations[(namespace, cast(str, definition["id"]))] = definition
+    return operations
 
 
 def operation_body_instructions(

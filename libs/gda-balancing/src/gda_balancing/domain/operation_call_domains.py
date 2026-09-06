@@ -15,7 +15,7 @@ from gda_balancing.domain.formula.types import formula_contract_from_operation
 from gda_balancing.domain.operation_program import OperationCoordinate
 
 
-OperationSlotCoordinate = tuple[str, str, str, str]
+OperationSlotCoordinate = tuple[str, str, str]
 LiteralContractResolver = Callable[[Any, dict[str, Any]], dict[str, Any] | None]
 
 
@@ -39,10 +39,10 @@ def _require_operation_coordinate(
 ) -> OperationCoordinate:
     if (
         not isinstance(reference, dict)
-        or set(reference) != {"package", "version", "id"}
+        or set(reference) != {"package", "id"}
         or not all(
             isinstance(reference.get(member), str) and reference[member]
-            for member in ("package", "version", "id")
+            for member in ("package", "id")
         )
     ):
         raise ConcreteOperationCallDomainError(
@@ -52,7 +52,6 @@ def _require_operation_coordinate(
         )
     return (
         cast(str, reference["package"]),
-        cast(str, reference["version"]),
         cast(str, reference["id"]),
     )
 
@@ -91,7 +90,7 @@ def project_concrete_operation_call_domains(
         for coordinate, calls in projection_input.roots.items()
     }
     slot_coordinates = {
-        cast(OperationCoordinate, coordinate[:3])
+        cast(OperationCoordinate, coordinate[:2])
         for coordinate in projection_input.formula_slot_bindings
     }
     if not slot_coordinates:
@@ -414,7 +413,7 @@ def project_concrete_operation_call_domains(
         OperationSlotCoordinate, list[dict[str, dict[str, Any]]]
     ] = {}
     for slot_coordinate in sorted(projection_input.formula_slot_bindings):
-        coordinate = cast(OperationCoordinate, slot_coordinate[:3])
+        coordinate = cast(OperationCoordinate, slot_coordinate[:2])
         operation = operations.get(coordinate)
         if operation is None:
             raise ConcreteOperationCallDomainError(
@@ -432,7 +431,7 @@ def project_concrete_operation_call_domains(
             (
                 item
                 for item in slots or []
-                if isinstance(item, dict) and item.get("id") == slot_coordinate[3]
+                if isinstance(item, dict) and item.get("id") == slot_coordinate[2]
             ),
             None,
         )
