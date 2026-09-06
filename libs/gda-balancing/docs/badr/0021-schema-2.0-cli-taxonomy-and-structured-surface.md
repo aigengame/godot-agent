@@ -12,7 +12,7 @@ status: accepted
 > bADR-0028 supersedes model migrate as a permanent forward command and requires removal of
 > obsolete version selectors and execution-binding fields from descriptors and every derived
 > surface when their owning slice lands. The command table retains its accepted target status;
-> the live CLI manifest defines command availability. Delivered migration/version/binding forms
+> the live CLI manifest defines command availability. Delivered version/binding forms
 > remain current implementation contracts until their replacements land. The unused artifact
 > sink is also retired without removing active
 > artifact-set publication. Descriptor ownership, typed outcomes, diagnostics, invocation-key
@@ -205,8 +205,9 @@ structured-params adapter part of the first vertical tracer.
   `build` emits a resolved artifact, `run` executes a new experiment, `replay` repeats exact
   reproduction identities, `compare` evaluates declared comparable artifacts, `inspect` returns
   structured internal facts, `diff` returns semantic model differences, `verify` validates evidence
-  claims, and `migrate` attempts bADR-0019's limited conversion. `read`, `show`, `validate`, `format`,
-  `simulate`, `tune`, and other synonyms cannot enter the 2.x tree without amending this record.
+  claims. The former `migrate` verb is retired with bADR-0019's converter. `migrate`, `read`,
+  `show`, `validate`, `format`, `simulate`, `tune`, and other additions cannot enter the 2.x tree
+  without amending this record.
 
 - **`version` reports distinct identities.** It returns the toolkit package version, supported
   Standard Schema lines, Language Definition Bundle versions, and command-surface version without

@@ -15,8 +15,8 @@ status: accepted
 > bADR-0028 replaces ongoing converter availability and the rejection of converter removal as
 > the final target. S1b inventories actual source inputs, records rewrite/retirement or bounded
 > one-time conversion, and then deletes the converter command, code, machine contracts,
-> packaged resources, and obsolete tests. The conversion rules below describe the current
-> implementation until deletion; they are not a permanent compatibility promise. Honest source
+> packaged resources, and obsolete tests. At adoption, the conversion rules below described the
+> then-current implementation; retirement is now recorded above. Honest source
 > disposition, no lossy success, and no dual Runtime remain. Panda’s separate consumer cutover
 > does not require this toolkit converter.
 
