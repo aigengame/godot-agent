@@ -444,6 +444,9 @@ names the file, and only `preflight` catches a first-frame failure.
 | `project find-unused-resources` | Find resource files that nothing references. |
 | `project statistics` | Report the project's file/line counts, autoloads, and more. |
 
+Every `project` write saves through the engine, which reserializes the whole file:
+gda restores the explicit lines it drops and reports the rest on the result.
+
 **`resource`** — resource files (`.tres`) and the project's imported assets
 
 | Command | What it does |

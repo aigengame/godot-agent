@@ -1087,6 +1087,29 @@ the built-in `ui_*` actions as defaults, so adding e.g. `ui_accept` reports `alr
 design). `gda project remove-input-action NAME` unregisters the action and persists `project.godot`;
 a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed save is `save_failed`.
 
+**What a write does to `project.godot`** (established by #843): every writer in this group —
+`set`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action` — persists
+through `ProjectSettings.save()`, which does not edit the file but **reserializes** it from the
+engine's merged settings (`ProjectSettings::save_custom`). Three things follow that the caller
+never asked for: an explicit line whose value equals the engine's initial value is **deleted**
+(`if (v->variant == v->initial) continue;`), `application/config/features` is **added or
+rewritten** (the rendering method appended, `C#` added or removed, unsupported features trimmed —
+and an older list can pull further compatibility settings in with it), and the **sections are
+written in the engine's own order**. gda bounds the write to the request and discloses the rest:
+it reads `project.godot` before the operation, **restores the dropped declarations verbatim**
+into the section they were written in, and reports the residual mutation on **every** write
+result — `added_settings`, `rewritten_settings`, `restored_settings`, and `sections_reordered`
+(one human line per non-empty category). The layout is NOT restored: the engine owns it, so gda
+says the order changed instead of fighting it. The **addressed** setting is in none of those
+lists — its new value, its appearance or its removal IS the request — with one exception it is
+named under `restored_settings` for: a `set` of a setting TO the engine default on a file that
+never declared it, where there is nothing in the pre-write file to restore, so the operation
+moves that default aside and the ENGINE writes the line from the request's coerced value (gda
+hand-builds no Godot literal, the ADR-0033 rule). Two things stay out of scope: **comments** (the
+engine writes its own header and keeps none of the file's), and the **key order inside** a
+section. A file gda cannot read on either side, or a run with no project resolved, reports the
+four keys empty and rewrites nothing.
+
 | Command | Description |
 | --- | --- |
 | `gda project info` | Project metadata (name, main scene, viewport, engine version) |

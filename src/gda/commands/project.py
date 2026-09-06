@@ -14,12 +14,15 @@ DIRECTORY (ADR-0006): that one stays in the shared core below this layer, and
 the absolute imports keep the two names apart.
 """
 
-from typing import Annotated, Any, Literal, Optional, Union
+from pathlib import Path
+from typing import Annotated, Any, Literal, Optional, TypeVar, Union
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from gda.dispatch import dispatch_domain, params_or_bad_parameter
+from gda import dispatch
+from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
+from gda.errors import Failure
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -34,6 +37,8 @@ from gda.models import (
     SET_ECHO_VALUE_DESC,
     VALUE_PROJECTION_DESC,
 )
+from gda.project import PROJECT_MARKER
+from gda.project_file import bound_project_write, read_config
 from gda.render import format_value
 
 
@@ -381,6 +386,169 @@ class ProjectListResult(BaseModel):
     settings: list[ListedProjectSetting]
 
 
+# --- Bounded project writes (#843) -------------------------------------------
+#
+# Every writer in this group persists through ``ProjectSettings.save()``, which
+# does not write the file the caller edited — it RESERIALIZES the whole of it
+# from the engine's merged settings (`ProjectSettings::save_custom`,
+# `core/config/project_settings.cpp`). Three things follow, none of them asked
+# for by the caller:
+#
+# * an explicit line whose value equals the engine's initial value is DELETED
+#   (`if (v->variant == v->initial) continue;`) — the caller's own declaration,
+#   which tooling and humans read, silently gone on an unrelated edit;
+# * `application/config/features` is added or rewritten (the rendering method
+#   appended, `C#` added or removed, unsupported features trimmed), and an older
+#   feature list can pull further compatibility settings in with it;
+# * the sections are written in the engine's own (alphabetical) order.
+#
+# gda bounds the write to the request and discloses the rest: it restores the
+# dropped declarations verbatim into their section and reports what the save
+# added, rewrote, restored and reordered. It does NOT restore the layout — the
+# engine owns that — and it does not re-author values: a restored line is the
+# caller's own bytes, and the one line gda cannot take from the pre-write file
+# (the addressed setting, when the caller writes it to the engine default on a
+# file that never declared it) is written by the ENGINE itself, from the
+# request's coerced value, because `operations.gd` moves that setting's initial
+# value out of the way before saving.
+
+
+class ProjectWriteResult(BaseModel):
+    """The residual-mutation report every ``project`` WRITE result carries (#843).
+
+    The single authority for the four keys the five writers share, so a caller
+    reads one shape whichever setting it wrote. All four describe the file BESIDE
+    the request: the addressed setting is never in them — its new value, its
+    appearance or its removal IS the request.
+
+    They are empty on a write gda could not measure (no project resolved, or a
+    ``project.godot`` it could not read on either side): with nothing to compare,
+    silence is the honest answer rather than a guess.
+    """
+
+    added_settings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Settings the engine's save WROTE that the caller did not ask about, "
+            "and that project.godot did not declare before — "
+            "application/config/features on a file that lacked it, and any "
+            "compatibility setting the engine pulled in with it."
+        ),
+    )
+    rewritten_settings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Settings that were already declared and whose value the engine's save "
+            "changed on its own — typically application/config/features."
+        ),
+    )
+    restored_settings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Explicit declarations the engine's save dropped because their value "
+            "equals its default, and that gda wrote back verbatim — plus the "
+            "addressed setting when the caller set it to that default."
+        ),
+    )
+    sections_reordered: bool = Field(
+        default=False,
+        description=(
+            "True when the engine's save wrote the sections the two files share in "
+            "a different order. gda does not restore the layout: the engine owns it."
+        ),
+    )
+
+
+W = TypeVar("W", bound=ProjectWriteResult)
+
+# The project-setting names the autoload and input-action writers address, built
+# the way `operations.gd` builds them (AUTOLOAD_SETTING_PREFIX /
+# INPUT_SETTING_PREFIX). The CLI needs the name to keep the addressed setting out
+# of the residual report.
+AUTOLOAD_SETTING_PREFIX = "autoload/"
+INPUT_SETTING_PREFIX = "input/"
+
+
+def _bounded_write(
+    cmd: HeadlessCommand[W],
+    params: BaseModel,
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+    addressed: str,
+) -> "W | Failure":
+    """Run a project writer, restore what its save dropped, and report the rest.
+
+    The recipe channel (ADR-0023) is the one descriptor-driven hook the argv and
+    ``--params-json`` paths share, so both take this same path (ADR-0015) without
+    the shared dispatch tail learning anything about this group. The sentinel op
+    still does the writing (``cmd.execute``); this wraps it in the part only the
+    CLI can do — it holds the file's PRE-write state, which no engine started
+    after the fact can recover.
+
+    ``project`` arrives ALREADY resolved from ``dispatch_recipe`` (#353).
+    Projectless is not refused here: the operation itself reports
+    ``project_not_found``, and this simply has nothing to measure.
+    """
+    marker = None if project is None else project / PROJECT_MARKER
+    before = None if marker is None else read_config(marker)
+    # The runner seam is read off the module at call time — never imported by name
+    # — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    outcome = cmd.execute(
+        params, godot=godot, project=project, make_runner=dispatch.make_runner
+    )
+    if isinstance(outcome, Failure) or marker is None:
+        return outcome
+    mutation = bound_project_write(marker, before, addressed=addressed)
+    return outcome.model_copy(
+        update={
+            "added_settings": list(mutation.added),
+            "rewritten_settings": list(mutation.rewritten),
+            # The operation reports the addressed setting it had to force back
+            # (a `project set` to the engine's own default); the CLI adds the
+            # declarations it restored itself.
+            "restored_settings": [*outcome.restored_settings, *mutation.restored],
+            "sections_reordered": mutation.sections_reordered,
+        }
+    )
+
+
+def _render_write_mutation(written: ProjectWriteResult) -> list[str]:
+    """One line per NON-EMPTY category of the residual report (#843).
+
+    A clean write is the common case and stays a single line — four empty
+    categories printed every time would bury the answer the command was asked for.
+    """
+    lines: list[str] = []
+    if written.added_settings:
+        lines.append("engine added: " + ", ".join(written.added_settings))
+    if written.rewritten_settings:
+        lines.append("engine rewrote: " + ", ".join(written.rewritten_settings))
+    if written.restored_settings:
+        lines.append("gda restored: " + ", ".join(written.restored_settings))
+    if written.sections_reordered:
+        lines.append("sections reordered by the engine")
+    return lines
+
+
+# The shared help paragraph the five writers carry, so an agent reading one
+# command's --help (or its --schema description) learns what a save does to the
+# file without having to have read the catalog. Composed into each command's own
+# summary by `_write_help`, which keeps the five from drifting apart.
+BOUNDED_WRITE_HELP = (
+    "Saving reserializes project.godot through the engine: it drops explicit "
+    "lines whose value equals the engine default, adds or rewrites "
+    "application/config/features, and reorders the sections. gda restores the "
+    "dropped lines and reports the rest as added_settings, rewritten_settings, "
+    "restored_settings and sections_reordered."
+)
+
+
+def _write_help(summary: str) -> str:
+    """A project writer's help: its own summary, then the shared save note."""
+    return f"{summary}\n\n{BOUNDED_WRITE_HELP}"
+
+
 class ProjectSetParams(BaseModel):
     """The operation params of ``gda project set`` (issue #111).
 
@@ -409,7 +577,7 @@ class ProjectSetParams(BaseModel):
     )
 
 
-class ProjectSetResult(BaseModel):
+class ProjectSetResult(ProjectWriteResult):
     """The result of ``gda project set``: the one setting it set (issue #111).
 
     Echoes the ``setting`` set, the declared ``type`` the CLI value was coerced
@@ -455,7 +623,7 @@ class ProjectAddAutoloadParams(BaseModel):
     )
 
 
-class ProjectAddAutoloadResult(BaseModel):
+class ProjectAddAutoloadResult(ProjectWriteResult):
     """The result of ``gda project add-autoload``: the autoload it registered.
 
     Echoes the autoload's ``name`` and the ``path`` exactly as it was persisted to
@@ -487,7 +655,7 @@ class ProjectRemoveAutoloadParams(BaseModel):
     )
 
 
-class ProjectRemoveAutoloadResult(BaseModel):
+class ProjectRemoveAutoloadResult(ProjectWriteResult):
     """The result of ``gda project remove-autoload``: the autoload it removed.
 
     Echoes the ``name`` of the autoload that was unregistered, so an agent can
@@ -739,7 +907,7 @@ InputActionEvent = Annotated[
 ]
 
 
-class ProjectAddInputActionResult(BaseModel):
+class ProjectAddInputActionResult(ProjectWriteResult):
     """The result of ``gda project add-input-action``: the action it registered.
 
     Echoes the action's ``name``, the ``deadzone`` persisted, and the resolved
@@ -771,7 +939,7 @@ class ProjectRemoveInputActionParams(BaseModel):
     name: str = Field(description="The name of the input action to unregister.")
 
 
-class ProjectRemoveInputActionResult(BaseModel):
+class ProjectRemoveInputActionResult(ProjectWriteResult):
     """The result of ``gda project remove-input-action``: the action it removed.
 
     Echoes the ``name`` of the input action that was unregistered, so an agent
@@ -801,8 +969,13 @@ def render_project_get(got: "ProjectGetResult") -> str:
 
 
 def render_project_set(was_set: "ProjectSetResult") -> str:
-    """Render a set setting as ``set <setting> (<type>) = <value>``."""
-    return f"set {was_set.setting} ({was_set.type}) = {format_value(was_set.value)}"
+    """Render a set setting as ``set <setting> (<type>) = <value>``.
+
+    Followed by one line per non-empty residual-mutation category (#843), the
+    shared tail every project WRITE renders.
+    """
+    line = f"set {was_set.setting} ({was_set.type}) = {format_value(was_set.value)}"
+    return "\n".join([line, *_render_write_mutation(was_set)])
 
 
 def render_project_list(listed: "ProjectListResult") -> str:
@@ -826,12 +999,14 @@ def render_project_list(listed: "ProjectListResult") -> str:
 
 def render_project_add_autoload(added: "ProjectAddAutoloadResult") -> str:
     """Render a registered autoload as ``added autoload <name> = <path>``."""
-    return f"added autoload {added.name} = {added.path}"
+    line = f"added autoload {added.name} = {added.path}"
+    return "\n".join([line, *_render_write_mutation(added)])
 
 
 def render_project_remove_autoload(removed: "ProjectRemoveAutoloadResult") -> str:
     """Render an unregistered autoload as ``removed autoload <name>``."""
-    return f"removed autoload {removed.name}"
+    line = f"removed autoload {removed.name}"
+    return "\n".join([line, *_render_write_mutation(removed)])
 
 
 def _render_input_action_binding(event: "InputActionEvent") -> str:
@@ -863,14 +1038,15 @@ def render_project_add_input_action(added: "ProjectAddInputActionResult") -> str
     ]
     if joypad:
         line += f" [device {joypad[0].device}]"
-    return line
+    return "\n".join([line, *_render_write_mutation(added)])
 
 
 def render_project_remove_input_action(
     removed: "ProjectRemoveInputActionResult",
 ) -> str:
     """Render an unregistered input action as ``removed input action <name>``."""
-    return f"removed input action {removed.name}"
+    line = f"removed input action {removed.name}"
+    return "\n".join([line, *_render_write_mutation(removed)])
 
 
 def render_project_find_references(found: "ProjectFindReferencesResult") -> str:
@@ -943,11 +1119,89 @@ PROJECT_LIST_COMMAND: HeadlessCommand[ProjectListResult] = HeadlessCommand(
     render=render_project_list,
 )
 
+# --- Recipe channels: the five project WRITERS (ADR-0023, #843) ---------------
+# Each carries a `recipe` because one half of its contract is decided CLI-side:
+# the file as it stood BEFORE the engine's save, which no engine started after the
+# fact can recover. The op still does the writing; `_bounded_write` restores what
+# the save dropped and reports the rest. The addressed setting each recipe names is
+# what keeps the request itself out of that report.
+
+
+def _project_set_recipe(
+    params: "ProjectSetParams", *, project: Optional[Path], godot: Optional[str]
+) -> "ProjectSetResult | Failure":
+    return _bounded_write(
+        PROJECT_SET_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=params.setting,
+    )
+
+
+def _project_add_autoload_recipe(
+    params: "ProjectAddAutoloadParams", *, project: Optional[Path], godot: Optional[str]
+) -> "ProjectAddAutoloadResult | Failure":
+    return _bounded_write(
+        PROJECT_ADD_AUTOLOAD_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=AUTOLOAD_SETTING_PREFIX + params.name,
+    )
+
+
+def _project_remove_autoload_recipe(
+    params: "ProjectRemoveAutoloadParams",
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+) -> "ProjectRemoveAutoloadResult | Failure":
+    return _bounded_write(
+        PROJECT_REMOVE_AUTOLOAD_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=AUTOLOAD_SETTING_PREFIX + params.name,
+    )
+
+
+def _project_add_input_action_recipe(
+    params: "ProjectAddInputActionParams",
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+) -> "ProjectAddInputActionResult | Failure":
+    return _bounded_write(
+        PROJECT_ADD_INPUT_ACTION_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=INPUT_SETTING_PREFIX + params.name,
+    )
+
+
+def _project_remove_input_action_recipe(
+    params: "ProjectRemoveInputActionParams",
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+) -> "ProjectRemoveInputActionResult | Failure":
+    return _bounded_write(
+        PROJECT_REMOVE_INPUT_ACTION_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=INPUT_SETTING_PREFIX + params.name,
+    )
+
+
 PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
     operation="project-set",
     input_model=ProjectSetParams,
     output_model=ProjectSetResult,
     render=render_project_set,
+    recipe=_project_set_recipe,
 )
 
 PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = (
@@ -956,6 +1210,7 @@ PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = (
         input_model=ProjectAddAutoloadParams,
         output_model=ProjectAddAutoloadResult,
         render=render_project_add_autoload,
+        recipe=_project_add_autoload_recipe,
     )
 )
 
@@ -965,6 +1220,7 @@ PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = 
         input_model=ProjectRemoveAutoloadParams,
         output_model=ProjectRemoveAutoloadResult,
         render=render_project_remove_autoload,
+        recipe=_project_remove_autoload_recipe,
     )
 )
 
@@ -974,6 +1230,7 @@ PROJECT_ADD_INPUT_ACTION_COMMAND: HeadlessCommand[ProjectAddInputActionResult] =
         input_model=ProjectAddInputActionParams,
         output_model=ProjectAddInputActionResult,
         render=render_project_add_input_action,
+        recipe=_project_add_input_action_recipe,
     )
 )
 
@@ -983,6 +1240,7 @@ PROJECT_REMOVE_INPUT_ACTION_COMMAND: HeadlessCommand[ProjectRemoveInputActionRes
         input_model=ProjectRemoveInputActionParams,
         output_model=ProjectRemoveInputActionResult,
         render=render_project_remove_input_action,
+        recipe=_project_remove_input_action_recipe,
     )
 )
 
@@ -1173,7 +1431,14 @@ def find_unused_resources(
     )
 
 
-@_app.command(name="set", cls=PROJECT_SET_COMMAND.command_class())
+@_app.command(
+    name="set",
+    cls=PROJECT_SET_COMMAND.command_class(),
+    help=_write_help(
+        "Set a project setting, coercing the value to its declared Godot type, "
+        "then save."
+    ),
+)
 def project_set(
     setting: str = typer.Argument(
         ...,
@@ -1193,8 +1458,7 @@ def project_set(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Set a project setting, coercing the value to its declared Godot type, then save."""
-    dispatch_domain(
+    dispatch_recipe(
         PROJECT_SET_COMMAND,
         ProjectSetParams(setting=setting, value=value),
         json_output=json_output,
@@ -1203,7 +1467,14 @@ def project_set(
     )
 
 
-@_app.command(name="add-autoload", cls=PROJECT_ADD_AUTOLOAD_COMMAND.command_class())
+@_app.command(
+    name="add-autoload",
+    cls=PROJECT_ADD_AUTOLOAD_COMMAND.command_class(),
+    help=_write_help(
+        "Register an autoload singleton (name → script/scene path), then save "
+        "project.godot."
+    ),
+)
 def project_add_autoload(
     name: str = typer.Argument(
         ..., help="The autoload singleton's global name (the autoload/<name> key)."
@@ -1218,8 +1489,7 @@ def project_add_autoload(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Register an autoload singleton (name → script/scene path), then save project.godot."""
-    dispatch_domain(
+    dispatch_recipe(
         PROJECT_ADD_AUTOLOAD_COMMAND,
         ProjectAddAutoloadParams(name=name, path=path),
         json_output=json_output,
@@ -1229,7 +1499,11 @@ def project_add_autoload(
 
 
 @_app.command(
-    name="remove-autoload", cls=PROJECT_REMOVE_AUTOLOAD_COMMAND.command_class()
+    name="remove-autoload",
+    cls=PROJECT_REMOVE_AUTOLOAD_COMMAND.command_class(),
+    help=_write_help(
+        "Unregister an autoload singleton by name, then save project.godot."
+    ),
 )
 def project_remove_autoload(
     name: str = typer.Argument(
@@ -1241,8 +1515,7 @@ def project_remove_autoload(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Unregister an autoload singleton by name, then save project.godot."""
-    dispatch_domain(
+    dispatch_recipe(
         PROJECT_REMOVE_AUTOLOAD_COMMAND,
         ProjectRemoveAutoloadParams(name=name),
         json_output=json_output,
@@ -1252,7 +1525,12 @@ def project_remove_autoload(
 
 
 @_app.command(
-    name="add-input-action", cls=PROJECT_ADD_INPUT_ACTION_COMMAND.command_class()
+    name="add-input-action",
+    cls=PROJECT_ADD_INPUT_ACTION_COMMAND.command_class(),
+    help=_write_help(
+        "Register an InputMap action bound to keys and/or joypad inputs, then "
+        "save project.godot."
+    ),
 )
 def project_add_input_action(
     name: str = typer.Argument(
@@ -1301,7 +1579,6 @@ def project_add_input_action(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Register an InputMap action bound to keys and/or joypad inputs, then save project.godot."""
     params = params_or_bad_parameter(
         ProjectAddInputActionParams,
         name=name,
@@ -1312,7 +1589,7 @@ def project_add_input_action(
         deadzone=deadzone,
         physical=physical,
     )
-    dispatch_domain(
+    dispatch_recipe(
         PROJECT_ADD_INPUT_ACTION_COMMAND,
         params,
         json_output=json_output,
@@ -1322,7 +1599,9 @@ def project_add_input_action(
 
 
 @_app.command(
-    name="remove-input-action", cls=PROJECT_REMOVE_INPUT_ACTION_COMMAND.command_class()
+    name="remove-input-action",
+    cls=PROJECT_REMOVE_INPUT_ACTION_COMMAND.command_class(),
+    help=_write_help("Unregister an InputMap action by name, then save project.godot."),
 )
 def project_remove_input_action(
     name: str = typer.Argument(..., help="The name of the input action to unregister."),
@@ -1332,8 +1611,7 @@ def project_remove_input_action(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Unregister an InputMap action by name, then save project.godot."""
-    dispatch_domain(
+    dispatch_recipe(
         PROJECT_REMOVE_INPUT_ACTION_COMMAND,
         ProjectRemoveInputActionParams(name=name),
         json_output=json_output,
