@@ -297,13 +297,10 @@ def _resolved_source_symbols(
                 "package": imported[package_member],
                 "id": imported[import_symbol_member],
             }
-            nominal_matches = [
-                definition
-                for definition in cast(list[dict[str, Any]], language["nominal_types"])
-                if definition.get("package") == imported[package_member]
-                and definition.get("id") == imported[import_symbol_member]
+            nominal_exports = packages[imported[package_member]]["exports"][
+                "nominal_types"
             ]
-            if len(nominal_matches) == 1:
+            if imported[import_symbol_member] in nominal_exports:
                 fields["value_kind"] = "nominal-structured"
             rows.append(
                 (

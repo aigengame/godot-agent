@@ -214,7 +214,7 @@ def package_structured_value_index(
     for package in packages:
         for definition in _semantic_definitions(package, "language.nominal_types"):
             key = (
-                cast(str, definition["package"]),
+                cast(str, package["id"]),
                 cast(str, definition["id"]),
             )
             if key not in definitions:
@@ -236,57 +236,11 @@ def language_structured_value_index(
     kernel: dict[str, Any],
 ) -> StructuredValueIndex:
     """Index structured-value rules from an admitted Language Definition Bundle."""
-    typed_profile, fixed_contracts, value_nodes = _kernel_structured_value_contracts(
-        kernel
-    )
     language = language_bundle.get("language")
     if not isinstance(language, dict):
         raise ValueError("admitted language content is unavailable")
     packages = cast(list[dict[str, Any]], language.get("packages"))
-    definitions: dict[_TypeKey, dict[str, Any]] = {}
-    for package in packages:
-        exports = cast(dict[str, Any], package["exports"])
-        for exported_type in cast(list[dict[str, Any]], exports.get("types", [])):
-            key = (
-                cast(str, package["id"]),
-                cast(str, exported_type["id"]),
-            )
-            definitions[key] = {
-                **exported_type,
-                "package": package["id"],
-            }
-    rows = language.get("nominal_types")
-    if not isinstance(rows, (list, tuple)):
-        raise ValueError("admitted language has no nominal type collection")
-    for definition in cast(Iterable[dict[str, Any]], rows):
-        key = (
-            cast(str, definition["package"]),
-            cast(str, definition["id"]),
-        )
-        if key not in definitions:
-            raise ValueError("nominal definition has no selected exported type")
-        definitions[key] = definition
-    constructors = {
-        cast(str, constructor["id"]): constructor
-        for constructor in cast(list[dict[str, Any]], language.get("constructors"))
-    }
-    operations = {
-        cast(str, operation["id"]): operation
-        for operation in cast(
-            list[dict[str, Any]], language.get("structured_operations")
-        )
-    }
-    return StructuredValueIndex(
-        constructors=constructors,
-        operations=operations,
-        types=definitions,
-        typed_envelope_profile=_typed_envelope_profile(
-            cast(list[dict[str, Any]], language.get("literal_typing_profiles")),
-            typed_profile,
-        ),
-        fixed_value_contracts=fixed_contracts,
-        value_nodes=value_nodes,
-    )
+    return package_structured_value_index(packages, kernel=kernel)
 
 
 def selected_structured_value_index(
@@ -311,7 +265,7 @@ def selected_structured_value_index(
     for row in cast(list[dict[str, Any]], selected_semantics["nominal_types"]):
         definition = cast(dict[str, Any], row["definition"])
         key = (
-            cast(str, definition["package"]),
+            cast(str, row["package"]),
             cast(str, definition["id"]),
         )
         if key not in definitions:
