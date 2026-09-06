@@ -281,12 +281,17 @@ class TestKeyUserPath:
             "rare-threshold"
         }
         assert {row["id"] for row in explanation["operation_explanations"]} == {
-            "game.generation.select-reward-v1",
+            "game.build.contribution@1",
             "game.build.replace-reward-v1",
+            "game.generation.select-reward-v1",
+            "quantity.add",
+            "quantity.floor-divide",
             "quantity.floor-zero",
             "quantity.identity",
             "quantity.less-than",
             "quantity.maximum",
+            "quantity.minimum",
+            "quantity.multiply",
             "quantity.subtract",
         }
 
