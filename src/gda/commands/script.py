@@ -1102,10 +1102,10 @@ class ScriptRunResult(BaseModel):
         # OMITTED, never null (the same rule `scene preflight`'s timeout pair and
         # the Error envelope's evidence follow): a null 'user_data_root' would claim
         # gda knows a root it was never given, and a null 'log_file' a file that was
-        # deleted. Dropping them also keeps a default run's result byte-identical to
-        # what it emitted before #850, for every consumer that reads it. Only these
-        # two keys are considered: 'engine_data_path' is required-but-nullable and
-        # its null MEANS the platform variable is unset.
+        # deleted. Dropping them also bounds what a default run's result gains from
+        # #850 to the one key 'engine_data_path', for every consumer that reads it.
+        # Only these two keys are considered: 'engine_data_path' is
+        # required-but-nullable and its null MEANS the platform variable is unset.
         serialized = handler(self)
         for key in ("user_data_root", "log_file"):
             if serialized.get(key) is None:

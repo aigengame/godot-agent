@@ -568,8 +568,9 @@ added incrementally under ADR-0025 if a concrete need appears.
 > `user_data_root` is present only when a root was given, and `log_file` only then
 > too — by default the log is a private temporary file the launch removes on the way
 > out, so naming it would hand a caller a dangling path. Both are **omitted, never
-> null**, which is also what keeps a default run's result byte-identical to what it
-> emitted before this change.
+> null**. A default run's result therefore changes by exactly one key — it gains
+> `engine_data_path` — and by nothing else; byte identity is what the OTHER
+> launch-backed channels and this channel's failure envelopes keep.
 >
 > Three boundaries. The facts come from the ONE launch primitive and are read off
 > the raw run; `script run` resolves no root and derives no data path of its own, so
