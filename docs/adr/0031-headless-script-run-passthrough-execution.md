@@ -571,11 +571,16 @@ added incrementally under ADR-0025 if a concrete need appears.
 > null**, which is also what keeps a default run's result byte-identical to what it
 > emitted before this change.
 >
-> Two boundaries. The facts come from the ONE launch primitive and are read off the
-> raw run; `script run` resolves no root and derives no data path of its own, so it
-> cannot report a placement the run did not have. And this stays the ONE channel
-> that publishes them: `scene preflight`, `export run`, `resource import` and every
+> Three boundaries. The facts come from the ONE launch primitive and are read off
+> the raw run; `script run` resolves no root and derives no data path of its own, so
+> it cannot report a placement the run did not have. This stays the ONE channel that
+> publishes them: `scene preflight`, `export run`, `resource import` and every
 > sentinel command take the same facts off the same raw run and disclose none, so
-> their results are unchanged (a registry test holds them to it). The human
-> rendering is unchanged too — `script run` without `--json` stays the script's own
-> output, per this ADR's passthrough decision.
+> their results are unchanged (a registry test holds them to it). And it is the
+> SUCCESS result alone: this channel's failure envelopes — `--strict`'s
+> `script_failed`, the two gda-ended runs — keep the shape the #687 outcome above
+> gave them, because putting `engine_data_path` on an Error envelope means extending
+> ADR-0004's `Failure evidence` producer set, a decision that ADR owns and that #850
+> did not scope. The follow-up is named rather than taken here. The human rendering
+> is unchanged too — `script run` without `--json` stays the script's own output, per
+> this ADR's passthrough decision.

@@ -123,9 +123,12 @@ placement is **created, not inspected**, before the spawn — that creation IS t
 preflight — and a placement gda cannot make usable is a typed refusal
 (`user_data_unwritable`) rather than an engine crash. It is also REPORTED, not only
 prepared: the placement rides the `Raw run` out of the launch that dropped it, and
-`gda script run` publishes it, so a failed `user://` write is attributable to the
-environment instead of read as a game regression (#850). Headless only: a live
-`Engine session`'s log is daemon-owned (ADR-0022).
+`gda script run` publishes it on a SUCCESSFUL result, so a failed `user://` write is
+attributable to the environment instead of read as a game regression (#850). Only
+there: a run that ends in an `Error envelope` — `--strict`'s `script_failed`, a
+`launch_timeout` — keeps its pre-#850 shape, since disclosing a fact on a failure
+means entering `Failure evidence`'s producer set, which is a separate ADR-0004
+decision. Headless only: a live `Engine session`'s log is daemon-owned (ADR-0022).
 _Avoid_: log redirect, user dir, sandbox
 
 **Raw run**:

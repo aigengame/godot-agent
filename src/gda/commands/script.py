@@ -2713,11 +2713,12 @@ def run_script(
     directory, which a restricted profile often does not have. Redirect both it and
     the engine log with the GLOBAL ``--user-data-root``, which PRECEDES the
     subcommand — ``gda --user-data-root DIR script run <path>`` — or set
-    ``$GDA_USER_DATA_ROOT``. Every result says where the run actually was:
-    ``engine_data_path``, the directory the engine resolved ``user://`` beneath, is
-    always present; ``user_data_root`` and ``log_file`` are reported only when a
-    root was given — the one case in which the log outlives the launch, since by
-    default it is a private temporary file gda removes.
+    ``$GDA_USER_DATA_ROOT``. Every SUCCESSFUL result says where the run actually
+    was: ``engine_data_path``, the directory the engine resolved ``user://``
+    beneath, is always present; ``user_data_root`` and ``log_file`` are reported
+    only when a root was given — the one case in which the log outlives the launch,
+    since by default it is a private temporary file gda removes. A failure envelope
+    (``--strict``'s ``script_failed``, a ``launch_timeout``) does not carry them.
 
     A script that never RAN is a failure either way. Godot reports these on stderr and
     still exits 0, so gda decides them from the engine's error stream, not its exit

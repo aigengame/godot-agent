@@ -987,7 +987,10 @@ outlives the launch, the default being a private temporary file gda removes. Bot
 omitted rather than null when they are not facts. The facts come off the shared launch
 primitive's `Raw run`, and `script run` is the only channel that publishes them:
 `scene preflight`, `export run`, `resource import` and the sentinel commands read the
-same run and disclose none.
+same run and disclose none. So does a FAILURE of this command — `--strict`'s
+`script_failed`, a `launch_timeout` — which keeps its pre-#850 shape: disclosing the
+placement there means extending ADR-0004's `Failure evidence` producer set, which is
+that ADR's decision and a follow-up, not this one.
 
 The script executes in full, within the trusted-project assumption (ADR-0009).
 

@@ -11,12 +11,15 @@ in :mod:`gda.render` is orphaned. This turns the former first-invocation
 
 import importlib
 import pkgutil
+import typing
 
 import typer
+from pydantic import BaseModel
 
 import gda.commands
 import gda.render as render_mod
 from gda.cli import app
+from gda.runner import UserDataReport
 
 
 def _leaf_commands(command, path):
@@ -239,16 +242,68 @@ def test_every_dispatchable_command_resolves_to_exactly_one_channel():
 _PLACEMENT_FIELDS = {"user_data_root", "engine_data_path", "log_file"}
 
 
+def _annotation_classes(annotation) -> list:
+    """Every class an annotation mentions, its type ARGUMENTS included.
+
+    `str | None`, `list[Thing]` and `Optional[Thing]` all hide their real subject
+    inside `get_args`, so a check that only looked at the annotation itself would
+    miss a nested carrier declared in any of those shapes.
+    """
+    found = []
+    stack = [annotation]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, type):
+            found.append(current)
+        stack.extend(typing.get_args(current))
+    return found
+
+
+def _carries_the_placement(model, seen: set | None = None) -> bool:
+    """Whether this result model publishes the launch's user-data placement, at ANY depth.
+
+    Three ways it can, and the test below has to see all three: one of the three
+    public key names on the model itself; a field typed as the runner's own
+    `UserDataReport`; or a NESTED model that does either. Checking only top-level
+    field names — which this guard did at first — would let a future channel smuggle
+    the placement in as a sub-object and still pass.
+    """
+    seen = set() if seen is None else seen
+    if model in seen:
+        return False
+    seen.add(model)
+    # Resolve string/forward annotations before reading them: a nested model
+    # declared AFTER its user leaves the field annotation a bare `ForwardRef`, which
+    # names no class and would walk straight past a smuggled carrier. Rebuilding is
+    # a no-op for an already-complete model, and the completeness assertion below
+    # turns an annotation this guard cannot see into a loud failure rather than a
+    # silent pass.
+    model.model_rebuild(raise_errors=False)
+    assert model.__pydantic_complete__, (
+        f"{model.__name__} has unresolved annotations; this guard cannot read them"
+    )
+    for name, field in model.model_fields.items():
+        if name in _PLACEMENT_FIELDS:
+            return True
+        for cls in _annotation_classes(field.annotation):
+            if cls is UserDataReport:
+                return True
+            if issubclass(cls, BaseModel) and _carries_the_placement(cls, seen):
+                return True
+    return False
+
+
 def test_only_script_run_publishes_the_launch_user_data_placement():
     # #850 disclosed the placement on `script run` alone. `scene preflight`,
     # `export run`, `resource import` and every sentinel command share the primitive
     # that now carries those facts on its Raw run, so their results must stay
     # byte-identical: this fails the moment another output model grows one of the
-    # three keys without its own issue deciding it should.
+    # three keys — or a nested object carrying them — without its own issue deciding
+    # it should.
     carriers = {
         name
         for name, cmd in _dispatchable()
-        if _PLACEMENT_FIELDS & set(cmd.output_model.model_fields)
+        if _carries_the_placement(cmd.output_model)
     }
 
     assert carriers == {"script run"}

@@ -148,11 +148,17 @@ class RunResult:
     # (issue #714) — see :class:`TimeoutBound`.
     timeout_bound: "TimeoutBound | None" = None
     # Where this launch put Godot's user data (issue #850) — see
-    # :class:`UserDataReport`. Set by :func:`launch` on every result it returns
-    # from a prepared placement, whatever the outcome: a timed-out run's ``user://``
-    # root is exactly the fact a diagnosing caller wants. ``None`` on a launch
-    # REFUSED before a placement existed (``USER_DATA_UNWRITABLE``, whose own
-    # diagnostics name what was attempted) and on a hand-built result at a test seam.
+    # :class:`UserDataReport`. Set by :func:`launch` on every result it returns from
+    # a prepared placement, whatever the outcome, so that a channel CAN publish it
+    # wherever it decides to — not because every outcome publishes it today. Today
+    # exactly one does: ``script run``'s SUCCESS result. The failure envelopes of
+    # this and every other channel keep their pre-#850 shape, because putting a fact
+    # on an ``Error envelope`` means entering ADR-0004's `Failure evidence` producer
+    # set, which #850 did not scope. Follow-up: extend `Failure evidence` with
+    # ``engine_data_path`` on ``script_failed`` / ``launch_timeout``.
+    # ``None`` on a launch REFUSED before a placement existed
+    # (``USER_DATA_UNWRITABLE``, whose own diagnostics name what was attempted) and
+    # on a hand-built result at a test seam.
     user_data: "UserDataReport | None" = None
 
 
@@ -324,8 +330,14 @@ class UserDataPlacement:
 
     ``env`` is the FULL child environment when a root redirects ``user://``, else
     ``None`` to inherit gda's own.
+
+    ``root`` is the ``--user-data-root`` this placement was PREPARED from, carried
+    here rather than left in the caller's local so the placement is self-describing:
+    one object then answers every question about where the launch put its user data,
+    and the :class:`UserDataReport` derives from it alone (#850 review).
     """
 
+    root: Optional[Path]
     log_file: Path
     data_path: Optional[Path]
     env: Optional[dict[str, str]]
@@ -403,7 +415,9 @@ def user_data_placement(
                 ) from exc
         except UserDataUnwritable:
             raise
-        yield UserDataPlacement(log_file=log_file, data_path=data_path, env=child_env)
+        yield UserDataPlacement(
+            root=root, log_file=log_file, data_path=data_path, env=child_env
+        )
     finally:
         if temp_root is not None:
             shutil.rmtree(temp_root, ignore_errors=True)
@@ -740,9 +754,13 @@ def launch(
             return replace(
                 result,
                 user_data=UserDataReport(
-                    root=root,
+                    root=placement.root,
                     data_path=placement.data_path,
-                    log_file=placement.log_file if root is not None else None,
+                    # The log is a fact only under a root; otherwise it is the
+                    # private temporary file this block is about to remove.
+                    log_file=(
+                        placement.log_file if placement.root is not None else None
+                    ),
                 ),
             )
     except UserDataUnwritable as exc:
