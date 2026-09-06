@@ -1,0 +1,21 @@
+import json
+from pathlib import Path
+import os
+out=Path(os.environ['GDA_PROBE_OUT'])
+r=json.loads((out/'results.json').read_text());m=json.loads((out/'graph-mutation-results.json').read_text())
+assert 'error' not in r,r.get('traceback')
+assert r['admission']['admitted'] is True
+assert r['merge_conflicts']==[]
+assert len(r['inventory'])==14
+assert len(r['examples'])==5
+assert all(x['checked'] and x['compiled_validated'] for x in r['examples'])
+experiments=[e for x in r['examples'] for e in x['experiments']]
+assert len(experiments)==7
+assert all(e['checked'] and e['outcome']=='ExperimentExecutionSuccess' for e in experiments)
+assert r['baseline_periodic_plus_progression']['refused'] is True
+assert r['composition']['checked'] and r['composition']['compiled_validated']
+assert r['composition']['experiment']['outcome']=='ExperimentExecutionSuccess'
+assert len(r['mutations'])==2 and all(m['refused'] for m in r['mutations'])
+assert m['admitted'] is False
+assert r['vector_count']==41 and r['candidate_conformance_failures']==[]
+print('PASS: 14 package definitions; 5 compile paths; 7 maintained Experiments; 1 composed Experiment; 41 dual-consumer vectors; 3 refusals; baseline conflict reproduced.')

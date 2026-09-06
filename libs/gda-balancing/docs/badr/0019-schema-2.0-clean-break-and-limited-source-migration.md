@@ -4,6 +4,15 @@ status: accepted
 
 # Make Schema 2.0 the clean baseline and limit migration to safe source conversion
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 replaces ongoing converter availability and the rejection of converter removal as
+> the final target. S1b inventories actual source inputs, records rewrite/retirement or bounded
+> one-time conversion, and then deletes the converter command, code, machine contracts,
+> packaged resources, and obsolete tests. The conversion rules below describe the current
+> implementation until deletion; they are not a permanent compatibility promise. Honest source
+> disposition, no lossy success, and no dual Runtime remain. Panda’s separate consumer cutover
+> does not require this toolkit converter.
+
 The initial migration proposal covered saves, active effects, scheduled events, replays, old
 rulesets, shadow execution, cohorts, rollback, and reverse migration. Those mechanisms are justified
 when published artifacts or live games depend on the old contract. The maintainer confirmed that

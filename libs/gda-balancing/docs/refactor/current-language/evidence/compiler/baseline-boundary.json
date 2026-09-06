@@ -1,0 +1,31 @@
+{
+  "mode": "baseline",
+  "required_steps": 197,
+  "boundaries": {
+    "196": {
+      "stage": "static",
+      "variant": null,
+      "diagnostics": [
+        {
+          "code": "language.resource_exhausted",
+          "message": "Model Source runtime projection exhausted its admitted step budget",
+          "primary": {
+            "kind": "artifact",
+            "content_identity": "sha256:31d84de1e352ac8c04ff46083e422ebb46f862353b4aafb7ec37b9b83b122d14",
+            "pointer": ""
+          },
+          "related": []
+        }
+      ],
+      "truncated": false,
+      "migration_report": null,
+      "terminal_audit": null
+    },
+    "197": {
+      "sha256": "06203b2845839fa54385a4b180c61ead2ac19b9c917ecf188d006c95d18ac58e"
+    },
+    "198": {
+      "sha256": "57e1632fecd4b8f15c355f40b15034743fa3a641ad2efbb5c5f5673b0453b167"
+    }
+  }
+}
