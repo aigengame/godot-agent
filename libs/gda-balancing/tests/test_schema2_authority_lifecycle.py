@@ -3,7 +3,7 @@
 import ast
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +20,12 @@ from gda_balancing.interfaces.cli.model_check import (
     run_model_check,
 )
 from gda_balancing.domain.authority.graph import LanguageBundleIndex
+from gda_balancing.domain.diagnostics import authority_load_refusal
+from schema2_bootstrap_production_support import (
+    _append_empty_namespace,
+    _authority_candidate,
+    _reidentify_graph_root,
+)
 
 
 _PACKAGE_ROOT = Path(__file__).parents[1]
@@ -153,6 +159,75 @@ def test_mutating_first_refusal_cannot_poison_cached_failure(monkeypatch):
         "kernel",
         "deterministic test refusal",
     )
+
+
+def test_cached_bootstrap_refusal_preserves_frozen_evidence_from_actual_resources(
+    tmp_path, monkeypatch
+):
+    authority = _authority_candidate()
+    kernel, ldb = authority["kernel"], authority["language_bundle"]
+    _append_empty_namespace(ldb, "kernel")
+    _reidentify_graph_root(ldb)
+    resources = {"kernel.json": kernel, "language-bundle.json": ldb.root}
+    for package, vectors in zip(
+        ldb.package_releases, ldb.package_conformance_vector_sets, strict=True
+    ):
+        namespace = package["id"]
+        prefix = f"packages/{namespace.replace('.', '-')}/{namespace}"
+        resources[f"{prefix}.json"] = package
+        resources[f"{prefix}.conformance-vectors.json"] = vectors
+    for name, value in resources.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(consumer_support._encoded(value))
+    reads = []
+
+    def read_candidate(package, name):
+        assert package == "gda_balancing.schema2.authorities"
+        reads.append(name)
+        return (tmp_path / name).read_bytes()
+
+    authority_module.reset_packaged_authority_context_for_tests()
+    monkeypatch.setattr(authority_module, "read_package_resource", read_candidate)
+    with pytest.raises(authority_module.AuthorityLoadError) as first:
+        authority_module.packaged_authority_context()
+    admission = first.value.admission
+    assert admission is not None
+    assert admission.admitted is False
+    assert admission.kernel_identity == kernel["content_identity"]
+    assert admission.language_bundle_identity == ldb["content_identity"]
+    assert tuple(
+        (item.stage, item.code, item.subject) for item in admission.diagnostics
+    ) == (("static", "kernel.duplicate_identifier", "language.packages"),)
+    assert admission.truncated is False
+    assert set(reads) == set(resources)
+    original_reads = tuple(reads)
+    with pytest.raises(FrozenInstanceError):
+        setattr(admission, "truncated", True)
+    first.value.admission = None
+    first.value.code = "poisoned"
+
+    with pytest.raises(authority_module.AuthorityLoadError) as later:
+        authority_module.packaged_authority_context()
+
+    assert later.value is not first.value
+    assert later.value.admission is admission
+    assert later.value.code == "kernel.duplicate_identifier"
+    assert tuple(reads) == original_reads
+    report = authority_load_refusal(later.value)
+    assert report.stage == "static"
+    assert report.truncated is False
+    assert len(report.diagnostics) == 1
+    diagnostic = report.diagnostics[0]
+    assert diagnostic.code == "kernel.duplicate_identifier"
+    assert diagnostic.primary.kind == "artifact"
+    assert diagnostic.primary.content_identity == ldb["content_identity"]
+    assert diagnostic.primary.pointer == "/language/packages"
+    assert authority_module.authority_lifecycle_metrics() == {
+        "packaged_admission_attempts": 1,
+        "packaged_context_published": 0,
+        "packaged_refusal_published": 1,
+    }
 
 
 def test_packaged_context_exposes_no_nested_mutation_alias():

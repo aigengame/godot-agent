@@ -68,6 +68,20 @@ def _refresh_package_closure_and_reidentify(ldb: LanguageBundleIndex) -> None:
     _reidentify_graph_root(ldb)
 
 
+def _append_empty_namespace(ldb, namespace):
+    package = deepcopy(ldb["language"]["packages"][0])
+    package["id"] = namespace
+    package["capabilities"] = {"provided": [], "required": []}
+    package["dependencies"] = {"optional": [], "required": []}
+    package["exports"] = {member: [] for member in package["exports"]}
+    package["profiles"] = {member: [] for member in package["profiles"]}
+    package["runtime_semantic_excluded_extensions"] = []
+    for entry in package["semantic_closure"]:
+        entry["definitions"] = []
+    ldb["language"]["packages"].append(package)
+    return package
+
+
 def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
     graph_root = getattr(ldb, "root", None)
     if isinstance(graph_root, dict):
@@ -145,6 +159,7 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
 
 
 __all__ = [
+    "_append_empty_namespace",
     "_authority_candidate",
     "_consumer_a",
     "_refresh_package_closure_and_reidentify",

@@ -1433,20 +1433,6 @@ def test_reidentified_extra_members_cannot_extend_kernel_ldb_or_rule_shapes():
         assert first["admitted"] is False
 
 
-def _append_empty_namespace(ldb, namespace):
-    package = deepcopy(ldb["language"]["packages"][0])
-    package["id"] = namespace
-    package["capabilities"] = {"provided": [], "required": []}
-    package["dependencies"] = {"optional": [], "required": []}
-    package["exports"] = {member: [] for member in package["exports"]}
-    package["profiles"] = {member: [] for member in package["profiles"]}
-    package["runtime_semantic_excluded_extensions"] = []
-    for entry in package["semantic_closure"]:
-        entry["definitions"] = []
-    ldb["language"]["packages"].append(package)
-    return package
-
-
 def test_two_consumers_refuse_even_an_empty_reserved_kernel_namespace():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
