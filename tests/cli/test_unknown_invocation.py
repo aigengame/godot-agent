@@ -134,17 +134,79 @@ def test_the_root_schema_option_points_at_the_schema_command():
     assert result.exit_code == EXIT_USAGE
 
 
-def test_script_run_script_option_points_at_the_positional_form():
-    # GDA-DF-032: `script run` takes the script as its positional argument. The
-    # refusal is raised by the LEAF command's parser, which is the third interception
-    # site (after the root's own parser and a group's).
-    result = CliRunner().invoke(
-        app, ["script", "run", "--script", "logic.gd", "--json"]
-    )
+@pytest.mark.parametrize(
+    "args, hint",
+    [
+        pytest.param(
+            ["script", "run", "--script", "logic.gd"],
+            "gda script run <path>",
+            id="script-run--script",
+        ),
+        pytest.param(
+            ["script", "run", "--path", "logic.gd"],
+            "gda script run <path>",
+            id="script-run--path",
+        ),
+        pytest.param(
+            ["script", "validate", "--path", "logic.gd"],
+            "gda script validate <path>",
+            id="script-validate--path",
+        ),
+        pytest.param(
+            ["script", "validate", "--strict", "logic.gd"],
+            "gda script validate <path>",
+            id="script-validate--strict",
+        ),
+    ],
+)
+def test_each_dogfooded_option_spelling_names_the_positional_form(args, hint):
+    # GDA-DF-032/069 and PIPE-DF-165: both `script` commands take their script as a
+    # positional argument, and `--strict` is `script run`'s gate alone. The refusal is
+    # raised by the LEAF command's parser, which is the third interception site (after
+    # the root's own parser and a group's). The two `script run` rows are a deliberate
+    # duplicate: the table keys on the SPELLING typed. `--script` is the recorded one
+    # (GDA-DF-032); `--path` is curated beside it, because GDA-DF-069 recorded that
+    # spelling on `validate` and the same caller slip reaches both commands.
+    result = CliRunner().invoke(app, [*args, "--json"])
 
     error = _envelope(result)
     assert error["code"] == UNKNOWN_OPTION
-    assert error["hint"] == "gda script run <path>"
+    assert error["hint"] == hint
+
+
+# The clause the `--strict` refusal must carry: `hint` is the corrected invocation
+# and nothing else, so the difference between the two `--strict`s is stated in the
+# MESSAGE, which both renderings carry. Pinned in two halves, since the message the
+# caller reads must both name what to gate on and place the flag they typed.
+STRICT_VERDICT = "exits 0 either way, so gate on `valid`"
+STRICT_FLAG = "`--strict` belongs to `script run`"
+
+
+def test_the_strict_near_miss_states_the_contract_in_both_renderings():
+    # PIPE-DF-165: the caller carried `--strict` over from `script run`, so naming the
+    # positional form is not enough — the message says what `validate` reports instead
+    # (a `valid` verdict, at exit 0 whichever way it goes) and what the flag they typed
+    # really gates: `script run`'s own non-zero exit status (ADR-0031), a different
+    # question. Under `--json` that rides the envelope's message beside the
+    # machine-readable `hint`; without it, the same failure renders as lines with its
+    # own `hint:` line.
+    structured = CliRunner().invoke(
+        app, ["script", "validate", "--strict", "logic.gd", "--json"]
+    )
+    human = CliRunner().invoke(app, ["script", "validate", "--strict", "logic.gd"])
+
+    error = _envelope(structured)
+    assert error["hint"] == "gda script validate <path>"
+    assert STRICT_VERDICT in error["message"]
+    assert STRICT_FLAG in error["message"]
+
+    assert human.exit_code == EXIT_USAGE
+    assert not human.stdout.startswith("{")
+    text = plain_text(human.output)
+    assert text.startswith(f"error: {UNKNOWN_OPTION} (usage)\n")
+    assert "hint: gda script validate <path>" in text
+    assert STRICT_VERDICT in text
+    assert STRICT_FLAG in text
 
 
 # --- the table is the single authority, and it stays honest -------------------
