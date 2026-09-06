@@ -202,7 +202,7 @@ Alternative A (interim checkpoint only): change the retention policy and unify c
 
 ## 9. Ordered process and gates
 
-Dependencies are sequential where authority changes; independent research/tests can fan out. Production implementation slices use isolated worktrees only once authorized. Each slice must compile and run a vertical witness before the next foundation grows. Stages are completion gates, not time estimates; no fabricated delivery dates.
+Dependencies are sequential where authority changes; independent research/tests can fan out. The owner has authorized sequential implementation on a shared development branch, with an issue branch and independent review for each slice; [the implementation workflow](IMPLEMENTATION.md) records the integration boundary and delegated decisions. Each completed foundation must compile and run its vertical witness before dependent work proceeds, except the explicitly bounded S3 expand/migrate intermediate states below. Stages are completion gates, not time estimates; no fabricated delivery dates.
 
 | Stage | Change / permanent assets | Required observable exit | Stop/reopen / rollback |
 | --- | --- | --- | --- |

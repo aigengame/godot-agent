@@ -37,5 +37,7 @@ Additional existing package checks, run from the package directory:
 ```
 
 The documentation PR's exact-head checks own remote CI results. A passing documentation
-PR cannot close #865 or the production implementation issues; it closes only #866 after merge.
-The final implementation must satisfy #879 against its actual shipped artifacts.
+PR cannot close #865 or the production implementation issues. The authorized
+[implementation workflow](IMPLEMENTATION.md) delivers #866 to the shared development
+branch after review of the inherited documentation and its delivery supplement.
+The final implementation must satisfy #879 against its actual packaged artifacts.
