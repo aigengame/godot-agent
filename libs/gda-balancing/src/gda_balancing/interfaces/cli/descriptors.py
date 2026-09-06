@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.interfaces.cli.envelope import USAGE_CODES
@@ -29,30 +29,6 @@ from gda_balancing.domain.diagnostics import Schema2RefusalReport
 RESERVED_GROUPS = frozenset({"evaluation", "tuning"})
 RESERVED_META: frozenset[str] = frozenset()
 _SCHEMA2_REFUSAL_STAGES = frozenset(SCHEMA2_REFUSAL_STAGES)
-
-
-class ArtifactSpec(BaseModel):
-    """The one normative receipt member (bADR-0009): the resolved sink path and
-    the byte count written there. Closed and frozen — the receipt shape is a
-    published contract, not an open bag."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    path: str
-    bytes: int
-
-
-class ArtifactReceipt(BaseModel):
-    """The stdout receipt an ``--out`` invocation emits in place of the artifact
-    body (bADR-0009): ``artifact: {path, bytes}`` and nothing else. Present in a
-    result exactly when ``--out`` was used, forbidden otherwise — so every
-    artifact-sink command's output model is ``RootModel[<Body> | ArtifactReceipt]``
-    (see :attr:`CommandDescriptor.artifact_sink`), letting the dispatch tail
-    construct the receipt as the declared output type."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    artifact: ArtifactSpec
 
 
 @dataclass(frozen=True)
@@ -224,17 +200,7 @@ class CommandDescriptor:
     # emitter, and stderr for operational logs. The emitter validates and flushes
     # the descriptor's exact output model; the runner returns only after shutdown.
     foreground_runner: Callable[..., int] | None = field(default=None)
-    # `artifact_sink` marks a command that emits a canonical artifact and so
-    # accepts `--out <path>` (bADR-0009): the artifact body goes to the sink and
-    # stdout carries an `ArtifactReceipt` instead. Only such commands accept
-    # `--out`; every other command rejects it as an unknown argument. Contract:
-    # an artifact-sink command's `output_model` MUST be
-    # `RootModel[<Body> | ArtifactReceipt]`, so the dispatch tail can construct
-    # the receipt as the declared output type.
-    artifact_sink: bool = field(default=False)
-    # A Schema 2.x multi-artifact producer owns publication in its handler and
-    # returns the committed set receipt. This is distinct from the single-file
-    # ``artifact_sink`` dispatch tail.
+    # Current multi-artifact producers own publication in their handlers.
     artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
     verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
     # Receipt fields and accepted member sets are derived from their producer
@@ -286,10 +252,6 @@ class CommandDescriptor:
         ):
             raise ValueError(
                 "foreground readiness fixture must match the descriptor lifecycle"
-            )
-        if (self.artifact_set or self.verdict_artifact_set) and self.artifact_sink:
-            raise ValueError(
-                "one descriptor cannot use both artifact publication paths"
             )
         for outcome, members in (
             ("success", self.artifact_set),

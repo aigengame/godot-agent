@@ -192,7 +192,6 @@ SCHEMA_GET = CommandDescriptor(
     output_model=SchemaArtifact,
     handler=run_schema_get,
     positional_field="artifact",
-    artifact_sink=False,
     fixtures=ConformanceFixtures(valid_args=("language-bundle",)),
     schema_major=2,
     structured_params=True,
