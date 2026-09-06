@@ -1,0 +1,432 @@
+{
+  "admission": {
+    "admitted": true,
+    "diagnostics": [],
+    "ldb_identity": "sha256:5ab302c725f877c775dbc8c2feb462e4d5b6d041ce72a6a1f143075a74db121b"
+  },
+  "baseline": "3f68bf3fb26df2ab54351a8ef4e3e167269bdc16",
+  "baseline_periodic_plus_progression": {
+    "diagnostics": [
+      {
+        "code": "language.resolution_ambiguity",
+        "message": "Model Source failed resolution judgment resolution.bind-capability-providers",
+        "subject": ""
+      },
+      {
+        "code": "language.resolution_ambiguity",
+        "message": "Model Source failed resolution judgment resolution.require-single-package-version",
+        "subject": ""
+      }
+    ],
+    "refused": true
+  },
+  "candidate_conformance_failures": [],
+  "claim": "one complete current definition per package admits without host changes",
+  "composition": {
+    "checked": true,
+    "compiled_validated": true,
+    "experiment": {
+      "checked": true,
+      "members": [
+        "evaluation-run",
+        "event-trace",
+        "snapshot-series",
+        "metric-dataset",
+        "reproduction-receipt",
+        "resolved-runtime-profile",
+        "evaluator-capability-manifest"
+      ],
+      "outcome": "ExperimentExecutionSuccess"
+    }
+  },
+  "examples": [
+    {
+      "artifacts": [
+        "package-lock",
+        "rir-semantic-payload",
+        "resolved-model",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "checked": true,
+      "compiled_validated": true,
+      "experiments": [
+        {
+          "checked": true,
+          "members": [
+            "evaluation-run",
+            "event-trace",
+            "snapshot-series",
+            "metric-dataset",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest"
+          ],
+          "name": "experiment.json",
+          "outcome": "ExperimentExecutionSuccess"
+        }
+      ],
+      "name": "roguelike-reward-build"
+    },
+    {
+      "artifacts": [
+        "package-lock",
+        "rir-semantic-payload",
+        "resolved-model",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "checked": true,
+      "compiled_validated": true,
+      "experiments": [
+        {
+          "checked": true,
+          "members": [
+            "evaluation-run",
+            "event-trace",
+            "snapshot-series",
+            "metric-dataset",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest"
+          ],
+          "name": "experiment.json",
+          "outcome": "ExperimentExecutionSuccess"
+        },
+        {
+          "checked": true,
+          "members": [
+            "evaluation-run",
+            "event-trace",
+            "snapshot-series",
+            "metric-dataset",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest"
+          ],
+          "name": "multi-time-experiment.json",
+          "outcome": "ExperimentExecutionSuccess"
+        }
+      ],
+      "name": "rpg-combat-cast"
+    },
+    {
+      "artifacts": [
+        "package-lock",
+        "rir-semantic-payload",
+        "resolved-model",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "checked": true,
+      "compiled_validated": true,
+      "experiments": [
+        {
+          "checked": true,
+          "members": [
+            "evaluation-run",
+            "event-trace",
+            "snapshot-series",
+            "metric-dataset",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest"
+          ],
+          "name": "experiment.json",
+          "outcome": "ExperimentExecutionSuccess"
+        },
+        {
+          "checked": true,
+          "members": [
+            "evaluation-run",
+            "event-trace",
+            "snapshot-series",
+            "metric-dataset",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest"
+          ],
+          "name": "same-time-experiment.json",
+          "outcome": "ExperimentExecutionSuccess"
+        }
+      ],
+      "name": "rpg-periodic-effect"
+    },
+    {
+      "artifacts": [
+        "package-lock",
+        "rir-semantic-payload",
+        "resolved-model",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "checked": true,
+      "compiled_validated": true,
+      "experiments": [
+        {
+          "checked": true,
+          "members": [
+            "evaluation-run",
+            "event-trace",
+            "snapshot-series",
+            "metric-dataset",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest"
+          ],
+          "name": "experiment.json",
+          "outcome": "ExperimentExecutionSuccess"
+        }
+      ],
+      "name": "rpg-stat-composition"
+    },
+    {
+      "artifacts": [
+        "package-lock",
+        "rir-semantic-payload",
+        "resolved-model",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "checked": true,
+      "compiled_validated": true,
+      "experiments": [
+        {
+          "checked": true,
+          "members": [
+            "evaluation-run",
+            "event-trace",
+            "snapshot-series",
+            "metric-dataset",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest"
+          ],
+          "name": "experiment.json",
+          "outcome": "ExperimentExecutionSuccess"
+        }
+      ],
+      "name": "structured-selection"
+    }
+  ],
+  "inventory": [
+    {
+      "nominal_types": [],
+      "operations": [
+        "quantity.add",
+        "quantity.floor-divide",
+        "quantity.floor-zero",
+        "quantity.identity",
+        "quantity.less-than",
+        "quantity.maximum",
+        "quantity.minimum",
+        "quantity.multiply",
+        "quantity.subtract"
+      ],
+      "package": "core.quantity",
+      "releases_before": 2,
+      "vectors": 55,
+      "version": "2.2.0"
+    },
+    {
+      "nominal_types": [
+        "BuildConstraint",
+        "BuildDecisionKind",
+        "BuildState",
+        "BuildDecision",
+        "BuildPlan",
+        "BuildPlanSet"
+      ],
+      "operations": [
+        "game.build.contribution@1",
+        "game.build.replace-reward-v1"
+      ],
+      "package": "game.build",
+      "releases_before": 2,
+      "vectors": 17,
+      "version": "2.0.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [
+        "game.check.hit-v1",
+        "game.check.critical-v1"
+      ],
+      "package": "game.check",
+      "releases_before": 2,
+      "vectors": 5,
+      "version": "1.1.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [
+        "game.combat.cast-and-cancel-v1",
+        "game.combat.cast-v1",
+        "game.combat.damage-v1",
+        "game.combat.eligible-cast-v1",
+        "game.combat.plan-casts-v1"
+      ],
+      "package": "game.combat",
+      "releases_before": 2,
+      "vectors": 61,
+      "version": "2.2.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [
+        "game.effect.contribute@1",
+        "game.effect.apply-live-periodic-v1",
+        "game.effect.apply-snapshot-periodic-v1",
+        "game.effect.expire-periodic-v1",
+        "game.effect.tick-live-periodic-v1",
+        "game.effect.tick-snapshot-periodic-v1"
+      ],
+      "package": "game.effect",
+      "releases_before": 2,
+      "vectors": 28,
+      "version": "2.0.0"
+    },
+    {
+      "nominal_types": [
+        "RewardRarity",
+        "RewardDisposition",
+        "RarityPolicyKind",
+        "RewardRef",
+        "RewardDefinition",
+        "RarityPolicyState",
+        "RewardSelection",
+        "RewardOption",
+        "RewardPool"
+      ],
+      "operations": [
+        "game.generation.select-reward-v1"
+      ],
+      "package": "game.generation",
+      "releases_before": 2,
+      "vectors": 36,
+      "version": "1.1.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [
+        "game.progression.contribution@1"
+      ],
+      "package": "game.progression",
+      "releases_before": 1,
+      "vectors": 5,
+      "version": "1.0.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [
+        "game.resource.spend-v1"
+      ],
+      "package": "game.resource",
+      "releases_before": 2,
+      "vectors": 6,
+      "version": "1.1.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [],
+      "package": "standard.compiler",
+      "releases_before": 1,
+      "vectors": 50,
+      "version": "1.1.0"
+    },
+    {
+      "nominal_types": [
+        "CandidateKind",
+        "CandidateRef",
+        "Candidate",
+        "SelectionResult",
+        "SelectionState"
+      ],
+      "operations": [
+        "standard.conformance.structured.select-v1"
+      ],
+      "package": "standard.conformance.structured",
+      "releases_before": 1,
+      "vectors": 26,
+      "version": "2.0.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [],
+      "package": "standard.experiment",
+      "releases_before": 1,
+      "vectors": 23,
+      "version": "1.1.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [],
+      "package": "standard.runtime",
+      "releases_before": 1,
+      "vectors": 44,
+      "version": "1.1.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [],
+      "package": "standard.schema",
+      "releases_before": 1,
+      "vectors": 21,
+      "version": "2.4.0"
+    },
+    {
+      "nominal_types": [],
+      "operations": [],
+      "package": "tooling.migration",
+      "releases_before": 1,
+      "vectors": 8,
+      "version": "1.0.0"
+    }
+  ],
+  "merge_conflicts": [],
+  "mutations": [
+    {
+      "diagnostics": [
+        {
+          "code": "language.formula_purity_mismatch",
+          "message": "Model Formula resolution failed: Formula operation call is unresolved or effectful",
+          "subject": ""
+        }
+      ],
+      "name": "missing-progression-dependency",
+      "refused": true
+    },
+    {
+      "diagnostics": [
+        {
+          "code": "language.source_contract_mismatch",
+          "message": "Model entrypoint resolution failed: literal operand is incompatible with the formal value contract",
+          "subject": ""
+        }
+      ],
+      "name": "integer-for-boolean-port",
+      "refused": true
+    }
+  ],
+  "non_claims": [
+    "Production refactor",
+    "Internal SemVer field deletion",
+    "Full product conformance"
+  ],
+  "vector_count": 41
+}

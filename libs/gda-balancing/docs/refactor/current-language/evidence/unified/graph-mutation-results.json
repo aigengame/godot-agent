@@ -1,0 +1,11 @@
+{
+  "admitted": false,
+  "diagnostics": [
+    {
+      "code": "kernel.vector_mismatch",
+      "message": "",
+      "subject": "language-bundle.language.packages.6.vectors"
+    }
+  ],
+  "mutation": "game.progression manifest no longer declares core.quantity dependency; all content identities correctly rebuilt"
+}

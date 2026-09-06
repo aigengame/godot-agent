@@ -1,0 +1,77 @@
+"""Production runtime probe: exact identity amplification vs numeric observations."""
+import json
+from copy import deepcopy
+from pathlib import Path
+import os
+from probe import t, ROOT, OUT, plain, compile_source
+from gda_balancing.domain.model._binding import project_compiled_model_binding
+from gda_balancing.domain.experiment import check_experiment_value, CheckedExperiment
+from gda_balancing.application.experiment_execution import execute_checked_experiment
+
+def experiment_value(c,a):
+    e=json.loads((ROOT/'examples/schema2/rpg-combat-cast/experiment.json').read_text())
+    e['kernel_identity']=c.kernel['content_identity']
+    e['language_bundle_identity']=c.language_bundle['content_identity']
+    e['model']={
+        'source_identity':c.source_identity,
+        'build_receipt_identity':a['build-receipt']['content_identity'],
+        'resolved_model_identity':a['resolved-model']['content_identity'],
+        'package_lock_identity':a['package-lock']['content_identity'],
+        'rir_identity':a['rir-semantic-payload']['content_identity']}
+    return e
+
+def run(c,a,value=None):
+    b=project_compiled_model_binding(a,c.authority_context)
+    e=experiment_value(c,a) if value is None else value
+    checked=check_experiment_value(e,b,authority_context=c.authority_context)
+    if not isinstance(checked,CheckedExperiment): return checked
+    r=execute_checked_experiment(checked)
+    members={k:plain(v.value) for k,v in r.members.items()}
+    summary={'status':type(r).__name__,
+             'identities':{k:v['content_identity'] for k,v in members.items()},
+             'metrics':[(s['metric'],s['value']) for s in members['metric-dataset']['samples']],
+             'snapshot_values':[s['values'] for s in members['snapshot-series']['snapshots']]}
+    return summary
+
+def main():
+    source=t._rpg_source_value(); c,a=compile_source(source)
+    baseline=run(c,a)
+    assert isinstance(baseline,dict),baseline
+    results={'baseline':baseline}
+    for label in ('selected_vectors','unselected_effect','compiler_build'):
+        ldb=deepcopy(c.language_bundle)
+        if label=='selected_vectors':
+            v=next(v for v in ldb.package_conformance_vector_sets
+                   if v['package_id']=='core.quantity' and v['package_version']=='2.1.0')
+            v['vectors'].reverse();v['vector_definitions'].reverse()
+        elif label=='unselected_effect':
+            op=next(o for o in ldb['language']['operations']
+                    if o['id']=='game.effect.tick-live-periodic-v1')
+            op['resource_bounds']['max_steps']+=1
+            vector=next(v for v in ldb['vectors'] if v['id']=='game.effect.tick-live.resource-bound')
+            vector['expect']+=1
+        t._reidentify_language_bundle(ldb)
+        newc,newa=compile_source(source,ldb,c.kernel)
+        if label=='compiler_build':
+            old=t.model_compilation_module._LOWERER_IMPLEMENTATION_IDENTITY
+            try:
+                t.model_compilation_module._LOWERER_IMPLEMENTATION_IDENTITY='probe.other-compiler'
+                newa=t.model_compilation_module.lower_checked_model(newc)
+            finally:t.model_compilation_module._LOWERER_IMPLEMENTATION_IDENTITY=old
+        before=run(newc,newa,experiment_value(c,a))
+        assert not isinstance(before,dict),before
+        after=run(newc,newa)
+        assert isinstance(after,dict),after
+        assert baseline['metrics']==after['metrics']
+        assert baseline['snapshot_values']==after['snapshot_values']
+        results[label]={'old_experiment_refusal':plain(before.model_dump()),
+                        'new_exact_run':after,
+                        'changed_runtime_identities':[k for k in baseline['identities']
+                                                      if baseline['identities'][k]!=after['identities'][k]]}
+    (OUT/'runtime-results.json').write_text(json.dumps(results,indent=2))
+    print(json.dumps({k:v if k=='baseline' else {
+        'old_experiment_diagnostics':v['old_experiment_refusal']['diagnostics'],
+        'metrics':v['new_exact_run']['metrics'],
+        'changed_runtime_identities':v['changed_runtime_identities']} for k,v in results.items()},indent=2))
+
+if __name__=='__main__':main()

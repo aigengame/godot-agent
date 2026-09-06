@@ -4,6 +4,14 @@ status: accepted
 
 # Execute deterministic atomic event transactions under an explicit runtime profile
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 supersedes reproduction eligibility derived from build provenance or whole-bundle
+> content that cannot affect execution. The current profile and receipt shapes remain
+> implemented until actual execution rules are closed and redundant bindings are deleted
+> together. Numeric/RNG/scheduler/effect policies, authored inputs, resource limits, Event
+> atomicity, typed refusals, and truthful Replay scope remain. A primitive reduction may change
+> resource accounting only through an explicit new law with permanent boundary evidence.
+
 RIR is the public semantic boundary (bADR-0013), but a model is not reproducible until execution
 defines ordering, state visibility, conflicts, cancellation, rollback, external inputs, random
 streams, and resource exhaustion. A tuple such as `(time, phase, priority, sequence)` is

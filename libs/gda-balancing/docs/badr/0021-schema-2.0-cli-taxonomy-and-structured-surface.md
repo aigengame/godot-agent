@@ -4,6 +4,14 @@ status: accepted
 
 # Align the Schema 2.0 CLI with model, experiment, and evidence artifacts
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 supersedes model migrate as a permanent forward command and requires removal of
+> obsolete version selectors and execution-binding fields from descriptors and every derived
+> surface when their owning slice lands. The current command table remains an implementation
+> description until then. The unused artifact sink is also retired without removing active
+> artifact-set publication. Descriptor ownership, typed outcomes, diagnostics, invocation-key
+> recovery, and atomic publication remain binding.
+
 bADR-0007 organized the 1.x surface around a single Design document and reserved generic
 `evaluation` and `tuning` groups. Standard Schema 2.0 instead has Model Source Packages, package
 resolution, RIR builds, Experiment Specifications, Evaluation runs, Metric datasets, and evidence

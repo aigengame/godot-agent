@@ -4,6 +4,15 @@ status: accepted
 
 # Use one Metrics schema and immutable evidence for evaluation, calibration, and approval
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 requires removal of irrelevant whole-LDB/Build-receipt execution and
+> semantic-comparison bindings after closing actual execution inputs. Truthful content and
+> producing provenance, evaluation intent, observations, comparison scope, and approval
+> ownership remain. This does not activate #542–#544: their existing concrete-application trust
+> conditions still govern authenticated receipt-backed claims. Functional Replay, comparison,
+> gameplay, and refactor slices may finish with candidate/open results. #509 retains the
+> unresolved simulation-policy decision.
+
 The balancing toolkit must compare predicted behavior with future playtest observations without
 inventing two meanings for the same metric. A simulation-only report shape would force adapters,
 weaken calibration provenance, and violate the product requirement that simulated and observed

@@ -19,6 +19,14 @@ extends `gda`; its CLI follows the family's interface conventions.
   complete RPG/Roguelike Template closure remain ahead. The package is **not published to PyPI
   yet**.
 
+The [current-language refactor](docs/refactor/current-language/PLAN.md) removes internal release
+history, version selection and unnecessary execution bindings while retaining the typed language,
+compiler and deterministic Runtime. Internal definitions may be changed or withdrawn; formal
+compatibility will be considered no earlier than toolkit v1.0. The commands below describe the
+current implementation, including source migration scheduled for removal after known inputs are
+dispositioned. See [bADR-0028](docs/badr/0028-current-language-refactor-and-pre-1.0-retirement.md)
+for the accepted direction and its distinction from completed implementation.
+
 ## Commands
 
 ```bash
