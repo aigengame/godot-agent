@@ -80,7 +80,9 @@ counts do not authorize deletion of behavior.
    type, overflow, refusal, effect, order, and resource laws and discriminating permanent cases.
    Bounded collection traversal/construction remains subject to that promotion gate; prospective
    constructors and all genre requirements remain open until proved. Run the small non-RPG
-   extension witness in S6b before committing to broad genre delivery.
+   extension witness in S6b before committing to broad genre delivery. The witness must execute
+   reusable admitted Operations and demonstrate specified input-dependent state transitions under
+   unchanged core/host semantics; a prescribed trace cannot satisfy [#878](https://github.com/aigengame/godot-agent/issues/878).
 7. **Preserve established responsibility and claim boundaries.** Keep the existing
    `interfaces → application → domain → infrastructure` dependency direction, one balancing
    context, protocol-neutral execution sessions, typed outcomes, deterministic Event transactions,
