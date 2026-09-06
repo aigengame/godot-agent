@@ -16,6 +16,7 @@ surface, complementary to the command tests in
 ``tests/export/test_export_run_commands.py`` (the zero-behavior-change safety net).
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,7 @@ from gda.commands.export import (  # EXPORT_RUN_COMMAND: the single fully-bound 
 from gda.errors import Failure
 from gda.execution import ExecutionKind
 from gda.harness.install import install_harness, uninstall_harness
+from gda.models import GdaErrorEnvelope
 from gda.runner import RunResult
 from tests.support import (
     ENGINE_BANNER,
@@ -38,6 +40,12 @@ from tests.support import (
     error_sentinel,
     sentinel,
 )
+
+
+# The two export-templates directories of #840: the one an isolated
+# ``--user-data-root`` makes the engine check, and the host's standard one.
+ISO_TEMPLATES_ROOT = "/iso/Library/Application Support/Godot/export_templates"
+HOST_TEMPLATES_ROOT = "/home/dev/Library/Application Support/Godot/export_templates"
 
 
 def test_export_run_command_is_the_native_export_channel():
@@ -57,6 +65,9 @@ GET_RESULT = {
     "export_path": "build/game.x86_64",
     "templates_installed": True,
     "templates_version": "4.6.3.stable",
+    # #840: where the engine looked, and (null here) where a redirect hid them.
+    "templates_root": HOST_TEMPLATES_ROOT,
+    "templates_root_host": None,
 }
 
 
@@ -379,6 +390,105 @@ def test_templates_missing_for_release_and_debug():
         assert "4.6.3.stable" in outcome.error.message, mode
         # The preflight fired before any native run.
         assert export_runner.calls == [], mode
+
+
+def test_templates_hidden_by_a_redirect_name_both_directories_and_the_remedies():
+    # THE #840 CASE. Under `--user-data-root` the engine checks the redirected
+    # directory, which has no templates, while the host's standard directory does
+    # — so the templates are not missing, they are out of sight. The failure has to
+    # say that at the point it happens: it names BOTH directories, states that
+    # `--user-data-root` moved the lookup, and gives the two remedies (drop the
+    # redirect, or `--mode pack`, which needs no templates).
+    get_runner = _get_runner(
+        {
+            **GET_RESULT,
+            "templates_installed": False,
+            "templates_root": ISO_TEMPLATES_ROOT,
+            "templates_root_host": HOST_TEMPLATES_ROOT,
+        }
+    )
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run(get_runner=get_runner, export_runner=export_runner)
+
+    assert isinstance(outcome, Failure)
+    error = outcome.error
+    assert error.code == "export_templates_missing"
+    assert ISO_TEMPLATES_ROOT in error.message
+    assert HOST_TEMPLATES_ROOT in error.message
+    assert "--user-data-root" in error.message
+    assert "--mode pack" in error.message
+    # Not a near miss: `hint` is contractually one corrected invocation from the
+    # curated table (CONTEXT.md `Near-miss hint`), and this is not one.
+    assert error.hint is None
+    # The same two directories ride the envelope as typed facts, so an agent
+    # branches without parsing the prose (ADR-0004 amendment, #687).
+    assert error.evidence is not None
+    assert error.evidence.templates_root_checked == ISO_TEMPLATES_ROOT
+    assert error.evidence.templates_root_host == HOST_TEMPLATES_ROOT
+    # Still a preflight: nothing was exported.
+    assert export_runner.calls == []
+
+
+def test_templates_genuinely_absent_name_only_the_directory_checked():
+    # The other shape, and the one an agent must be able to tell from the first:
+    # with no redirect in play the host directory IS the directory checked, so
+    # there is no second one to name and no redirect remedy to offer. The two
+    # shapes are distinguished by the PRESENCE of `templates_root_host`, which is
+    # omitted here rather than emitted as null.
+    get_runner = _get_runner(
+        {
+            **GET_RESULT,
+            "templates_installed": False,
+            "templates_root": HOST_TEMPLATES_ROOT,
+            "templates_root_host": None,
+        }
+    )
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run(get_runner=get_runner, export_runner=export_runner)
+
+    assert isinstance(outcome, Failure)
+    error = outcome.error
+    assert error.code == "export_templates_missing"
+    assert HOST_TEMPLATES_ROOT in error.message
+    assert "--user-data-root" not in error.message
+    assert error.evidence is not None
+    assert error.evidence.templates_root_checked == HOST_TEMPLATES_ROOT
+    assert error.evidence.templates_root_host is None
+    emitted = json.loads(
+        GdaErrorEnvelope(error=error).model_dump_json(exclude_none=True)
+    )
+    assert emitted["error"]["evidence"] == {
+        "templates_root_checked": HOST_TEMPLATES_ROOT
+    }
+
+
+def test_no_evidence_at_all_when_no_directory_was_reported():
+    # The omitted-never-null rule applied to this producer: an engine reply that
+    # names no directory (an older payload, a projectless oddity) leaves the
+    # builder with nothing to type, and it emits NO `evidence` key rather than the
+    # empty object `{}` — which would be a key that says nothing on a failure whose
+    # envelope should look exactly as it did before #840.
+    get_runner = _get_runner(
+        {
+            **GET_RESULT,
+            "templates_installed": False,
+            "templates_root": "",
+            "templates_root_host": None,
+        }
+    )
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run(get_runner=get_runner, export_runner=export_runner)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "export_templates_missing"
+    assert outcome.error.evidence is None
+    emitted = json.loads(
+        GdaErrorEnvelope(error=outcome.error).model_dump_json(exclude_none=True)
+    )
+    assert "evidence" not in emitted["error"]
 
 
 def test_pack_is_exempt_from_templates_preflight(tmp_path):

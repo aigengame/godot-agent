@@ -251,6 +251,15 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
 #: two `target_outside_project` refusals report a project-context mismatch gda decides
 #: before anything is launched, so their coordinates are the whole cause rather than a
 #: run's residue. ADR-0004's paragraph carries the same two names.
+#:
+#: The eighth arrives with #840: `export_templates_missing_failure` types the two
+#: export-templates directories a `--user-data-root` redirect puts at odds — the one
+#: the engine checked and the host one that holds the templates it could not see.
+#: Also not reporting on a run (it is the pre-export preflight's verdict), and it
+#: passes the criterion the same way: both paths are already in hand on the failure
+#: path, neither is recoverable from the envelope without parsing prose, and which of
+#: the two shapes it is decides whether the caller drops the redirect or installs
+#: templates. ADR-0004's paragraph carries this name too.
 _EVIDENCE_PRODUCERS = {
     "launch_timeout_failure",
     "script_did_not_run_failure",
@@ -259,6 +268,7 @@ _EVIDENCE_PRODUCERS = {
     "script_run_aborted_failure",
     "target_outside_project_failure",
     "target_owned_by_another_project_failure",
+    "export_templates_missing_failure",
 }
 
 

@@ -16,7 +16,7 @@ import json
 
 import pytest
 
-from tests.support import Gda
+from tests.support import Gda, templates_installed
 
 # Two presets in the canonical format Godot writes export_presets.cfg: a
 # runnable Linux preset and a non-runnable Web preset, each with its sibling
@@ -153,6 +153,50 @@ def test_export_get_reports_preset_details_and_template_status(godot_project):
     assert data["templates_version"] == _expected_templates_version(), data[
         "templates_version"
     ]
+    # #840: and WHERE it checked — the export-templates directory holding that
+    # version directory, derived engine-side from OS.get_data_dir(). An absolute
+    # path ending in `export_templates`, whatever this host's data directory is.
+    templates_root = data["templates_root"]
+    assert templates_root.startswith("/") or ":" in templates_root, templates_root
+    assert templates_root.endswith("export_templates"), templates_root
+    # No redirect is in play here, so the host directory IS the one checked and
+    # there is nothing hidden to report.
+    assert data["templates_root_host"] is None, data["templates_root_host"]
+
+
+@pytest.mark.e2e
+def test_export_get_names_the_host_templates_a_user_data_redirect_hides(
+    godot_project, tmp_path
+):
+    # #840 END TO END, one command before the export. `--user-data-root` relocates
+    # Godot's data directory, and Godot reads the export templates from exactly
+    # that directory, so a redirected run sees none even when the host has them
+    # installed. `export get` now reports BOTH directories: the redirected one it
+    # checked, and the host's, which is where the templates it cannot see are.
+    #
+    # The redirect is passed PER INVOCATION, never exported for the run: exporting
+    # it hides the host's templates from every other test too (PITFALLS.md).
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    gda = Gda(godot_project)
+    if not templates_installed(gda, preset="Web"):
+        pytest.skip(
+            "this host has no export templates installed, so there is nothing for "
+            "a --user-data-root redirect to hide"
+        )
+    isolated = tmp_path / "iso"
+
+    data = gda.json(
+        "--user-data-root", str(isolated), "export", "get", "--preset", "Web"
+    )
+
+    assert data["templates_installed"] is False, data
+    # The directory checked moved under the isolated root; the host's did not.
+    assert str(isolated) in data["templates_root"], data["templates_root"]
+    assert data["templates_root_host"], data
+    assert str(isolated) not in data["templates_root_host"], data
+    assert data["templates_root_host"].endswith("export_templates"), data
 
 
 @pytest.mark.e2e
