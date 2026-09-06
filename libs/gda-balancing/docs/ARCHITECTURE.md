@@ -9,9 +9,11 @@ compatibility is not promised before toolkit v1.0 and requires a separate decisi
 closing actual execution inputs, implementation must delete irrelevant whole-LDB and Build-receipt
 execution bindings, their obsolete fields/gates/propagation, and fallback reads. Closure alone is
 not completion. The [refactor plan](refactor/current-language/PLAN.md) owns the staged process,
-requirement routing, bounded evidence, and rollback. The superseded coordinate/wrapper shapes in
-this document still describe the current machine implementation until their replacement lands;
-they must not be used to preserve the old mechanism as the final target.
+requirement routing, bounded evidence, and rollback. #871 implements namespace-string requirements,
+`{package, id}` nominal Type/Operation references and id-only Template selection. Model, Template,
+Experiment and LDB policy own-version labels are removed. Schema/artifact formats and actual
+Runtime/grammar contract markers remain. Whole-LDB/Build-receipt wrappers still describe current
+execution prerequisites pending #874–#875; #872, #879 and full conformance remain open.
 
 The refactor keeps typed language, compiler and Runtime responsibilities, real execution-policy
 identity, exact content integrity, and consistent in-flight inputs. It does not activate the
@@ -87,7 +89,7 @@ Standard Schema 2.0 must:
 - express numeric models across RPG and Roguelike systems through a small orthogonal type and
   operation core;
 - add ordinary game attributes through Model Source alone and reusable mechanics through complete,
-  versioned Domain packages rather than host-code changes;
+  current Domain packages rather than host-code changes;
 - admit later game genres through those same source/package contracts without changing Kernel
   primitives, core constructors, runtime phases, compiler dispatch, or evaluator dispatch;
 - compile source into a public semantic representation whose identity and meaning are independent of
@@ -264,7 +266,7 @@ Admission can derive read-only indexes. A serialized registry or directory listi
 authority. The LDB cannot redefine Kernel laws. The Kernel does not contain ordinary language or
 game-domain evolution.
 
-The Kernel owns package-coordinate patterns. It also owns the identity domains for the root,
+The Kernel owns package namespace patterns. It also owns the identity domains for the root,
 release, and evidence collections. Loaders, admission, public schemas, and rebuild tooling project
 these contracts.
 
@@ -790,9 +792,9 @@ The initial language uses a closed constructor set:
 `Ref<T>`, `Quantity`, and `Distribution`.
 
 The list is closed for one Schema major. New convenience names do not become primitive types.
-The `standard.schema@2.3.0` slice supplies the generic `Enum`, `Record`, `List`, and `Ref`
-constructors. The #640 baseline advances that release to `2.4.0` and adds generic List emptiness;
-it does not add a type constructor. A Domain package gives each use a nominal identity and exact
+The current `standard.schema` definition supplies the generic `Enum`, `Record`, `List`, and `Ref`
+constructors and the List-emptiness operation introduced by #640. The operation does not add a
+type constructor. A Domain package gives each use a nominal identity and exact
 definition. Record fields are closed, while Record object-member order is insignificant. Lists are
 invariant and bounded. Each Ref definition owns its nominal target and canonical key pattern.
 Public structured values use one `{type, value}` envelope. The LDB-selected type remains the
@@ -813,7 +815,7 @@ value participates in evaluation rather than creating parallel type families. Th
 the main orthogonality mechanism: representation, domain meaning, unit, bounds, and evaluation role
 can evolve without a combinatorial type hierarchy.
 
-Core lifecycle roles are closed by the language. Domain roles are versioned nominal terms exported
+Core lifecycle roles are closed by the language. Domain roles are nominal terms exported
 by packages; they never infer kind, unit, support, or Numeric policy. `rate`, for example, names a
 use while the Quantity unit still owns its denominator and dimensional legality.
 
@@ -925,15 +927,14 @@ composition policy. The CLI and player-facing application consume the same maint
 and Experiment inputs.
 
 The `RPG-STAT-01` Model Source selects one compatible current package closure. Its root requirements
-are `core.quantity@2.2.0`, `game.progression@1.0.0`, `game.build@2.0.0`,
-`game.effect@2.0.0`, and `game.combat@2.2.0`. The selected combat release depends on
-`game.check@1.1.0` and `game.resource@1.1.0`; the selected build release depends on
-`game.generation@1.1.0`. The remaining transitive coordinates are `standard.compiler@1.1.0`,
-`standard.runtime@1.1.0`, and `standard.schema@2.4.0`. Under #869, Build's current definition owns
+are `core.quantity`, `game.progression`, `game.build`, `game.effect`, and `game.combat`.
+The selected combat definition depends on `game.check` and `game.resource`; the selected build
+definition depends on `game.generation`. The remaining transitive namespaces are
+`standard.compiler`, `standard.runtime`, and `standard.schema`. Under #869, Build's current definition owns
 both reward replacement and contribution; Effect's current definition owns both periodic lifecycle
 and contribution. Earlier duplicate release manifests and vector members are removed after this
-capability union. bADR-0017 owns the scoped amendment and dependency edges; these coordinates remain
-the current wire format until the selector deletion in #870–#872.
+capability union. bADR-0017 owns the scoped amendment and dependency edges; #871 represents the
+requirements and dependency edges with namespace strings, without version coordinates.
 
 The maintained [progression-derived periodic Effect example](../examples/schema2/progression-periodic-effect/README.md)
 composes the same package owners through ordinary Model Source Formula bindings and an Experiment.
@@ -1096,7 +1097,7 @@ Identity follows semantic responsibility rather than file location:
   removes only the release's explicit `runtime_semantic_excluded_extensions`, so package-owned
   Formula notation changes exact content without pretending executable Operation semantics changed;
 - whole-LDB graph identity covers the root's normative content and child descriptors normalized by
-  the Kernel-declared `id`, then `version` order; descriptors bind every Package Release manifest
+  the Kernel-declared namespace `id` order; descriptors bind every Package Release manifest
   identity and byte size without binding transport order or physical locator;
 - Package Lock identity covers the exact selected dependency closure;
 - RIR payload identity covers reachable normalized model semantics;
@@ -1115,21 +1116,24 @@ Runtime profile, and exact Experiment eligibility. Such executions are not Repla
 
 ### 6.3 Package resolution
 
-**Accepted replacement:** One current definition per namespace replaces version selection. The
-resolver still closes declared dependencies, nominal types and capability providers, and refuses
-missing, duplicate, ambiguous or cyclic ownership. S2 (#869) supplies the current capability union
-and deletes duplicate release copies. S3 (#870–#872) deletes historical selectors and resolver
-branches across authored input, machine laws, compilation, descriptors, templates and consumers.
-The existing algorithm described next remains current implementation until that coordinated change;
-it is not the retained target.
+One current definition per namespace replaces version selection. Model Source requirements and
+package dependency lists contain namespace strings. Imports use `{alias, package, symbol}`;
+nominal Type and Operation references use `{package, id}`. The resolver closes dependencies and
+capability providers against the admitted LDB and produces one canonical Package Lock. Missing
+namespaces, duplicate requirements/owners, capability ambiguity, cycles and unsatisfied
+requirements remain typed refusals. There is no exact-version selection field, single-version
+judgment, version-range solver or old-shape fallback.
 
-Model Source declares requirements; it does not select ambient installed packages. The resolver
-uses the exact LDB inventory and deterministic compatibility rules to produce one canonical Package
-Lock. Ambiguity, unavailable capabilities, cycles, version conflicts, and unsatisfied requirements
-are typed refusals. A complete resolver must handle the general dependency graph. Package-release
-identity is exact within one LDB; the same logical id/version in another LDB is a distinct,
-non-interchangeable release world rather than a globally unique publication claim. The prototype's
-selected cases are not a substitute.
+Operations, Components, Conversions and nominal Types have package-scoped local ids. Their owners
+come from the attached semantic closure, without a second authored owner field. Different
+namespaces may reuse a local id; duplicate ids within one owner refuse. Constructors and structured
+Operations retain global identity, and capability contracts require a unique selected provider.
+Kernel fixed-value Type namespaces are excluded from package owners using the existing Kernel
+contracts.
+
+S2 (#869) supplies the current capability union; #870–#871 implement current namespace resolution
+and native wire shapes. #872 and #879 retain their remaining deletion and cross-artifact checks.
+The whole-LDB/Build-receipt execution-binding deletion remains separately required by #874–#875.
 
 ## 7. Extension and genre architecture
 
@@ -1225,20 +1229,21 @@ Two cross-contract protocols close previously implicit ordering:
 
 ### 7.3 Genre templates are distributions
 
-A Genre template is a versioned distribution containing:
+A Genre template is a current, content-addressed distribution containing:
 
 - an instantiable starter Model Source Package;
 - companion pre-build Experiment templates with scenarios, Metric definitions, and targets;
 - a requirements-to-operations coverage matrix with its Golden scenarios and negative vectors; and
-- a manifest binding template version, compatible LDB/package ranges, and every member's content
-  identity.
+- a manifest binding each member's content identity, with exact Kernel/LDB bindings on the
+  current Template artifact.
 
 Examples and documentation may accompany a release as non-semantic material, but they are not a
 substitute for any required member or manifest binding.
 
 Instantiation materializes the starter under a new Model Source Package identity and records the
-template id, version, and member-content provenance. That new model is thereafter authored by the
-game. Installing a later template release cannot mutate, rebase, or reinterpret it; adoption
+Template id, exact Template identity, and member-content provenance. Retrieval and instantiation
+select only the Template id; no `--version` selector or own-version label remains. That new model is
+thereafter authored by the game. Replacing a Template cannot mutate, rebase, or reinterpret it; adoption
 requires re-instantiation or explicit authored changes. Initial 2.0 defines no implicit template
 upgrade path.
 
@@ -1253,9 +1258,9 @@ and Model Source vector execution. Each primitive fixes its typed arguments, res
 evaluation law and order, exact failure behavior, canonical comparison and identity consequences,
 and resource-charge events.
 
-Kernel operations bind stable LDB-facing names to those primitives. The LDB orders a versioned
+Kernel operations bind stable LDB-facing names to those primitives. The LDB orders an identified
 program over the operations. It maps member kinds to role collections with explicit cardinality and
-required-operation obligations, declares every derived-fact binding, and fixes a per-release step
+required-operation obligations, declares every derived-fact binding, and fixes a per-Template step
 budget.
 
 This admission path supports multiple pre-build Experiment templates, Golden scenarios, and vectors
@@ -1285,8 +1290,8 @@ An extension failure must be assigned to the authority that can actually fix it:
 
 | Observed failure | Owning defect | Required response |
 | --- | --- | --- |
-| Admitted operations can express the mechanic, but the starter source, companion Experiment, examples, or coverage mapping are wrong or incomplete | Genre template release | Correct and re-version the template distribution; do not change language semantics |
-| The mechanic is reusable and fits the existing Kernel, but its package omits an operation law, capability, diagnostic, dependency, or vector | Domain package release/LDB content | Complete and re-version the package release under LDB authority |
+| Admitted operations can express the mechanic, but the starter source, companion Experiment, examples, or coverage mapping are wrong or incomplete | Genre template release | Correct and reidentify the current Template distribution; do not change language semantics |
+| The mechanic is reusable and fits the existing Kernel, but its package omits an operation law, capability, diagnostic, dependency, or vector | Domain package release/LDB content | Complete and reidentify the current package definition under LDB authority |
 | Model Source, package, compiler, Runtime, identity, refusal, publication, or Evidence contracts cannot represent the mechanic without hidden host behavior or overlapping ownership | Standard Schema/LDB architecture | Reopen the relevant bADR/PRD gate and correct the common language contract before continuing template work |
 | The missing behavior is genuinely irreducible and cannot be defined by the admitted rule meta-format and Semantic kernel | Kernel/Schema-major architecture | Treat it as a Schema-major decision with executable laws and independent conformance |
 
@@ -1540,10 +1545,9 @@ their agreement is a **Cross-evaluator comparison**, not Replay. It may support 
 validated `cross_evaluator_conformant` claim but can never issue `reproducible` for a different
 profile.
 
-The #545 implementation advances `standard.experiment` from `1.0.0` to `1.1.0`; it does not add a
-new package id such as `standard.comparison`. `standard.experiment@1.1.0` owns `exact-replay-v1`
-under the Kernel-admitted `language.replay_comparison_policies` collection. One definition has `id`,
-`version`, one policy-wide `comparator`, and an ordered `checks` list of stable keys. The initial
+`standard.experiment` owns `exact-replay-v1` under the Kernel-admitted
+`language.replay_comparison_policies` collection. The native definition has `id`, one policy-wide
+`comparator`, and an ordered `checks` list of stable keys, with no own-version label. The initial
 policy uses `canonical-equal` for these four keys:
 
 | Check key |
@@ -1563,10 +1567,11 @@ not repeat those facts as separate checks.
 closure. Introducing these Kernel contract shapes reidentifies the Kernel, the whole LDB, and
 downstream exact wrappers. A later policy-only change reidentifies the Package Release semantic and
 content identities, the whole LDB, and downstream exact wrappers without changing the Kernel. The
-Replay comparison binds the Package Release coordinate, policy id/version, and whole-LDB identity.
+Replay comparison binds the package namespace, policy id and whole-LDB identity. The remaining
+broad binding is subject to closure in #874 and mandatory deletion in #875.
 The policy is not a separate published artifact.
 
-Kernel admission validates the closed definition shape, non-empty policy id and version, non-empty
+Kernel admission validates the closed definition shape, non-empty policy id, non-empty
 and unique check keys, fixed check order, supported policy-wide comparator, export ownership, and
 semantic-closure projection. It derives one read-only policy index keyed by id. The Kernel vector
 union adds one `replay-comparison` variant. It binds a policy id, complete original and Replay
@@ -2002,7 +2007,7 @@ Comparison semantics. The comparison owner performs no Locator or store lookup. 
 admitted policy, produces the comparison, and validates every binding before Artifact policy can
 publish the declared set. Evidence validation is not part of this path.
 
-The `standard.experiment@1.1.0` Package Release owns `exact-replay-v1` under
+The current `standard.experiment` package owns `exact-replay-v1` under
 `language.replay_comparison_policies`. The policy fixes the ordered comparison checks. It compares the
 Evaluation outcome status (`accepted` or `rejected`), Event-trace identity, Snapshot-series identity,
 and Metric-dataset identity with one policy-wide canonical-equality comparator. The Event-trace
