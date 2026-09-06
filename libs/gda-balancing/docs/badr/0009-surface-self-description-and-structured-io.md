@@ -9,6 +9,11 @@ status: accepted
 > manifest/structured-parameter scope and generalizes the descriptor-derived surface. Emit-only
 > discovery, structured input, channel discipline, and config/logic separation are retained.
 
+> **Single-file sink retirement (#867):** the unused dispatch-owned sink, receipt
+> types and sink-only harness rows are removed under bADR-0028. The historical
+> single-file law below does not require their restoration. Current Artifact Set
+> publication and its path/atomicity protections remain owned by bADR-0021.
+
 bADR-0005 defined the Standard Schema's two self-description artifacts and left their
 delivery channel to this gate; gda's surface conventions (`--schema`, structured params
 input) are the family reference. This bADR fixes how the *toolkit's command surface*

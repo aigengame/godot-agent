@@ -10,6 +10,11 @@ status: accepted
 > generalizes the descriptor/harness for the 2.x artifact surface. One registration seam,
 > projection-derived help/schema/dispatch, and exhaustive conformance remain retained.
 
+> **Single-file sink retirement (#867):** the old sink-only harness rows are
+> removed with their unused production path. Exhaustive conformance covers the
+> current descriptor capabilities, including real Artifact Set publication,
+> rather than synthetic registrations of a retired capability.
+
 > **Foreground-service amendment (2026-08-15, bADR-0026):** The descriptor gains one
 > `foreground-service` execution marking and a typed readiness result. The same descriptor remains
 > the only source for argv binding, help, `--schema`, Surface-manifest projection, errors, and

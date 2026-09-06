@@ -263,11 +263,7 @@ def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
         {
             "artifact_behavior": (
                 "atomic-artifact-set"
-                if (
-                    descriptor.artifact_sink
-                    or descriptor.artifact_set
-                    or descriptor.verdict_artifact_set
-                )
+                if (descriptor.artifact_set or descriptor.verdict_artifact_set)
                 else "stdout-only"
             ),
             "artifact_set": members(descriptor.artifact_set),

@@ -13,8 +13,6 @@ the versioned internal-envelope debug member.
 """
 
 import json
-import os
-import tempfile
 import traceback
 from collections.abc import Sequence
 from typing import Any, TextIO
@@ -27,8 +25,6 @@ from gda_balancing.domain.publication_types import PublicationError
 from gda_balancing.interfaces.cli.errors import UsageError, publication_usage_error
 from gda_balancing.interfaces.cli.registry import REGISTRY
 from gda_balancing.interfaces.cli.descriptors import (
-    ArtifactReceipt,
-    ArtifactSpec,
     CommandDescriptor,
     option_bindings,
 )
@@ -47,13 +43,11 @@ from gda_balancing.interfaces.cli.envelope import (
     schema2_refusal_envelope,
     usage_envelope,
 )
-from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 _SCHEMA_FLAG = "--schema"
 _HELP_FLAG = "--help"
 _DEBUG_FLAG = "--debug"
-_OUT_FLAG = "--out"
 
 
 class _UsageError(UsageError):
@@ -203,7 +197,7 @@ def _invoke_descriptor(
 ) -> int:
     """Invoke a resolved descriptor inside its declared usage boundary."""
     try:
-        values, out = _bind(descriptor, tail, stdin)
+        values = _bind(descriptor, tail, stdin)
         input_obj = descriptor.input_model(**values)
     except ValidationError as err:
         raise _UsageError("invalid_argument", _summarize(err)) from err
@@ -294,14 +288,6 @@ def _invoke_descriptor(
         if presentation == "indented"
         else canonical_json(payload)
     )
-    if descriptor.artifact_sink and out is not None:
-        # The BODY arm goes to the sink; stdout carries the receipt (bADR-0009).
-        # The sink is written BEFORE stdout, and an unwritable sink raises
-        # `_UsageError` (exit 3) while stdout is still untouched — so the
-        # exit-3-implies-empty-stdout law holds even on a write failure.
-        receipt = _write_artifact(descriptor, out, body)
-        stdout.write(canonical_json(model_payload(receipt)))
-        return EXIT_SUCCESS
     stdout.write(body)
     return EXIT_SUCCESS
 
@@ -344,24 +330,15 @@ def _invoke_foreground_descriptor(
 
 def _bind(
     descriptor: CommandDescriptor, tail: list[str], stdin: TextIO | None
-) -> tuple[dict[str, Any], str | None]:
-    """Apply the binding law to the command tail (bADR-0011); return the bound
-    model values and the ``--out`` sink path (``None`` when absent).
-
-    Every option is valued (``--name value`` or ``--name=value``); no v1 input
-    model declares a boolean flag. ``--debug`` is dispatch-owned. For a legacy
-    ``artifact_sink`` command, ``--out`` is also dispatch-owned and returned
-    separately; for an ``artifact_set`` command it is an ordinary descriptor
-    input field and is bound through ``option_bindings``.
-    """
+) -> dict[str, Any]:
+    """Apply the binding law to the command tail; return model values."""
     structured = _structured_params(descriptor, tail, stdin)
     if structured is not None:
-        return structured, None
+        return structured
 
     options = option_bindings(descriptor)
     values: dict[str, Any] = {}
     positionals: list[str] = []
-    out: str | None = None
     i = 0
     while i < len(tail):
         token = tail[i]
@@ -369,20 +346,6 @@ def _bind(
             i += 1
             continue
         name, eq, inline_value = token.partition("=")
-        if name == _OUT_FLAG and descriptor.artifact_sink:
-            if out is not None:
-                raise _UsageError(
-                    "argument_conflict", f"argument named more than once: {name}"
-                )
-            if eq:
-                out = inline_value
-            else:
-                i += 1
-                if i >= len(tail):
-                    raise _UsageError("invalid_argument", f"missing value for {name}")
-                out = tail[i]
-            i += 1
-            continue
         if token.startswith("--"):
             field = options.get(name)
             if field is None:
@@ -411,9 +374,7 @@ def _bind(
     if positionals and descriptor.positional_field is not None:
         values[descriptor.positional_field] = positionals[0]
 
-    if out is not None and descriptor.positional_field is not None:
-        reject_input_aliasing(out, values.get(descriptor.positional_field))
-    return values, out
+    return values
 
 
 def _structured_params(
@@ -471,38 +432,6 @@ def _structured_params(
     if not isinstance(value, dict):
         raise _UsageError("invalid_argument", "--params-json must contain an object")
     return value
-
-
-def _write_artifact(descriptor: CommandDescriptor, out: str, body: str) -> BaseModel:
-    """Write the artifact ``body`` to the sink atomically and return the receipt
-    as the descriptor's declared output model (bADR-0009).
-
-    The write is atomic — a temp file in the sink's own directory, then
-    ``os.replace`` — so a failed invocation leaves no partial file and an
-    existing destination is overwritten wholesale. Any ``OSError`` (unwritable
-    directory, replace failure) is a usage `unwritable_output`; the temp file is
-    cleaned up first, and stdout is still untouched, so the exit-3 stdout-empty
-    law holds.
-    """
-    body_bytes = body.encode("utf-8")
-    directory = os.path.dirname(out) or "."
-    tmp_name: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=directory, delete=False) as handle:
-            tmp_name = handle.name
-            handle.write(body_bytes)
-        os.replace(tmp_name, out)
-    except OSError as err:
-        if tmp_name is not None and os.path.exists(tmp_name):
-            os.unlink(tmp_name)
-        raise _UsageError(
-            "unwritable_output", f"cannot write output file: {out}"
-        ) from err
-    return descriptor.output_model(
-        root=ArtifactReceipt(
-            artifact=ArtifactSpec(path=os.path.realpath(out), bytes=len(body_bytes))
-        )
-    )
 
 
 def _summarize(err: ValidationError) -> str:
