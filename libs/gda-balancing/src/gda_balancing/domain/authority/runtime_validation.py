@@ -1346,8 +1346,8 @@ def _runtime_authority_is_closed(
     if not isinstance(language, dict):
         return False
     profiles = language.get("runtime_profiles")
-    operations = language.get("operations")
-    if not isinstance(profiles, list) or not isinstance(operations, list):
+    packages = getattr(language_bundle, "package_releases", None)
+    if not isinstance(profiles, list) or not isinstance(packages, list):
         return False
     for profile in profiles:
         if not isinstance(profile, dict):
@@ -1362,19 +1362,39 @@ def _runtime_authority_is_closed(
             return False
     kinds = set(outcomes["kinds"])
     policies = set(outcomes["state_policies"])
-    operations_by_id = {
-        operation.get("id"): operation
-        for operation in operations
-        if isinstance(operation, dict) and isinstance(operation.get("id"), str)
-    }
+    operations: dict[tuple[str, str], dict[str, Any]] = {}
+    for package in packages:
+        if not isinstance(package, dict) or not isinstance(package.get("id"), str):
+            return False
+        closure = package.get("semantic_closure")
+        if not isinstance(closure, list):
+            return False
+        for entry in closure:
+            if (
+                not isinstance(entry, dict)
+                or entry.get("authority_path") != "language.operations"
+            ):
+                continue
+            definitions = entry.get("definitions")
+            if not isinstance(definitions, list):
+                return False
+            for operation in definitions:
+                if not isinstance(operation, dict) or not isinstance(
+                    operation.get("id"), str
+                ):
+                    return False
+                coordinate = (package["id"], operation["id"])
+                if coordinate in operations:
+                    return False
+                operations[coordinate] = operation
 
     def operation_outcomes(
-        operation: dict[str, Any], visiting: set[str]
+        coordinate: tuple[str, str], visiting: set[tuple[str, str]]
     ) -> set[str] | None:
-        operation_id = str(operation.get("id", ""))
-        if operation_id in visiting:
+        if coordinate in visiting:
             return None
-        visiting.add(operation_id)
+        visiting.add(coordinate)
+        operation = operations[coordinate]
         referenced: set[str] = set()
         local_result_kinds: dict[str, str] = {}
         formal_ports = {
@@ -1384,15 +1404,15 @@ def _runtime_authority_is_closed(
         }
         body = operation.get("body")
         if not isinstance(body, list):
-            visiting.remove(operation_id)
+            visiting.remove(coordinate)
             return None
         for instruction in body:
             if not isinstance(instruction, dict):
-                visiting.remove(operation_id)
+                visiting.remove(coordinate)
                 return None
             node = nodes.get(str(instruction.get("node", "")))
             if node is None or set(instruction) != set(node["required_members"]):
-                visiting.remove(operation_id)
+                visiting.remove(coordinate)
                 return None
             if node["semantics"]["operator"] == "cancel-event":
                 target_contract = node["semantics"]["target_reference"]
@@ -1432,7 +1452,7 @@ def _runtime_authority_is_closed(
                         )
                     )
                 ):
-                    visiting.remove(operation_id)
+                    visiting.remove(coordinate)
                     return None
             if "outcome" in instruction:
                 referenced.add(str(instruction["outcome"]))
@@ -1447,15 +1467,16 @@ def _runtime_authority_is_closed(
                         for member in ("package", "id")
                     )
                 ):
-                    visiting.remove(operation_id)
+                    visiting.remove(coordinate)
                     return None
-                invoked = operations_by_id.get(operation_ref["id"])
+                invoked_coordinate = (operation_ref["package"], operation_ref["id"])
+                invoked = operations.get(invoked_coordinate)
                 if not isinstance(invoked, dict):
-                    visiting.remove(operation_id)
+                    visiting.remove(coordinate)
                     return None
-                nested = operation_outcomes(invoked, visiting)
+                nested = operation_outcomes(invoked_coordinate, visiting)
                 if nested is None:
-                    visiting.remove(operation_id)
+                    visiting.remove(coordinate)
                     return None
                 arguments = instruction.get("arguments")
                 invoked_formal_ports = invoked.get("inputs")
@@ -1484,12 +1505,12 @@ def _runtime_authority_is_closed(
                     or [mapping.get("outcome") for mapping in mappings]
                     != [outcome.get("id") for outcome in callee_outcomes]
                 ):
-                    visiting.remove(operation_id)
+                    visiting.remove(coordinate)
                     return None
                 if result_binding["kind"] == "discard" and not invoked.get(
                     "result", {}
                 ).get("discardable"):
-                    visiting.remove(operation_id)
+                    visiting.remove(coordinate)
                     return None
                 for mapping in mappings:
                     action = mapping.get("action")
@@ -1507,7 +1528,7 @@ def _runtime_authority_is_closed(
                             )
                         )
                     ):
-                        visiting.remove(operation_id)
+                        visiting.remove(coordinate)
                         return None
                     if action["kind"] == "propagate":
                         referenced.add(action["outcome"])
@@ -1522,15 +1543,13 @@ def _runtime_authority_is_closed(
                     or not local_name
                     or local_name in local_result_kinds
                 ):
-                    visiting.remove(operation_id)
+                    visiting.remove(coordinate)
                     return None
                 local_result_kinds[local_name] = node["result"]["kind"]
-        visiting.remove(operation_id)
+        visiting.remove(coordinate)
         return referenced
 
-    for operation in operations:
-        if not isinstance(operation, dict):
-            return False
+    for coordinate, operation in operations.items():
         operation_kind = operation.get("operation_kind")
         if operation_kind not in {"event-program", "event-fragment"}:
             continue
@@ -1580,7 +1599,7 @@ def _runtime_authority_is_closed(
             )
         ):
             return False
-        referenced = operation_outcomes(operation, set())
+        referenced = operation_outcomes(coordinate, set())
         if referenced is None:
             return False
         declared = operation.get("outcomes")
