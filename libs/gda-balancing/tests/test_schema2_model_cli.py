@@ -3086,8 +3086,9 @@ def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
     assert diagnostic["primary"]["pointer"] == ("/modules/0/symbols/5/value_policy")
 
 
-def test_model_check_refuses_transitive_capability_without_selected_provider(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("provider_count", (0, 1, 2))
+def test_model_source_checks_transitive_selected_capability_cardinality(
+    tmp_path, monkeypatch, provider_count
 ):
     kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
@@ -3124,7 +3125,13 @@ def test_model_check_refuses_transitive_capability_without_selected_provider(
             ["shared.rules"],
         ),
     ]
-    added_packages[0]["capabilities"]["required"] = ["game.effect.periodic"]
+    added_packages[0]["capabilities"]["required"] = ["game.check.hit"]
+    providers = [
+        empty_package(f"genre.provider{index}", []) for index in range(provider_count)
+    ]
+    for provider in providers:
+        provider["capabilities"]["provided"] = ["game.check.hit"]
+    added_packages.extend(providers)
     language["packages"].extend(added_packages)
     candidate_ldb.package_conformance_vector_sets.extend(
         _package_vector_set(package["id"], []) for package in added_packages
@@ -3139,16 +3146,31 @@ def test_model_check_refuses_transitive_capability_without_selected_provider(
             "genre.parentb",
         ]
     )
+    source_document["package_requirements"].extend(
+        provider["id"] for provider in providers
+    )
     source = tmp_path / "missing-transitive-provider.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
     def refuse_finalization(_projection):
-        pytest.fail("Missing selected capability provider reached finalization")
+        pytest.fail("Invalid selected capability provider count reached finalization")
 
-    monkeypatch.setattr(
-        model_checking_module, "admit_namespace_selection", refuse_finalization
-    )
+    if provider_count != 1:
+        monkeypatch.setattr(
+            model_checking_module, "admit_namespace_selection", refuse_finalization
+        )
     result = model_checking_module.check_model_source(str(source))
+
+    if provider_count == 1:
+        assert isinstance(result, model_module.CheckedModel), result
+        artifacts = model_compilation_module.compile_checked_model(result)
+        assert {
+            "capability": "game.check.hit",
+            "provider_package": "genre.provider0",
+        } in cast(
+            list[dict[str, Any]], artifacts["package-lock"]["capability_bindings"]
+        )
+        return
 
     assert isinstance(result, model_module.Schema2RefusalReport)
     assert result.stage == "resolution"

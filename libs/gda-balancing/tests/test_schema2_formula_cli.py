@@ -2521,7 +2521,9 @@ def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> No
 
 
 @pytest.mark.parametrize("command", ("parse", "render"))
-def test_formula_conversion_refuses_retired_import_version(tmp_path, run_cli, command):
+def test_formula_conversion_refuses_retired_import_version(
+    tmp_path, run_cli, command, pristine_authority_context
+):
     module = _quantity_module("main")
     cast(list[dict[str, object]], module["imports"])[0]["version"] = "obsolete-label"
     contract = _quantity_contract("value")
@@ -2548,3 +2550,7 @@ def test_formula_conversion_refuses_retired_import_version(tmp_path, run_cli, co
     assert [diagnostic["code"] for diagnostic in error["diagnostics"]] == [
         "language.source_contract_mismatch"
     ]
+
+    assert not independently_admit_pair(
+        request, pristine_authority_context.language_bundle
+    )
