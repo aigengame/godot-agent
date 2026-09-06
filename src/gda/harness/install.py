@@ -45,7 +45,11 @@ agent (or a reviewer) needs to audit what gda wrote into a tracked project.
 **Line endings (#654).** ``project.godot`` is read and written with newline
 translation OFF and rejoined with the terminator its FIRST line uses, so a CRLF
 project file stays CRLF — Python's default text mode would otherwise silently
-rewrite the whole file to LF on any autoload edit.
+rewrite the whole file to LF on any autoload edit. The line primitives this
+edit runs on (``split_config``, ``section_of``, ``is_section_header``) belong to
+:mod:`gda.project_file`, the one reader of Godot's ``ConfigFile`` text (#843);
+this module contributes the ``[autoload]``-specific EDIT, not a second reading
+of the format.
 
 Three shapes of input still come back changed, so the byte-identity guarantee of
 :func:`uninstall_harness` is scoped to exclude them:
@@ -53,7 +57,7 @@ Three shapes of input still come back changed, so the byte-identity guarantee of
 - a file with MIXED terminators is normalized to its first one;
 - a file with NO final terminator gains one (install terminates the line it
   appends after; uninstall has no way to know the file never ended in a break);
-- a CR-only (classic-Mac) file comes back CRLF — ``_line_ending`` only tells
+- a CR-only (classic-Mac) file comes back CRLF — ``line_ending`` only tells
   ``\\r\\n`` from ``\\n``, while ``str.splitlines`` also splits a bare ``\\r``.
 
 None is reachable for a ``project.godot`` the engine itself wrote: Godot's
@@ -66,6 +70,13 @@ instead of growing a per-line terminator model for inputs Godot cannot produce.
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from gda.project_file import (
+    SECTIONLESS,
+    is_section_header,
+    section_of,
+    split_config,
+)
 
 # The autoload name and the res:// location the bundled harness is installed to.
 HARNESS_AUTOLOAD_NAME = "GdaHarness"
@@ -91,6 +102,9 @@ HARNESS_VERSION = "20"
 
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
+# The same section by NAME, for the shared reader's section tracking. The header
+# LINE above stays the thing the install WRITES and the receipt reports.
+_AUTOLOAD_SECTION = "autoload"
 _PROJECT_FILE = "project.godot"
 _BUNDLED_HARNESS = Path(__file__).parent / HARNESS_FILE
 
@@ -167,19 +181,6 @@ def _autoload_line() -> str:
     return f'{HARNESS_AUTOLOAD_NAME}="*{HARNESS_RES_PATH}"'
 
 
-def _line_ending(text: str) -> str:
-    """The terminator the text's FIRST line uses (``\\r\\n`` or ``\\n``).
-
-    Rejoining with it keeps a CRLF ``project.godot`` CRLF (#654). A file with mixed
-    terminators normalizes to its first one — the documented limit of the
-    byte-identity guarantee.
-    """
-    index = text.find("\n")
-    if index > 0 and text[index - 1] == "\r":
-        return "\r\n"
-    return "\n"
-
-
 def _read_config(path: Path) -> str:
     """Read ``project.godot`` with newline translation OFF, so CRLF survives (#654)."""
     return path.read_text(encoding="utf-8", newline="")
@@ -188,17 +189,6 @@ def _read_config(path: Path) -> str:
 def _write_config(path: Path, text: str) -> None:
     """Write ``project.godot`` verbatim — no newline translation on the way out."""
     path.write_text(text, encoding="utf-8", newline="")
-
-
-def _split_config(text: str) -> tuple[list[str], str, str]:
-    """A config text as (terminator-free lines, line ending, trailing terminator)."""
-    eol = _line_ending(text)
-    return text.splitlines(), eol, eol if text.endswith(("\n", "\r")) else ""
-
-
-def _is_section_header(stripped: str) -> bool:
-    """Whether a stripped config line is an INI section header (``[name]``)."""
-    return stripped.startswith("[") and stripped.endswith("]")
 
 
 def _version_header() -> str:
@@ -423,17 +413,17 @@ def _ensure_autoload(text: str) -> _ConfigEdit:
     ``_remove_autoload`` mirrors when it drops the section again.
     """
     line = _autoload_line()
-    lines, eol, trailing = _split_config(text)
+    lines, eol, trailing = split_config(text)
 
     # Re-point an existing GdaHarness entry, or insert a fresh one — both scoped to
     # the [autoload] section, so a same-named key in another section is never
     # touched (PR #247 review; symmetric with _remove_autoload).
-    section: Optional[str] = None
+    section = SECTIONLESS
     autoload_header_index: Optional[int] = None
     for i, raw in enumerate(lines):
         stripped = raw.strip()
-        section = _section_of(stripped, section)
-        if section != _AUTOLOAD_HEADER:
+        section = section_of(stripped, section)
+        if section != _AUTOLOAD_SECTION:
             continue
         if stripped == _AUTOLOAD_HEADER:
             if autoload_header_index is None:
@@ -511,18 +501,6 @@ def install_harness(project: Path) -> HarnessInstall:
     )
 
 
-def _section_of(stripped: str, current: Optional[str]) -> Optional[str]:
-    """The active INI section after a stripped line, or ``current`` if unchanged.
-
-    A section header is ``[name]``; any other line leaves the section as-is. Used to
-    scope harness-key edits to ``[autoload]`` so a same-named key in another section
-    of ``project.godot`` is never touched (PR #247 review).
-    """
-    if _is_section_header(stripped):
-        return stripped
-    return current
-
-
 def _drop_emptied_autoload_sections(
     lines: list[str], headers: set[int]
 ) -> tuple[list[str], tuple[str, ...]]:
@@ -565,7 +543,7 @@ def _emptied_autoload_span(lines: list[str], index: int) -> Optional[tuple[int, 
     if index >= len(lines) or lines[index].strip() != _AUTOLOAD_HEADER:
         return None
     end = index + 1
-    while end < len(lines) and not _is_section_header(lines[end].strip()):
+    while end < len(lines) and not is_section_header(lines[end].strip()):
         end += 1
     if any(line.strip() for line in lines[index + 1 : end]):
         return None
@@ -585,8 +563,8 @@ def _remove_autoload(text: str) -> _ConfigEdit:
     (:func:`_drop_emptied_autoload_sections`, #654) and the returned
     :class:`_ConfigEdit` names it in ``sections``.
     """
-    lines, eol, trailing = _split_config(text)
-    section: Optional[str] = None
+    lines, eol, trailing = split_config(text)
+    section = SECTIONLESS
     kept: list[str] = []
     # The `kept` index of the [autoload] header now in scope, and the headers a
     # harness entry was actually dropped from — only those may lose their section.
@@ -594,8 +572,8 @@ def _remove_autoload(text: str) -> _ConfigEdit:
     emptied: set[int] = set()
     for raw in lines:
         stripped = raw.strip()
-        section = _section_of(stripped, section)
-        if section == _AUTOLOAD_HEADER:
+        section = section_of(stripped, section)
+        if section == _AUTOLOAD_SECTION:
             if stripped == _AUTOLOAD_HEADER:
                 header_index = len(kept)
             elif stripped.startswith(f"{HARNESS_AUTOLOAD_NAME}="):
