@@ -196,7 +196,6 @@ def test_packaged_context_derives_immutable_replay_comparison_policy_index():
         "exact-replay-v1": {
             "owner": {
                 "package": "standard.experiment",
-                "package_version": "1.1.0",
             },
             "policy": {
                 "checks": [
@@ -207,7 +206,6 @@ def test_packaged_context_derives_immutable_replay_comparison_policy_index():
                 ],
                 "comparator": "canonical-equal",
                 "id": "exact-replay-v1",
-                "version": "1.0.0",
             },
         }
     }
@@ -215,8 +213,8 @@ def test_packaged_context_derives_immutable_replay_comparison_policy_index():
         cast(dict[str, Any], context.replay_comparison_policy_index)["other"] = {}
     with pytest.raises(TypeError, match="immutable"):
         context.replay_comparison_policy_index["exact-replay-v1"]["policy"][
-            "version"
-        ] = "2.0.0"
+            "comparator"
+        ] = "changed"
     with pytest.raises(TypeError, match="init=False"):
         replace(context, replay_comparison_policy_index={})
     assert deepcopy(context) is context

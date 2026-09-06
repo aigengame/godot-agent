@@ -112,7 +112,6 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.tick-snapshot-periodic-v1",
                         "package": "game.effect",
-                        "version": "2.0.0",
                     },
                 },
                 {
@@ -120,7 +119,6 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.tick-snapshot-periodic-v1",
                         "package": "game.effect",
-                        "version": "2.0.0",
                     },
                 },
                 {
@@ -128,7 +126,6 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.expire-periodic-v1",
                         "package": "game.effect",
-                        "version": "2.0.0",
                     },
                 },
             ],
@@ -161,7 +158,6 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.tick-live-periodic-v1",
                         "package": "game.effect",
-                        "version": "2.0.0",
                     },
                 },
                 {
@@ -169,7 +165,6 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.tick-live-periodic-v1",
                         "package": "game.effect",
-                        "version": "2.0.0",
                     },
                 },
                 {
@@ -177,7 +172,6 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.expire-periodic-v1",
                         "package": "game.effect",
-                        "version": "2.0.0",
                     },
                 },
             ],
@@ -963,15 +957,12 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     authority = _authority_candidate()
     kernel = authority["kernel"]
     ldb = authority["language_bundle"]
-    packages = {
-        (package["id"], package["version"]): package
-        for package in ldb["language"]["packages"]
-    }
+    packages = {package["id"]: package for package in ldb["language"]["packages"]}
     vector_sets = {
-        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        vector_set["package_id"]: vector_set
         for vector_set in ldb.package_conformance_vector_sets
     }
-    runtime_package = packages[("standard.runtime", "1.1.0")]
+    runtime_package = packages["standard.runtime"]
     runtime_profile = next(
         definition
         for entry in runtime_package["semantic_closure"]
@@ -1030,15 +1021,15 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "snapshot_identity_domain": "runtime-snapshot-v2",
     }
     expected_vector_ids = {
-        ("standard.schema", "2.4.0"): {
+        "standard.schema": {
             "formula.schema.accept.named-typed-pure-graph",
             "formula.schema.refuse.dynamic-or-effectful-graph",
         },
-        ("standard.compiler", "1.1.0"): {
+        "standard.compiler": {
             "formula.compiler.accept.closed-static-graph",
             "formula.compiler.refuse.invalid-closure",
         },
-        ("standard.runtime", "1.1.0"): {
+        "standard.runtime": {
             "formula.runtime.accept.initialization-and-event-frames",
             "formula.runtime.refuse.initialization-atomically",
             "formula.runtime.boundary.cache-charge-invariant",
@@ -1046,7 +1037,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
             "formula.runtime.observation.boundary.snapshot-cache-key",
             "formula.runtime.observation.refusal.atomic-prefix",
         },
-        ("core.quantity", "2.2.0"): {
+        "core.quantity": {
             "formula.quantity.accept.pure-operation-closure",
             "formula.quantity.accept.boolean-comparison",
             "formula.notation.quantity.floor-zero",
@@ -1055,7 +1046,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
             "formula.notation.quantity.maximum",
             "formula.notation.quantity.subtract",
         },
-        ("game.combat", "2.2.0"): {
+        "game.combat": {
             "formula.combat.accept.damage-slot-binding",
             "formula.combat.refuse.missing-or-duplicate-slot-binding",
         },
@@ -1066,7 +1057,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         }
     runtime_vectors = {
         vector["id"]: vector
-        for vector in vector_sets[("standard.runtime", "1.1.0")]["vector_definitions"]
+        for vector in vector_sets["standard.runtime"]["vector_definitions"]
     }
     kernel_vector_kinds = {
         kind["id"] for kind in kernel["meta_format"]["package_vector"]["kinds"]
@@ -1074,7 +1065,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     assert "artifact-evidence" not in kernel_vector_kinds
     assert {
         runtime_vectors[vector_id]["kind"]
-        for vector_id in expected_vector_ids[("standard.runtime", "1.1.0")]
+        for vector_id in expected_vector_ids["standard.runtime"]
         if ".observation." in vector_id
     } == {"value-program"}
     assert runtime_package["exports"]["artifact_wire_schemas"] == []
@@ -1095,13 +1086,13 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "runtime.lifecycle-observation.positive",
         "runtime.lifecycle-observation.refusal",
     }
-    for vector_id in expected_vector_ids[("standard.runtime", "1.1.0")]:
+    for vector_id in expected_vector_ids["standard.runtime"]:
         if ".observation." not in vector_id:
             continue
         vector = runtime_vectors[vector_id]
         assert vector["input"]["site"] in expected_sites
         assert vector["expect"]["site"] == vector["input"]["site"]
-    compiler_package = packages[("standard.compiler", "1.1.0")]
+    compiler_package = packages["standard.compiler"]
     resolution_profile = next(
         definition
         for entry in compiler_package["semantic_closure"]
@@ -1114,7 +1105,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     ] == [{"alias": "Boolean", "contract": "kernel-boolean"}]
     quantity_operations = {
         definition["id"]: definition
-        for entry in packages[("core.quantity", "2.2.0")]["semantic_closure"]
+        for entry in packages["core.quantity"]["semantic_closure"]
         if entry["authority_path"] == "language.operations"
         for definition in entry["definitions"]
     }
@@ -1131,12 +1122,12 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "numeric_policy": "exact-bool",
         "representation": "Bool",
         "source": {"kind": "local", "name": "result"},
-        "type": {"id": "Boolean", "package": "kernel", "version": "2.0.0"},
+        "type": {"id": "Boolean", "package": "kernel"},
         "unit": "1",
     }
     quantity_vectors = {
         vector["id"]: vector
-        for vector in vector_sets[("core.quantity", "2.2.0")]["vector_definitions"]
+        for vector in vector_sets["core.quantity"]["vector_definitions"]
     }
     for operation_id, operation in quantity_operations.items():
         notation_vectors = [
@@ -1408,7 +1399,7 @@ def test_every_kernel_law_publishes_a_complete_machine_contract():
 def test_reidentified_ldb_cannot_hide_a_tampered_package_release():
     authority = _authority_candidate()
     package = authority["language_bundle"]["language"]["packages"][0]
-    package["version"] = "2.0.1"
+    package["id"] = "tampered.package"
     authority["language_bundle"]["content_identity"] = _identity(
         "language-definition-bundle-v2", authority["language_bundle"]
     )
@@ -1722,7 +1713,7 @@ def test_kernel_treats_package_extensions_as_canonical_opaque_values():
         "ldb-schema-major",
         "diagnostic-extra-member",
         "package-id-type",
-        "package-version-type",
+        "retired-package-version-member",
         "package-exported-type-empty-id",
     ],
 )
@@ -1758,7 +1749,7 @@ def test_reidentified_ldb_and_package_shapes_remain_closed(mutation):
         _reidentify_package_release(package)
     elif mutation == "package-id-type":
         package["id"] = 7
-    elif mutation == "package-version-type":
+    elif mutation == "retired-package-version-member":
         package["version"] = False
     else:
         package["exports"]["types"][0]["id"] = ""
@@ -1820,7 +1811,6 @@ def test_reidentified_duplicate_vector_id_is_refused_by_both_consumers():
         candidate
         for candidate in ldb["language"]["packages"]
         if candidate["id"] == vector_set["package_id"]
-        and candidate["version"] == vector_set["package_version"]
     )
     vector_set["vectors"].append(duplicate["id"])
     vector_set["vector_definitions"].append(duplicate)
@@ -1848,11 +1838,11 @@ def test_reidentified_duplicate_vector_id_is_refused_by_both_consumers():
         (("capabilities", "required"), ["host.invented"]),
         (
             ("dependencies", "required"),
-            [{"id": "host.invented", "version": "1.0.0"}],
+            ["host.invented"],
         ),
         (
             ("dependencies", "optional"),
-            [{"id": "host.invented", "version": "1.0.0"}],
+            ["host.invented"],
         ),
     ],
 )
@@ -1919,7 +1909,7 @@ def test_reidentified_local_result_source_requires_a_compatible_node_producer():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.2.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1958,7 +1948,7 @@ def test_local_result_source_must_exist_before_every_successful_exit_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.2.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
