@@ -437,7 +437,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `project set` | Set a project setting, coercing the value to its declared type. |
 | `project add-autoload` | Register an autoload singleton (name → script/scene). |
 | `project remove-autoload` | Unregister an autoload singleton by name. |
-| `project add-input-action` | Register an InputMap action bound to keys (`--key` name or keycode, `--deadzone`, `--physical`). |
+| `project add-input-action` | Register an InputMap action bound to keys and/or a controller (`--key`, `--joy-button`, `--joy-axis` as `<axis>[:<sign>]`, `--device`, `--deadzone`, `--physical`); at least one binding is required. |
 | `project remove-input-action` | Unregister an InputMap action by name. |
 | `project find-references` | Find every project file that references a given resource. |
 | `project dependencies` | Map each scene/resource to the resources it depends on. |
