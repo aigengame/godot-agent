@@ -103,10 +103,13 @@ class GameNode(BaseModel):
 class GameTreeParams(RelayedLiveParams):
     """The params of ``gda game tree``: read the running game's runtime scene tree (#849).
 
-    Unbounded by default — the whole runtime tree of the engine session held by
-    ``gda-daemon``, which on a production UI is a very large result. ``root``
-    narrows the read to one subtree and ``max_depth`` bounds how deep it goes;
-    what a bound leaves out is COUNTED rather than silently dropped, so a partial
+    Unbounded by default, and rooted at the running CURRENT SCENE (``/root``
+    only when no scene is current) — the whole subtree below it, which on a
+    production UI is a very large result. An autoload is that scene's SIBLING
+    under ``/root``, so a read that must see one names ``root="/root"``;
+    ``root`` otherwise narrows the read to one subtree and ``max_depth`` bounds
+    how deep it goes. Both counters cover the SELECTED subtree only, and what a
+    bound leaves out of it is COUNTED rather than silently dropped, so a partial
     read is never mistaken for a complete one (see :class:`GameTreeResult`).
     """
 
@@ -115,8 +118,10 @@ class GameTreeParams(RelayedLiveParams):
         description=(
             "Serialize the subtree at this runtime (absolute) node path, as "
             "`game tree` itself reports it (e.g. /root/Main/HUD). Unset reads "
-            "the running current scene. A path that resolves to nothing is "
-            "`live_node_not_found`, the same refusal every other live op gives."
+            "the running current scene — an autoload is its SIBLING under "
+            "/root, so name /root to see one. A path that resolves to nothing "
+            "is `live_node_not_found`, the same refusal every other live op "
+            "gives."
         ),
     )
     max_depth: int | None = Field(
@@ -591,8 +596,9 @@ def game_tree(
         "--root",
         help=(
             "Read the subtree at this runtime node path, as `game tree` reports "
-            "it (absolute, e.g. /root/Main/HUD). Unset reads the current scene; "
-            "a path that resolves to nothing is `live_node_not_found`."
+            "it (absolute, e.g. /root/Main/HUD). Unset reads the current scene "
+            "(autoloads are its siblings: name /root to see them); a path that "
+            "resolves to nothing is `live_node_not_found`."
         ),
     ),
     max_depth: Optional[int] = typer.Option(
@@ -621,12 +627,14 @@ def game_tree(
     `live_unsupported_platform`. The platform/Godot-version precondition is the
     structured `constraints` field of `--schema` (ADR-0021), not restated here.
 
-    `--root` and `--max-depth` bound the read; without them it is unbounded, and
-    a production UI's whole tree is a very large result. What a bound leaves out
-    is counted, never silently dropped: the result carries `truncated` and
-    `omitted_nodes`, and each node whose children were not walked carries
-    `children_omitted`. Read bounded first, then address the nodes you want by
-    their exact path (`game get`, `game rect`, `game set`).
+    `--root` and `--max-depth` bound the read; without them it is unbounded and
+    rooted at the running current scene, and a production UI's whole tree is a
+    very large result. An autoload is that scene's sibling under `/root`, so a
+    read that must see one names `--root /root`. What a bound leaves out of the
+    selected subtree is counted, never silently dropped: the result carries
+    `truncated` and `omitted_nodes`, and each node whose children were not walked
+    carries `children_omitted`. Read bounded first, then address the nodes you
+    want by their exact path (`game get`, `game rect`, `game set`).
     """
     dispatch_domain(
         GAME_TREE_COMMAND,

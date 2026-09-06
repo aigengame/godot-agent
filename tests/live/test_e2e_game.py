@@ -795,3 +795,73 @@ def test_game_tree_bounds_the_read_and_counts_what_it_left_out(
         assert json.loads(missing.stdout)["error"]["code"] == "live_node_not_found"
     finally:
         run("daemon", "stop")
+
+
+# A chain deeper than GDScript's call stack (1024 frames by default), built by the
+# main scene's script so the fixture stays small. The count-only pass over an
+# omitted subtree recursed at first: at this depth it overflowed, returned a partial
+# total, and the op published that as a successful read — the exact-count promise
+# of #849 broken on a finite, valid tree.
+DEEP_CHAIN_DEPTH = 2200
+DEEP_CHAIN_MAIN_GD = (
+    "extends Node2D\n"
+    "func _ready() -> void:\n"
+    "\tvar current: Node = self\n"
+    f"\tfor index in range({DEEP_CHAIN_DEPTH}):\n"
+    "\t\tvar child := Node.new()\n"
+    "\t\tchild.name = str(index)\n"
+    "\t\tcurrent.add_child(child)\n"
+    "\t\tcurrent = child\n"
+)
+DEEP_CHAIN_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://main.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n'
+    'script = ExtResource("1")\n'
+)
+
+
+@pytest.mark.e2e
+def test_game_tree_counts_an_omitted_subtree_deeper_than_the_call_stack(
+    tmp_path, daemon_runtime_dir
+):
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(DEEP_CHAIN_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(DEEP_CHAIN_MAIN_GD, encoding="utf-8")
+
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        # Depth 0 on the current scene omits the whole chain: ONE direct child,
+        # and every chain node in the total — exact, at a depth the recursive
+        # count could not reach.
+        root_only = run("game", "tree", "--max-depth", "0")
+        assert root_only.returncode == 0, root_only.stdout + root_only.stderr
+        alone = json.loads(root_only.stdout)
+        assert alone["root"]["path"] == "/root/Main"
+        assert alone["root"]["children"] == []
+        assert alone["root"]["children_omitted"] == 1
+        assert alone["omitted_nodes"] == DEEP_CHAIN_DEPTH
+        assert alone["truncated"] is True
+
+        # The same chain counted from one level higher: /root's children are
+        # serialized, everything below them is omitted, and the total is still
+        # exactly the chain — the engine session's own nodes have no children.
+        from_root = run("game", "tree", "--root", "/root", "--max-depth", "1")
+        assert from_root.returncode == 0, from_root.stdout + from_root.stderr
+        top = json.loads(from_root.stdout)
+        main = next(
+            child for child in top["root"]["children"] if child["name"] == "Main"
+        )
+        assert main["children_omitted"] == 1
+        assert top["omitted_nodes"] == DEEP_CHAIN_DEPTH
+
+        # And the count left no engine error behind: the overflow surfaced here
+        # as "Stack overflow" while the op still reported success.
+        errors = run("diag", "errors")
+        assert errors.returncode == 0, errors.stdout + errors.stderr
+        assert json.loads(errors.stdout)["errors"] == []
+    finally:
+        run("daemon", "stop")

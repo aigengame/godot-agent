@@ -305,19 +305,23 @@ freeze-frame in an agent session, use `paused`, which live operations survive; a
 Every live op that ADDRESSES a node takes an exact runtime path, and `game tree` is how
 you learn one. Read it in TWO steps rather than dumping the whole tree:
 
-1. **Bound the read.** `gda game tree --max-depth 2 --json` shows the top levels; then
-   `gda game tree --root /root/Main/HUD --max-depth 2 --json` walks into the branch you
-   want. An unbounded `game tree` on a production UI is a very large result — it can
-   exceed your own context budget and be truncated by your client, and a truncated dump
-   cannot prove a node is absent.
+1. **Bound the read.** `gda game tree --max-depth 2 --json` shows the top levels of the
+   running CURRENT SCENE; then `gda game tree --root /root/Main/HUD --max-depth 2 --json`
+   walks into the branch you want. An autoload is not under the current scene but beside
+   it, so to discover one read `gda game tree --root /root --max-depth 1 --json`. An
+   unbounded `game tree` on a production UI is a very large result — it can exceed your
+   own context budget and be truncated by your client, and a truncated dump cannot prove
+   a node is absent.
 2. **Address exactly.** With the path in hand, use `game get` / `game rect` / `game set`
    / `game call` on that path. Do not re-read the tree per node.
 
 A bounded read says what it left out, so you never mistake it for a complete one:
-`omitted_nodes` counts every unserialized node at any depth, `truncated` is that count
-above zero, and a node whose children were not walked carries `children_omitted` (its
-direct children only; the key is absent when nothing was omitted). To see what a node
-hid, re-read with `--root <that node's path>`. There is no continuation token — a live
+`omitted_nodes` counts every unserialized node at any depth below the selected root,
+`truncated` is that count above zero, and a node whose children were not walked carries
+`children_omitted` (its direct children only; the key is absent when nothing was
+omitted). The counters cover the selected subtree alone — a complete current-scene read
+says nothing about its siblings. To see what a node hid, re-read with `--root <that
+node's path>`. There is no continuation token — a live
 tree changes between calls, so the follow-up is a narrower `--root`, not a resumed page.
 
 ### Structured logging from game code

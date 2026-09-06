@@ -1322,16 +1322,18 @@ re-derives every verdict from a running engine.
   [`node`](#node).
 
 - **`game` (the running game's scene graph):** `game tree` reads the runtime scene
-  tree (shipped — the Phase-2 bootstrap tracer, #7), bounded on request by `--root
-  <runtime path>` (the subtree to serialize; an unknown path is `live_node_not_found`)
-  and `--max-depth N` (0 = the addressed node alone) — shipped, #849, from GDA-DF-052,
-  where an unfiltered read of a production UI exceeded the client's budget and was
-  truncated by IT, which a caller cannot tell from a complete read. What a bound leaves
-  out is counted rather than dropped: `omitted_nodes` totals the unserialized nodes at
-  every depth, `truncated` is that total above zero, and a node whose children were not
-  walked carries `children_omitted` — its DIRECT children only, and the key is absent
-  when nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays
-  the default and the caller's choice; the follow-up read is a narrower `--root`, not a
+  tree (shipped — the Phase-2 bootstrap tracer, #7) from the running current scene
+  (`/root` only when none is current — an autoload is that scene's sibling, so seeing
+  one takes `--root /root`), bounded on request by `--root <runtime path>` (the subtree
+  to serialize; an unknown path is `live_node_not_found`) and `--max-depth N` (0 = the
+  addressed node alone) — shipped, #849, from GDA-DF-052, where an unfiltered read of a
+  production UI exceeded the client's budget and was truncated by IT, which a caller
+  cannot tell from a complete read. What a bound leaves out of the selected subtree is
+  counted rather than dropped: `omitted_nodes` totals the unserialized nodes at every
+  depth, `truncated` is that total above zero, and a node whose children were not walked
+  carries `children_omitted` — its DIRECT children only, and the key is absent when
+  nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays the
+  default and the caller's choice; the follow-up read is a narrower `--root`, not a
   continuation token, which would page a snapshot the live tree has already left behind.
   Runtime node property `game get` /
   `game set` (shipped, #220, extended by #422/#473) read and mutate a running node's live

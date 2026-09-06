@@ -1867,11 +1867,18 @@ func _serialize(node: Node, max_depth: int, counts: Dictionary) -> Dictionary:
 
 # The number of nodes in `node`'s subtree, `node` included — what one omitted
 # child costs the result's omitted_nodes total. Counts only; it builds nothing,
-# so bounding a huge tree still pays a walk but not a serialization.
+# so bounding a huge tree still pays a walk but not a serialization. The walk
+# keeps its OWN stack rather than recursing: a chain deeper than GDScript's call
+# stack (1024 frames by default) overflowed the recursive form, which then
+# returned a partial total that the op published as a successful read. Order
+# does not matter to a count, so the pending list is a plain LIFO.
 func _subtree_size(node: Node) -> int:
-	var total := 1
-	for child in node.get_children():
-		total += _subtree_size(child)
+	var total := 0
+	var pending: Array[Node] = [node]
+	while not pending.is_empty():
+		var current: Node = pending.pop_back()
+		total += 1
+		pending.append_array(current.get_children())
 	return total
 
 
