@@ -69,19 +69,34 @@ def test_shards_pairwise_partition_every_balancing_test_file():
     expected = {
         path.name for path in (_ROOT / "libs/gda-balancing/tests").glob("test_*.py")
     }
-    assert union == expected
+    assert {selector.partition("::")[0] for selector in union} == expected
     assert ci.REQUIRED_TEST_SHARDS == (
         "fast",
         "authority",
         "language",
         "model",
         "experiment",
+        "experiment-continuation",
         "composition",
     )
     assert ci.PROCESS_TIMEOUT_SECONDS == {
         "required": 480,
         "unfiltered": 900,
     }
+
+
+def test_experiment_shards_preserve_every_collected_case_exactly_once():
+    full = ci.collect_node_ids((ci.TEST_ROOT / "test_schema2_experiment_cli.py",))
+    first = ci.collect_node_ids(ci.shard_paths("experiment"))
+    second = ci.collect_node_ids(ci.shard_paths("experiment-continuation"))
+
+    assert first and second
+    assert not first & second
+    assert first | second == full
+    # Parameterized cases keep their common fixture lifecycle in one process.
+    first_definitions = {node.split("[", 1)[0] for node in first}
+    second_definitions = {node.split("[", 1)[0] for node in second}
+    assert not first_definitions & second_definitions
 
 
 def test_declared_bootstrap_migration_normalizes_only_the_moved_test():

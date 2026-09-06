@@ -21,7 +21,7 @@ uv run --frozen pytest tests -q
 ```
 
 `tools/ci.py` remains the existing authority for CI scope classification,
-static shard membership, and inventory closure. Reproduce one shard with:
+deterministic shard membership, and inventory closure. Reproduce one shard with:
 
 ```bash
 uv run --no-project --python 3.13 python \
@@ -71,7 +71,7 @@ rejects `xfail(strict=False)` before execution.
 
 CI also runs the existing outcome check on each JUnit file; undeclared skips
 and xfails fail the job. Balancing-affecting or unknown paths run inventory,
-all six required shards, the separate smoke shard, and the stable
+all seven required shards, the separate smoke shard, and the stable
 `gda-balancing required` result. Each test process retains the existing
 eight-minute bound and fifteen-minute job timeout. Scheduled validation uses
 this complete inventory-closed matrix; it does not run the whole suite in one
@@ -94,10 +94,12 @@ Two repeated setup costs were removed without weakening the tested contracts:
 
 No test, parameter case, assertion, or packaged vector was removed.
 
-## Static CI shards
+## CI shards
 
-The complete suite is partitioned by file. The `smoke` shard remains a separate
-real-subprocess and end-to-end job. The other six shards feed the stable
+The complete suite is partitioned by file except for Experiment CLI, whose test
+definitions are divided deterministically between two shards. Parameter cases
+from one definition stay together. The `smoke` shard remains a separate
+real-subprocess and end-to-end job. The other seven shards feed the stable
 `gda-balancing required` check.
 
 | Shard | Main ownership |
@@ -106,24 +108,31 @@ real-subprocess and end-to-end job. The other six shards feed the stable
 | `authority` | authority CLI |
 | `language` | language bootstrap and formula CLI |
 | `model` | model CLI and independent lowerer |
-| `experiment` | experiment CLI |
+| `experiment` | alternating Experiment CLI test definitions, first group |
+| `experiment-continuation` | alternating Experiment CLI test definitions, second group |
 | `composition` | CLI conformance, composition bootstrap, and templates |
 | `smoke` | end-to-end CLI paths |
 
-Shard membership is deliberately static and reviewable; the existing partition
-test proves that files neither overlap nor fall outside the matrix. The `model`
-and `experiment` files are measured indivisible hotspots. Giving each a matrix
-entry keeps the largest local required shard near 114 seconds instead of
-combining files into partitions near 172 and 197 seconds. The workflow already
-derives its matrix from `REQUIRED_TEST_SHARDS`, so the split costs two additional
-standard matrix executions but adds no custom runner or new aggregator, timer,
-inventory, or artifact protocol. Moving the two independently selectable
-bootstrap files to `fast` separates them from the authority CLI hotspot.
+`tools/ci.py` derives Experiment selectors from sorted top-level test definitions
+in the existing file; there is no separately maintained test list. CI-policy tests
+compare collected IDs from both groups against the complete file, requiring an
+exact union, no overlap, and no split parameterized definition. The existing
+inventory check verifies membership across the complete matrix. The workflow
+derives its matrix from `REQUIRED_TEST_SHARDS`; the additional Experiment group
+adds one standard matrix execution without changing the runner, aggregator,
+process bound, job timeout, or test assertions.
 
-## Local evidence
+In [#896](https://github.com/aigengame/godot-agent/pull/896), the original
+191-case Experiment shard reached its 480-second process bound in two remote
+attempts. A complete local run passed in 272.30 seconds; the two derived groups
+passed all 96 and 95 cases in 139.25 and 142.20 seconds respectively. These are
+single-run diagnostic measurements, not a repeated performance comparison.
 
-The accepted clean base is commit `2b81e2e`. Each measurement used an already
-installed frozen environment and a fresh pytest process. Pytest cumulative
+## Historical local evidence (#597)
+
+The following measurements describe the earlier six-shard partition, before the
+Experiment definition split. The accepted clean base was commit `2b81e2e`.
+Each measurement used an already installed frozen environment and a fresh pytest process. Pytest cumulative
 time comes from JUnit; wall time comes from `/usr/bin/time -p`.
 
 | Measurement | Clean base median | Optimized median | Change |
@@ -135,11 +144,11 @@ time comes from JUnit; wall time comes from `/usr/bin/time -p`.
 All three optimized runs collected 1,409 tests and finished with 1,382 passed
 and 27 skipped. Their wall times were 636.840 s, 643.920 s, and 632.840 s.
 
-The remaining largest file medians are experiment CLI (about 114 s), end-to-end
+The remaining largest file medians were experiment CLI (about 114 s), end-to-end
 CLI (about 97 s), authority CLI (about 93 s), and language bootstrap (about 79 s).
 These values explain the shard split; they are not new test policy.
 
-## CI acceptance
+## Historical CI acceptance (#597)
 
 Before #597, three required-CI runs at the clean base took 483 s, 496 s, and
 483 s from the scope job start to the stable required check, for a 483 s
@@ -152,7 +161,7 @@ median. Three successful six-shard runs produced these results:
 | [Attempt 4](https://github.com/aigengame/godot-agent/actions/runs/30927209932/attempts/4) | 229 s |
 
 The median was 268 s, a 44.5% improvement, with a 277 s maximum. These runs
-establish the accepted six-shard partition. Review-fix heads require ordinary
+established the earlier six-shard partition. Review-fix heads require ordinary
 CI before merge, but unchanged shard membership does not require another
 three-run performance sample. #597 uses this fixed comparison; the rolling
 20-run p95 protocol introduced with #587 is not a standing gate for this
