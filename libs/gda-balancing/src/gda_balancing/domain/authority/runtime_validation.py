@@ -250,10 +250,9 @@ class OperationValueContracts:
         if not isinstance(type_expression, dict):
             return None
         package = type_expression.get("package")
-        version = type_expression.get("version")
         type_id = type_expression.get("id")
-        if all(isinstance(item, str) and item for item in (package, version, type_id)):
-            exact_type = {"id": type_id, "package": package, "version": version}
+        if all(isinstance(item, str) and item for item in (package, type_id)):
+            exact_type = {"id": type_id, "package": package}
             scalar_profiles = [
                 profile
                 for profile in self.literal_profiles
@@ -455,10 +454,10 @@ def _literal_operation_contracts(
             and isinstance(admission, dict)
             and (coordinate := nominal_type_key(type_expression, admission)) is not None
         ):
-            package, version, type_id = coordinate
+            package, type_id = coordinate
             return (
                 {
-                    "type": {"id": type_id, "package": package, "version": version},
+                    "type": {"id": type_id, "package": package},
                     "value_kind": "nominal-structured",
                 },
             )
@@ -966,11 +965,11 @@ def _runtime_authority_is_closed(
             or not isinstance(contract, dict)
             or set(contract) != fixed_contract_members
             or not isinstance(contract.get("type"), dict)
-            or set(contract["type"]) != {"id", "package", "version"}
+            or set(contract["type"]) != {"id", "package"}
             or not all(
                 isinstance(contract["type"].get(member), str)
                 and contract["type"][member]
-                for member in ("id", "package", "version")
+                for member in ("id", "package")
             )
             or not all(
                 isinstance(contract.get(member), str) and contract[member]
@@ -1441,11 +1440,11 @@ def _runtime_authority_is_closed(
                 operation_ref = instruction.get("operation")
                 if (
                     not isinstance(operation_ref, dict)
-                    or set(operation_ref) != {"package", "version", "id"}
+                    or set(operation_ref) != {"package", "id"}
                     or not all(
                         isinstance(operation_ref.get(member), str)
                         and operation_ref[member]
-                        for member in ("package", "version", "id")
+                        for member in ("package", "id")
                     )
                 ):
                     visiting.remove(operation_id)

@@ -154,7 +154,7 @@ def package_coordinate_contracts() -> dict[str, dict[str, Any]]:
     if not isinstance(field_types, dict):
         raise ValueError("Kernel package-coordinate contracts are absent")
     contracts: dict[str, dict[str, Any]] = {}
-    for name in ("id", "version"):
+    for name in ("id",):
         contract = field_types.get(name)
         if (
             not isinstance(contract, dict)
@@ -229,7 +229,7 @@ def _operation_type_coordinate_schema(
     )
     if (
         not isinstance(field_types, dict)
-        or set(coordinate_members or ()) != {"id", "package", "version"}
+        or set(coordinate_members or ()) != {"id", "package"}
         or not isinstance(kind_member, str)
         or not kind_member
         or not isinstance(kind_value, str)
@@ -237,15 +237,13 @@ def _operation_type_coordinate_schema(
     ):
         raise ValueError("Kernel typed-envelope coordinate contract is incomplete")
     package_contract = field_types.get("id")
-    version_contract = field_types.get("version")
-    if not isinstance(package_contract, dict) or not isinstance(version_contract, dict):
+    if not isinstance(package_contract, dict):
         raise ValueError("Kernel package-coordinate contract is incomplete")
     return {
         "type": "object",
         "properties": {
             "id": _non_empty_string_schema(),
             "package": _contract_schema(package_contract),
-            "version": _contract_schema(version_contract),
             kind_member: {"const": kind_value},
         },
         "required": coordinate_members,
