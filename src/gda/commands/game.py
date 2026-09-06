@@ -20,7 +20,13 @@ import json
 from typing import Any, Optional
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
@@ -66,20 +72,93 @@ class GameNode(BaseModel):
     type: str
     path: str
     children: list["GameNode"] = []
+    children_omitted: int = Field(
+        default=0,
+        description=(
+            "How many of this node's DIRECT children the read did not serialize "
+            "because `max_depth` stopped it here (#849). ABSENT from the JSON "
+            "when it is 0: an unbounded read serializes every node, so it must "
+            "not pay one extra key per node for a bound it never had. Read it as "
+            "`node.get('children_omitted', 0)`; re-read that subtree with "
+            "`--root <this node's path>` to see what it left out."
+        ),
+    )
+
+    # The presence rule above is a SERIALIZATION rule, so it lives on the writer
+    # rather than on every caller: the field stays a plain int with a 0 default
+    # (a consumer reads a number, never None), and the key is dropped from the
+    # emitted JSON when nothing was omitted. `mode="wrap"` runs pydantic's own
+    # serializer first, so nested children are serialized — and pruned — by this
+    # same rule at every depth.
+    @model_serializer(mode="wrap")
+    def _omit_absent_omission_count(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        rendered = handler(self)
+        if not rendered.get("children_omitted"):
+            rendered.pop("children_omitted", None)
+        return rendered
 
 
 class GameTreeParams(RelayedLiveParams):
-    """The params of ``gda game tree``: read the running game's runtime scene tree.
+    """The params of ``gda game tree``: read the running game's runtime scene tree (#849).
 
-    Empty — it reads the whole runtime tree of the engine session held by
-    ``gda-daemon`` (a subtree root may be added by a later slice).
+    Unbounded by default, and rooted at the running CURRENT SCENE (``/root``
+    only when no scene is current) — the whole subtree below it, which on a
+    production UI is a very large result. An autoload is that scene's SIBLING
+    under ``/root``, so a read that must see one names ``root="/root"``;
+    ``root`` otherwise narrows the read to one subtree and ``max_depth`` bounds
+    how deep it goes. Both counters cover the SELECTED subtree only, and what a
+    bound leaves out of it is COUNTED rather than silently dropped, so a partial
+    read is never mistaken for a complete one (see :class:`GameTreeResult`).
     """
+
+    root: str | None = Field(
+        default=None,
+        description=(
+            "Serialize the subtree at this runtime (absolute) node path, as "
+            "`game tree` itself reports it (e.g. /root/Main/HUD). Unset reads "
+            "the running current scene — an autoload is its SIBLING under "
+            "/root, so name /root to see one. A path that resolves to nothing "
+            "is `live_node_not_found`, the same refusal every other live op "
+            "gives."
+        ),
+    )
+    max_depth: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Serialize at most this many levels BELOW the read's root: 0 is the "
+            "root node alone, 1 adds its children. Unset reads the whole "
+            "subtree — an unbounded read of a large tree is the caller's choice."
+        ),
+    )
 
 
 class GameTreeResult(BaseModel):
-    """The result of ``gda game tree``: the running game's runtime scene tree."""
+    """The result of ``gda game tree``: the running game's runtime scene tree (#849).
+
+    ``truncated`` and ``omitted_nodes`` are always present, so a bounded read
+    reports what it left out instead of looking like a complete one. They are the
+    ONLY difference an unbounded read shows: no node in it carries
+    ``children_omitted``.
+    """
 
     root: GameNode
+    truncated: bool = Field(
+        description=(
+            "Whether a bound stopped the read short — true exactly when "
+            "`omitted_nodes` is above 0. Always false for an unbounded read."
+        )
+    )
+    omitted_nodes: int = Field(
+        description=(
+            "How many nodes, at every depth, the read did not serialize. It "
+            "counts whole omitted subtrees, not just the direct children a node "
+            "reports in `children_omitted`, so it is the size of what is "
+            "missing from this result."
+        )
+    )
 
 
 class GameGetParams(RelayedLiveParams):
@@ -407,13 +486,22 @@ class GameCallResult(BaseModel):
 
 
 def render_game_tree(game: "GameTreeResult") -> str:
-    """Render the running game's runtime scene tree (ADR-0019).
+    """Render the running game's runtime scene tree (ADR-0019, #849).
 
     The runtime counterpart of ``render_scene_tree``: ``render_node_tree`` reads
     only ``name``/``type``/``children``, which a ``GameNode`` carries, so the
     runtime tree flows through the same indented outline as the on-disk scene.
+
+    A bounded read appends ONE trailing line with the omitted total, so the
+    outline cannot be read as a complete tree on the human channel either. The
+    shared outline itself is left alone: the per-node count is a ``game`` shape,
+    and teaching the tree renderer about it would change what the on-disk
+    ``scene``/``node`` trees print (ADR-0040 §5).
     """
-    return render_node_tree(game.root)
+    outline = render_node_tree(game.root)
+    if not game.truncated:
+        return outline
+    return f"{outline}\ntruncated: {game.omitted_nodes} nodes omitted"
 
 
 def render_game_get(got: "GameGetResult") -> str:
@@ -503,6 +591,26 @@ _app = typer.Typer(
 
 @_app.command(name="tree", cls=GAME_TREE_COMMAND.command_class())
 def game_tree(
+    root: Optional[str] = typer.Option(
+        None,
+        "--root",
+        help=(
+            "Read the subtree at this runtime node path, as `game tree` reports "
+            "it (absolute, e.g. /root/Main/HUD). Unset reads the current scene "
+            "(autoloads are its siblings: name /root to see them); a path that "
+            "resolves to nothing is `live_node_not_found`."
+        ),
+    ),
+    max_depth: Optional[int] = typer.Option(
+        None,
+        "--max-depth",
+        min=0,
+        help=(
+            "Read at most this many levels below the root (0 = the root alone); "
+            "must be >= 0. Unset is an unbounded read of the whole subtree, "
+            "which on a large tree is the caller's choice."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = GAME_TREE_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -518,10 +626,19 @@ def game_tree(
     naming the remediation (`gda daemon start`); on an unsupported platform,
     `live_unsupported_platform`. The platform/Godot-version precondition is the
     structured `constraints` field of `--schema` (ADR-0021), not restated here.
+
+    `--root` and `--max-depth` bound the read; without them it is unbounded and
+    rooted at the running current scene, and a production UI's whole tree is a
+    very large result. An autoload is that scene's sibling under `/root`, so a
+    read that must see one names `--root /root`. What a bound leaves out of the
+    selected subtree is counted, never silently dropped: the result carries
+    `truncated` and `omitted_nodes`, and each node whose children were not walked
+    carries `children_omitted`. Read bounded first, then address the nodes you
+    want by their exact path (`game get`, `game rect`, `game set`).
     """
     dispatch_domain(
         GAME_TREE_COMMAND,
-        GameTreeParams(),
+        params_or_bad_parameter(GameTreeParams, root=root, max_depth=max_depth),
         json_output=json_output,
         godot=godot,
         project=project,

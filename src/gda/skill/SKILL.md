@@ -239,7 +239,7 @@ already-running daemon's lazy Engine-session launch; only the outer
 | Group | Commands |
 | ----- | -------- |
 | `daemon` | `start`, `wait-ready`, `stop`, `status`, `install`, `uninstall` (lifecycle; `start` installs the in-game harness itself, so `install` is only for doing that step deliberately — e.g. to review or commit the `project.godot` change — and `uninstall` reverses it; `wait-ready` establishes the lazily-launched engine session, with `--timeout` shared by its waits and new-work decisions, so a first `diag errors` serves instead of reporting `engine_session_not_running`; `status` reports the last successfully established engine session's `session_id` — the identity a `screen capture` receipt correlates with, minted anew per established session and retained across a failed replacement launch) |
-| `game` | `tree`, `get`, `rect`, `set`, `call` (the running game's runtime scene graph; `get --texture-digest` opts a read into content digests for path-less `Texture2D` values. `call --method NAME [--args JSON]` invokes a method named by the `GDA_CALLABLE` declaration resolved from the node's attached script along its base chain — use it for a debug/state contract exposed as a method rather than a property. gda calls nothing undeclared, so an undeclared-but-present method is `live_method_not_allowlisted` and its message names the declared set; a missing one is `live_unknown_method`, and arguments the declared parameters cannot take (wrong count, a type the engine would not convert, a typed `Array[int]` parameter) are `live_invalid_call_args`, refused before the call. The live parser materializes every JSON number as float. `NaN`/`Infinity` are refused; RFC JSON excludes them, although some in-memory schema validators accept them as numbers. Finite floats do not inherit the integer bound, but a float whose wire literal Godot's parser reads as `0.0` is refused too — `DBL_MIN`, any subnormal, and many-digit values such as `1.2345678901234567e-300`, none of which any decimal spelling can deliver; a float it does read arrives changed in its low-order bits — 1 ULP at ordinary magnitudes, and tens of doubles for a full-precision literal between `1e-4` and `1e-2`, where the parser truncates past 18 mantissa digits (#752). JSON integer values beyond ±(2^53−1) are refused CLI-side because the wire can change them. Standard JSON Schema cannot distinguish an exponent-form float from the equal integer, so the params model enforces the integer-token limit at execution. LIMIT: gda CANNOT verify a declared method has no side effects — the constant records the project's own read-only assertion, and what gda guarantees is only that no undeclared method is called. GDScript forbids redeclaring a base class's constant, so an opted-in inheritance chain has at most one declaration owner; a base owner covers its subclasses and need not define every method it names) |
+| `game` | `tree`, `get`, `rect`, `set`, `call` (the running game's runtime scene graph; `tree --root <runtime path> --max-depth N` bounds the read — see "Find a node before you address it" below; `get --texture-digest` opts a read into content digests for path-less `Texture2D` values. `call --method NAME [--args JSON]` invokes a method named by the `GDA_CALLABLE` declaration resolved from the node's attached script along its base chain — use it for a debug/state contract exposed as a method rather than a property. gda calls nothing undeclared, so an undeclared-but-present method is `live_method_not_allowlisted` and its message names the declared set; a missing one is `live_unknown_method`, and arguments the declared parameters cannot take (wrong count, a type the engine would not convert, a typed `Array[int]` parameter) are `live_invalid_call_args`, refused before the call. The live parser materializes every JSON number as float. `NaN`/`Infinity` are refused; RFC JSON excludes them, although some in-memory schema validators accept them as numbers. Finite floats do not inherit the integer bound, but a float whose wire literal Godot's parser reads as `0.0` is refused too — `DBL_MIN`, any subnormal, and many-digit values such as `1.2345678901234567e-300`, none of which any decimal spelling can deliver; a float it does read arrives changed in its low-order bits — 1 ULP at ordinary magnitudes, and tens of doubles for a full-precision literal between `1e-4` and `1e-2`, where the parser truncates past 18 mantissa digits (#752). JSON integer values beyond ±(2^53−1) are refused CLI-side because the wire can change them. Standard JSON Schema cannot distinguish an exponent-form float from the equal integer, so the params model enforces the integer-token limit at execution. LIMIT: gda CANNOT verify a declared method has no side effects — the constant records the project's own read-only assertion, and what gda guarantees is only that no undeclared method is called. GDScript forbids redeclaring a base class's constant, so an opted-in inheritance chain has at most one declaration owner; a base owner covers its subclasses and need not define every method it names) |
 | `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |
 | `perf` | `monitors`, `monitor` (counters: a one-frame snapshot, or with `--frames` a bounded window with statistics and optional `--budget` verdicts / a per-node timeline) |
@@ -318,6 +318,30 @@ and the engine's only callers are the remote debugger's suspend/next-frame messa
 the editor Game view's buttons, which do not reach a daemon-launched session. So for a
 freeze-frame in an agent session, use `paused`, which live operations survive; a
 `live_timeout` never means the game is paused — see the causes it does name, above.
+
+### Find a node before you address it
+
+Every live op that ADDRESSES a node takes an exact runtime path, and `game tree` is how
+you learn one. Read it in TWO steps rather than dumping the whole tree:
+
+1. **Bound the read.** `gda game tree --max-depth 2 --json` shows the top levels of the
+   running CURRENT SCENE; then `gda game tree --root /root/Main/HUD --max-depth 2 --json`
+   walks into the branch you want. An autoload is not under the current scene but beside
+   it, so to discover one read `gda game tree --root /root --max-depth 1 --json`. An
+   unbounded `game tree` on a production UI is a very large result — it can exceed your
+   own context budget and be truncated by your client, and a truncated dump cannot prove
+   a node is absent.
+2. **Address exactly.** With the path in hand, use `game get` / `game rect` / `game set`
+   / `game call` on that path. Do not re-read the tree per node.
+
+A bounded read says what it left out, so you never mistake it for a complete one:
+`omitted_nodes` counts every unserialized node at any depth below the selected root,
+`truncated` is that count above zero, and a node whose children were not walked carries
+`children_omitted` (its direct children only; the key is absent when nothing was
+omitted). The counters cover the selected subtree alone — a complete current-scene read
+says nothing about its siblings. To see what a node hid, re-read with `--root <that
+node's path>`. There is no continuation token — a live
+tree changes between calls, so the follow-up is a narrower `--root`, not a resumed page.
 
 ### Structured logging from game code
 
