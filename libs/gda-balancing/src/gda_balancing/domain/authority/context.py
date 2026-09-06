@@ -350,15 +350,21 @@ _PACKAGED_CONTEXT_ADMISSION_ATTEMPTS = 0
 
 
 class AuthorityLoadError(Exception):
-    """A candidate authority failed the non-self-hosted ingress preflight."""
+    """A packaged authority failed raw preflight or atomic admission."""
 
-    stage = "ingress"
-
-    def __init__(self, *, code: str, subject: str, message: str) -> None:
+    def __init__(
+        self,
+        *,
+        code: str,
+        subject: str,
+        message: str,
+        admission: BootstrapAdmission | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.subject = subject
         self.message = message
+        self.admission = admission
 
 
 @dataclass(frozen=True)
@@ -368,12 +374,14 @@ class _AuthorityFailureSnapshot:
     code: str
     subject: str
     message: str
+    admission: BootstrapAdmission | None
 
     def exception(self) -> AuthorityLoadError:
         return AuthorityLoadError(
             code=self.code,
             subject=self.subject,
             message=self.message,
+            admission=self.admission,
         )
 
 
@@ -674,6 +682,7 @@ def _load_packaged_authority_context_uncached() -> AdmittedAuthorityContext:
             code=diagnostic.code,
             subject=diagnostic.subject,
             message="packaged authority graph failed atomic admission",
+            admission=admission,
         )
     index = derive_language_index(
         root,
@@ -693,7 +702,7 @@ def packaged_authority_context() -> AdmittedAuthorityContext:
 
     Initialization is single-flight under the lifecycle lock. A failed packaged
     admission is remembered so concurrent and later callers observe the same
-    deterministic ingress refusal rather than a partially initialized context.
+    deterministic refusal rather than a partially initialized context.
     """
     global _PACKAGED_CONTEXT
     global _PACKAGED_CONTEXT_ERROR
@@ -712,6 +721,7 @@ def packaged_authority_context() -> AdmittedAuthorityContext:
                 code=err.code,
                 subject=err.subject,
                 message=err.message,
+                admission=err.admission,
             )
             _PACKAGED_CONTEXT_ERROR = failure
             raise failure.exception() from err
