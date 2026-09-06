@@ -13,6 +13,18 @@ status: accepted
 > scenarios, observations, and compositional package ownership remain; no coverage row closes
 > through this amendment.
 
+> **Capability-union delivery (2026-09-06, #869):** `game.build@2.0.0` now owns both
+> reward replacement and contribution, and `game.effect@2.0.0` owns periodic apply/tick/expiry
+> lifecycle and contribution. Their current dependency closure uses `core.quantity@2.2.0`; the
+> older parallel release copies are removed. This supersedes the August 26 split-API and
+> earlier-release-availability statements below, which remain history. Quantity retains its
+> current full-domain literal profile and the distinct positive-denominator profile; only the
+> overlapping older full-domain profile is removed. The
+> [maintained composed Experiment](../../examples/schema2/progression-periodic-effect/README.md)
+> binds progression to periodic Effect through ordinary Model Source, without Kernel or host
+> genre-dispatch changes. Version-coordinate fields and selection remain until #870–#872; this
+> capability union does not close a genre row or the refactor's deletion acceptance criteria.
+
 The closed package system in bADR-0016 makes extension possible, but a list of package names does
 not prove that Standard Schema 2.x can represent a production RPG or Roguelike. The rejected RPG
 template PR attempted to encode one genre baseline directly in the 1.x shape; review found missing

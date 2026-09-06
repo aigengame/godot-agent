@@ -1,6 +1,6 @@
 # Current-language refactor record
 
-The owner adopted this pre-1.0 direction on 2026-09-06. Internal revisions may change or be withdrawn. The implementation will converge on one current compositional language and delete obsolete version selection and execution bindings. This documentation change records the work; the production refactor is still open.
+The owner adopted this pre-1.0 direction on 2026-09-06. Internal revisions may change or be withdrawn. The implementation will converge on one current compositional language and delete obsolete version selection and execution bindings. Implementation proceeds through the tracked issue slices; the overall production refactor remains open.
 
 Start with the [accepted decision](../../badr/0028-current-language-refactor-and-pre-1.0-retirement.md), then the [implementation plan](PLAN.md). The [issue index](ISSUES.md) links the tracking parent #865 and 14 slices with their blockers. Execution-dependency closure #874 is a prerequisite to mandatory deletion #875; closure alone cannot satisfy the parent or final acceptance #879.
 
@@ -16,5 +16,6 @@ Start with the [accepted decision](../../badr/0028-current-language-refactor-and
 | [Issue index](ISSUES.md) · [JSON](issues.json) | Adopted dependency graph and reused existing owners |
 | [Implementation workflow](IMPLEMENTATION.md) | Authorized development branch, per-issue review, integration and delegated decisions |
 | [Schema 1 retirement](RETIREMENT.md) | Bounded named-source disposition, removed input path, retained coverage and rollback for #868 |
+| [Current capability union](CAPABILITY-UNION.md) | Retained package behavior, deleted release/vector copies, composed public path and rollback for #869 |
 
 GitHub owns live acceptance and task status; bADR-0028 owns the adopted policy; the plan owns delivery sequencing. Matrices preserve exact captured requirement text as provenance. Current issue amendments supersede the identified historical clauses. Evidence is confirmed only within its stated bounds, and no disposable probe establishes full production conformance, genre completion or automatic formal-release/claim activation.

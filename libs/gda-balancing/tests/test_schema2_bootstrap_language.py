@@ -271,10 +271,14 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["exports"]["components"] == ["quantity.symbol"]
     assert package["exports"]["conversions"] == ["quantity.identity"]
     assert package["exports"]["operations"] == [
+        "quantity.add",
+        "quantity.floor-divide",
         "quantity.floor-zero",
         "quantity.identity",
         "quantity.less-than",
         "quantity.maximum",
+        "quantity.minimum",
+        "quantity.multiply",
         "quantity.subtract",
     ]
     assert package["profiles"]["runtime"] == []
@@ -295,22 +299,14 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert duplicate["stage"] == "static"
 
 
-def test_quantity_2_2_adds_only_the_required_composition_operations():
+def test_current_quantity_owns_complete_composition_operations():
     ldb = _authority_candidate()["language_bundle"]
     releases = {
         (package["id"], package["version"]): package
         for package in ldb["language"]["packages"]
     }
 
-    quantity_2_1 = releases[("core.quantity", "2.1.0")]
     quantity_2_2 = releases[("core.quantity", "2.2.0")]
-    assert quantity_2_1["exports"]["operations"] == [
-        "quantity.floor-zero",
-        "quantity.identity",
-        "quantity.less-than",
-        "quantity.maximum",
-        "quantity.subtract",
-    ]
     assert quantity_2_2["exports"]["operations"] == [
         "quantity.add",
         "quantity.floor-divide",
@@ -431,7 +427,7 @@ def test_quantity_2_2_composition_inference_and_positive_divisor_contract():
         )
 
 
-def test_quantity_2_2_has_one_compatible_downstream_release_chain():
+def test_current_downstream_packages_close_quantity_dependencies():
     ldb = _authority_candidate()["language_bundle"]
     releases = {
         (package["id"], package["version"]): package
@@ -458,23 +454,10 @@ def test_quantity_2_2_has_one_compatible_downstream_release_chain():
             {"id": "standard.runtime", "version": "1.1.0"},
         ],
     }
-    retained_versions = {
-        "game.check": "1.0.1",
-        "game.resource": "1.0.1",
-        "game.generation": "1.0.0",
-        "game.combat": "2.1.0",
-    }
-
-    assert {
-        (package, version) for package, version in retained_versions.items()
-    } <= set(releases)
     for coordinate, dependencies in expected_dependencies.items():
         release = releases[coordinate]
         assert release["dependencies"]["required"] == dependencies
-        assert (
-            release["exports"]
-            == releases[(coordinate[0], retained_versions[coordinate[0]])]["exports"]
-        )
+        assert [row for row in releases if row[0] == coordinate[0]] == [coordinate]
 
         vector_set = next(
             item
@@ -487,7 +470,8 @@ def test_quantity_2_2_has_one_compatible_downstream_release_chain():
             if vector.get("kind") == "package-contract"
             and vector.get("probe") == {"path": "dependencies.required"}
         ]
-        assert [vector["expect"] for vector in dependency_vectors] == [dependencies]
+        assert dependency_vectors
+        assert all(vector["expect"] == dependencies for vector in dependency_vectors)
 
 
 def test_stat_contribution_releases_own_pure_formula_slots():
@@ -558,25 +542,31 @@ def test_stat_contribution_releases_own_pure_formula_slots():
 
 
 @pytest.mark.parametrize(
-    ("package_id", "previous_version", "breaking_version"),
+    ("package_id", "expected_operations"),
     (
-        ("game.build", "1.0.0", "2.0.0"),
-        ("game.effect", "1.0.0", "2.0.0"),
+        ("game.build", {"game.build.contribution@1", "game.build.replace-reward-v1"}),
+        (
+            "game.effect",
+            {
+                "game.effect.apply-live-periodic-v1",
+                "game.effect.apply-snapshot-periodic-v1",
+                "game.effect.contribute@1",
+                "game.effect.expire-periodic-v1",
+                "game.effect.tick-live-periodic-v1",
+                "game.effect.tick-snapshot-periodic-v1",
+            },
+        ),
     ),
+    ids=("game.build", "game.effect"),
 )
-def test_stat_contribution_breaking_releases_retain_the_previous_major_line(
+def test_current_build_and_effect_packages_own_their_complete_operations(
     package_id,
-    previous_version,
-    breaking_version,
+    expected_operations,
 ):
     ldb = _authority_candidate()["language_bundle"]
-    releases = {
-        (package["id"], package["version"]): package
-        for package in ldb["language"]["packages"]
-    }
-    assert (package_id, previous_version) in releases
-    assert (package_id, breaking_version) in releases
-    assert (package_id, "1.1.0") not in releases
+    [release] = [row for row in ldb["language"]["packages"] if row["id"] == package_id]
+    assert release["version"] == "2.0.0"
+    assert set(release["exports"]["operations"]) == expected_operations
 
 
 def test_coherent_package_semantic_change_changes_the_release_identity():
@@ -664,8 +654,6 @@ def test_bootstrap_executes_every_rule_vector_into_a_stable_projection():
     assert dict(admission.rule_projections).keys() == {
         "quantity.declare.valid",
         "quantity.lower.valid",
-        "quantity.v2-2.quantity.declare.valid",
-        "quantity.v2-2.quantity.lower.valid",
         "structured.declare.valid",
         "structured.lower.valid",
     }
@@ -824,6 +812,27 @@ def test_reidentified_capability_definition_cannot_omit_its_rule_reference():
     assert first == second
     assert first["admitted"] is False
     assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
+
+
+def test_current_quantity_cannot_omit_a_required_capability_provider():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    quantity = next(
+        package
+        for package in ldb["language"]["packages"]
+        if package["id"] == "core.quantity"
+    )
+    quantity["capabilities"]["provided"].remove("quantity.lower")
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert first["diagnostics"] == [
+        ("static", "kernel.vector_mismatch", "language.packages")
+    ]
 
 
 def test_malformed_quantity_inventory_returns_a_typed_refusal_from_both_consumers():

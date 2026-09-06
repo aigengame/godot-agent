@@ -103,7 +103,7 @@ def _formula_conversion_result_schema() -> dict[str, object]:
 
 _VALID_RENDER_REQUEST = """{
   "schema_version": "2.0.0",
-  "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+  "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
   "module": {
     "id": "main",
     "imports": []
@@ -118,7 +118,7 @@ _VALID_RENDER_REQUEST = """{
 
 _VALID_PARSE_REQUEST = """{
   "schema_version": "2.0.0",
-  "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+  "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
   "module": {"id": "main", "imports": []},
   "formula": {
     "id": "identity",
@@ -130,7 +130,7 @@ _VALID_PARSE_REQUEST = """{
 
 _REFUSING_PARSE_REQUEST = """{
   "schema_version": "2.0.0",
-  "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+  "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
   "module": {"id": "main", "imports": []},
   "formula": {
     "id": "identity",
@@ -142,7 +142,7 @@ _REFUSING_PARSE_REQUEST = """{
 
 _REFUSING_RENDER_REQUEST = """{
   "schema_version": "2.0.0",
-  "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+  "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
   "module": {"id": "main", "imports": []},
   "formula": {
     "id": "unknown-operation",
@@ -152,7 +152,7 @@ _REFUSING_RENDER_REQUEST = """{
       "nodes": [{
         "id": "result",
         "node": "operation-call",
-        "operation": {"package": "core.quantity", "version": "2.1.0", "id": "quantity.unknown"},
+        "operation": {"package": "core.quantity", "version": "2.2.0", "id": "quantity.unknown"},
         "arguments": [{"port": "value", "operand": {"kind": "parameter", "parameter": "value"}}],
         "result": {"type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"}
       }],

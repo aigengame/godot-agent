@@ -151,7 +151,7 @@ def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
             "type": {
                 "id": "Quantity",
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
             },
             "value": 1,
         },
@@ -159,7 +159,7 @@ def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
             "type": {
                 "id": "RewardRarity",
                 "package": "game.generation",
-                "version": "1.0.0",
+                "version": "1.1.0",
             },
             "value": 1,
         },
@@ -489,7 +489,7 @@ def _rpg_model_source() -> dict[str, Any]:
     plan_entrypoint["id"] = "combat.plan-casts"
     plan_entrypoint["operation"] = {
         "package": "game.combat",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "id": "game.combat.plan-casts-v1",
     }
     plan_entrypoint["result"] = {"kind": "discard"}
@@ -3693,7 +3693,7 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     schedule["site"] = f"review-{schedule_shape}-schedule"
     schedule["operation"] = {
         "package": "game.resource",
-        "version": "1.0.1",
+        "version": "1.1.0",
         "id": "game.resource.spend-v1",
     }
     schedule["result"] = {"kind": "local", "name": "review_scheduled_event"}
@@ -3793,7 +3793,7 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
     schedule["site"] = "review-rng-derived-schedule"
     schedule["operation"] = {
         "package": "game.resource",
-        "version": "1.0.1",
+        "version": "1.1.0",
         "id": "game.resource.spend-v1",
     }
     schedule["arguments"] = [
@@ -4702,7 +4702,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
                             "node": "operation-call",
                             "operation": {
                                 "package": "core.quantity",
-                                "version": "2.1.0",
+                                "version": "2.2.0",
                                 "id": "quantity.identity",
                             },
                             "arguments": [
@@ -5048,7 +5048,7 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.less-than",
                 },
                 "arguments": [
@@ -5178,7 +5178,7 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.subtract",
                 },
                 "arguments": [
@@ -5636,7 +5636,7 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
             "id": "combat.cast",
             "operation": {
                 "package": "game.combat",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "game.combat.cast-v1",
             },
             "arguments": [
@@ -6529,7 +6529,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
             vector_set["vector_definitions"]
             for vector_set in ldb.package_conformance_vector_sets
             if vector_set["package_id"] == "game.combat"
-            and vector_set["package_version"] == "2.1.0"
+            and vector_set["package_version"] == "2.2.0"
         )
         if vector.get("kind") == "operation-execution"
     ]
@@ -6605,7 +6605,7 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
         vector_set["vector_definitions"]
         for vector_set in ldb.package_conformance_vector_sets
         if vector_set["package_id"] == "game.combat"
-        and vector_set["package_version"] == "2.1.0"
+        and vector_set["package_version"] == "2.2.0"
     )
 
     assert {"actor_health", "defeat_threshold"} <= {
@@ -6630,7 +6630,7 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
     vectors_by_id = {vector["id"]: vector for vector in vectors}
     defeated = vectors_by_id["game.combat.cast.target-defeated"]
     ineligible = vectors_by_id["game.combat.cast.actor-ineligible"]
-    coordinate = ("game.combat", "2.1.0", "game.combat.eligible-cast-v1")
+    coordinate = ("game.combat", "2.2.0", "game.combat.eligible-cast-v1")
     harness = operation_conformance_module.compile_operation_execution_harness(
         context, coordinate, operation
     )
@@ -6659,7 +6659,7 @@ def test_combat_vectors_make_defeat_and_action_eligibility_explicit():
             vector,
             context=context,
             package_id="game.combat",
-            package_version="2.1.0",
+            package_version="2.2.0",
             harness=harness,
         )
         assert observations["production"] == observations["independent"]
@@ -6763,19 +6763,12 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
         "generation.select.invalid-fallback-policy-after-refusal": "rollback-replay",
         "generation.select.invalid-option-refusal": "semantic-mutation",
     }
-    vectors_by_version = {
-        version: {
-            vector["id"]: vector["category"]
-            for package_id, package_version, vector in operation_execution_vectors(ldb)
-            if package_id == "game.generation" and package_version == version
-        }
-        for version in ("1.0.0", "1.1.0")
+    vectors = {
+        vector["id"]: vector["category"]
+        for package_id, package_version, vector in operation_execution_vectors(ldb)
+        if package_id == "game.generation" and package_version == "1.1.0"
     }
-    assert vectors_by_version["1.0.0"] == expected
-    assert vectors_by_version["1.1.0"] == {
-        f"game.generation.v1-1.{vector_id}": category
-        for vector_id, category in expected.items()
-    }
+    assert vectors == expected
 
 
 def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
@@ -6792,8 +6785,6 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
     assert {vector["id"] for _package, _version, vector in vectors} == {
         "generation.select.invalid-fallback-policy-before-refusal",
         "generation.select.invalid-fallback-policy-after-refusal",
-        "game.generation.v1-1.generation.select.invalid-fallback-policy-before-refusal",
-        "game.generation.v1-1.generation.select.invalid-fallback-policy-after-refusal",
         "build.replace.invalid-plan-refusal",
     }
 
@@ -6863,7 +6854,7 @@ def test_generation_operation_owns_the_no_reward_discriminator():
                 "type": {
                     "id": "RewardDisposition",
                     "package": "game.generation",
-                    "version": "1.0.0",
+                    "version": "1.1.0",
                 },
                 "value": "no-reward",
             },
@@ -6923,7 +6914,7 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
                 "type": {
                     "id": "RewardDisposition",
                     "package": "game.generation",
-                    "version": "1.0.0",
+                    "version": "1.1.0",
                 },
                 "value": "no-reward",
             },
@@ -6960,7 +6951,7 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
             "type": {
                 "id": "RewardDisposition",
                 "package": "game.generation",
-                "version": "1.0.0",
+                "version": "1.1.0",
             },
             "value": "no-reward",
         },
@@ -6968,7 +6959,7 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
             "type": {
                 "id": "RewardRarity",
                 "package": "game.generation",
-                "version": "1.0.0",
+                "version": "1.1.0",
             },
             "value": "rare",
         },
@@ -6976,7 +6967,7 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
             "type": {
                 "id": "BuildConstraint",
                 "package": "game.build",
-                "version": "1.0.0",
+                "version": "2.0.0",
             },
             "value": "replace",
         },
@@ -6984,7 +6975,7 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
             "type": {
                 "id": "BuildDecisionKind",
                 "package": "game.build",
-                "version": "1.0.0",
+                "version": "2.0.0",
             },
             "value": "replaced",
         },
@@ -7019,21 +7010,21 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers(monkey
             kernel,
             ldb,
             execution_evidence_expectations={
-                ("game.combat", "2.1.0", "game.combat.cast.eligible-action"): {
+                ("game.combat", "2.2.0", "game.combat.cast.eligible-action"): {
                     "ordering_key": root_ordering_key,
                     "resource_charge": 30,
                 },
-                ("game.combat", "2.1.0", "game.combat.cast.target-defeated"): {
+                ("game.combat", "2.2.0", "game.combat.cast.target-defeated"): {
                     "ordering_key": root_ordering_key,
                     "resource_charge": 30,
                 },
-                ("game.combat", "2.1.0", "game.combat.cast.actor-ineligible"): {
+                ("game.combat", "2.2.0", "game.combat.cast.actor-ineligible"): {
                     "ordering_key": root_ordering_key,
                     "resource_charge": 5,
                 },
                 (
                     "game.combat",
-                    "2.1.0",
+                    "2.2.0",
                     "game.combat.cast.invalid-defeat-threshold",
                 ): {
                     "ordering_key": root_ordering_key,
@@ -8708,7 +8699,7 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
     )
     assert cost_operand["kind"] == "literal"
     assert cost_operand["value"] == 8
-    assert cost_operand["context_type"]["id"] == "quantity.dimensionless-int64"
+    assert cost_operand["context_type"]["id"] == "quantity.dimensionless-int64-v2-2"
 
 
 def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_cli):

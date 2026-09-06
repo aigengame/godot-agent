@@ -19,8 +19,8 @@ Experiment reward Event -> build Event
 Event trace + committed Snapshots + reward/build Metrics
 ```
 
-The `game.generation@1.0.0` Package Release owns the seeded reward policy. The
-`game.build@1.0.0` Package Release owns the atomic build replacement. The Model Source owns the
+The `game.generation@1.1.0` Package Release owns the seeded reward policy. The
+`game.build@2.0.0` Package Release owns the atomic build replacement. The Model Source owns the
 `rare-threshold` Formula and its exact Operation-slot binding. The Experiment owns the seed,
 ordered reward options, no declared empty-pool fallback, authored policy state, build plans, initial
 state, and Metrics.

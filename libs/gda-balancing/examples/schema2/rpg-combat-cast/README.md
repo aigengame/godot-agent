@@ -124,7 +124,7 @@ Inspect the source:
 jq . examples/schema2/rpg-combat-cast/model-source.json
 ```
 
-The source selects `core.quantity@2.1.0` and `game.combat@2.1.0`. The selected closure supplies
+The source selects `core.quantity@2.2.0` and `game.combat@2.2.0`. The selected closure supplies
 resource spending, hit and critical checks, deterministic Runtime behavior, the raw cast, and the
 directional eligible-cast Operation.
 
@@ -494,7 +494,7 @@ jq '
         "node": "operation-call",
         "operation": {
           "package": "core.quantity",
-          "version": "2.1.0",
+          "version": "2.2.0",
           "id": "quantity.identity"
         },
         "arguments": [{

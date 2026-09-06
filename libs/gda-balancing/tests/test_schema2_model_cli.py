@@ -139,7 +139,7 @@ def _model_source() -> dict[str, Any]:
             "version": "1.0.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "entrypoints": [],
         "modules": [
             {
@@ -148,7 +148,7 @@ def _model_source() -> dict[str, Any]:
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.1.0",
+                        "version": "2.2.0",
                         "symbol": "Quantity",
                     }
                 ],
@@ -176,7 +176,7 @@ def _use_derived_value(source: dict[str, Any]) -> None:
             "id": "formula.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -303,7 +303,7 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
     )
     lock = json.loads((artifact_dir / "package-lock.json").read_text())
     assert {(row["id"], row["version"]) for row in lock["packages"]} >= {
-        ("core.quantity", "2.1.0"),
+        ("core.quantity", "2.2.0"),
         ("standard.conformance.structured", "2.0.0"),
         ("standard.runtime", "1.1.0"),
         ("standard.schema", "2.4.0"),
@@ -454,7 +454,7 @@ def test_roguelike_model_build_selects_the_atomic_build_operation(tmp_path, run_
 
     assert entrypoint["operation"] == {
         "package": "game.build",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "id": "game.build.replace-reward-v1",
     }
     assert [row["port"]["name"] for row in entrypoint["arguments"]] == [
@@ -542,7 +542,7 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
             "id": "formula.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -1389,7 +1389,7 @@ def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli
                         "node": "operation-call",
                         "operation": {
                             "package": "core.quantity",
-                            "version": "2.1.0",
+                            "version": "2.2.0",
                             "id": "quantity.identity",
                         },
                         "arguments": [
@@ -1456,7 +1456,7 @@ def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli
         "id": operation["id"],
     } == {
         "package": "core.quantity",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "id": "quantity.identity",
     }
     assert formula["closure"] == {
@@ -1601,7 +1601,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                         "node": "operation-call",
                         "operation": {
                             "package": "core.quantity",
-                            "version": "2.1.0",
+                            "version": "2.2.0",
                             "id": "quantity.subtract",
                         },
                         "arguments": [
@@ -1630,7 +1630,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                         "node": "operation-call",
                         "operation": {
                             "package": "core.quantity",
-                            "version": "2.1.0",
+                            "version": "2.2.0",
                             "id": "quantity.floor-zero",
                         },
                         "arguments": [
@@ -1664,7 +1664,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                 "kind": "operation-slot",
                 "operation": {
                     "package": "game.combat",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "game.combat.damage-v1",
                 },
                 "slot": "damage-policy",
@@ -1719,7 +1719,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
     assert binding["site"]["kind"] == "operation-slot"
     assert binding["site"]["operation"] == {
         "package": "game.combat",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "id": "game.combat.damage-v1",
         "identity": binding["site"]["operation"]["identity"],
     }
@@ -1856,7 +1856,7 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.identity",
                 },
                 "arguments": [
@@ -1908,7 +1908,7 @@ def test_model_check_refuses_an_effectful_operation_in_a_formula(tmp_path, run_c
                 "node": "operation-call",
                 "operation": {
                     "package": "game.combat",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "game.combat.cast-v1",
                 },
                 "arguments": [],
@@ -2144,7 +2144,7 @@ def test_model_check_points_a_non_first_binding_budget_error_at_its_formula(
             "node": "operation-call",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2290,7 +2290,7 @@ def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run
             "id": "resource.spend",
             "operation": {
                 "package": "game.resource",
-                "version": "1.0.1",
+                "version": "1.1.0",
                 "id": "game.resource.spend-v1",
             },
             "arguments": [
@@ -3037,6 +3037,54 @@ def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
 
     assert (exit_code, stderr) == (0, "")
     assert json.loads(stdout)["checked"] is True
+
+
+def test_model_check_refuses_an_omitted_transitive_manifest_dependency(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "missing-transitive-dependency.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    assert (exit_code, stderr) == (0, "")
+    assert json.loads(stdout)["checked"] is True
+
+    kernel, candidate_ldb = mutable_authorities()
+    quantity = next(
+        package
+        for package in candidate_ldb["language"]["packages"]
+        if package["id"] == "core.quantity"
+    )
+    assert quantity["dependencies"]["required"] == [
+        {"id": "standard.compiler", "version": "1.1.0"}
+    ]
+    quantity["dependencies"]["required"] = []
+    quantity_vectors = next(
+        vector_set["vectors"]
+        for vector_set in candidate_ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == "core.quantity"
+    )
+    dependency_vector = next(
+        vector
+        for vector in candidate_ldb["vectors"]
+        if vector["id"] in quantity_vectors
+        and vector.get("kind") == "package-contract"
+        and vector.get("probe") == {"path": "dependencies.required"}
+    )
+    dependency_vector["expect"] = []
+    _reidentify_language_bundle(candidate_ldb)
+    # A coherent graph can contain compiler authority outside the selected closure.
+    assert admit_authorities(kernel, candidate_ldb).admitted is True
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [
+        (diagnostic["code"], diagnostic["primary"]["pointer"])
+        for diagnostic in error["diagnostics"]
+    ] == [("language.source_contract_mismatch", "/entrypoints")]
 
 
 def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
@@ -4732,7 +4780,7 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
 
     lock = json.loads((artifact_dir / "package-lock.json").read_text())
     assert [(package["id"], package["version"]) for package in lock["packages"]] == [
-        ("core.quantity", "2.1.0"),
+        ("core.quantity", "2.2.0"),
         ("standard.compiler", "1.1.0"),
     ]
     assert all(
@@ -4779,7 +4827,7 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
         declaration["type_identity"]
         == {
             "package": "core.quantity",
-            "version": "2.1.0",
+            "version": "2.2.0",
             "symbol": "Quantity",
         }
         for declaration in rir["declarations"]
@@ -5310,7 +5358,7 @@ def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5399,7 +5447,7 @@ def test_model_entrypoint_arguments_must_exactly_close_formal_ports(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": arguments,
@@ -5440,7 +5488,7 @@ def test_model_entrypoint_read_port_rejects_symbols_without_an_input_source(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5482,7 +5530,7 @@ def test_model_entrypoint_result_reports_the_exact_binding_pointer(tmp_path, run
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5563,7 +5611,7 @@ def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5591,10 +5639,10 @@ def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
     operand = cast(dict[str, Any], entrypoint["arguments"][0]["operand"])
     assert operand["value"] == 7
     assert operand["context_type"] == {
-        "id": "quantity.dimensionless-int64",
+        "id": "quantity.dimensionless-int64-v2-2",
         "type": {
             "package": "core.quantity",
-            "version": "2.1.0",
+            "version": "2.2.0",
             "id": "Quantity",
         },
         "representation": "Int",
@@ -5614,7 +5662,7 @@ def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5666,7 +5714,7 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5689,7 +5737,11 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     original = model_compilation_module.lower_checked_model(original_checked)
 
     kernel, candidate_ldb = mutable_authorities()
-    profile = candidate_ldb["language"]["literal_typing_profiles"][0]
+    profile = next(
+        profile
+        for profile in candidate_ldb["language"]["literal_typing_profiles"]
+        if profile["id"] == "quantity.dimensionless-int64-v2-2"
+    )
     old_id = profile["id"]
     profile["id"] = "quantity.dimensionless-int64-reidentified"
     owner = next(
@@ -5697,7 +5749,10 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
         for package in candidate_ldb["language"]["packages"]
         if package["id"] == "core.quantity"
     )
-    owner["exports"]["literal_typing_profiles"] = [profile["id"]]
+    owner["exports"]["literal_typing_profiles"] = [
+        profile["id"] if identifier == old_id else identifier
+        for identifier in owner["exports"]["literal_typing_profiles"]
+    ]
     assert old_id != profile["id"]
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted
@@ -5737,7 +5792,7 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
             "id": "combat.damage",
             "operation": {
                 "package": "game.combat",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "game.combat.damage-v1",
             },
             "arguments": [
@@ -5805,7 +5860,7 @@ def test_model_entrypoint_lowers_a_kernel_boolean_literal(tmp_path):
             "id": "combat.damage",
             "operation": {
                 "package": "game.combat",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "game.combat.damage-v1",
             },
             "arguments": [
@@ -5886,7 +5941,7 @@ def test_model_entrypoint_refuses_stale_exact_operation_coordinates(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5937,7 +5992,7 @@ def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -6267,36 +6322,31 @@ def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer
         (
             "effect",
             (
-                "language.operations.game.combat@2.1.0."
-                "game.combat.cast-v1.body.hit-check.effects"
+                "language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.effects"
             ),
         ),
         (
             "refusal",
             (
-                "language.operations.game.combat@2.1.0."
-                "game.combat.cast-v1.body.hit-check.refusals"
+                "language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.refusals"
             ),
         ),
         (
             "resource",
             (
-                "language.operations.game.combat@2.1.0."
-                "game.combat.cast-v1.resource_bounds"
+                "language.operations.game.combat@2.2.0.game.combat.cast-v1.resource_bounds"
             ),
         ),
         (
             "cycle",
             (
-                "language.operations.game.check@1.0.1."
-                "game.check.hit-v1.body.cycle.operation"
+                "language.operations.game.check@1.1.0.game.check.hit-v1.body.cycle.operation"
             ),
         ),
         (
             "argument-contract",
             (
-                "language.operations.game.combat@2.1.0."
-                "game.combat.cast-v1.body.hit-check.arguments"
+                "language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.arguments"
             ),
         ),
     ),
@@ -6361,7 +6411,7 @@ def test_package_admission_closes_every_operation_composition_axis(
                 "site": "self",
                 "operation": {
                     "package": "game.check",
-                    "version": "1.0.1",
+                    "version": "1.1.0",
                     "id": "game.check.hit-v1",
                 },
                 "arguments": [
@@ -6548,7 +6598,7 @@ def test_package_admission_rejects_canonical_equality_across_value_contracts():
 
     assert mutation_index is not None
     expected_subject = (
-        "language.operations.game.generation@1.0.0."
+        "language.operations.game.generation@1.1.0."
         f"game.generation.select-reward-v1.body.{mutation_index}.typing"
     )
     composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
@@ -6697,7 +6747,7 @@ def test_authority_admission_rejects_operation_closure_at_the_package_site():
     assert admission.admitted is False
     assert any(
         diagnostic.subject
-        == "language.operations.game.combat@2.1.0.game.combat.cast-v1.body.hit-check.effects"
+        == "language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.effects"
         for diagnostic in admission.diagnostics
     )
 
@@ -6776,7 +6826,7 @@ def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
             "id": "resource.spend",
             "operation": {
                 "package": "game.resource",
-                "version": "1.0.1",
+                "version": "1.1.0",
                 "id": "game.resource.spend-v1",
             },
             "arguments": [
@@ -6909,7 +6959,7 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -6993,10 +7043,14 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     assert original_selected != original_lock["selected_semantics"]
     assert mutated_selected != mutated_lock["selected_semantics"]
     assert [row["definition"]["id"] for row in original_selected["operations"]] == [
+        "quantity.add",
+        "quantity.floor-divide",
         "quantity.floor-zero",
         "quantity.identity",
         "quantity.less-than",
         "quantity.maximum",
+        "quantity.minimum",
+        "quantity.multiply",
         "quantity.subtract",
     ]
     assert original_selected["conversions"] == []
@@ -7279,7 +7333,7 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
                         "node": "operation-call",
                         "operation": {
                             "package": "core.quantity",
-                            "version": "2.1.0",
+                            "version": "2.2.0",
                             "id": "quantity.identity",
                         },
                         "arguments": [
@@ -7333,10 +7387,10 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
         if row["artifact_kind"] == "model-source-package"
     )
     grammar = source_schema["$defs"]["formulaNotationGrammar"]["const"]
-    grammar["escape_character"] = "/"
-    grammar["escapable_identifier_characters"] = ["`", "/"]
+    grammar["escape_character"] = "~"
+    grammar["escapable_identifier_characters"] = ["`", "~"]
     source["modules"][0]["formulas"][0]["expression"] = (
-        "let `escaped/`local` = identity(base);\n`escaped/`local`"
+        "let `escaped~`local` = identity(base);\n`escaped~`local`"
     )
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
@@ -7376,7 +7430,7 @@ def test_unselected_pure_operation_notation_preserves_lock_and_rir():
         )
     )
     operation["id"] = "game.check.unused-identity"
-    operation["version"] = "1.0.1"
+    operation["version"] = "1.1.0"
     operation["vectors"] = []
     operation["extensions"]["standard.formula-notation"]["name"] = "unused_identity"
     baseline_ldb["language"]["operations"].append(operation)
@@ -7551,7 +7605,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     package["dependencies"] = {
         "optional": [],
         "required": [
-            {"id": "core.quantity", "version": "2.1.0"},
+            {"id": "core.quantity", "version": "2.2.0"},
             {"id": "standard.runtime", "version": "1.1.0"},
         ],
     }
@@ -7600,7 +7654,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                 "type": {
                     "id": "Quantity",
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                 },
                 "unit": "1",
             },
@@ -7614,7 +7668,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                 "type": {
                     "id": "Quantity",
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                 },
                 "unit": "1",
             },
@@ -7648,7 +7702,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             "type": {
                 "id": "Quantity",
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
             },
             "unit": "1",
         },
@@ -7699,7 +7753,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
 
     source_document = _model_source()
     source_document["package_requirements"] = [
-        {"id": "core.quantity", "version": "2.1.0"},
+        {"id": "core.quantity", "version": "2.2.0"},
         {"id": "genre.economy", "version": "1.0.0"},
     ]
     source_document["modules"][0]["symbols"] = [

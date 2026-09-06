@@ -112,7 +112,7 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.tick-snapshot-periodic-v1",
                         "package": "game.effect",
-                        "version": "1.0.0",
+                        "version": "2.0.0",
                     },
                 },
                 {
@@ -120,7 +120,7 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.tick-snapshot-periodic-v1",
                         "package": "game.effect",
-                        "version": "1.0.0",
+                        "version": "2.0.0",
                     },
                 },
                 {
@@ -128,7 +128,7 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.expire-periodic-v1",
                         "package": "game.effect",
-                        "version": "1.0.0",
+                        "version": "2.0.0",
                     },
                 },
             ],
@@ -161,7 +161,7 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.tick-live-periodic-v1",
                         "package": "game.effect",
-                        "version": "1.0.0",
+                        "version": "2.0.0",
                     },
                 },
                 {
@@ -169,7 +169,7 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.tick-live-periodic-v1",
                         "package": "game.effect",
-                        "version": "1.0.0",
+                        "version": "2.0.0",
                     },
                 },
                 {
@@ -177,7 +177,7 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                     "operation": {
                         "id": "game.effect.expire-periodic-v1",
                         "package": "game.effect",
-                        "version": "1.0.0",
+                        "version": "2.0.0",
                     },
                 },
             ],
@@ -1046,7 +1046,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
             "formula.runtime.observation.boundary.snapshot-cache-key",
             "formula.runtime.observation.refusal.atomic-prefix",
         },
-        ("core.quantity", "2.1.0"): {
+        ("core.quantity", "2.2.0"): {
             "formula.quantity.accept.pure-operation-closure",
             "formula.quantity.accept.boolean-comparison",
             "formula.notation.quantity.floor-zero",
@@ -1055,7 +1055,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
             "formula.notation.quantity.maximum",
             "formula.notation.quantity.subtract",
         },
-        ("game.combat", "2.1.0"): {
+        ("game.combat", "2.2.0"): {
             "formula.combat.accept.damage-slot-binding",
             "formula.combat.refuse.missing-or-duplicate-slot-binding",
         },
@@ -1114,7 +1114,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     ] == [{"alias": "Boolean", "contract": "kernel-boolean"}]
     quantity_operations = {
         definition["id"]: definition
-        for entry in packages[("core.quantity", "2.1.0")]["semantic_closure"]
+        for entry in packages[("core.quantity", "2.2.0")]["semantic_closure"]
         if entry["authority_path"] == "language.operations"
         for definition in entry["definitions"]
     }
@@ -1136,11 +1136,18 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     }
     quantity_vectors = {
         vector["id"]: vector
-        for vector in vector_sets[("core.quantity", "2.1.0")]["vector_definitions"]
+        for vector in vector_sets[("core.quantity", "2.2.0")]["vector_definitions"]
     }
     for operation_id, operation in quantity_operations.items():
-        vector_id = f"formula.notation.{operation_id}"
-        vector = quantity_vectors[vector_id]
+        notation_vectors = [
+            vector
+            for vector in quantity_vectors.values()
+            if vector.get("operation") == operation_id
+            and vector.get("probe") == {"path": "extensions"}
+        ]
+        assert len(notation_vectors) == 1
+        vector = notation_vectors[0]
+        vector_id = vector["id"]
         assert vector == {
             "category": "positive",
             "expect": operation["extensions"],
@@ -1912,7 +1919,7 @@ def test_reidentified_local_result_source_requires_a_compatible_node_producer():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.1.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.2.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1951,7 +1958,7 @@ def test_local_result_source_must_exist_before_every_successful_exit_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.1.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.2.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 

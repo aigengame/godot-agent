@@ -7,9 +7,10 @@ it, with structured output suitable for programmatic consumption. (Requirements:
 **Terminology transition (2026-09-06):**
 [bADR-0028](docs/badr/0028-current-language-refactor-and-pre-1.0-retirement.md) adopts one current
 language and removes historical package/Operation selection and redundant execution bindings.
-Existing wire-specific definitions below remain descriptions of the implementation until their
-coordinated replacement. They do not impose historical retention. The new direction retains
-content integrity, nominal ownership, actual execution policies, and consistent in-flight inputs.
+The #869 capability union supplies one current definition per retained package namespace.
+Version-coordinate fields and selection still exist until #870–#872; the wire-specific definitions
+below describe that interim implementation and do not impose historical retention. The direction
+retains content integrity, nominal ownership, actual execution policies, and consistent in-flight inputs.
 
 ## Language
 

@@ -281,12 +281,17 @@ class TestKeyUserPath:
             "rare-threshold"
         }
         assert {row["id"] for row in explanation["operation_explanations"]} == {
-            "game.generation.select-reward-v1",
+            "game.build.contribution@1",
             "game.build.replace-reward-v1",
+            "game.generation.select-reward-v1",
+            "quantity.add",
+            "quantity.floor-divide",
             "quantity.floor-zero",
             "quantity.identity",
             "quantity.less-than",
             "quantity.maximum",
+            "quantity.minimum",
+            "quantity.multiply",
             "quantity.subtract",
         }
 
@@ -414,32 +419,32 @@ class TestKeyUserPath:
         assert entrypoints == {
             "combat.enemy-attacks-player": {
                 "package": "game.combat",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "game.combat.eligible-cast-v1",
             },
             "combat.enemy-attacks-player-without-eligibility": {
                 "package": "game.combat",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "game.combat.cast-v1",
             },
             "combat.player-attacks-enemy-and-cancels-counterattack": {
                 "package": "game.combat",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "game.combat.cast-and-cancel-v1",
             },
             "combat.player-attacks-enemy": {
                 "package": "game.combat",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "game.combat.eligible-cast-v1",
             },
             "combat.player-attacks-enemy-without-eligibility": {
                 "package": "game.combat",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "game.combat.cast-v1",
             },
             "combat.player-plans-attacks": {
                 "package": "game.combat",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "id": "game.combat.plan-casts-v1",
             },
         }

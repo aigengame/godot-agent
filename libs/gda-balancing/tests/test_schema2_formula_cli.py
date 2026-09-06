@@ -64,7 +64,7 @@ def _quantity_module(identifier: str) -> dict[str, object]:
             {
                 "alias": "quantity",
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "symbol": "Quantity",
             }
         ],
@@ -85,7 +85,7 @@ def test_formula_render_projects_a_structured_subtraction_program(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.subtract",
                 },
                 "arguments": [
@@ -105,14 +105,14 @@ def test_formula_render_projects_a_structured_subtraction_program(
     }
     request = {
         "schema_version": "2.0.0",
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "module": {
             "id": "combat",
             "imports": [
                 {
                     "alias": "quantity",
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "symbol": "Quantity",
                 }
             ],
@@ -155,7 +155,7 @@ def test_formula_render_preserves_the_mitigated_damage_program(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.subtract",
                 },
                 "arguments": [
@@ -181,7 +181,7 @@ def test_formula_render_preserves_the_mitigated_damage_program(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.floor-zero",
                 },
                 "arguments": [
@@ -197,7 +197,7 @@ def test_formula_render_preserves_the_mitigated_damage_program(
     }
     request = {
         "schema_version": "2.0.0",
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "module": _quantity_module("combat"),
         "formula": {
             "id": "mitigated-damage",
@@ -237,7 +237,7 @@ def test_formula_parse_uses_context_to_distinguish_infix_minus_from_signed_liter
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "compact-subtraction",
@@ -275,7 +275,7 @@ def test_formula_parse_consumes_declared_infix_precedence_and_associativity(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "associative-subtraction",
@@ -360,7 +360,7 @@ def test_formula_parse_obeys_mutated_package_owned_associativity(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "right-associative-subtraction",
@@ -434,7 +434,7 @@ def test_formula_parse_obeys_mutated_package_owned_precedence(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "mutated-precedence",
@@ -508,7 +508,7 @@ def test_formula_render_refuses_infix_tokens_that_collide_with_grammar(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "colliding-infix",
@@ -524,7 +524,7 @@ def test_formula_render_refuses_infix_tokens_that_collide_with_grammar(
                                 "node": "operation-call",
                                 "operation": {
                                     "package": "core.quantity",
-                                    "version": "2.1.0",
+                                    "version": "2.2.0",
                                     "id": "quantity.subtract",
                                 },
                                 "arguments": [
@@ -575,7 +575,7 @@ def test_formula_render_quotes_non_bare_locals_and_renders_literals(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.maximum",
                 },
                 "arguments": [
@@ -592,7 +592,7 @@ def test_formula_render_quotes_non_bare_locals_and_renders_literals(
     }
     request = {
         "schema_version": "2.0.0",
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "module": _quantity_module("combat"),
         "formula": {
             "id": "effective-accuracy",
@@ -625,7 +625,7 @@ def test_formula_render_covers_the_identity_operation(tmp_path: Path, run_cli) -
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.identity",
                 },
                 "arguments": [
@@ -644,14 +644,14 @@ def test_formula_render_covers_the_identity_operation(tmp_path: Path, run_cli) -
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": {
                     "id": "main",
                     "imports": [
                         {
                             "alias": "quantity",
                             "package": "core.quantity",
-                            "version": "2.1.0",
+                            "version": "2.2.0",
                             "symbol": "Quantity",
                         }
                     ],
@@ -688,7 +688,7 @@ def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.subtract",
                 },
                 "arguments": [
@@ -714,7 +714,7 @@ def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.floor-zero",
                 },
                 "arguments": [
@@ -730,7 +730,7 @@ def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
     }
     request = {
         "schema_version": "2.0.0",
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "module": _quantity_module("combat"),
         "formula": {
             "id": "mitigated-damage",
@@ -848,7 +848,7 @@ def test_formula_render_projects_conditionals_without_losing_branch_identity(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "choose",
@@ -896,7 +896,7 @@ def test_formula_parse_reconstructs_a_conditional_node(tmp_path: Path, run_cli) 
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "choose",
@@ -949,7 +949,7 @@ def test_formula_render_uses_qualified_formula_calls_and_named_arguments(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": {
                     **_quantity_module("main"),
                     "formulas": [
@@ -1013,7 +1013,7 @@ def test_formula_parse_resolves_a_qualified_formula_call(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": {
                     **_quantity_module("main"),
                     "formulas": [
@@ -1223,7 +1223,7 @@ def test_formula_parse_refuses_a_current_module_that_conflicts_with_its_closure(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "modules": [
                     {**_quantity_module("main"), "symbols": [], "formulas": []}
                 ],
@@ -1279,7 +1279,7 @@ def test_formula_parse_resolves_cross_module_formula_calls(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "modules": modules,
                 "module": modules[1],
                 "formula": {
@@ -1319,7 +1319,7 @@ def test_formula_parse_never_resolves_an_unquoted_kebab_case_local(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "bad-local-reference",
@@ -1404,7 +1404,7 @@ def test_formula_parse_reports_malformed_notation_as_a_typed_parse_refusal(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "malformed",
@@ -1436,7 +1436,7 @@ def test_formula_parse_reports_invalid_identifier_escape_at_the_parse_stage(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "invalid-escape",
@@ -1472,7 +1472,7 @@ def test_formula_parse_reports_incompatible_conditional_branches_as_type_mismatc
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "incompatible-conditional",
@@ -1513,14 +1513,14 @@ def test_formula_parse_refuses_a_final_operand_outside_the_result_contract(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": {
                     "id": "main",
                     "imports": [
                         {
                             "alias": "quantity",
                             "package": "core.quantity",
-                            "version": "2.1.0",
+                            "version": "2.2.0",
                             "symbol": "Quantity",
                         }
                     ],
@@ -1637,14 +1637,14 @@ def test_formula_parse_refuses_contextual_type_or_resolution_mismatches(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": {
                     "id": "main",
                     "imports": [
                         {
                             "alias": "quantity",
                             "package": "core.quantity",
-                            "version": "2.1.0",
+                            "version": "2.2.0",
                             "symbol": "Quantity",
                         }
                     ],
@@ -1691,7 +1691,7 @@ def test_formula_parse_reports_ambiguous_selected_package_notation(
         )
     )
     identity["id"] = "game.check.duplicate-identity"
-    identity["version"] = "1.0.1"
+    identity["version"] = "1.1.0"
     identity["vectors"] = []
     language_bundle["language"]["operations"].append(identity)
     language_bundle["language"]["operations"].sort(key=lambda row: row["id"])
@@ -1716,8 +1716,8 @@ def test_formula_parse_reports_ambiguous_selected_package_notation(
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"},
-                    {"id": "game.check", "version": "1.0.1"},
+                    {"id": "core.quantity", "version": "2.2.0"},
+                    {"id": "game.check", "version": "1.1.0"},
                 ],
                 "module": _quantity_module("main"),
                 "formula": {
@@ -1757,7 +1757,7 @@ def test_formula_render_reports_invalid_notation_port_closure_as_type_mismatch(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "invalid-port-closure",
@@ -1770,7 +1770,7 @@ def test_formula_render_reports_invalid_notation_port_closure_as_type_mismatch(
                                 "node": "operation-call",
                                 "operation": {
                                     "package": "core.quantity",
-                                    "version": "2.1.0",
+                                    "version": "2.2.0",
                                     "id": "quantity.maximum",
                                 },
                                 "arguments": [
@@ -1882,7 +1882,7 @@ def test_formula_parse_refuses_expression_bytes_above_the_admitted_limit(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "over-limit",
@@ -1917,7 +1917,7 @@ def test_formula_parse_refuses_tokens_above_the_admitted_limit(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "over-token-limit",
@@ -1953,7 +1953,7 @@ def test_formula_parse_handles_deep_grouping_below_the_token_limit(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "deep-grouping",
@@ -1984,7 +1984,7 @@ def test_formula_parse_enforces_the_authority_owned_group_depth_bound(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "over-group-depth",
@@ -2014,7 +2014,7 @@ def test_formula_render_reports_an_unresolved_operation_at_the_body(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
                 "module": _quantity_module("main"),
                 "formula": {
                     "id": "unresolved",
@@ -2027,7 +2027,7 @@ def test_formula_render_reports_an_unresolved_operation_at_the_body(
                                 "node": "operation-call",
                                 "operation": {
                                     "package": "core.quantity",
-                                    "version": "2.1.0",
+                                    "version": "2.2.0",
                                     "id": "quantity.unknown",
                                 },
                                 "arguments": [
@@ -2287,7 +2287,7 @@ def test_independent_consumer_types_zero_node_results() -> None:
     }
     wrong_parameter = {
         "schema_version": "2.0.0",
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "module": _quantity_module("main"),
         "formula": {
             "id": "wrong-parameter-result",
@@ -2299,7 +2299,7 @@ def test_independent_consumer_types_zero_node_results() -> None:
     }
     missing_symbol = {
         "schema_version": "2.0.0",
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "module": {**_quantity_module("main"), "symbols": []},
         "formula": {
             "id": "missing-symbol-result",
@@ -2334,7 +2334,7 @@ def test_independent_consumer_enforces_notation_resource_bounds() -> None:
     }
     request = {
         "schema_version": "2.0.0",
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "module": _quantity_module("main"),
         "formula": {
             "id": "oversized",
@@ -2446,7 +2446,7 @@ def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> No
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.less-than",
                 },
                 "arguments": [
@@ -2470,7 +2470,7 @@ def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> No
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.identity",
                 },
                 "arguments": [
@@ -2521,7 +2521,7 @@ def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> No
             {
                 "alias": "quantity",
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
                 "symbol": "Quantity",
             }
         ],
@@ -2537,7 +2537,7 @@ def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> No
     }
     request = {
         "schema_version": "2.0.0",
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "module": module,
         "formula": formula,
     }

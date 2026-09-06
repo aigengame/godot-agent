@@ -22,6 +22,14 @@ the Schema 1 input stack after the [named-source disposition](../refactor/curren
 or disposable trials. Existing #542–#544 activation conditions remain deferred; functional slices
 may complete with `candidate`/open results.
 
+Issue #869 consolidates the retained package capabilities into current definitions, including both
+Build reward replacement/contribution and Effect periodic lifecycle/contribution. Its
+[progression-derived periodic Effect](../../examples/schema2/progression-periodic-effect/README.md)
+is a maintained public Model/Experiment composition; the
+[bADR-0017 amendment](../badr/0017-genre-templates-and-coverage-contract.md) records the ownership and
+retirement boundary. Version-coordinate fields and selection remain until #870–#872. Historical
+delivery coordinates below do not reintroduce the removed release copies.
+
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical
 tracer. Every row is open. It is a completeness contract, not evidence that the package operations,

@@ -29,10 +29,12 @@ def _prepare_experiment(
     vector_set = next(
         row
         for row in language_bundle.package_conformance_vector_sets
-        if row["package_id"] == "game.combat" and row["package_version"] == "2.1.0"
+        if row["package_id"] == "game.combat" and row["package_version"] == "2.2.0"
     )
     vectors = {row["id"]: row for row in vector_set["vector_definitions"]}
-    source_fixture = vectors["game.combat.model-binding.positive"]["source_fixture"]
+    source_fixture = vectors["formula.combat.accept.damage-slot-binding"][
+        "source_fixture"
+    ]
     runtime_vector = vectors["game.combat.cast.positive"]
     if source_fixture["mode"] != "literal":
         raise RuntimeError("Experiment conformance source fixture is not literal")
