@@ -8,7 +8,8 @@ It is a difflib guess rendered into the human message, so it stays unparseable, 
 is silent whenever the typo is not string-similar (`inspect` is nothing like `get`),
 and similarity is not intent: the nearest *string* can be a different — even
 opposite — operation. So the mapping here is CURATED: one row per spelling the
-record actually showed, each naming the supported invocation.
+record actually showed — plus, where a row says so, the sibling spelling of one, when
+the same slip reaches a second command — each naming the supported invocation.
 
 This module owns two things, which are the two halves of one job:
 
@@ -96,7 +97,8 @@ class NearMiss:
 
 # The curated table. The key is the command path the token was rejected under —
 # empty for the root — plus the token itself, so the same word can mean different
-# things in different groups. One row per spelling the dogfooding record showed.
+# things in different groups. One row per spelling the dogfooding record showed, or
+# per the sibling spelling of one where the row states that.
 NEAR_MISSES: dict[tuple[str, ...], NearMiss] = {
     # GDA-DF-025: `inspect` is not a gda verb; the read verb is `get` in every group.
     ("scene", "inspect"): NearMiss(
@@ -144,10 +146,11 @@ NEAR_MISSES: dict[tuple[str, ...], NearMiss] = {
         "`script run` takes the script as its positional argument, "
         "project-relative or `res://`",
     ),
-    # GDA-DF-069: the same positional form, missed under a SECOND spelling. Keyed
-    # separately and correcting to the same invocation ON PURPOSE — the table keys on
-    # the spelling a caller typed, and the record shows both — so this row is not a
-    # duplicate to fold into the one above.
+    # Not in the record itself: GDA-DF-069 showed the second spelling on `validate`;
+    # it is curated onto `run` too because the same caller mistake reaches both
+    # commands. Keyed separately and correcting to the same invocation ON PURPOSE —
+    # the table keys on the spelling typed — so this row is not a duplicate to fold
+    # into the one above.
     ("script", "run", "--path"): NearMiss(
         "gda script run <path>",
         "`script run` takes the script as its positional argument, "
@@ -160,14 +163,17 @@ NEAR_MISSES: dict[tuple[str, ...], NearMiss] = {
         "`script validate` takes the scripts as its positional arguments, "
         "project-relative or `res://` — or `--all` for the whole project",
     ),
-    # PIPE-DF-165: `--strict` carried over from `script run`, where it is the
-    # failing-exit gate (ADR-0031). `validate` has no such gate, and saying so is the
-    # correction — so the contract goes in the message, never in the `hint`, which is
-    # the corrected invocation and nothing else.
+    # PIPE-DF-165: `--strict` carried over from `script run`, where it gates that
+    # run's own non-zero exit status (ADR-0031). `validate` answers a different
+    # question — it reports the verdict and exits 0 either way — so the correction has
+    # to say what to read instead. That contract goes in the message, never in the
+    # `hint`, which is the corrected invocation and nothing else.
     ("script", "validate", "--strict"): NearMiss(
         "gda script validate <path>",
-        "validate reports 'valid' per script and an aggregate under --all; the "
-        "failing-exit gate is 'script run --strict'",
+        "`validate` reports a per-script and an aggregate `valid` — for one path, "
+        "several, or `--all` — and exits 0 either way, so gate on `valid`; "
+        "`--strict` belongs to `script run`, where it fails the run on the script's "
+        "own non-zero exit status",
     ),
 }
 

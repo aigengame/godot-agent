@@ -174,16 +174,20 @@ def test_each_dogfooded_option_spelling_names_the_positional_form(args, hint):
 
 # The clause the `--strict` refusal must carry: `hint` is the corrected invocation
 # and nothing else, so the difference between the two `--strict`s is stated in the
-# MESSAGE, which both renderings carry.
-STRICT_CLAUSE = "the failing-exit gate is 'script run --strict'"
+# MESSAGE, which both renderings carry. Pinned in two halves, since the message the
+# caller reads must both name what to gate on and place the flag they typed.
+STRICT_VERDICT = "exits 0 either way, so gate on `valid`"
+STRICT_FLAG = "`--strict` belongs to `script run`"
 
 
 def test_the_strict_near_miss_states_the_contract_in_both_renderings():
     # PIPE-DF-165: the caller carried `--strict` over from `script run`, so naming the
     # positional form is not enough — the message says what `validate` reports instead
-    # and where the failing-exit gate lives. Under `--json` that rides the envelope's
-    # message beside the machine-readable `hint`; without it, the same failure renders
-    # as lines with its own `hint:` line.
+    # (a `valid` verdict, at exit 0 whichever way it goes) and what the flag they typed
+    # really gates: `script run`'s own non-zero exit status (ADR-0031), a different
+    # question. Under `--json` that rides the envelope's message beside the
+    # machine-readable `hint`; without it, the same failure renders as lines with its
+    # own `hint:` line.
     structured = CliRunner().invoke(
         app, ["script", "validate", "--strict", "logic.gd", "--json"]
     )
@@ -191,14 +195,16 @@ def test_the_strict_near_miss_states_the_contract_in_both_renderings():
 
     error = _envelope(structured)
     assert error["hint"] == "gda script validate <path>"
-    assert STRICT_CLAUSE in error["message"]
+    assert STRICT_VERDICT in error["message"]
+    assert STRICT_FLAG in error["message"]
 
     assert human.exit_code == EXIT_USAGE
     assert not human.stdout.startswith("{")
     text = plain_text(human.output)
     assert text.startswith(f"error: {UNKNOWN_OPTION} (usage)\n")
     assert "hint: gda script validate <path>" in text
-    assert STRICT_CLAUSE in text
+    assert STRICT_VERDICT in text
+    assert STRICT_FLAG in text
 
 
 # --- the table is the single authority, and it stays honest -------------------
