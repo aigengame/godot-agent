@@ -1196,6 +1196,18 @@ before the native export and reported in `created_dirs`, outermost to innermost;
 an uncreatable parent is reported as `export_output_parent_failed` before Godot
 runs.
 
+Export-template discovery follows the user-data placement (#840). Godot reads the
+templates from its data directory, and `--user-data-root` relocates exactly that,
+so a release/debug run under an isolated root finds none even where the host has
+them installed. `gda export get` therefore reports `templates_root` — the
+export-templates directory checked, which holds the `templates_version` directory
+— and `templates_root_host`, the host's directory when the redirect hid installed
+templates there (null otherwise). The `export_templates_missing` failure names the
+same two directories in its message, gives the two remedies (run without the
+redirect, or `--mode pack`, which needs no templates), and carries them typed on
+`evidence` as `templates_root_checked` / `templates_root_host` — the second key
+present only in the hidden case, which is how the two shapes are told apart.
+
 ### Asset-file groups (create/edit files; headless)
 
 These create or edit resource files (`.gdshader`, `.tres`) and so are headless.

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from gda import dispatch
 from gda.binary import resolve_godot_binary
@@ -50,7 +50,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.runner import RunResult
+from gda.runner import RunResult, engine_data_path
 
 
 def normalize_export_output_path(path: str) -> str:
@@ -118,17 +118,60 @@ class ExportListResult(BaseModel):
     presets: list[ListedPreset]
 
 
+def resolve_host_data_path() -> str | None:
+    """The host's Godot data directory, resolved over gda's OWN environment (#840).
+
+    The value stamped on :attr:`ExportGetParams.host_data_path`, and the whole mechanism
+    behind #840's disclosure. ``--user-data-root`` redirects the CHILD engine's
+    data directory, never gda's own environment, so this stays the directory an
+    unredirected run would use — exactly the one the engine cannot see from inside
+    the redirect, and therefore the one worth passing in.
+
+    ``None`` when the platform's own variable is unset, which is what
+    :func:`gda.runner.engine_data_path` answers rather than fabricating a path; the
+    operation then reports no host directory instead of comparing against a guess.
+    """
+    resolved = engine_data_path()
+    return str(resolved) if resolved is not None else None
+
+
 class ExportGetParams(BaseModel):
-    """The operation params of ``gda export get`` (issue #114).
+    """The operation params of ``gda export get`` (issue #114, #840).
 
     ``preset`` addresses an export preset by its display name (as ``export
     list`` reports it). An unknown name is the ``export_preset_not_found``
     failure. The project is process context (``--project``, ADR-0006).
+
+    ``host_data_path`` is a COMPUTED param, the same shape ``script set``'s
+    ``mode`` has: the model stamps it from the host environment so the engine-side
+    check can name templates a ``--user-data-root`` redirect hid (#840), and a
+    value passed in is ignored. Computed model-side rather than pasted in by the
+    argv body because ADR-0015 makes the model the single source of truth for a
+    request's shape — a ``--params-json`` caller that names only ``preset`` has to
+    reach the operation with the identical params, and it is not a fact a caller
+    is in any position to supply.
     """
 
     preset: str = Field(
         description="The export preset's display name, as 'gda export list' reports it."
     )
+    host_data_path: str | None = Field(
+        default=None,
+        description=(
+            "The host's Godot data directory, so the check can name export "
+            "templates a --user-data-root redirect hides. Resolved model-side "
+            "from gda's own environment; a value passed in is ignored."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _resolve_host_data_path(self) -> "ExportGetParams":
+        # Stamped on BOTH input channels (ADR-0015): the argv body and
+        # `--params-json` build this same model, so neither can reach the operation
+        # without the host directory and neither can reach it with a caller's guess
+        # at one.
+        self.host_data_path = resolve_host_data_path()
+        return self
 
 
 class ExportGetResult(BaseModel):
@@ -142,6 +185,15 @@ class ExportGetResult(BaseModel):
     #121); ``templates_version`` names the version directory that was checked
     (e.g. ``4.6.3.stable``), so the agent knows which templates to install when
     they are missing.
+
+    ``templates_root`` says WHERE it looked (#840) — the export-templates
+    directory that holds the version directory. It is reported because that
+    location is not fixed: Godot reads the templates from its data directory, and
+    ``--user-data-root`` relocates exactly that, so a redirected run reports none
+    installed on a host whose templates are correctly installed.
+    ``templates_root_host`` names the host's directory in that case and ONLY in
+    that case, so the two situations — hidden by a redirect, versus genuinely not
+    installed anywhere — are told apart before an export is ever attempted.
     """
 
     index: int = Field(
@@ -167,6 +219,18 @@ class ExportGetResult(BaseModel):
         description=(
             "The export-templates version directory checked for installation "
             "(e.g. 4.6.3.stable), matching the running engine version."
+        )
+    )
+    templates_root: str = Field(
+        description=(
+            "The export-templates directory that was checked; the "
+            "templates_version directory is looked up inside it."
+        )
+    )
+    templates_root_host: str | None = Field(
+        description=(
+            "The host's export-templates directory, when a --user-data-root "
+            "redirect hid templates that ARE installed there; null otherwise."
         )
     )
 
@@ -268,15 +332,26 @@ def render_export_list(listed: "ExportListResult") -> str:
 
 
 def render_export_get(got: "ExportGetResult") -> str:
-    """Render one preset's details plus its export-template readiness."""
+    """Render one preset's details plus its export-template readiness.
+
+    The template line names the directory that was checked, and — when a
+    ``--user-data-root`` redirect hid installed templates — a second line names
+    where they really are (#840), so the human channel says exactly what the JSON
+    one does.
+    """
     runnable = " [runnable]" if got.runnable else ""
     header = f"{got.name} ({got.platform}){runnable}"
-    templates = (
-        f"templates installed ({got.templates_version})"
-        if got.templates_installed
-        else f"templates missing ({got.templates_version})"
-    )
-    return "\n".join([header, f"  export_path: {got.export_path}", f"  {templates}"])
+    state = "installed" if got.templates_installed else "missing"
+    lines = [
+        header,
+        f"  export_path: {got.export_path}",
+        f"  templates {state} ({got.templates_version}) in {got.templates_root}",
+    ]
+    if got.templates_root_host:
+        lines.append(
+            f"  hidden by --user-data-root; host templates: {got.templates_root_host}"
+        )
+    return "\n".join(lines)
 
 
 def render_export_run(ran: "ExportRunResult") -> str:
@@ -536,7 +611,16 @@ def run_export_operation(
     if not output_path:
         return export_path_unset_failure(got.name)
     if mode is not ExportRunMode.PACK and not got.templates_installed:
-        return export_templates_missing_failure(got.name, got.templates_version)
+        # Both directories ride the failure (#840): the one the engine checked, and
+        # — when a --user-data-root redirect hid installed templates — the host's,
+        # which is what turns "install the templates" into "you already have them,
+        # this run cannot see them".
+        return export_templates_missing_failure(
+            got.name,
+            got.templates_version,
+            got.templates_root,
+            got.templates_root_host,
+        )
     created_dirs = _ensure_output_parent_dirs(output_path)
     if isinstance(created_dirs, Failure):
         return created_dirs
@@ -678,7 +762,14 @@ def get_preset(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Report one preset's details plus export-template install status."""
+    """Report one preset's details plus export-template install status.
+
+    ``templates_root`` names the export-templates directory that was checked.
+    Godot reads the templates from its data directory and ``--user-data-root``
+    relocates that, so a redirected run can report none installed on a host
+    that has them; ``templates_root_host`` names the host's directory in
+    exactly that case.
+    """
     dispatch_domain(
         EXPORT_GET_COMMAND,
         ExportGetParams(preset=preset),
@@ -740,6 +831,12 @@ def run_export(
     preset ``export_path`` values keep Godot's project-relative convention. The
     reported ``output_path`` is the resolved artifact path, and missing output
     parent directories are created and reported in ``created_dirs`` (#402/#403).
+
+    Export-template discovery follows ``--user-data-root``: Godot reads the
+    templates from the data directory that option relocates, so a release or
+    debug run under it finds none installed unless you put templates there.
+    The failure then names both directories and the remedies; ``--mode pack``
+    needs no export templates at all.
     """
     # Build the params model from the argv options (the single source of truth,
     # ADR-0015): ExportRunParams.output is an ExportOutputPath, so argv and

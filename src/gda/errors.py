@@ -714,8 +714,13 @@ def export_path_unset_failure(preset: str) -> Failure:
     )
 
 
-def export_templates_missing_failure(preset: str, templates_version: str) -> Failure:
-    """The ``export_templates_missing`` failure from the structured preflight (issue #121, #170).
+def export_templates_missing_failure(
+    preset: str,
+    templates_version: str,
+    templates_root: str = "",
+    templates_root_host: str | None = None,
+) -> Failure:
+    """The ``export_templates_missing`` failure from the structured preflight (issue #121, #170, #840).
 
     A release/debug export needs the platform export templates for the running
     engine version installed (``pack`` does not — it produces project data only,
@@ -726,12 +731,49 @@ def export_templates_missing_failure(preset: str, templates_version: str) -> Fai
     configuration errors" stderr (which ADR-0002 forbids, and which also fires for
     a merely-misconfigured preset). Names the ``templates_version`` directory the
     agent must install.
+
+    TWO shapes, not one (#840). Godot reads the export templates from the data
+    directory ``--user-data-root`` relocates, so a redirected run reports none
+    installed on a host whose templates are correctly installed — the failure that
+    kept reading as "install the templates" when the templates were already there.
+    ``templates_root`` is the directory that was checked and ``templates_root_host``
+    the host's, set only when the redirect really did hide installed templates. With
+    both in hand the message names both directories and the two remedies (drop the
+    redirect, or ``--mode pack``, which needs no templates); with only the first it
+    stays the plain "not installed here". No ``hint``: that key is contractually one
+    corrected invocation from the curated near-miss table (``gda.hints``) and this is
+    not a near miss.
+
+    Both paths also ride ``evidence`` as typed facts, so an agent branches on the
+    shape rather than on the prose (ADR-0004 amendment, #687 — this builder is the
+    eighth producer on that axis). When neither is known the object would say
+    nothing, so no ``evidence`` key is emitted at all rather than an empty one.
     """
+    message = (
+        f'export preset "{preset}" cannot be exported: the export templates for '
+        f"the running engine version ({templates_version}) are not installed"
+    )
+    if templates_root:
+        message += f" in {templates_root}"
+    if templates_root_host:
+        message += (
+            f", where --user-data-root moved the lookup; they are installed in the "
+            f"host's {templates_root_host}. Run the export without "
+            f"--user-data-root, or use --mode pack, which needs no export templates"
+        )
+    evidence = (
+        FailureEvidence(
+            templates_root_checked=templates_root or None,
+            templates_root_host=templates_root_host,
+        )
+        if templates_root or templates_root_host
+        else None
+    )
     return make_failure(
         "export_templates_missing",
-        f'export preset "{preset}" cannot be exported: the export templates for '
-        f"the running engine version ({templates_version}) are not installed",
+        message,
         "",
+        evidence=evidence,
     )
 
 

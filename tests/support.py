@@ -923,6 +923,11 @@ EXPORT_GET_RESULT = {
     "export_path": "build/index.html",
     "templates_installed": True,
     "templates_version": "4.6.3.stable",
+    # #840: the directory the engine actually checked, plus the host directory
+    # holding templates a `--user-data-root` redirect hid (null when none is
+    # hidden — the common, unredirected case this payload stands for).
+    "templates_root": "/host/data/Godot/export_templates",
+    "templates_root_host": None,
 }
 
 # Canned ``gda project <command> --json`` analysis result payloads (issue #178).

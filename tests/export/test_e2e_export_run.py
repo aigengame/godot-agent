@@ -174,6 +174,61 @@ def test_export_run_writes_to_configured_export_path(godot_project):
 
 
 @pytest.mark.e2e
+def test_export_run_under_a_redirect_names_both_template_directories(
+    godot_project, tmp_path
+):
+    # #840 ACCEPTANCE, live. A release export under `--user-data-root` fails with
+    # export_templates_missing even on a host whose templates are correctly
+    # installed, because Godot reads the templates from the data directory the
+    # redirect relocated. The failure now says so at the point it happens: the
+    # message names the directory that was checked AND the host directory holding
+    # the templates, plus the two remedies, and `evidence` carries the same two
+    # paths as typed facts.
+    #
+    # The redirect is per invocation, never exported for the run — exporting it
+    # would hide the host's templates from every other test (PITFALLS.md).
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
+    )
+    gda = Gda(godot_project)
+    if not templates_installed(gda):
+        pytest.skip(
+            "this host has no export templates installed, so there is nothing for "
+            "a --user-data-root redirect to hide"
+        )
+    isolated = tmp_path / "iso"
+    artifact = godot_project / "build/game.x86_64"
+
+    run = gda(
+        "--user-data-root",
+        str(isolated),
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "export_templates_missing", run.stdout + run.stderr
+    assert str(isolated) in err["message"], err["message"]
+    assert "--user-data-root" in err["message"], err["message"]
+    assert "--mode pack" in err["message"], err["message"]
+    # Not a near miss, so no corrected invocation rides along.
+    assert "hint" not in err, err
+    evidence = err["evidence"]
+    assert str(isolated) in evidence["templates_root_checked"], evidence
+    assert evidence["templates_root_host"].endswith("export_templates"), evidence
+    assert str(isolated) not in evidence["templates_root_host"], evidence
+    # The preflight fired first, so nothing was exported.
+    assert not artifact.exists(), "no artifact when the preflight fails fast"
+
+
+@pytest.mark.e2e
 def test_export_run_pack_writes_pck_without_templates(godot_project):
     # #170 PROOF: `--mode pack --output <path>.pck` runs Godot's native
     # --export-pack to the OVERRIDDEN path (not the preset's configured

@@ -440,10 +440,12 @@ HUMAN_CASES = [
             "export_path": "build/index.html",
             "templates_installed": True,
             "templates_version": "4.6.3.stable",
+            "templates_root": "/host/data/Godot/export_templates",
+            "templates_root_host": None,
         },
         "Web (Web)\n"
         "  export_path: build/index.html\n"
-        "  templates installed (4.6.3.stable)",
+        "  templates installed (4.6.3.stable) in /host/data/Godot/export_templates",
     ),
     (
         # templates missing branch + runnable suffix.
@@ -457,10 +459,33 @@ HUMAN_CASES = [
             "export_path": "",
             "templates_installed": False,
             "templates_version": "4.6.3.stable",
+            "templates_root": "/host/data/Godot/export_templates",
+            "templates_root_host": None,
         },
         "Linux/X11 (Linux/X11) [runnable]\n"
         "  export_path: \n"
-        "  templates missing (4.6.3.stable)",
+        "  templates missing (4.6.3.stable) in /host/data/Godot/export_templates",
+    ),
+    (
+        # #840: the redirect branch adds the line naming where they really are.
+        "export-get-templates-hidden-by-redirect",
+        ["export", "get", "--preset", "Linux/X11"],
+        {
+            "index": 0,
+            "name": "Linux/X11",
+            "platform": "Linux/X11",
+            "runnable": True,
+            "export_path": "",
+            "templates_installed": False,
+            "templates_version": "4.6.3.stable",
+            "templates_root": "/iso/data/Godot/export_templates",
+            "templates_root_host": "/host/data/Godot/export_templates",
+        },
+        "Linux/X11 (Linux/X11) [runnable]\n"
+        "  export_path: \n"
+        "  templates missing (4.6.3.stable) in /iso/data/Godot/export_templates\n"
+        "  hidden by --user-data-root; host templates: "
+        "/host/data/Godot/export_templates",
     ),
     # --- meta ---------------------------------------------------------------
     (

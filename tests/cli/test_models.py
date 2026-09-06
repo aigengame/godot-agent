@@ -278,6 +278,11 @@ def test_every_evidence_field_is_optional_in_the_published_schema():
         "target_location",
         "project_root",
         "owning_project",
+        # The two export-templates directories a --user-data-root redirect puts at
+        # odds (#840): the one this run checked, and the host one holding the
+        # templates it could not see.
+        "templates_root_checked",
+        "templates_root_host",
     }
 
 
@@ -830,9 +835,9 @@ def test_export_list_result_round_trips_a_project_with_no_presets():
 def test_export_get_result_round_trips_preset_details_and_template_status():
     # export get reports one preset's details plus export-template readiness
     # (issue #114): the preset's index/name/platform/runnable and export_path,
-    # then whether the running engine version's templates are installed and which
-    # version directory was checked — the readiness an agent asserts before an
-    # export run.
+    # then whether the running engine version's templates are installed, which
+    # version directory was checked and which directory it was looked for in
+    # (#840) — the readiness an agent asserts before an export run.
     payload = {
         "index": 1,
         "name": "Web",
@@ -841,6 +846,11 @@ def test_export_get_result_round_trips_preset_details_and_template_status():
         "export_path": "build/index.html",
         "templates_installed": True,
         "templates_version": "4.6.3.stable",
+        "templates_root": "/home/dev/data/Godot/export_templates",
+        # Nothing is hidden on an unredirected run, and the key is still emitted
+        # (as null) rather than dropped — the success half publishes its full key
+        # set, unlike the failure envelope's optional keys.
+        "templates_root_host": None,
     }
 
     got = ExportGetResult.model_validate(payload)
@@ -850,6 +860,8 @@ def test_export_get_result_round_trips_preset_details_and_template_status():
     assert got.export_path == "build/index.html"
     assert got.templates_installed is True
     assert got.templates_version == "4.6.3.stable"
+    assert got.templates_root == "/home/dev/data/Godot/export_templates"
+    assert got.templates_root_host is None
     assert json.loads(got.model_dump_json()) == payload
 
 
@@ -864,12 +876,19 @@ def test_export_get_result_round_trips_missing_templates():
         "export_path": "",
         "templates_installed": False,
         "templates_version": "4.6.3.stable",
+        # #840: the directory checked, and the host one whose templates a
+        # --user-data-root redirect hid — the pair that tells this shape ("hidden
+        # from this run") from the plain one below.
+        "templates_root": "/iso/data/Godot/export_templates",
+        "templates_root_host": "/home/dev/data/Godot/export_templates",
     }
 
     got = ExportGetResult.model_validate(payload)
 
     assert got.templates_installed is False
     assert got.export_path == ""
+    assert got.templates_root == "/iso/data/Godot/export_templates"
+    assert got.templates_root_host == "/home/dev/data/Godot/export_templates"
     assert json.loads(got.model_dump_json()) == payload
 
 

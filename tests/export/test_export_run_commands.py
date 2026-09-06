@@ -50,6 +50,10 @@ GET_RESULT = {
     "export_path": "build/game.x86_64",
     "templates_installed": True,
     "templates_version": "4.6.3.stable",
+    # #840: where the engine looked, and (null here — no redirect) the host
+    # directory holding templates it could not see.
+    "templates_root": "/host/data/Godot/export_templates",
+    "templates_root_host": None,
 }
 
 
@@ -679,6 +683,19 @@ def test_export_run_help_documents_output_resolution():
     normalized = " ".join(help_text.split())
     assert "--output" in help_text
     assert "invoker's current working directory" in normalized
+
+
+def test_export_run_help_states_that_templates_follow_the_redirected_root(monkeypatch):
+    # #840: the root `--user-data-root` help already warns that a release/debug
+    # export under it finds no installed templates; nothing at the export itself
+    # did. `export run --help` — the page an agent reads when it picks the
+    # command — now states the same boundary.
+    result = CliRunner().invoke(app, ["export", "run", "--help"])
+
+    assert result.exit_code == 0
+    normalized = " ".join(plain_text(result.stdout).split())
+    assert "--user-data-root" in normalized
+    assert "export templates" in normalized
 
 
 def test_export_run_human_output_echoes_artifact(monkeypatch, tmp_path):
