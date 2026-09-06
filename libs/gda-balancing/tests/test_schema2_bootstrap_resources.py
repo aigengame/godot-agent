@@ -130,7 +130,7 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         ("size-mismatch", "kernel.binding_mismatch"),
         ("coordinate-mismatch", "kernel.binding_mismatch"),
         ("unresolved-dependency", "kernel.binding_mismatch"),
-        ("legacy-dependency-coordinate", "kernel.binding_mismatch"),
+        ("legacy-dependency-coordinate", "kernel.member_set_mismatch"),
         ("same-coordinate-different-content", "kernel.duplicate_identifier"),
     ),
 )

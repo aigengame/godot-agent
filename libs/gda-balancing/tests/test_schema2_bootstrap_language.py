@@ -1490,6 +1490,20 @@ def test_operation_local_identifier_uniqueness_uses_attached_namespace_ownership
         entry["definitions"].append(deepcopy(operation))
     _reidentify_graph_root(ldb)
 
+    attached = next(
+        package for package in ldb.package_releases if package["id"] == "test.other"
+    )
+    resealed = deepcopy(attached)
+    _reidentify_package_release(resealed)
+    assert resealed["semantic_identity"] == attached["semantic_identity"]
+    assert resealed["content_identity"] == attached["content_identity"]
+    attached_operations = next(
+        closure["definitions"]
+        for closure in attached["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+    )
+    assert len(attached_operations) == (2 if duplicate_within_owner else 1)
+
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
 
@@ -1497,10 +1511,16 @@ def test_operation_local_identifier_uniqueness_uses_attached_namespace_ownership
     assert first["admitted"] is not duplicate_within_owner
     if duplicate_within_owner:
         assert (
-            "static",
-            "kernel.duplicate_identifier",
-            "language.operations",
-        ) in first["diagnostics"]
+            "language.operations"
+            in bootstrap_support._consumer_b_duplicate_subjects(
+                authority["kernel"], ldb
+            )
+        )
+        assert any(
+            code == "kernel.identity_mismatch"
+            and subject.endswith(".semantic_identity")
+            for _, code, subject in first["diagnostics"]
+        )
     else:
         definitions = [
             (package["id"], definition)
@@ -1563,3 +1583,52 @@ def test_fixture_reidentification_preserves_colliding_operation_owners():
         for closure in package["semantic_closure"]
         if closure["authority_path"] == "language.operations"
     } == before
+
+
+def test_two_consumers_admit_cross_owner_calls_with_the_same_local_operation_id():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    other = _append_empty_namespace(ldb, "test.other")
+    other["dependencies"]["required"] = ["game.resource"]
+    operation = deepcopy(
+        next(
+            item
+            for item in ldb["language"]["operations"]
+            if item["id"] == "game.resource.spend-v1"
+        )
+    )
+    operation["vectors"] = []
+    operation["body"] = [
+        {
+            "node": "invoke",
+            "site": "spend-resource",
+            "operation": {"package": "game.resource", "id": operation["id"]},
+            "arguments": [
+                {"port": port, "operand": {"kind": "port", "port": port}}
+                for port in ("resource", "cost")
+            ],
+            "outcomes": [
+                {"outcome": "spent", "action": {"kind": "continue"}},
+                {
+                    "outcome": "insufficient-resource",
+                    "action": {"kind": "propagate", "outcome": "insufficient-resource"},
+                },
+            ],
+            "result": {"kind": "discard"},
+        }
+    ]
+    other["exports"]["operations"] = [operation["id"]]
+    entry = next(
+        item
+        for item in other["semantic_closure"]
+        if item["authority_path"] == "language.operations"
+    )
+    entry["definitions"] = [operation]
+    _reidentify_graph_root(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True
+    assert first["diagnostics"] == []

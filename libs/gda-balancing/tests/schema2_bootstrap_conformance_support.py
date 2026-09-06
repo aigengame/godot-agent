@@ -8612,7 +8612,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     or len(set(all_dependencies)) != len(all_dependencies)
                 ):
                     refuse(
-                        "kernel.binding_mismatch",
+                        "kernel.member_set_mismatch"
+                        if not strings
+                        else "kernel.binding_mismatch",
                         "ingress",
                         f"language-bundle.packages.{package_id}.dependencies",
                     )
