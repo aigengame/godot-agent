@@ -118,10 +118,10 @@ class ExportListResult(BaseModel):
     presets: list[ListedPreset]
 
 
-def host_data_path() -> str | None:
+def resolve_host_data_path() -> str | None:
     """The host's Godot data directory, resolved over gda's OWN environment (#840).
 
-    The default of :attr:`ExportGetParams.host_data_path`, and the whole mechanism
+    The value stamped on :attr:`ExportGetParams.host_data_path`, and the whole mechanism
     behind #840's disclosure. ``--user-data-root`` redirects the CHILD engine's
     data directory, never gda's own environment, so this stays the directory an
     unredirected run would use — exactly the one the engine cannot see from inside
@@ -170,7 +170,7 @@ class ExportGetParams(BaseModel):
         # `--params-json` build this same model, so neither can reach the operation
         # without the host directory and neither can reach it with a caller's guess
         # at one.
-        self.host_data_path = host_data_path()
+        self.host_data_path = resolve_host_data_path()
         return self
 
 
