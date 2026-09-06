@@ -75,9 +75,7 @@ def _identity_domain(
     return domain
 
 
-def _coordinate_contracts(
-    kernel: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any]]:
+def _namespace_contract(kernel: dict[str, Any]) -> dict[str, Any]:
     field_types = (
         kernel.get("meta_format", {})
         .get("language_bundle", {})
@@ -85,15 +83,14 @@ def _coordinate_contracts(
         .get("field_types")
     )
     if not isinstance(field_types, dict):
-        raise ValueError("the Kernel declares no package coordinate contracts")
+        raise ValueError("the Kernel declares no package namespace contract")
     id_contract = field_types.get("id")
-    version_contract = field_types.get("version")
-    if not isinstance(id_contract, dict) or not isinstance(version_contract, dict):
-        raise ValueError("the Kernel package coordinate contracts are incomplete")
-    return id_contract, version_contract
+    if not isinstance(id_contract, dict):
+        raise ValueError("the Kernel package namespace contract is incomplete")
+    return id_contract
 
 
-def _matches_coordinate(value: Any, contract: dict[str, Any]) -> bool:
+def _matches_namespace(value: Any, contract: dict[str, Any]) -> bool:
     if (
         not isinstance(value, str)
         or not value
@@ -109,34 +106,27 @@ def _matches_coordinate(value: Any, contract: dict[str, Any]) -> bool:
         return False
 
 
-def _validate_coordinate(
+def _validate_namespace(
     package_id: Any,
-    version: Any,
-    contracts: tuple[dict[str, Any], dict[str, Any]],
+    contract: dict[str, Any],
     *,
     subject: str,
-) -> tuple[str, str]:
-    if not _matches_coordinate(package_id, contracts[0]) or not _matches_coordinate(
-        version, contracts[1]
-    ):
-        raise ValueError(f"{subject} is not a Kernel-valid package coordinate")
-    return cast(str, package_id), cast(str, version)
+) -> str:
+    if not _matches_namespace(package_id, contract):
+        raise ValueError(f"{subject} is not a Kernel-valid package namespace")
+    return cast(str, package_id)
 
 
 def _package_paths(
     package_dir: Path,
     package_id: Any,
-    version: Any,
-    contracts: tuple[dict[str, Any], dict[str, Any]],
+    contract: dict[str, Any],
 ) -> tuple[Path, Path]:
-    package_id, version = _validate_coordinate(
-        package_id, version, contracts, subject="package descriptor"
-    )
-    coordinate = f"{package_id}@{version}"
+    package_id = _validate_namespace(package_id, contract, subject="package descriptor")
     directory = package_dir / package_id.replace(".", "-")
     return (
-        directory / f"{coordinate}.json",
-        directory / f"{coordinate}.conformance-vectors.json",
+        directory / f"{package_id}.json",
+        directory / f"{package_id}.conformance-vectors.json",
     )
 
 
@@ -156,21 +146,20 @@ def _build(
     semantic_projection = kernel["meta_format"]["package_release"][
         "semantic_identity_projection"
     ]
-    coordinate_contracts = _coordinate_contracts(kernel)
-    declared_coordinates = [
-        _validate_coordinate(
+    namespace_contract = _namespace_contract(kernel)
+    declared_namespaces = [
+        _validate_namespace(
             item.get("id") if isinstance(item, dict) else None,
-            item.get("version") if isinstance(item, dict) else None,
-            coordinate_contracts,
+            namespace_contract,
             subject=f"package descriptor {index}",
         )
         for index, item in enumerate(descriptors)
     ]
-    if len(declared_coordinates) != len(set(declared_coordinates)):
-        raise ValueError("the LDB root declares duplicate package coordinates")
+    if len(declared_namespaces) != len(set(declared_namespaces)):
+        raise ValueError("the LDB root declares duplicate package namespaces")
     declared_path_pairs = [
-        _package_paths(package_dir, package_id, version, coordinate_contracts)
-        for package_id, version in declared_coordinates
+        _package_paths(package_dir, package_id, namespace_contract)
+        for package_id in declared_namespaces
     ]
     declared_paths = {path for pair in declared_path_pairs for path in pair}
     shipped_paths = set(package_dir.rglob("*.json"))
@@ -202,29 +191,28 @@ def _build(
     if not isinstance(descriptor_order, list) or not descriptor_order:
         raise ValueError("the Kernel declares no package descriptor order")
     packages: list[dict[str, Any]] = []
-    vector_sets_by_coordinate: dict[tuple[str, str], dict[str, Any]] = {}
-    for coordinate, (package_path, vector_path) in zip(
-        declared_coordinates, declared_path_pairs, strict=True
+    vector_sets_by_namespace: dict[str, dict[str, Any]] = {}
+    for namespace, (package_path, vector_path) in zip(
+        declared_namespaces, declared_path_pairs, strict=True
     ):
         package = json.loads(package_path.read_text())
         vector_set = json.loads(vector_path.read_text())
-        package_coordinate = _validate_coordinate(
+        package_namespace = _validate_namespace(
             package.get("id"),
-            package.get("version"),
-            coordinate_contracts,
+            namespace_contract,
             subject=package_path.name,
         )
-        vector_coordinate = _validate_coordinate(
+        vector_namespace = _validate_namespace(
             vector_set.get("package_id"),
-            vector_set.get("package_version"),
-            coordinate_contracts,
+            namespace_contract,
             subject=vector_path.name,
         )
-        if package_coordinate != coordinate or vector_coordinate != coordinate:
-            raise ValueError(f"package coordinate binding drift for {coordinate}")
+        if package_namespace != namespace or vector_namespace != namespace:
+            raise ValueError(f"package namespace binding drift for {namespace}")
         dependencies = package.get("dependencies")
         if not isinstance(dependencies, dict):
             raise ValueError(f"{package_path.name} has no dependency contract")
+        seen_dependencies: set[str] = set()
         for dependency_kind in ("optional", "required"):
             items = dependencies.get(dependency_kind)
             if not isinstance(items, list):
@@ -232,19 +220,19 @@ def _build(
                     f"{package_path.name} has no {dependency_kind} dependency list"
                 )
             for dependency_index, dependency in enumerate(items):
-                _validate_coordinate(
-                    dependency.get("id") if isinstance(dependency, dict) else None,
-                    (
-                        dependency.get("version")
-                        if isinstance(dependency, dict)
-                        else None
-                    ),
-                    coordinate_contracts,
+                dependency_id = _validate_namespace(
+                    dependency,
+                    namespace_contract,
                     subject=(
                         f"{package_path.name} {dependency_kind} dependency "
                         f"{dependency_index}"
                     ),
                 )
+                if dependency_id in seen_dependencies:
+                    raise ValueError(
+                        f"{package_path.name} repeats dependency {dependency_id}"
+                    )
+                seen_dependencies.add(dependency_id)
         vector_set["content_identity"] = _identity(vector_set_domain, vector_set)
         vector_data = canonical_bytes(cast(JsonValue, vector_set))
         package["conformance_vectors"] = {
@@ -257,7 +245,7 @@ def _build(
         )
         package["content_identity"] = _identity(package_domain, package)
         packages.append(package)
-        vector_sets_by_coordinate[(package["id"], package["version"])] = vector_set
+        vector_sets_by_namespace[package["id"]] = vector_set
     packages.sort(key=lambda item: tuple(item[name] for name in descriptor_order))
 
     package_bytes: dict[Path, bytes] = {}
@@ -267,10 +255,9 @@ def _build(
         package_path, vector_path = _package_paths(
             package_dir,
             package["id"],
-            package["version"],
-            coordinate_contracts,
+            namespace_contract,
         )
-        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        vector_set = vector_sets_by_namespace[package["id"]]
         package_bytes[package_path] = data
         package_bytes[vector_path] = canonical_bytes(cast(JsonValue, vector_set))
         rebuilt_descriptors.append(
@@ -279,7 +266,6 @@ def _build(
                 "byte_size": len(data),
                 "content_identity": package["content_identity"],
                 "id": package["id"],
-                "version": package["version"],
             }
         )
 
