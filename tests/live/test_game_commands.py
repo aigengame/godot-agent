@@ -21,10 +21,12 @@ from tests.support import (
     GAME_RECT_RESULT,
     GAME_SET_RESULT,
     GAME_TREE_RESULT,
+    GAME_TREE_TRUNCATED_RESULT,
     error_sentinel,
     inject_live_runner,
     panel_text,
     sentinel,
+    usage_error_text,
     minimal_project,
 )
 
@@ -45,8 +47,138 @@ def test_game_tree_emits_runtime_tree_json_through_the_live_channel(
     data = json.loads(result.stdout)
     assert data["root"]["name"] == "Main"
     assert data["root"]["children"][0]["type"] == "CharacterBody2D"
-    # Routed through the LIVE seam, dispatching the game-tree operation (no args).
-    assert fake.calls == [("game-tree", {})]
+    # AC3 (#849): an unbounded read gains only the two totals. No node carries
+    # `children_omitted` — the key is ABSENT rather than zero, so the read a
+    # caller did not bound does not grow by one key per node.
+    assert data["truncated"] is False
+    assert data["omitted_nodes"] == 0
+    assert "children_omitted" not in data["root"]
+    assert "children_omitted" not in data["root"]["children"][0]
+    # Routed through the LIVE seam, dispatching the game-tree operation; both
+    # bounding params ride unset, as `game get`'s optional filter does.
+    assert fake.calls == [("game-tree", {"root": None, "max_depth": None})]
+
+
+def test_game_tree_relays_the_bounding_options(monkeypatch, tmp_path):
+    # #849: --root and --max-depth are threaded to the operation params; the
+    # harness applies them (it owns the walk).
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_TREE_TRUNCATED_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "tree",
+            "--root",
+            "/root/Main/HUD",
+            "--max-depth",
+            "1",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls == [
+        ("game-tree", {"root": "/root/Main/HUD", "max_depth": 1}),
+    ]
+
+
+def test_game_tree_reports_the_omitted_counts_of_a_bounded_read(monkeypatch, tmp_path):
+    # AC1 (#849): the partial read is never mistaken for a complete one — the
+    # result totals the unserialized nodes and the node whose children were left
+    # out says how many.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_TREE_TRUNCATED_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "tree",
+            "--root",
+            "/root/Main/HUD",
+            "--max-depth",
+            "1",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["truncated"] is True
+    assert data["omitted_nodes"] == 2
+    children = data["root"]["children"]
+    assert [child["name"] for child in children] == ["Panel", "Score", "Timer"]
+    assert children[0]["children_omitted"] == 2
+    # A node whose children were ALL serialized keeps the key absent.
+    assert "children_omitted" not in children[1]
+    assert "children_omitted" not in children[2]
+
+
+def test_game_tree_renders_the_omission_for_a_human(monkeypatch, tmp_path):
+    # Without --json the outline must not read as a complete tree: the total
+    # rides one trailing line, so a truncated read is visible on both channels.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_TREE_TRUNCATED_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "tree",
+            "--max-depth",
+            "1",
+            "--project",
+            str(minimal_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "HUD (Control)" in result.stdout
+    assert "truncated: 2 nodes omitted" in result.stdout
+
+
+def test_game_tree_refuses_a_negative_max_depth(monkeypatch, tmp_path):
+    # The bound is a depth, so a negative one is a usage error — before any
+    # daemon is involved. Click's own `min=0` mirrors the model's `ge=0` and
+    # decides first, so the message names the FLAG the caller typed; the model
+    # still refuses the same value on the --params-json path (ADR-0015).
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "tree",
+            "--max-depth",
+            "-1",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert "--max-depth" in usage_error_text(result)
+
+
+def test_game_tree_help_states_the_bounding_options():
+    result = CliRunner().invoke(app, ["game", "tree", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    text = panel_text(result.stdout)
+    assert "--root" in text and "--max-depth" in text
+    # The unbounded default is the caller's choice, and help says so.
+    assert "unbounded" in text
 
 
 def test_game_tree_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
@@ -63,6 +195,22 @@ def test_game_tree_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_pa
     assert error["code"] == "daemon_not_running"
     assert error["category"] == "live"
     assert "gda daemon start" in error["message"]
+
+
+def test_game_tree_schema_publishes_the_bounding_params_and_counts():
+    # AC4 (#849): the two params and the two result totals are published, and
+    # `children_omitted` rides the node shape as an OPTIONAL key — the presence
+    # decision is part of the contract, not an implementation detail.
+    result = CliRunner().invoke(app, ["game", "tree", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    assert {"root", "max_depth"} <= set(doc["input"]["properties"])
+    assert {"truncated", "omitted_nodes"} <= set(doc["output"]["properties"])
+    assert {"truncated", "omitted_nodes"} <= set(doc["output"]["required"])
+    node = doc["output"]["$defs"]["GameNode"]
+    assert "children_omitted" in node["properties"]
+    assert "children_omitted" not in node.get("required", [])
 
 
 def test_game_tree_schema_is_self_describing():

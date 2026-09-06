@@ -226,6 +226,10 @@ const AUTOLOAD_ENABLED_PREFIX := "*"
 # are real InputEventKey Objects, persisted via ProjectSettings.save() so the
 # serialization is exactly the engine's own var_to_str form.
 const INPUT_SETTING_PREFIX := "input/"
+# InputEvent.device is a 32-bit field: a larger int wraps on assignment (issue
+# #842 review), so the op refuses it as the CLI does rather than storing a
+# different device than the caller named.
+const INPUT_EVENT_DEVICE_MAX := 2147483647
 
 # The exit code the process will use. Defaults to failure, so an operation that
 # aborts before recording an outcome (e.g. an uncaught runtime error) still
@@ -3799,23 +3803,151 @@ func _resolve_input_keycode(token: String) -> int:
 	return OS.find_keycode_from_string(trimmed)
 
 
+# The JoyButton / JoyAxis names --joy-button and --joy-axis accept (issue #842),
+# each mapped to the ENGINE's own global constant. Godot ships no name resolver
+# for the joypad enums — there is no counterpart of OS.find_keycode_from_string —
+# so gda has to carry the table; mapping every name to the engine constant keeps
+# each VALUE the engine's (the GDScript compiler resolves it) and leaves gda
+# owning only the SPELLING. The enums' INVALID / SDL_MAX / MAX entries are
+# deliberately absent: they are enum bookkeeping, not bindable inputs.
+# tests/project/test_input_action_joy_names.py diffs both tables against the enum
+# the engine itself dumps, so an engine that gains a button fails a test here
+# instead of silently going unbindable.
+const JOY_BUTTON_BY_NAME := {
+	"A": JOY_BUTTON_A,
+	"B": JOY_BUTTON_B,
+	"X": JOY_BUTTON_X,
+	"Y": JOY_BUTTON_Y,
+	"Back": JOY_BUTTON_BACK,
+	"Guide": JOY_BUTTON_GUIDE,
+	"Start": JOY_BUTTON_START,
+	"LeftStick": JOY_BUTTON_LEFT_STICK,
+	"RightStick": JOY_BUTTON_RIGHT_STICK,
+	"LeftShoulder": JOY_BUTTON_LEFT_SHOULDER,
+	"RightShoulder": JOY_BUTTON_RIGHT_SHOULDER,
+	"DPadUp": JOY_BUTTON_DPAD_UP,
+	"DPadDown": JOY_BUTTON_DPAD_DOWN,
+	"DPadLeft": JOY_BUTTON_DPAD_LEFT,
+	"DPadRight": JOY_BUTTON_DPAD_RIGHT,
+	"Misc1": JOY_BUTTON_MISC1,
+	"Paddle1": JOY_BUTTON_PADDLE1,
+	"Paddle2": JOY_BUTTON_PADDLE2,
+	"Paddle3": JOY_BUTTON_PADDLE3,
+	"Paddle4": JOY_BUTTON_PADDLE4,
+	"Touchpad": JOY_BUTTON_TOUCHPAD,
+}
+
+const JOY_AXIS_BY_NAME := {
+	"LeftX": JOY_AXIS_LEFT_X,
+	"LeftY": JOY_AXIS_LEFT_Y,
+	"RightX": JOY_AXIS_RIGHT_X,
+	"RightY": JOY_AXIS_RIGHT_Y,
+	"TriggerLeft": JOY_AXIS_TRIGGER_LEFT,
+	"TriggerRight": JOY_AXIS_TRIGGER_RIGHT,
+}
+
+
+# Fold a joypad binding name to its comparison form: case- and separator-
+# insensitive, so DPadLeft, dpad_left and DPAD_LEFT all name the same button —
+# a caller may spell it gda's way or the engine documentation's way.
+# Separator-insensitivity is total on purpose: separators are DELETED, not
+# normalized, so a leading or trailing one folds away too ("A-" is A). That
+# widens the spellings accepted and never makes two buttons collide — the
+# oracle test asserts the folded names stay unique — and the alternative would
+# be a separator grammar for a token no caller writes deliberately.
+func _fold_joy_name(token: String) -> String:
+	return token.strip_edges().replace("_", "").replace("-", "").replace(" ", "").to_upper()
+
+
+# Look one folded token up in a joypad name table, or return -1 (the INVALID
+# member both enums share) when nothing matches.
+func _lookup_joy_name(table: Dictionary, token: String) -> int:
+	var folded := _fold_joy_name(token)
+	for name in table:
+		if _fold_joy_name(name) == folded:
+			return table[name]
+	return -1
+
+
+# The accepted-name list a refusal message names, read off the table itself so
+# the message cannot drift from what the resolver accepts.
+func _joy_name_list(table: Dictionary) -> String:
+	return ", ".join(PackedStringArray(table.keys()))
+
+
+# Resolve one --joy-button token to a JoyButton index (issue #842). A base-10
+# integer is taken as a raw index and must sit inside the engine's own JoyButton
+# range (0..JOY_BUTTON_MAX - 1 — a device may report more buttons than the SDL
+# names cover); anything else is a name looked up case- and separator-
+# insensitively. Returns JOY_BUTTON_INVALID when the token names nothing.
+func _resolve_joy_button(token: String) -> int:
+	var trimmed := token.strip_edges()
+	if trimmed.is_valid_int():
+		var index := trimmed.to_int()
+		return index if index >= 0 and index < JOY_BUTTON_MAX else JOY_BUTTON_INVALID
+	return _lookup_joy_name(JOY_BUTTON_BY_NAME, trimmed)
+
+
+# Resolve one --joy-axis token to a JoyAxis index (issue #842), same rules as
+# _resolve_joy_button over the JoyAxis range. Returns JOY_AXIS_INVALID when the
+# token names nothing.
+func _resolve_joy_axis(token: String) -> int:
+	var trimmed := token.strip_edges()
+	if trimmed.is_valid_int():
+		var index := trimmed.to_int()
+		return index if index >= 0 and index < JOY_AXIS_MAX else JOY_AXIS_INVALID
+	return _lookup_joy_name(JOY_AXIS_BY_NAME, trimmed)
+
+
+# Split one --joy-axis token into its axis part and its axis_value (issue #842).
+# The token is `<axis>[:<sign>]`: an axis names a whole stick DIMENSION, so the
+# sign is what turns it into one bindable direction (`LeftX:-` is "stick left").
+# An omitted sign is the positive direction — the only sensible reading for a
+# trigger, which never goes negative. Returns an empty Dictionary when the token
+# is not a resolvable direction; the caller reports it with the accepted set.
+func _parse_joy_axis_token(token: String) -> Dictionary:
+	var parts := token.strip_edges().split(":")
+	if parts.size() > 2:
+		return {}
+	var axis := _resolve_joy_axis(parts[0])
+	if axis == JOY_AXIS_INVALID:
+		return {}
+	var axis_value := 1.0
+	if parts.size() == 2:
+		match parts[1]:
+			"+":
+				axis_value = 1.0
+			"-":
+				axis_value = -1.0
+			_:
+				return {}
+	return {"axis": axis, "axis_value": axis_value}
+
+
 # project-add-input-action: register an InputMap action under input/<name> with
-# one or more keyboard key bindings, then persist project.godot (issue #380).
+# keyboard and/or joypad bindings, then persist project.godot (issues #380, #842).
 #
 # The stored value is the InputMap Dictionary shape — {deadzone, events} with
-# real InputEventKey Objects, deadzone first (Godot's own key order) — set via
+# real InputEvent Objects, deadzone first (Godot's own key order) — set via
 # ProjectSettings.set_setting and serialized by ProjectSettings.save() (the
 # engine's own var_to_str form). gda never hand-builds the Object(InputEventKey,
 # …) string, so the persisted entry is byte-equivalent to a hand-authored one.
+# That holds for every event kind: the joypad kinds are real
+# InputEventJoypadButton / InputEventJoypadMotion objects, serialized the same way.
+#
+# The events are appended in kind order — keys, then joypad buttons, then joypad
+# axis directions — so one call's persisted order is deterministic.
 #
 # Failure modes use registered codes: an empty name is invalid_path (the
-# missing-required-param convention the autoload ops set); malformed keys /
-# deadzone / physical params are invalid_params; an action name already present
-# is already_exists (add never silently clobbers — remove first to replace).
-# NOTE: the engine registers the built-in ui_* actions (input/ui_accept, …) as
-# ProjectSettings defaults, so has_setting answers true for them and adding e.g.
-# ui_accept reports already_exists by design. An unresolvable key token is
-# invalid_key (nothing saved); a failed save is save_failed.
+# missing-required-param convention the autoload ops set); malformed params,
+# and a call naming no binding at all, are invalid_params; an action name already
+# present is already_exists (add never silently clobbers — remove first to
+# replace). NOTE: the engine registers the built-in ui_* actions
+# (input/ui_accept, …) as ProjectSettings defaults, so has_setting answers true
+# for them and adding e.g. ui_accept reports already_exists by design. An
+# unresolvable BINDING token — a key, a joypad button or a joypad axis direction —
+# is invalid_key naming the accepted set (nothing saved); a failed save is
+# save_failed.
 func _op_project_add_input_action(params: Dictionary) -> void:
 	_diag("running operation: project-add-input-action")
 	if not _has_project():
@@ -3827,9 +3959,24 @@ func _op_project_add_input_action(params: Dictionary) -> void:
 		return
 	# Defensive params reads: the params arrive as arbitrary JSON, so a wrong
 	# shape surfaces as a structured failure rather than a runtime error.
-	var raw_keys: Variant = params.get("keys")
-	if not (raw_keys is Array) or (raw_keys as Array).is_empty():
-		_fail(OP_ERROR_INVALID_PARAMS, "keys must be a non-empty array of key names or keycodes")
+	var raw_keys: Variant = params.get("keys", [])
+	if not (raw_keys is Array):
+		_fail(OP_ERROR_INVALID_PARAMS, "keys must be an array of key names or keycodes")
+		return
+	var raw_joy_buttons: Variant = params.get("joy_buttons", [])
+	if not (raw_joy_buttons is Array):
+		_fail(OP_ERROR_INVALID_PARAMS, "joy_buttons must be an array of JoyButton names or indices")
+		return
+	var raw_joy_axes: Variant = params.get("joy_axes", [])
+	if not (raw_joy_axes is Array):
+		_fail(OP_ERROR_INVALID_PARAMS, "joy_axes must be an array of <axis>[:<sign>] tokens")
+		return
+	# An action with no event matches nothing, so the op refuses it rather than
+	# registering a dead entry. On the argv path the same rule is a model-side
+	# usage error before dispatch (ADR-0015); this is the params-json edge.
+	if (raw_keys as Array).is_empty() and (raw_joy_buttons as Array).is_empty() \
+			and (raw_joy_axes as Array).is_empty():
+		_fail(OP_ERROR_INVALID_PARAMS, "at least one binding is required: keys, joy_buttons or joy_axes")
 		return
 	var raw_deadzone: Variant = params.get("deadzone", 0.5)
 	if not (raw_deadzone is float or raw_deadzone is int):
@@ -3837,6 +3984,13 @@ func _op_project_add_input_action(params: Dictionary) -> void:
 		return
 	var deadzone := float(raw_deadzone)
 	var physical := bool(params.get("physical", false))
+	var raw_device: Variant = params.get("device", -1)
+	if (not (raw_device is int or raw_device is float) or int(raw_device) < -1
+			or int(raw_device) > INPUT_EVENT_DEVICE_MAX):
+		_fail(OP_ERROR_INVALID_PARAMS, "device must be an integer in -1.." + str(INPUT_EVENT_DEVICE_MAX)
+				+ " (-1 matches every joypad; the engine stores the device as a 32-bit integer)")
+		return
+	var device := int(raw_device)
 
 	var setting := INPUT_SETTING_PREFIX + action_name
 	if ProjectSettings.has_setting(setting):
@@ -3844,16 +3998,17 @@ func _op_project_add_input_action(params: Dictionary) -> void:
 				+ " — add-input-action never overwrites; remove it first to replace it")
 		return
 
-	# Resolve every key token before touching ProjectSettings, so a bad token
+	# Resolve every binding token before touching ProjectSettings, so a bad token
 	# fails the whole add cleanly with nothing saved. `events` stays an UNTYPED
 	# Array: a typed Array[InputEventKey] would serialize with an
 	# `Array[InputEventKey](...)` annotation, not the plain `[Object(...)]` form
-	# the editor writes — untyped keeps the persisted entry byte-equivalent.
+	# the editor writes — untyped keeps the persisted entry byte-equivalent, and
+	# it is also what lets the three event kinds share one array.
 	var events := []
 	var reported_events := []
 	for raw_token in (raw_keys as Array):
 		if not (raw_token is String):
-			_fail(OP_ERROR_INVALID_PARAMS, "keys must be a non-empty array of key names or keycodes")
+			_fail(OP_ERROR_INVALID_PARAMS, "keys must be an array of key names or keycodes")
 			return
 		var token: String = raw_token
 		var keycode := _resolve_input_keycode(token)
@@ -3864,7 +4019,8 @@ func _op_project_add_input_action(params: Dictionary) -> void:
 		# Match from ANY device, the editor's convention (InputMap::ALL_DEVICES,
 		# -1): InputMap matching filters on device, and a real keyboard event
 		# carries DEVICE_ID_KEYBOARD (16), so the InputEventKey.new() default of
-		# device 0 would never match a physical key press.
+		# device 0 would never match a physical key press. --device names a
+		# JOYPAD and so is never applied to a key event.
 		event.device = -1
 		# --physical binds the keyboard POSITION (physical_keycode) instead of
 		# the layout symbol (keycode) — set only the requested one, exactly as
@@ -3879,6 +4035,58 @@ func _op_project_add_input_action(params: Dictionary) -> void:
 			"key": token,
 			"keycode": keycode,
 			"physical": physical,
+		})
+	for raw_token in (raw_joy_buttons as Array):
+		if not (raw_token is String):
+			_fail(OP_ERROR_INVALID_PARAMS, "joy_buttons must be an array of JoyButton names or indices")
+			return
+		var token: String = raw_token
+		var button_index := _resolve_joy_button(token)
+		if button_index == JOY_BUTTON_INVALID:
+			_fail(OP_ERROR_INVALID_KEY, "cannot resolve joypad button: " + token
+					+ " — accepted names (case- and separator-insensitive): "
+					+ _joy_name_list(JOY_BUTTON_BY_NAME)
+					+ "; or an index 0.." + str(JOY_BUTTON_MAX - 1))
+			return
+		var event := InputEventJoypadButton.new()
+		# InputEvent::device defaults to 0 in the engine, which matches only the
+		# FIRST joypad; --device defaults to -1 (InputMap::ALL_DEVICES) and is set
+		# explicitly here for the same reason the key path sets it.
+		event.device = device
+		event.button_index = button_index as JoyButton
+		events.append(event)
+		reported_events.append({
+			"kind": "joy_button",
+			"button": token,
+			"button_index": button_index,
+			"device": device,
+		})
+	for raw_token in (raw_joy_axes as Array):
+		if not (raw_token is String):
+			_fail(OP_ERROR_INVALID_PARAMS, "joy_axes must be an array of <axis>[:<sign>] tokens")
+			return
+		var token: String = raw_token
+		var parsed := _parse_joy_axis_token(token)
+		if parsed.is_empty():
+			_fail(OP_ERROR_INVALID_KEY, "cannot resolve joypad axis direction: " + token
+					+ " — expected <axis>[:<sign>] with sign + or - (default +) and an axis"
+					+ " named (case- and separator-insensitive): "
+					+ _joy_name_list(JOY_AXIS_BY_NAME)
+					+ "; or an index 0.." + str(JOY_AXIS_MAX - 1))
+			return
+		var axis: int = parsed["axis"]
+		var axis_value: float = parsed["axis_value"]
+		var event := InputEventJoypadMotion.new()
+		event.device = device
+		event.axis = axis as JoyAxis
+		event.axis_value = axis_value
+		events.append(event)
+		reported_events.append({
+			"kind": "joy_axis",
+			"axis": token,
+			"axis_index": axis,
+			"axis_value": axis_value,
+			"device": device,
 		})
 
 	# deadzone first — the key order Godot itself writes for an input action.

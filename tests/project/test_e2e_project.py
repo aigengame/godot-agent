@@ -15,7 +15,8 @@ import json
 
 import pytest
 
-from tests.support import Gda
+from gda.commands.project import INPUT_EVENT_DEVICE_MAX
+from tests.support import Gda, panel_text
 
 from tests.conftest import project_godot
 
@@ -607,3 +608,262 @@ def test_project_info_without_project_is_a_clean_error():
     assert proc.returncode == 4
     err = json.loads(proc.stdout)["error"]
     assert err["code"] == "project_not_found"
+
+
+# --- joypad bindings (#842) --------------------------------------------------
+
+# A headless probe of the InputMap the ENGINE built from project.godot: it prints
+# one JSON line per bound event of an action, so the assertion is on what the
+# engine loaded, not on what gda wrote. `project get` reads the stored SETTING;
+# this reads the InputMap the running game actually consults, which is the thing
+# a controller binding has to reach.
+INPUT_MAP_PROBE_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tvar rows := []
+\tfor event in InputMap.action_get_events("jump"):
+\t\tvar row := {"class": event.get_class(), "device": event.device}
+\t\tif event is InputEventKey:
+\t\t\trow["keycode"] = event.keycode
+\t\telif event is InputEventJoypadButton:
+\t\t\trow["button_index"] = event.button_index
+\t\telif event is InputEventJoypadMotion:
+\t\t\trow["axis"] = event.axis
+\t\t\trow["axis_value"] = event.axis_value
+\t\trows.append(row)
+\tprint("INPUT_MAP=", JSON.stringify(rows))
+\tquit(0)
+"""
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_persists_key_and_joypad_events_in_var_to_str_form(
+    godot_project,
+):
+    # The #380 byte-equivalence regression, EXTENDED to the joypad event types
+    # (#842): one call declares a key, a joypad button and a joypad axis
+    # direction, and project.godot carries all three as the engine's own
+    # var_to_str Object literals — gda hand-builds none of them (ADR-0033).
+    # Issue #843 extends this same fixture with its restored-line assertions.
+    added = Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "jump",
+        "--key",
+        "Space",
+        "--joy-button",
+        "A",
+        "--joy-axis",
+        "LeftX:-",
+    )
+
+    assert added["name"] == "jump"
+    assert added["events"] == [
+        {"kind": "key", "key": "Space", "keycode": 32, "physical": False},
+        {"kind": "joy_button", "button": "A", "button_index": 0, "device": -1},
+        {
+            "kind": "joy_axis",
+            "axis": "LeftX:-",
+            "axis_index": 0,
+            "axis_value": -1.0,
+            "device": -1,
+        },
+    ]
+
+    normalized = _normalized_project_godot(godot_project)
+    assert "[input]" in normalized
+    assert "Object(InputEventKey" in normalized
+    assert "Object(InputEventJoypadButton" in normalized
+    assert "Object(InputEventJoypadMotion" in normalized
+    # JOY_BUTTON_A is 0 and JOY_AXIS_LEFT_X is 0 (godot 4.6.3-stable,
+    # core/input/input_enums.h); the `-` sign is axis_value -1.0.
+    assert '"button_index":0' in normalized
+    assert '"axis":0' in normalized
+    assert '"axis_value":-1.0' in normalized
+    # Every event matches ANY device by default (InputMap ALL_DEVICES).
+    assert '"device":0' not in normalized
+    assert '"device":-1' in normalized
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_joypad_events_read_back_through_project_get(
+    godot_project,
+):
+    # The structured verification the AC asks for: `project get input/<name>`
+    # projects the stored compound value, so the joypad events read back with
+    # their device, button_index and axis/axis_value (ADR-0035 inline kind).
+    Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "jump",
+        "--joy-button",
+        "DPadLeft",
+        "--joy-axis",
+        "TriggerRight",
+    )
+
+    value = Gda(godot_project).json("project", "get", "input/jump")["value"]
+    assert value["deadzone"] == 0.5
+    events = {event["type"]: event for event in value["events"]}
+    # JOY_BUTTON_DPAD_LEFT is 13, JOY_AXIS_TRIGGER_RIGHT is 5 (4.6.3-stable).
+    assert events["InputEventJoypadButton"]["button_index"] == 13
+    assert events["InputEventJoypadButton"]["device"] == -1
+    assert events["InputEventJoypadMotion"]["axis"] == 5
+    # An omitted sign is the POSITIVE direction.
+    assert events["InputEventJoypadMotion"]["axis_value"] == 1.0
+    assert events["InputEventJoypadMotion"]["device"] == -1
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_bindings_reach_the_loaded_input_map(godot_project):
+    # The engine-side half of the verification: after the project loads, the
+    # bindings are in the InputMap the running game consults.
+    Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "jump",
+        "--key",
+        "Space",
+        "--joy-button",
+        "A",
+        "--joy-axis",
+        "LeftX:-",
+    )
+    (godot_project / "input_map_probe.gd").write_text(
+        INPUT_MAP_PROBE_GD, encoding="utf-8"
+    )
+
+    run = Gda(godot_project).json(
+        "script", "run", "res://input_map_probe.gd", retry=True
+    )
+
+    line = next(
+        row for row in run["stdout"].splitlines() if row.startswith("INPUT_MAP=")
+    )
+    rows = json.loads(line.removeprefix("INPUT_MAP="))
+    assert rows == [
+        {"class": "InputEventKey", "device": -1, "keycode": 32},
+        {"class": "InputEventJoypadButton", "device": -1, "button_index": 0},
+        {
+            "class": "InputEventJoypadMotion",
+            "device": -1,
+            "axis": 0,
+            "axis_value": -1.0,
+        },
+    ]
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_device_pins_the_joypad_events(godot_project):
+    # --device applies to the joypad events of THIS call. The key event stays at
+    # ALL_DEVICES: a real keyboard event carries its own device id, so pinning it
+    # to a joypad number would stop it matching (the #380 reason).
+    added = Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "jump",
+        "--key",
+        "Space",
+        "--joy-button",
+        "A",
+        "--device",
+        "1",
+    )
+
+    assert added["events"][0] == {
+        "kind": "key",
+        "key": "Space",
+        "keycode": 32,
+        "physical": False,
+    }
+    assert added["events"][1]["device"] == 1
+
+    value = Gda(godot_project).json("project", "get", "input/jump")["value"]
+    events = {event["type"]: event for event in value["events"]}
+    assert events["InputEventKey"]["device"] == -1
+    assert events["InputEventJoypadButton"]["device"] == 1
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_refuses_a_device_the_engine_field_cannot_hold(
+    godot_project,
+):
+    # InputEvent.device is a 32-bit field: the engine ACCEPTED 4294967295 and
+    # stored -1 (every joypad), so a binding meant for one joypad silently
+    # matched all of them. The ceiling is refused before any engine is spawned,
+    # and the project is untouched; the largest representable device round-trips.
+    before = (godot_project / "project.godot").read_text(encoding="utf-8")
+
+    refused = Gda(godot_project)(
+        "project",
+        "add-input-action",
+        "overflow",
+        "--joy-button",
+        "A",
+        "--device",
+        "4294967295",
+        "--json",
+    )
+
+    assert refused.returncode == 2, refused.stdout + refused.stderr
+    assert (godot_project / "project.godot").read_text(encoding="utf-8") == before
+
+    added = Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "last_pad",
+        "--joy-button",
+        "A",
+        "--device",
+        str(INPUT_EVENT_DEVICE_MAX),
+    )
+    assert added["events"][0]["device"] == INPUT_EVENT_DEVICE_MAX
+
+    value = Gda(godot_project).json("project", "get", "input/last_pad")["value"]
+    assert value["events"][0]["device"] == INPUT_EVENT_DEVICE_MAX
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    ("option", "token", "accepted"),
+    [
+        ("--joy-button", "NotAButton", "DPadLeft"),
+        ("--joy-axis", "NotAnAxis:-", "TriggerRight"),
+        # A recognized axis with an unusable sign is the same refusal: the whole
+        # token could not be resolved to a binding.
+        ("--joy-axis", "LeftX:sideways", "TriggerRight"),
+    ],
+)
+def test_project_add_input_action_unresolvable_joypad_token_names_the_accepted_set(
+    godot_project, option, token, accepted
+):
+    err = Gda(godot_project).error(
+        "project",
+        "add-input-action",
+        "jump",
+        option,
+        token,
+        code="invalid_key",
+    )
+
+    assert err["category"] == "operation"
+    assert token.split(":")[0] in err["message"]
+    # The message names the accepted set, so a caller can correct without
+    # reading the docs (#842 AC).
+    assert accepted in err["message"]
+    # Nothing was saved.
+    assert "[input]" not in _normalized_project_godot(godot_project)
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_with_no_binding_is_a_usage_error(godot_project):
+    bad = Gda(godot_project)("project", "add-input-action", "jump", "--json")
+
+    assert bad.returncode == 2, bad.stdout + bad.stderr
+    assert "at least one binding" in panel_text(bad.stderr)
+    assert (
+        not (godot_project / "project.godot")
+        .read_text(encoding="utf-8")
+        .count("[input]")
+    )

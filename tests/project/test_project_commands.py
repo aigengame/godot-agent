@@ -10,10 +10,12 @@ real Godot.
 import json
 
 import jsonschema
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.project import (
+    INPUT_EVENT_DEVICE_MAX,
     ProjectAddAutoloadParams,
     ProjectAddAutoloadResult,
     ProjectAddInputActionParams,
@@ -32,7 +34,13 @@ from gda.commands.project import (
     ProjectSetResult,
 )
 from gda.models import GdaErrorEnvelope
-from tests.support import VERSION_INFO, invoke_cli, sentinel
+from tests.support import (
+    VERSION_INFO,
+    invoke_cli,
+    panel_text,
+    sentinel,
+    usage_error_text,
+)
 
 INFO_RESULT = {
     "name": "My Game",
@@ -434,6 +442,9 @@ def test_project_add_input_action_dispatches_full_params_and_reports_result(
             {
                 "name": "jump",
                 "keys": ["J", "Space"],
+                "joy_buttons": [],
+                "joy_axes": [],
+                "device": -1,
                 "deadzone": 0.5,
                 "physical": False,
             },
@@ -464,21 +475,30 @@ def test_project_add_input_action_dispatches_deadzone_and_physical_overrides(
     assert fake.calls == [
         (
             "project-add-input-action",
-            {"name": "jump", "keys": ["74"], "deadzone": 0.2, "physical": True},
+            {
+                "name": "jump",
+                "keys": ["74"],
+                "joy_buttons": [],
+                "joy_axes": [],
+                "device": -1,
+                "deadzone": 0.2,
+                "physical": True,
+            },
         )
     ]
 
 
-def test_project_add_input_action_requires_at_least_one_key(monkeypatch):
-    # --key is required: an add with no keys is a usage error (exit 2), not a
-    # dispatch of an empty key list.
+def test_project_add_input_action_requires_at_least_one_binding(monkeypatch):
+    # --key stopped being required when the joypad kinds landed (#842), so the
+    # rule moved to the model: an add naming NO binding of any kind is a usage
+    # error (exit 2), not a dispatch of three empty lists.
     result, fake = invoke_cli(
         monkeypatch,
         ["project", "add-input-action", "jump"],
         stdout=sentinel(ADD_INPUT_ACTION_RESULT),
     )
 
-    assert result.exit_code == 2
+    assert "at least one binding" in usage_error_text(result)
     assert fake.calls == []
 
 
@@ -526,6 +546,204 @@ def test_project_add_input_action_human_output_marks_physical_bindings(monkeypat
         result.stdout.strip()
         == "added input action jump (deadzone 0.5): J -> 74 (physical)"
     )
+
+
+ADD_INPUT_ACTION_JOYPAD_RESULT = {
+    "name": "jump",
+    "deadzone": 0.5,
+    "events": [
+        {"kind": "key", "key": "Space", "keycode": 32, "physical": False},
+        {"kind": "joy_button", "button": "A", "button_index": 0, "device": -1},
+        {
+            "kind": "joy_axis",
+            "axis": "LeftX:-",
+            "axis_index": 0,
+            "axis_value": -1.0,
+            "device": -1,
+        },
+    ],
+}
+
+
+def test_project_add_input_action_dispatches_joypad_bindings_and_device(monkeypatch):
+    result, fake = invoke_cli(
+        monkeypatch,
+        [
+            "project",
+            "add-input-action",
+            "jump",
+            "--key",
+            "Space",
+            "--joy-button",
+            "A",
+            "--joy-axis",
+            "LeftX:-",
+            "--device",
+            "0",
+            "--json",
+        ],
+        stdout=sentinel(ADD_INPUT_ACTION_JOYPAD_RESULT),
+    )
+
+    assert result.exit_code == 0
+    # Each repeatable joypad option rides through in its own list, in argv order,
+    # with the per-call device beside them (#842).
+    assert fake.calls == [
+        (
+            "project-add-input-action",
+            {
+                "name": "jump",
+                "keys": ["Space"],
+                "joy_buttons": ["A"],
+                "joy_axes": ["LeftX:-"],
+                "device": 0,
+                "deadzone": 0.5,
+                "physical": False,
+            },
+        )
+    ]
+    data = json.loads(result.stdout)
+    # The three event kinds are a discriminated union on `kind`: each carries its
+    # own fields, so an agent branches on the kind rather than sniffing keys.
+    assert [event["kind"] for event in data["events"]] == [
+        "key",
+        "joy_button",
+        "joy_axis",
+    ]
+    assert data["events"][1] == {
+        "kind": "joy_button",
+        "button": "A",
+        "button_index": 0,
+        "device": -1,
+    }
+    assert data["events"][2] == {
+        "kind": "joy_axis",
+        "axis": "LeftX:-",
+        "axis_index": 0,
+        "axis_value": -1.0,
+        "device": -1,
+    }
+
+
+def test_project_add_input_action_accepts_a_joypad_only_action(monkeypatch):
+    # --key is optional since #842: a controller-only action is a valid add.
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "add-input-action", "pause", "--joy-button", "Start", "--json"],
+        stdout=sentinel(ADD_INPUT_ACTION_JOYPAD_RESULT),
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls[0][1]["keys"] == []
+    assert fake.calls[0][1]["joy_buttons"] == ["Start"]
+
+
+def test_project_add_input_action_rejects_a_device_below_all_devices(monkeypatch):
+    # -1 is InputMap's ALL_DEVICES floor; anything below it names no joypad.
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["project", "add-input-action", "jump", "--joy-button", "A", "--device", "-2"],
+        stdout=sentinel(ADD_INPUT_ACTION_JOYPAD_RESULT),
+    )
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_project_add_input_action_rejects_a_device_above_the_engine_field(monkeypatch):
+    # InputEvent.device is 32-bit: 2147483648 would be stored as -2147483648 and
+    # 4294967295 as -1 (every joypad), so the ceiling is refused before dispatch.
+    result, fake = invoke_cli(
+        monkeypatch,
+        [
+            "project",
+            "add-input-action",
+            "jump",
+            "--joy-button",
+            "A",
+            "--device",
+            str(INPUT_EVENT_DEVICE_MAX + 1),
+        ],
+        stdout=sentinel(ADD_INPUT_ACTION_JOYPAD_RESULT),
+    )
+
+    assert result.exit_code == 2
+    assert "device" in usage_error_text(result)
+    assert fake.calls == []
+
+
+def test_project_add_input_action_human_output_lists_joypad_bindings(monkeypatch):
+    result, _ = invoke_cli(
+        monkeypatch,
+        [
+            "project",
+            "add-input-action",
+            "jump",
+            "--key",
+            "Space",
+            "--joy-button",
+            "A",
+            "--joy-axis",
+            "LeftX:-",
+        ],
+        stdout=sentinel(ADD_INPUT_ACTION_JOYPAD_RESULT),
+    )
+
+    assert result.exit_code == 0
+    # The key form is unchanged; each joypad binding names its kind and resolved
+    # index, and the per-call device is stated ONCE at the end (it is a property
+    # of the call, not of an individual binding).
+    assert result.stdout.strip() == (
+        "added input action jump (deadzone 0.5): Space -> 32, "
+        "joy button A -> 0, joy axis LeftX:- -> 0 (-1.0) [device -1]"
+    )
+
+
+def test_add_input_action_schema_and_model_agree_on_the_binding_rule():
+    # A standard Draft 2020-12 validator and the pydantic model must give the
+    # SAME verdict on the published input contract (ADR-0015): the "at least one
+    # binding" rule spans three lists, so it is published as an anyOf beside the
+    # model validator that enforces it. Without it a schema-only client would
+    # build {"name": "jump"} — valid by the contract, refused at dispatch.
+    schema = ProjectAddInputActionParams.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    corpus = [
+        ({"name": "j", "keys": ["Space"]}, True),
+        ({"name": "j", "joy_buttons": ["A"]}, True),
+        ({"name": "j", "joy_axes": ["LeftX:-"]}, True),
+        ({"name": "j", "keys": ["Space"], "joy_buttons": [], "joy_axes": []}, True),
+        ({"name": "j", "joy_buttons": ["A"], "device": 0}, True),
+        ({"name": "j", "joy_buttons": ["A"], "device": INPUT_EVENT_DEVICE_MAX}, True),
+        # No binding of any kind, spelled both ways.
+        ({"name": "jump"}, False),
+        ({"name": "jump", "keys": [], "joy_buttons": [], "joy_axes": []}, False),
+        ({"name": "jump", "keys": []}, False),
+        # The scalar bounds ride the same contract.
+        ({"name": "j", "keys": ["Space"], "device": -2}, False),
+        ({"name": "j", "keys": ["Space"], "device": INPUT_EVENT_DEVICE_MAX + 1}, False),
+        ({"name": "j", "keys": ["Space"], "deadzone": 1.5}, False),
+    ]
+
+    for payload, expected in corpus:
+        schema_ok = validator.is_valid(payload)
+        try:
+            ProjectAddInputActionParams(**payload)
+            model_ok = True
+        except ValidationError:
+            model_ok = False
+        assert schema_ok == expected, f"schema verdict for {payload}"
+        assert model_ok == expected, f"model verdict for {payload}"
+
+
+def test_project_add_input_action_help_documents_the_accepted_joypad_names():
+    help_text = panel_text(
+        CliRunner().invoke(app, ["project", "add-input-action", "--help"]).stdout
+    )
+
+    for name in ("A", "Start", "DPadLeft", "Touchpad"):
+        assert name in help_text
+    for name in ("LeftX", "TriggerRight"):
+        assert name in help_text
 
 
 # --- project remove-input-action --------------------------------------------
@@ -667,8 +885,20 @@ def test_project_add_input_action_schema_emits_model_derived_contract_without_ot
     assert "keys" in doc["input"]["properties"]
     assert "deadzone" in doc["input"]["properties"]
     assert "physical" in doc["input"]["properties"]
-    # The key list is bounded model-side: at least one key (ADR-0015).
-    assert doc["input"]["properties"]["keys"]["minItems"] == 1
+    assert "joy_buttons" in doc["input"]["properties"]
+    assert "joy_axes" in doc["input"]["properties"]
+    assert "device" in doc["input"]["properties"]
+    # No per-list floor since #842: the "at least one binding" rule spans the
+    # three lists, so it is a model rule, not a minItems on one of them.
+    assert "minItems" not in doc["input"]["properties"]["keys"]
+    # --schema documents the accepted joypad names (issue #842 AC).
+    assert "DPadLeft" in doc["input"]["properties"]["joy_buttons"]["description"]
+    assert "TriggerRight" in doc["input"]["properties"]["joy_axes"]["description"]
+    # The result's events are a discriminated union on `kind`.
+    assert (
+        doc["output"]["properties"]["events"]["items"]["discriminator"]["propertyName"]
+        == "kind"
+    )
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -718,6 +948,9 @@ def test_sample_project_results_validate_against_emitted_output_schemas():
     jsonschema.validate(instance=REMOVE_AUTOLOAD_RESULT, schema=remove_doc["output"])
     jsonschema.validate(
         instance=ADD_INPUT_ACTION_RESULT, schema=add_input_doc["output"]
+    )
+    jsonschema.validate(
+        instance=ADD_INPUT_ACTION_JOYPAD_RESULT, schema=add_input_doc["output"]
     )
     jsonschema.validate(
         instance=REMOVE_INPUT_ACTION_RESULT, schema=remove_input_doc["output"]

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=77bb050928bb00a8ba3ce8936b82593b68eeae2731f81332c327a0010235067d -->
+<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -544,8 +544,8 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `input key` | Inyecta un evento de tecla (con modificadores). |
 | `input mouse-click` | Inyecta el gesto de clic completo (movimiento, pulsación, liberación) en `(x, y)`. |
 | `input mouse-move` | Inyecta un movimiento de ratón hacia `(x, y)`. |
-| `input action` | Presiona/suelta una acción de entrada mapeada. |
-| `input tap` | Toca una tecla o acción: pulsa, mantiene y suelta a lo largo de varios frames. |
+| `input action` | Presiona/suelta una acción de entrada mapeada: solo cambia el estado consultado, nunca llega a `_input`/`_gui_input`. |
+| `input tap` | Toca una tecla o acción: pulsa, mantiene y suelta a lo largo de varios frames (`--key` entrega un evento, `--action` solo cambia el estado consultado). |
 | `input sequence` | Inyecta una línea de tiempo de eventos de varios frames. |
 
 Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesión del daemon

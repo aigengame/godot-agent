@@ -14,10 +14,10 @@ DIRECTORY (ADR-0006): that one stays in the shared core below this layer, and
 the absolute imports keep the two names apart.
 """
 
-from typing import Any, Optional
+from typing import Annotated, Any, Literal, Optional, Union
 
 import typer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.headless import (
@@ -498,16 +498,110 @@ class ProjectRemoveAutoloadResult(BaseModel):
     name: str = Field(description="The unregistered autoload's global name.")
 
 
+# The joypad binding NAMES `--joy-button` / `--joy-axis` accept, for the help and
+# schema prose. The RESOLVER's table lives in `operations.gd`, mapping each name
+# to the engine's own JoyButton/JoyAxis constant (issue #842); these tuples are a
+# doc-facing copy, pinned to that table by
+# tests/project/test_input_action_joy_names.py, which in turn diffs it against
+# the enum the engine itself dumps. The copy exists because the CLI has to
+# document the accepted set without reading GDScript at import time.
+JOY_BUTTON_NAMES: tuple[str, ...] = (
+    "A",
+    "B",
+    "X",
+    "Y",
+    "Back",
+    "Guide",
+    "Start",
+    "LeftStick",
+    "RightStick",
+    "LeftShoulder",
+    "RightShoulder",
+    "DPadUp",
+    "DPadDown",
+    "DPadLeft",
+    "DPadRight",
+    "Misc1",
+    "Paddle1",
+    "Paddle2",
+    "Paddle3",
+    "Paddle4",
+    "Touchpad",
+)
+
+JOY_AXIS_NAMES: tuple[str, ...] = (
+    "LeftX",
+    "LeftY",
+    "RightX",
+    "RightY",
+    "TriggerLeft",
+    "TriggerRight",
+)
+
+JOY_BUTTON_DESC = (
+    "A joypad button to bind (repeatable): a JoyButton NAME — "
+    + ", ".join(JOY_BUTTON_NAMES)
+    + " (case- and separator-insensitive, so DPadLeft, dpad_left and DPAD_LEFT "
+    "are one button) — or a base-10 button index."
+)
+
+JOY_AXIS_DESC = (
+    "A joypad axis DIRECTION to bind (repeatable), spelled <axis>[:<sign>]: a "
+    "JoyAxis name — "
+    + ", ".join(JOY_AXIS_NAMES)
+    + " (case- and separator-insensitive) — or a base-10 axis index, with the "
+    "sign + (the default) or - selecting the direction, e.g. LeftX:- for stick "
+    "left. One direction is one binding."
+)
+
+# InputEvent.device is a 32-bit field in the engine. A larger integer is not
+# refused by GDScript's 64-bit int but WRAPS on assignment (4294967295 becomes
+# -1, every joypad; 2147483648 becomes -2147483648), so the bound is the model's,
+# refused before any engine is spawned.
+INPUT_EVENT_DEVICE_MAX = 2**31 - 1
+
+DEVICE_DESC = (
+    "The joypad device this call's joypad bindings match: -1 (the default) is "
+    "InputMap.ALL_DEVICES and matches every joypad, 0 and up name one specific "
+    f"joypad, at most {INPUT_EVENT_DEVICE_MAX} (the engine stores an event's "
+    "device as a 32-bit integer; a larger number would wrap and match a "
+    "different joypad). Key bindings are always -1 and are unaffected."
+)
+
+
+# The "at least one binding" rule, published as JSON Schema so a standard Draft
+# 2020-12 validator reaches the SAME verdict as the model. ADR-0015 makes the
+# params model the one authority for both, which means the published input
+# contract must not be wider than the ABI `--params-json` actually accepts, and a
+# model-validator cross-field rule has to be visible to a plain validator (#743).
+# While `keys` was the only binding kind the rule rode on it as `minItems: 1`;
+# spread across three lists it becomes an `anyOf` — at least one list present and
+# non-empty. `_check_at_least_one_binding` below stays the ENFORCING authority; a
+# parity corpus (tests/project/test_project_commands.py) runs the same payloads
+# through the schema and the model and requires one verdict, so the two cannot
+# drift.
+_AT_LEAST_ONE_BINDING_SCHEMA: dict[str, Any] = {
+    "anyOf": [
+        {"required": [field], "properties": {field: {"minItems": 1}}}
+        for field in ("keys", "joy_buttons", "joy_axes")
+    ]
+}
+
+
 class ProjectAddInputActionParams(BaseModel):
-    """The operation params of ``gda project add-input-action`` (issue #380).
+    """The operation params of ``gda project add-input-action`` (issues #380, #842).
 
     Registers an InputMap action: ``name`` is the action name (the key under the
-    ``input/`` section of ``project.godot``), bound to one or more keyboard keys.
-    The operation builds real ``InputEventKey`` events and persists the action
-    via ``ProjectSettings`` — never a hand-built string — so the serialization is
+    ``input/`` section of ``project.godot``), bound to keyboard keys, joypad
+    buttons and joypad axis directions — at least one binding of any kind. The
+    operation builds real ``InputEventKey`` / ``InputEventJoypadButton`` /
+    ``InputEventJoypadMotion`` events and persists the action via
+    ``ProjectSettings`` — never a hand-built string — so the serialization is
     exactly the engine's own ``var_to_str`` form. The project is process context
     (``--project``), not an operation param (ADR-0006).
     """
+
+    model_config = ConfigDict(json_schema_extra=_AT_LEAST_ONE_BINDING_SCHEMA)
 
     name: str = Field(
         description=(
@@ -516,11 +610,25 @@ class ProjectAddInputActionParams(BaseModel):
         )
     )
     keys: list[str] = Field(
-        min_length=1,
+        default_factory=list,
         description=(
-            "The keys to bind (at least one): each item is a Godot key NAME "
+            "The keys to bind: each item is a Godot key NAME "
             "(e.g. J, Space, Escape) or a base-10 keycode integer string."
         ),
+    )
+    joy_buttons: list[str] = Field(
+        default_factory=list,
+        description=JOY_BUTTON_DESC,
+    )
+    joy_axes: list[str] = Field(
+        default_factory=list,
+        description=JOY_AXIS_DESC,
+    )
+    device: int = Field(
+        default=-1,
+        ge=-1,
+        le=INPUT_EVENT_DEVICE_MAX,
+        description=DEVICE_DESC,
     )
     deadzone: float = Field(
         default=0.5,
@@ -539,19 +647,36 @@ class ProjectAddInputActionParams(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _check_at_least_one_binding(self) -> "ProjectAddInputActionParams":
+        """Refuse an action that would match nothing.
+
+        The rule spans the three binding lists, so it cannot be a ``minItems``
+        on one of them: ``--key`` stopped being individually required when the
+        joypad kinds landed (#842), and an action registered with an empty event
+        list is a dead entry no input can ever trigger. This check is the
+        enforcing authority; ``_AT_LEAST_ONE_BINDING_SCHEMA`` publishes the same
+        rule so a schema-only client is refused here too, not surprised at
+        dispatch.
+        """
+        if not self.keys and not self.joy_buttons and not self.joy_axes:
+            raise ValueError(
+                "at least one binding is required: pass --key, --joy-button "
+                "or --joy-axis."
+            )
+        return self
+
 
 class InputActionKeyEvent(BaseModel):
-    """One key binding of a registered InputMap action (issue #380).
+    """One KEY binding of a registered InputMap action (issue #380).
 
-    ``kind`` discriminates the event type so mouse/joypad kinds can extend the
-    shape later without breaking; this slice emits only ``key`` events. ``key``
-    echoes the raw ``--key`` token, ``keycode`` the Godot keycode it resolved to,
-    and ``physical`` whether it was bound as ``physical_keycode``.
+    ``key`` echoes the raw ``--key`` token, ``keycode`` the Godot keycode it
+    resolved to, and ``physical`` whether it was bound as ``physical_keycode``.
+    A key event is always bound at device -1 (``InputMap.ALL_DEVICES``), so it
+    carries no ``device`` of its own.
     """
 
-    kind: str = Field(
-        default="key", description="The event kind ('key' for this slice)."
-    )
+    kind: Literal["key"] = Field(default="key", description="The event kind.")
     key: str = Field(description="The raw --key token as given (name or keycode).")
     keycode: int = Field(description="The Godot keycode the token resolved to.")
     physical: bool = Field(
@@ -559,18 +684,78 @@ class InputActionKeyEvent(BaseModel):
     )
 
 
+class InputActionJoyButtonEvent(BaseModel):
+    """One joypad BUTTON binding of a registered InputMap action (issue #842).
+
+    ``button`` echoes the raw ``--joy-button`` token, ``button_index`` the
+    ``JoyButton`` value it resolved to, and ``device`` the joypad the binding
+    matches (-1 = every joypad).
+    """
+
+    kind: Literal["joy_button"] = Field(
+        default="joy_button", description="The event kind."
+    )
+    button: str = Field(
+        description="The raw --joy-button token as given (name or index)."
+    )
+    button_index: int = Field(
+        description="The Godot JoyButton value the token resolved to."
+    )
+    device: int = Field(
+        description="The joypad device the binding matches (-1 = every joypad)."
+    )
+
+
+class InputActionJoyAxisEvent(BaseModel):
+    """One joypad AXIS DIRECTION binding of a registered action (issue #842).
+
+    ``axis`` echoes the raw ``--joy-axis`` token (sign included),
+    ``axis_index`` the ``JoyAxis`` value it resolved to, ``axis_value`` the
+    direction the sign selected (+1.0 or -1.0), and ``device`` the joypad the
+    binding matches (-1 = every joypad).
+    """
+
+    kind: Literal["joy_axis"] = Field(default="joy_axis", description="The event kind.")
+    axis: str = Field(description="The raw --joy-axis token as given, sign included.")
+    axis_index: int = Field(
+        description="The Godot JoyAxis value the token resolved to."
+    )
+    axis_value: float = Field(
+        description="The direction the token's sign selected: +1.0 or -1.0."
+    )
+    device: int = Field(
+        description="The joypad device the binding matches (-1 = every joypad)."
+    )
+
+
+# One bound event, as a DISCRIMINATED union on `kind` (#842). #380 shipped `kind`
+# on the key event precisely so the joypad kinds could extend the shape without
+# breaking it; making the extension a discriminated union publishes each kind's
+# own field set in the schema, so a client reads what a joypad event carries from
+# the contract rather than from a sample payload.
+InputActionEvent = Annotated[
+    Union[InputActionKeyEvent, InputActionJoyButtonEvent, InputActionJoyAxisEvent],
+    Field(discriminator="kind"),
+]
+
+
 class ProjectAddInputActionResult(BaseModel):
     """The result of ``gda project add-input-action``: the action it registered.
 
     Echoes the action's ``name``, the ``deadzone`` persisted, and the resolved
-    key ``events`` exactly as they were bound — so an agent can confirm each key
-    token mapped to the intended keycode without re-reading ``project.godot``.
+    ``events`` exactly as they were bound — so an agent can confirm each token
+    mapped to the intended keycode, button or axis direction without re-reading
+    ``project.godot``. The events are reported (and persisted) in kind order:
+    keys, then joypad buttons, then joypad axis directions.
     """
 
     name: str = Field(description="The registered input action's name.")
     deadzone: float = Field(description="The deadzone persisted with the action.")
-    events: list[InputActionKeyEvent] = Field(
-        description="The key events bound to the action, in --key order."
+    events: list[InputActionEvent] = Field(
+        description=(
+            "The events bound to the action: the --key ones first, then the "
+            "--joy-button ones, then the --joy-axis ones, each in argv order."
+        )
     )
 
 
@@ -649,17 +834,36 @@ def render_project_remove_autoload(removed: "ProjectRemoveAutoloadResult") -> st
     return f"removed autoload {removed.name}"
 
 
-def render_project_add_input_action(added: "ProjectAddInputActionResult") -> str:
-    """Render a registered input action with its resolved key bindings.
+def _render_input_action_binding(event: "InputActionEvent") -> str:
+    """Render one bound event as ``<token> -> <resolved>``, per kind."""
+    if isinstance(event, InputActionKeyEvent):
+        physical = " (physical)" if event.physical else ""
+        return f"{event.key} -> {event.keycode}{physical}"
+    if isinstance(event, InputActionJoyButtonEvent):
+        return f"joy button {event.button} -> {event.button_index}"
+    return f"joy axis {event.axis} -> {event.axis_index} ({event.axis_value})"
 
-    e.g. ``added input action jump (deadzone 0.5): J -> 74, Space -> 32``; a
-    physical binding is marked ``(physical)`` after its keycode.
+
+def render_project_add_input_action(added: "ProjectAddInputActionResult") -> str:
+    """Render a registered input action with its resolved bindings.
+
+    e.g. ``added input action jump (deadzone 0.5): J -> 74, joy button A -> 0
+    [device -1]``; a physical key binding is marked ``(physical)`` after its
+    keycode, and an axis direction shows the ``axis_value`` its sign selected.
+    The device is stated ONCE at the end, and only when the action has a joypad
+    binding: ``--device`` is a property of the call, not of a single binding, and
+    it never applies to a key event.
     """
-    bindings = ", ".join(
-        f"{event.key} -> {event.keycode}" + (" (physical)" if event.physical else "")
+    bindings = ", ".join(_render_input_action_binding(event) for event in added.events)
+    line = f"added input action {added.name} (deadzone {added.deadzone}): {bindings}"
+    joypad = [
+        event
         for event in added.events
-    )
-    return f"added input action {added.name} (deadzone {added.deadzone}): {bindings}"
+        if isinstance(event, (InputActionJoyButtonEvent, InputActionJoyAxisEvent))
+    ]
+    if joypad:
+        line += f" [device {joypad[0].device}]"
+    return line
 
 
 def render_project_remove_input_action(
@@ -1055,12 +1259,28 @@ def project_add_input_action(
         ..., help="The input action's name (the input/<name> key)."
     ),
     keys: list[str] = typer.Option(
-        ...,
+        [],
         "--key",
         help=(
-            "A key to bind (repeatable, at least one): a Godot key name "
-            "(e.g. J, Space, Escape) or a base-10 keycode integer."
+            "A key to bind (repeatable): a Godot key name "
+            "(e.g. J, Space, Escape) or a base-10 keycode integer. At least one "
+            "binding of any kind is required."
         ),
+    ),
+    joy_buttons: list[str] = typer.Option(
+        [],
+        "--joy-button",
+        help=JOY_BUTTON_DESC,
+    ),
+    joy_axes: list[str] = typer.Option(
+        [],
+        "--joy-axis",
+        help=JOY_AXIS_DESC,
+    ),
+    device: int = typer.Option(
+        -1,
+        "--device",
+        help=DEVICE_DESC,
     ),
     deadzone: float = typer.Option(
         0.5,
@@ -1081,11 +1301,14 @@ def project_add_input_action(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Register an InputMap action bound to one or more keys, then save project.godot."""
+    """Register an InputMap action bound to keys and/or joypad inputs, then save project.godot."""
     params = params_or_bad_parameter(
         ProjectAddInputActionParams,
         name=name,
         keys=keys,
+        joy_buttons=joy_buttons,
+        joy_axes=joy_axes,
+        device=device,
         deadzone=deadzone,
         physical=physical,
     )

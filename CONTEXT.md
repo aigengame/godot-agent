@@ -86,6 +86,19 @@ the state is bound to the session, not surviving its relaunch. A Phase-2 live-la
 property only — Phase-1 headless calls are stateless (ADR-0020).
 _Avoid_: consistency, coherence, sync
 
+**Injection route**:
+The door a live input injection takes into the running game, and there are exactly
+two: `action_state` drives `Input.action_press` / `action_release`, changing the
+polled state `Input.is_action_*` reads and reaching no `_input` / `_gui_input` /
+`_unhandled_input` handler; `viewport_event` pushes an `InputEvent` through the root
+viewport's `push_input`, reaching those handlers and changing no polled state. The
+two are disjoint by construction — a state change is not an event — so a successful
+action injection is not evidence the event path works, which twice read as one in
+dogfooding. Every `input` result names the route it used (`injection_route`,
+top-level on the single-event commands and per phase on the phased ones), derived
+CLI-side from the event kind (#838). The opt-in event mode for actions is #854.
+_Avoid_: input mode, injection method, path
+
 **Headless launch**:
 The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
 the sentinel op-dispatch runner, the native-export runner, the `gda resource
@@ -121,13 +134,19 @@ per-invocation `--user-data-root` (env `GDA_USER_DATA_ROOT`) instead places the 
 `--user-data-dir` flag and the platform data variable is the only lever. The
 placement is **created, not inspected**, before the spawn — that creation IS the
 preflight — and a placement gda cannot make usable is a typed refusal
-(`user_data_unwritable`) rather than an engine crash. Headless only: a live
-`Engine session`'s log is daemon-owned (ADR-0022).
+(`user_data_unwritable`) rather than an engine crash. It is also REPORTED, not only
+prepared: the placement rides the `Raw run` out of the launch that dropped it, and
+`gda script run` publishes it on a SUCCESSFUL result, so a failed `user://` write is
+attributable to the environment instead of read as a game regression (#850). Only
+there: a run that ends in an `Error envelope` — `--strict`'s `script_failed`, a
+`launch_timeout` — keeps its pre-#850 shape, since disclosing a fact on a failure
+means entering `Failure evidence`'s producer set, which is a separate ADR-0004
+decision. Headless only: a live `Engine session`'s log is daemon-owned (ADR-0022).
 _Avoid_: log redirect, user dir, sandbox
 
 **Raw run**:
 The normalized outcome a `Headless launch` returns — `{stdout, stderr, exit_code,
-launch_failure, elapsed_seconds, timeout_bound}`, unparsed — before any
+launch_failure, elapsed_seconds, timeout_bound, user_data}`, unparsed — before any
 classification. `launch_failure` is set only when the primitive synthesized the
 result (binary missing, timed out, the `User-data placement` was refused, or a
 watch ended the run) rather than the engine returning one, so the classifier keys
@@ -139,14 +158,24 @@ gave up (its channel label) and the ceiling it reached. It is set only on a
 `TIMEOUT` result and it rides the result because it is the only thing that crosses
 the runner seam — the shared `launch_timeout` classifier has the raw run and
 nothing else, so without it two of the three channels could not name their own
-ceiling (#714). Those launch-backed channels all return the one `RunResult` shape.
+ceiling (#714). `user_data` is the other thing the run cannot state for itself and
+the placement no longer exists to be asked: where THIS launch put Godot's user data
+— the root, the platform-derived data path, and the log file, that last one only
+when a root made it outlive the launch. It is the `User-data placement` minus its
+child environment, attached on every outcome of a prepared placement and absent on
+one that was refused (#850). Those launch-backed channels all return the one
+`RunResult` shape.
 Normally internal, it is **promoted to a public result by `gda script run`** — the
 one operation whose success result *is* a Raw run (minus `launch_failure`,
 `elapsed_seconds`, `timeout_bound`, and the streams' timeout semantics, all of
 which are lifted out into an `Error envelope`; since #665 the
 promoted `stdout` is additionally a BOUNDED projection — verbatim up to a cap,
 above it the leading cap bytes with the complete stream spilled to a file the
-result names), so its `exit_status` can be non-zero on success (ADR-0031).
+result names; since #850 the promoted `user_data` is three flattened keys —
+`engine_data_path` always, `user_data_root` and `log_file` omitted rather than null
+where they are not facts), so its `exit_status` can be non-zero on success
+(ADR-0031). It is the ONE channel that publishes the placement: the others take the
+same facts off the same run and disclose none of them.
 _Avoid_: run output, export output
 
 **Completion marker**:

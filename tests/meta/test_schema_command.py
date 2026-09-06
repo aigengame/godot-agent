@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.commands.meta import InfoParams
 from gda.models import EngineVersion, GdaErrorEnvelope
+from gda.runner import RunResult
 from tests.support import VERSION_INFO
 
 
@@ -1279,6 +1280,11 @@ def test_script_run_command_schema_is_model_derived():
         "stdout_truncated",
         "stdout_file",
         "diagnostics",
+        # The launch's user-data placement (#850): where this run's `user://`
+        # actually was, so a persistence failure is attributable from the result.
+        "user_data_root",
+        "engine_data_path",
+        "log_file",
     }
     # The markers are ALWAYS present (#665): a standard consumer sees them
     # required, with the spill file required-but-nullable.
@@ -1287,6 +1293,13 @@ def test_script_run_command_schema_is_model_derived():
     )
     spill_branches = doc["output"]["properties"]["stdout_file"]["anyOf"]
     assert {"type": "null"} in spill_branches
+    # The placement's own presence rule (#850): `engine_data_path` is
+    # required-but-nullable (null = the platform's variable is unset), while the
+    # two root-only keys are OPTIONAL — omitted, not null, on a default run.
+    required = set(doc["output"]["required"])
+    assert "engine_data_path" in required
+    assert {"user_data_root", "log_file"} & required == set()
+    assert {"type": "null"} in doc["output"]["properties"]["engine_data_path"]["anyOf"]
     # `--strict` is a params field, so the JSON/MCP callers can opt in like argv (#651).
     # `timeout` / `completion_marker` are params for the same reason (#655): the
     # per-invocation ceiling and the opt-in early-termination marker have to be
@@ -1363,6 +1376,7 @@ def test_sample_game_results_validate_against_emitted_output_schemas():
         GAME_RECT_RESULT,
         GAME_SET_RESULT,
         GAME_TREE_RESULT,
+        GAME_TREE_TRUNCATED_RESULT,
     )
 
     tree_doc = json.loads(CliRunner().invoke(app, ["game", "tree", "--schema"]).stdout)
@@ -1371,6 +1385,9 @@ def test_sample_game_results_validate_against_emitted_output_schemas():
     set_doc = json.loads(CliRunner().invoke(app, ["game", "set", "--schema"]).stdout)
 
     jsonschema.validate(instance=GAME_TREE_RESULT, schema=tree_doc["output"])
+    # The bounded read's shape is published too (#849): the optional per-node
+    # `children_omitted` and the two result totals.
+    jsonschema.validate(instance=GAME_TREE_TRUNCATED_RESULT, schema=tree_doc["output"])
     jsonschema.validate(instance=GAME_GET_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=GAME_RECT_RESULT, schema=rect_doc["output"])
     jsonschema.validate(instance=GAME_SET_RESULT, schema=set_doc["output"])
@@ -1507,36 +1524,55 @@ def test_input_commands_schema_report_kind_live_and_are_model_derived():
     )
 
 
-def test_sample_input_results_validate_against_emitted_output_schemas():
-    # A sample --json payload of each input command satisfies the contract its
+def test_sample_input_results_validate_against_emitted_output_schemas(
+    monkeypatch, tmp_path
+):
+    # The --json payload each input command EMITS satisfies the contract its
     # --schema emits (the ADR-0004 hard gate for the LIVE input group, #221).
+    # The EMITTED payload, not the harness reply it is built from: since #838 the
+    # two differ — gda derives the injection route CLI-side and folds it into the
+    # result — so validating the reply would no longer check what agents read.
     from tests.support import (
         INPUT_ACTION_RESULT,
         INPUT_KEY_RESULT,
         INPUT_MOUSE_CLICK_RESULT,
         INPUT_MOUSE_MOVE_RESULT,
         INPUT_SEQUENCE_RESULT,
+        INPUT_TAP_ACTION_RESULT,
+        inject_live_runner,
+        minimal_project,
+        sentinel,
     )
 
-    key_doc = json.loads(CliRunner().invoke(app, ["input", "key", "--schema"]).stdout)
-    click_doc = json.loads(
-        CliRunner().invoke(app, ["input", "mouse-click", "--schema"]).stdout
-    )
-    move_doc = json.loads(
-        CliRunner().invoke(app, ["input", "mouse-move", "--schema"]).stdout
-    )
-    action_doc = json.loads(
-        CliRunner().invoke(app, ["input", "action", "--schema"]).stdout
-    )
-    seq_doc = json.loads(
-        CliRunner().invoke(app, ["input", "sequence", "--schema"]).stdout
-    )
+    project = str(minimal_project(tmp_path))
+    cases = [
+        (["input", "key", "Right"], INPUT_KEY_RESULT),
+        (["input", "mouse-click", "100", "200"], INPUT_MOUSE_CLICK_RESULT),
+        (["input", "mouse-move", "50", "60"], INPUT_MOUSE_MOVE_RESULT),
+        (["input", "action", "jump"], INPUT_ACTION_RESULT),
+        (["input", "tap", "--action", "jump"], INPUT_TAP_ACTION_RESULT),
+        (
+            [
+                "input",
+                "sequence",
+                "--events",
+                json.dumps([{"type": "action", "action": "jump"}]),
+            ],
+            # The reply must agree with the request it answers: gda correlates the
+            # applied-event count before it publishes the request-derived phases
+            # (#838), so the shared 3-event sample would be a contract_violation.
+            {**INPUT_SEQUENCE_RESULT, "events": 1, "frames": 1},
+        ),
+    ]
 
-    jsonschema.validate(instance=INPUT_KEY_RESULT, schema=key_doc["output"])
-    jsonschema.validate(instance=INPUT_MOUSE_CLICK_RESULT, schema=click_doc["output"])
-    jsonschema.validate(instance=INPUT_MOUSE_MOVE_RESULT, schema=move_doc["output"])
-    jsonschema.validate(instance=INPUT_ACTION_RESULT, schema=action_doc["output"])
-    jsonschema.validate(instance=INPUT_SEQUENCE_RESULT, schema=seq_doc["output"])
+    for argv, reply in cases:
+        inject_live_runner(
+            monkeypatch, RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
+        )
+        emitted = CliRunner().invoke(app, [*argv, "--project", project, "--json"])
+        assert emitted.exit_code == 0, emitted.stdout + emitted.stderr
+        doc = json.loads(CliRunner().invoke(app, [*argv[:2], "--schema"]).stdout)
+        jsonschema.validate(instance=json.loads(emitted.stdout), schema=doc["output"])
 
 
 def test_schema_kind_is_identical_via_argv_and_params_json_forms():

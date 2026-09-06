@@ -639,7 +639,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "An input-action key could not be resolved to a Godot keycode (unknown key name or non-positive keycode).",
+        "An input-action binding token could not be resolved: a key name or "
+        "keycode that maps to no Godot keycode, or a joypad button or axis "
+        "direction that names no JoyButton / JoyAxis.",
     ),
     ErrorCodeSpec(
         "contract_violation",

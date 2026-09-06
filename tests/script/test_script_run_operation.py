@@ -54,7 +54,7 @@ from gda.errors import (
 from gda.execution import ExecutionKind
 from gda.models import TerminationPhase
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
-from gda.runner import LaunchFailure, LaunchWatch, RunResult
+from gda.runner import LaunchFailure, LaunchWatch, RunResult, UserDataReport
 from tests.support import minimal_project
 
 PROJECT = Path("/tmp/project")
@@ -471,6 +471,10 @@ def test_result_is_the_thin_promotion_dropping_launch_failure():
         "stdout_truncated": False,
         "stdout_file": None,
         "diagnostics": [],
+        # gda's own too, and always present (#850): this canned run carries no
+        # placement report at all, which reads as "no placement known". The two
+        # root-only keys are OMITTED from the dump rather than nulled.
+        "engine_data_path": None,
     }
 
 
@@ -1683,6 +1687,7 @@ def test_result_truth_table_is_model_enforced():
             stdout_bytes=stdout_bytes,
             stdout_truncated=truncated,
             stdout_file=file,
+            engine_data_path=None,
         )
 
     # truncated without a spill file
@@ -1740,6 +1745,9 @@ def test_result_truth_table_schema_projections_and_disclosed_divergences():
             "exit_status": 0,
             "stderr": "",
             "diagnostics": [],
+            # Required-but-nullable on both sides (#850), so it is part of every
+            # row rather than a variable of the truth table.
+            "engine_data_path": None,
             **state,
         }
         try:
@@ -1875,3 +1883,76 @@ def test_result_truth_table_schema_projections_and_disclosed_divergences():
             "stdout_file": "/tmp/s.log",
         }
     ) == (False, True)
+
+
+# --- The launch's user-data placement, reported on the success result (#850).
+#
+# A persistence-bearing run that fails because `user://` was not writable is
+# diagnosed as a game regression unless the result says which root the script
+# actually had. The facts come from the ONE launch primitive (they ride the Raw
+# run), so this channel resolves nothing of its own.
+
+
+def _report(root: Path | None, data_path: Path | None, log_file: Path | None):
+    return UserDataReport(root=root, data_path=data_path, log_file=log_file)
+
+
+def test_default_run_reports_the_engine_data_path_only():
+    # No root was given, so gda redirected nothing but the log — and that log is a
+    # private temporary file the launch removed. Both keys are OMITTED rather than
+    # null: a null would claim gda knows a root or a surviving log file it does not.
+    outcome, _ = _run(
+        RunResult(
+            stdout="",
+            stderr="",
+            exit_code=0,
+            user_data=_report(None, Path("/home/u/.local/share"), None),
+        )
+    )
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.engine_data_path == "/home/u/.local/share"
+    assert outcome.user_data_root is None
+    assert outcome.log_file is None
+    emitted = json.loads(outcome.model_dump_json())
+    assert emitted["engine_data_path"] == "/home/u/.local/share"
+    assert "user_data_root" not in emitted
+    assert "log_file" not in emitted
+
+
+def test_redirected_run_reports_the_root_the_derived_path_and_the_log():
+    # With `--user-data-root DIR` all three are knowable, and the log outlives the
+    # launch — so the result names the file an agent can still read.
+    outcome, _ = _run(
+        RunResult(
+            stdout="",
+            stderr="",
+            exit_code=0,
+            user_data=_report(
+                Path("/tmp/udr"),
+                Path("/tmp/udr/Library/Application Support"),
+                Path("/tmp/udr/logs/godot.log"),
+            ),
+        )
+    )
+
+    assert isinstance(outcome, ScriptRunResult)
+    emitted = json.loads(outcome.model_dump_json())
+    assert emitted["user_data_root"] == "/tmp/udr"
+    assert emitted["engine_data_path"] == "/tmp/udr/Library/Application Support"
+    assert emitted["log_file"] == "/tmp/udr/logs/godot.log"
+
+
+def test_an_unknown_platform_data_path_is_reported_as_null_not_omitted():
+    # `engine_data_path` is ALWAYS present: null means the platform's own variable
+    # is unset, which is a fact about the host, not a missing key (the runner
+    # reports None rather than fabricating a path).
+    outcome, _ = _run(
+        RunResult(
+            stdout="", stderr="", exit_code=0, user_data=_report(None, None, None)
+        )
+    )
+
+    assert isinstance(outcome, ScriptRunResult)
+    emitted = json.loads(outcome.model_dump_json())
+    assert emitted["engine_data_path"] is None

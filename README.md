@@ -437,7 +437,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `project set` | Set a project setting, coercing the value to its declared type. |
 | `project add-autoload` | Register an autoload singleton (name → script/scene). |
 | `project remove-autoload` | Unregister an autoload singleton by name. |
-| `project add-input-action` | Register an InputMap action bound to keys (`--key` name or keycode, `--deadzone`, `--physical`). |
+| `project add-input-action` | Register an InputMap action bound to keys and/or a controller (`--key`, `--joy-button`, `--joy-axis` as `<axis>[:<sign>]`, `--device`, `--deadzone`, `--physical`); at least one binding is required. |
 | `project remove-input-action` | Unregister an InputMap action by name. |
 | `project find-references` | Find every project file that references a given resource. |
 | `project dependencies` | Map each scene/resource to the resources it depends on. |
@@ -529,8 +529,8 @@ names the file, and only `preflight` catches a first-frame failure.
 | `input key` | Inject a key event (with modifiers). |
 | `input mouse-click` | Inject a complete click gesture (move, press, release) at `(x, y)`. |
 | `input mouse-move` | Inject mouse motion to `(x, y)`. |
-| `input action` | Press/release a mapped input action. |
-| `input tap` | Tap one key or action: press, hold, release across frames. |
+| `input action` | Press/release a mapped input action — polled state only, never delivered to `_input`/`_gui_input`. |
+| `input tap` | Tap one key or action: press, hold, release across frames (`--key` delivers an event, `--action` only sets polled state). |
 | `input sequence` | Inject a multi-frame event timeline. |
 
 Read injected mouse coordinates from `event.position` — in a daemon session

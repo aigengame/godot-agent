@@ -989,7 +989,10 @@ THEME_CREATE_RESULT = {
 }
 
 # A sample ``gda game tree`` result — the running game's runtime scene tree
-# (ADR-0019). Shared by the game-command success/schema tests.
+# (ADR-0019). Shared by the game-command success/schema tests. The UNBOUNDED read
+# (#849): every node was serialized, so the two totals report no omission and no
+# node carries ``children_omitted`` — the key is absent, not zero, so the read a
+# caller did not bound does not grow by one key per node.
 GAME_TREE_RESULT = {
     "root": {
         "name": "Main",
@@ -1003,7 +1006,45 @@ GAME_TREE_RESULT = {
                 "children": [],
             }
         ],
-    }
+    },
+    "truncated": False,
+    "omitted_nodes": 0,
+}
+
+# The BOUNDED counterpart (#849): what the harness sends for
+# ``game tree --root /root/Main/HUD --max-depth 1`` on a HUD with three direct
+# children, one of which has two of its own. ``children_omitted`` sits on the one
+# node whose children the read did not serialize; ``omitted_nodes`` totals the
+# unserialized nodes at every depth.
+GAME_TREE_TRUNCATED_RESULT = {
+    "root": {
+        "name": "HUD",
+        "type": "Control",
+        "path": "/root/Main/HUD",
+        "children": [
+            {
+                "name": "Panel",
+                "type": "Control",
+                "path": "/root/Main/HUD/Panel",
+                "children": [],
+                "children_omitted": 2,
+            },
+            {
+                "name": "Score",
+                "type": "Label",
+                "path": "/root/Main/HUD/Score",
+                "children": [],
+            },
+            {
+                "name": "Timer",
+                "type": "Label",
+                "path": "/root/Main/HUD/Timer",
+                "children": [],
+            },
+        ],
+    },
+    "truncated": True,
+    "omitted_nodes": 2,
 }
 
 # Sample ``gda game get`` / ``gda game set`` results — a running node's runtime

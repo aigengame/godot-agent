@@ -3,6 +3,8 @@
 import json
 
 import jsonschema
+import pytest
+from pydantic import ValidationError
 
 from gda.commands.node import (
     NodeAddResult,
@@ -44,6 +46,9 @@ from gda.commands.export import (
     ExportRunResult,
 )
 from gda.commands.project import (
+    InputActionJoyAxisEvent,
+    InputActionJoyButtonEvent,
+    InputActionKeyEvent,
     ListedProjectSetting,
     ProjectAddAutoloadResult,
     ProjectAddInputActionResult,
@@ -1259,8 +1264,7 @@ def test_project_remove_autoload_result_round_trips_the_unregistered_name():
 def test_project_add_input_action_result_round_trips_the_registered_action():
     # project add-input-action echoes the action it registered (issue #380): the
     # name, the persisted deadzone, and each key event with the raw token, the
-    # resolved keycode, and whether it was bound as physical_keycode. `kind`
-    # discriminates the event type so mouse/joypad kinds can extend it later.
+    # resolved keycode, and whether it was bound as physical_keycode.
     payload = {
         "name": "jump",
         "deadzone": 0.2,
@@ -1274,10 +1278,59 @@ def test_project_add_input_action_result_round_trips_the_registered_action():
 
     assert added.name == "jump"
     assert added.deadzone == 0.2
-    assert [event.keycode for event in added.events] == [74, 4194320]
-    assert added.events[0].kind == "key"
-    assert added.events[1].physical is True
+    keys = [event for event in added.events if isinstance(event, InputActionKeyEvent)]
+    assert [event.keycode for event in keys] == [74, 4194320]
+    assert keys[0].kind == "key"
+    assert keys[1].physical is True
     assert json.loads(added.model_dump_json()) == payload
+
+
+def test_project_add_input_action_result_round_trips_joypad_events():
+    # `kind` was put on the key event so joypad kinds could extend it (#380);
+    # #842 is that extension, as a DISCRIMINATED union: each kind validates into
+    # its own model with its own fields, and a wrong-kind field is a refusal
+    # rather than a silently ignored extra.
+    payload = {
+        "name": "jump",
+        "deadzone": 0.5,
+        "events": [
+            {"kind": "joy_button", "button": "A", "button_index": 0, "device": -1},
+            {
+                "kind": "joy_axis",
+                "axis": "LeftX:-",
+                "axis_index": 0,
+                "axis_value": -1.0,
+                "device": 1,
+            },
+        ],
+    }
+
+    added = ProjectAddInputActionResult.model_validate(payload)
+
+    button, axis = added.events
+    assert isinstance(button, InputActionJoyButtonEvent)
+    assert (button.button, button.button_index, button.device) == ("A", 0, -1)
+    assert isinstance(axis, InputActionJoyAxisEvent)
+    assert (axis.axis, axis.axis_index, axis.axis_value, axis.device) == (
+        "LeftX:-",
+        0,
+        -1.0,
+        1,
+    )
+    assert json.loads(added.model_dump_json()) == payload
+
+
+def test_project_add_input_action_result_rejects_an_unknown_event_kind():
+    # The discriminator is closed: an event kind the contract does not publish is
+    # a validation refusal, not an untyped passthrough.
+    with pytest.raises(ValidationError):
+        ProjectAddInputActionResult.model_validate(
+            {
+                "name": "jump",
+                "deadzone": 0.5,
+                "events": [{"kind": "mouse_button", "button_index": 1}],
+            }
+        )
 
 
 def test_project_remove_input_action_result_round_trips_the_unregistered_name():

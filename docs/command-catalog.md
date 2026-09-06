@@ -976,6 +976,22 @@ the list distinguishes three states: absent (this channel does not parse stderr)
 failure that computed none, and the prose above is unchanged: `diagnostics` still
 carries the same recognized-error lines and both labelled streams, rendered from the
 same single parse.
+
+A successful run also reports the launch's **`User-data placement`** (#850) — where its
+`user://` actually was, so a failed persistence write is attributable to the environment
+rather than read as a game regression. `engine_data_path` is always present (null only
+when the platform's own variable is unset); `user_data_root` and `log_file` appear only
+under the global `--user-data-root DIR` — which precedes the subcommand, `gda
+--user-data-root DIR script run <path>` — since that is the one case in which the log
+outlives the launch, the default being a private temporary file gda removes. Both are
+omitted rather than null when they are not facts. The facts come off the shared launch
+primitive's `Raw run`, and `script run` is the only channel that publishes them:
+`scene preflight`, `export run`, `resource import` and the sentinel commands read the
+same run and disclose none. So does a FAILURE of this command — `--strict`'s
+`script_failed`, a `launch_timeout` — which keeps its pre-#850 shape: disclosing the
+placement there means extending ADR-0004's `Failure evidence` producer set, which is
+that ADR's decision and a follow-up, not this one.
+
 The script executes in full, within the trusted-project assumption (ADR-0009).
 
 ### `project`
@@ -1044,16 +1060,28 @@ engine-bookkeeping settings and the non-setting properties the engine's property
 are filtered out, so only real `ProjectSettings` keys appear. Like the rest of the group it requires
 a resolved project (`project_not_found`, exit 4, otherwise) and never instantiates a scene.
 
-**Input actions** (established by #380): `gda project add-input-action NAME --key K...` registers an
-InputMap action under `input/<name>` — the compound `{deadzone, events}` entry `project set` cannot
-express — with **key events only** for this slice (mouse/joypad kinds may extend it later). `--key`
-is repeatable and accepts a Godot key **name** (`J`, `Space`, `Escape`) or a raw base-10 **keycode**;
-an unresolvable token is a clean `invalid_key` error (exit 4, nothing saved). `--deadzone` overrides
-Godot's `0.5` default; `--physical` binds physical keycodes (keyboard position, layout-independent)
-instead of layout keycodes. The action is built from real `InputEventKey` objects and persisted via
-`ProjectSettings.save()`, so the serialization is exactly the engine's own `var_to_str` form — the
-editor and a running game load it identically to a hand-authored entry, and the action is immediately
-driveable by `gda input action NAME` in a live session started afterwards. Adding an existing action
+**Input actions** (established by #380, joypad kinds added by #842): `gda project add-input-action
+NAME --key K... --joy-button B... --joy-axis A...` registers an InputMap action under `input/<name>`
+— the compound `{deadzone, events}` entry `project set` cannot express — from keyboard and controller
+bindings declared in ONE call. Each option is repeatable and **at least one binding of any kind** is
+required (a call naming none is a usage error, exit 2). `--key` accepts a Godot key **name** (`J`,
+`Space`, `Escape`) or a raw base-10 **keycode**; `--joy-button` a `JoyButton` name (`A`, `Start`,
+`DPadLeft`, …) or index; `--joy-axis` an axis DIRECTION spelled `<axis>[:<sign>]` (`LeftX:-`,
+`TriggerRight`), since an axis names a whole stick dimension and the sign is what makes it one
+binding — an omitted sign is `+`. Joypad names are case- and separator-insensitive (`DPadLeft`,
+`dpad_left`, `DPAD_LEFT` are one button), and `gda project add-input-action --help` / `--schema`
+list the accepted set; an unresolvable joypad token is a clean `invalid_key` error naming that set
+(exit 4, nothing saved), and an unresolvable key name is `invalid_key` naming the token alone.
+`--device` pins this call's joypad events to one joypad, `-1`..`2147483647` (the engine's 32-bit
+device field — a larger number is refused, since it would wrap to a different joypad); it defaults
+to `-1` (`InputMap.ALL_DEVICES`, every joypad) and is set explicitly, because a script-constructed
+event starts at device `0` — key events are always `-1` and `--device` never touches them. `--deadzone`
+overrides Godot's `0.5` default; `--physical` binds physical keycodes (keyboard position,
+layout-independent) instead of layout keycodes. The action is built from real `InputEventKey`,
+`InputEventJoypadButton` and `InputEventJoypadMotion` objects — appended in that kind order — and
+persisted via `ProjectSettings.save()`, so the serialization is exactly the engine's own `var_to_str`
+form — the editor and a running game load it identically to a hand-authored entry, and the action is
+immediately driveable by `gda input action NAME` in a live session started afterwards. Adding an existing action
 name is `already_exists` (never a silent clobber — remove first to replace; note the engine registers
 the built-in `ui_*` actions as defaults, so adding e.g. `ui_accept` reports `already_exists` by
 design). `gda project remove-input-action NAME` unregisters the action and persists `project.godot`;
@@ -1066,7 +1094,7 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 | `gda project list` | List the project's settings keys (customized by default; `--all` adds defaults, `--section` filters) |
 | `gda project set` | Modify a project setting (value coerced to its declared type) |
 | `gda project add-autoload` / `remove-autoload` | Register / unregister an autoload singleton |
-| `gda project add-input-action` / `remove-input-action` | Register / unregister an InputMap action (key events) |
+| `gda project add-input-action` / `remove-input-action` | Register / unregister an InputMap action (key, joypad button and joypad axis events) |
 
 ### `resource`
 
@@ -1322,7 +1350,20 @@ re-derives every verdict from a running engine.
   [`node`](#node).
 
 - **`game` (the running game's scene graph):** `game tree` reads the runtime scene
-  tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `game get` /
+  tree (shipped — the Phase-2 bootstrap tracer, #7) from the running current scene
+  (`/root` only when none is current — an autoload is that scene's sibling, so seeing
+  one takes `--root /root`), bounded on request by `--root <runtime path>` (the subtree
+  to serialize; an unknown path is `live_node_not_found`) and `--max-depth N` (0 = the
+  addressed node alone) — shipped, #849, from GDA-DF-052, where an unfiltered read of a
+  production UI exceeded the client's budget and was truncated by IT, which a caller
+  cannot tell from a complete read. What a bound leaves out of the selected subtree is
+  counted rather than dropped: `omitted_nodes` totals the unserialized nodes at every
+  depth, `truncated` is that total above zero, and a node whose children were not walked
+  carries `children_omitted` — its DIRECT children only, and the key is absent when
+  nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays the
+  default and the caller's choice; the follow-up read is a narrower `--root`, not a
+  continuation token, which would page a snapshot the live tree has already left behind.
+  Runtime node property `game get` /
   `game set` (shipped, #220, extended by #422/#473) read and mutate a running node's live
   properties — the live counterparts of headless `node get` / `node set`, applying the
   **same** value-coercion table and returning the observed read-back value plus
@@ -1448,7 +1489,18 @@ re-derives every verdict from a running engine.
   `mouse` sub-group, so each maps to a single `<group>_<command>` MCP tool name
   (ADR-0005/0011/0012). Key/mouse events ride the game's real input flow via the
   root viewport's `push_input` (scene-aware); actions go through
-  `Input.action_press`/`action_release` against the running `InputMap`. For mouse
+  `Input.action_press`/`action_release` against the running `InputMap`. Those are
+  two DISJOINT routes and every result names the one it used (`injection_route`,
+  #838): `viewport_event` for an `InputEvent` pushed through the viewport, and
+  `action_state` for an action — a change to the POLLED action state that builds no
+  `InputEvent` and so reaches no `_input` / `_gui_input` / `_unhandled_input`
+  handler. gda derives the route CLI-side from the event kind; the phased ops
+  (`input tap`, `input mouse-click`, `input sequence`) report it per phase, since
+  one sequence can mix the two — a tap targets exactly one of `--key` / `--action`,
+  and that target selects the route both its phases take. Drive event-driven UI
+  with a key or mouse event and use an action where the game polls
+  `Input.is_action_*`: a successful action injection is not evidence that the event
+  path works (GDA-DF-048, GDA-DF-075). For mouse
   ops and sequence mouse events, the reliable injected coordinate is
   `InputEventMouseButton.position` / `InputEventMouseMotion.position`; Godot may
   leave `Viewport.get_mouse_position()` and `Node2D.get_global_mouse_position()`
