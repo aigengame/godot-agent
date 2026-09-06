@@ -116,6 +116,23 @@ def test_english_readme_links_to_all_translations():
     )
 
 
+def test_all_readmes_link_to_playable_gallery():
+    gallery_url = "https://github.com/aigengame/gallery"
+    files = {"README.md": README} | {
+        f"docs/README.{lang}.md": path for lang, path in TRANSLATIONS.items()
+    }
+    missing = sorted(
+        name
+        for name, path in files.items()
+        if path.exists() and gallery_url not in path.read_text(encoding="utf-8")
+    )
+
+    assert not missing, (
+        f"public READMEs are missing the playable Gallery link: {missing}. "
+        "Keep the proof channel discoverable in every supported language."
+    )
+
+
 # --- In-page anchor integrity (Table of Contents and other "](#...)" links) ---
 
 _FENCE_RE = re.compile(r"^\s*```")
