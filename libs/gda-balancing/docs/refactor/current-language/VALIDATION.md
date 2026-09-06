@@ -6,7 +6,7 @@ adds an evidence reproduction harness. It does not implement the planned product
 
 | Check | Observed result | Limit |
 | --- | --- | --- |
-| Evidence manifest verifier | 41 recorded files and 60 paired CLI observations verified | Integrity and paired observations, not full conformance |
+| Evidence manifest verifier | 41 recorded files, three readable JUnit/XML receipts and 60 paired CLI observations verified | Integrity, readability and paired observations, not full conformance |
 | Portable probe rerun | All 13 derived JSON result records match the retained original values | See the [reproduction receipt](evidence/reproduction-receipt.json); historical sink pytest receipts were not rerun by this harness |
 | Ruff check and format | Both delivery Python tools pass | Historical `.py.txt` probes preserve experimental logic; they are not repository Python modules |
 | Existing isolation and layer tests | 38 passed | No complete Runtime or real Godot acceptance claim |
@@ -21,6 +21,12 @@ The preserved `compiler/prototype.patch`, `retirement/sink-deletion.diff` and
 markers and one archived probe line as trailing whitespace; these three archived files are
 excluded from the authored-file whitespace check and instead verified by manifest hashes.
 They are not silently reformatted or presented as production changes.
+
+The XML sanitization correction preserves all 289 common baseline/candidate test outcomes,
+77 historical removals and zero additions. Only placeholder escaping changed; the original-source
+hashes remain unchanged. A malformed XML counterexample with a correctly updated tracked hash
+is rejected by the verifier’s readability check. This validates the receipt repair without
+claiming that the historical test runs were repeated.
 
 Reproduction and integrity commands are documented in [EVIDENCE.md](EVIDENCE.md).
 Additional existing package checks, run from the package directory:

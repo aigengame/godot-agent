@@ -285,16 +285,16 @@
       "origin": "retirement/baseline-tests.xml",
       "kind": "sanitized-original",
       "original_sha256": "8a9936198fac5612c2c569cfaf941bd08f89bf9f2022a77641741e95e6b90ac7",
-      "tracked_sha256": "fa07e085da7adb3189cbf1fa2747d806f61048d34f595fb351ef5a748694177c",
-      "bytes": 76062
+      "tracked_sha256": "68a3d5661f3ca88731742c8ba63ab48115e607e9c9bed51a3ea4156dd1365f52",
+      "bytes": 76212
     },
     {
       "path": "retirement/candidate-tests.xml",
       "origin": "retirement/candidate-tests.xml",
       "kind": "sanitized-original",
       "original_sha256": "54fd04c8243ad15811e6c81f7af1288ab18bb0229f6252b92c72ce273fdf3768",
-      "tracked_sha256": "f1ea83a88c3f5e59e85ddf4fdca6c3786a0ee4542abc4792c1516b8a304f2ce8",
-      "bytes": 48628
+      "tracked_sha256": "34508473e244f89f7a8365f3a12e4d10406b7735e4043ce8c0c988af51591f90",
+      "bytes": 48778
     },
     {
       "path": "retirement/candidate-preserved-paths.xml",
@@ -331,8 +331,8 @@
     {
       "path": "verify_evidence.py",
       "kind": "new-delivery-tooling",
-      "tracked_sha256": "33029a2d787a3fa8378867e181f6030bf5385513ecbd6587b351432e693f0f2c",
-      "bytes": 1316
+      "tracked_sha256": "eac443e2fe347ca00e3d9608f7c215fbc74e855ef37f758318086bd0d8ebd0c7",
+      "bytes": 1513
     },
     {
       "path": "reproduction-receipt.json",

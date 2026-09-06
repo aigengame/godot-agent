@@ -36,7 +36,8 @@ SHA-256, the tracked SHA-256, and the transformation category:
 - `verbatim-original`: original result bytes, unchanged.
 - `gzip-verbatim-original`: exact original bytes under deterministic gzip; the original
   digest applies after decompression. Both CLI observation sets are retained this way.
-- `sanitized-original`: a receipt whose local path text was replaced. Its tracked digest
+- `sanitized-original`: a receipt whose local path text was replaced. XML placeholders
+  are escaped so standard JUnit/XML readers can parse the sanitized receipt. Its tracked digest
   must not be represented as the digest of the original receipt.
 - `adapted-paths-only-harness`: original experiment logic with machine-specific source
   and output paths replaced by explicit environment inputs. These historical scripts
@@ -92,3 +93,6 @@ Run `python evidence/verify_evidence.py` from this directory to verify the track
 portfolio hashes and exact paired CLI observations. This verifies delivery integrity;
 it does not substitute for rerunning an experiment or for the plan's implementation
 acceptance criteria.
+
+The integrity verifier also parses all three retained JUnit/XML receipts. Sanitization must
+preserve their test identities and outcomes as well as making the text portable.
