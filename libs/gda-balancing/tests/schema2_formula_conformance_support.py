@@ -101,26 +101,20 @@ def _validate_context(
     requirements = request.get(profile["requirements_member"])
     if not isinstance(requirements, list):
         raise ValueError("independent Formula requirements are malformed")
-    requirement_keys: set[tuple[str, str]] = set()
+    requirement_keys: set[str] = set()
     for requirement in requirements:
-        if not isinstance(requirement, dict):
-            raise ValueError("independent Formula requirement is malformed")
-        key = (
-            requirement.get(profile["requirement_package_member"]),
-            requirement.get(profile["requirement_version_member"]),
-        )
-        if not all(isinstance(item, str) for item in key) or key in requirement_keys:
+        if (
+            not isinstance(requirement, str)
+            or not requirement
+            or requirement in requirement_keys
+        ):
             raise ValueError(
                 "independent Formula requirement is malformed or duplicate"
             )
-        requirement_keys.add(cast(tuple[str, str], key))
-    packages = {(row["id"], row["version"]): row for row in language["packages"]}
+        requirement_keys.add(requirement)
+    packages = {row["id"]: row for row in language["packages"]}
     if any(key not in packages for key in requirement_keys):
         raise ValueError("independent Formula requirement is unresolved")
-    if len({package for package, _version in requirement_keys}) != len(
-        requirement_keys
-    ):
-        raise ValueError("independent Formula requirement version is ambiguous")
     current_module = request.get("module")
     modules = request.get("modules", [current_module])
     if not isinstance(current_module, dict) or not isinstance(modules, list):
@@ -158,20 +152,17 @@ def _validate_context(
             if not isinstance(imported, dict):
                 raise ValueError("independent Formula import is malformed")
             alias = imported.get(profile["import_alias_member"])
-            package_key = (
-                imported.get(profile["import_package_member"]),
-                imported.get(profile["import_version_member"]),
-            )
+            package_key = imported.get(profile["import_package_member"])
             symbol = imported.get(profile["import_symbol_member"])
             if (
                 not isinstance(alias, str)
                 or alias in aliases
-                or not all(isinstance(item, str) for item in package_key)
+                or not isinstance(package_key, str)
                 or not isinstance(symbol, str)
             ):
                 raise ValueError("independent Formula import is malformed or ambiguous")
             aliases.add(alias)
-            package = packages.get(cast(tuple[str, str], package_key))
+            package = packages.get(package_key)
             exported_types = (
                 {
                     row.get("id")
@@ -226,40 +217,20 @@ def _operand(value: Any, grammar: dict[str, Any]) -> str:
 def _selected_notations(
     request: dict[str, Any], language_bundle: dict[str, Any]
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    _grammar, operations = _authority(language_bundle)
-    selected = {
-        (row.get("id"), row.get("version"))
-        for row in request.get("package_requirements", [])
-        if isinstance(row, dict)
-    }
+    selected = set(request.get("package_requirements", []))
     rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    for operation in operations:
-        coordinate = (
-            operation.get("type", {}).get("package"),
-            operation.get("version"),
-        )
-        package = operation.get("package")
-        if not isinstance(package, str):
-            package = next(
-                (
-                    cast(str, owner["id"])
-                    for owner in language_bundle["language"]["packages"]
-                    if any(
-                        closure.get("authority_path") == "language.operations"
-                        and operation in closure.get("definitions", [])
-                        for closure in owner["semantic_closure"]
-                    )
-                ),
-                "",
-            )
-        coordinate = (package, operation.get("version"))
-        notation = operation.get("extensions", {}).get("standard.formula-notation")
-        if (
-            coordinate in selected
-            and operation.get("purity") == "pure"
-            and isinstance(notation, dict)
-        ):
-            rows.append(({**operation, "package": package}, notation))
+    for package in language_bundle["language"]["packages"]:
+        if package["id"] not in selected:
+            continue
+        for entry in package["semantic_closure"]:
+            if entry["authority_path"] != "language.operations":
+                continue
+            for operation in entry["definitions"]:
+                notation = operation.get("extensions", {}).get(
+                    "standard.formula-notation"
+                )
+                if operation.get("purity") == "pure" and isinstance(notation, dict):
+                    rows.append(({**operation, "package": package["id"]}, notation))
     return rows
 
 
@@ -273,7 +244,6 @@ def render_body(
     by_coordinate = {
         (
             cast(str, operation.get("package", "")),
-            cast(str, operation["version"]),
             cast(str, operation["id"]),
         ): notation
         for operation, notation in notations
@@ -290,7 +260,6 @@ def render_body(
             notation = by_coordinate.get(
                 (
                     cast(str, coordinate["package"]),
-                    cast(str, coordinate["version"]),
                     cast(str, coordinate["id"]),
                 )
             )
@@ -413,18 +382,18 @@ def _source_contract(value: dict[str, Any]) -> dict[str, Any]:
 
 
 def _contract_type_identity(
-    contract: dict[str, Any], imports: dict[str, tuple[str, str, str]]
-) -> tuple[str, str, str] | None:
+    contract: dict[str, Any], imports: dict[str, tuple[str, str]]
+) -> tuple[str, str] | None:
     alias = contract.get("type")
     if alias == "Boolean":
-        return "kernel", "2.0.0", "Boolean"
+        return "kernel", "Boolean"
     return imports.get(alias) if isinstance(alias, str) else None
 
 
 def _operation_contract_matches(
     contract: dict[str, Any] | None,
     formal: dict[str, Any],
-    imports: dict[str, tuple[str, str, str]],
+    imports: dict[str, tuple[str, str]],
 ) -> bool:
     if contract is None:
         return True
@@ -434,7 +403,6 @@ def _operation_contract_matches(
         and _contract_type_identity(contract, imports)
         == (
             formal_type.get("package"),
-            formal_type.get("version"),
             formal_type.get("id"),
         )
         and all(
@@ -446,9 +414,9 @@ def _operation_contract_matches(
 
 def _formula_contract_matches(
     actual: dict[str, Any] | None,
-    actual_imports: dict[str, tuple[str, str, str]],
+    actual_imports: dict[str, tuple[str, str]],
     expected: dict[str, Any],
-    expected_imports: dict[str, tuple[str, str, str]],
+    expected_imports: dict[str, tuple[str, str]],
 ) -> bool:
     return (
         actual is not None
@@ -470,11 +438,11 @@ def _formula_contract_matches(
 
 def _rebase_contract(
     contract: dict[str, Any],
-    source_imports: dict[str, tuple[str, str, str]],
-    target_imports: dict[str, tuple[str, str, str]],
+    source_imports: dict[str, tuple[str, str]],
+    target_imports: dict[str, tuple[str, str]],
 ) -> dict[str, Any]:
     identity = _contract_type_identity(contract, source_imports)
-    if identity == ("kernel", "2.0.0", "Boolean"):
+    if identity == ("kernel", "Boolean"):
         alias = "Boolean"
     else:
         aliases = [
@@ -570,7 +538,7 @@ def _notation_resource_usage(
 
 def _declared_result_contract(
     operation: dict[str, Any],
-    imports: dict[str, tuple[str, str, str]],
+    imports: dict[str, tuple[str, str]],
 ) -> dict[str, Any]:
     result = operation.get("result")
     result_type = result.get("type") if isinstance(result, dict) else None
@@ -578,11 +546,10 @@ def _declared_result_contract(
         raise ValueError("independent result declaration is malformed")
     coordinate = (
         result_type.get("package"),
-        result_type.get("version"),
         result_type.get("id"),
     )
     aliases = [alias for alias, identity in imports.items() if identity == coordinate]
-    if coordinate == ("kernel", "2.0.0", "Boolean"):
+    if coordinate == ("kernel", "Boolean"):
         type_alias = "Boolean"
     elif len(aliases) == 1:
         type_alias = aliases[0]
@@ -610,7 +577,7 @@ def _infer_result(
     ports: list[str],
     contracts: list[dict[str, Any] | None],
     fallback: dict[str, Any],
-    imports: dict[str, tuple[str, str, str]],
+    imports: dict[str, tuple[str, str]],
     policy: dict[str, Any],
 ) -> dict[str, Any]:
     anchor = next((row for row in contracts if isinstance(row, dict)), fallback)
@@ -766,7 +733,6 @@ def parse_canonical(
         row["id"]: {
             imported["alias"]: (
                 imported["package"],
-                imported["version"],
                 imported["symbol"],
             )
             for imported in row["imports"]
@@ -776,7 +742,7 @@ def parse_canonical(
     imports = imports_by_module[module_id]
     symbols: dict[tuple[str, str], dict[str, Any]] = {}
     declarations: dict[
-        tuple[str, str], tuple[dict[str, Any], dict[str, tuple[str, str, str]]]
+        tuple[str, str], tuple[dict[str, Any], dict[str, tuple[str, str]]]
     ] = {}
     for module_row in modules:
         declaration_module = module_row["id"]
@@ -869,7 +835,6 @@ def parse_canonical(
                 "node": "operation-call",
                 "operation": {
                     "package": operation["package"],
-                    "version": operation["version"],
                     "id": operation["id"],
                 },
                 "arguments": [
@@ -928,7 +893,7 @@ def parse_canonical(
             if (
                 condition_contract is None
                 or _contract_type_identity(condition_contract, imports)
-                != ("kernel", "2.0.0", "Boolean")
+                != ("kernel", "Boolean")
                 or true_contract is None
                 or true_contract != false_contract
             ):

@@ -22,8 +22,8 @@ from gda_balancing.domain.runtime.execution import (
     evaluate_experiment,
 )
 
-OperationCoordinate = tuple[str, str, str]
-PackageCoordinate = tuple[str, str]
+OperationCoordinate = tuple[str, str]
+PackageCoordinate = str
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,6 @@ class OperationExecutionHarness:
 def _operation_coordinate(reference: dict[str, Any]) -> OperationCoordinate:
     return (
         cast(str, reference["package"]),
-        cast(str, reference["version"]),
         cast(str, reference["id"]),
     )
 
@@ -54,7 +53,6 @@ def _language_operation_index(
     return {
         (
             cast(str, package["id"]),
-            cast(str, package["version"]),
             cast(str, definition["id"]),
         ): definition
         for package in cast(list[dict[str, Any]], language["packages"])
@@ -68,7 +66,7 @@ def _reachable_package_coordinates(
     language: dict[str, Any], root: PackageCoordinate
 ) -> set[PackageCoordinate]:
     packages = {
-        (cast(str, package["id"]), cast(str, package["version"])): package
+        cast(str, package["id"]): package
         for package in cast(list[dict[str, Any]], language["packages"])
     }
     selected: set[PackageCoordinate] = set()
@@ -78,25 +76,21 @@ def _reachable_package_coordinates(
             return
         selected.add(coordinate)
         package = packages[coordinate]
-        for dependency in cast(
-            list[dict[str, Any]], package["dependencies"]["required"]
-        ):
-            visit((cast(str, dependency["id"]), cast(str, dependency["version"])))
+        for dependency in cast(list[str], package["dependencies"]["required"]):
+            visit(dependency)
 
     visit(root)
     return selected
 
 
-def _type_coordinate(contract: dict[str, Any]) -> tuple[str, str, str]:
+def _type_coordinate(contract: dict[str, Any]) -> tuple[str, str]:
     type_identity = contract.get("type")
     if not isinstance(type_identity, dict) or not all(
-        isinstance(type_identity.get(member), str)
-        for member in ("package", "version", "id")
+        isinstance(type_identity.get(member), str) for member in ("package", "id")
     ):
         raise ValueError("operation vector uses an unimportable port type")
     return (
         cast(str, type_identity["package"]),
-        cast(str, type_identity["version"]),
         cast(str, type_identity["id"]),
     )
 
@@ -134,20 +128,20 @@ def _model_symbol(
     }
 
 
-def _operation_owner(language: dict[str, Any], operation_id: str) -> tuple[str, str]:
+def _operation_owner(language: dict[str, Any], operation_id: str) -> str:
     owners = [
-        (package["id"], package["version"])
+        package["id"]
         for package in language["packages"]
         if operation_id in package["exports"]["operations"]
     ]
     if len(owners) != 1:
         raise ValueError("operation vector owner is not unique")
-    return cast(tuple[str, str], owners[0])
+    return cast(str, owners[0])
 
 
 def _formula_contract(
     contract: dict[str, Any],
-    aliases: dict[tuple[str, str, str], str],
+    aliases: dict[tuple[str, str], str],
     *,
     minimum: int,
     maximum: int,
@@ -196,16 +190,16 @@ def _reachable_operations(
 def _formula_sources(
     context: AdmittedAuthorityContext,
     root: OperationCoordinate,
-    aliases: dict[tuple[str, str, str], str],
+    aliases: dict[tuple[str, str], str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     language = cast(dict[str, Any], context.language_bundle["language"])
     operations = _language_operation_index(language)
-    selected_packages = _reachable_package_coordinates(language, root[:2])
+    selected_packages = _reachable_package_coordinates(language, root[0])
     runtime = cast(dict[str, Any], context.kernel["meta_format"]["runtime_program"])
     numeric = cast(dict[str, int], runtime["numeric"])
     expression_operations: list[tuple[OperationCoordinate, dict[str, Any]]] = []
     for coordinate, operation in operations.items():
-        if coordinate[:2] not in selected_packages:
+        if coordinate[0] not in selected_packages:
             continue
         body = operation.get("body")
         result = operation.get("result")
@@ -312,7 +306,6 @@ def _formula_sources(
                         "node": "operation-call",
                         "operation": {
                             "package": expression_owner[0],
-                            "version": expression_owner[1],
                             "id": expression_operation["id"],
                         },
                         "arguments": arguments,
@@ -389,7 +382,6 @@ def _formula_sources(
                         "kind": "operation-slot",
                         "operation": {
                             "package": owner[0],
-                            "version": owner[1],
                             "id": operation["id"],
                         },
                         "slot": slot["id"],
@@ -418,19 +410,17 @@ def _candidate_model_source(
 ) -> tuple[dict[str, Any], str]:
     runtime = cast(dict[str, Any], context.kernel["meta_format"]["runtime_program"])
     numeric = cast(dict[str, int], runtime["numeric"])
-    operation_owner = operation_coordinate[:2]
+    operation_owner = operation_coordinate[0]
     selected_packages = _reachable_package_coordinates(
         cast(dict[str, Any], context.language_bundle["language"]), operation_owner
     )
     quantity_packages = {
-        coordinate
-        for coordinate in selected_packages
-        if coordinate[0] == "core.quantity"
+        coordinate for coordinate in selected_packages if coordinate == "core.quantity"
     }
     if len(quantity_packages) != 1:
         raise ValueError("operation vector does not select one Quantity package")
     quantity_package = next(iter(quantity_packages))
-    quantity_coordinate = (*quantity_package, "Quantity")
+    quantity_coordinate = (quantity_package, "Quantity")
     contracts = [*operation["inputs"], operation["result"]]
     coordinates = sorted(
         {*(_type_coordinate(contract) for contract in contracts), quantity_coordinate},
@@ -443,8 +433,7 @@ def _candidate_model_source(
         {
             "alias": aliases[coordinate],
             "package": coordinate[0],
-            "version": coordinate[1],
-            "symbol": coordinate[2],
+            "symbol": coordinate[1],
         }
         for coordinate in coordinates
     ]
@@ -479,8 +468,7 @@ def _candidate_model_source(
                 "representation": "Int",
                 "type": {
                     "package": quantity_coordinate[0],
-                    "version": quantity_coordinate[1],
-                    "id": quantity_coordinate[2],
+                    "id": quantity_coordinate[1],
                 },
                 "unit": "1",
             },
@@ -495,7 +483,7 @@ def _candidate_model_source(
         context, operation_coordinate, aliases
     )
     requirements = sorted(
-        {operation_owner, *(coordinate[:2] for coordinate in coordinates)},
+        {operation_owner, *(coordinate[0] for coordinate in coordinates)},
         key=lambda row: tuple(member.encode("utf-8") for member in row),
     )
     return (
@@ -504,19 +492,14 @@ def _candidate_model_source(
                 "schema_version": "2.0.0",
                 "manifest": {
                     "id": manifest_id,
-                    "version": "1.0.0",
                     "entry_module": "vector",
                 },
-                "package_requirements": [
-                    {"id": package, "version": version}
-                    for package, version in requirements
-                ],
+                "package_requirements": requirements,
                 "entrypoints": [
                     {
                         "id": entrypoint_id,
                         "operation": {
-                            "package": operation_owner[0],
-                            "version": operation_owner[1],
+                            "package": operation_owner,
                             "id": operation["id"],
                         },
                         "arguments": [
@@ -652,7 +635,6 @@ def _checked_vector_experiment(
     specification = {
         "schema_version": "2.0.0",
         "id": f"operation-execution.{vector['id']}",
-        "version": "1.0.0",
         "kernel_identity": context.kernel["content_identity"],
         "language_bundle_identity": context.language_bundle["content_identity"],
         "model": {
@@ -739,19 +721,15 @@ def evaluate_operation_execution_vector_with_evidence(
     vector: dict[str, Any],
     *,
     package_id: str | None = None,
-    package_version: str | None = None,
     harness: OperationExecutionHarness | None = None,
 ) -> dict[str, Any]:
     """Execute one Package vector and retain its Runtime audit evidence."""
-    if package_id is None or package_version is None:
+    if package_id is None:
         language = cast(dict[str, Any], context.language_bundle["language"])
-        package_id, package_version = _operation_owner(
-            language, cast(str, vector.get("operation"))
-        )
+        package_id = _operation_owner(language, cast(str, vector.get("operation")))
     language = cast(dict[str, Any], context.language_bundle["language"])
     coordinate = (
         cast(str, package_id),
-        cast(str, package_version),
         cast(str, vector.get("operation")),
     )
     operation = _language_operation_index(language).get(coordinate)
@@ -763,7 +741,6 @@ def evaluate_operation_execution_vector_with_evidence(
     resolved_operations = {
         (
             cast(str, row["package"]),
-            cast(str, row["definition"]["version"]),
             cast(str, row["definition"]["id"]),
         ): row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
@@ -846,12 +823,10 @@ def evaluate_operation_execution_vector(
     vector: dict[str, Any],
     *,
     package_id: str | None = None,
-    package_version: str | None = None,
 ) -> dict[str, JsonValue]:
     """Execute one admitted Package vector through the production evaluator."""
     return evaluate_operation_execution_vector_with_evidence(
         context,
         vector,
         package_id=package_id,
-        package_version=package_version,
     )["observation"]
