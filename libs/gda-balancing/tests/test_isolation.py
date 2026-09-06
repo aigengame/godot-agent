@@ -136,7 +136,7 @@ def test_toolkit_carries_no_per_game_config() -> None:
         *{
             "src/gda_balancing/schema2/authorities/packages/"
             f"{descriptor['id'].replace('.', '-')}/"
-            f"{descriptor['id']}@{descriptor['version']}{suffix}"
+            f"{descriptor['id']}{suffix}"
             for descriptor in root["package_descriptors"]
             for suffix in (".json", ".conformance-vectors.json")
         },
