@@ -1829,10 +1829,12 @@ func _resolve_runtime_node(path: String) -> Node:
 	return get_tree().root.get_node_or_null(NodePath(path))
 
 
-# The ONE depth-bounded, counting tree serializer (#849) — the shape `game tree`
-# reports and the walk any later node-search op bounds itself with. `max_depth` is
-# the number of levels BELOW `node` to serialize: 0 stops at `node` itself, and a
-# NEGATIVE value is unbounded. `counts` is the caller's mutable accumulator
+# The ONE depth-bounded, counting tree serializer (#849): it renders `game tree`'s
+# NESTED subtree, so an op that reports a flat match list is a different walk and
+# does not call it — what such an op shares is the per-node shape (name/type/path)
+# and this depth-bounding + omitted-count contract, not this function. `max_depth`
+# is the number of levels BELOW `node` to serialize: 0 stops at `node` itself, and
+# a NEGATIVE value is unbounded. `counts` is the caller's mutable accumulator
 # (Dictionary, so it is shared by reference): its "omitted_nodes" entry grows by
 # every node this walk did not serialize, at every depth — the total the result
 # reports. A node whose children were left out carries `children_omitted`, the

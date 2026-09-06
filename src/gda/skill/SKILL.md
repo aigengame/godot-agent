@@ -302,8 +302,8 @@ freeze-frame in an agent session, use `paused`, which live operations survive; a
 
 ### Find a node before you address it
 
-Every live op takes an exact runtime path, and `game tree` is how you learn one. Read it
-in TWO steps rather than dumping the whole tree:
+Every live op that ADDRESSES a node takes an exact runtime path, and `game tree` is how
+you learn one. Read it in TWO steps rather than dumping the whole tree:
 
 1. **Bound the read.** `gda game tree --max-depth 2 --json` shows the top levels; then
    `gda game tree --root /root/Main/HUD --max-depth 2 --json` walks into the branch you

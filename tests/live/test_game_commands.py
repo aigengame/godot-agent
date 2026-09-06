@@ -150,8 +150,10 @@ def test_game_tree_renders_the_omission_for_a_human(monkeypatch, tmp_path):
 
 
 def test_game_tree_refuses_a_negative_max_depth(monkeypatch, tmp_path):
-    # The bound is a depth, so a negative one is a usage error decided by the
-    # params model (ADR-0015) — before any daemon is involved.
+    # The bound is a depth, so a negative one is a usage error — before any
+    # daemon is involved. Click's own `min=0` mirrors the model's `ge=0` and
+    # decides first, so the message names the FLAG the caller typed; the model
+    # still refuses the same value on the --params-json path (ADR-0015).
     result = CliRunner().invoke(
         app,
         [
@@ -166,10 +168,10 @@ def test_game_tree_refuses_a_negative_max_depth(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
-    assert "max_depth" in usage_error_text(result)
+    assert "--max-depth" in usage_error_text(result)
 
 
-def test_game_tree_help_states_the_bounding_options(monkeypatch, tmp_path):
+def test_game_tree_help_states_the_bounding_options():
     result = CliRunner().invoke(app, ["game", "tree", "--help"])
 
     assert result.exit_code == 0, result.stdout + result.stderr

@@ -20,8 +20,13 @@ import json
 from typing import Any, Optional
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field, model_serializer
-from pydantic_core.core_schema import SerializerFunctionWrapHandler
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
@@ -593,10 +598,11 @@ def game_tree(
     max_depth: Optional[int] = typer.Option(
         None,
         "--max-depth",
+        min=0,
         help=(
-            "Read at most this many levels below the root (0 = the root alone). "
-            "Unset is an unbounded read of the whole subtree, which on a large "
-            "tree is the caller's choice."
+            "Read at most this many levels below the root (0 = the root alone); "
+            "must be >= 0. Unset is an unbounded read of the whole subtree, "
+            "which on a large tree is the caller's choice."
         ),
     ),
     json_output: bool = json_option(),
