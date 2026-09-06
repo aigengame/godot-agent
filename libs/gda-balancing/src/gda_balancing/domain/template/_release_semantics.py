@@ -23,7 +23,7 @@ from gda_balancing.domain.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
     bootstrap_refusal,
-    ingress_refusal,
+    authority_load_refusal,
 )
 from gda_balancing.domain.model import (
     CheckedModel,
@@ -1291,7 +1291,7 @@ def load_admitted_template(
     try:
         context = resolve_authority_context(authority_context_provider)
     except AuthorityLoadError as err:
-        return ingress_refusal(err.code, err.subject, err.message)
+        return authority_load_refusal(err)
     if isinstance(context, BootstrapAdmission):
         return bootstrap_refusal(context)
     kernel = context.kernel

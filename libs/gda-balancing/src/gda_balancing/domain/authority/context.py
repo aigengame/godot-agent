@@ -366,6 +366,13 @@ class AuthorityLoadError(Exception):
         self.message = message
         self.admission = admission
 
+    @property
+    def stage(self) -> str:
+        """Retain the raw-loader API while exposing the actual admission stage."""
+        if self.admission is not None:
+            return self.admission.diagnostics[0].stage
+        return "ingress"
+
 
 @dataclass(frozen=True)
 class _AuthorityFailureSnapshot:

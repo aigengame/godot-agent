@@ -21,6 +21,7 @@ from gda_balancing.interfaces.cli.model_check import (
 )
 from gda_balancing.domain.authority.graph import LanguageBundleIndex
 from gda_balancing.domain.diagnostics import authority_load_refusal
+from gda_balancing.domain.template import load_admitted_template, minimal_release
 from schema2_bootstrap_production_support import (
     _append_empty_namespace,
     _authority_candidate,
@@ -191,6 +192,7 @@ def test_cached_bootstrap_refusal_preserves_frozen_evidence_from_actual_resource
     monkeypatch.setattr(authority_module, "read_package_resource", read_candidate)
     with pytest.raises(authority_module.AuthorityLoadError) as first:
         authority_module.packaged_authority_context()
+    assert first.value.stage == "static"
     admission = first.value.admission
     assert admission is not None
     assert admission.admitted is False
@@ -212,6 +214,7 @@ def test_cached_bootstrap_refusal_preserves_frozen_evidence_from_actual_resource
 
     assert later.value is not first.value
     assert later.value.admission is admission
+    assert later.value.stage == "static"
     assert later.value.code == "kernel.duplicate_identifier"
     assert tuple(reads) == original_reads
     report = authority_load_refusal(later.value)
@@ -223,6 +226,13 @@ def test_cached_bootstrap_refusal_preserves_frozen_evidence_from_actual_resource
     assert diagnostic.primary.kind == "artifact"
     assert diagnostic.primary.content_identity == ldb["content_identity"]
     assert diagnostic.primary.pointer == "/language/packages"
+    assert (
+        load_admitted_template(
+            minimal_release, authority_module.packaged_authority_context
+        )
+        == report
+    )
+    assert tuple(reads) == original_reads
     assert authority_module.authority_lifecycle_metrics() == {
         "packaged_admission_attempts": 1,
         "packaged_context_published": 0,
