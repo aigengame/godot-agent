@@ -164,7 +164,9 @@ def test_each_dogfooded_option_spelling_names_the_positional_form(args, hint):
     # positional argument, and `--strict` is `script run`'s gate alone. The refusal is
     # raised by the LEAF command's parser, which is the third interception site (after
     # the root's own parser and a group's). The two `script run` rows are a deliberate
-    # duplicate: the table keys on the SPELLING typed, and both were typed.
+    # duplicate: the table keys on the SPELLING typed. `--script` is the recorded one
+    # (GDA-DF-032); `--path` is curated beside it, because GDA-DF-069 recorded that
+    # spelling on `validate` and the same caller slip reaches both commands.
     result = CliRunner().invoke(app, [*args, "--json"])
 
     error = _envelope(result)
