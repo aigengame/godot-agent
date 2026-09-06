@@ -14,6 +14,10 @@ from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from gda_balancing.domain.experiment import derive_scenario_program_requirements
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.authority.graph import LanguageBundleIndex
+from gda_balancing.domain.operation_program import (
+    operation_coordinate,
+    selected_operation_index,
+)
 
 
 def _prepare_experiment(
@@ -29,7 +33,7 @@ def _prepare_experiment(
     vector_set = next(
         row
         for row in language_bundle.package_conformance_vector_sets
-        if row["package_id"] == "game.combat" and row["package_version"] == "2.2.0"
+        if row["package_id"] == "game.combat"
     )
     vectors = {row["id"]: row for row in vector_set["vector_definitions"]}
     source_fixture = vectors["formula.combat.accept.damage-slot-binding"][
@@ -93,13 +97,11 @@ def _prepare_experiment(
     entrypoint = next(
         row
         for row in rir["entrypoints"]
-        if row["operation"]["id"] == runtime_vector["operation"]
+        if operation_coordinate(row["operation"])
+        == (vector_set["package_id"], runtime_vector["operation"])
     )
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
-    operation = operations[entrypoint["operation"]["id"]]
+    operations = selected_operation_index(rir["selected_semantics"])
+    operation = operations[operation_coordinate(entrypoint["operation"])]
     rng_algorithm = context.kernel["meta_format"]["runtime_program"]["named_rng"][
         "algorithm"
     ]
@@ -139,7 +141,6 @@ def _prepare_experiment(
     specification = {
         "schema_version": "2.0.0",
         "id": f"{source_value['manifest']['id']}.conformance",
-        "version": "1.0.0",
         "kernel_identity": build["kernel_identity"],
         "language_bundle_identity": build["language_bundle_identity"],
         "model": {

@@ -22,6 +22,7 @@ from gda_balancing.domain.diagnostics import (
 )
 from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.domain.operation_program import (
+    OperationCoordinate,
     guard_expanded_instruction_indices,
     instruction_evaluation_sites,
     operation_coordinate,
@@ -267,9 +268,8 @@ def _admit_declared_value(
 ) -> JsonValue:
     type_identity = cast(dict[str, str], declaration["type_identity"])
     declared_type: JsonValue = {
-        "id": type_identity["symbol"],
+        "id": type_identity["id"],
         "package": type_identity["package"],
-        "version": type_identity["version"],
     }
     if declaration.get("value_kind") == "nominal-structured":
         type_member, _value_member = typed_envelope_members(structured_authority)
@@ -1249,7 +1249,7 @@ def evaluate_prepared_experiment(
         event_id = ""
 
         def execute_operation(
-            selected_coordinate: tuple[str, str, str],
+            selected_coordinate: OperationCoordinate,
             selected_operation: dict[str, Any],
             arguments: dict[str, Any],
             state_references: dict[str, bytes],
