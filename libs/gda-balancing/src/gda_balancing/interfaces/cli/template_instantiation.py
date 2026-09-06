@@ -24,7 +24,6 @@ class TemplateInstantiateInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
-    version: str = Field(min_length=1)
     package_id: str = Field(min_length=1)
     out: str = Field(min_length=1)
     invocation_key: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -80,7 +79,6 @@ def template_instantiate_handler(
     ) -> TemplateInstantiateResult | Schema2RefusalReport:
         result = instantiate_template(
             inp.id,
-            inp.version,
             inp.package_id,
             inp.out,
             inp.invocation_key,
@@ -112,16 +110,12 @@ TEMPLATE_INSTANTIATE = CommandDescriptor(
         valid_args=(
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
             "--package-id",
             "example.instantiated",
         ),
         refusing_args=(
             "--id",
             "missing.template",
-            "--version",
-            "2.1.0",
             "--package-id",
             "example.instantiated",
         ),
