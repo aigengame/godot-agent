@@ -1513,6 +1513,14 @@ def preflight_scene(
     launch, not a live session: it needs no daemon, and observes the scene coming
     up rather than driving it (that is 'gda game', behind 'gda daemon start').
 
+    A booted scene runs the project's code, so it can WRITE 'user://' — and on a
+    host whose Godot application-data directory is not writable that fails inside
+    the scene, not in gda. Redirect both it and the engine log with the GLOBAL
+    '--user-data-root', which PRECEDES the subcommand — 'gda --user-data-root DIR
+    scene preflight <path>' — or set $GDA_USER_DATA_ROOT. By default gda redirects
+    only the engine log, to a private temporary file, so a read-only
+    application-data directory never breaks the launch itself.
+
     The engine's error stream is forwarded to gda's stderr, so what the scene
     complained about is visible verbatim as well as parsed into 'diagnostics'. Its
     STDOUT is not: gda's own stdout carries only the result object, so a scene's

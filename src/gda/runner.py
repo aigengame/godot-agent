@@ -18,7 +18,7 @@ import threading
 import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import IO, Optional, Protocol
 
@@ -93,6 +93,38 @@ class TimeoutBound:
     seconds: float
 
 
+@dataclass(frozen=True)
+class UserDataReport:
+    """Where one launch PUT Godot's user data — the disclosable facts (issue #850).
+
+    The launch's :class:`UserDataPlacement` is prepared and DROPPED inside
+    :func:`launch`, so nothing outside it can see where the run's ``user://`` and
+    log actually were. A channel that has to say so — ``gda script run``, whose
+    callers keep diagnosing an unwritable ``user://`` as a game regression — needs
+    the facts to ride the result out, the same reason :class:`TimeoutBound` does.
+
+    This is the placement MINUS its ``env``: the child environment is gda's own
+    process environment merged with one override, and no result has any business
+    carrying it. What is left is three paths, and each is reported only when it is
+    a fact:
+
+    - ``root`` is ``None`` when no ``--user-data-root`` (or ``$GDA_USER_DATA_ROOT``)
+      was given, which is the common case — gda then redirects nothing but the log;
+    - ``data_path`` is what :func:`engine_data_path` resolved for the child, so it
+      is the platform-DERIVED path under a ``root`` (``<root>/Library/Application
+      Support`` on macOS), never the bare root. ``None`` when the platform's own
+      variable is unset — the honest answer, not a fabricated path;
+    - ``log_file`` is set ONLY under a ``root``. Without one the log is a private
+      temporary file this launch removes on the way out, so naming it would hand a
+      caller a path that no longer exists. The rule lives here, in the primitive
+      that owns the lifetime, rather than in each channel that publishes it.
+    """
+
+    root: Optional[Path]
+    data_path: Optional[Path]
+    log_file: Optional[Path]
+
+
 @dataclass
 class RunResult:
     """The raw result of a one-shot headless Godot invocation."""
@@ -115,6 +147,19 @@ class RunResult:
     # The ceiling this run reached, set only on a synthesized ``TIMEOUT`` result
     # (issue #714) — see :class:`TimeoutBound`.
     timeout_bound: "TimeoutBound | None" = None
+    # Where this launch put Godot's user data (issue #850) — see
+    # :class:`UserDataReport`. Set by :func:`launch` on every result it returns from
+    # a prepared placement, whatever the outcome, so that a channel CAN publish it
+    # wherever it decides to — not because every outcome publishes it today. Today
+    # exactly one does: ``script run``'s SUCCESS result. The failure envelopes of
+    # this and every other channel keep their pre-#850 shape, because putting a fact
+    # on an ``Error envelope`` means entering ADR-0004's `Failure evidence` producer
+    # set, which #850 did not scope. Follow-up: extend `Failure evidence` with
+    # ``engine_data_path`` on ``script_failed`` / ``launch_timeout``.
+    # ``None`` on a launch REFUSED before a placement existed
+    # (``USER_DATA_UNWRITABLE``, whose own diagnostics name what was attempted) and
+    # on a hand-built result at a test seam.
+    user_data: "UserDataReport | None" = None
 
 
 # The per-invocation user-data root the CLI resolved, or ``None`` for the engine
@@ -285,8 +330,14 @@ class UserDataPlacement:
 
     ``env`` is the FULL child environment when a root redirects ``user://``, else
     ``None`` to inherit gda's own.
+
+    ``root`` is the ``--user-data-root`` this placement was PREPARED from, carried
+    here rather than left in the caller's local so the placement is self-describing:
+    one object then answers every question about where the launch put its user data,
+    and the :class:`UserDataReport` derives from it alone (#850 review).
     """
 
+    root: Optional[Path]
     log_file: Path
     data_path: Optional[Path]
     env: Optional[dict[str, str]]
@@ -364,7 +415,9 @@ def user_data_placement(
                 ) from exc
         except UserDataUnwritable:
             raise
-        yield UserDataPlacement(log_file=log_file, data_path=data_path, env=child_env)
+        yield UserDataPlacement(
+            root=root, log_file=log_file, data_path=data_path, env=child_env
+        )
     finally:
         if temp_root is not None:
             shutil.rmtree(temp_root, ignore_errors=True)
@@ -685,7 +738,7 @@ def launch(
         with user_data_placement(root) as placement:
             # Only the preparation above can raise UserDataUnwritable: the spawn
             # itself maps every OSError to the NOT_FOUND result below.
-            return _spawn_streamed(
+            result = _spawn_streamed(
                 binary,
                 args,
                 cwd=cwd,
@@ -693,6 +746,22 @@ def launch(
                 timeout_label=timeout_label,
                 placement=placement,
                 watch=watch if watch is not None else _CaptureOnly(),
+            )
+            # Report the placement on the way out (#850). Done HERE rather than at
+            # each of the spawn's exits because this is the one scope that knows
+            # both halves — the root the launch resolved and the placement it
+            # prepared from it — and because it applies to every outcome alike.
+            return replace(
+                result,
+                user_data=UserDataReport(
+                    root=placement.root,
+                    data_path=placement.data_path,
+                    # The log is a fact only under a root; otherwise it is the
+                    # private temporary file this block is about to remove.
+                    log_file=(
+                        placement.log_file if placement.root is not None else None
+                    ),
+                ),
             )
     except UserDataUnwritable as exc:
         return RunResult(
