@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/aigengame/godot-agent/compare/v0.14.0...v0.15.0) (2026-09-06)
+
+
+### Features
+
+* **gda:** bound `game tree` with --root and --max-depth ([#849](https://github.com/aigengame/godot-agent/issues/849)) ([#858](https://github.com/aigengame/godot-agent/issues/858)) ([56a8aff](https://github.com/aigengame/godot-agent/commit/56a8aff258a456260a88c6865db6a39a97490829))
+* **gda:** curate the script --path and --strict near misses ([#851](https://github.com/aigengame/godot-agent/issues/851)) ([#857](https://github.com/aigengame/godot-agent/issues/857)) ([6481678](https://github.com/aigengame/godot-agent/commit/64816785311a95df11760d355d9f04b3f1f04b69))
+* **gda:** dogfooding II W1 — script near misses, user-data disclosure, joypad bindings, injection route, bounded game tree ([cfcb865](https://github.com/aigengame/godot-agent/commit/cfcb8658e67df418a69694840a37a22a9cd3cbe0))
+* **gda:** input results name the injection route they used ([#838](https://github.com/aigengame/godot-agent/issues/838)) ([#861](https://github.com/aigengame/godot-agent/issues/861)) ([0dd447b](https://github.com/aigengame/godot-agent/commit/0dd447b511f478cbbbaccab4d25a0797b5fcfdfd))
+* **gda:** project add-input-action binds joypad buttons and axis directions ([#842](https://github.com/aigengame/godot-agent/issues/842)) ([#859](https://github.com/aigengame/godot-agent/issues/859)) ([e997cd7](https://github.com/aigengame/godot-agent/commit/e997cd7ba204c4af24ae688989478a4c03a4029a))
+* **gda:** script run reports the launch's user-data placement, and both helps cross-reference --user-data-root ([#850](https://github.com/aigengame/godot-agent/issues/850)) ([#860](https://github.com/aigengame/godot-agent/issues/860)) ([36b96bc](https://github.com/aigengame/godot-agent/commit/36b96bc237cdf5bc20672c43cab3d318e11c2e14))
+
 ## [0.14.0](https://github.com/aigengame/godot-agent/compare/v0.13.0...v0.14.0) (2026-09-05)
 
 
