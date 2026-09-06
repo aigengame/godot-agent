@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6"
+    "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -2156,7 +2156,6 @@ def _consumer_b_ldb_is_closed(
             "resolution",
             "runtime",
             "evaluation",
-            "migration",
             "approval",
         ]
     ):
@@ -2437,97 +2436,6 @@ def _consumer_b_meta_validate_schema(
         jsonschema.Draft202012Validator.check_schema(value)
     except (json.JSONDecodeError, jsonschema.SchemaError):
         return False
-    return True
-
-
-def _consumer_b_embedded_artifact_bindings_are_closed(ldb: dict[str, Any]) -> bool:
-    language = ldb.get("language")
-    if not isinstance(language, dict):
-        return False
-    contracts = language.get("artifact_contracts")
-    entries = language.get("artifact_wire_schemas")
-    if not isinstance(contracts, list) or not isinstance(entries, list):
-        return False
-    contract_index = {
-        item.get("artifact_kind"): item for item in contracts if isinstance(item, dict)
-    }
-    schema_index = {
-        item.get("artifact_kind"): item.get("schema")
-        for item in entries
-        if isinstance(item, dict)
-    }
-    if len(contract_index) != len(contracts) or len(schema_index) != len(entries):
-        return False
-
-    observed: dict[str, bytes] = {}
-    for entry in entries:
-        if not isinstance(entry, dict) or not isinstance(entry.get("schema"), dict):
-            return False
-        properties = entry["schema"].get("properties")
-        if not isinstance(properties, dict):
-            continue
-        for property_schema in properties.values():
-            candidate = (
-                property_schema.get("const")
-                if isinstance(property_schema, dict)
-                else None
-            )
-            if not isinstance(candidate, dict) or "artifact_kind" not in candidate:
-                continue
-            kind = candidate.get("artifact_kind")
-            identity = candidate.get("content_identity")
-            wire_identity = candidate.get("wire_schema_identity")
-            if (
-                not isinstance(kind, str)
-                or not isinstance(identity, str)
-                or not isinstance(wire_identity, str)
-            ):
-                return False
-            if (
-                sum(
-                    isinstance(value, dict) and value.get("const") == identity
-                    for value in properties.values()
-                )
-                != 1
-            ):
-                return False
-            contract = contract_index.get(kind)
-            if not isinstance(contract, dict):
-                return False
-            artifact_schema = schema_index.get(contract.get("schema_kind"))
-            excluded = contract.get("identity_excluded_members")
-            if not isinstance(artifact_schema, dict) or not isinstance(excluded, list):
-                return False
-            try:
-                jsonschema.Draft202012Validator(artifact_schema).validate(candidate)
-                schema_body = {
-                    key: value for key, value in artifact_schema.items() if key != "$id"
-                }
-                expected_wire = _identity(
-                    contract["wire_schema_identity_domain"], schema_body
-                )
-                identity_body = {
-                    key: value
-                    for key, value in candidate.items()
-                    if key != "content_identity" and key not in excluded
-                }
-                expected_identity = _identity(
-                    contract["identity_domain"], identity_body
-                )
-                encoded = _encoded(candidate)
-            except (
-                KeyError,
-                TypeError,
-                ValueError,
-                UnicodeEncodeError,
-                jsonschema.ValidationError,
-            ):
-                return False
-            if wire_identity != expected_wire or identity != expected_identity:
-                return False
-            if kind in observed and observed[kind] != encoded:
-                return False
-            observed[kind] = encoded
     return True
 
 
@@ -9214,12 +9122,6 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "static",
             "language.wire-schema-identity-domains",
         )
-    if not _consumer_b_embedded_artifact_bindings_are_closed(ldb):
-        refuse(
-            "kernel.vector_mismatch",
-            "static",
-            "language.embedded-artifact-bindings",
-        )
     ldb_codes = [item["code"] for item in ldb["diagnostics"]]
     if len(ldb_codes) != len(set(ldb_codes)):
         refuse("kernel.duplicate_identifier", "static", "language-bundle.diagnostics")
@@ -10217,7 +10119,6 @@ __all__ = [
     "_consumer_b_contract_path",
     "_consumer_b_definition_is_closed",
     "_consumer_b_duplicate_subjects",
-    "_consumer_b_embedded_artifact_bindings_are_closed",
     "_consumer_b_evaluate_structured_value_vector",
     "_consumer_b_exact_path",
     "_consumer_b_fact_contract_at_path",

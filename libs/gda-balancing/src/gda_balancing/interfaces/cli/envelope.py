@@ -102,10 +102,6 @@ def schema2_refusal_envelope(report: Schema2RefusalReport) -> dict[str, object]:
         "diagnostics": [item.model_dump(mode="json") for item in report.diagnostics],
         "truncated": report.truncated,
     }
-    if report.migration_report is not None:
-        if report.stage != "migration":
-            raise ValueError("a migration report belongs only to migration refusal")
-        error["migration_report"] = report.migration_report
     if report.terminal_audit is not None:
         if report.stage != "runtime":
             raise ValueError("a terminal audit belongs only to runtime refusal")

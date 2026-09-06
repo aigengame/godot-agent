@@ -38,7 +38,6 @@ _AUTHORITY_COMMANDS = tuple(
         ("experiment", "run"),
         ("model", "check"),
         ("model", "build"),
-        ("model", "migrate"),
         ("template", "list"),
         ("template", "get"),
         ("template", "instantiate"),
@@ -298,7 +297,7 @@ def test_production_schema_meta_validation_cache_binds_actual_bytes_and_profile(
 ):
     contract_validation.reset_schema_meta_validation_cache_for_tests()
     production_check_schema = (
-        bootstrap_module.jsonschema.Draft202012Validator.check_schema
+        contract_validation.jsonschema.Draft202012Validator.check_schema
     )
     calls: list[dict[str, Any]] = []
 
@@ -307,7 +306,7 @@ def test_production_schema_meta_validation_cache_binds_actual_bytes_and_profile(
         return production_check_schema(schema)
 
     monkeypatch.setattr(
-        bootstrap_module.jsonschema.Draft202012Validator,
+        contract_validation.jsonschema.Draft202012Validator,
         "check_schema",
         observed,
     )

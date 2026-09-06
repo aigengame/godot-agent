@@ -9,8 +9,6 @@ import json
 from dataclasses import dataclass
 from typing import Any, cast
 
-import jsonschema
-
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
@@ -59,7 +57,6 @@ SCHEMA2_REFUSAL_STAGES = (
     "resolution",
     "runtime",
     "evaluation",
-    "migration",
     "approval",
 )
 BOOTSTRAP_REFUSAL_CATALOG = (
@@ -73,7 +70,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6"
+    "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -392,125 +389,6 @@ def _language_bundle_is_closed(
             for name in resource_members
         )
     )
-
-
-def _embedded_artifact_bindings_are_closed(
-    language_bundle: dict[str, Any],
-) -> bool:
-    """Close schema-embedded artifacts over their identity and LDB-owned contract."""
-    language = language_bundle.get("language")
-    if not isinstance(language, dict):
-        return False
-    contracts = language.get("artifact_contracts")
-    schema_entries = language.get("artifact_wire_schemas")
-    if not isinstance(contracts, list) or not isinstance(schema_entries, list):
-        return False
-    if not all(isinstance(item, dict) for item in contracts + schema_entries):
-        return False
-    contracts_by_kind = {
-        item.get("artifact_kind"): item
-        for item in contracts
-        if isinstance(item.get("artifact_kind"), str)
-    }
-    schemas_by_kind = {
-        item.get("artifact_kind"): item.get("schema")
-        for item in schema_entries
-        if isinstance(item.get("artifact_kind"), str)
-        and isinstance(item.get("schema"), dict)
-    }
-    if len(contracts_by_kind) != len(contracts) or len(schemas_by_kind) != len(
-        schema_entries
-    ):
-        return False
-
-    canonical_binding_by_kind: dict[str, bytes] = {}
-    for owner in schema_entries:
-        owner_schema = owner.get("schema")
-        properties = (
-            owner_schema.get("properties") if isinstance(owner_schema, dict) else None
-        )
-        if not isinstance(properties, dict):
-            continue
-        for member_schema in properties.values():
-            if not isinstance(member_schema, dict):
-                continue
-            embedded = member_schema.get("const")
-            if not isinstance(embedded, dict) or "artifact_kind" not in embedded:
-                continue
-            artifact_kind = embedded.get("artifact_kind")
-            content_id = embedded.get("content_identity")
-            wire_schema_id = embedded.get("wire_schema_identity")
-            if (
-                not isinstance(artifact_kind, str)
-                or not artifact_kind
-                or not isinstance(content_id, str)
-                or not content_id
-                or not isinstance(wire_schema_id, str)
-                or not wire_schema_id
-            ):
-                return False
-            identity_bindings = [
-                candidate.get("const")
-                for candidate in properties.values()
-                if isinstance(candidate, dict)
-                and isinstance(candidate.get("const"), str)
-                and candidate.get("const") == content_id
-            ]
-            if len(identity_bindings) != 1:
-                return False
-
-            contract = contracts_by_kind.get(artifact_kind)
-            if not isinstance(contract, dict):
-                return False
-            schema_kind = contract.get("schema_kind")
-            identity_domain = contract.get("identity_domain")
-            wire_identity_domain = contract.get("wire_schema_identity_domain")
-            excluded = contract.get("identity_excluded_members")
-            artifact_schema = schemas_by_kind.get(schema_kind)
-            if (
-                not isinstance(schema_kind, str)
-                or not isinstance(identity_domain, str)
-                or not isinstance(wire_identity_domain, str)
-                or not isinstance(excluded, list)
-                or not all(isinstance(member, str) for member in excluded)
-                or not isinstance(artifact_schema, dict)
-            ):
-                return False
-            try:
-                jsonschema.Draft202012Validator(artifact_schema).validate(embedded)
-                schema_body = {
-                    key: value for key, value in artifact_schema.items() if key != "$id"
-                }
-                expected_wire_schema_id = content_identity(
-                    wire_identity_domain, cast(JsonValue, schema_body)
-                )
-                identity_body = {
-                    key: value
-                    for key, value in embedded.items()
-                    if key != "content_identity" and key not in excluded
-                }
-                expected_content_id = content_identity(
-                    identity_domain, cast(JsonValue, identity_body)
-                )
-                canonical_binding = canonical_bytes(cast(JsonValue, embedded))
-            except (
-                TypeError,
-                ValueError,
-                UnicodeEncodeError,
-                jsonschema.ValidationError,
-            ):
-                return False
-            if (
-                wire_schema_id != expected_wire_schema_id
-                or content_id != expected_content_id
-            ):
-                return False
-            previous = canonical_binding_by_kind.setdefault(
-                artifact_kind, canonical_binding
-            )
-            if previous != canonical_binding:
-                return False
-    return True
 
 
 def _wire_schema_identity_domains_are_closed(
@@ -5045,12 +4923,6 @@ def admit_authorities(
             "kernel.vector_mismatch",
             "static",
             "language.wire-schema-identity-domains",
-        )
-    if not _embedded_artifact_bindings_are_closed(language_bundle):
-        refuse(
-            "kernel.vector_mismatch",
-            "static",
-            "language.embedded-artifact-bindings",
         )
     ldb_diagnostics = cast(list[dict[str, Any]], language_bundle.get("diagnostics", []))
     ldb_codes = [str(item.get("code", "")) for item in ldb_diagnostics]

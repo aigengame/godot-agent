@@ -755,7 +755,6 @@
       "resolution",
       "runtime",
       "evaluation",
-      "migration",
       "approval"
     ],
     "required_ldb_members": [
@@ -916,7 +915,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6",
+  "content_identity": "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -1204,7 +1203,6 @@
             "resolution",
             "runtime",
             "evaluation",
-            "migration",
             "approval"
           ]
         },
@@ -1377,7 +1375,6 @@
             "resolution",
             "runtime",
             "evaluation",
-            "migration",
             "approval"
           ]
         }

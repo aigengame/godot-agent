@@ -53,8 +53,9 @@ Tests preserve those boundaries:
 - Consumer B remains an independent interpreter and does not call production
   admission or schema-cache implementations.
 
-The pre-existing inventory check proves that baseline tests and vectors have
-not disappeared and that every current test belongs to exactly one shard. Run
+The inventory check verifies every retained baseline obligation and that every current test
+belongs to exactly one shard. Explicit retirement removes only the reviewed obsolete contracts
+and records how required behavior remains covered; counts alone do not prove preservation. Run
 it from the repository root with:
 
 ```bash
@@ -65,7 +66,7 @@ uv run --frozen --project libs/gda-balancing python \
 
 `schema2-test-inventory-v1.json` remains the source for baseline test and
 vector identities and allowed skips. `schema2-bootstrap-migration-map.json`
-remains the mapping for the earlier bootstrap test split. Pytest collection
+remains the mapping for the earlier bootstrap test split, not a Schema 1 converter. Pytest collection
 rejects `xfail(strict=False)` before execution.
 
 CI also runs the existing outcome check on each JUnit file; undeclared skips
@@ -101,7 +102,7 @@ real-subprocess and end-to-end job. The other six shards feed the stable
 
 | Shard | Main ownership |
 | --- | --- |
-| `fast` | policy, lifecycle, authority bootstrap, resources, migration, and small suites |
+| `fast` | policy, lifecycle, authority bootstrap, resources, and small suites |
 | `authority` | authority CLI |
 | `language` | language bootstrap and formula CLI |
 | `model` | model CLI and independent lowerer |

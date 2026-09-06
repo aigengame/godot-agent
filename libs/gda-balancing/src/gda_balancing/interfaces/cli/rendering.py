@@ -44,19 +44,9 @@ def indented_json(payload: Any) -> str:
 
 
 def model_payload(model: BaseModel) -> dict[str, Any]:
-    """Dump a typed model as its canonical payload, rendering each field under
-    its serialization alias (``by_alias=True``) so an aliased field like
-    ``DesignDocument.schema_ref`` emits as ``"$schema"`` — the key the generated
-    structural schema (also alias-keyed) validates against. Alias-free models are
-    unaffected.
+    """Serialize declared aliases and omit absent optional model fields.
 
-    ``exclude_none=True`` realizes the absent-or-typed contract: an optional
-    member left at its ``None`` sentinel is *omitted*, never materialized as
-    ``null`` — the emission mirror of the published schema's dropped null arms
-    (:mod:`gda_balancing.schema.artifacts`). Genuine domain defaults are not
-    ``None`` (``accepts`` defaults to ``()``, the sections to empty models), so
-    they still materialize. A ``dict``-rooted artifact model (the structural
-    schema, the catalog) carries no ``None`` values after that null-arm
-    stripping, so ``exclude_none`` cannot corrupt it (pinned in
-    ``test_emit.py``)."""
+    Mapping contents remain authored data: ``exclude_none`` controls model
+    fields and does not remove null values inside a mapping.
+    """
     return model.model_dump(mode="json", by_alias=True, exclude_none=True)

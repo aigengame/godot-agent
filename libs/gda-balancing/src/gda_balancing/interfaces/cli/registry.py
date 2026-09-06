@@ -13,7 +13,6 @@ from gda_balancing.interfaces.cli.manifest import manifest_descriptor
 from gda_balancing.interfaces.cli.model_check import MODEL_CHECK
 from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
 from gda_balancing.interfaces.cli.model_inspect import MODEL_INSPECT
-from gda_balancing.interfaces.cli.model_migration import MODEL_MIGRATE
 from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.interfaces.cli.experiment_check import EXPERIMENT_CHECK
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
@@ -46,7 +45,6 @@ REGISTRY: tuple[CommandDescriptor, ...] = build_registry(
     MODEL_CHECK,
     MODEL_BUILD,
     MODEL_INSPECT,
-    MODEL_MIGRATE,
     TEMPLATE_LIST,
     TEMPLATE_GET,
     TEMPLATE_INSTANTIATE,

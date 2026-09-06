@@ -15,5 +15,6 @@ Start with the [accepted decision](../../badr/0028-current-language-refactor-and
 | [Validation](VALIDATION.md) | Documentation delivery checks and evidence limits |
 | [Issue index](ISSUES.md) · [JSON](issues.json) | Adopted dependency graph and reused existing owners |
 | [Implementation workflow](IMPLEMENTATION.md) | Authorized development branch, per-issue review, integration and delegated decisions |
+| [Schema 1 retirement](RETIREMENT.md) | Bounded named-source disposition, removed input path, retained coverage and rollback for #868 |
 
 GitHub owns live acceptance and task status; bADR-0028 owns the adopted policy; the plan owns delivery sequencing. Matrices preserve exact captured requirement text as provenance. Current issue amendments supersede the identified historical clauses. Evidence is confirmed only within its stated bounds, and no disposable probe establishes full production conformance, genre completion or automatic formal-release/claim activation.

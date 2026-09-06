@@ -71,7 +71,10 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
         "properties": {
             "kind": {"const": "artifact"},
             "content_identity": {"type": "string"},
-            "pointer": {"type": "string", "pattern": "^/"},
+            "pointer": {
+                "type": "string",
+                "anyOf": [{"const": ""}, {"pattern": "^/"}],
+            },
         },
         "required": ["kind", "content_identity", "pointer"],
         "unevaluatedProperties": False,

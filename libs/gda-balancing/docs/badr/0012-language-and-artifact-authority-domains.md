@@ -195,8 +195,8 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 - **This decision supersedes only the conflicting 2.x authority portions of earlier bADRs.** For
   Standard Schema 2.x, it supersedes bADR-0001's one-root Design document as the authored model
   authority and bADR-0005's validator-centered semantic-authority topology. Their 1.x contracts
-  remain normative for 1.x inputs and migration. bADR-0005's anti-drift principle, structural vs
-  semantic honesty, stable rule identifiers, and canonical artifact discipline are retained and
+  remain historical records after #868 removes the 1.x input path. bADR-0005's anti-drift principle,
+  structural vs semantic honesty, stable rule identifiers, and canonical artifact discipline are retained and
   generalized. Other accepted bADRs remain in force until an explicit 2.x decision supersedes
   them.
 
@@ -231,8 +231,8 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   and invocation-level artifact-set publication without making one store layout normative.
 - Experiment tooling must surface exact rebinding as a new authored or compatibility-resolution
   decision rather than silently following a rebuilt model.
-- bADR-0019 limits Standard Schema 1.x migration to semantics-preserving source conversion and
-  explicit deprecation; it creates no rollout/compatibility runtime.
+- bADR-0019 records the retired source-conversion decision; #868 removes that input path after
+  explicit source deprecation. It creates no rollout/compatibility runtime.
 - bADR-0013…0022 close the formal-semantics, package, CLI, runtime, evidence, migration, external-
   mapping, and command-surface decisions gated by #534.
 

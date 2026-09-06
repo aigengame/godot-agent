@@ -89,9 +89,9 @@ dependency direction, not Standard Schema semantics.
   flight initialization, deterministic cached refusal, immutable published context, and explicit
   test reset remain observable behavior.
 
-- **Standard Schema 1.x is isolated migration input.** Its validator and data model may be used by
-  the migration application flow, but active 2.x Domain behavior never depends on them and the 1.x
-  implementation does not depend on CLI envelopes.
+- **Standard Schema 1.x input is retired (#868).** Its validator, data model and conversion
+  Application flow are removed. Current Domain/Application modules cannot depend on a legacy
+  namespace; retained generic byte-input protections belong to Infrastructure and current admission.
 
 - **Migration proceeds as end-to-end tracer bullets.** The first tracer is `package list`; later
   command families migrate in the dependency order recorded by #624. A slice moves one coherent

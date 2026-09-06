@@ -4,11 +4,15 @@ status: accepted
 
 # Align the Schema 2.0 CLI with model, experiment, and evidence artifacts
 
+> **Source-path retirement (2026-09-06, #868):** `model migrate` and its descriptor,
+> result and refusal-report contracts are removed. Current Model Source uses `model check|build`.
+> Historical conversion details remain in bADR-0019; unrelated planned commands retain their scope.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 supersedes model migrate as a permanent forward command and requires removal of
 > obsolete version selectors and execution-binding fields from descriptors and every derived
 > surface when their owning slice lands. The command table retains its accepted target status;
-> the live CLI manifest defines command availability. Delivered migration/version/binding forms
+> the live CLI manifest defines command availability. Delivered version/binding forms
 > remain current implementation contracts until their replacements land. The unused artifact
 > sink is also retired without removing active
 > artifact-set publication. Descriptor ownership, typed outcomes, diagnostics, invocation-key
@@ -71,7 +75,7 @@ structured-params adapter part of the first vertical tracer.
   |---|---|---|
   | `schema` | `get language-bundle`, `get wire-schema`, `get diagnostic-catalog` | emit the Language Definition Bundle or a named generated projection |
   | `package` | `list`, `get` | enumerate root-declared packages or retrieve an exact Package Release manifest/conformance-vector member from one exact language bundle |
-  | `model` | `check`, `build`, `inspect`, `diff`, `migrate` | validate/resolve source, build or compare RIR artifacts, or attempt limited 1.x source conversion |
+  | `model` | `check`, `build`, `inspect`, `diff` | validate/resolve current source, build or compare RIR artifacts |
   | `template` | `list`, `get`, `instantiate` | enumerate template releases or create a new Model Source Package identity |
   | `experiment` | `check`, `run`, `replay`, `compare` | validate Experiment Specifications or produce/compare deterministic Evaluation runs and Metric datasets |
   | `evidence` | `inspect`, `verify` | inspect or verify the immutable evidence graph and content identities |
@@ -201,8 +205,9 @@ structured-params adapter part of the first vertical tracer.
   `build` emits a resolved artifact, `run` executes a new experiment, `replay` repeats exact
   reproduction identities, `compare` evaluates declared comparable artifacts, `inspect` returns
   structured internal facts, `diff` returns semantic model differences, `verify` validates evidence
-  claims, and `migrate` attempts bADR-0019's limited conversion. `read`, `show`, `validate`, `format`,
-  `simulate`, `tune`, and other synonyms cannot enter the 2.x tree without amending this record.
+  claims. The former `migrate` verb is retired with bADR-0019's converter. `migrate`, `read`,
+  `show`, `validate`, `format`, `simulate`, `tune`, and other additions cannot enter the 2.x tree
+  without amending this record.
 
 - **`version` reports distinct identities.** It returns the toolkit package version, supported
   Standard Schema lines, Language Definition Bundle versions, and command-surface version without
@@ -213,8 +218,8 @@ structured-params adapter part of the first vertical tracer.
   rather than defers `manifest`/`--params-json`, expands per-command schema outcomes, and extends the
   descriptor/harness. It retains one binary, noun groups, explicit help, JSON channel discipline,
   schema projection, safe output, input immutability, one descriptor registry, and exhaustive
-  conformance. The current 1.x CLI remains only until the clean-break tracer replaces it
-  (bADR-0019).
+  conformance. The original 1.x CLI is historical, and #868 removes its remaining source-conversion
+  entrypoint (bADR-0019).
 
 ## Considered options
 

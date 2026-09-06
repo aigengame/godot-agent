@@ -105,7 +105,7 @@ def check_model_source_value(
     """Admit an in-memory Model Source through the same authority path as a file."""
     try:
         data = canonical_bytes(cast(JsonValue, source))
-    except (TypeError, ValueError, UnicodeEncodeError):
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError):
         data = b"null\n"
     return _check_model_source_bytes(
         data,

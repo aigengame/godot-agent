@@ -372,7 +372,7 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   the artifact and Resolved Runtime profile identities above are required. bADR-0010's
   unsigned-32-bit CLI
   encoding and current envelopes remain binding until the 2.x CLI decision explicitly replaces
-  them. Standard Schema 1.x continues under bADR-0010.
+  them. bADR-0010 preserves historical Standard Schema 1.x semantics; its input path is retired by #868.
 
 ## Considered options
 

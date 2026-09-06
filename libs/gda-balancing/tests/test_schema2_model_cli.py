@@ -6,6 +6,8 @@ import json
 import os
 import shutil
 import stat
+import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -19,7 +21,6 @@ import gda_balancing.domain.model._checking as model_checking_module
 import gda_balancing.domain.model._inspection as model_inspection_module
 import gda_balancing.interfaces.cli.model_build as model_build_command_module
 import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_module
-import gda_balancing.interfaces.cli.model_migration as model_migration_command_module
 import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.domain.authority.runtime_validation as runtime_validation_module
@@ -44,7 +45,11 @@ from gda_balancing.domain.authority.graph import (
     LanguageBundleIndex,
     derive_language_index,
 )
-from gda_balancing.interfaces.cli.surface import descriptor_identity
+from gda_balancing.interfaces.cli.surface import (
+    descriptor_identity,
+    schema2_error_envelope_schema,
+)
+from gda_balancing.interfaces.cli.model_check import MODEL_CHECK
 from gda_balancing.infrastructure.input_bytes import InputTooLargeError
 from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
@@ -3447,6 +3452,82 @@ def test_model_check_reports_wire_decode_failure_at_parse(tmp_path, run_cli):
     error = json.loads(stdout)["error"]
     assert error["stage"] == "parse"
     assert error["diagnostics"][0]["code"] == "language.source_parse_failure"
+
+
+def test_model_source_diagnostic_schema_accepts_root_and_member_pointers(
+    tmp_path, run_cli
+):
+    source = tmp_path / "malformed-source.json"
+    source.write_bytes(b"{")
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    assert (exit_code, stderr) == (2, "")
+    envelope = json.loads(stdout)
+    schema = schema2_error_envelope_schema(MODEL_CHECK)
+    for pointer in ("", "/attributes/0", "/a\nb"):
+        envelope["error"]["diagnostics"][0]["primary"]["pointer"] = pointer
+        jsonschema.validate(envelope, schema)
+    for pointer in ("\n", "not-a-pointer"):
+        envelope["error"]["diagnostics"][0]["primary"]["pointer"] = pointer
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(envelope, schema)
+
+
+def test_model_source_value_reports_excessive_nesting_as_parse_refusal():
+    nested: list[Any] = []
+    for _ in range(1500):
+        nested = [nested]
+
+    result = model_checking_module.check_model_source_value({"nested": nested})
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == "parse"
+    assert result.diagnostics[0].code == "language.source_parse_failure"
+
+
+@pytest.mark.parametrize("command", ["check", "build"])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(b'{"x":"\xff"}', id="invalid-utf8"),
+        pytest.param(b'{"x":1,"x":2}', id="duplicate-key"),
+        pytest.param(b'{"\\ud800":1,"\\ud800":2}', id="duplicate-surrogate-key"),
+        pytest.param(b'{"x":NaN}', id="nan"),
+        pytest.param(b'{"x":Infinity}', id="infinity"),
+        pytest.param(b'{"x":9223372036854775808}', id="int64-overflow"),
+        pytest.param(b'{"x":"\\ud800"}', id="surrogate-value"),
+        pytest.param(b'{"\\ud800":1}', id="surrogate-key"),
+        pytest.param(
+            b'{"x":' + b"[" * 1500 + b"0" + b"]" * 1500 + b"}", id="decoder-depth"
+        ),
+    ],
+)
+def test_model_commands_report_canonical_input_failures_before_publication(
+    tmp_path, monkeypatch, command, payload
+):
+    source = tmp_path / "source.json"
+    source.write_bytes(payload)
+    out = tmp_path / "published-model"
+    store = tmp_path / "store"
+    monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
+    argv = [sys.executable, "-m", "gda_balancing", "model", command, str(source)]
+    if command == "build":
+        argv += ["--out", str(out), "--invocation-key", "a" * 64]
+
+    result = subprocess.run(argv, capture_output=True, check=False, timeout=30)
+
+    assert (result.returncode, result.stderr) == (2, b""), result.stdout
+    envelope = json.loads(result.stdout.decode("utf-8"))
+    descriptor = (
+        MODEL_CHECK if command == "check" else model_build_command_module.MODEL_BUILD
+    )
+    jsonschema.validate(envelope, schema2_error_envelope_schema(descriptor))
+    error = envelope["error"]
+    assert error["stage"] == "parse"
+    diagnostic = error["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_parse_failure"
+    assert diagnostic["primary"]["pointer"] == ""
+    assert not out.exists()
+    assert not store.exists()
 
 
 @pytest.mark.parametrize("anchor_key", [None, "A5" * 32, "a5" * 31, "not-hex"])
@@ -7788,7 +7869,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     assert evaluation.members["metric-dataset"].value["samples"][0]["value"] == 75
     host_sources = (
         Path(model_module.__file__),
-        Path(model_migration_command_module.__file__),
         Path(runtime_execution_module.__file__),
     )
     assert all("genre.economy" not in path.read_text() for path in host_sources)

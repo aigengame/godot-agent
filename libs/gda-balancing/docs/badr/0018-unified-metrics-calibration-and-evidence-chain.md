@@ -252,7 +252,8 @@ append-only evidence graph.
   returning only tuned parameters.
 - Approval tooling becomes graph validation over immutable artifacts and current policy, not a flag
   update.
-- Migration must state whether and how 1.x reports or future legacy telemetry become 2.x datasets;
+- Historical 1.x reports are not current Metric datasets, and #868 provides no converter for
+  them. Future observed-data ingestion retains its separately specified source/provenance contract;
   unproven provenance cannot be invented.
 
 ## Validation
