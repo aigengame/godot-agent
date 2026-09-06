@@ -19,6 +19,13 @@ by the two tests here:
    copy exists because the CLI must document the accepted set without reading
    GDScript at import time; it is a copy under a guard, not a second authority.
 
+**Which tier runs what.** Only the enum COVERAGE diff (and the sentinel check it
+rests on) needs a real engine, so only that is ``e2e``-marked. The fold identity
+between a gda name and the engine constant it maps to reads both sides out of
+gda's own sources, so it runs on the unit tier — on PR CI — where a mis-mapped
+constant (``"DPadLeft": JOY_BUTTON_DPAD_RIGHT``) belongs, rather than waiting for
+a nightly run.
+
 The sentinels are excluded EXPLICITLY (asserted present, then dropped) rather
 than filtered by a value bound: ``INVALID``/``SDL_MAX``/``MAX`` are enum
 bookkeeping, not bindable buttons, and naming them here means a rename shows up
@@ -103,12 +110,30 @@ def engine_enums(tmp_path_factory) -> dict[str, dict[str, int]]:
         ("JOY_AXIS_BY_NAME", JOY_AXIS_NAMES, "JoyAxis", "JOY_AXIS_"),
     ],
 )
-def test_python_help_names_mirror_the_operations_gd_table(
+def test_joy_names_fold_to_their_engine_constants_and_match_the_help_tuples(
     const_name, python_names, enum_name, prefix
 ):
+    # ENGINE-FREE, so it runs on PR CI rather than only in the nightly e2e tier:
+    # both sides of every assertion here are read from gda's own sources. A
+    # mis-mapped constant ("DPadLeft": JOY_BUTTON_DPAD_RIGHT) is a fold mismatch,
+    # and catching that needs no engine — only the coverage diff below does.
+    table = _gd_table(const_name)
+
     # The doc-facing tuple and the resolver's table are the same names, in the
     # same order: the help/schema prose cannot drift from what gda accepts.
-    assert tuple(_gd_table(const_name)) == tuple(python_names)
+    assert tuple(table) == tuple(python_names)
+
+    # The normalization IS the thing under test: gda's CamelCase name and the
+    # engine's SCREAMING_SNAKE key are the same token, case- and
+    # separator-folded (DPadLeft <-> JOY_BUTTON_DPAD_LEFT, LeftX <-> LEFT_X).
+    for gda_name, constant in table.items():
+        assert _fold(gda_name) == _fold(constant.removeprefix(prefix)), (
+            f"{gda_name} is not the folded form of {constant}"
+        )
+
+    # Folded names stay unique, so the case-insensitive resolver cannot be
+    # ambiguous.
+    assert len({_fold(name) for name in table}) == len(table)
 
 
 @pytest.mark.e2e
@@ -135,20 +160,8 @@ def test_joy_name_table_matches_the_engine_enum(
         if constant.removeprefix(prefix) not in SENTINELS
     }
 
-    table = _gd_table(const_name)
-
-    # 1. Coverage both ways: every bindable engine constant has a gda name, and
-    #    gda names nothing the engine does not declare.
-    assert set(table.values()) == bindable
-
-    # 2. The normalization IS the thing under test: gda's CamelCase name and the
-    #    engine's SCREAMING_SNAKE key are the same token, case- and
-    #    separator-folded (DPadLeft <-> JOY_BUTTON_DPAD_LEFT, LeftX <-> LEFT_X).
-    for gda_name, constant in table.items():
-        assert _fold(gda_name) == _fold(constant.removeprefix(prefix)), (
-            f"{gda_name} is not the folded form of {constant}"
-        )
-
-    # 3. Folded names stay unique, so the case-insensitive resolver cannot be
-    #    ambiguous.
-    assert len({_fold(name) for name in table}) == len(table)
+    # Coverage both ways: every bindable engine constant has a gda name, and gda
+    # names nothing the engine does not declare. This is the half that genuinely
+    # needs the engine — the fold identity between a gda name and the constant it
+    # maps to is checked engine-free, on the unit tier, above.
+    assert set(_gd_table(const_name).values()) == bindable

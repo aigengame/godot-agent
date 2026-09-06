@@ -10,6 +10,7 @@ real Godot.
 import json
 
 import jsonschema
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -673,6 +674,40 @@ def test_project_add_input_action_human_output_lists_joypad_bindings(monkeypatch
         "added input action jump (deadzone 0.5): Space -> 32, "
         "joy button A -> 0, joy axis LeftX:- -> 0 (-1.0) [device -1]"
     )
+
+
+def test_add_input_action_schema_and_model_agree_on_the_binding_rule():
+    # A standard Draft 2020-12 validator and the pydantic model must give the
+    # SAME verdict on the published input contract (ADR-0015): the "at least one
+    # binding" rule spans three lists, so it is published as an anyOf beside the
+    # model validator that enforces it. Without it a schema-only client would
+    # build {"name": "jump"} — valid by the contract, refused at dispatch.
+    schema = ProjectAddInputActionParams.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    corpus = [
+        ({"name": "j", "keys": ["Space"]}, True),
+        ({"name": "j", "joy_buttons": ["A"]}, True),
+        ({"name": "j", "joy_axes": ["LeftX:-"]}, True),
+        ({"name": "j", "keys": ["Space"], "joy_buttons": [], "joy_axes": []}, True),
+        ({"name": "j", "joy_buttons": ["A"], "device": 0}, True),
+        # No binding of any kind, spelled both ways.
+        ({"name": "jump"}, False),
+        ({"name": "jump", "keys": [], "joy_buttons": [], "joy_axes": []}, False),
+        ({"name": "jump", "keys": []}, False),
+        # The scalar bounds ride the same contract.
+        ({"name": "j", "keys": ["Space"], "device": -2}, False),
+        ({"name": "j", "keys": ["Space"], "deadzone": 1.5}, False),
+    ]
+
+    for payload, expected in corpus:
+        schema_ok = validator.is_valid(payload)
+        try:
+            ProjectAddInputActionParams(**payload)
+            model_ok = True
+        except ValidationError:
+            model_ok = False
+        assert schema_ok == expected, f"schema verdict for {payload}"
+        assert model_ok == expected, f"model verdict for {payload}"
 
 
 def test_project_add_input_action_help_documents_the_accepted_joypad_names():

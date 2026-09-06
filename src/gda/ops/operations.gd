@@ -3846,6 +3846,11 @@ const JOY_AXIS_BY_NAME := {
 # Fold a joypad binding name to its comparison form: case- and separator-
 # insensitive, so DPadLeft, dpad_left and DPAD_LEFT all name the same button —
 # a caller may spell it gda's way or the engine documentation's way.
+# Separator-insensitivity is total on purpose: separators are DELETED, not
+# normalized, so a leading or trailing one folds away too ("A-" is A). That
+# widens the spellings accepted and never makes two buttons collide — the
+# oracle test asserts the folded names stay unique — and the alternative would
+# be a separator grammar for a token no caller writes deliberately.
 func _fold_joy_name(token: String) -> String:
 	return token.strip_edges().replace("_", "").replace("-", "").replace(" ", "").to_upper()
 

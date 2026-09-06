@@ -17,7 +17,7 @@ the absolute imports keep the two names apart.
 from typing import Annotated, Any, Literal, Optional, Union
 
 import typer
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.headless import (
@@ -561,6 +561,25 @@ DEVICE_DESC = (
 )
 
 
+# The "at least one binding" rule, published as JSON Schema so a standard Draft
+# 2020-12 validator reaches the SAME verdict as the model. ADR-0015 makes the
+# params model the one authority for both, which means the published input
+# contract must not be wider than the ABI `--params-json` actually accepts, and a
+# model-validator cross-field rule has to be visible to a plain validator (#743).
+# While `keys` was the only binding kind the rule rode on it as `minItems: 1`;
+# spread across three lists it becomes an `anyOf` — at least one list present and
+# non-empty. `_check_at_least_one_binding` below stays the ENFORCING authority; a
+# parity corpus (tests/project/test_project_commands.py) runs the same payloads
+# through the schema and the model and requires one verdict, so the two cannot
+# drift.
+_AT_LEAST_ONE_BINDING_SCHEMA: dict[str, Any] = {
+    "anyOf": [
+        {"required": [field], "properties": {field: {"minItems": 1}}}
+        for field in ("keys", "joy_buttons", "joy_axes")
+    ]
+}
+
+
 class ProjectAddInputActionParams(BaseModel):
     """The operation params of ``gda project add-input-action`` (issues #380, #842).
 
@@ -573,6 +592,8 @@ class ProjectAddInputActionParams(BaseModel):
     exactly the engine's own ``var_to_str`` form. The project is process context
     (``--project``), not an operation param (ADR-0006).
     """
+
+    model_config = ConfigDict(json_schema_extra=_AT_LEAST_ONE_BINDING_SCHEMA)
 
     name: str = Field(
         description=(
@@ -624,7 +645,10 @@ class ProjectAddInputActionParams(BaseModel):
         The rule spans the three binding lists, so it cannot be a ``minItems``
         on one of them: ``--key`` stopped being individually required when the
         joypad kinds landed (#842), and an action registered with an empty event
-        list is a dead entry no input can ever trigger.
+        list is a dead entry no input can ever trigger. This check is the
+        enforcing authority; ``_AT_LEAST_ONE_BINDING_SCHEMA`` publishes the same
+        rule so a schema-only client is refused here too, not surprised at
+        dispatch.
         """
         if not self.keys and not self.joy_buttons and not self.joy_axes:
             raise ValueError(
