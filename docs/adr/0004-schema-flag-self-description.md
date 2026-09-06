@@ -270,6 +270,21 @@ status: accepted
 > all, rather than a partially invented triple — which is the omitted-never-null
 > rule applied to a producer, not an exception to it.
 >
+> **Addendum (2026-09-06, #840): an eighth producer, and the count above stands as
+> the record of what this amendment decided.** `export_templates_missing_failure`
+> joins the set with `templates_root_checked` and `templates_root_host` — the
+> export-templates directory a run checked, and the host one holding the templates a
+> `--user-data-root` redirect hid from it. Godot reads the templates from the data
+> directory that option relocates, so the ONE code has two shapes needing opposite
+> remedies: drop the redirect, or install the templates. Both paths pass the
+> criterion — each is already computed on the failure path (the engine-side check
+> composes them), neither is recoverable from the envelope without reading the
+> message, and which shape it is decides what the caller does next. Like the two
+> `target_outside_project` refusals it reports on no run: it is the pre-export
+> preflight's verdict. The omitted-never-null rule holds at the producer too — a
+> reply naming no directory yields no `evidence` key rather than an empty object.
+> The asserted set in `tests/cli/test_error_registry.py` is now eight.
+>
 > **Answering ADR-0002's open pointer (#717): the ceiling's PROVENANCE is declined, on
 > the criterion.** That note left the question here — whether a `launch_timeout`'s
 > ceiling was the caller's `--timeout` or one of gda's own fixed bounds "belongs on
