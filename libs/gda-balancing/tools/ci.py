@@ -21,6 +21,7 @@ MIGRATION_PATH: Final = TEST_ROOT / "schema2-bootstrap-migration-map.json"
 SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "fast": (
         "test_ci_policy.py",
+        "test_current_namespace_resolution.py",
         "test_emit.py",
         "test_envelope_schema.py",
         "test_execution_service_language.py",

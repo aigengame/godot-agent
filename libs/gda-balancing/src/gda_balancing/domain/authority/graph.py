@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
+from dataclasses import dataclass
+from graphlib import CycleError, TopologicalSorter
+from types import MappingProxyType
 from typing import Any
 
 
@@ -245,3 +249,162 @@ def derive_language_index(
         package_byte_sizes=package_byte_sizes,
         vector_set_byte_sizes=vector_set_byte_sizes,
     )
+
+
+@dataclass(frozen=True)
+class CurrentPackage:
+    """Namespace selection data referencing admitted definitions without copying them.
+
+    This is a derived view, not another authoring format. Only set-valued selection
+    members are normalized; definition and Operation body order stay authored.
+    """
+
+    namespace: str
+    required: tuple[str, ...] = ()
+    optional: tuple[str, ...] = ()
+    provides: tuple[str, ...] = ()
+    requires: tuple[str, ...] = ()
+    definitions: tuple[tuple[str, str, Any], ...] = ()
+
+    def __post_init__(self) -> None:
+        for member in ("required", "optional", "provides", "requires"):
+            object.__setattr__(self, member, tuple(sorted(getattr(self, member))))
+
+
+@dataclass(frozen=True)
+class NamespaceSelection:
+    """One selected current closure; definition keys include their nominal owner."""
+
+    packages: tuple[CurrentPackage, ...]
+    dependency_edges: tuple[tuple[str, str], ...]
+    capability_bindings: tuple[tuple[str, str], ...]
+    definitions: Mapping[tuple[str, str, str], Any]
+
+
+def resolve_current_namespaces(
+    packages: Sequence[CurrentPackage], roots: Iterable[str]
+) -> NamespaceSelection:
+    """Select required dependencies from one graph with unique namespace owners.
+
+    Graph membership is closed even for optional edges, which do not select a
+    provider. Capability requirements are checked only in the selected closure.
+    These internal errors are not public Model diagnostics: #871 migrates that
+    boundary with its owning Kernel/LDB contracts.
+    """
+    by_namespace: dict[str, CurrentPackage] = {}
+    definitions: dict[tuple[str, str, str], Any] = {}
+    for package in sorted(packages, key=lambda item: item.namespace):
+        if package.namespace in by_namespace:
+            raise ValueError(f"duplicate namespace owner: {package.namespace}")
+        by_namespace[package.namespace] = package
+        for path, key, definition in package.definitions:
+            owner = (package.namespace, path, key)
+            if owner in definitions:
+                raise ValueError(f"duplicate definition owner: {owner}")
+            definitions[owner] = definition
+
+    for namespace, package in by_namespace.items():
+        dependencies = (*package.required, *package.optional)
+        if len(dependencies) != len(set(dependencies)):
+            raise ValueError(f"duplicate dependency in namespace: {namespace}")
+        for dependency in sorted(dependencies):
+            if dependency not in by_namespace:
+                raise ValueError(f"missing dependency: {namespace} -> {dependency}")
+    try:
+        TopologicalSorter(
+            {name: package.required for name, package in by_namespace.items()}
+        ).prepare()
+    except CycleError as error:
+        raise ValueError("cyclic required namespace dependencies") from error
+
+    pending = sorted(set(roots), reverse=True)
+    selected: set[str] = set()
+    while pending:
+        namespace = pending.pop()
+        if namespace not in by_namespace:
+            raise ValueError(f"missing root namespace: {namespace}")
+        if namespace in selected:
+            continue
+        selected.add(namespace)
+        pending.extend(reversed(by_namespace[namespace].required))
+    selected_packages = tuple(by_namespace[name] for name in sorted(selected))
+
+    providers: dict[str, str] = {}
+    for package in selected_packages:
+        for capability in package.provides:
+            if capability in providers:
+                raise ValueError(
+                    f"selected capability has multiple providers: {capability}"
+                )
+            providers[capability] = package.namespace
+    for package in selected_packages:
+        for capability in package.requires:
+            if capability not in providers:
+                raise ValueError(f"selected capability has no provider: {capability}")
+
+    return NamespaceSelection(
+        packages=selected_packages,
+        dependency_edges=tuple(
+            (package.namespace, dependency)
+            for package in selected_packages
+            for dependency in package.required
+        ),
+        capability_bindings=tuple(sorted(providers.items())),
+        definitions=MappingProxyType(
+            {key: definitions[key] for key in sorted(definitions) if key[0] in selected}
+        ),
+    )
+
+
+def project_current_namespace_packages(
+    kernel: dict[str, Any], graph: LanguageBundleIndex
+) -> tuple[CurrentPackage, ...]:
+    """Temporary #870 projection of an admitted, frozen exact-coordinate graph.
+
+    The caller owns admission and lifetime. Do not infer owners from the flattened
+    language index or silently discard conflicting release coordinates. #872 must
+    remove this coordinate bridge after the authored graph and consumers migrate.
+    """
+    releases = sorted(graph.package_releases, key=lambda package: package["id"])
+    by_namespace: dict[str, dict[str, Any]] = {}
+    for release in releases:
+        namespace = release["id"]
+        if namespace in by_namespace:
+            raise ValueError(f"duplicate namespace owner: {namespace}")
+        by_namespace[namespace] = release
+
+    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]
+    packages: list[CurrentPackage] = []
+    for release in releases:
+        for dependency in (
+            *release["dependencies"]["required"],
+            *release["dependencies"]["optional"],
+        ):
+            target = by_namespace.get(dependency["id"])
+            if target is None or target["version"] != dependency["version"]:
+                raise ValueError("current namespace projection has no exact dependency")
+        definitions: list[tuple[str, str, Any]] = []
+        for entry, projection in zip(
+            release["semantic_closure"], projections, strict=True
+        ):
+            for definition in entry["definitions"]:
+                member = projection["key_member"]
+                key = definition if member is None else definition[member]
+                definitions.append((projection["authority_path"], key, definition))
+        packages.append(
+            CurrentPackage(
+                namespace=release["id"],
+                required=tuple(
+                    item["id"] for item in release["dependencies"]["required"]
+                ),
+                optional=tuple(
+                    item["id"] for item in release["dependencies"]["optional"]
+                ),
+                provides=tuple(release["capabilities"]["provided"]),
+                requires=tuple(release["capabilities"]["required"]),
+                definitions=tuple(definitions),
+            )
+        )
+    return tuple(packages)

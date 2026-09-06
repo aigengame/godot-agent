@@ -18,9 +18,11 @@ from typing import Any, Never, cast
 
 from gda_balancing.infrastructure.package_resources import read_package_resource
 from gda_balancing.domain.authority.graph import (
+    CurrentPackage,
     LanguageBundleGraph,
     LanguageBundleIndex,
     derive_language_index,
+    project_current_namespace_packages,
 )
 from gda_balancing.domain.authority.admission import (
     BootstrapAdmission,
@@ -329,6 +331,17 @@ class AdmittedAuthorityContext:
         if not isinstance(language_bundle, LanguageBundleIndex):
             raise TypeError("admitted authority context has no sealed LDB graph")
         return deepcopy(self.kernel), language_bundle
+
+    def current_namespace_packages(self) -> tuple[CurrentPackage, ...]:
+        """Derive the #870 integration view from this admitted immutable graph.
+
+        Existing public consumers migrate in #871. This opt-in view must not make
+        the current exact-coordinate admission path silently accept another wire
+        contract. #872 removes the temporary coordinate projection.
+        """
+        return project_current_namespace_packages(
+            self.kernel, cast(LanguageBundleIndex, self.language_bundle)
+        )
 
 
 AuthorityProviderValue = (

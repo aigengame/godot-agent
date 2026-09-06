@@ -17,5 +17,6 @@ Start with the [accepted decision](../../badr/0028-current-language-refactor-and
 | [Implementation workflow](IMPLEMENTATION.md) | Authorized development branch, per-issue review, integration and delegated decisions |
 | [Schema 1 retirement](RETIREMENT.md) | Bounded named-source disposition, removed input path, retained coverage and rollback for #868 |
 | [Current capability union](CAPABILITY-UNION.md) | Retained package behavior, deleted release/vector copies, composed public path and rollback for #869 |
+| [Namespace expansion](NAMESPACE-EXPAND.md) | Integration boundary, derived namespace view, mandatory transition deletion and handoff for #870–#872 |
 
 GitHub owns live acceptance and task status; bADR-0028 owns the adopted policy; the plan owns delivery sequencing. Matrices preserve exact captured requirement text as provenance. Current issue amendments supersede the identified historical clauses. Evidence is confirmed only within its stated bounds, and no disposable probe establishes full production conformance, genre completion or automatic formal-release/claim activation.
