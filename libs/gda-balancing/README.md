@@ -70,6 +70,8 @@ its authority boundaries.
   roots, committed-Snapshot visibility, explicit cancellation and Formula tuning.
 - [Periodic RPG Effect](examples/schema2/rpg-periodic-effect/README.md) — snapshot/live Formula
   timing, scheduled tick/tick/expire Events, same-time combat ordering and Formula rebinding.
+- [Progression-derived periodic Effect](examples/schema2/progression-periodic-effect/README.md) —
+  a progression Formula supplies the periodic threshold through the ordinary Model/Experiment path.
 - [Seeded Roguelike reward and build tuning](examples/schema2/roguelike-reward-build/README.md) —
   ordered reward selection, a Named random stream, one-value tuning, atomic replacement, and
   Discriminated gameplay outcomes.

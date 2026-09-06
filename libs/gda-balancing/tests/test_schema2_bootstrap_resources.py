@@ -61,7 +61,12 @@ def test_two_consumers_refuse_the_same_nesting_resource_exhaustion():
     for _ in range(authority["kernel"]["resources"]["max_nesting_depth"] + 1):
         nested = [nested]
     vector_set = _package_vector_set(ldb, package)
-    vector_set["vector_definitions"][0]["unused_host_payload"] = nested
+    rule_vector = next(
+        vector
+        for vector in vector_set["vector_definitions"]
+        if vector.get("rule") == "quantity.declare"
+    )
+    rule_vector["unused_host_payload"] = nested
     _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
 
@@ -98,7 +103,7 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         for package in ldb["language"]["packages"]
         if package["id"] == "game.check"
     )
-    check["dependencies"]["required"].append({"id": "game.combat", "version": "2.1.0"})
+    check["dependencies"]["required"].append({"id": "game.combat", "version": "2.2.0"})
     _reidentify_package_release(check)
     _reidentify_graph_root(ldb)
 
@@ -151,7 +156,7 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
         duplicate = deepcopy(ldb.package_releases[-1])
         if mutation == "same-coordinate-different-content":
             duplicate["dependencies"]["optional"].append(
-                {"id": "game.check", "version": "1.0.1"}
+                {"id": "game.check", "version": "1.1.0"}
             )
             _reidentify_package_release(duplicate)
         ldb["language"]["packages"].append(duplicate)

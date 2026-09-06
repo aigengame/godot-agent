@@ -26,7 +26,7 @@ def minimal_release(
     package_matches = [
         package
         for package in packages
-        if (package.get("id"), package.get("version")) == ("core.quantity", "2.1.0")
+        if (package.get("id"), package.get("version")) == ("core.quantity", "2.2.0")
     ]
     if len(package_matches) != 1:
         raise ValueError("minimal Template package is unavailable or ambiguous")
@@ -36,8 +36,8 @@ def minimal_release(
         if isinstance(package.get("id"), str)
         and isinstance(package.get("version"), str)
     }
-    selected_coordinates = {("core.quantity", "2.1.0")}
-    pending = [("core.quantity", "2.1.0")]
+    selected_coordinates = {("core.quantity", "2.2.0")}
+    pending = [("core.quantity", "2.2.0")]
     while pending:
         coordinate = pending.pop()
         package = packages_by_coordinate[coordinate]
@@ -67,7 +67,7 @@ def minimal_release(
             "version": "1.1.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "modules": [
             {
                 "id": "main",
@@ -75,7 +75,7 @@ def minimal_release(
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.1.0",
+                        "version": "2.2.0",
                         "symbol": "Quantity",
                     }
                 ],
@@ -111,7 +111,7 @@ def minimal_release(
                                     "node": "operation-call",
                                     "operation": {
                                         "package": "core.quantity",
-                                        "version": "2.1.0",
+                                        "version": "2.2.0",
                                         "id": "quantity.identity",
                                     },
                                     "arguments": [
@@ -158,7 +158,7 @@ def minimal_release(
                 "id": "quantity.identity",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.identity",
                 },
                 "arguments": [
@@ -268,7 +268,7 @@ def minimal_release(
                 "schema_version": "2.0.0",
                 "kernel_identity": kernel_identity,
                 "language_bundle_identity": language_bundle_identity,
-                "packages": [{"id": "core.quantity", "version": "2.1.0"}],
+                "packages": [{"id": "core.quantity", "version": "2.2.0"}],
             },
         ),
         build_member(

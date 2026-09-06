@@ -10,9 +10,19 @@ status: accepted
 > records inventory, exclusions, coverage routing and rollback. This delivers source retirement,
 > not the later version-selection or execution-binding deletions, Panda cutover or full validation.
 
+> **S2 delivery (2026-09-06, #869):** the post-retirement inventory contains one complete current
+> definition for each of 13 package namespaces. The Build/Effect capability union accompanies removal
+> of seven historical manifest/vector pairs; [bADR-0017](0017-genre-templates-and-coverage-contract.md)
+> records the retained behaviors and Quantity-profile distinction. The maintained
+> [progression-derived periodic Effect example](../../examples/schema2/progression-periodic-effect/README.md)
+> adds a public Model/Experiment composition. Namespace ownership and current version-coordinate
+> fields remain; #870–#872 still must delete historical selectors, and #875 still must delete the
+> redundant execution bindings after closure. This checkpoint is not the final refactor outcome.
+
 Decision date: 2026-09-06. The project owner accepted the refactor direction and requested its
 implementation plan, tracked work, and explicit deletion acceptance criteria. This decision adopts
-that direction; it does not claim that the production schemas or Runtime already implement it.
+that direction; it does not claim that the production schemas or Runtime already implement the
+whole target.
 The [implementation plan](../refactor/current-language/PLAN.md) owns sequencing, detailed
 acceptance, bounded experiments, and rollback. Machine laws remain Kernel/LDB-owned.
 

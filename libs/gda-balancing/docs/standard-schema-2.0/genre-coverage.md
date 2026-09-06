@@ -88,9 +88,10 @@ primitives, core constructors, runtime phases, compiler dispatch, or evaluator d
 `core.quantity@2.2.0`, `game.progression@1.0.0`, `game.build@2.0.0`,
 `game.effect@2.0.0`, and `game.combat@2.2.0`. The resolved closure also selects
 `game.check@1.1.0`, `game.resource@1.1.0`, `game.generation@1.1.0`,
-`standard.compiler@1.1.0`, `standard.runtime@1.1.0`, and `standard.schema@2.4.0`. The row cannot
-close with a graph that also selects a release which requires `core.quantity@2.1.0`. bADR-0017 owns
-the exact dependency edges.
+`standard.compiler@1.1.0`, `standard.runtime@1.1.0`, and `standard.schema@2.4.0`. These are the
+current coordinates after #869's capability union; the older parallel releases are removed.
+Version-coordinate selection remains until #870–#872. bADR-0017 owns the exact dependency edges;
+the union and its bounded composed Experiment do not by themselves close this row.
 
 ## Golden scenario contracts
 

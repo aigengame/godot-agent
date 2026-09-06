@@ -26,7 +26,7 @@ The example demonstrates two magnitude-timing policies over the same authored Fo
 The Effect uses Runtime logical time and the Runtime Event queue. It does not use an Effect-specific
 loop, wall-clock timer, evaluator callback, or repeated scenarios.
 
-The `game.effect@1.0.0` Package Release defines this bounded variant. Its duration is `3`, and its
+The `game.effect@2.0.0` Package Release defines this bounded variant. Its duration is `3`, and its
 period is `1`. It schedules ticks at logical times `1` and `2`, and it expires at `3`. The
 Experiment cannot change these package-owned values.
 

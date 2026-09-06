@@ -83,7 +83,7 @@ def test_record_lookup_returns_its_declared_fixed_nominal_field_type():
         "type": {
             "id": "Quantity",
             "package": "core.quantity",
-            "version": "2.1.0",
+            "version": "2.2.0",
         },
         "value": 4,
     }

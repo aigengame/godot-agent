@@ -168,7 +168,7 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
             "version": "1.0.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
         "entrypoints": [],
         "modules": [
             {
@@ -177,7 +177,7 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.1.0",
+                        "version": "2.2.0",
                         "symbol": "Quantity",
                     }
                 ],
@@ -4127,14 +4127,14 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
     ]
     assert literal_operand["context_type"] == {
         "domain": {"kind": "actual"},
-        "id": "quantity.dimensionless-int64",
+        "id": "quantity.dimensionless-int64-v2-2",
         "kind": "scalar",
         "numeric_policy": "exact-int64",
         "representation": "Int",
         "type": {
             "id": "Quantity",
             "package": "core.quantity",
-            "version": "2.1.0",
+            "version": "2.2.0",
         },
         "unit": "1",
     }
@@ -4254,7 +4254,7 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
                     "site": "identity",
                     "operation": {
                         "package": "core.quantity",
-                        "version": "2.1.0",
+                        "version": "2.2.0",
                         "id": "quantity.identity",
                     },
                 },
@@ -4429,14 +4429,14 @@ def test_nested_integer_literal_is_identical_across_lowerers(
         "value": 8,
         "context_type": {
             "domain": {"kind": "actual"},
-            "id": "quantity.dimensionless-int64",
+            "id": "quantity.dimensionless-int64-v2-2",
             "kind": "scalar",
             "numeric_policy": "exact-int64",
             "representation": "Int",
             "type": {
                 "id": "Quantity",
                 "package": "core.quantity",
-                "version": "2.1.0",
+                "version": "2.2.0",
             },
             "unit": "1",
         },
@@ -5063,10 +5063,14 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
     selected_semantics = cast(dict[str, Any], production["selected_semantics"])
     operation_projections = cast(list[dict[str, Any]], selected_semantics["operations"])
     assert [row["definition"]["id"] for row in operation_projections] == [
+        "quantity.add",
+        "quantity.floor-divide",
         "quantity.floor-zero",
         "quantity.identity",
         "quantity.less-than",
         "quantity.maximum",
+        "quantity.minimum",
+        "quantity.multiply",
         "quantity.subtract",
     ]
     lock_operations = cast(

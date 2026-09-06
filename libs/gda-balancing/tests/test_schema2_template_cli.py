@@ -921,7 +921,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:2f047b297e3caca127590a61f3215fa78f30dc4e232be1eda77023eb0a781790"
+                    "sha256:5f2d4da09c4adc5405755ea5238b2b54e7f4ae4910f874506dcb96cfbb9ad0d1"
                 ),
             }
         ]
@@ -1411,7 +1411,7 @@ def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, ru
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.maximum",
                 },
                 "arguments": [
@@ -2384,7 +2384,7 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.1.0",
+                    "version": "2.2.0",
                     "id": "quantity.maximum",
                 },
                 "arguments": [
@@ -2444,7 +2444,7 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
                     "node": "operation-call",
                     "operation": {
                         "package": "core.quantity",
-                        "version": "2.1.0",
+                        "version": "2.2.0",
                         "id": "quantity.maximum",
                     },
                     "arguments": [

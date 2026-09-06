@@ -924,18 +924,21 @@ committed-Snapshot Metrics. `game.combat` consumes the final Quantity; it does n
 composition policy. The CLI and player-facing application consume the same maintained Model Source
 and Experiment inputs.
 
-The first `RPG-STAT-01` Model Source selects one compatible package closure. Its root requirements
+The `RPG-STAT-01` Model Source selects one compatible current package closure. Its root requirements
 are `core.quantity@2.2.0`, `game.progression@1.0.0`, `game.build@2.0.0`,
 `game.effect@2.0.0`, and `game.combat@2.2.0`. The selected combat release depends on
 `game.check@1.1.0` and `game.resource@1.1.0`; the selected build release depends on
-`game.generation@1.1.0`. These three dependency releases preserve their earlier exports and
-behavior while selecting `core.quantity@2.2.0`. The new combat release also preserves its earlier
-Operations and behavior. The Build and Effect contribution releases use a major boundary because
-they do not preserve the different public APIs of their `1.0.0` releases. The remaining transitive
-coordinates are `standard.compiler@1.1.0`,
-`standard.runtime@1.1.0`, and `standard.schema@2.4.0`. Earlier package releases remain available,
-but one Model cannot mix their `core.quantity@2.1.0` dependencies with the new closure. bADR-0017
-owns the exact dependency edges.
+`game.generation@1.1.0`. The remaining transitive coordinates are `standard.compiler@1.1.0`,
+`standard.runtime@1.1.0`, and `standard.schema@2.4.0`. Under #869, Build's current definition owns
+both reward replacement and contribution; Effect's current definition owns both periodic lifecycle
+and contribution. Earlier duplicate release manifests and vector members are removed after this
+capability union. bADR-0017 owns the scoped amendment and dependency edges; these coordinates remain
+the current wire format until the selector deletion in #870–#872.
+
+The maintained [progression-derived periodic Effect example](../examples/schema2/progression-periodic-effect/README.md)
+composes the same package owners through ordinary Model Source Formula bindings and an Experiment.
+It requires no Kernel change or host genre dispatch. This bounded composition does not close a
+genre coverage row.
 
 Operation composition is explicit and directional:
 
@@ -1114,10 +1117,11 @@ Runtime profile, and exact Experiment eligibility. Such executions are not Repla
 
 **Accepted replacement:** One current definition per namespace replaces version selection. The
 resolver still closes declared dependencies, nominal types and capability providers, and refuses
-missing, duplicate, ambiguous or cyclic ownership. S2 first preserves the complete capability union;
-S3 deletes historical selectors and resolver branches across authored input, machine laws,
-compilation, descriptors, templates and consumers. The existing algorithm described next remains
-current implementation until that coordinated change; it is not the retained target.
+missing, duplicate, ambiguous or cyclic ownership. S2 (#869) supplies the current capability union
+and deletes duplicate release copies. S3 (#870–#872) deletes historical selectors and resolver
+branches across authored input, machine laws, compilation, descriptors, templates and consumers.
+The existing algorithm described next remains current implementation until that coordinated change;
+it is not the retained target.
 
 Model Source declares requirements; it does not select ambient installed packages. The resolver
 uses the exact LDB inventory and deterministic compatibility rules to produce one canonical Package

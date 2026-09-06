@@ -483,11 +483,11 @@ def test_authority_loader_identity_is_independent_of_physical_member_location(
     ("unreadable", "subject"),
     [
         (
-            "packages/core-quantity/core.quantity@2.1.0.json",
+            "packages/core-quantity/core.quantity@2.2.0.json",
             "language-bundle.package_descriptors.0",
         ),
         (
-            "packages/core-quantity/core.quantity@2.1.0.conformance-vectors.json",
+            "packages/core-quantity/core.quantity@2.2.0.conformance-vectors.json",
             "language-bundle.package_descriptors.0.conformance_vectors",
         ),
     ],
@@ -709,7 +709,7 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
 
     conformance = releases[("standard.conformance.structured", "2.0.0")]
     assert conformance["dependencies"]["required"] == [
-        {"id": "core.quantity", "version": "2.1.0"},
+        {"id": "core.quantity", "version": "2.2.0"},
         {"id": "standard.runtime", "version": "1.1.0"},
         {"id": "standard.schema", "version": "2.4.0"},
     ]
@@ -979,7 +979,7 @@ def test_package_get_schema_rejects_values_forbidden_by_kernel_meta_format(run_c
 
     open_dependency = deepcopy(release)
     open_dependency["dependencies"]["required"] = [
-        {"id": "core.quantity", "version": "2.1.0", "peer": True}
+        {"id": "core.quantity", "version": "2.2.0", "peer": True}
     ]
     invalid_releases.append(open_dependency)
 
@@ -2044,7 +2044,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "--id",
                 "core.quantity",
                 "--version",
-                "2.1.0",
+                "2.2.0",
             ]
         elif path in {"formula parse", "formula render"}:
             descriptor = {

@@ -123,7 +123,7 @@ PACKAGE_GET = CommandDescriptor(
     output_model=PackageArtifact,
     handler=package_get_handler(packaged_authority_context),
     fixtures=ConformanceFixtures(
-        valid_args=("--id", "core.quantity", "--version", "2.1.0"),
+        valid_args=("--id", "core.quantity", "--version", "2.2.0"),
         refusing_args=("--id", "missing.package", "--version", "1.0.0"),
     ),
     schema_major=2,

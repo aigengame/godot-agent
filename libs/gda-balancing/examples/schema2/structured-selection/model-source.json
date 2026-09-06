@@ -8,7 +8,7 @@
   "package_requirements": [
     {
       "id": "core.quantity",
-      "version": "2.1.0"
+      "version": "2.2.0"
     },
     {
       "id": "standard.conformance.structured",
@@ -174,7 +174,7 @@
         {
           "alias": "quantity",
           "package": "core.quantity",
-          "version": "2.1.0",
+          "version": "2.2.0",
           "symbol": "Quantity"
         }
       ],

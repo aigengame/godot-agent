@@ -135,7 +135,7 @@ def test_two_consumers_refuse_invalid_runtime_control_compositions(mutation):
                 "site": "guarded-spend",
                 "operation": {
                     "package": "game.resource",
-                    "version": "1.0.1",
+                    "version": "1.1.0",
                     "id": "game.resource.spend-v1",
                 },
                 "arguments": [
@@ -391,14 +391,11 @@ def test_literal_typing_is_an_independent_package_owned_authority():
     assert "literal_profiles" not in policy
     assert "literal_selection" not in policy
     assert [profile["id"] for profile in profiles] == [
-        "quantity.dimensionless-int64",
         "quantity.dimensionless-int64-v2-2",
         "quantity.positive-dimensionless-int64-v2-2",
         "standard.schema.nominal-structured",
     ]
-    assert owners["2.1.0"]["exports"]["literal_typing_profiles"] == [
-        "quantity.dimensionless-int64"
-    ]
+    assert set(owners) == {"2.2.0"}
     assert owners["2.2.0"]["exports"]["literal_typing_profiles"] == [
         "quantity.dimensionless-int64-v2-2",
         "quantity.positive-dimensionless-int64-v2-2",
@@ -561,12 +558,12 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
         ),
     ),
     ids=(
-        "effect-language.operations.game.combat@2.1.0.game.combat.cast-v1.body.hit-check.effects",
-        "refusal-language.operations.game.combat@2.1.0.game.combat.cast-v1.body.hit-check.refusals",
-        "resource-language.operations.game.combat@2.1.0.game.combat.cast-v1.resource_bounds",
-        "cycle-language.operations.game.check@1.0.1.game.check.hit-v1.body.cycle.operation",
-        "argument-contract-language.operations.game.combat@2.1.0.game.combat.cast-v1.body.hit-check.arguments",
-        "literal-contract-language.operations.game.combat@2.1.0.game.combat.cast-v1.body.apply-damage.arguments",
+        "effect-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.effects",
+        "refusal-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.refusals",
+        "resource-language.operations.game.combat@2.2.0.game.combat.cast-v1.resource_bounds",
+        "cycle-language.operations.game.check@1.1.0.game.check.hit-v1.body.cycle.operation",
+        "argument-contract-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.arguments",
+        "literal-contract-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.apply-damage.arguments",
     ),
 )
 def test_two_consumers_refuse_every_reidentified_operation_composition_violation(
@@ -1349,7 +1346,7 @@ def test_reidentified_operation_result_source_cannot_invent_host_semantics():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.1.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.2.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1589,7 +1586,7 @@ def test_current_slice_refuses_not_yet_delivered_operation_definitions():
 def test_operation_rule_must_match_every_declared_operation_vector():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
-    operation_id = ldb["language"]["operations"][0]["id"]
+    operation_id = "quantity.floor-zero"
     package = next(
         candidate
         for candidate in ldb["language"]["packages"]
