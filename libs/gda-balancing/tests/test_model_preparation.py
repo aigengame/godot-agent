@@ -159,7 +159,8 @@ def test_public_model_request_prepares_once_and_keeps_artifact_admission(
         "_resolved_entrypoints",
         "_resolved_call_sites",
     } <= trace.post_specialization_checks
-    assert {used for _, used, _ in trace.charges} == {506}
+    # The append capacity reason and diagnostic each add one catalog-row charge.
+    assert {used for _, used, _ in trace.charges} == {508}
     assert {
         name: trace.calls["source", name]
         for name in (
@@ -441,7 +442,7 @@ def test_checked_request_and_all_artifact_outputs_are_isolated_from_mutation():
     assert _artifact_bytes(checked) == expected
 
 
-@pytest.mark.parametrize("limit", [372, 373, 374])
+@pytest.mark.parametrize("limit", [374, 375, 376])
 def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
     kernel, language_bundle = mutable_authorities()
     language_bundle["resources"]["max_runtime_projection_steps"] = limit
@@ -463,7 +464,7 @@ def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
             artifacts = _artifact_bytes(checked)
             assert artifacts
 
-    if limit == 372:
+    if limit == 374:
         assert isinstance(checked, Schema2RefusalReport)
         assert checked.model_dump(mode="json") == {
             "stage": "static",
@@ -487,10 +488,10 @@ def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
     else:
         assert isinstance(checked, CheckedModel), checked
         assert trace.calls["imported-artifact", "admit_resolved_model"] == 1
-        assert ("source", 373, limit) in trace.charges
-        assert ("imported-artifact", 373, limit) in trace.charges
+        assert ("source", 375, limit) in trace.charges
+        assert ("imported-artifact", 375, limit) in trace.charges
     assert trace.charges
     assert all(
-        used == min(limit, 373) and admitted_limit == limit
+        used == min(limit, 375) and admitted_limit == limit
         for _, used, admitted_limit in trace.charges
     )

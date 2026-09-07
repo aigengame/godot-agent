@@ -968,8 +968,9 @@ def _experiment(
     }
 
 
-def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
-    source_value = _rpg_model_source()
+def _write_built_experiment(tmp_path, run_cli, *, base_damage=24, source_value=None):
+    if source_value is None:
+        source_value = _rpg_model_source()
     source = tmp_path / "rpg-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -6591,6 +6592,12 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
         if package_id == "standard.conformance.structured"
     ]
     assert {vector["id"] for _package, vector in vectors} == {
+        "bounded-fold.duplicates",
+        "bounded-fold.empty",
+        "bounded-fold.full",
+        "bounded-fold.numeric-overflow",
+        "bounded-fold.reverse",
+        "bounded-fold.tail-difference",
         "structured.select.success",
         "structured.select.empty-outcome",
         "structured.select.guard-refusal",
@@ -9674,7 +9681,23 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
 def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
     tmp_path, run_cli, monkeypatch, outcome
 ):
-    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
+    source_value = _rpg_model_source()
+    if outcome == "runtime":
+        base_damage = next(
+            row
+            for row in source_value["modules"][0]["symbols"]
+            if row["symbol"] == "base_damage"
+        )
+        base_damage["domain"]["maximum"] = (1 << 63) - 1
+        _widen_mitigated_damage_formula(
+            source_value, damage_before_defense_maximum=(1 << 63) - 1
+        )
+    specification, rir_path = _write_built_experiment(
+        tmp_path,
+        run_cli,
+        base_damage=(1 << 62) if outcome == "runtime" else 24,
+        source_value=source_value,
+    )
     specification_value = json.loads(specification.read_text(encoding="utf-8"))
     if outcome == "verdict":
         specification_value["metrics"][0]["target"] = {
@@ -9682,21 +9705,14 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
             "maximum": 1000,
         }
     elif outcome == "runtime":
-        admit_numeric = experiment_runtime_module._admit_numeric
-        numeric_admissions = 0
-
-        def overflow_at_runtime(value, numeric):
-            nonlocal numeric_admissions
-            numeric_admissions += 1
-            if numeric_admissions <= 6:
-                return admit_numeric(value, numeric)
-            raise OverflowError
-
-        monkeypatch.setattr(
-            experiment_runtime_module,
-            "_admit_numeric",
-            overflow_at_runtime,
+        # A real critical-damage overflow also passes independent audit replay;
+        # an injected arithmetic fault is not a valid published Runtime outcome.
+        threshold = next(
+            row
+            for row in specification_value["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "critical_threshold"
         )
+        threshold["value"] = 100
     specification.write_text(json.dumps(specification_value), encoding="utf-8")
     out = tmp_path / "recovered-evaluation.json"
     key = "3" * 64
@@ -9756,7 +9772,7 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         audit = _member(error["terminal_audit"], "runtime-terminal-audit")
         assert audit["refusing_event"]["entrypoint"]["id"] == "combat.cast"
         assert audit["refusing_event"]["entrypoint"]["identity"].startswith("sha256:")
-        assert audit["refusing_event"]["call_path"] == ("combat.cast/spend-resource")
+        assert audit["refusing_event"]["call_path"] == "combat.cast/apply-damage"
         assert audit["refusing_event"]["call_site_identity"].startswith("sha256:")
         assert audit["diagnostic"] == {
             "stage": "runtime",
