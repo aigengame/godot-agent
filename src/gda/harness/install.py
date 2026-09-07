@@ -58,13 +58,18 @@ Three shapes of input still come back changed, so the byte-identity guarantee of
 - a file with NO final terminator gains one (install terminates the line it
   appends after; uninstall has no way to know the file never ended in a break);
 - a CR-only (classic-Mac) file comes back CRLF — ``line_ending`` only tells
-  ``\\r\\n`` from ``\\n``, while ``str.splitlines`` also splits a bare ``\\r``.
+  ``\\r\\n`` from ``\\n``, while ``str.splitlines`` also splits a bare ``\\r``;
+- a file whose ``[autoload]`` section was ALREADY EMPTY loses that header, for the
+  reason :func:`uninstall_harness` states — it is that function's guarantee, so the
+  reasoning lives there and this list only names the shape (PR #898 review,
+  round 2: the list read as exhaustive and was not).
 
 None is reachable for a ``project.godot`` the engine itself wrote: Godot's
-``ConfigFile`` writer emits uniformly ``\\n``-terminated lines and always
-terminates the last one. They need a hand-edited or tool-mangled file, so they are
-documented rather than coded around — the code stays a plain line-oriented edit
-instead of growing a per-line terminator model for inputs Godot cannot produce.
+``ConfigFile`` writer emits uniformly ``\\n``-terminated lines, always terminates
+the last one, and never emits an empty section. They need a hand-edited or
+tool-mangled file, so they are documented rather than coded around — the code stays
+a plain line-oriented edit instead of growing a per-line terminator model, or a
+record of pre-install state, for inputs Godot cannot produce.
 """
 
 from dataclasses import dataclass
@@ -546,7 +551,15 @@ def _emptied_autoload_span(lines: list[str], index: int) -> Optional[tuple[int, 
     to its pre-install bytes. A mid-file section keeps that separator: it still
     divides the two neighbours.
     """
-    if index >= len(lines) or section_name(lines[index].strip()) != _AUTOLOAD_SECTION:
+    # The one comparison on this path that is deliberately LITERAL, where
+    # recognition is by name (`_AUTOLOAD_SECTION`). The asymmetry is the rule
+    # itself: reading the file means reading it as Godot's parser does, so a
+    # whitespaced `[ autoload ]` IS the autoload section and gda joins it and
+    # takes its entry out again — but DROPPING a header means removing a line gda
+    # wrote, and gda only ever writes `[autoload]`. Recognizing the drop by name
+    # too would have destroyed a user's empty `[ autoload ]` on a round trip that
+    # created nothing (PR #898 review, round 2).
+    if index >= len(lines) or lines[index].strip() != _AUTOLOAD_HEADER:
         return None
     end = index + 1
     while end < len(lines) and not is_section_header(lines[end].strip()):
@@ -648,11 +661,17 @@ def uninstall_harness(project: Path) -> HarnessUninstall:
 
     - the ``[autoload]`` section the harness entry sat in is dropped even if it was
       ALREADY empty before the install. Closing this one WOULD need recorded
-      pre-install state, which this module refuses to write into the project — and
-      Godot's own ``ConfigFile`` writer never emits an empty section, so the input
-      is degenerate. (An empty ``[autoload]`` section the harness never joined is a
-      different matter and IS left alone — see
-      :func:`_drop_emptied_autoload_sections`.)
+      pre-install state — whether THIS install wrote the header — which this module
+      refuses to write into the project, and which the install's own
+      ``created_sections`` receipt cannot supply either: an uninstall is a separate
+      run (a ``daemon stop``, an ``export run`` strip) that never sees it. Godot's
+      own ``ConfigFile`` writer never emits an empty section, so the input is
+      degenerate. It is also bounded to the header gda WRITES: an empty
+      ``[ autoload ]`` (Godot reads the whitespaced form as the same section, so the
+      install joins it) keeps its header, because dropping it would delete a line
+      gda never wrote — see :func:`_emptied_autoload_span`. (An empty ``[autoload]``
+      section the harness never joined is a different matter again and IS left alone
+      — see :func:`_drop_emptied_autoload_sections`.)
     - an ``addons/`` directory gda created is left in place. Here the reason is not
       missing state (uninstall could infer it just as well as it infers the empty
       section) but that removal would buy nothing: see :func:`_remove_files`.

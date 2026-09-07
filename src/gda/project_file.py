@@ -268,9 +268,9 @@ class ConfigText:
     (``eol.join(lines) + trailing``), so an edit stays byte-faithful to the parts
     it did not touch — with one exception, a leading byte-order mark, which
     :data:`_BOM` explains and which no writer here can reintroduce (the only text
-    this module writes back is the engine's own, which never carries one). ``sections`` names the sections in FILE order (the
-    section-less head is not one of them), and ``entries`` the assignments in
-    file order.
+    this module writes back is the engine's own, which never carries one).
+    ``sections`` names the sections in FILE order (the section-less head is not
+    one of them), and ``entries`` the assignments in file order.
     """
 
     lines: tuple[str, ...]

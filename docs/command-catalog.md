@@ -1107,16 +1107,21 @@ never declared it, where there is nothing in the pre-write file to restore, so t
 moves that default aside and the ENGINE writes the line from the request's coerced value (gda
 hand-builds no Godot literal, the ADR-0033 rule).
 
-Four residuals stay out of scope, and are listed rather than fixed so a reader is not surprised
+Five residuals stay out of scope, and are listed rather than fixed so a reader is not surprised
 by them. **Comments**: the engine writes its own header and keeps none of the file's. The **key
 order inside** a section: only the section order is reported. **Line endings**: the engine's
 writer emits LF, so a CRLF `project.godot` comes back LF — unlike the harness install, which is
 gda's own line edit and preserves CRLF (ADR-0018, #654); a write goes through the engine, and gda
-restores lines into what it wrote. And a key whose spelling gda cannot decode (a quoted,
-escaped name it does not recognize) is excluded from every comparison, so it is neither restored
-nor reported — near-unreachable, since the engine's own `property_name_encode` escapes only `\\`
-and `\"`. A file gda cannot read on either side, or a run with no project resolved, reports the
-four keys empty and rewrites nothing.
+restores lines into what it wrote. A **byte-order mark**: Godot's reader does not strip one, so
+the engine reads the marked first key as a setting of its own and leaves a permanent duplicate
+(`"ï»¿config_version"=5`) beside the `config_version=5` its writer always emits — gda reports it
+under `added_settings` and does not remove it, because it is a setting the file now declares. And
+a key whose spelling gda cannot decode (a quoted, escaped name it does not recognize) is excluded
+from every comparison, so it is neither restored nor reported — near-unreachable, since the
+engine's own `property_name_encode` escapes only `\\` and `\"`. A file gda cannot read on either
+side, or a run with no project resolved, rewrites nothing and reports the four keys as they are
+declared — empty — which on that one path means **unknown**, not "nothing changed": gda has no
+reading to compare, so it makes no claim about what the save did.
 
 The restore also runs when the operation FAILED (PR #898 review): a run that never reached the
 save leaves the file equal to what gda read, so nothing is written, while a run that saved and
