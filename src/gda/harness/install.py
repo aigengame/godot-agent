@@ -46,10 +46,14 @@ agent (or a reviewer) needs to audit what gda wrote into a tracked project.
 translation OFF and rejoined with the terminator its FIRST line uses, so a CRLF
 project file stays CRLF — Python's default text mode would otherwise silently
 rewrite the whole file to LF on any autoload edit. The line primitives this
-edit runs on (``split_config``, ``section_of``, ``is_section_header``) belong to
-:mod:`gda.project_file`, the one reader of Godot's ``ConfigFile`` text (#843);
-this module contributes the ``[autoload]``-specific EDIT, not a second reading
-of the format.
+edit runs on (``split_config``, ``config_line``, ``section_of``,
+``is_section_header``) belong to :mod:`gda.project_file`, the one reader of
+Godot's ``ConfigFile`` text (#843); this module contributes the
+``[autoload]``-specific EDIT, not a second reading of the format. Every raw line
+this edit looks at is reduced by that reader's :func:`~gda.project_file.config_line`
+first — a ``.strip()`` of its own left the comment on, and a header written
+``[autoload] ; note`` was then missed: the install appended a SECOND autoload
+section and the uninstall left its entry behind (PR #898 review, round 3).
 
 Three shapes of input still come back changed, so the byte-identity guarantee of
 :func:`uninstall_harness` is scoped to exclude them:
@@ -78,6 +82,7 @@ from typing import Optional
 
 from gda.project_file import (
     SECTIONLESS,
+    config_line,
     is_section_header,
     section_name,
     section_of,
@@ -109,12 +114,13 @@ HARNESS_VERSION = "20"
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
 # The same section by NAME. Every RECOGNITION on the edit path goes through this
-# (via the shared reader's `section_name`/`section_of`), because Godot's own
-# parser strips a header's inner whitespace — `[ autoload ]` IS the autoload
-# section (`VariantParser::_parse_tag`). Comparing a line to the header LITERAL
-# instead would half-see such a file: the entry removed, the emptied header left
-# behind (PR #898 review). The literal above stays what the install WRITES and
-# what the #654 receipt reports.
+# (via the shared reader's `config_line` + `section_name`/`section_of`), because
+# Godot's own parser strips a header's inner whitespace and reads past a trailing
+# comment — `[ autoload ]` and `[autoload] ; note` are both the autoload section
+# (`VariantParser::_parse_tag`, `parse_tag_assign_eof`). Comparing a line to the
+# header LITERAL instead would half-see such a file: the entry removed, the
+# emptied header left behind (PR #898 review). The literal above stays what the
+# install WRITES and what the #654 receipt reports.
 _AUTOLOAD_SECTION = "autoload"
 _PROJECT_FILE = "project.godot"
 _BUNDLED_HARNESS = Path(__file__).parent / HARNESS_FILE
@@ -432,7 +438,7 @@ def _ensure_autoload(text: str) -> _ConfigEdit:
     section = SECTIONLESS
     autoload_header_index: Optional[int] = None
     for i, raw in enumerate(lines):
-        stripped = raw.strip()
+        stripped = config_line(raw)
         section = section_of(stripped, section)
         if section != _AUTOLOAD_SECTION:
             continue
@@ -554,15 +560,16 @@ def _emptied_autoload_span(lines: list[str], index: int) -> Optional[tuple[int, 
     # The one comparison on this path that is deliberately LITERAL, where
     # recognition is by name (`_AUTOLOAD_SECTION`). The asymmetry is the rule
     # itself: reading the file means reading it as Godot's parser does, so a
-    # whitespaced `[ autoload ]` IS the autoload section and gda joins it and
-    # takes its entry out again — but DROPPING a header means removing a line gda
-    # wrote, and gda only ever writes `[autoload]`. Recognizing the drop by name
-    # too would have destroyed a user's empty `[ autoload ]` on a round trip that
-    # created nothing (PR #898 review, round 2).
+    # whitespaced `[ autoload ]` — or a commented `[autoload] ; note` — IS the
+    # autoload section and gda joins it and takes its entry out again; but
+    # DROPPING a header means removing a line gda wrote, and gda only ever writes
+    # a bare `[autoload]`. Recognizing the drop by name too would have destroyed a
+    # user's empty `[ autoload ]` on a round trip that created nothing, and would
+    # take a user's comment with the header here (PR #898 review, rounds 2-3).
     if index >= len(lines) or lines[index].strip() != _AUTOLOAD_HEADER:
         return None
     end = index + 1
-    while end < len(lines) and not is_section_header(lines[end].strip()):
+    while end < len(lines) and not is_section_header(lines[end]):
         end += 1
     if any(line.strip() for line in lines[index + 1 : end]):
         return None
@@ -590,7 +597,7 @@ def _remove_autoload(text: str) -> _ConfigEdit:
     header_index: Optional[int] = None
     emptied: set[int] = set()
     for raw in lines:
-        stripped = raw.strip()
+        stripped = config_line(raw)
         section = section_of(stripped, section)
         if section == _AUTOLOAD_SECTION:
             if section_name(stripped) == _AUTOLOAD_SECTION:
