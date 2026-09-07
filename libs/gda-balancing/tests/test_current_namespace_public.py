@@ -526,7 +526,10 @@ def test_public_namespace_owned_operations_and_literal_data(tmp_path: Path) -> N
         for row in rir["selected_semantics"]["operations"]
     }
     for owner in _OWNERS:
-        assert operations[(owner, "adjust-v1")] == _operation(owner)
+        expected = _operation(owner)
+        # Conformance references belong to Package/Lock evidence, outside execution.
+        expected.pop("vectors")
+        assert operations[(owner, "adjust-v1")] == expected
     nominal = {
         (row["package"], row["definition"]["id"]): row["definition"]
         for row in rir["selected_semantics"]["nominal_types"]
