@@ -42,21 +42,6 @@ universal asset superclass would preserve those assumptions under new names.
   Keep Panda style, dimensions, fonts, manifests, and game policy out of the new
   defaults. Do not update the game to become a library client or maintain its
   private import paths as compatibility APIs.
-- Treat the `gda-blender-mcp` skill and its bundled helpers as optional sources of
-  production experience and regression cases. Their presence does not satisfy,
-  defer, or reduce any planned product capability. Do not import or invoke scripts
-  from an installed skill, discover its installation path, or require it for product
-  execution, tests, or acceptance examples. Useful code may be adapted into the
-  owning product module with applicable attribution and tests; that module then
-  owns its implementation and maintenance. Product-owned scripts remain a valid
-  implementation form when they meet the public contract and distribution rules.
-  Choose required tool dependencies and configuration from the supported producer
-  contract; do not inherit a helper's SDK pin, agent configuration, receipt format,
-  or compatibility promise merely because the helper uses it. External tools and
-  the explicit agent-native generation handoff remain supported boundaries.
-  Validate each delivered path without the skill installed. Helper retirement or
-  shared-skill maintenance is separate work, not a prerequisite or compatibility
-  obligation for the product.
 
 The service and Godot-port integration is owned by
 [root ADR-0042](../../../../docs/adr/0042-asset-pipeline-supporting-context-integration.md).
