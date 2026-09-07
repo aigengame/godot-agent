@@ -14,9 +14,6 @@ from gda_balancing.domain.canonical import (
     canonical_bytes,
     content_identity,
 )
-from gda_balancing.domain.artifacts import (
-    verify_artifact,
-)
 from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.domain.operation_program import (
     OperationCoordinate,
@@ -1042,11 +1039,12 @@ def runtime_terminal_audit_members(
 def validate_experiment_member(
     checked: CheckedExperiment, logical_name: str, value: dict[str, Any]
 ) -> bool:
-    """Re-admit one prepared Experiment output against the exact LDB."""
+    """Re-admit one prepared output against its selected exact contract."""
     del logical_name
-    if not verify_artifact(value, checked.language_bundle):
-        return False
     kind = value.get("artifact_kind")
+    contract = checked.output_contracts.get(kind) if isinstance(kind, str) else None
+    if contract is None or not contract.verify(value):
+        return False
     if kind == "event-trace":
         return _trace_formula_evaluations_are_authoritative(
             checked, cast(list[dict[str, Any]], value.get("events", []))

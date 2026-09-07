@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Any, cast
 
-from gda_balancing.domain.artifacts import identified_artifact, wire_schema_identity
 from gda_balancing.domain.canonical import JsonValue, content_identity
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.experiment import (
@@ -98,14 +97,13 @@ def artifact(
     artifact_kind: str,
     payload: dict[str, JsonValue],
 ) -> PublicationMember:
-    """Create one identified Runtime artifact under the selected LDB."""
-    value = identified_artifact(checked.language_bundle, artifact_kind, payload)
+    """Create one Runtime artifact under the request's selected output contract."""
+    contract = checked.output_contracts[artifact_kind]
+    value = contract.identify(payload)
     return PublicationMember(
         value=value,
         artifact_kind=artifact_kind,
-        wire_schema_identity=wire_schema_identity(
-            checked.language_bundle, artifact_kind
-        ),
+        wire_schema_identity=contract.wire_schema_identity,
         content_identity=cast(str, value["content_identity"]),
     )
 
@@ -564,7 +562,7 @@ def metric_definition_identity(metric: dict[str, Any]) -> str:
 def runtime_profile_definition_identity(
     checked: CheckedExperiment, definition: dict[str, Any]
 ) -> str:
-    contract = checked.kernel["meta_format"].get("runtime_profile_definition")
+    contract = checked.runtime_profile_identity_contract
     if (
         not isinstance(contract, dict)
         or set(contract) != {"domain", "projection", "active_runtime"}

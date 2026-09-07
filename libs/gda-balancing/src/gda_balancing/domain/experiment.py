@@ -5,15 +5,22 @@ from __future__ import annotations
 import json
 import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields
 from typing import Any, cast
 
 import jsonschema
 
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
+    _deep_freeze,
     packaged_authority_context,
 )
+from gda_balancing.domain.artifact_set import (
+    EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+    EXPERIMENT_SUCCESS_ARTIFACT_SET,
+    EXPERIMENT_VERDICT_ARTIFACT_SET,
+)
+from gda_balancing.domain.artifacts import ArtifactContract, select_artifact_contract
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -83,6 +90,39 @@ class CheckedExperiment:
     resolved_model: dict[str, Any]
     rir: dict[str, Any]
     authority_context: AdmittedAuthorityContext | None = None
+    output_contracts: Mapping[str, ArtifactContract] = field(init=False, repr=False)
+    runtime_profile_identity_contract: dict[str, Any] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        for member in fields(self):
+            if member.init:
+                object.__setattr__(
+                    self, member.name, _deep_freeze(getattr(self, member.name))
+                )
+        output_kinds = {
+            member.artifact_kind
+            for members in (
+                EXPERIMENT_SUCCESS_ARTIFACT_SET,
+                EXPERIMENT_VERDICT_ARTIFACT_SET,
+                EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+            )
+            for member in members
+        }
+        object.__setattr__(
+            self,
+            "output_contracts",
+            _deep_freeze(
+                {
+                    kind: select_artifact_contract(self.language_bundle, kind)
+                    for kind in sorted(output_kinds)
+                }
+            ),
+        )
+        object.__setattr__(
+            self,
+            "runtime_profile_identity_contract",
+            _deep_freeze(self.kernel["meta_format"]["runtime_profile_definition"]),
+        )
 
 
 def _refusal(
