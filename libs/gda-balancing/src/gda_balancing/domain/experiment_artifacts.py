@@ -27,6 +27,7 @@ from gda_balancing.domain.experiment import (
     CheckedExperiment,
 )
 from gda_balancing.domain.experiment_artifact_replay import (
+    ReplayEventEvidence,
     ReplayInitializationProgramFault as _InitializationProgramFault,
     replay_refusing_operation as _replay_refusing_operation,
     execution_path_segment as _execution_path_segment,
@@ -618,13 +619,7 @@ def _replayed_event_evidence(
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
-) -> (
-    tuple[
-        tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None,
-        list[dict[str, JsonValue]],
-    ]
-    | None
-):
+) -> ReplayEventEvidence | None:
     root_arguments = _event_arguments(
         checked,
         parent_spec,
@@ -668,7 +663,7 @@ def _replayed_schedule_arguments(
         catalog_by_id=catalog_by_id,
         events_by_id=events_by_id,
     )
-    return replayed[0] if replayed is not None else None
+    return replayed.schedule_arguments if replayed is not None else None
 
 
 def _event_formula_evaluations_match_replay(
@@ -697,7 +692,7 @@ def _event_formula_evaluations_match_replay(
         catalog_by_id=catalog_by_id,
         events_by_id=events_by_id,
     )
-    return replayed is not None and evaluations == replayed[1]
+    return replayed is not None and evaluations == replayed.formula_evaluations
 
 
 def _scheduled_catalog_record_is_authoritative(
