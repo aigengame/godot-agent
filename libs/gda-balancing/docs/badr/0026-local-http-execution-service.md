@@ -4,6 +4,15 @@ status: accepted
 
 # Provide a local HTTP execution service
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> Sessions now retain independently admitted RIR and expose `rir_semantic_identity`; the old
+> exact Resolved-Model/Build/compatibility tuple below is superseded. HTTP still receives complete
+> Model Source and Experiment documents by value, compiles Source and uses the same RIR/Experiment
+> admission as CLI. Complete-run revisions, explicit selection, idempotency, stale-handle refusal,
+> loopback/process capability and inline results remain. Producer provenance is separate from the
+> pure semantic profile; no Reproduction artifact or synthetic publication receipt is added.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 requires the HTTP path to consume the current Standard Schema contract after
 > obsolete version selectors and execution bindings are removed. This is a coordinated

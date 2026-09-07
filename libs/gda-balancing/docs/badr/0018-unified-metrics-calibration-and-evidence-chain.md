@@ -4,6 +4,15 @@ status: accepted
 
 # Use one Metrics schema and immutable evidence for evaluation, calibration, and approval
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> The current `evaluable` graph no longer requires Source, Model-build publication, whole LDB
+> or exact Build wrappers. Its subjects are existing RIR semantic identity, Experiment, pure Runtime
+> profile, original producer manifest and authenticated run publication. Dataset-level producer
+> `source_provenance` and Reproduction links are deleted; per-sample observation provenance remains.
+> Other claim, calibration and governance requirements retain their scope, and candidate/open
+> results do not activate #542–#544 or issue an Evidence assertion.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Native wire update (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07)):**
 > #871 removes Experiment, Runtime profile, evidence claim-kind and Replay policy own-version
 > labels and their provenance echoes. Their authored content, actual policies, identities and

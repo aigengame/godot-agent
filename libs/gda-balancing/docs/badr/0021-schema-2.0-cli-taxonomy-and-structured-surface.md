@@ -4,6 +4,15 @@ status: accepted
 
 # Align the Schema 2.0 CLI with model, experiment, and evidence artifacts
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> Current Experiment check/run/Replay require explicit `--rir`; use the RIR locator in the
+> Model-build Artifact-set receipt. `evidence verify` requires claim kind, RIR, specification and
+> Experiment-run receipt, with no Source/Model-build prerequisite. Reproduction artifact/member and
+> error-envelope objects are deleted. Original Replay publication/descriptor anchors are still
+> authenticated, without requiring equality to the current descriptor or producer. The command table
+> below retains its planned taxonomy scope; live help/schema owns current arguments.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Source-path retirement (2026-09-06, #868):** `model migrate` and its descriptor,
 > result and refusal-report contracts are removed. Current Model Source uses `model check|build`.
 > Historical conversion details remain in bADR-0019; unrelated planned commands retain their scope.

@@ -2,8 +2,11 @@
 
 Implementation record for #875 (S5b), after #874 was independently reviewed and
 merged into the shared development branch as `2a6c89cde`. This record fixes the
-implementation contract; it does not claim that deletion or acceptance is complete.
-The issue and its delivery PR own live acceptance.
+implementation contract. The branch now implements the scoped deletion and native consumers;
+full integration and CI acceptance remain pending. The issue and its delivery PR own live
+acceptance, so this record does not close #875 or the full refactor. The bounded
+[deletion disposition](evidence/execution-identity/deletion-disposition.json) records retained
+semantic safeguards and removed production, schema and fixture surfaces.
 
 ## Problem and discriminating evidence
 
@@ -20,8 +23,8 @@ public CLI or authenticated-publication acceptance of this deletion.
 
 #874 already closes the selected execution laws, nodes, reasons, Diagnostics and
 applicable resources. S5b must now remove the old prerequisites and their indirect
-paths. In particular, result validation currently reconstructs the installed
-evaluator and reproduction record, then requires supplied records to equal them.
+paths. At that baseline, result validation reconstructed the installed
+evaluator and reproduction record, then required supplied records to equal them.
 Deleting only the direct Replay comparison would leave this hidden prerequisite.
 
 ## Selected execution and producing provenance
@@ -32,12 +35,12 @@ allowlist or replacement receipt.
 
 | Owner | Required endpoint |
 | --- | --- |
-| Model | `admit_rir` independently admits one canonical RIR under the admitted current authorities. `AdmittedRir` contains detached RIR bytes and its existing content/semantic identities. It contains no Build receipt, Package Lock, Resolved Model wrapper or authority catalog. |
+| Model | `admit_rir` independently admits one canonical RIR under the admitted current authorities. `AdmittedRir` contains detached RIR bytes and its existing content/semantic identities; the Kernel-declared `namespace-member` projection derives selected membership without a fake Lock. It contains no Build receipt, Package Lock, Resolved Model wrapper or authority catalog. |
 | Experiment | Authored `model.rir_semantic_identity` binds the admitted program. Delete root Kernel/LDB identities and the old Source/Build/Lock/Resolved/exact-RIR tuple. Preserve all scenario, seed, stream, assignment, input, ordering, capability and policy checks. |
 | CLI / Application | Check, run and Replay receive an explicit required RIR file. No committed-store discovery, sibling-file guessing or old-input fallback supplies the program. |
 | Execution session | Compile Model Source and admit its RIR through the same Model owner. Revisions retain that admitted program. Preserve explicit revisions, detached inputs, ordering and stale-handle refusal. |
 | Runtime | The existing Resolved Runtime profile contains clean Experiment identity, RIR semantic identity and the complete selected Runtime profile/definition identity. Remove whole-authority/Build wrappers, evaluator identity, platform and duplicate RNG fields. |
-| Producer provenance | The Evaluator Capability Manifest records the implementation label, complete installed-source fingerprint, platform and actual capabilities once. Delete the redundant `implementation_identity`; manifest content identity already identifies this record. |
+| Producer provenance | The Evaluator Capability Manifest records the implementation label, complete installed-source fingerprint, platform and actual capabilities once, retained from preparation through terminal refusal. Delete the redundant `implementation_identity`; manifest content identity already identifies this record. |
 | Results | Trace, Snapshot, Metric, success, Verdict and terminal audit bind actual execution meaning. Delete their producer/reproduction links and the redundant Metric `source_provenance` object; preserve actual per-sample provenance and every journal, refusal, rollback and cross-artifact check. |
 | Publication | The authenticated Artifact-set manifest already associates the actual outputs, semantic profile and producer manifest. Delete the Reproduction receipt artifact and all of its schema, contract, export, constructor, member and consumer paths. |
 | Replay | Authenticate original bytes and their original descriptor/transaction anchors. Delete equality against the current command descriptor and complete producing provenance. Compare actual execution identity and observations under the selected comparison policy. |

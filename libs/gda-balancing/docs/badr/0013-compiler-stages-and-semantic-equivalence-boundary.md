@@ -4,6 +4,13 @@ status: accepted
 
 # Make RIR the public semantic boundary and EIR an evaluator-specific lowering
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> The whole-LDB/Lock/Resolved-Model tuple below remains the exact Build validation boundary,
+> but #875 removes it from execution eligibility. Model owns independent canonical RIR admission
+> against current owners and derives the selected closure again through a private namespace catalog.
+> No fake Package Lock, second public IR or old-binding fallback is introduced.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 supersedes the whole-LDB Resolved Model tuple as the permanent execution identity
 > boundary. That tuple still describes the current wire implementation until the coordinated

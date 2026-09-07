@@ -14,14 +14,19 @@ Effect. No Kernel law, compiler/evaluator branch or host genre dispatch is added
 From this package directory, build and run the checked-in documents:
 
 ```sh
-uv run gda-balancing model build examples/schema2/progression-periodic-effect/model-source.json --out /tmp/progression-build --invocation-key 3131313131313131313131313131313131313131313131313131313131313131
-uv run gda-balancing experiment run examples/schema2/progression-periodic-effect/experiment.json --out /tmp/progression-run --invocation-key 3232323232323232323232323232323232323232323232323232323232323232
+RUN_DIR="$(mktemp -d /tmp/gda-progression.XXXXXX)"
+export GDA_BALANCING_STORE_DIR="$RUN_DIR/store"
+export GDA_BALANCING_ANCHOR_KEY="$(openssl rand -hex 32)"
+uv run gda-balancing model build examples/schema2/progression-periodic-effect/model-source.json --out "$RUN_DIR/model" --invocation-key "$(openssl rand -hex 32)" | tee "$RUN_DIR/model-receipt.json"
+RIR_PATH="$(jq -r '.member_locators[] | select(.logical_name == "rir-semantic-payload") | .locator' "$RUN_DIR/model-receipt.json")"
+uv run gda-balancing experiment run examples/schema2/progression-periodic-effect/experiment.json --rir "$RIR_PATH" --out "$RUN_DIR/run" --invocation-key "$(openssl rand -hex 32)"
 ```
 
-Use unused output locations or distinct invocation keys for a new publication.
-The committed Experiment binds the current build exactly. Package requirements are namespace
-strings and nominal Type/Operation references have no version coordinate. The remaining broad
-whole-LDB and Build-receipt execution bindings must close in #874 and be deleted in #875.
+The Experiment binds `model.rir_semantic_identity`; `--rir` supplies the actual program read from
+the Model-build Artifact-set receipt. Runtime independently admits that program. Package
+requirements remain namespace strings and nominal references remain `{package, id}`. Whole-LDB
+and Build-receipt provenance no longer controls execution eligibility; published Build records
+retain their own exact checks.
 
 The permanent public test changes only level to 4 and the expected terminal target:
 the same rules derive 68, capture 32 per tick, and leave 36 health. CLI and real HTTP

@@ -4,6 +4,14 @@ status: accepted
 
 # Make Formula notation a canonical reversible projection of structured bodies
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> The whole-LDB Resolved Model wrapper below remains exact Build provenance, not permanent
+> execution identity. #875 independently admits explicit RIR and binds its existing semantic identity;
+> validated Formula expression text still participates in exact RIR content integrity while the
+> canonical body determines executable meaning. Reversible notation and all body/expression checks
+> remain; producer-only changes no longer require an Experiment or Replay rebind.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 supersedes historical version selectors and the whole-LDB wrapper as the permanent
 > Formula execution-identity boundary. #871 now uses `{package, id}` Operation and nominal Type

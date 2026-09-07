@@ -4,6 +4,13 @@ status: accepted
 
 # Seal the Language Definition Bundle as a content-addressed artifact graph
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> #875 removes whole-LDB/Build provenance from Runtime and Replay eligibility, including the
+> former whole-LDB Replay-policy binding below. The sealed aggregate, exact manifest/vector bytes,
+> namespace membership, canonical integrity and selected semantic closure remain. Model's declared
+> `namespace-member` projection supplies selected semantics without an execution-side Package Lock.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 supersedes versioned collection descriptors as the target and irrelevant whole-LDB
 > identity propagation into execution. One current definition per namespace replaces historical

@@ -176,16 +176,18 @@ contains the admitted reward and build Operations. It contains no host callback 
 
 ## 4. Run the baseline configuration
 
-The checked-in Experiment binds the exact Model build that section 3 produces from the checked-in
-Model Source. Check and run it:
+The checked-in Experiment binds the RIR semantic identity produced from the maintained Model
+Source. Pass the RIR locator read from the Model-build Artifact-set receipt explicitly to check,
+run and Replay. Build provenance is verified separately; it is not an execution prerequisite:
 
 ```bash
 export BASELINE_EXPERIMENT=examples/schema2/roguelike-reward-build/experiment.json
 
-uv run gda-balancing experiment check "$BASELINE_EXPERIMENT" | jq .
+uv run gda-balancing experiment check --rir "$RIR_PATH" "$BASELINE_EXPERIMENT" | jq .
 
 export BASELINE_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/baseline-set-receipt.json"
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$BASELINE_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/baseline-evaluation.json" \
   --invocation-key "$EXPERIMENT_RUN_INVOCATION_KEY" \
@@ -203,16 +205,12 @@ export BASELINE_METRICS="$(
   jq -r '.member_locators[] | select(.logical_name == "metric-dataset") | .locator' \
     "$BASELINE_SET_RECEIPT"
 )"
-export BASELINE_REPRODUCTION="$(
-  jq -r '.member_locators[] | select(.logical_name == "reproduction-receipt") | .locator' \
-    "$BASELINE_SET_RECEIPT"
-)"
 ```
 
 Inspect the RNG draw, policy, reward disposition, and build replacement:
 
 ```bash
-jq '{seed_algorithm, seed_value}' "$BASELINE_REPRODUCTION"
+jq .seed "$BASELINE_EXPERIMENT"
 
 jq '.events[0].facts[]
   | select(.name == "reward_pool")
@@ -251,6 +249,7 @@ export REPLAY_RESULT="$GDA_BALANCING_TUTORIAL_ROOT/replay-result.json"
 export REPLAY_COMPARISON="$GDA_BALANCING_TUTORIAL_ROOT/replay-comparison.json"
 
 uv run gda-balancing experiment replay \
+  --rir "$RIR_PATH" \
   "$BASELINE_EXPERIMENT" \
   --original-experiment-run-artifact-set-receipt "$BASELINE_SET_RECEIPT" \
   --out "$REPLAY_COMPARISON" \
@@ -260,7 +259,7 @@ uv run gda-balancing experiment replay \
 jq '{result, policy, checks}' "$REPLAY_COMPARISON"
 ```
 
-The command authenticates the complete original set, prepares the same reproduction identity,
+The command authenticates the complete original set, checks the same semantic Runtime profile,
 and dispatches the maintained Experiment through the same Runtime path as `experiment run`. The
 comparison reports `matched` for the Evaluation outcome, Event trace, Snapshot series, and Metric
 dataset. The command returns `claim_state: "candidate"`; it publishes a comparison, not an
@@ -288,10 +287,11 @@ jq '
       | .value) = 2
 ' "$BASELINE_EXPERIMENT" > "$TUNED_EXPERIMENT"
 
-uv run gda-balancing experiment check "$TUNED_EXPERIMENT" | jq .
+uv run gda-balancing experiment check --rir "$RIR_PATH" "$TUNED_EXPERIMENT" | jq .
 
 export TUNED_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/tuned-set-receipt.json"
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$TUNED_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/tuned-evaluation.json" \
   --invocation-key "$(openssl rand -hex 32)" \
@@ -339,46 +339,33 @@ uv run gda-balancing model build \
   --invocation-key "$(openssl rand -hex 32)" \
   | tee "$EDITED_MODEL_SET_RECEIPT"
 
-export EDITED_BUILD_RECEIPT="$(
-  jq -r '.member_locators[] | select(.logical_name == "build-receipt") | .locator' \
+export EDITED_RIR_PATH="$(
+  jq -r '.member_locators[] | select(.logical_name == "rir-semantic-payload") | .locator' \
     "$EDITED_MODEL_SET_RECEIPT"
 )"
 ```
 
-A partial rebind is refused. It cannot combine the new Source identity with the old exact Model
-identities:
+The old Experiment remains bound to the old selected program. Supplying the changed RIR with
+that unchanged intent refuses at `/model/rir_semantic_identity`:
 
 ```bash
-export STALE_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/stale-experiment.json"
-
-jq --slurpfile build "$EDITED_BUILD_RECEIPT" '
-  .model.source_identity = $build[0].source_identity
-' "$BASELINE_EXPERIMENT" > "$STALE_EXPERIMENT"
-
-uv run gda-balancing experiment check "$STALE_EXPERIMENT" | jq .
+uv run gda-balancing experiment check "$BASELINE_EXPERIMENT" --rir "$EDITED_RIR_PATH" | jq .
 ```
 
-The command returns `language.resolved_authority_mismatch` at `/model`. Rebind every exact Model
-member, then check and run the new Experiment:
+The command returns `language.resolved_authority_mismatch`. Author the changed semantic binding,
+then check and run the new Experiment:
 
 ```bash
 export REBOUND_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/rebound-experiment.json"
 
-jq --slurpfile build "$EDITED_BUILD_RECEIPT" '
+jq --slurpfile rir "$EDITED_RIR_PATH" '
   .id = "roguelike.reward-build-feedback.alternate-formula"
-  | .kernel_identity = $build[0].kernel_identity
-  | .language_bundle_identity = $build[0].language_bundle_identity
-  | .model = {
-      source_identity: $build[0].source_identity,
-      build_receipt_identity: $build[0].content_identity,
-      resolved_model_identity: $build[0].resolved_model_identity,
-      package_lock_identity: $build[0].package_lock_identity,
-      rir_identity: $build[0].rir_identity
-    }
+  | .model = {rir_semantic_identity: $rir[0].semantic_identity}
 ' "$BASELINE_EXPERIMENT" > "$REBOUND_EXPERIMENT"
 
-uv run gda-balancing experiment check "$REBOUND_EXPERIMENT" | jq .
+uv run gda-balancing experiment check --rir "$EDITED_RIR_PATH" "$REBOUND_EXPERIMENT" | jq .
 uv run gda-balancing experiment run \
+  --rir "$EDITED_RIR_PATH" \
   "$REBOUND_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/rebound-evaluation.json" \
   --invocation-key "$(openssl rand -hex 32)" \

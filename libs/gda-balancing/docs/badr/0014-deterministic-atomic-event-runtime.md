@@ -4,6 +4,15 @@ status: accepted
 
 # Execute deterministic atomic event transactions under an explicit runtime profile
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> The former complete reproduction tuple and producer-bound Runtime profile are superseded by
+> the pure profile binding Experiment, existing RIR semantic identity and complete Runtime policy.
+> The Reproduction artifact and producer equality gates are deleted. Original manifest integrity
+> and capability coverage remain; prepared producer provenance survives terminal refusal. A producer
+> change alone no longer forbids exact Replay. Atomic Events, resource accounting, journals and
+> rollback retain their laws; the separate planned portability/conformance judgment is not activated.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 supersedes reproduction eligibility derived from build provenance or whole-bundle
 > content that cannot affect execution. The current profile and receipt shapes remain
