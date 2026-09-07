@@ -45,12 +45,14 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_emit.py",
         "test_envelope_schema.py",
         "test_execution_dependency_closure.py",
+        "test_execution_provenance.py",
         "test_execution_resource_applicability.py",
         "test_execution_service_language.py",
         "test_experiment_ingress_reason_mapping.py",
         "test_isolation.py",
         "test_layer_dependencies.py",
         "test_program_reachability.py",
+        "test_replay_publication_identity.py",
         "test_schema2_playtest.py",
         "test_schema2_authority_lifecycle.py",
         "test_schema2_bootstrap_authority.py",
@@ -75,7 +77,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_structured_values.py",
     ),
     "model": (
-        "test_exact_resolved_model_binding.py",
+        "test_admitted_rir.py",
         "test_model_preparation.py",
         "test_operation_call_domains.py",
         "test_schema2_model_cli.py",
@@ -86,6 +88,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "composition": (
         "test_current_namespace_public.py",
         "test_current_package_composition.py",
+        "test_public_execution_identity.py",
         "test_schema2_bootstrap_composition.py",
     ),
     "interfaces": (

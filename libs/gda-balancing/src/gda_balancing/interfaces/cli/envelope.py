@@ -1,18 +1,10 @@
-"""The closed Error envelope, the CLI error-code registry, and exit codes.
+"""Shared CLI usage/internal errors and the fixed exit-code registry.
 
-bADR-0008 is the authority. The envelope is the single top-level-``error``
-JSON object a failed invocation emits; its schema is closed (no member beyond
-the field law is permitted) and byte-identical across every command's
-``--schema`` output. This module is the one registry both dispatch and the
-conformance harness read — there is no second list of codes anywhere.
-
-Field law (bADR-0008): ``category`` and ``message`` are required in every
-envelope. ``refusal`` requires ``refusals`` (non-empty) and ``truncated`` and
-forbids an envelope-level ``code``; ``usage``/``internal`` require ``code`` and
-forbid ``refusals``/``truncated``. The only optional members are
-``diagnostics`` (``internal`` only, populated only under ``--debug``) and
-``reproduction`` (carried once a stochastic run has drawn its seed — no v1
-command is stochastic, bADR-0010).
+The current Schema 2.x refusal and command-specific error schemas are projected
+by ``surface.py`` under bADR-0015 and bADR-0021. This module owns the shared
+usage/internal builders and their closed field law. Optional internal diagnostics
+are emitted only when requested; execution inputs and producer provenance belong
+to the Experiment and its published artifacts.
 """
 
 from typing import Any
@@ -47,18 +39,7 @@ INTERNAL_ERROR = "internal_error"
 
 CLI_ERROR_CODES = USAGE_CODES | {INTERNAL_ERROR}
 
-_REPRODUCTION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "seed": {"type": "integer", "minimum": 0, "exclusiveMaximum": 2**32},
-        "toolkit_version": {"type": "string"},
-    },
-    "required": ["seed", "toolkit_version"],
-    "additionalProperties": False,
-}
-
 USAGE_ERROR_SCHEMA: dict[str, Any] = {
-    # No `reproduction` member: usage fails before execution can draw a seed.
     "type": "object",
     "properties": {
         "category": {"const": "usage"},
@@ -76,7 +57,6 @@ INTERNAL_ERROR_SCHEMA: dict[str, Any] = {
         "code": {"const": INTERNAL_ERROR},
         "message": {"type": "string"},
         "diagnostics": {"type": "string"},
-        "reproduction": _REPRODUCTION_SCHEMA,
     },
     "required": ["category", "code", "message"],
     "additionalProperties": False,

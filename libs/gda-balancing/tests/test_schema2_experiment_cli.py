@@ -4723,7 +4723,7 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
     assert events[0]["external_input_identity"] == input_identity
     input_catalog = next(
         row
-        for row in _member(receipt, "event-trace")["event_catalog"]
+        for row in _member(receipt, "snapshot-series")["event_catalog"]
         if row["event_id"] == events[0]["event_id"]
     )
     assert input_catalog["event_spec"]["source_identity"] == "sha256:" + ("8" * 64)
@@ -6375,6 +6375,7 @@ def test_experiment_ignores_build_store_damage_but_refuses_explicit_rir_corrupti
     detached_rir.write_bytes(rir_path.read_bytes())
     store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
     for artifact in store.rglob("*.json"):
+        artifact.chmod(0o600)
         artifact.write_text("damaged original Build publication", encoding="utf-8")
     traversals = 0
     original_regular_files = publication_module.regular_files
@@ -9273,12 +9274,12 @@ def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
     assert not out.exists()
     if fault == "after-commit":
 
-        def evaluator_must_not_run(_checked):
+        def evaluator_must_not_run(_prepared):
             raise AssertionError("Invocation-key recovery reran the periodic evaluator")
 
         monkeypatch.setattr(
             experiment_execution_application_module,
-            "evaluate_experiment",
+            "evaluate_prepared_experiment",
             evaluator_must_not_run,
         )
     else:
@@ -9757,12 +9758,12 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
     assert json.loads(stderr)["error"]["code"] == "internal_error"
     assert not out.exists()
 
-    def evaluator_must_not_run(_checked):
+    def evaluator_must_not_run(_prepared):
         raise AssertionError("Invocation-key recovery reran the evaluator")
 
     monkeypatch.setattr(
         experiment_execution_application_module,
-        "evaluate_experiment",
+        "evaluate_prepared_experiment",
         evaluator_must_not_run,
     )
     recovered_exit, recovered_stdout, recovered_stderr = run_cli(
@@ -9832,12 +9833,12 @@ def test_committed_recovery_requires_semantic_artifact_set_revalidation(
         lambda _checked, _artifacts: False,
     )
 
-    def evaluator_must_not_run(_checked):
+    def evaluator_must_not_run(_prepared):
         raise AssertionError("semantically invalid recovery reran the evaluator")
 
     monkeypatch.setattr(
         experiment_execution_application_module,
-        "evaluate_experiment",
+        "evaluate_prepared_experiment",
         evaluator_must_not_run,
     )
     recovered_exit, recovered_stdout, recovered_stderr = run_cli(
@@ -9892,12 +9893,12 @@ def test_committed_recovery_revalidates_the_presentation_trust_boundary(
         if path.is_file()
     }
 
-    def evaluator_must_not_run(_checked):
+    def evaluator_must_not_run(_prepared):
         raise AssertionError("invalid recovery presentation reran the evaluator")
 
     monkeypatch.setattr(
         experiment_execution_application_module,
-        "evaluate_experiment",
+        "evaluate_prepared_experiment",
         evaluator_must_not_run,
     )
     exit_code, stdout, stderr = run_cli(

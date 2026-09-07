@@ -68,7 +68,7 @@ def test_establish_session_contract_is_closed() -> None:
     request = EstablishExecutionSessionRequest.model_validate(payload)
     response = ExecutionSessionEstablishedResponse(
         session_id="session-1",
-        resolved_model_identity="sha256:resolved-model",
+        rir_semantic_identity="sha256:rir-meaning",
         revision_id="sha256:experiment",
     )
 
@@ -77,7 +77,7 @@ def test_establish_session_contract_is_closed() -> None:
     assert response.model_dump(mode="json") == {
         "outcome": "success",
         "session_id": "session-1",
-        "resolved_model_identity": "sha256:resolved-model",
+        "rir_semantic_identity": "sha256:rir-meaning",
         "revision_id": "sha256:experiment",
     }
     with pytest.raises(ValidationError):
@@ -89,7 +89,7 @@ def test_establish_session_contract_is_closed() -> None:
 def test_establish_session_results_are_framed() -> None:
     created = ExecutionSessionCreated(
         session_id="session-1",
-        resolved_model_identity="sha256:resolved-model",
+        rir_semantic_identity="sha256:rir-meaning",
         revision_id="sha256:experiment",
     )
     refusal = _example_refusal()
@@ -99,7 +99,7 @@ def test_establish_session_results_are_framed() -> None:
 
     assert success == ExecutionSessionEstablishedResponse(
         session_id="session-1",
-        resolved_model_identity="sha256:resolved-model",
+        rir_semantic_identity="sha256:rir-meaning",
         revision_id="sha256:experiment",
     )
     assert refused == RefusalResponse(refusal=refusal)
