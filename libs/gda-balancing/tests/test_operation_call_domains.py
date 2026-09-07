@@ -165,6 +165,11 @@ def _projection_input() -> ConcreteOperationCallDomainInput:
         conversion_policy=deepcopy(
             _formula_policy(context.language_bundle)["notation_conversion"]
         ),
+        boolean_contract=formula_contract_from_operation(
+            context.kernel["meta_format"]["runtime_program"]["fixed_value_contracts"][
+                "kernel-boolean"
+            ]
+        ),
         literal_contract=_literal_contract,
         snapshot_contracts={MIDDLE: {"bonus": _quantity_formula_contract(3, 3)}},
         snapshot_operand_names={MIDDLE: frozenset({"bonus"})},

@@ -3,7 +3,10 @@
 # ruff: noqa: F403, F405
 import schema2_bootstrap_conformance_support as bootstrap_support
 from gda_balancing.domain.formula.inference import infer_formula_operation_result
-from gda_balancing.domain.formula.types import formula_contract_matches_operation
+from gda_balancing.domain.formula.types import (
+    formula_contract_from_operation,
+    formula_contract_matches_operation,
+)
 from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
 
@@ -389,6 +392,11 @@ def test_current_quantity_composition_inference_and_positive_divisor_contract():
         if definition["id"] == "exact-import-resolution-v1"
     )
     policy = profile["extensions"]["standard.formula"]["notation_conversion"]
+    boolean_contract = formula_contract_from_operation(
+        _authority_candidate()["kernel"]["meta_format"]["runtime_program"][
+            "fixed_value_contracts"
+        ]["kernel-boolean"]
+    )
 
     def contract(minimum: int, maximum: int) -> dict[str, Any]:
         return {
@@ -416,11 +424,12 @@ def test_current_quantity_composition_inference_and_positive_divisor_contract():
         contract(-10, 10),
         policy,
         {},
+        boolean_contract=boolean_contract,
     )["domain"] == {"minimum": -5, "maximum": 5}
 
     expected_domains = {
         "quantity.add": {"minimum": 2, "maximum": 8},
-        "quantity.minimum": {"minimum": -2, "maximum": 5},
+        "quantity.minimum": {"minimum": -2, "maximum": 3},
         "quantity.multiply": {"minimum": -12, "maximum": 15},
     }
     for operation_id, expected_domain in expected_domains.items():
@@ -438,6 +447,7 @@ def test_current_quantity_composition_inference_and_positive_divisor_contract():
                 contract(-2, 3),
                 policy,
                 {},
+                boolean_contract=boolean_contract,
             )["domain"]
             == expected_domain
         )
