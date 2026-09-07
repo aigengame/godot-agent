@@ -1,0 +1,13 @@
+CANDIDATE_AUTHORITY AdmittedAuthorityContext
+roguelike-reward-build baseline COMPILED 8
+roguelike-reward-build compare-select COMPILED 8
+structured-selection baseline COMPILED 8
+structured-selection compare-select COMPILED 8
+rpg-combat-cast baseline COMPILED 8
+rpg-combat-cast compare-select REFUSED {'stage': 'static', 'variant': None, 'diagnostics': [{'code': 'language.formula_type_mismatch', 'message': 'Formula operand is incompatible with its formal contract', 'primary': {'kind': 'artifact', 'content_identity': 'sha256:c2af26128b81f868cca826cead2babb8cc632ad8c3b947eea042e1210274b68d', 'pointer': '/modules/0/formulas/0/expression'}, 'related': []}], 'truncated': False, 'terminal_audit': None}
+rpg-periodic-effect baseline COMPILED 8
+rpg-periodic-effect compare-select REFUSED {'stage': 'static', 'variant': None, 'diagnostics': [{'code': 'language.formula_type_mismatch', 'message': 'Formula operand is incompatible with its formal contract', 'primary': {'kind': 'artifact', 'content_identity': 'sha256:466368dba07f145bccb1b0d7e9d2d2f21316259be7a7136514d813f6fadc0440', 'pointer': '/modules/0/formulas/0/expression'}, 'related': []}, {'code': 'language.formula_type_mismatch', 'message': 'Formula operand is incompatible with its formal contract', 'primary': {'kind': 'artifact', 'content_identity': 'sha256:466368dba07f145bccb1b0d7e9d2d2f21316259be7a7136514d813f6fadc0440', 'pointer': '/modules/0/formulas/1/expression'}, 'related': []}], 'truncated': False, 'terminal_audit': None}
+rpg-stat-composition baseline COMPILED 8
+rpg-stat-composition compare-select REFUSED {'stage': 'static', 'variant': None, 'diagnostics': [{'code': 'language.formula_type_mismatch', 'message': 'Formula operand is incompatible with its formal contract', 'primary': {'kind': 'artifact', 'content_identity': 'sha256:979a800d62fbd815f076ef22db9f5caa0e0c00404e18e88fbb88935bf26aa4e3', 'pointer': '/modules/0/formulas/4/expression'}, 'related': []}], 'truncated': False, 'terminal_audit': None}
+progression-periodic-effect baseline COMPILED 8
+progression-periodic-effect compare-select REFUSED {'stage': 'static', 'variant': None, 'diagnostics': [{'code': 'language.formula_type_mismatch', 'message': 'Formula operand is incompatible with its formal contract', 'primary': {'kind': 'artifact', 'content_identity': 'sha256:e600d71b0600862f9a9f82e260f297b06274d1eab47577af291b36108a26faa2', 'pointer': '/modules/0/formulas/0/expression'}, 'related': []}], 'truncated': False, 'terminal_audit': None}
