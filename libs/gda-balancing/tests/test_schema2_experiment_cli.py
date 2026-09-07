@@ -3433,19 +3433,12 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     decoy["definition"]["body"] = []
     selected_semantics["packages"].append({"id": "example.decoy"})
     selected_semantics["operations"].append(decoy)
-    budget = audit["budget_counters"]
-    replay_profile = next(
-        row
-        for row in selected_semantics["runtime_profiles"]
-        if row["id"] == checked.value["runtime"]["profile"]
+    decoy_checked = replace(checked, rir=replay_rir)
+    # Revalidate through the real artifact consumer. A same-named empty
+    # Operation in another namespace must not replace the actual entrypoint.
+    assert experiment_artifacts_module.validate_experiment_artifact_set(
+        decoy_checked, values
     )
-    assert experiment_artifact_replay_module.attempted_operation_charge(
-        replace(checked, rir=replay_rir),
-        audit["refusing_event"],
-        audit["refusing_event"]["event_spec"],
-        node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
-        bounds=replay_profile["resource_bounds"],
-    ) == (budget["event_steps"], True)
 
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] = 0
@@ -3477,6 +3470,10 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     )
     assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked,
+        drifted_values,
+    )
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
+        decoy_checked,
         drifted_values,
     )
 
@@ -3545,16 +3542,21 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     )
 
     coordinated_proof = deepcopy(audit)
-    assert coordinated_proof["budget_counters"]["event_steps"] == 8
-    assert coordinated_proof["budget_counters"]["node_steps"] == 14
-    assert coordinated_proof["refusing_event"]["instruction_index"] == 2
-    assert len(coordinated_proof["refusing_event"]["attempted_calls"]) == 2
-    coordinated_proof["budget_counters"]["event_steps"] = 4
-    coordinated_proof["budget_counters"]["node_steps"] = 10
-    coordinated_proof["refusing_event"]["instruction_index"] = 1
-    coordinated_proof["refusing_event"]["attempted_calls"] = coordinated_proof[
-        "refusing_event"
-    ]["attempted_calls"][:1]
+    # The root's two-step limit includes its invoke and both attempted child
+    # instructions. The write is the third charge, before any call completes;
+    # the six reserved Formula steps precede these Operation attempts.
+    assert coordinated_proof["budget_counters"]["event_steps"] == 3
+    assert coordinated_proof["budget_counters"]["node_steps"] == 9
+    assert (
+        coordinated_proof["refusing_event"]["call_path"] == "combat.cast/spend-resource"
+    )
+    assert coordinated_proof["refusing_event"]["instruction_index"] == 1
+    assert coordinated_proof["refusing_event"]["attempted_calls"] == []
+    # Claim the earlier precondition with consistent, still-positive counters.
+    # It fits the limit and cannot be the actual step-limit refusal.
+    coordinated_proof["budget_counters"]["event_steps"] = 2
+    coordinated_proof["budget_counters"]["node_steps"] = 8
+    coordinated_proof["refusing_event"]["instruction_index"] = 0
     payload = {
         key: value
         for key, value in coordinated_proof.items()
