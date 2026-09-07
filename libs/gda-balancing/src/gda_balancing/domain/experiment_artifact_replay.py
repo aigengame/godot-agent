@@ -955,7 +955,7 @@ def _replay_operation_event(
         frames.append([0, operation["resource_bounds"]["max_steps"]])
 
         def body(instructions: list[dict[str, Any]], offset: int = 0) -> str | None:
-            nonlocal next_sequence, total_events, schedule_count
+            nonlocal next_sequence, total_events, schedule_count, variables
             indices = guard_expanded_instruction_indices(instructions, offset=offset)
             for body_index, instruction in enumerate(instructions):
                 index = indices[body_index]
@@ -989,7 +989,9 @@ def _replay_operation_event(
                             child_coordinate,
                             child,
                             child_arguments,
-                            child_references,
+                            {}
+                            if child["operation_kind"] == "pure-expression"
+                            else child_references,
                             child_path,
                             resolved["identity"],
                         )
@@ -1259,7 +1261,12 @@ def _replay_operation_event(
                             )
                     elif operator == "guarded-outcome-block":
                         if variables[instruction["condition"]]:
-                            body(instruction["body"], index + 1)
+                            enclosing_variables = variables
+                            variables = dict(variables)
+                            try:
+                                body(instruction["body"], index + 1)
+                            finally:
+                                variables = enclosing_variables
                             for alias, target in references.items():
                                 variables[alias] = state[
                                     canonical_bytes(cast(JsonValue, target))
@@ -1315,9 +1322,16 @@ def _replay_operation_event(
                         raise ValueError(
                             f"unsupported selected replay operator: {operator}"
                         )
-                except OverflowError:
+                except (OverflowError, _NonpositiveDivisorError) as error:
                     fail(
-                        "numeric-overflow", operation, path, call_identity, index, site
+                        "invalid-domain"
+                        if isinstance(error, _NonpositiveDivisorError)
+                        else "numeric-overflow",
+                        operation,
+                        path,
+                        call_identity,
+                        index,
+                        site,
                     )
                 except StructuredValueFault as error:
                     reason = structured_fault_reason(
