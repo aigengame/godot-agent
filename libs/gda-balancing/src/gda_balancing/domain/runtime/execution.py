@@ -7,9 +7,6 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
-from gda_balancing.domain.authority.context import (
-    packaged_authority_context,
-)
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -59,7 +56,10 @@ from gda_balancing.domain.runtime.projections import (
     scheduler_contract as _scheduler_contract,
     unsupported_evaluator_requirement as _unsupported_evaluator_requirement,
 )
-from gda_balancing.domain.program_reachability import reachable_formula_programs
+from gda_balancing.domain.program_reachability import (
+    LIFECYCLE_PHASES,
+    reachable_formula_programs,
+)
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
@@ -122,6 +122,16 @@ class _RuntimeExecutionFault(Exception):
         self.instruction_index = instruction_index
 
 
+@dataclass(frozen=True)
+class _FormulaProgramResult:
+    value: int
+    consumed_steps: int
+
+
+class _NonpositiveDivisorError(ValueError):
+    """A scalar division input is outside the instruction's positive domain."""
+
+
 class _InitializationProgramFault(Exception):
     def __init__(
         self,
@@ -130,12 +140,14 @@ class _InitializationProgramFault(Exception):
         program: str,
         evaluation_site_identity: str,
         frame_identity: str,
+        consumed_steps: int,
     ) -> None:
         super().__init__(signal)
         self.signal = signal
         self.program = program
         self.evaluation_site_identity = evaluation_site_identity
         self.frame_identity = frame_identity
+        self.consumed_steps = consumed_steps
 
 
 def _runtime_continuation(
@@ -512,7 +524,7 @@ def _execute_value_instruction(
             variables[cast(str, instruction["right"])], structured_authority
         )
         if operator == "integer-floor-divide" and right <= 0:
-            raise ValueError("floor-divide divisor must be positive")
+            raise _NonpositiveDivisorError("floor-divide divisor must be positive")
         value = (
             left + right
             if operator == "integer-add"
@@ -622,91 +634,147 @@ def _execute_value_instruction(
     variables[cast(str, instruction["target"])] = value
 
 
-def _evaluate_value_program_vector(
-    vector: dict[str, Any],
-) -> dict[str, JsonValue]:
-    """Execute one package-owned generic value-program conformance vector."""
-    inp = cast(dict[str, Any], vector["input"])
-    numeric = cast(dict[str, Any], inp["numeric"])
-    instructions = cast(list[dict[str, Any]], inp["instructions"])
-    operands = {
-        cast(str, row["name"]): cast(int, row["value"])
-        for row in cast(list[dict[str, Any]], inp["operands"])
-    }
-    cache: dict[bytes, int] = {}
-    runtime_nodes = {
-        cast(str, row["id"]): row
-        for row in cast(
-            list[dict[str, Any]],
-            packaged_authority_context().kernel["meta_format"]["runtime_program"][
-                "nodes"
-            ],
+def _evaluate_formula_program(
+    program: dict[str, Any],
+    input_values: dict[str, int],
+    *,
+    numeric: dict[str, Any],
+    runtime_nodes: dict[str, dict[str, Any]],
+    frame_identity: str,
+    phase: str,
+    consumed_steps: int,
+    runtime_limit: int,
+    cache: dict[bytes, int] | None,
+) -> _FormulaProgramResult:
+    """Evaluate one identified pure program in its exact lifecycle frame."""
+    if not isinstance(program, dict):
+        raise ValueError("Formula program is not an admitted object")
+    site = program.get("site")
+    body = program.get("body")
+    bounds = program.get("resource_bounds")
+    result = program.get("result")
+    if (
+        not isinstance(site, dict)
+        or not isinstance(site.get("context"), dict)
+        or phase not in LIFECYCLE_PHASES
+        or site["context"].get("phase") != phase
+        or not isinstance(frame_identity, str)
+        or not frame_identity
+        or not isinstance(program.get("identity"), str)
+        or not program["identity"]
+        or not isinstance(site.get("identity"), str)
+        or not site["identity"]
+        or not isinstance(body, (list, tuple))
+        or not isinstance(bounds, dict)
+        or not isinstance(result, dict)
+        or not isinstance(result.get("name"), str)
+        or not result["name"]
+        or not isinstance(input_values, dict)
+        or any(not isinstance(name, str) or not name for name in input_values)
+        or any(not isinstance(value, int) for value in input_values.values())
+    ):
+        raise ValueError("Formula program or lifecycle frame is unavailable")
+    charge = bounds.get("max_steps")
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in (charge, consumed_steps, runtime_limit)
+    ):
+        raise ValueError("Formula program resource bound is unavailable")
+    if (
+        not isinstance(numeric, dict)
+        or any(
+            not isinstance(numeric.get(member), int)
+            or isinstance(numeric[member], bool)
+            for member in ("minimum", "maximum")
         )
-    }
-    charge = 0
-    result_value: int | None = None
-    signal: str | None = None
-    refusing_site = cast(str, inp["site"])
-    for _evaluation in range(cast(int, inp["evaluations"])):
-        charge += len(instructions)
-        if charge > cast(int, inp["resource_limit"]):
-            signal = "step-limit"
-            result_value = None
-            break
-        cache_key = canonical_bytes(
-            cast(
-                JsonValue,
-                {
-                    "instructions": instructions,
-                    "numeric": numeric,
-                    "operands": [
-                        {"name": name, "value": value}
-                        for name, value in sorted(operands.items())
-                    ],
-                    "result": inp["result"],
-                    "site": inp["site"],
-                },
+        or numeric["minimum"] > numeric["maximum"]
+        or not isinstance(runtime_nodes, dict)
+    ):
+        raise ValueError(
+            "Formula program numeric or instruction contracts are unavailable"
+        )
+    # Check the selected node shapes before a cache can conceal a malformed
+    # request. Model admission remains responsible for semantic closure.
+    for row in body:
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("evaluation_site_identity"), str)
+            or not row["evaluation_site_identity"]
+            or not isinstance(row.get("instruction"), dict)
+        ):
+            raise ValueError("Formula program instruction is unavailable")
+        instruction = row["instruction"]
+        node = instruction.get("node")
+        contract = runtime_nodes.get(node) if isinstance(node, str) else None
+        if (
+            not isinstance(contract, dict)
+            or contract.get("family") != "expression"
+            or not isinstance(contract.get("required_members"), (list, tuple))
+            or set(instruction) != set(contract["required_members"])
+            or not isinstance(instruction.get("target"), str)
+            or not instruction["target"]
+        ):
+            raise ValueError("Formula program instruction is not selected or supported")
+    consumed_steps += cast(int, charge)
+    program_identity = cast(str, program["identity"])
+    site_identity = cast(str, site["identity"])
+    if consumed_steps > runtime_limit:
+        raise _InitializationProgramFault(
+            signal="step-limit",
+            program=program_identity,
+            evaluation_site_identity=site_identity,
+            frame_identity=frame_identity,
+            consumed_steps=consumed_steps,
+        )
+    cache_key = canonical_bytes(
+        cast(
+            JsonValue,
+            {
+                "program": program_identity,
+                "site": site_identity,
+                "frame": frame_identity,
+                "operands": [
+                    {"name": name, "value": value}
+                    for name, value in sorted(input_values.items())
+                ],
+                "numeric": numeric,
+            },
+        )
+    )
+    if cache is not None and cache_key in cache:
+        return _FormulaProgramResult(cache[cache_key], consumed_steps)
+    variables = dict(input_values)
+    evaluation_site_identity = site_identity
+    try:
+        for row in body:
+            evaluation_site_identity = row["evaluation_site_identity"]
+            instruction = row["instruction"]
+            _execute_value_instruction(
+                instruction,
+                variables,
+                numeric,
+                runtime_nodes[instruction["node"]],
             )
-        )
-        if cast(bool, inp["cache"]) and cache_key in cache:
-            result_value = cache[cache_key]
-            continue
-        values = dict(operands)
-        for row in instructions:
-            try:
-                _execute_value_instruction(
-                    cast(dict[str, Any], row["instruction"]),
-                    values,
-                    numeric,
-                    runtime_nodes[cast(str, row["instruction"]["node"])],
-                )
-            except OverflowError:
-                signal = "numeric-overflow"
-                refusing_site = cast(str, row["evaluation_site_identity"])
-                result_value = None
-                break
-            except ValueError as error:
-                if str(error) != "floor-divide divisor must be positive":
-                    raise
-                signal = "invalid-domain"
-                refusing_site = cast(str, row["evaluation_site_identity"])
-                result_value = None
-                break
-        if signal is not None:
-            break
-        result_value = values[cast(str, inp["result"])]
-        if cast(bool, inp["cache"]):
-            cache[cache_key] = result_value
-    admitted = signal is None
-    return {
-        "cache_entries": len(cache),
-        "charge": charge,
-        "outcome": "admitted" if admitted else "refused",
-        "result": result_value,
-        "result_artifact": admitted,
-        "signal": signal,
-        "site": cast(str, inp["site"]) if admitted else refusing_site,
-    }
+        result_value = _admit_numeric(variables[result["name"]], numeric)
+    except (OverflowError, _NonpositiveDivisorError) as error:
+        raise _InitializationProgramFault(
+            signal=(
+                "invalid-domain"
+                if isinstance(error, _NonpositiveDivisorError)
+                else "numeric-overflow"
+            ),
+            program=program_identity,
+            evaluation_site_identity=evaluation_site_identity,
+            frame_identity=frame_identity,
+            consumed_steps=consumed_steps,
+        ) from error
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            "Formula program has an unavailable value or instruction"
+        ) from error
+    if cache is not None:
+        cache[cache_key] = result_value
+    return _FormulaProgramResult(result_value, consumed_steps)
 
 
 def _evaluate_initialization_programs(
@@ -801,65 +869,20 @@ def _evaluate_initialization_programs(
                 input_values[cast(str, row["name"])] = value
             if not ready:
                 continue
-            charge = cast(
-                int,
-                cast(dict[str, Any], program["resource_bounds"])["max_steps"],
+            evaluation = _evaluate_formula_program(
+                program,
+                input_values,
+                numeric=numeric,
+                runtime_nodes=runtime_nodes,
+                frame_identity=frame_identity,
+                phase=phase,
+                consumed_steps=consumed_steps,
+                runtime_limit=runtime_limit,
+                cache=cache,
             )
-            consumed_steps += charge
-            if consumed_steps > runtime_limit:
-                raise _InitializationProgramFault(
-                    signal="step-limit",
-                    program=cast(str, program["identity"]),
-                    evaluation_site_identity=cast(
-                        str, cast(dict[str, Any], program["site"])["identity"]
-                    ),
-                    frame_identity=frame_identity,
-                )
-            cache_key = canonical_bytes(
-                cast(
-                    JsonValue,
-                    {
-                        "program": program["identity"],
-                        "site": cast(dict[str, Any], program["site"])["identity"],
-                        "frame": frame_identity,
-                        "operands": [
-                            {"name": name, "value": value}
-                            for name, value in sorted(input_values.items())
-                        ],
-                        "numeric": numeric,
-                    },
-                )
-            )
-            if cache is not None and cache_key in cache:
-                result_value = cache[cache_key]
-            else:
-                variables = dict(input_values)
-                for row in cast(list[dict[str, Any]], program["body"]):
-                    try:
-                        _execute_value_instruction(
-                            cast(dict[str, Any], row["instruction"]),
-                            variables,
-                            numeric,
-                            runtime_nodes[cast(str, row["instruction"]["node"])],
-                        )
-                    except OverflowError as error:
-                        raise _InitializationProgramFault(
-                            signal="numeric-overflow",
-                            program=cast(str, program["identity"]),
-                            evaluation_site_identity=cast(
-                                str, row["evaluation_site_identity"]
-                            ),
-                            frame_identity=frame_identity,
-                        ) from error
-                result = cast(dict[str, Any], program["result"])
-                result_value = _admit_numeric(
-                    variables[cast(str, result["name"])],
-                    numeric,
-                )
-                if cache is not None:
-                    cache[cache_key] = result_value
+            consumed_steps = evaluation.consumed_steps
             target = canonical_bytes(cast(JsonValue, program["target"]))
-            actual_values[target] = result_value
+            actual_values[target] = evaluation.value
             pending.remove(program)
             progressed = True
         if not progressed:
