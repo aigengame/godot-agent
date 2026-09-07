@@ -13,6 +13,7 @@ from typing import Any, cast
 
 import pytest
 
+from gda_balancing.domain.authority.admission import admit_authorities
 from gda_balancing.domain.canonical import canonical_bytes
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.model import (
@@ -22,7 +23,11 @@ from gda_balancing.domain.model import (
 )
 from gda_balancing.domain.model import _admission, _compilation, _lowering
 from schema2_authority_support import mutable_authorities
-from test_schema2_model_cli import _model_source, _reidentify_language_bundle
+from test_schema2_model_cli import (
+    _model_source,
+    _package_vector_set,
+    _reidentify_language_bundle,
+)
 
 
 _EXAMPLES = Path(__file__).parents[1] / "examples" / "schema2"
@@ -215,6 +220,173 @@ def test_specialization_is_value_based_in_operations_and_package_closures(fixtur
     assert changed > 0
     # Admission must independently reproduce the same specialization from RIR.
     assert _artifact_bytes(checked)
+
+
+def _effect_copy_candidate():
+    """Keep two legal, value-equal Operations under distinct namespace owners."""
+    kernel, language_bundle = mutable_authorities()
+    language = language_bundle["language"]
+    original = next(row for row in language["packages"] if row["id"] == "game.effect")
+    copied = deepcopy(original)
+    copied["id"] = "test.effectcopy"
+    copied["runtime_semantic_excluded_extensions"] = []
+    copied["capabilities"]["provided"] = ["test.effectcopy.periodic"]
+    copied["dependencies"]["required"].append("game.effect")
+    capability = deepcopy(
+        next(
+            row
+            for row in language["capabilities"]
+            if row["id"] == "game.effect.periodic"
+        )
+    )
+    capability["id"] = "test.effectcopy.periodic"
+    language["capabilities"].append(capability)
+    vectors = deepcopy(
+        next(
+            row["vector_definitions"]
+            for row in language_bundle.package_conformance_vector_sets
+            if row["package_id"] == "game.effect"
+        )
+    )
+    vector_ids = {row["id"]: "test.copy." + row["id"] for row in vectors}
+
+    def probe(value, path):
+        for segment in path.split("."):
+            value = value[segment]
+        return deepcopy(value)
+
+    for vector in vectors:
+        vector["id"] = vector_ids[vector["id"]]
+        if vector["kind"] == "package-contract":
+            vector["expect"] = probe(copied, vector["probe"]["path"])
+    # Both equivalent definitions declare the union of their actual vector
+    # witnesses; each namespace still owns its distinct, complete vector set.
+    operation_groups = [
+        [
+            row
+            for row in language["operations"]
+            if row["id"] in copied["exports"]["operations"]
+        ],
+        *[
+            entry["definitions"]
+            for package in (original, copied)
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "language.operations"
+        ],
+    ]
+    for operations in operation_groups:
+        for operation in operations:
+            operation["vectors"] += [
+                vector_ids[identifier]
+                for identifier in operation["vectors"]
+                if identifier in vector_ids
+            ]
+    for entry in copied["semantic_closure"]:
+        if entry["authority_path"] == "language.capabilities":
+            entry["definitions"] = [deepcopy(capability)]
+        elif entry["authority_path"] == "language.operations":
+            for operation in entry["definitions"]:
+                # The global Formula notation has one provider; copying its
+                # spelling would invalidate the authority before this witness.
+                operation.get("extensions", {}).pop("standard.formula-notation", None)
+                if operation not in language["operations"]:
+                    language["operations"].append(deepcopy(operation))
+    copied_operations = {
+        operation["id"]: operation
+        for entry in copied["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+        for operation in entry["definitions"]
+    }
+    for vector in vectors:
+        if vector["kind"] == "operation-contract":
+            vector["expect"] = probe(
+                copied_operations[vector["operation"]], vector["probe"]["path"]
+            )
+    language["packages"].append(copied)
+    language_bundle.package_conformance_vector_sets.append(
+        _package_vector_set(copied["id"], vectors)
+    )
+    _reidentify_language_bundle(language_bundle)
+    return kernel, language_bundle
+
+
+def test_specialization_does_not_bind_a_value_equal_operation_in_another_namespace():
+    kernel, language_bundle = _effect_copy_candidate()
+    admission = admit_authorities(kernel, language_bundle)
+    assert admission.admitted, admission.diagnostics
+    source = json.loads(
+        (_EXAMPLES / "progression-periodic-effect" / "model-source.json").read_bytes()
+    )
+    source["package_requirements"].append("test.effectcopy")
+    source_before = canonical_bytes(source)
+    authority_before = canonical_bytes(language_bundle)
+    with _observe_preparation() as trace:
+        checked = check_model_source_value(
+            source, kernel=kernel, language_bundle=language_bundle
+        )
+    assert isinstance(checked, CheckedModel), checked
+    assert set(_artifact_bytes(checked)) == _ARTIFACTS
+    formulas, bindings, _ = trace.formula_results[0]
+    reference = next(
+        binding["site"]["operation"]
+        for binding in bindings
+        if binding["site"]["kind"] == "operation-slot"
+        and binding["site"]["operation"]["package"] == "game.effect"
+    )
+    assert not any(
+        binding["site"]["kind"] == "operation-slot"
+        and binding["site"]["operation"]["package"] == "test.effectcopy"
+        for binding in bindings
+    )
+
+    def operation(projection, namespace):
+        return next(
+            row
+            for row in projection["operations"]
+            if row["package"] == namespace
+            and row["definition"]["id"] == reference["id"]
+        )
+
+    independent = trace.projections[0]
+    bound = operation(independent, "game.effect")["definition"]
+    unbound = operation(independent, "test.effectcopy")["definition"]
+    assert bound == unbound and bound is not unbound
+    aliased = deepcopy(independent)
+    operation(aliased, "test.effectcopy")["definition"] = operation(
+        aliased, "game.effect"
+    )["definition"]
+    inputs = [independent, aliased, json.loads(canonical_bytes(aliased))]
+    before = canonical_bytes(independent)
+    assert all(
+        value == independent and canonical_bytes(value) == before for value in inputs
+    )
+    outputs = [
+        cast(
+            dict[str, Any],
+            _lowering._specialize_operation_formula_slots(value, formulas, bindings),
+        )
+        for value in inputs
+    ]
+    assert all(canonical_bytes(value) == before for value in inputs)
+    assert canonical_bytes(source) == source_before
+    assert canonical_bytes(language_bundle) == authority_before
+    for output in outputs:
+        assert operation(output, "game.effect")["definition"] != bound
+        # The complete unbound definition, including body and provenance, must
+        # remain unchanged in both projections even if its input was aliased.
+        assert operation(output, "test.effectcopy")["definition"] == unbound
+        closure_definition = next(
+            definition
+            for closure in output["package_semantic_closures"]
+            if closure["package"] == "test.effectcopy"
+            for entry in closure["definitions"]
+            if entry["authority_path"] == "language.operations"
+            for definition in entry["definitions"]
+            if definition["id"] == reference["id"]
+        )
+        assert closure_definition == unbound
+    assert outputs[0] == outputs[1] == outputs[2]
+    assert len({canonical_bytes(value) for value in outputs}) == 1
 
 
 def test_checked_request_and_all_artifact_outputs_are_isolated_from_mutation():
