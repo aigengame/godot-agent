@@ -445,3 +445,86 @@ def _terminal_pending_candidate():
 def test_pending_event_cannot_dispatch_after_the_terminal_boundary():
     checked, members, audit = _terminal_pending_candidate()
     _assert_refuses(checked, members, audit)
+
+
+@pytest.mark.parametrize(
+    ("limit", "kind", "committed", "phase"),
+    [
+        (5, "transition-invocation", 0, "event"),
+        (20, "transition-invocation", 1, "observation"),
+        (24, "scheduled-transition", 1, "event"),
+        (28, "scheduled-transition", 2, "observation"),
+    ],
+)
+def test_formula_refusal_binds_actual_root_dispatch_and_call_prefix(
+    limit, kind, committed, phase
+):
+    checked, members = _terminal(
+        _limited_context(limit),
+        json.loads((_EXAMPLE / "model-source.json").read_bytes()),
+        _progression,
+    )
+    original = members["runtime-terminal-audit"]
+    assert len(original["committed_trace_prefix"]) == committed
+    refusing = original["refusing_event"]
+    assert refusing["event_spec"]["kind"] == kind
+    expected_calls = (
+        original["committed_trace_prefix"][-1]["calls"]
+        if phase == "observation"
+        else []
+    )
+    assert refusing["attempted_calls"] == expected_calls
+    identity = "sha256:" + "f" * 64
+    for field, value in [
+        ("operation", "forged-operation"),
+        ("call_path", "forged-root"),
+        ("entrypoint", {"id": "forged-entrypoint", "identity": identity}),
+        (
+            "attempted_calls",
+            [
+                {
+                    "site": "forged-call",
+                    "call_site_identity": identity,
+                    "operation": {
+                        "package": "game.effect",
+                        "id": "apply-snapshot-periodic-v1",
+                    },
+                    "outcome": {"id": "invented", "identity": identity},
+                    "arguments": [],
+                    "result_identity": identity,
+                }
+            ],
+        ),
+    ]:
+        audit = deepcopy(original)
+        audit["refusing_event"][field] = value
+        _assert_refuses(checked, members, audit)
+
+
+def test_observation_formula_refusal_preserves_genuine_nonempty_operation_calls(
+    tmp_path,
+):
+    from test_public_formula_runtime_seam import _maximum_source, _maximum_specification
+
+    def specification(rir):
+        path = tmp_path / "rir.json"
+        path.write_text(json.dumps(rir))
+        receipt = {
+            "member_locators": [
+                {"logical_name": "rir-semantic-payload", "locator": str(path)}
+            ]
+        }
+        return _maximum_specification(receipt, 85)
+
+    checked, members = _terminal(
+        _limited_context(31), _maximum_source(1), specification
+    )
+    original = members["runtime-terminal-audit"]
+    assert original["budget_counters"]["node_steps"] == 32
+    assert len(original["committed_trace_prefix"]) == 1
+    calls = original["committed_trace_prefix"][0]["calls"]
+    assert calls
+    assert original["refusing_event"]["attempted_calls"] == calls
+    audit = deepcopy(original)
+    audit["refusing_event"]["attempted_calls"] = []
+    _assert_refuses(checked, members, audit)

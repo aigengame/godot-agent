@@ -2022,6 +2022,22 @@ def _terminal_audit_is_valid(
     resolved_entrypoints = {
         cast(str, row["id"]): row for row in checked.rir["entrypoints"]
     }
+    expected_entrypoint = None
+    root_operation = None
+    root_path = None
+    if refusing_event_spec["kind"] == "transition-invocation":
+        root_entrypoint = resolved_entrypoints[refusing_event_spec["entrypoint"]]
+        expected_entrypoint = {
+            "id": root_entrypoint["id"],
+            "identity": root_entrypoint["identity"],
+        }
+        root_operation = root_entrypoint["operation"]["id"]
+        root_path = _execution_path_segment(root_entrypoint["id"])
+    elif refusing_event_spec["kind"] == "scheduled-transition":
+        identity = refusing_event_spec["call_site_identity"]
+        expected_entrypoint = {"id": f"scheduled:{identity}", "identity": identity}
+        root_operation = refusing_event_spec["operation"]["id"]
+        root_path = _execution_path_segment(f"scheduled:{identity}")
     event_values = dict(prefix.actual_values)
     formula_fault = prefix.observation_fault
     node_steps = prefix.node_steps
@@ -2052,8 +2068,16 @@ def _terminal_audit_is_valid(
         ):
             return False
     elif formula_fault is not None:
+        expected_calls = (
+            events_by_id[refusing_event_id]["calls"] if boundary_formula_refusal else []
+        )
         if (
-            refusing_event["evaluation_site_identity"]
+            expected_entrypoint is None
+            or refusing_event["entrypoint"] != expected_entrypoint
+            or refusing_event["operation"] != root_operation
+            or refusing_event["call_path"] != root_path
+            or refusing_event["attempted_calls"] != expected_calls
+            or refusing_event["evaluation_site_identity"]
             != formula_fault.evaluation_site_identity
             or refusing_event["instruction_index"] is not None
             or refusing_event["call_site_identity"] is not None
@@ -2073,18 +2097,10 @@ def _terminal_audit_is_valid(
     elif boundary_formula_refusal:
         return False
     else:
-        if refusing_event_spec["kind"] == "transition-invocation":
-            root_entrypoint = resolved_entrypoints[refusing_event_spec["entrypoint"]]
-            expected_entrypoint = {
-                "id": root_entrypoint["id"],
-                "identity": root_entrypoint["identity"],
-            }
-        elif refusing_event_spec["kind"] == "scheduled-transition":
-            identity = refusing_event_spec["call_site_identity"]
-            expected_entrypoint = {"id": f"scheduled:{identity}", "identity": identity}
-        else:
-            return False
-        if refusing_event["entrypoint"] != expected_entrypoint:
+        if (
+            expected_entrypoint is None
+            or refusing_event["entrypoint"] != expected_entrypoint
+        ):
             return False
         root_arguments = _event_arguments(
             checked,
