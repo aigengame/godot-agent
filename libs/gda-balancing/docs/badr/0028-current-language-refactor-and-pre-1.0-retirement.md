@@ -49,9 +49,9 @@ The [S3 contract record](../refactor/current-language/NAMESPACE-CONTRACT.md) acc
 final transition dispositions, independent acceptance witnesses and whole-S3 rollback. #879 and
 the full refactor retain their own acceptance. Distribution,
 Schema/artifact format and actual Runtime/grammar contract markers retain their distinct purposes.
-Whole-LDB and Build-receipt execution prerequisites still require closure in #874 followed by
-mandatory field/gate/propagation/fallback deletion in #875. Policy contents and their actual checks
-remain binding.
+Whole-LDB and Build-receipt execution prerequisites remain transitional during #874. #875 must
+delete their obsolete fields, gates, propagation and fallbacks after closure. Policy contents and
+their actual checks remain binding.
 
 ## Model preparation delivery (#873, 2026-09-07)
 
@@ -62,6 +62,27 @@ post-specialization checks, independent imported-artifact admission and publicat
 remain. The [S4 record](../refactor/current-language/MODEL-PREPARATION.md) maps regression witnesses,
 current resource boundaries, unchanged artifact evidence and rollback. This creates no public IR
 or shared cache and makes no unmeasured performance claim. #612, #874 and #875 retain their scopes.
+
+## Selected execution closure boundary (#874, 2026-09-07)
+
+Implementation remains in progress. The final specialized RIR selects the consumed Runtime laws
+and node definitions, namespace-owned reasons and Diagnostics, and applicable resource limits.
+The structured-value rule budget is selected only when the program selects a typed-envelope
+profile; pure numeric execution must not acquire an unused budget dependency. An absent selection
+does not authorize an ambient lookup or an unlimited budget. Independent imported-Model admission
+derives the closure again from the admitted authorities and final program.
+
+The admitted Experiment request detaches its intent, program and required contracts. Runtime and
+independent result replay consume those selected inputs. Output construction and admission reuse
+selected artifact contracts; Publication selects its framing contracts, and Replay selects its
+owned policy, refusal definitions and comparison contract before execution. These private views
+preserve the existing authority owners and do not introduce another public executable artifact.
+A consumer cannot obtain missing execution or result meaning from the complete Kernel or LDB.
+
+The [execution-closure record](../refactor/current-language/EXECUTION-CLOSURE.md) owns the detailed
+dependency matrix, evidence limits and transitional binding inventory. Current broad identity and
+reproduction checks remain for mandatory deletion in #875. This boundary update does not close
+#874, #875, the parent, or any public acceptance gate.
 
 ## Context and evidence
 
@@ -84,8 +105,9 @@ Bounded experiments against `3f68bf3fb26df2ab54351a8ef4e3e167269bdc16` found:
   not prove that the production compiler is already versionless.
 - A compiler build-label change preserves the tested runtime values but invalidates the old
   Experiment and changes six runtime artifact identities after rebinding. Producing provenance
-  unnecessarily influences execution eligibility. Runtime also reads reasons and a rule-match
-  limit outside RIR, so removing the binding before closing those inputs would be unsound.
+  unnecessarily influenced execution eligibility at that baseline. Runtime also read reasons and
+  a rule-match limit outside RIR, so deleting the binding before closing those inputs would have
+  been unsound.
 - Request-local compiler preparation preserves the tested compilation artifacts while avoiding
   repeated work, but exposes specialization's reliance on object aliasing. Primitive trials also
   distinguish mathematical equivalence from overflow, refusal, and resource-charge equivalence.

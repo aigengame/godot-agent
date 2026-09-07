@@ -11,9 +11,11 @@ The #869 capability union supplies one current definition per retained package n
 The native wire uses namespace requirements and `{package, id}` nominal Type/Operation references.
 Model, Template, Experiment and LDB policy definitions have no own-version labels; Template
 selection uses its id. Schema/artifact formats and actual Runtime/grammar contracts retain their
-markers. The remaining whole-LDB/Build-receipt execution bindings must close in #874 and be deleted
-in #875. Content integrity, nominal ownership, actual execution policies, and consistent in-flight
-inputs remain. The [S3 contract record](docs/refactor/current-language/NAMESPACE-CONTRACT.md)
+markers. The current #874 work selects final-program execution dependencies and detaches admitted
+consumer contracts; the [execution-closure record](docs/refactor/current-language/EXECUTION-CLOSURE.md)
+tracks the detailed boundary and open validation. Whole-LDB/Build-receipt execution bindings remain
+transitional and must be deleted in #875. Content integrity, nominal ownership, actual execution
+policies, and consistent in-flight inputs remain. The [S3 contract record](docs/refactor/current-language/NAMESPACE-CONTRACT.md)
 maps #872's final deletion witnesses and whole-stage rollback; #879 and the full refactor
 retain their own acceptance.
 
@@ -221,7 +223,9 @@ payloads but must resolve to one exact Resolved Model before execution and produ
 final-binding receipt. Changing RIR semantics therefore creates a new Experiment Specification
 identity or an explicit, reviewable compatibility-resolution result, never a silent rebind. The
 specification is hashed independently, without an own-version label, so evidence identifies both
-model and experiment (bADR-0012/0018/0028).
+model and experiment (bADR-0012/0018/0028). Admission detaches immutable intent, the selected program
+and the required input/output contracts for execution; that private request is not another
+authored authority.
 _Avoid_: experiment config, model overrides, scenario package
 
 **Experiment revision**:
@@ -253,9 +257,12 @@ The immutable canonical semantic normal form produced after Typed HIR. It contai
 reachable facts that can affect specified observable behavior: resolved symbols and types,
 operation bodies/signatures/effects/results, resolved Model entrypoints, exact Operation call sites,
 formal-to-actual operand identities, the generated Scenario Input Contract, state and event
-semantics, and other admitted runtime fragments. Source order, aliases, comments, spans, AST/HIR
-identities, lowering traces, diagnostic provenance, and unselected Language Definition Bundle
-inventory are excluded. Its `semantic_identity` hashes that executable semantic projection and
+semantics, and the final specialized graph's consumed Runtime laws and node definitions. Selected
+reasons and Diagnostics retain their namespace owners. Resource limits enter this closure only
+when applicable; the structured-value rule budget requires a selected typed-envelope profile.
+Independent import admission derives the closure from the admitted authorities and final program.
+Source order, aliases, comments, spans, AST/HIR identities, lowering traces, diagnostic provenance,
+and unselected Language Definition Bundle inventory are excluded. Its `semantic_identity` hashes that executable semantic projection and
 excludes Formula `expression` text. The separate RIR `content_identity` hashes the complete
 canonical RIR JSON, including validated expressions, for exact wire integrity. If an unused package
 is added to the bundle without changing resolution ambiguity, the selected closure, or the RIR JSON,
@@ -1141,10 +1148,14 @@ LDB Operations compose these nodes and own their domain-specific typed outcome a
 code implements the role meta-protocol and contract but does not add fields, outcomes, constants,
 paths, or behavior. The complete role-to-structure mapping is content-addressed, and an evaluator
 admits only a mapping identity it explicitly implements; concrete Kernel values remain outside
-that implementation capability identity (bADR-0014/0022).
+that implementation capability identity. For execution, its consumed laws and nodes are selected
+into RIR; Runtime does not obtain missing meaning from the full Kernel (bADR-0014/0022/0028).
 _Avoid_: node-name registry, evaluator dispatch table, host runtime semantics
 
 **Resolved Runtime profile**:
+_Current broad authority/build bindings remain transitional under bADR-0028; #875 must delete their
+obsolete eligibility and semantic-identity roles after #874 closure._
+
 The generated, content-addressed admission artifact that resolves one Runtime profile definition
 against an exact Schema-major Kernel Specification, Language Definition Bundle, Package Lock,
 Resolved Model/RIR semantic payload,
@@ -1306,7 +1317,9 @@ identifies visible together, or none visible. It is distinct from Event-transact
 from any filesystem, object-store, or transport implementation; stdout/stderr delivery is ordered
 after commit and is not a participant. A runtime refusal after Event dispatch begins must publish a
 separately typed terminal-audit artifact set through this boundary, but never a partial
-Evaluation/Metric/Evidence success set (bADR-0015/0021).
+Evaluation/Metric/Evidence success set. Publication selects immutable framing contracts at its
+admitted boundary; execution-result commit and recovery use them with the request's selected output
+contracts, without an ambient full-LDB lookup (bADR-0015/0021/0028).
 _Avoid_: atomic file write, output directory, event transaction
 
 **Artifact set manifest**:
@@ -1402,8 +1415,11 @@ _Avoid_: simulation result, run log, benchmark
 A closed LDB policy that defines the ordered check keys and one policy-wide comparator
 for an exact Replay comparison. `standard.experiment` owns `exact-replay-v1` at
 `language.replay_comparison_policies`. The admitted policy index is a read-only projection of that
-Package Release, not a host registry or peer authority. The exact Replay contract requires complete
-reproduction-identity equality before Runtime dispatch; this is not a caller-selectable policy mode.
+Package Release, not a host registry or peer authority. Replay detaches the complete owned policy,
+refusal definitions and comparison artifact contract at admission, and reuses the admitted request's
+output contracts for member validation. The current exact Replay contract requires complete
+reproduction-identity equality before Runtime dispatch; #875 must remove obsolete broad bindings
+under bADR-0028. This is not a caller-selectable policy mode.
 The initial policy applies `canonical-equal` to Evaluation outcome status, Event-trace identity,
 Snapshot-series identity, and Metric-dataset identity. Event-trace identity already closes the root
 Event map, terminal statuses, and Named RNG observations. A caller cannot select fields, omit
