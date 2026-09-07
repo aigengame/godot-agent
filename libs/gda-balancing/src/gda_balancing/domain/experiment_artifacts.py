@@ -1614,6 +1614,23 @@ def _terminal_prefix_evidence(
             not terminal or observation_count != len(checked.value["metrics"])
         ):
             raise ValueError("Claimed prefix omits a prior scenario's work")
+    if observation_fault is None:
+        refusing_record = catalog_by_id.get(refusing_event_id)
+        if refusing_record is None:
+            if not terminal:
+                raise ValueError("Metric refusal precedes scenario completion")
+        elif (
+            terminal
+            or not pending
+            or refusing_event_id
+            != min(
+                pending,
+                key=lambda identity: scheduler.ordering_key(
+                    cast(dict[str, Any], catalog_by_id[identity]["ordering_key"])
+                ),
+            )
+        ):
+            raise ValueError("Refusal skips the next scheduled Event")
     return _TerminalPrefixEvidence(
         snapshot_event_steps,
         snapshot_node_steps,
