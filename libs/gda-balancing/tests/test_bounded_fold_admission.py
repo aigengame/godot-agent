@@ -313,10 +313,11 @@ def test_operation_artifact_wires_admit_fold_and_append_with_closed_members(
     )
     for member in owner_path:
         schema = schema["properties"][member]
-    schema = schema["items"]["properties"]["definition"]["properties"]["body"]["items"]
+    body_schema = schema["items"]["properties"]["definition"]["properties"]["body"]
     if inside_guard:
-        schema = schema["properties"]["body"]["items"]
-    validator = jsonschema.Draft202012Validator(schema)
+        body_schema = body_schema["items"]["properties"]["body"]
+    assert jsonschema.Draft202012Validator(body_schema).is_valid([])
+    validator = jsonschema.Draft202012Validator(body_schema["items"])
     for instruction in (
         operations[_ROOT]["body"][2],
         operations[(_OWNER, "bounded.filter-step")]["body"][1],
@@ -325,3 +326,24 @@ def test_operation_artifact_wires_admit_fold_and_append_with_closed_members(
         invalid = {**instruction, "undeclared_capture": "threshold"}
         with pytest.raises(jsonschema.ValidationError, match="Unevaluated properties"):
             validator.validate(invalid)
+
+
+def test_selected_runtime_node_wire_covers_each_declared_law_with_closed_semantics():
+    import jsonschema
+
+    kernel, language, _operations = _inputs()
+    rir = next(
+        row["schema"]
+        for row in language["language"]["artifact_wire_schemas"]
+        if row["artifact_kind"] == "rir-semantic-payload"
+    )
+    schema = rir["properties"]["selected_semantics"]["properties"]["execution_laws"][
+        "properties"
+    ]["runtime_program"]["properties"]["nodes"]["items"]
+    validator = jsonschema.Draft202012Validator(schema)
+    nodes = kernel["meta_format"]["runtime_program"]["nodes"]
+    assert [node["id"] for node in nodes if not validator.is_valid(node)] == []
+    for node in nodes:
+        invalid = deepcopy(node)
+        invalid["semantics"]["undeclared_host_behavior"] = True
+        assert not validator.is_valid(invalid), node["id"]
