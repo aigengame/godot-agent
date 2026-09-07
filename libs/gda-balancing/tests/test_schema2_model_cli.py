@@ -6053,8 +6053,11 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
         model_lowering_module._resolved_call_sites(
             checked.kernel,
             selected,
-            checked.language_bundle["language"]["model_lowerings"][0][
-                "composition_policy"
+            language_bundle=checked.language_bundle,
+            declarations=rir[
+                checked.language_bundle["language"]["model_lowerings"][0][
+                    "output_member"
+                ]
             ],
         ),
     )
@@ -6176,12 +6179,17 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
     )
     child[member].append(hidden_value)
 
-    with pytest.raises(ValueError, match="closure exceeds caller declaration"):
+    with pytest.raises(
+        ValueError, match="selected Operation composition is not admitted"
+    ):
         model_lowering_module._resolved_call_sites(
             checked.kernel,
             selected,
-            checked.language_bundle["language"]["model_lowerings"][0][
-                "composition_policy"
+            language_bundle=checked.language_bundle,
+            declarations=rir[
+                checked.language_bundle["language"]["model_lowerings"][0][
+                    "output_member"
+                ]
             ],
         )
 

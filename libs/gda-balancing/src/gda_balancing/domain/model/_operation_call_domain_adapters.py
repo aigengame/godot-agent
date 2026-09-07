@@ -241,7 +241,9 @@ def build_operation_call_domain_input(
             ),
         ),
         literal_contract=_literal_contract_resolver(kernel, language_bundle),
-        snapshot_contracts=_snapshot_contracts(operations, declarations_by_symbol),
+        snapshot_contracts=operation_snapshot_contracts(
+            operations, declarations_by_symbol
+        ),
         snapshot_operand_names=_snapshot_operand_names(operations),
     )
 
@@ -279,7 +281,7 @@ def _formula_slot_bindings(
     return frozenset(selected)
 
 
-def _snapshot_contracts(
+def operation_snapshot_contracts(
     operations: dict[OperationCoordinate, dict[str, Any]],
     declarations_by_symbol: dict[tuple[str, str], dict[str, Any]],
 ) -> dict[OperationCoordinate, dict[str, dict[str, Any]]]:

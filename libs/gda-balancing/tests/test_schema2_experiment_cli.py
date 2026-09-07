@@ -8504,7 +8504,8 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
-        lowering["composition_policy"],
+        language_bundle=checked.language_bundle,
+        declarations=rir[lowering["output_member"]],
     )
     alias = next(
         row
@@ -8598,7 +8599,8 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
     rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
-        lowering["composition_policy"],
+        language_bundle=checked.language_bundle,
+        declarations=rir[lowering["output_member"]],
     )
     candidate = replace(checked, rir=rir)
 
@@ -8667,7 +8669,8 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
     rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
-        lowering["composition_policy"],
+        language_bundle=checked.language_bundle,
+        declarations=rir[lowering["output_member"]],
     )
     candidate = replace(checked, rir=rir)
 

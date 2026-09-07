@@ -57,8 +57,7 @@ def _pure_call(*, prior_local: bool, site: str):
             {"package": "core.quantity", "definition": child},
         ]
     }
-    policy = language_bundle["language"]["model_lowerings"][0]["composition_policy"]
-    return kernel, language_bundle, selected, policy
+    return kernel, language_bundle, selected
 
 
 @pytest.mark.parametrize("prior_local", [False, True], ids=["port", "value-local"])
@@ -66,11 +65,14 @@ def _pure_call(*, prior_local: bool, site: str):
 def test_pure_call_projection_has_real_binding_and_no_event_outcome(
     prior_local: bool, site: str
 ):
-    kernel, _language_bundle, selected, policy = _pure_call(
-        prior_local=prior_local, site=site
-    )
+    kernel, language_bundle, selected = _pure_call(prior_local=prior_local, site=site)
 
-    calls = cast(list[dict[str, Any]], _resolved_call_sites(kernel, selected, policy))
+    calls = cast(
+        list[dict[str, Any]],
+        _resolved_call_sites(
+            kernel, selected, language_bundle=language_bundle, declarations=[]
+        ),
+    )
 
     assert len(calls) == 1
     call = calls[0]
@@ -93,8 +95,10 @@ def test_pure_call_projection_has_real_binding_and_no_event_outcome(
 def test_distinct_pure_sites_keep_distinct_static_identities():
     identities = set()
     for site in ("@0", "x/@0", "x~1@0"):
-        kernel, _language_bundle, selected, policy = _pure_call(
-            prior_local=True, site=site
+        kernel, language_bundle, selected = _pure_call(prior_local=True, site=site)
+        identities.add(
+            _resolved_call_sites(
+                kernel, selected, language_bundle=language_bundle, declarations=[]
+            )[0]["identity"]
         )
-        identities.add(_resolved_call_sites(kernel, selected, policy)[0]["identity"])
     assert len(identities) == 3
