@@ -74,6 +74,7 @@ from typing import Optional
 from gda.project_file import (
     SECTIONLESS,
     is_section_header,
+    section_name,
     section_of,
     split_config,
 )
@@ -102,8 +103,13 @@ HARNESS_VERSION = "20"
 
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
-# The same section by NAME, for the shared reader's section tracking. The header
-# LINE above stays the thing the install WRITES and the receipt reports.
+# The same section by NAME. Every RECOGNITION on the edit path goes through this
+# (via the shared reader's `section_name`/`section_of`), because Godot's own
+# parser strips a header's inner whitespace — `[ autoload ]` IS the autoload
+# section (`VariantParser::_parse_tag`). Comparing a line to the header LITERAL
+# instead would half-see such a file: the entry removed, the emptied header left
+# behind (PR #898 review). The literal above stays what the install WRITES and
+# what the #654 receipt reports.
 _AUTOLOAD_SECTION = "autoload"
 _PROJECT_FILE = "project.godot"
 _BUNDLED_HARNESS = Path(__file__).parent / HARNESS_FILE
@@ -425,7 +431,7 @@ def _ensure_autoload(text: str) -> _ConfigEdit:
         section = section_of(stripped, section)
         if section != _AUTOLOAD_SECTION:
             continue
-        if stripped == _AUTOLOAD_HEADER:
+        if section_name(stripped) == _AUTOLOAD_SECTION:
             if autoload_header_index is None:
                 autoload_header_index = i
         elif stripped.startswith(f"{HARNESS_AUTOLOAD_NAME}="):
@@ -540,7 +546,7 @@ def _emptied_autoload_span(lines: list[str], index: int) -> Optional[tuple[int, 
     to its pre-install bytes. A mid-file section keeps that separator: it still
     divides the two neighbours.
     """
-    if index >= len(lines) or lines[index].strip() != _AUTOLOAD_HEADER:
+    if index >= len(lines) or section_name(lines[index].strip()) != _AUTOLOAD_SECTION:
         return None
     end = index + 1
     while end < len(lines) and not is_section_header(lines[end].strip()):
@@ -574,7 +580,7 @@ def _remove_autoload(text: str) -> _ConfigEdit:
         stripped = raw.strip()
         section = section_of(stripped, section)
         if section == _AUTOLOAD_SECTION:
-            if stripped == _AUTOLOAD_HEADER:
+            if section_name(stripped) == _AUTOLOAD_SECTION:
                 header_index = len(kept)
             elif stripped.startswith(f"{HARNESS_AUTOLOAD_NAME}="):
                 if header_index is not None:

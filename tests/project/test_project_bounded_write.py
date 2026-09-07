@@ -24,8 +24,9 @@ from gda.commands.project import (
     PROJECT_REMOVE_INPUT_ACTION_COMMAND,
     PROJECT_SET_COMMAND,
 )
+from gda.project_file import ProjectFileRestoreError
 from gda.runner import RunResult
-from tests.support import ENGINE_BANNER, FakeRunner, sentinel
+from tests.support import ENGINE_BANNER, FakeRunner, error_sentinel, sentinel
 
 
 # The file a hand-authored project holds: an explicit default-equal declaration
@@ -394,3 +395,113 @@ def test_every_writer_help_states_the_reserialization():
         result = CliRunner().invoke(app, ["project", command, "--help"])
         assert "reserializes" in result.stdout, command
         assert "restores" in result.stdout, command
+
+
+# --- The save→restore window on a FAILED operation (PR #898 review) -----------
+
+
+def test_a_failed_operation_still_gets_the_file_repaired(monkeypatch, tmp_path):
+    # A run that SAVED and then failed (a crash, a timeout, a post-save refusal)
+    # has already dropped the declarations. Leaving them gone because the command
+    # also failed would be the worse half of both outcomes, so the restore runs
+    # anyway — and the operation's own envelope is what the caller gets.
+    path = write_project(tmp_path)
+    fake = ReserializingRunner(
+        RunResult(
+            stdout=ENGINE_BANNER + error_sentinel("save_failed", "engine said no"),
+            stderr="",
+            exit_code=4,
+        ),
+        path,
+        AFTER,
+    )
+    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+
+    result = CliRunner().invoke(
+        app,
+        ["project", "set", "application/config/name", "--value", "x", "--json"]
+        + ["--project", str(tmp_path)],
+    )
+
+    assert result.exit_code == 4
+    error = json.loads(result.stdout)["error"]
+    assert (error["code"], error["message"]) == ("save_failed", "engine said no")
+    assert "file_logging/enable_file_logging=false" in path.read_text(encoding="utf-8")
+
+
+def test_a_write_only_the_engine_could_make_leaves_the_file_alone(
+    monkeypatch, tmp_path
+):
+    # The other half: an operation that failed BEFORE saving leaves the file equal
+    # to what was read, so the restore writes nothing at all.
+    path = write_project(tmp_path)
+    fake = ReserializingRunner(
+        RunResult(
+            stdout=ENGINE_BANNER + error_sentinel("uncoercible_value", "nope"),
+            stderr="",
+            exit_code=4,
+        ),
+        path,
+        BEFORE,
+    )
+    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    before = path.read_bytes()
+
+    result = CliRunner().invoke(
+        app,
+        ["project", "set", "application/config/name", "--value", "x", "--json"]
+        + ["--project", str(tmp_path)],
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "uncoercible_value"
+    assert path.read_bytes() == before
+
+
+def test_a_restore_that_cannot_be_written_fails_the_command(monkeypatch, tmp_path):
+    # The engine has already reserialized the file, so a restore gda cannot write
+    # is not something to swallow: the result says so, with the code the registry
+    # already has for a file gda could not save, and names what to put back by hand.
+    def _raise(path, before, *, addressed):
+        raise ProjectFileRestoreError(path, ("debug/x",), OSError("read-only"))
+
+    monkeypatch.setattr("gda.commands.project.bound_project_write", _raise)
+
+    result, _, _ = invoke_write(
+        monkeypatch,
+        tmp_path,
+        ["project", "set", "application/config/name", "--value", "fixture", "--json"],
+    )
+
+    assert result.exit_code == 4
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "save_failed"
+    assert "debug/x" in error["message"]
+
+
+def test_a_failed_restore_never_displaces_the_operations_own_failure(
+    monkeypatch, tmp_path
+):
+    def _raise(path, before, *, addressed):
+        raise ProjectFileRestoreError(path, ("debug/x",), OSError("read-only"))
+
+    monkeypatch.setattr("gda.commands.project.bound_project_write", _raise)
+    path = write_project(tmp_path)
+    fake = ReserializingRunner(
+        RunResult(
+            stdout=ENGINE_BANNER + error_sentinel("unknown_setting", "no such key"),
+            stderr="",
+            exit_code=4,
+        ),
+        path,
+        AFTER,
+    )
+    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+
+    result = CliRunner().invoke(
+        app,
+        ["project", "set", "nope/nope", "--value", "x", "--json"]
+        + ["--project", str(tmp_path)],
+    )
+
+    # The operation's failure is the caller's first problem; it is not replaced.
+    assert json.loads(result.stdout)["error"]["code"] == "unknown_setting"

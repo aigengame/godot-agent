@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gda import dispatch
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure
+from gda.errors import Failure, make_failure
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -38,7 +38,11 @@ from gda.models import (
     VALUE_PROJECTION_DESC,
 )
 from gda.project import PROJECT_MARKER
-from gda.project_file import bound_project_write, read_config
+from gda.project_file import (
+    ProjectFileRestoreError,
+    bound_project_write,
+    read_config,
+)
 from gda.render import format_value
 
 
@@ -489,6 +493,16 @@ def _bounded_write(
     ``project`` arrives ALREADY resolved from ``dispatch_recipe`` (#353).
     Projectless is not refused here: the operation itself reports
     ``project_not_found``, and this simply has nothing to measure.
+
+    The restore runs on a FAILED operation too (PR #898 review). A run that never
+    reached ``ProjectSettings.save()`` leaves the file equal to what was read, so
+    nothing is written; a run that saved and THEN failed — a crash, a timeout —
+    has already dropped the declarations, and leaving them gone because the
+    command also failed would be the worse half of both outcomes. The failure
+    envelope is returned unchanged: its code and diagnostics are the operation's,
+    and a repair the result cannot mention is still a repair. A file the engine
+    left half-written is not detectable from outside, so the restore writes into
+    whatever it finds there.
     """
     marker = None if project is None else project / PROJECT_MARKER
     before = None if marker is None else read_config(marker)
@@ -497,9 +511,22 @@ def _bounded_write(
     outcome = cmd.execute(
         params, godot=godot, project=project, make_runner=dispatch.make_runner
     )
-    if isinstance(outcome, Failure) or marker is None:
+    if marker is None:
         return outcome
-    mutation = bound_project_write(marker, before, addressed=addressed)
+    try:
+        mutation = bound_project_write(marker, before, addressed=addressed)
+    except ProjectFileRestoreError as exc:
+        # The engine reserialized the file and gda could not write the
+        # declarations back. An operation that ALSO failed keeps its own envelope
+        # — that failure is the caller's first problem, and this one would
+        # displace it; otherwise the write is what failed, so the result becomes
+        # one. `save_failed` is reused by semantic match, the reuse the code
+        # registry describes: a project file gda could not save.
+        if isinstance(outcome, Failure):
+            return outcome
+        return make_failure("save_failed", str(exc), "")
+    if isinstance(outcome, Failure):
+        return outcome
     return outcome.model_copy(
         update={
             "added_settings": list(mutation.added),
@@ -1458,6 +1485,7 @@ def project_set(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
+    """Set a project setting; help text is `help=` above (the shared save note)."""
     dispatch_recipe(
         PROJECT_SET_COMMAND,
         ProjectSetParams(setting=setting, value=value),
@@ -1489,6 +1517,7 @@ def project_add_autoload(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
+    """Register an autoload; help text is `help=` above (the shared save note)."""
     dispatch_recipe(
         PROJECT_ADD_AUTOLOAD_COMMAND,
         ProjectAddAutoloadParams(name=name, path=path),
@@ -1515,6 +1544,7 @@ def project_remove_autoload(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
+    """Unregister an autoload; help text is `help=` above (the shared save note)."""
     dispatch_recipe(
         PROJECT_REMOVE_AUTOLOAD_COMMAND,
         ProjectRemoveAutoloadParams(name=name),
@@ -1579,6 +1609,7 @@ def project_add_input_action(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
+    """Register an input action; help text is `help=` above (the shared save note)."""
     params = params_or_bad_parameter(
         ProjectAddInputActionParams,
         name=name,
@@ -1611,6 +1642,7 @@ def project_remove_input_action(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
+    """Unregister an input action; help text is `help=` above (the shared save note)."""
     dispatch_recipe(
         PROJECT_REMOVE_INPUT_ACTION_COMMAND,
         ProjectRemoveInputActionParams(name=name),

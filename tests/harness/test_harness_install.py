@@ -344,6 +344,45 @@ def test_round_trip_leaves_a_pre_existing_user_autoload_section_unchanged(tmp_pa
     assert result.removed_sections == ()  # a user section is never dropped
 
 
+def test_install_joins_a_whitespaced_autoload_section_it_finds(tmp_path):
+    # Godot's own parser strips a section header's inner whitespace
+    # (`VariantParser::_parse_tag`), so `[ autoload ]` IS the autoload section and
+    # the install joins it instead of appending a second one. Recognizing the
+    # header by its literal text saw the section (the shared reader tracks it by
+    # name) but not its header, and appended a duplicate (PR #898 review).
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD + '\n[ autoload ]\n\nOther="*res://other.gd"\n', encoding="utf-8"
+    )
+    before = project_godot.read_bytes()
+
+    install = install_harness(tmp_path)
+
+    installed = project_godot.read_text(encoding="utf-8")
+    assert installed.count("autoload ]") == 1  # joined, never a second section
+    assert install.created_sections == ()  # gda joined a section, it did not make one
+    assert _autoload_line() in installed
+
+    uninstall_harness(tmp_path)
+
+    assert project_godot.read_bytes() == before
+
+
+def test_uninstall_drops_a_whitespaced_autoload_header_it_empties(tmp_path):
+    # The half-seen file the literal comparison produced: the entry removed, the
+    # header it emptied left behind, so a live session still left project.godot
+    # modified in git — the exact residue #654 removed for `[autoload]`.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        f"{_NO_AUTOLOAD}\n[ autoload ]\n\n{_autoload_line()}\n", encoding="utf-8"
+    )
+
+    result = uninstall_harness(tmp_path)
+
+    assert "autoload" not in project_godot.read_text(encoding="utf-8")
+    assert result.removed_sections == ("[autoload]",)
+
+
 def test_round_trip_preserves_crlf_line_endings(tmp_path):
     # #654: the config edit must not silently rewrite a CRLF project.godot to LF —
     # Python's default text mode would, turning a one-line autoload edit into a

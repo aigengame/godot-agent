@@ -1105,10 +1105,27 @@ lists — its new value, its appearance or its removal IS the request — with o
 named under `restored_settings` for: a `set` of a setting TO the engine default on a file that
 never declared it, where there is nothing in the pre-write file to restore, so the operation
 moves that default aside and the ENGINE writes the line from the request's coerced value (gda
-hand-builds no Godot literal, the ADR-0033 rule). Two things stay out of scope: **comments** (the
-engine writes its own header and keeps none of the file's), and the **key order inside** a
-section. A file gda cannot read on either side, or a run with no project resolved, reports the
+hand-builds no Godot literal, the ADR-0033 rule).
+
+Four residuals stay out of scope, and are listed rather than fixed so a reader is not surprised
+by them. **Comments**: the engine writes its own header and keeps none of the file's. The **key
+order inside** a section: only the section order is reported. **Line endings**: the engine's
+writer emits LF, so a CRLF `project.godot` comes back LF — unlike the harness install, which is
+gda's own line edit and preserves CRLF (ADR-0018, #654); a write goes through the engine, and gda
+restores lines into what it wrote. And a key whose spelling gda cannot decode (a quoted,
+escaped name it does not recognize) is excluded from every comparison, so it is neither restored
+nor reported — near-unreachable, since the engine's own `property_name_encode` escapes only `\\`
+and `\"`. A file gda cannot read on either side, or a run with no project resolved, reports the
 four keys empty and rewrites nothing.
+
+The restore also runs when the operation FAILED (PR #898 review): a run that never reached the
+save leaves the file equal to what gda read, so nothing is written, while a run that saved and
+then crashed or timed out has already dropped the declarations and gets them back. The failure
+envelope is the operation's own, unchanged — so on that path the repair is not reported, and a
+file the engine left half-written is restored into as it stands, since that is not detectable
+from outside. A restore gda cannot write is itself `save_failed` (exit 4), naming the
+declarations to put back by hand; if the operation had already failed, its envelope stands
+instead.
 
 | Command | Description |
 | --- | --- |

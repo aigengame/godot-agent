@@ -73,6 +73,15 @@ _ESCAPES = {
 # bare name, so gda names them the same way.
 SECTIONLESS = ""
 
+# A byte-order mark on the first line. Godot's `ConfigFile` reader does not strip
+# it, so the engine reads the file's first key WITH the mark glued to its name and
+# writes that mangled key back beside the real one. gda drops it instead, so it
+# agrees with the engine about the key the file DECLARES (`config_version`, not a
+# marked spelling of it) and never "restores" a line that is already there
+# (PR #898 review). The mark is dropped from the scanned text, so a `ConfigText`
+# of a marked file does not rebuild it — see :meth:`ConfigText.text`.
+_BOM = "\ufeff"
+
 
 def line_ending(text: str) -> str:
     """The terminator the text's FIRST line uses (``\\r\\n`` or ``\\n``).
@@ -257,7 +266,9 @@ class ConfigText:
 
     ``lines`` / ``eol`` / ``trailing`` rebuild the exact input
     (``eol.join(lines) + trailing``), so an edit stays byte-faithful to the parts
-    it did not touch. ``sections`` names the sections in FILE order (the
+    it did not touch — with one exception, a leading byte-order mark, which
+    :data:`_BOM` explains and which no writer here can reintroduce (the only text
+    this module writes back is the engine's own, which never carries one). ``sections`` names the sections in FILE order (the
     section-less head is not one of them), and ``entries`` the assignments in
     file order.
     """
@@ -288,7 +299,7 @@ class ConfigText:
 
 def read_config_text(text: str) -> ConfigText:
     """Scan a ``ConfigFile`` text into its sections and assignments."""
-    lines, eol, trailing = split_config(text)
+    lines, eol, trailing = split_config(text.removeprefix(_BOM))
     sections: list[str] = []
     entries: list[ConfigEntry] = []
     section = SECTIONLESS
@@ -353,6 +364,27 @@ def read_config(path: Path) -> ConfigText | None:
 # --- Bounding what a ``ProjectSettings.save()`` did to the file (#843) ---------
 
 
+class ProjectFileRestoreError(Exception):
+    """The restored text could not be written back to ``project.godot`` (#843).
+
+    Raised instead of letting the ``OSError`` escape as a traceback: the engine
+    has already reserialized the file, so the caller must be able to turn this
+    into a typed failure naming the declarations that are now gone. It carries no
+    error taxonomy of its own — this module sits below ``gda.errors`` — only the
+    facts the envelope is built from.
+    """
+
+    def __init__(self, path: Path, settings: tuple[str, ...], error: OSError) -> None:
+        super().__init__(
+            f"the engine reserialized {path} but gda could not write the "
+            f"declarations it dropped back into it ({error}); "
+            f"restore them by hand: {', '.join(settings)}"
+        )
+        self.path = path
+        self.settings = settings
+        self.error = error
+
+
 @dataclass(frozen=True)
 class ProjectWriteMutation:
     """What the engine's save did to ``project.godot`` beyond the request (#843).
@@ -391,6 +423,9 @@ def bound_project_write(
 
     A file gda could not read on either side leaves the mutation empty and the
     file untouched: with nothing to compare against, a "restore" would be a guess.
+    Raises :class:`ProjectFileRestoreError` when the restored text cannot be
+    written — the one IO here that can fail after the engine has already changed
+    the file.
     """
     after = read_config(path)
     if before is None or after is None:
@@ -408,23 +443,38 @@ def bound_project_write(
         for name, entry in new.items()
         if name != addressed and name in old and old[name].value != entry.value
     )
+    restored = tuple(name for name, _ in dropped)
+    # The order is asked of the file gda LEAVES, not of the engine's intermediate:
+    # a section the save emptied away is re-opened by the restore, and only the
+    # final text says where it ended up (PR #898 review).
+    sections = after.sections
     if dropped:
         text = _restored(after, [entry for _, entry in dropped])
-        path.write_text(text, encoding="utf-8", newline="")
+        sections = read_config_text(text).sections
+        try:
+            path.write_text(text, encoding="utf-8", newline="")
+        except OSError as error:
+            raise ProjectFileRestoreError(path, restored, error) from error
     return ProjectWriteMutation(
         added=added,
         rewritten=rewritten,
-        restored=tuple(name for name, _ in dropped),
-        sections_reordered=_reordered(before.sections, after.sections),
+        restored=restored,
+        sections_reordered=_reordered(before.sections, sections),
     )
 
 
 def _reordered(before: tuple[str, ...], after: tuple[str, ...]) -> bool:
     """Whether the sections BOTH files hold appear in a different order.
 
-    Restricted to the shared sections on purpose: a section the save added (or
-    one it emptied away) is a different fact from the file's order changing, and
-    conflating them would report a reorder for every write that adds one.
+    ``after`` is the FINAL file — the engine's output with the restore already
+    applied — because that is the file the caller will read; measuring the
+    engine's intermediate would report "not reordered" for a section the save
+    emptied away and the restore then re-opened somewhere else (PR #898 review).
+
+    Restricted to the shared sections on purpose: a section only one side has
+    cannot be out of order with respect to the other, and counting it would
+    report a reorder for every write that merely adds one
+    (``application/config/features`` pulling in a section of its own, say).
     """
     shared = set(before) & set(after)
     return [name for name in before if name in shared] != [

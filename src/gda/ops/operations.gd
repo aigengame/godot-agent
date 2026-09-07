@@ -3632,11 +3632,17 @@ func _op_project_list(params: Dictionary) -> void:
 
 # The set of project setting names CUSTOMIZED in res://project.godot — the keys
 # actually written there, as opposed to the engine's built-in defaults. Read by
-# parsing project.godot with ConfigFile (the engine exposes no get_initial_value
-# binding to compare a current value against its default): each [section] key
-# becomes the full "section/key" setting name (a sectionless key like
-# config_version maps to its bare name, harmlessly — it is not a real setting).
-# project list reports is_default=false for these keys and true for the rest.
+# parsing project.godot with ConfigFile: each [section] key becomes the full
+# "section/key" setting name (a sectionless key like config_version maps to its
+# bare name, harmlessly — it is not a real setting). project list reports
+# is_default=false for these keys and true for the rest.
+#
+# The file is the right source even though the initial value IS reachable
+# (ProjectSettings.property_get_revert, which _op_project_set uses): "written in
+# project.godot" and "differs from the engine default" are different facts, and
+# this listing is about the first. A key the caller declared AT the default is
+# customized — it is in the file — while property_get_revert would call it a
+# default and hide it from a bare `project list`.
 func _customized_settings() -> Dictionary:
 	var customized := {}
 	var cfg := ConfigFile.new()

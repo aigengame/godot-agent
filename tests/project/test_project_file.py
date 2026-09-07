@@ -7,9 +7,14 @@ keys, multi-line values, escaped key spellings, and the byte-faithful round trip
 edit relies on.
 """
 
+import pytest
+
 from gda.project_file import (
     SECTIONLESS,
     ConfigText,
+    ProjectFileRestoreError,
+    ProjectWriteMutation,
+    bound_project_write,
     config_key,
     read_config,
     read_config_text,
@@ -140,3 +145,136 @@ def test_read_config_reads_a_file_from_disk(tmp_path):
 
     assert isinstance(config, ConfigText)
     assert config.settings()["debug/file_logging/enable_file_logging"].value == "false"
+
+
+# --- bound_project_write: the restore and what it reports (#843, PR #898) -----
+
+
+def _write(tmp_path, before: str, after: str, *, addressed: str | None = None):
+    """Apply ``after`` as the engine's save over ``before``, then bound the write."""
+    path = tmp_path / "project.godot"
+    path.write_text(before, encoding="utf-8")
+    config = read_config(path)
+    path.write_text(after, encoding="utf-8")
+    return bound_project_write(path, config, addressed=addressed), path
+
+
+def test_a_section_the_save_emptied_away_is_re_opened_and_the_reorder_reported(
+    tmp_path,
+):
+    # The section's ONLY key is default-equal, so the engine drops the section
+    # with it and the restore has to re-open it — the missing-section branch. The
+    # file gda leaves therefore has `[debug]` LAST where it was first, which is
+    # what `sections_reordered` must be measured against: the engine's
+    # intermediate file no longer holds the section at all, so comparing to that
+    # would report no reorder for a file whose order plainly changed.
+    before = (
+        "[debug]\n\nfile_logging/enable_file_logging=false\n"
+        '\n[application]\n\nconfig/name="fixture"\n'
+    )
+    after = '[application]\n\nconfig/name="renamed"\n'
+
+    mutation, path = _write(
+        tmp_path, before, after, addressed="application/config/name"
+    )
+
+    assert mutation.restored == ("debug/file_logging/enable_file_logging",)
+    assert mutation.sections_reordered is True
+    text = path.read_text(encoding="utf-8")
+    assert "[debug]" in text and "file_logging/enable_file_logging=false" in text
+    assert text.index("[application]") < text.index("[debug]")
+    # The re-opened section is a section, not a stray key: it reads back as one.
+    assert (
+        read_config_text(text)
+        .settings()["debug/file_logging/enable_file_logging"]
+        .section
+        == "debug"
+    )
+
+
+def test_a_section_only_one_file_holds_is_not_a_reorder(tmp_path):
+    # The shared-section rule: `[audio]` exists only after the save, so it cannot
+    # be out of order with respect to anything. Counting it would make every write
+    # that adds a section report a reorder.
+    before = '[application]\n\nconfig/name="fixture"\n\n[debug]\n\nsettings/x=1\n'
+    after = (
+        '[application]\n\nconfig/name="renamed"\n'
+        "\n[audio]\n\nbuses/x=1\n"
+        "\n[debug]\n\nsettings/x=1\n"
+    )
+
+    mutation, _ = _write(tmp_path, before, after, addressed="application/config/name")
+
+    assert mutation.added == ("audio/buses/x",)
+    assert mutation.sections_reordered is False
+
+
+def test_a_reordering_the_save_made_is_reported(tmp_path):
+    before = '[zsection]\n\nmy/custom=42\n\n[application]\n\nconfig/name="fixture"\n'
+    after = '[application]\n\nconfig/name="renamed"\n\n[zsection]\n\nmy/custom=42\n'
+
+    mutation, _ = _write(tmp_path, before, after, addressed="application/config/name")
+
+    assert mutation.sections_reordered is True
+    assert mutation.restored == ()
+
+
+def test_a_leading_byte_order_mark_is_not_part_of_the_first_key(tmp_path):
+    # Godot's ConfigFile reader does not strip a BOM, so the engine reads the
+    # marked key as its own setting and writes that mangled name back BESIDE the
+    # `config_version` its writer always emits. Reading the mark as part of the
+    # key would make gda believe `config_version` was dropped and "restore" a
+    # second one (PR #898 review).
+    before = "﻿config_version=5\n\n[debug]\n\nfile_logging/enable_file_logging=false\n"
+    after = (
+        "config_version=5\n"
+        '"ï»¿config_version"=5\n'
+        '\n[application]\n\nconfig/name="renamed"\n'
+    )
+
+    mutation, path = _write(
+        tmp_path, before, after, addressed="application/config/name"
+    )
+
+    assert mutation.restored == ("debug/file_logging/enable_file_logging",)
+    text = path.read_text(encoding="utf-8")
+    # One real declaration, the engine's own — gda added no second one.
+    assert text.count("config_version=5") == 1
+    # The key the engine mangled is its doing and is reported as such, not hidden.
+    assert "ï»¿config_version" in mutation.added
+
+
+def test_a_restore_that_cannot_be_written_is_raised_as_a_typed_error(tmp_path):
+    before = '[application]\n\nconfig/name="fixture"\n\n[debug]\n\nsettings/x=1\n'
+    after = '[application]\n\nconfig/name="renamed"\n'
+    path = tmp_path / "project.godot"
+    path.write_text(before, encoding="utf-8")
+    config = read_config(path)
+    path.write_text(after, encoding="utf-8")
+    path.chmod(0o444)
+    tmp_path.chmod(0o555)  # and the directory, so a replace cannot work around it
+
+    try:
+        with pytest.raises(ProjectFileRestoreError) as raised:
+            bound_project_write(path, config, addressed="application/config/name")
+    finally:
+        tmp_path.chmod(0o755)
+        path.chmod(0o644)
+
+    # The message names the file and what is now missing from it, so the failure
+    # the CLI mints from this is actionable by hand.
+    assert raised.value.settings == ("debug/settings/x",)
+    assert "debug/settings/x" in str(raised.value)
+    assert str(path) in str(raised.value)
+
+
+def test_an_unreadable_file_on_either_side_measures_nothing(tmp_path):
+    path = tmp_path / "project.godot"
+    path.write_text('[application]\n\nconfig/name="x"\n', encoding="utf-8")
+    config = read_config(path)
+    path.write_bytes(b"\xff\xfe\x00binary")
+
+    assert bound_project_write(path, config, addressed=None) == ProjectWriteMutation()
+    assert bound_project_write(path, None, addressed=None) == ProjectWriteMutation()
+    # And nothing was written over the file it could not read.
+    assert path.read_bytes() == b"\xff\xfe\x00binary"
