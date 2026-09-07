@@ -331,6 +331,8 @@ func _initialize() -> void:
 			_op_resource_get(params)
 		"resource-load":
 			_op_resource_load(params)
+		"resource-inspect-model":
+			_op_resource_inspect_model(params)
 		"resource-set":
 			_op_resource_set(params)
 		"resource-delete":
@@ -3032,6 +3034,322 @@ func _op_resource_load(params: Dictionary) -> void:
 		_fail(OP_ERROR_INVALID_PATH,
 				"resource is not a supported Texture2D or PackedScene: " + path)
 		return
+	_succeed(result)
+
+
+# Inspect an instantiated resource without adding it to the active SceneTree.
+# Native global_transform cannot be read off-tree, so compose only the spatial
+# inheritance Godot actually uses: a plain Node parent or top_level cuts it.
+func _model_resource_transform(node: Node) -> Transform3D:
+	if not node is Node3D:
+		return Transform3D.IDENTITY
+	var spatial: Node3D = node
+	var result := spatial.transform
+	while not spatial.top_level and spatial.get_parent() is Node3D:
+		spatial = spatial.get_parent() as Node3D
+		result = spatial.transform * result
+	return result
+
+
+func _model_transform_value(value: Transform3D) -> Dictionary:
+	return {"origin": _jsonify(value.origin), "basis": [
+		_jsonify(value.basis.x), _jsonify(value.basis.y), _jsonify(value.basis.z)]}
+
+
+func _model_resource(value: Resource) -> Dictionary:
+	return {"type": value.get_class(), "name": value.resource_name,
+		"path": value.resource_path if not value.resource_path.is_empty() else null,
+		"unavailable_reason": "resource has no stored path" if value.resource_path.is_empty() else null}
+
+
+func _model_take_detail(budget: Dictionary, node_path: String, section: String) -> bool:
+	if budget["remaining"] > 0:
+		budget["remaining"] -= 1
+		return true
+	var omission := {"node_path": node_path, "section": section, "reason": "detail_limit"}
+	if not budget["omissions"].has(omission):
+		budget["omissions"].append(omission)
+	return false
+
+
+func _model_material(instance: MeshInstance3D, surface: int, budget: Dictionary, node_path: String) -> Variant:
+	var material: Material = instance.get_active_material(surface)
+	if material == null:
+		return null
+	var source := "mesh_surface"
+	if instance.material_override != null:
+		source = "material_override"
+	elif instance.get_surface_override_material(surface) != null:
+		source = "surface_override"
+	var result := {"resource": _model_resource(material), "source": source,
+		"textures": [], "textures_unavailable_reason": null}
+	if not material is BaseMaterial3D:
+		result["textures_unavailable_reason"] = "texture roles are only inspected for BaseMaterial3D"
+		return result
+	# Ask the running engine for named slots: enum positions change when Godot
+	# introduces textures (e.g. bent normals). No version-specific ordinal table.
+	for constant in ClassDB.class_get_enum_constants("BaseMaterial3D", "TextureParam"):
+		if constant == "TEXTURE_MAX":
+			continue
+		var slot := ClassDB.class_get_integer_constant("BaseMaterial3D", constant)
+		var texture: Texture2D = material.get_texture(slot)
+		if texture == null:
+			continue
+		if not _model_take_detail(budget, node_path, "textures"):
+			break
+		result["textures"].append({"role": constant.trim_prefix("TEXTURE_").to_lower(), "resource": _model_resource(texture)})
+	return result
+
+
+func _model_skeleton(skeleton: Skeleton3D, budget: Dictionary, node_path: String) -> Dictionary:
+	var result := {"bone_count": skeleton.get_bone_count(), "bones": []}
+	for index in skeleton.get_bone_count():
+		if not _model_take_detail(budget, node_path, "bones"):
+			break
+		result["bones"].append({"index": index, "name": skeleton.get_bone_name(index),
+			"parent": skeleton.get_bone_parent(index), "rest": _model_transform_value(skeleton.get_bone_rest(index))})
+	return result
+
+
+func _model_skin(instance: MeshInstance3D, root: Node, budget: Dictionary, node_path: String) -> Dictionary:
+	var skin := instance.skin
+	var target: Node = instance.get_node_or_null(instance.skeleton) if not instance.skeleton.is_empty() else null
+	var skeleton := target as Skeleton3D
+	var result := {"resource": _model_resource(skin), "skeleton_path": String(instance.skeleton),
+		"resolved_skeleton_path": String(root.get_path_to(skeleton)) if skeleton != null else null,
+		"unresolved_reason": "skeleton target is missing or not Skeleton3D" if skeleton == null else null,
+		"bind_count": skin.get_bind_count(), "binds": []}
+	for index in skin.get_bind_count():
+		if not _model_take_detail(budget, node_path, "skin_binds"):
+			break
+		var name := String(skin.get_bind_name(index))
+		var bone := skin.get_bind_bone(index)
+		var resolved := -1
+		if skeleton != null:
+			resolved = skeleton.find_bone(name) if not name.is_empty() else bone
+			if resolved >= skeleton.get_bone_count():
+				resolved = -1
+		result["binds"].append({"index": index, "name": name, "bone_index": bone,
+			"pose": _model_transform_value(skin.get_bind_pose(index)),
+			"resolved_bone_index": resolved if resolved >= 0 else null,
+			"unresolved_reason": ("skeleton target is missing or not Skeleton3D" if skeleton == null else "bone not found") if resolved < 0 else null})
+	return result
+
+
+func _model_mesh(instance: MeshInstance3D, root: Node, budget: Dictionary, node_path: String) -> Dictionary:
+	var mesh: Mesh = instance.mesh
+	var result := {"resource": _model_resource(mesh), "surface_count": mesh.get_surface_count(), "surfaces": [],
+		"skin": null, "skin_unavailable_reason": null}
+	var primitives := ["points", "lines", "line_strip", "triangles", "triangle_strip"]
+	for index in mesh.get_surface_count():
+		if not _model_take_detail(budget, node_path, "surfaces"):
+			break
+		var surface := {"index": index, "primitive": null,
+			"vertex_count": null, "index_count": null, "triangle_count": null,
+			"triangle_count_basis": null, "counts_unavailable_reason": null}
+		if mesh is ArrayMesh:
+			var primitive: int = mesh.surface_get_primitive_type(index)
+			surface["primitive"] = primitives[primitive]
+			var vertices: int = mesh.surface_get_array_len(index)
+			var indices: int = mesh.surface_get_array_index_len(index)
+			surface["vertex_count"] = vertices
+			surface["index_count"] = indices
+			var slots := indices if indices > 0 else vertices
+			if primitive == Mesh.PRIMITIVE_TRIANGLES or primitive == Mesh.PRIMITIVE_TRIANGLE_STRIP:
+				surface["triangle_count_basis"] = "index_slots" if indices > 0 else "vertex_slots"
+				surface["triangle_count"] = int(slots / 3) if primitive == Mesh.PRIMITIVE_TRIANGLES else maxi(0, slots - 2)
+		else:
+			surface["counts_unavailable_reason"] = "primitive and length-only counts require ArrayMesh; vertex arrays were not read"
+		surface["material"] = _model_material(instance, index, budget, node_path)
+		result["surfaces"].append(surface)
+	if instance.skin != null:
+		result["skin"] = _model_skin(instance, root, budget, node_path)
+	else:
+		result["skin_unavailable_reason"] = "no explicit Skin resource; runtime-generated bindings are not observed"
+	return result
+
+
+func _model_animation_track(animation: Animation, index: int, base: Node, root: Node) -> Dictionary:
+	var path := animation.track_get_path(index)
+	var type := animation.track_get_type(index)
+	var type_name := str(type)
+	for constant in ClassDB.class_get_enum_constants("Animation", "TrackType"):
+		if ClassDB.class_get_integer_constant("Animation", constant) == type:
+			type_name = constant.trim_prefix("TYPE_").to_lower()
+			break
+	var names := path.get_concatenated_names()
+	var target: Node = base.get_node_or_null(NodePath(names)) if base != null and not names.is_empty() and not path.is_absolute() else null
+	var result := {"index": index, "type": type_name, "path": String(path),
+		"enabled": animation.track_is_enabled(index),
+		"target_node_path": String(root.get_path_to(target)) if target != null else null,
+		"bone_name": null, "status": "unresolved", "resolution_scope": null, "reason": null}
+	if base == null:
+		result["reason"] = "animation root not found"
+	elif path.is_absolute():
+		result["status"] = "unavailable"
+		result["reason"] = "absolute target requires a runtime scene tree"
+	elif target == null:
+		result["reason"] = "target node not found"
+	elif type == Animation.TYPE_POSITION_3D or type == Animation.TYPE_ROTATION_3D or type == Animation.TYPE_SCALE_3D:
+		if target is Skeleton3D and path.get_subname_count() == 1:
+			var bone := String(path.get_subname(0))
+			result["bone_name"] = bone
+			if target.find_bone(bone) >= 0:
+				result["status"] = "resolved"
+				result["resolution_scope"] = "bone"
+			else:
+				result["reason"] = "bone not found"
+		elif target is Node3D and path.get_subname_count() == 0:
+			result["status"] = "resolved"
+			result["resolution_scope"] = "node"
+		else:
+			result["reason"] = "transform target is not Node3D or has unexpected subnames"
+	elif type == Animation.TYPE_VALUE or type == Animation.TYPE_BEZIER:
+		if path.get_subname_count() == 0:
+			result["reason"] = "property missing from target path"
+		else:
+			var declared := false
+			for property in target.get_property_list():
+				if property["name"] == path.get_subname(0):
+					declared = true
+					break
+			if not declared:
+				result["reason"] = "property not declared"
+			elif path.get_subname_count() == 1:
+				result["status"] = "resolved"
+				result["resolution_scope"] = "declared_property"
+			else:
+				result["status"] = "unavailable"
+				result["reason"] = "nested property not evaluated"
+	else:
+		result["status"] = "unavailable"
+		result["reason"] = "track semantics not inspected; only target node located"
+	return result
+
+
+func _model_animation_player(player: AnimationPlayer, root: Node, budget: Dictionary, node_path: String) -> Dictionary:
+	var base := player.get_node_or_null(player.root_node)
+	var names := player.get_animation_list()
+	var result := {"root_path": String(player.root_node),
+		"resolved_root_path": String(root.get_path_to(base)) if base != null else null,
+		"unresolved_reason": "animation root not found" if base == null else null,
+		"animation_count": names.size(), "animations": []}
+	for name in names:
+		if not _model_take_detail(budget, node_path, "animations"):
+			break
+		var animation := player.get_animation(name)
+		var record := {"name": name, "length": animation.length, "loop_mode": animation.loop_mode,
+			"track_count": animation.get_track_count(), "tracks": []}
+		for index in animation.get_track_count():
+			if not _model_take_detail(budget, node_path, "animation_tracks"):
+				break
+			record["tracks"].append(_model_animation_track(animation, index, base, root))
+		result["animations"].append(record)
+	return result
+
+
+func _op_resource_inspect_model(params: Dictionary) -> void:
+	_diag("running operation: resource-inspect-model")
+	var path := _string_param(params, "path")
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "resource not found: " + path)
+		return
+	var resource: Resource = ResourceLoader.load(path)
+	if resource == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource could not be loaded as PackedScene: " + path
+				+ "; inspect engine diagnostics; imported sources may need resource import")
+		return
+	if not resource is PackedScene:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource is " + resource.get_class() + ", not PackedScene: " + path)
+		return
+	var root: Node = resource.instantiate()
+	if root == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "PackedScene has no instantiable root: " + path)
+		return
+	var subtree := _string_param(params, "subtree")
+	if subtree.is_empty():
+		subtree = "."
+	if NodePath(subtree).is_absolute() or NodePath(subtree).get_subname_count() > 0:
+		root.free()
+		_fail(OP_ERROR_INVALID_PARAMS, "subtree must be relative to the resource root")
+		return
+	var selected: Node = root.get_node_or_null(NodePath(subtree))
+	if selected == null:
+		root.free()
+		_fail(OP_ERROR_NODE_NOT_FOUND, "subtree not found in resource: " + subtree)
+		return
+	var max_nodes := _int_param(params, "max_nodes")
+	var max_items := _int_param(params, "max_items")
+	if max_nodes < 1 or max_nodes > 4096 or max_items < 1 or max_items > 16384:
+		root.free()
+		_fail(OP_ERROR_INVALID_PARAMS, "max_nodes must be in 1..4096 and max_items in 1..16384")
+		return
+	var budget := {"remaining": max_items, "omissions": []}
+	var nodes: Array = []
+	var stack: Array = [[selected, _model_resource_transform(selected), -1]]
+	var unique_meshes := {}
+	var mesh_instances := 0
+	var has_bounds := false
+	var merged_bounds := AABB()
+	while not stack.is_empty():
+		var entry: Array = stack[-1]
+		var node: Node = entry[0]
+		var transform: Transform3D = entry[1]
+		if entry[2] == -1:
+			if nodes.size() >= max_nodes:
+				break
+			var node_path := String(root.get_path_to(node))
+			nodes.append({
+				"path": node_path, "type": node.get_class(),
+				"local_transform": _model_transform_value(node.transform) if node is Node3D else null,
+				"resource_transform": _model_transform_value(transform) if node is Node3D else null,
+				"mesh": _model_mesh(node, root, budget, node_path) if node is MeshInstance3D and node.mesh != null else null,
+				"skeleton": _model_skeleton(node, budget, node_path) if node is Skeleton3D else null,
+				"animation_player": _model_animation_player(node, root, budget, node_path) if node is AnimationPlayer else null,
+			})
+			if node is MeshInstance3D and node.mesh != null:
+				var mesh: Mesh = node.mesh
+				mesh_instances += 1
+				unique_meshes[mesh.get_instance_id()] = true
+				if mesh.get_surface_count() > 0:
+					var bounds: AABB = transform * mesh.get_aabb()
+					merged_bounds = merged_bounds.merge(bounds) if has_bounds else bounds
+					has_bounds = true
+			entry[2] = 0
+		# Retain only the ancestor stack, not every sibling of a wide scene.
+		if entry[2] < node.get_child_count():
+			var child := node.get_child(entry[2])
+			entry[2] += 1
+			var child_transform := Transform3D.IDENTITY
+			if child is Node3D:
+				child_transform = child.transform
+				if node is Node3D and not child.top_level:
+					child_transform = transform * child_transform
+			stack.append([child, child_transform, -1])
+		else:
+			stack.pop_back()
+	var truncated := not stack.is_empty()
+	if truncated:
+		budget["omissions"].append({"node_path": String(root.get_path_to(selected)), "section": "nodes", "reason": "node_limit"})
+	var result := {
+		"path": path, "subtree": String(root.get_path_to(selected)),
+		"engine_version": Engine.get_version_info(),
+		"measurement": {
+			"coordinate_space": "resource", "geometry": "static_mesh_aabb",
+			"limitations": ["selected root included; counts and bounds cover visited nodes only",
+				"root local transform included; plain Node parents and top_level cut spatial inheritance",
+				"surface counts use ArrayMesh lengths; triangle counts include degenerate slots; texture references do not prove shader use",
+				"bindings locate static node/bone/declared-property targets only; no key values, nested property reads, playback or writability checks",
+				"no animation sampling, skin deformation, blend shapes, visibility or runtime state"],
+		},
+		"nodes": nodes,
+		"summary": {"node_count": nodes.size(), "mesh_instance_count": mesh_instances,
+			"unique_mesh_count": unique_meshes.size()},
+		"bounds": {"position": _jsonify(merged_bounds.position), "size": _jsonify(merged_bounds.size)} if has_bounds else null,
+		"truncated": not budget["omissions"].is_empty(),
+		"omissions": budget["omissions"],
+	}
+	root.free()
 	_succeed(result)
 
 

@@ -7,8 +7,8 @@ through :func:`register`. It imports the shared machinery downward — the
 dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
 the cross-command contract core (``gda.models``, for the shared
 :class:`~gda.models.NodeProperty` shape) and the shared render helpers
-(``gda.render``) — and is imported by nothing but the composition root
-(``gda.cli``).
+(``gda.render``). The composition root (``gda.cli``) mounts the group;
+the asset integration consumes its returning Godot operations (ADR-0042).
 
 :class:`~gda.commands.project.ResourceReference` is NOT this group's model
 despite its name: it is the ``project find-references`` result shape, so it
@@ -129,6 +129,215 @@ class ResourceLoadParams(BaseModel):
     path: NormalizedPath = Field(
         description="An imported project resource to load through Godot."
     )
+
+
+ModelVector3 = tuple[float, float, float]
+
+
+class ModelTransform(BaseModel):
+    """A transform with basis columns and origin in the declared coordinate space."""
+
+    origin: ModelVector3
+    basis: tuple[ModelVector3, ModelVector3, ModelVector3]
+
+
+class ModelBounds(BaseModel):
+    position: ModelVector3
+    size: ModelVector3
+
+
+class ModelResource(BaseModel):
+    type: str
+    name: str
+    path: str | None
+    unavailable_reason: str | None
+
+
+class ModelTexture(BaseModel):
+    role: str
+    resource: ModelResource
+
+
+class ModelMaterial(BaseModel):
+    resource: ModelResource
+    source: Literal["material_override", "surface_override", "mesh_surface"]
+    textures: list[ModelTexture]
+    textures_unavailable_reason: str | None
+
+
+class ModelSurface(BaseModel):
+    index: int
+    primitive: str | None
+    vertex_count: int | None
+    index_count: int | None
+    triangle_count: int | None
+    triangle_count_basis: Literal["index_slots", "vertex_slots"] | None
+    counts_unavailable_reason: str | None = Field(
+        description="Why primitive and compact counts are unavailable; no vertex arrays are read."
+    )
+    material: ModelMaterial | None
+
+
+class ModelBone(BaseModel):
+    index: int
+    name: str
+    parent: int
+    rest: ModelTransform = Field(
+        description="Rest transform relative to the parent bone."
+    )
+
+
+class ModelSkeleton(BaseModel):
+    bone_count: int
+    bones: list[ModelBone]
+
+
+class ModelSkinBind(BaseModel):
+    index: int
+    bone_index: int
+    name: str
+    pose: ModelTransform
+    resolved_bone_index: int | None
+    unresolved_reason: str | None
+
+
+class ModelSkin(BaseModel):
+    resource: ModelResource
+    skeleton_path: str
+    resolved_skeleton_path: str | None
+    unresolved_reason: str | None
+    bind_count: int
+    binds: list[ModelSkinBind]
+
+
+class ModelMesh(BaseModel):
+    resource: ModelResource
+    surface_count: int
+    surfaces: list[ModelSurface]
+    skin: ModelSkin | None
+    skin_unavailable_reason: str | None
+
+
+class ModelAnimationTrack(BaseModel):
+    index: int
+    type: str
+    path: str
+    enabled: bool
+    target_node_path: str | None
+    bone_name: str | None
+    status: Literal["resolved", "unresolved", "unavailable"]
+    resolution_scope: Literal["node", "bone", "declared_property"] | None = Field(
+        description="Located static identity only, not successful playback or property writability."
+    )
+    reason: str | None
+
+
+class ModelAnimation(BaseModel):
+    name: str
+    length: float
+    loop_mode: int = Field(
+        description="Godot Animation.LoopMode: 0 none, 1 linear, 2 ping-pong."
+    )
+    track_count: int
+    tracks: list[ModelAnimationTrack]
+
+
+class ModelAnimationPlayer(BaseModel):
+    root_path: str
+    resolved_root_path: str | None
+    unresolved_reason: str | None
+    animation_count: int
+    animations: list[ModelAnimation]
+
+
+class ModelNode(BaseModel):
+    path: str = Field(
+        description="Full node path relative to the loaded resource root."
+    )
+    type: str
+    local_transform: ModelTransform | None
+    resource_transform: ModelTransform | None
+    mesh: ModelMesh | None
+    skeleton: ModelSkeleton | None
+    animation_player: ModelAnimationPlayer | None
+
+
+class ModelOmission(BaseModel):
+    node_path: str
+    section: str
+    reason: Literal["node_limit", "detail_limit"]
+
+
+class ModelMeasurement(BaseModel):
+    coordinate_space: Literal["resource"]
+    geometry: Literal["static_mesh_aabb"]
+    limitations: list[str]
+
+
+class ModelSummary(BaseModel):
+    node_count: int
+    mesh_instance_count: int
+    unique_mesh_count: int
+
+
+class ResourceInspectModelParams(BaseModel):
+    path: NormalizedPath = Field(
+        description="An imported PackedScene resource to inspect."
+    )
+    subtree: str = Field(
+        default=".",
+        description="Selected root-inclusive subtree, relative to the resource root.",
+    )
+    max_nodes: int = Field(
+        default=256,
+        ge=1,
+        le=4096,
+        description="Maximum reported nodes; counts and bounds cover only those visited.",
+    )
+    max_items: int = Field(
+        default=1024,
+        ge=1,
+        le=16384,
+        description="Global limit for surface, texture, bone, bind, animation and track records.",
+    )
+
+
+class ResourceInspectModelResult(BaseModel):
+    path: str
+    subtree: str
+    engine_version: EngineVersion
+    measurement: ModelMeasurement
+    nodes: list[ModelNode]
+    summary: ModelSummary
+    bounds: ModelBounds | None = Field(
+        description="Merged static mesh bounds; null when the visited nodes have no mesh geometry."
+    )
+    truncated: bool = Field(
+        description="True when node or detail records were omitted by a report limit."
+    )
+    omissions: list[ModelOmission]
+
+
+def render_resource_inspect_model(result: ResourceInspectModelResult) -> str:
+    summary = result.summary
+    text = (
+        f"{result.path} [{result.subtree}]: {summary.node_count} nodes, "
+        f"{summary.mesh_instance_count} mesh instances, "
+        f"{summary.unique_mesh_count} unique meshes"
+    )
+    if result.truncated:
+        text += " (partial report)"
+    return text
+
+
+RESOURCE_INSPECT_MODEL_COMMAND: HeadlessCommand[ResourceInspectModelResult] = (
+    HeadlessCommand(
+        operation="resource-inspect-model",
+        input_model=ResourceInspectModelParams,
+        output_model=ResourceInspectModelResult,
+        render=render_resource_inspect_model,
+    )
+)
 
 
 class ResourceLoadResult(BaseModel):
@@ -394,6 +603,40 @@ def get_resource(
     dispatch_domain(
         RESOURCE_GET_COMMAND,
         ResourceGetParams(path=path),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="inspect-model", cls=RESOURCE_INSPECT_MODEL_COMMAND.command_class())
+def inspect_model(
+    path: str = typer.Argument(
+        ..., help="An imported PackedScene resource to inspect."
+    ),
+    subtree: str = typer.Option(
+        ".", help="Root-inclusive subtree relative to the resource root."
+    ),
+    max_nodes: int = typer.Option(256, min=1, max=4096, help="Maximum reported nodes."),
+    max_items: int = typer.Option(
+        1024, min=1, max=16384, help="Maximum detail records across the whole report."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_INSPECT_MODEL_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Inspect the selected Godot-loaded model without importing or running gameplay.
+
+    Bounds cover static mesh AABBs in resource space, including the selected root.
+    Loading and instantiation use the existing trusted-project execution surface.
+    """
+    dispatch_domain(
+        RESOURCE_INSPECT_MODEL_COMMAND,
+        ResourceInspectModelParams(
+            path=path, subtree=subtree, max_nodes=max_nodes, max_items=max_items
+        ),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -927,6 +1170,18 @@ def run_resource_load_operation(
         ResourceLoadParams(path=addressed),
         godot=godot,
         project=project,
+    )
+
+
+def run_resource_inspect_model_operation(
+    project: Path, params: ResourceInspectModelParams, *, godot: str | None = None
+) -> ResourceInspectModelResult | Failure:
+    """Return the same model facts for a composite consumer, without CLI emission."""
+    addressed = _asset_res_path(project, params.path)
+    if isinstance(addressed, Failure):
+        return addressed
+    return RESOURCE_INSPECT_MODEL_COMMAND.execute(
+        params.model_copy(update={"path": addressed}), godot=godot, project=project
     )
 
 
