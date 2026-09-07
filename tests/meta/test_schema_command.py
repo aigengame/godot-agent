@@ -1372,6 +1372,9 @@ def test_sample_game_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each game command satisfies the contract its
     # --schema emits (the ADR-0004 hard gate for the LIVE game group, #220).
     from tests.support import (
+        GAME_FIND_EMPTY_RESULT,
+        GAME_FIND_RESULT,
+        GAME_FIND_TRUNCATED_RESULT,
         GAME_GET_RESULT,
         GAME_RECT_RESULT,
         GAME_SET_RESULT,
@@ -1380,6 +1383,7 @@ def test_sample_game_results_validate_against_emitted_output_schemas():
     )
 
     tree_doc = json.loads(CliRunner().invoke(app, ["game", "tree", "--schema"]).stdout)
+    find_doc = json.loads(CliRunner().invoke(app, ["game", "find", "--schema"]).stdout)
     get_doc = json.loads(CliRunner().invoke(app, ["game", "get", "--schema"]).stdout)
     rect_doc = json.loads(CliRunner().invoke(app, ["game", "rect", "--schema"]).stdout)
     set_doc = json.loads(CliRunner().invoke(app, ["game", "set", "--schema"]).stdout)
@@ -1388,6 +1392,12 @@ def test_sample_game_results_validate_against_emitted_output_schemas():
     # The bounded read's shape is published too (#849): the optional per-node
     # `children_omitted` and the two result totals.
     jsonschema.validate(instance=GAME_TREE_TRUNCATED_RESULT, schema=tree_doc["output"])
+    # The match list's three shapes (#855): matches with and without a script,
+    # the empty success, and the bounded search that reports what it never
+    # searched — a null `script_path` included, which the contract must accept.
+    jsonschema.validate(instance=GAME_FIND_RESULT, schema=find_doc["output"])
+    jsonschema.validate(instance=GAME_FIND_EMPTY_RESULT, schema=find_doc["output"])
+    jsonschema.validate(instance=GAME_FIND_TRUNCATED_RESULT, schema=find_doc["output"])
     jsonschema.validate(instance=GAME_GET_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=GAME_RECT_RESULT, schema=rect_doc["output"])
     jsonschema.validate(instance=GAME_SET_RESULT, schema=set_doc["output"])

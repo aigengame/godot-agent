@@ -495,7 +495,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | Command | What it does |
 | ------- | ------------ |
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
-| `game find` | Find runtime nodes by engine class, script, group, name, or unique name, instead of by path. `--type` is the ENGINE class (subclass-inclusive) and never a project `class_name` — `--script` is what reaches that. |
+| `game find` | Find runtime nodes by engine class, script, group, name, or unique name, instead of by path. `--type` is the ENGINE class (subclass-inclusive) and never a project `class_name` — `--script res://path.gd` is what reaches that. |
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |

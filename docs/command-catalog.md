@@ -1367,21 +1367,23 @@ re-derives every verdict from a running engine.
   from GDA-DF-051, where a rebuilt screen moved an actor slot from `Enemy0` to `Enemy1`
   and a full-tree read was the only way to find it again) answers "which node is it
   NOW": it walks from the same root and returns a FLAT list of matches — `path`, `name`,
-  `type` and the node's own `script_path` — plus `count`. Five selectors, ANDed, at
-  least one required (a selector-less find is `game tree` flattened, refused as a usage
-  error): `--type` is the ENGINE class and subclass-inclusive (`Button` matches a
-  `CheckBox`), so it never sees a project `class_name` — `--script <res://path>` is the
-  selector that does, matching the node's attached script or any script in its base
-  chain; `--group` and `--name` are the plain identity checks; and `--unique-name`
-  matches a `%`-addressable node whose OWNER is the search root or lies inside the
-  searched subtree, because a unique name is per owner and a running tree holds many
-  owners (every autoload, every instanced sub-scene) — the same `%Name` declared by an
-  owner ABOVE the search root is not a match. `--root` / `--max-depth` bound the search
-  as they bound the tree read, and the same two totals ride back, here counting what the
-  search never REACHED: while `omitted_nodes` is above zero, an empty match list has not
-  proved a node absent. Ambiguity is data rather than an error — zero matches is a
-  success with an empty list, every candidate is returned, and the ops that need ONE
-  node keep taking an exact path.
+  `type` and the node's own `script_path` — plus `count`. Five selectors are ANDed, and
+  at least one is required: a selector-less find is `game tree` flattened, refused as a
+  usage error (and published as an `anyOf` beside the model validator, so a schema-only
+  client reaches the same verdict). `--type` is the ENGINE class and subclass-inclusive
+  — `Button` matches a `CheckBox` — and it never sees a project `class_name`; `--script
+  <res://path>` is the selector that does, matching the node's attached script or any
+  script in its base chain. `--group` and `--name` are the plain identity checks.
+  `--unique-name` matches a `%`-addressable node whose OWNER is the search root or lies
+  inside the searched subtree, because a unique name is per owner and a running tree
+  holds many owners (every autoload, every instanced sub-scene) — the same `%Name`
+  declared by an owner ABOVE the search root is not a match. A class name the engine
+  does not know matches nothing, which is an empty successful search rather than a
+  refusal. `--root` / `--max-depth` bound the search as they bound the tree read, and
+  the same two counters ride back, here counting what the search never REACHED: while
+  `omitted_nodes` is above zero, an empty match list has not proved a node absent.
+  Ambiguity is data rather than an error — zero matches is a success with an empty list,
+  every candidate is returned, and the ops that need ONE node keep taking an exact path.
   Runtime node property `game get` /
   `game set` (shipped, #220, extended by #422/#473) read and mutate a running node's live
   properties — the live counterparts of headless `node get` / `node set`, applying the

@@ -322,8 +322,9 @@ freeze-frame in an agent session, use `paused`, which live operations survive; a
 ### Find a node before you address it
 
 Every live op that ADDRESSES a node takes an exact runtime path, and `game tree` /
-`game find` are how you learn one. Resolve the path first, then address it — never dump
-the whole tree:
+`game find` are how you learn one. Resolve the path first — with a bounded `game tree`
+read (1) or a `game find` selector search (2) — then address it (3). Never dump the
+whole tree:
 
 1. **Bound the read.** `gda game tree --max-depth 2 --json` shows the top levels of the
    running CURRENT SCENE; then `gda game tree --root /root/Main/HUD --max-depth 2 --json`
@@ -333,17 +334,22 @@ the whole tree:
    own context budget and be truncated by your client, and a truncated dump cannot prove
    a node is absent.
 2. **Or search by selector.** `gda game find --type Button --group hud --json` returns
-   the flat list of matching runtime paths instead of a tree. Selectors are ANDed and at
-   least one is required: `--type` is the ENGINE class and subclass-inclusive (`Button`
-   also matches a `CheckBox`) and never sees a project `class_name` — `--script
+   a flat list of matches instead of a tree — each one an object carrying `path`,
+   `name`, `type` and `script_path`. Selectors are ANDed and at least one is required:
+   `--type` is the ENGINE class and subclass-inclusive (`Button` also matches a
+   `CheckBox`), and it never sees a project `class_name` — `--script
    res://ui/card_view.gd` is what reaches that, matching the node's attached script or
-   any script in its base chain. `--group` and `--name` are the plain identity checks,
-   and `--unique-name` matches a `%`-addressable node whose OWNER is the search root or
-   lies inside the searched subtree, so the same `%Name` owned from ABOVE that root does
-   not match. `--root` and `--max-depth` bound the search exactly as they bound the read
-   above, from the same default root — so reaching an autoload takes `--root /root` here
-   too. Zero matches is a success with an empty list: the ops that need one node still
-   take an exact path, so ambiguity is data rather than an error.
+   any script in its base chain.
+   `--group` and `--name` are the plain identity checks, and `--unique-name` matches a
+   `%`-addressable node whose OWNER is the search root or lies inside the searched
+   subtree, so the same `%Name` owned from ABOVE that root does not match. `--root` and
+   `--max-depth` bound the search exactly as they bound the read above, from the same
+   default root — so reaching an autoload takes `--root /root` here too, and a broad
+   selector needs the bounds as much as the tree read does: `--type Node` matches every
+   node in the subtree, which on a production UI is the same very large result.
+   Zero matches is a success with an empty list, not an error. Several matches are data
+   too: every candidate comes back and you choose, because the ops that need one node
+   still take an exact path.
 3. **Address exactly.** With the path in hand, use `game get` / `game rect` / `game set`
    / `game call` on that path. Do not re-read the tree per node.
 
@@ -356,7 +362,7 @@ says nothing about its siblings. To see what a node hid, re-read with `--root <t
 node's path>`. There is no continuation token — a live
 tree changes between calls, so the follow-up is a narrower `--root`, not a resumed page.
 
-`game find` carries the same two totals (a flat match list has no `children_omitted`),
+`game find` carries the same two counters (a flat match list has no `children_omitted`),
 where they count the nodes the search never REACHED: while `omitted_nodes` is above
 zero, an empty match list does not prove the node is absent — widen `--max-depth` or
 move `--root` before concluding it is gone.
