@@ -148,12 +148,16 @@ def invocation(doc_dir: Path, tmp_path: Path) -> Callable[..., list[str]]:
             )
         )
         tail = (
-            list(fixtures.prepare_args(tmp_path, token, refusing))
-            if fixtures.prepare_args is not None
-            else list(
-                fixtures.refusing_args
-                if refusing and fixtures.refusing_args
-                else fixtures.valid_args
+            list(fixtures.prepare_verdict_args(tmp_path, token))
+            if verdicting and fixtures.prepare_verdict_args is not None
+            else (
+                list(fixtures.prepare_args(tmp_path, token, refusing))
+                if fixtures.prepare_args is not None
+                else list(
+                    fixtures.refusing_args
+                    if refusing and fixtures.refusing_args
+                    else fixtures.valid_args
+                )
             )
         )
         if descriptor.artifact_set:

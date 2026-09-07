@@ -75,6 +75,8 @@ class ConformanceFixtures:
     # Commands with several explicit file inputs may prepare their complete
     # option tail instead of pretending one input is a privileged document.
     prepare_args: Callable[[Path, int, bool], tuple[str, ...]] | None = None
+    # A multi-input command can produce a real Verdict through the same public path.
+    prepare_verdict_args: Callable[[Path, int], tuple[str, ...]] | None = None
     # A foreground descriptor supplies one valid readiness value for the
     # registry-walking lifecycle row. The real process/server path remains an
     # end-to-end test; this fixture proves descriptor dispatch and projection.
