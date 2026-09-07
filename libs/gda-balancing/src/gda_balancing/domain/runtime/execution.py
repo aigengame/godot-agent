@@ -1399,7 +1399,10 @@ def evaluate_prepared_experiment(
                         actual = binding["operand"]
                         if actual["kind"] == "port":
                             child_arguments[binding["port"]] = variables[actual["port"]]
-                            if actual["port"] in state_references:
+                            if (
+                                child["operation_kind"] != "pure-expression"
+                                and actual["port"] in state_references
+                            ):
                                 child_state_references[binding["port"]] = (
                                     state_references[actual["port"]]
                                 )
