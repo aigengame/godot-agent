@@ -9870,6 +9870,14 @@ def _consumer_b_evaluate_structured_value_vector(
     resource_limit: int,
 ) -> dict[str, Any]:
     """Execute a structured-value vector without production value helpers."""
+    reasons = {}
+    for package in nominal_types:
+        for entry in package.get("semantic_closure", []):
+            if entry.get("authority_path") != "language.reasons":
+                continue
+            for reason in entry["definitions"]:
+                assert reason["id"] not in reasons
+                reasons[reason["id"]] = reason
     constructors = {
         constructor["id"]: constructor
         for package in nominal_types
@@ -9936,9 +9944,18 @@ def _consumer_b_evaluate_structured_value_vector(
     ]
 
     class Refusal(Exception):
-        def __init__(self, code: str, pointer: str):
-            self.code = code
+        def __init__(self, reason_id: str, pointer: str):
+            self.reason_id = reason_id
             self.pointer = pointer
+
+    def lookup_refusal(signal: str, pointer: str) -> Refusal:
+        matches = [
+            reason
+            for reason in reasons.values()
+            if reason.get("stage") == "runtime" and reason.get("signal") == signal
+        ]
+        assert len(matches) == 1
+        return Refusal(matches[0]["id"], pointer)
 
     def type_key(type_expression: Any) -> tuple[str, str] | None:
         if not isinstance(type_expression, dict):
@@ -9990,10 +10007,10 @@ def _consumer_b_evaluate_structured_value_vector(
                 or constructor is None
                 or "definition" not in definition
             ):
-                raise Refusal("language.structured_value_type_mismatch", pointer)
+                raise Refusal("structured.reason.type-mismatch", pointer)
             type_expression = definition["definition"]
         if not isinstance(type_expression, dict):
-            raise Refusal("language.structured_value_type_mismatch", pointer)
+            raise Refusal("structured.reason.type-mismatch", pointer)
         if constructor is None:
             matches = [
                 candidate
@@ -10002,7 +10019,7 @@ def _consumer_b_evaluate_structured_value_vector(
                 == type_expression.get("kind")
             ]
             if len(matches) != 1:
-                raise Refusal("language.structured_value_type_mismatch", pointer)
+                raise Refusal("structured.reason.type-mismatch", pointer)
             constructor = matches[0]
         return type_expression, constructor, constructor["value_rule"]
 
@@ -10033,23 +10050,23 @@ def _consumer_b_evaluate_structured_value_vector(
             or isinstance(bound, bool)
             or charge > bound
         ):
-            raise Refusal("language.structured_value_type_mismatch", pointer)
+            raise Refusal("structured.reason.type-mismatch", pointer)
         return matches[0]["law"]
 
     def validate(type_expression, value, pointer):
         charge = typed_profiles[0]["admission"]["resource_charge_per_node"]
         for _ in range(charge):
             if remaining[0] < 1:
-                raise Refusal("language.structured_value_resource_exhausted", pointer)
+                raise Refusal("structured.reason.resource-exhausted", pointer)
             remaining[0] -= 1
         nominal = type_key(type_expression)
         if nominal is not None:
             definition = definitions.get(nominal)
             if definition is None:
-                raise Refusal("language.structured_value_type_mismatch", pointer)
+                raise Refusal("structured.reason.type-mismatch", pointer)
             constructor = constructors.get(definition.get("constructor"))
             if constructor is None:
-                raise Refusal("language.structured_value_type_mismatch", pointer)
+                raise Refusal("structured.reason.type-mismatch", pointer)
             if "definition" in definition:
                 return validate(definition["definition"], value, pointer)
             value_rule = constructor.get("value_rule", {})
@@ -10059,10 +10076,10 @@ def _consumer_b_evaluate_structured_value_vector(
                 or isinstance(value, bool)
                 or not value_rule["minimum"] <= value <= value_rule["maximum"]
             ):
-                raise Refusal("language.structured_value_type_mismatch", pointer)
+                raise Refusal("structured.reason.type-mismatch", pointer)
             return value
         if not isinstance(type_expression, dict):
-            raise Refusal("language.structured_value_type_mismatch", pointer)
+            raise Refusal("structured.reason.type-mismatch", pointer)
         kind = type_expression.get("kind")
         rules = [
             constructor["value_rule"]
@@ -10070,19 +10087,19 @@ def _consumer_b_evaluate_structured_value_vector(
             if constructor.get("value_rule", {}).get("definition_kind") == kind
         ]
         if len(rules) != 1:
-            raise Refusal("language.structured_value_type_mismatch", pointer)
+            raise Refusal("structured.reason.type-mismatch", pointer)
         rule = rules[0]
         operator = rule.get("operator")
         if operator == "enum-member":
             if not isinstance(value, str) or value not in type_expression.get(
                 rule["members_member"], []
             ):
-                raise Refusal("language.structured_value_unknown_enum", pointer)
+                raise Refusal("structured.reason.unknown-enum", pointer)
             return value
         if operator == "closed-record":
             fields = type_expression.get(rule["fields_member"])
             if not isinstance(fields, list) or not isinstance(value, dict):
-                raise Refusal("language.structured_value_type_mismatch", pointer)
+                raise Refusal("structured.reason.type-mismatch", pointer)
             name_member = rule["field_name_member"]
             type_member = rule["field_type_member"]
             names = [
@@ -10095,7 +10112,7 @@ def _consumer_b_evaluate_structured_value_vector(
             )
             if missing or extra:
                 raise Refusal(
-                    "language.structured_value_record_member_mismatch",
+                    "structured.reason.record-member-mismatch",
                     child(pointer, (missing or extra)[0]),
                 )
             return {
@@ -10114,7 +10131,7 @@ def _consumer_b_evaluate_structured_value_vector(
                 or isinstance(maximum, bool)
                 or len(value) > maximum
             ):
-                raise Refusal("language.structured_value_type_mismatch", pointer)
+                raise Refusal("structured.reason.type-mismatch", pointer)
             return [
                 validate(
                     type_expression.get(rule["element_member"]),
@@ -10136,7 +10153,7 @@ def _consumer_b_evaluate_structured_value_vector(
                 or len(value_members) != 1
                 or not isinstance(value.get(value_members[0]), str)
             ):
-                raise Refusal("language.structured_value_type_mismatch", pointer)
+                raise Refusal("structured.reason.type-mismatch", pointer)
             try:
                 key_matches = (
                     re.fullmatch(
@@ -10147,13 +10164,13 @@ def _consumer_b_evaluate_structured_value_vector(
             except re.error as error:
                 raise AssertionError("admitted Ref key pattern is invalid") from error
             if not key_matches:
-                raise Refusal("language.structured_value_type_mismatch", pointer)
+                raise Refusal("structured.reason.type-mismatch", pointer)
             return {value_members[0]: value[value_members[0]]}
-        raise Refusal("language.structured_value_type_mismatch", pointer)
+        raise Refusal("structured.reason.type-mismatch", pointer)
 
     def admit(envelope):
         if not isinstance(envelope, dict) or set(envelope) != envelope_members:
-            raise Refusal("language.structured_value_type_mismatch", "")
+            raise Refusal("structured.reason.type-mismatch", "")
         return {
             type_member: canonical_type(envelope[type_member]),
             value_member: validate(
@@ -10168,7 +10185,7 @@ def _consumer_b_evaluate_structured_value_vector(
         elif inp["action"] == "equal":
             right = admit(inp["right"])
             if _encoded(left[type_member]) != _encoded(right[type_member]):
-                raise Refusal("language.structured_value_type_mismatch", "/right/type")
+                raise Refusal("structured.reason.type-mismatch", "/right/type")
             _definition, constructor, _rule = structural_contract(
                 left[type_member], "/left/type"
             )
@@ -10181,7 +10198,7 @@ def _consumer_b_evaluate_structured_value_vector(
                 )
                 != result_contract
             ):
-                raise Refusal("language.structured_value_type_mismatch", "/left/type")
+                raise Refusal("structured.reason.type-mismatch", "/left/type")
             result = {
                 type_member: runtime["fixed_value_contracts"][result_contract]["type"],
                 value_member: _encoded(left[value_member])
@@ -10192,8 +10209,9 @@ def _consumer_b_evaluate_structured_value_vector(
                 left[type_member], "/type"
             )
             law = operation_law(constructor, "bounded-lookup", "/type")
-            if law.get("refusal_signal") != "structured-lookup-out-of-range":
-                raise Refusal("language.structured_value_type_mismatch", "/type")
+            signal = law.get("refusal_signal")
+            if signal not in value_nodes["bounded-lookup"]["refusals"]:
+                raise Refusal("structured.reason.type-mismatch", "/type")
             if law.get("selector") == "static-field" and isinstance(inp["key"], str):
                 fields = type_expression[lookup_rule["fields_member"]]
                 name_member = lookup_rule["field_name_member"]
@@ -10203,14 +10221,14 @@ def _consumer_b_evaluate_structured_value_vector(
                     None,
                 )
                 if field is None:
-                    raise Refusal("runtime.structured_lookup_out_of_range", "/key")
+                    raise lookup_refusal(signal, "/key")
                 result = {
                     type_member: canonical_type(field[field_type_member]),
                     value_member: left[value_member][inp["key"]],
                 }
             elif law.get("selector") == "local-index" and isinstance(inp["key"], int):
                 if not 0 <= inp["key"] < len(left[value_member]):
-                    raise Refusal("runtime.structured_lookup_out_of_range", "/key")
+                    raise lookup_refusal(signal, "/key")
                 result = {
                     type_member: canonical_type(
                         type_expression[lookup_rule["element_member"]]
@@ -10218,7 +10236,7 @@ def _consumer_b_evaluate_structured_value_vector(
                     value_member: left[value_member][inp["key"]],
                 }
             else:
-                raise Refusal("language.structured_value_type_mismatch", "/key")
+                raise Refusal("structured.reason.type-mismatch", "/key")
         elif inp["action"] == "is-empty":
             type_expression, constructor, list_rule = structural_contract(
                 left[type_member], "/type"
@@ -10232,7 +10250,7 @@ def _consumer_b_evaluate_structured_value_vector(
                 or law.get("result_contract") != result_contract
                 or not isinstance(left[value_member], list)
             ):
-                raise Refusal("language.structured_value_type_mismatch", "/type")
+                raise Refusal("structured.reason.type-mismatch", "/type")
             result = {
                 type_member: runtime["fixed_value_contracts"][result_contract]["type"],
                 value_member: not left[value_member],
@@ -10241,7 +10259,7 @@ def _consumer_b_evaluate_structured_value_vector(
             raise AssertionError("unknown structured vector action")
     except Refusal as refusal:
         return {
-            "code": refusal.code,
+            "code": reasons[refusal.reason_id]["diagnostic"],
             "outcome": "refused",
             "pointer": refusal.pointer,
             "type": None,
