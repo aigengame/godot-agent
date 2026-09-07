@@ -446,6 +446,21 @@ def test_maintained_fold_source_agrees_between_compilers_and_evaluators(items):
     expected = _run_independent(items)
     expected_values = {row["name"]: row["value"] for row in expected["state_after"]}
     rir = independent_artifacts["rir-semantic-payload"]
+    assert all(
+        "vectors" in row["definition"]
+        for row in independent_artifacts["package-lock"]["operations"]
+    )
+    assert all(
+        "vectors" not in row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    )
+    assert all(
+        "vectors" not in definition
+        for closure in rir["selected_semantics"]["package_semantic_closures"]
+        for entry in closure["definitions"]
+        if entry["authority_path"] == "language.operations"
+        for definition in entry["definitions"]
+    )
     specification = _specification(
         rir,
         items,

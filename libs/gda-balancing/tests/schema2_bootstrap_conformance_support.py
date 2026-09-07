@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa"
+    "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -3686,7 +3686,7 @@ def _consumer_b_runtime_projection_is_closed(
         or contract.get("collection")
         != {
             "required_members": ["id", "source", "output_member", "output_shape"],
-            "optional_members": ["excluded_extension_members"],
+            "optional_members": ["excluded_extension_members", "excluded_members"],
             "namespace_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
         }
@@ -3858,26 +3858,28 @@ def _consumer_b_runtime_projection_is_closed(
             "output_member",
             "output_shape",
         }
-        if "excluded_extension_members" in collection:
-            expected_collection_members.add("excluded_extension_members")
+        exclusion_fields = ("excluded_extension_members", "excluded_members")
+        expected_collection_members.update(
+            field for field in exclusion_fields if field in collection
+        )
         if (
             set(collection) != expected_collection_members
             or not isinstance(collection.get("id"), str)
             or not collection["id"]
             or not isinstance(collection.get("source"), dict)
             or collection.get("output_shape") not in allowed_shapes
-            or (
-                "excluded_extension_members" in collection
+            or any(
+                field in collection
                 and (
-                    not isinstance(collection["excluded_extension_members"], list)
-                    or not collection["excluded_extension_members"]
+                    not isinstance(collection[field], list)
+                    or not collection[field]
                     or not all(
                         isinstance(member, str) and member
-                        for member in collection["excluded_extension_members"]
+                        for member in collection[field]
                     )
-                    or len(collection["excluded_extension_members"])
-                    != len(set(collection["excluded_extension_members"]))
+                    or len(collection[field]) != len(set(collection[field]))
                 )
+                for field in exclusion_fields
             )
         ):
             return False
@@ -4101,6 +4103,26 @@ def _consumer_b_runtime_projection_is_closed(
         if source_kind is None or source_kind != target_kind:
             return False
     for collection in collections:
+        representation, payload = shapes[collection["id"]]
+        excluded = collection.get("excluded_members", [])
+        if excluded:
+            fields_key = "properties" if representation == "schema" else "field_types"
+            fields = payload.get(fields_key)
+            if not isinstance(fields, dict) or not set(excluded) <= set(fields):
+                return False
+            payload = deepcopy(payload)
+            payload[fields_key] = {
+                key: value for key, value in fields.items() if key not in excluded
+            }
+            for members_key in (
+                ("required",)
+                if representation == "schema"
+                else ("required_members", "optional_members")
+            ):
+                if members_key in payload:
+                    payload[members_key] = [
+                        key for key in payload[members_key] if key not in excluded
+                    ]
         member = collection["output_member"]
         if member is None:
             continue
@@ -4111,7 +4133,6 @@ def _consumer_b_runtime_projection_is_closed(
             or not isinstance(target.get("items"), dict)
         ):
             return False
-        representation, payload = shapes[collection["id"]]
         shape = collection["output_shape"]
         if representation == "schema":
             if shape != "as-is" or payload != target["items"]:

@@ -3891,18 +3891,21 @@ def _reference_runtime_projection(
     selected_closure_values: dict[tuple[str, str], list[Any]] = {}
 
     def projected_runtime_value(specification: dict[str, Any], value: Any) -> Any:
-        excluded = specification.get("excluded_extension_members", [])
-        if not excluded or not isinstance(value, dict):
+        if not isinstance(value, dict):
             return value
-        extensions = value.get("extensions")
-        if not isinstance(extensions, dict):
+        members = specification.get("excluded_members", [])
+        extensions = specification.get("excluded_extension_members", [])
+        if not members and not extensions:
             return value
-        projected = deepcopy(value)
-        projected_extensions = projected["extensions"]
-        for member in excluded:
-            projected_extensions.pop(member, None)
-        if not projected_extensions:
-            projected.pop("extensions")
+        projected = {
+            key: deepcopy(item) for key, item in value.items() if key not in members
+        }
+        projected_extensions = projected.get("extensions")
+        if extensions and isinstance(projected_extensions, dict):
+            for member in extensions:
+                projected_extensions.pop(member, None)
+            if not projected_extensions:
+                projected.pop("extensions")
         return projected
 
     for specification in profile["collections"]:
