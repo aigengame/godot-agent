@@ -303,16 +303,24 @@ def test_guard_shares_its_operation_frame(entered, actual, monkeypatch):
             {
                 "node": "guard-block",
                 "condition": "enter",
-                "outcome": "folded",
+                "outcome": "guarded",
                 "body": [fold, write],
             },
         ]
+        root["outcomes"].append(
+            {"id": "guarded", "kind": "success", "state_policy": "commit"}
+        )
         root["result"]["source"] = {"kind": "local", "name": "counted"}
         root["resource_bounds"]["max_steps"] = 18
 
     context, operation = _candidate(mutate)
     outcome, budgets = _execute(_checked(context, operation, items=(1, 2)), monkeypatch)
     assert _state(outcome)["selected_count"] == (2 if entered else 0)
+    assert isinstance(outcome, EvaluationArtifacts)
+    assert outcome.members["event-trace"].value["events"][0]["outcome"] == {
+        "id": "guarded" if entered else "folded",
+        "kind": "success",
+    }
     assert budgets == [(18, actual), *(([(2, 2)] * 2) if entered else [])]
 
 
