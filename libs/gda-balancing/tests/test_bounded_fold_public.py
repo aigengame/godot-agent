@@ -404,3 +404,60 @@ def test_public_fold_respects_event_budget_without_raising_system_limits(
     assert audit["refusing_event"]["call_site_identity"] is None
     assert audit["rollback"]["committed"] is False
     assert audit["rollback"]["state_before"] == audit["rollback"]["state_after"]
+
+
+def test_public_fold_composes_mapping_and_filtering_without_a_new_primitive(
+    tmp_path: Path,
+):
+    kernel, ldb = mutable_authorities()
+    package = next(row for row in ldb["language"]["packages"] if row["id"] == _OWNER)
+    operations = {
+        row["id"]: row
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+        for row in closure["definitions"]
+    }
+    step = operations["bounded.filter-step"]
+    step["body"][1]["item"] = "mapped"
+    step["body"][:0] = [
+        {"node": "constant", "target": "factor", "literal": 2},
+        {"node": "multiply", "target": "mapped", "left": "item", "right": "factor"},
+    ]
+    step["refusals"].append("runtime.reason.numeric-overflow")
+    step["resource_bounds"]["max_steps"] = 5
+    operations["bounded-fold-v1"]["resource_bounds"]["max_steps"] = 60
+    vectors = next(
+        row
+        for row in ldb.package_conformance_vector_sets
+        if row["package_id"] == _OWNER
+    )
+    replacements = {
+        "bounded-fold.bounded.filter-step.body": deepcopy(step["body"]),
+        "bounded-fold.bounded.filter-step.resource-bound": 5,
+        "bounded-fold.bounded-fold-v1.resource-bound": 60,
+    }
+    for vector in vectors["vector_definitions"]:
+        if vector["id"] in replacements:
+            vector["expect"] = replacements[vector["id"]]
+    _bind_package_vector_set(package, vectors)
+    _reidentify_graph_root(ldb)
+    candidate = _PublicCandidate(tmp_path, authorities=(kernel, ldb))
+    rir_path, rir = _build(candidate)
+    specification = _specification(rir, [1, 2, 3, 4])
+    path, _ = _check(candidate, rir_path, specification)
+    members = _members(_run(candidate, rir_path, path))
+    _admit_artifacts(candidate, rir, specification, members)
+    event = next(
+        row for row in members["event-trace"]["events"] if row["observation"] is None
+    )
+    assert event["calls"] == []
+    assert {row["name"]: row["value"] for row in event["state_after"]} == {
+        "selected_items": {"type": _LIST, "value": [2, 4]},
+        "selected_count": 2,
+        "ordered_value": 1234,
+    }
+    snapshot = members["snapshot-series"]["snapshots"][-1]
+    assert snapshot["continuation"]["resource_ledger"]["node_steps"] == 54
+    assert {
+        row["metric"]: row["value"] for row in members["metric-dataset"]["samples"]
+    } == {"selected_count": 2, "ordered_value": 1234}
