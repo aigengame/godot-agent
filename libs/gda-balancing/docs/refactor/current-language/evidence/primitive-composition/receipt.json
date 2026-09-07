@@ -55,6 +55,28 @@
       "sha256": "0f87942fe9b45c7eb45436bb0d126ccd856b194c765cc6b08f9193561e755731",
       "bytes": 7122,
       "kind": "verbatim-prototype-evidence"
+    },
+    {
+      "path": "interval-oracle.py.txt",
+      "sha256": "b294f914fc6aeafdaf747f8786ec48f782cec0040d0bc35b7bbfb95a59ae08fe",
+      "bytes": 5268,
+      "kind": "verbatim-independent-design-evidence"
+    },
+    {
+      "path": "interval-oracle.json",
+      "sha256": "68489c691eb69907c44cd1ec52faeda40cb731666dc6266666c404cc3efc238d",
+      "bytes": 4194,
+      "kind": "verbatim-independent-design-evidence"
     }
-  ]
+  ],
+  "independent_interval_oracle": {
+    "cases": 100352,
+    "domain": [
+      -3,
+      3
+    ],
+    "claim_state": "confirmed-narrowly",
+    "scope": "One predicate, possible branch values, direct/copied/independent operand origins, with separate concrete enumeration.",
+    "limits": "Not production inference, nested predicates, arithmetic correlation, nominal admission or final conformance."
+  }
 }

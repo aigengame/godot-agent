@@ -1,0 +1,244 @@
+{
+  "exhaustive_small_interval_cases": 100352,
+  "interval_domain": [
+    -3,
+    3
+  ],
+  "witnesses": [
+    {
+      "case": "floor-zero",
+      "x": [
+        -1000,
+        4040
+      ],
+      "y": [
+        0,
+        0
+      ],
+      "predicate": "<",
+      "true": "y",
+      "false": "x",
+      "same_origin": false,
+      "expected": [
+        0,
+        4040
+      ]
+    },
+    {
+      "case": "overlapping-max",
+      "x": [
+        0,
+        10
+      ],
+      "y": [
+        0,
+        10
+      ],
+      "predicate": "<",
+      "true": "y",
+      "false": "x",
+      "same_origin": false,
+      "expected": [
+        0,
+        10
+      ]
+    },
+    {
+      "case": "overlapping-min",
+      "x": [
+        -10,
+        5
+      ],
+      "y": [
+        0,
+        10
+      ],
+      "predicate": "<",
+      "true": "x",
+      "false": "y",
+      "same_origin": false,
+      "expected": [
+        -10,
+        5
+      ]
+    },
+    {
+      "case": "strict-singleton",
+      "x": [
+        0,
+        0
+      ],
+      "y": [
+        0,
+        0
+      ],
+      "predicate": "<",
+      "true": "z",
+      "false": "x",
+      "same_origin": false,
+      "expected": [
+        0,
+        0
+      ]
+    },
+    {
+      "case": "inverse-singleton",
+      "x": [
+        0,
+        0
+      ],
+      "y": [
+        0,
+        0
+      ],
+      "predicate": ">=",
+      "true": "x",
+      "false": "z",
+      "same_origin": false,
+      "expected": [
+        0,
+        0
+      ]
+    },
+    {
+      "case": "same-copy-impossible-true",
+      "x": [
+        -2,
+        2
+      ],
+      "y": [
+        -2,
+        2
+      ],
+      "predicate": "<",
+      "true": "z",
+      "false": "x-copy",
+      "same_origin": true,
+      "expected": [
+        -2,
+        2
+      ]
+    },
+    {
+      "case": "equal-interval-is-not-alias",
+      "x": [
+        -1,
+        1
+      ],
+      "y": [
+        -1,
+        1
+      ],
+      "predicate": "<",
+      "true": "high",
+      "false": "zero",
+      "same_origin": false,
+      "expected": [
+        0,
+        100
+      ]
+    },
+    {
+      "case": "proven-copy-removes-impossible-branch",
+      "x": [
+        -1,
+        1
+      ],
+      "y": [
+        -1,
+        1
+      ],
+      "predicate": "<",
+      "true": "high",
+      "false": "zero",
+      "same_origin": true,
+      "expected": [
+        0,
+        0
+      ]
+    },
+    {
+      "case": "int64-max",
+      "x": [
+        -9223372036854775808,
+        9223372036854775807
+      ],
+      "y": [
+        -9223372036854775808,
+        9223372036854775807
+      ],
+      "predicate": "<",
+      "true": "y",
+      "false": "x",
+      "same_origin": false,
+      "expected": [
+        -9223372036854775808,
+        9223372036854775807
+      ]
+    },
+    {
+      "case": "strict-below-MIN-is-empty",
+      "x": [
+        -9223372036854775808,
+        -9223372036854775808
+      ],
+      "y": [
+        -9223372036854775808,
+        -9223372036854775808
+      ],
+      "predicate": "<",
+      "true": "z",
+      "false": "x",
+      "same_origin": false,
+      "expected": [
+        -9223372036854775808,
+        -9223372036854775808
+      ]
+    },
+    {
+      "case": "strict-above-MAX-is-empty",
+      "x": [
+        9223372036854775807,
+        9223372036854775807
+      ],
+      "y": [
+        9223372036854775807,
+        9223372036854775807
+      ],
+      "predicate": ">",
+      "true": "z",
+      "false": "x",
+      "same_origin": false,
+      "expected": [
+        9223372036854775807,
+        9223372036854775807
+      ]
+    },
+    {
+      "case": "adjacent-MAX",
+      "x": [
+        9223372036854775806,
+        9223372036854775807
+      ],
+      "y": [
+        9223372036854775807,
+        9223372036854775807
+      ],
+      "predicate": "<",
+      "true": "y",
+      "false": "x",
+      "same_origin": false,
+      "expected": [
+        9223372036854775807,
+        9223372036854775807
+      ]
+    }
+  ],
+  "nonclaims": [
+    "not production integration",
+    "not a relational solver",
+    "no arithmetic-derived or nested predicate refinement",
+    "nominal compatibility must be checked by existing owner",
+    "result reachability does not delete eager instructions or charges"
+  ]
+}

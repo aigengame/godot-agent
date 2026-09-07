@@ -113,8 +113,15 @@ Runtime policy.
    domain-architecture reviews before integration into dev.
 
 The primary uncertainty is now `gap-opened`: direct composition is insufficient
-under current inference. The proposed generic refinement is `theory-supported`;
-the negative probe is `confirmed-narrowly`. Neither state is a conformance claim.
+under current inference. An independent interval oracle compares one-predicate
+branch projections with concrete enumeration in 100,352 cases over `[-3, 3]`,
+including direct, copied and independent origins. It narrowly confirms the
+proposed restriction model and separately checks Int64 boundary witnesses.
+Its [script and results](evidence/primitive-composition/receipt.json) import no
+production inference or admission. This is `confirmed-narrowly` design evidence,
+not proof of production integration, nested predicates, arithmetic correlation,
+nominal admission or final conformance. Unrelated equal intervals must never be
+treated as aliases, and empty strict branches must be detected before clamping.
 Record measured work and latency where the new inference or changed resource
 bounds affect a maintained scenario; do not infer a speedup from node deletion.
 
