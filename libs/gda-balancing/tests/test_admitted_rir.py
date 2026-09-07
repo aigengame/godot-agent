@@ -332,9 +332,7 @@ def test_rir_rejects_reinserted_operation_vector_references(copy, compiled, cont
     candidate["semantic_identity"] = _lowering._rir_semantic_identity(
         context.language_bundle, candidate
     )
-    contract = select_artifact_contract(
-        context.language_bundle, "rir-semantic-payload"
-    )
+    contract = select_artifact_contract(context.language_bundle, "rir-semantic-payload")
     _reidentify(candidate, contract.definition["identity_domain"])
     assert contract.verify(candidate) is (copy == "closure")
     with pytest.raises(RirAdmissionError):

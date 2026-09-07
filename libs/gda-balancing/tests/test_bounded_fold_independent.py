@@ -392,8 +392,7 @@ def test_independent_nested_fold_multiplies_static_bounds_and_actual_attempts():
     inner_attempts = [
         row
         for row in event["attempts"]
-        if row["operation"] == "bounded.count-step"
-        and row["kind"] == "fold-invocation"
+        if row["operation"] == "bounded.count-step" and row["kind"] == "fold-invocation"
     ]
     assert [row["call_path"] for row in inner_attempts] == [
         f"count-selected/@{outer}/inner/@{inner}"
@@ -409,7 +408,10 @@ def test_maintained_fold_source_agrees_between_compilers_and_evaluators(items):
         AdmittedAuthorityContext,
         admit_authority_context,
     )
-    from gda_balancing.domain.experiment import CheckedExperiment, check_experiment_value
+    from gda_balancing.domain.experiment import (
+        CheckedExperiment,
+        check_experiment_value,
+    )
     from gda_balancing.domain.model import (
         AdmittedRir,
         CheckedModel,
@@ -479,13 +481,14 @@ def test_maintained_fold_source_agrees_between_compilers_and_evaluators(items):
     assert isinstance(execution, EvaluationArtifacts)
     members = {name: member.value for name, member in execution.members.items()}
     actual = next(
-        row
-        for row in members["event-trace"]["events"]
-        if row["observation"] is None
+        row for row in members["event-trace"]["events"] if row["observation"] is None
     )
     for member in ("state_before", "state_after", "outcome"):
         assert actual[member] == expected[member]
     assert actual["calls"] == expected.get("calls", [])
-    assert members["snapshot-series"]["snapshots"][-1]["continuation"][
-        "resource_ledger"
-    ]["node_steps"] == expected["execution_evidence"]["resource_charge"]
+    assert (
+        members["snapshot-series"]["snapshots"][-1]["continuation"]["resource_ledger"][
+            "node_steps"
+        ]
+        == expected["execution_evidence"]["resource_charge"]
+    )
