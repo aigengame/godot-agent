@@ -247,32 +247,33 @@ def test_pure_frame_rejects_forged_snapshot_capture(monkeypatch):
         _execute(forged, monkeypatch)
 
 
-def test_nested_folds_charge_every_active_operation(monkeypatch):
-    def mutate(operations):
-        _single_fold(operations)
-        root = operations[_ROOT]
-        outer = operations["bounded.count-step"]
-        outer["inputs"].append(deepcopy(root["inputs"][0]))
-        outer["body"] = [
-            {
-                "node": "fold",
-                "site": "inner/@0",
-                "target": "next-count",
-                "value": "items",
-                "initial": "count",
-                "operation": {"package": _OWNER, "id": "bounded.order-step"},
-                "accumulator_port": "accumulator",
-                "item_port": "item",
-                "arguments": [],
-            }
-        ]
-        outer["resource_bounds"]["max_steps"] = 17
-        root["body"][1]["arguments"] = [
-            {"port": "items", "operand": {"kind": "port", "port": "items"}},
-        ]
-        root["resource_bounds"]["max_steps"] = 75
+def _nested_folds(operations):
+    _single_fold(operations)
+    root = operations[_ROOT]
+    outer = operations["bounded.count-step"]
+    outer["inputs"].append(deepcopy(root["inputs"][0]))
+    outer["body"] = [
+        {
+            "node": "fold",
+            "site": "inner/@0",
+            "target": "next-count",
+            "value": "items",
+            "initial": "count",
+            "operation": {"package": _OWNER, "id": "bounded.order-step"},
+            "accumulator_port": "accumulator",
+            "item_port": "item",
+            "arguments": [],
+        }
+    ]
+    outer["resource_bounds"]["max_steps"] = 17
+    root["body"][1]["arguments"] = [
+        {"port": "items", "operand": {"kind": "port", "port": "items"}},
+    ]
+    root["resource_bounds"]["max_steps"] = 75
 
-    context, operation = _candidate(mutate)
+
+def test_nested_folds_charge_every_active_operation(monkeypatch):
+    context, operation = _candidate(_nested_folds)
     outcome, budgets = _execute(_checked(context, operation, items=(1, 2)), monkeypatch)
     assert _state(outcome)["selected_count"] == 1212
     assert budgets == [(75, 23), (17, 9), (3, 3), (3, 3), (17, 9), (3, 3), (3, 3)]
@@ -376,3 +377,20 @@ def test_pure_numeric_refusal_preserves_static_identity_and_dynamic_path(
     assert outcome.refusing_attempted_calls == ()
     assert outcome.state_before == outcome.state_after
     assert budgets == [(3, 2), (1, 1)]
+
+
+def test_nested_iteration_refusal_stops_before_creating_the_next_inner_frame(
+    monkeypatch,
+):
+    context, operation = _candidate(_nested_folds, event_limit=8)
+    outcome, budgets = _execute(_checked(context, operation, items=(1, 2)), monkeypatch)
+    assert isinstance(outcome, RuntimeRefusalOutcome), outcome
+    assert outcome.refusing_call_path == "root~1~0@0/fold~1~0@0/@0/inner~1@0/@1"
+    assert outcome.refusing_operation == "bounded.order-step"
+    assert outcome.refusing_call_site_identity is None
+    assert outcome.refusing_instruction_index == 0
+    assert outcome.budget_counters["event_steps"] == 9
+    assert outcome.budget_counters["node_steps"] == 9
+    assert budgets == [(75, 9), (17, 6), (3, 3)]
+    assert outcome.refusing_attempted_calls == ()
+    assert outcome.state_before == outcome.state_after
