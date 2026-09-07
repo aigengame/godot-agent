@@ -2,10 +2,12 @@
 
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, TypeAlias, cast
 
 
 OperationCoordinate: TypeAlias = tuple[str, str]
+FoldSite: TypeAlias = tuple[OperationCoordinate, str]
 
 
 @dataclass(frozen=True)
@@ -13,7 +15,6 @@ class OperationProgramProjection:
     """Authority-derived static closure for one admitted Operation."""
 
     reachable_operations: frozenset[OperationCoordinate]
-    invocation_paths: tuple[tuple[tuple[str, ...], OperationCoordinate], ...]
     node_ids: frozenset[str]
     effects: frozenset[str]
     refusals: frozenset[str]
@@ -130,6 +131,7 @@ def project_operation_program(
     *,
     operation_node_ids: Collection[str],
     invocation_node_ids: Collection[str],
+    fold_input_bounds: Mapping[FoldSite, int] = MappingProxyType({}),
 ) -> OperationProgramProjection:
     """Project reachable structure and synchronous declared closure."""
     reachable = closed_operation_coordinates({root}, operations, operation_node_ids)
@@ -141,33 +143,9 @@ def project_operation_program(
             cast(list[dict[str, Any]], operation["body"])
         )
     }
-    paths: list[tuple[tuple[str, ...], OperationCoordinate]] = []
     closure_cache: dict[
         OperationCoordinate, tuple[frozenset[str], frozenset[str], int]
     ] = {}
-
-    def collect_paths(
-        coordinate: OperationCoordinate,
-        path: tuple[str, ...],
-        stack: tuple[OperationCoordinate, ...],
-    ) -> None:
-        if coordinate in stack:
-            raise ValueError("admitted Operation invocation graph is cyclic")
-        operation = operations.get(coordinate)
-        if operation is None:
-            raise ValueError("admitted Operation invocation target is absent")
-        for instruction in operation_body_instructions(
-            cast(list[dict[str, Any]], operation["body"])
-        ):
-            reference = instruction.get("operation")
-            if instruction.get("node") not in invocation_node_ids or not isinstance(
-                reference, dict
-            ):
-                continue
-            child = operation_coordinate(reference)
-            child_path = (*path, cast(str, instruction["site"]))
-            paths.append((child_path, child))
-            collect_paths(child, child_path, (*stack, coordinate))
 
     def close(
         coordinate: OperationCoordinate,
@@ -189,9 +167,10 @@ def project_operation_program(
         charge = len(instructions)
         for instruction in instructions:
             reference = instruction.get("operation")
-            if instruction.get("node") not in invocation_node_ids or not isinstance(
-                reference, dict
-            ):
+            is_fold = instruction.get("node") == "fold"
+            if (
+                instruction.get("node") not in invocation_node_ids and not is_fold
+            ) or not isinstance(reference, dict):
                 continue
             child = operation_coordinate(reference)
             child_effects, child_refusals, child_charge = close(
@@ -199,16 +178,20 @@ def project_operation_program(
             )
             effects.update(child_effects)
             refusals.update(child_refusals)
-            charge += child_charge
+            if is_fold:
+                bound = fold_input_bounds[(coordinate, cast(str, instruction["site"]))]
+                if not isinstance(bound, int) or isinstance(bound, bool) or bound < 0:
+                    raise ValueError("admitted fold input bound is unavailable")
+                charge += bound * (1 + child_charge)
+            else:
+                charge += child_charge
         closure = frozenset(effects), frozenset(refusals), charge
         closure_cache[coordinate] = closure
         return closure
 
-    collect_paths(root, (), ())
     effects, refusals, charge = close(root, ())
     return OperationProgramProjection(
         reachable_operations=frozenset(reachable),
-        invocation_paths=tuple(paths),
         node_ids=frozenset(node_ids),
         effects=effects,
         refusals=refusals,

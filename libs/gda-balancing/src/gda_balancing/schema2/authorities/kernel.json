@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:40b08f5a4e519f11d589781e62cbf0ec4f10f69a608d71649e353609332a02b0",
+  "content_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3609,6 +3609,41 @@
                     "result_contract"
                   ],
                   "type": "closed-object"
+                },
+                "bounded-list-append": {
+                  "field_types": {
+                    "operator": {
+                      "const": "bounded-list-append"
+                    },
+                    "element_projection": {
+                      "const": "list-element-type"
+                    },
+                    "result_projection": {
+                      "const": "same-list-type"
+                    },
+                    "order": {
+                      "const": "append-after-existing"
+                    },
+                    "duplicates": {
+                      "const": "preserve"
+                    },
+                    "capacity": {
+                      "const": "length-less-than-maximum"
+                    },
+                    "refusal_signal": {
+                      "const": "structured-list-capacity-exceeded"
+                    }
+                  },
+                  "required_members": [
+                    "operator",
+                    "element_projection",
+                    "result_projection",
+                    "order",
+                    "duplicates",
+                    "capacity",
+                    "refusal_signal"
+                  ],
+                  "type": "closed-object"
                 }
               }
             },
@@ -5646,7 +5681,8 @@
         "lookup",
         "is-empty",
         "multiply",
-        "subtract"
+        "subtract",
+        "list-append"
       ],
       "effect_nodes": [
         "subtract-state",
@@ -5659,7 +5695,8 @@
         "precondition-greater-than-or-equal",
         "require",
         "guard-block",
-        "invoke"
+        "invoke",
+        "fold"
       ],
       "event_atomicity": {
         "state_writes": "buffered",
@@ -6527,6 +6564,83 @@
               ]
             }
           }
+        },
+        {
+          "family": "control",
+          "id": "fold",
+          "operand_constraints": [],
+          "refusals": [],
+          "required_members": [
+            "node",
+            "site",
+            "target",
+            "value",
+            "initial",
+            "operation",
+            "accumulator_port",
+            "item_port",
+            "arguments"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "initial"
+              ]
+            }
+          },
+          "semantics": {
+            "operator": "bounded-pure-fold",
+            "input_bound": "selected-list-maximum-length",
+            "iteration_order": "left-to-right",
+            "step_operation": "static-pure-closed-operation",
+            "accumulator": "exact-initial-formal-result-contract",
+            "item": "selected-list-element-contract",
+            "arguments": "remaining-formal-declaration-order",
+            "scope": "explicit-read-only-arguments",
+            "resource_charge": "base-plus-length-times-invocation-and-attempted-step",
+            "static_bound": "base-plus-maximum-length-times-invocation-and-step-bound",
+            "invocation_charge": 1,
+            "refusal_order": "first-attempted-refusal",
+            "empty_result": "initial",
+            "invocation_budget_owner": "existing-enclosing-operation-frames",
+            "step_budget_entry": "zero-after-invocation-charge"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "list-append",
+          "operand_constraints": [],
+          "refusals": [
+            "structured-list-capacity-exceeded"
+          ],
+          "required_members": [
+            "node",
+            "target",
+            "value",
+            "item"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "value"
+              ]
+            }
+          },
+          "semantics": {
+            "operator": "bounded-list-append"
+          }
         }
       ],
       "numeric": {
@@ -7331,6 +7445,61 @@
           },
           "kind": "node",
           "node": "cancel"
+        },
+        {
+          "id": "runtime.node.fold",
+          "kind": "node",
+          "node": "fold",
+          "input": {
+            "contract-probe": [
+              "node",
+              "site",
+              "target",
+              "value",
+              "initial",
+              "operation",
+              "accumulator_port",
+              "item_port",
+              "arguments"
+            ]
+          },
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [],
+            "operator": "bounded-pure-fold",
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "initial"
+              ]
+            }
+          }
+        },
+        {
+          "id": "runtime.node.list-append",
+          "kind": "node",
+          "node": "list-append",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "value",
+              "item"
+            ]
+          },
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [],
+            "operator": "bounded-list-append",
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "value"
+              ]
+            }
+          }
         }
       ],
       "invocation_contract": {
@@ -7382,7 +7551,31 @@
         "scope": "lexical-call-frame",
         "ambient_capture": "forbidden",
         "resource_charge": "invoke-plus-transitive-callee-steps",
-        "runtime_refusal": "propagate-with-call-site"
+        "runtime_refusal": "propagate-with-call-site",
+        "execution_path": {
+          "root_source": "resolved-entrypoint-id",
+          "segment_encoding": {
+            "~": "~0",
+            "/": "~1"
+          },
+          "separator": "/",
+          "static_identity_input": "raw-authored-site",
+          "fold_iteration": {
+            "prefix": "@",
+            "index_pattern": "^(0|[1-9][0-9]*)$",
+            "scope": "only-after-resolved-fold-site"
+          },
+          "immediate_call_site_identity": {
+            "invoke": "resolved-static-call-site-identity",
+            "fold": "null"
+          },
+          "iteration_attempt_position": {
+            "operation": "fold-step",
+            "instruction_index": 0,
+            "empty_body": "allowed",
+            "budget_owner": "existing-enclosing-operation-frames"
+          }
+        }
       },
       "scheduler": {
         "event_identity": {

@@ -12,6 +12,7 @@ from gda_balancing.domain.structured_values import (
     is_empty_result_contract,
     language_structured_value_index,
     lookup_type_contract,
+    list_type_contract,
     nominal_type_key,
 )
 
@@ -308,6 +309,19 @@ class OperationValueContracts:
                 return None
         result = self.contract_for_type(result_type)
         return (result, refusal_signal) if result is not None else None
+
+    def declared_list_contract(
+        self, value_contract: dict[str, Any]
+    ) -> tuple[dict[str, Any], int] | None:
+        """Resolve the selected List element value contract and finite input bound."""
+        try:
+            element, maximum = list_type_contract(
+                value_contract.get("type"), authority=self.structured_authority
+            )
+        except StructuredValueFault:
+            return None
+        contract = self.contract_for_type(element)
+        return (contract, maximum) if contract is not None else None
 
     def declared_equal_result_contract(
         self, value_contract: dict[str, Any]
@@ -1089,6 +1103,24 @@ def _runtime_authority_is_closed(
             elif set(constraint) != {"kind", "members"}:
                 return False
         nodes[node["id"]] = node
+    if nodes.get("fold", {}).get("semantics") != {
+        "operator": "bounded-pure-fold",
+        "input_bound": "selected-list-maximum-length",
+        "iteration_order": "left-to-right",
+        "step_operation": "static-pure-closed-operation",
+        "accumulator": "exact-initial-formal-result-contract",
+        "item": "selected-list-element-contract",
+        "arguments": "remaining-formal-declaration-order",
+        "scope": "explicit-read-only-arguments",
+        "resource_charge": "base-plus-length-times-invocation-and-attempted-step",
+        "static_bound": "base-plus-maximum-length-times-invocation-and-step-bound",
+        "invocation_charge": 1,
+        "invocation_budget_owner": "existing-enclosing-operation-frames",
+        "step_budget_entry": "zero-after-invocation-charge",
+        "refusal_order": "first-attempted-refusal",
+        "empty_result": "initial",
+    }:
+        return False
     cancel_semantics = nodes.get("cancel", {}).get("semantics")
     cancel_target = (
         cancel_semantics.get("target_reference")
@@ -1233,6 +1265,27 @@ def _runtime_authority_is_closed(
             "ambient_capture": "forbidden",
             "resource_charge": "invoke-plus-transitive-callee-steps",
             "runtime_refusal": "propagate-with-call-site",
+            "execution_path": {
+                "root_source": "resolved-entrypoint-id",
+                "segment_encoding": {"~": "~0", "/": "~1"},
+                "separator": "/",
+                "static_identity_input": "raw-authored-site",
+                "fold_iteration": {
+                    "prefix": "@",
+                    "index_pattern": "^(0|[1-9][0-9]*)$",
+                    "scope": "only-after-resolved-fold-site",
+                },
+                "immediate_call_site_identity": {
+                    "invoke": "resolved-static-call-site-identity",
+                    "fold": "null",
+                },
+                "iteration_attempt_position": {
+                    "operation": "fold-step",
+                    "instruction_index": 0,
+                    "empty_body": "allowed",
+                    "budget_owner": "existing-enclosing-operation-frames",
+                },
+            },
         }
     ):
         return False
@@ -1456,6 +1509,26 @@ def _runtime_authority_is_closed(
                     return None
             if "outcome" in instruction:
                 referenced.add(str(instruction["outcome"]))
+            if node["semantics"]["operator"] == "bounded-pure-fold":
+                operation_ref = instruction.get("operation")
+                if not isinstance(operation_ref, dict) or set(operation_ref) != {
+                    "package",
+                    "id",
+                }:
+                    visiting.remove(coordinate)
+                    return None
+                folded_coordinate = (
+                    cast(str, operation_ref.get("package")),
+                    cast(str, operation_ref.get("id")),
+                )
+                folded = operations.get(folded_coordinate)
+                if (
+                    not isinstance(folded, dict)
+                    or folded.get("operation_kind") != "pure-expression"
+                    or operation_outcomes(folded_coordinate, visiting) != set()
+                ):
+                    visiting.remove(coordinate)
+                    return None
             if node["semantics"]["operator"] == "invoke-operation":
                 operation_ref = instruction.get("operation")
                 if (
@@ -1482,7 +1555,7 @@ def _runtime_authority_is_closed(
                 invoked_formal_ports = invoked.get("inputs")
                 result_binding = instruction.get("result")
                 mappings = instruction.get("outcomes")
-                callee_outcomes = invoked.get("outcomes")
+                callee_outcomes = invoked.get("outcomes", [])
                 if (
                     not isinstance(arguments, list)
                     or not isinstance(invoked_formal_ports, list)

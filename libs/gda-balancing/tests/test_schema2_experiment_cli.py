@@ -7929,7 +7929,6 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
         invocation_node_ids={"invoke"},
     )
     assert projection.reachable_operations == {root, child}
-    assert projection.invocation_paths == ((("child",), child),)
     assert projection.node_ids == {"guard-block", "copy", "invoke", "constant"}
     assert projection.effects == {"event.commit", "snapshot.commit"}
     assert projection.refusals == {
@@ -8017,12 +8016,11 @@ def test_operation_program_projects_descendants_for_each_invocation_path():
         invocation_node_ids={"invoke"},
     )
 
-    assert projection.invocation_paths == (
-        (("a",), child),
-        (("a", "g"), grandchild),
-        (("b",), child),
-        (("b", "g"), grandchild),
-    )
+    assert projection.reachable_operations == {root, child, grandchild}
+    assert projection.node_ids == {"invoke"}
+    assert projection.effects == frozenset()
+    assert projection.refusals == frozenset()
+    assert projection.resource_charge == 4
 
 
 def test_operation_program_projects_guard_expanded_audit_positions():
