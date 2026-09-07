@@ -2562,8 +2562,19 @@ def _reference_rir(
         declarations,
         lock,
     )
+    accounting = checked.kernel["meta_format"]["runtime_projection"][
+        "resource_accounting"
+    ]
+    remaining = checked.language_bundle["resources"][accounting["limit_member"]]
+
+    def consume() -> None:
+        nonlocal remaining
+        if remaining == 0:
+            raise _ReferenceRuntimeProjectionExhausted
+        remaining -= 1
+
     selected_semantics = _reference_runtime_projection(
-        checked, lock, declarations, lowering
+        checked, lock, declarations, lowering, consume
     )
     initialization_programs = _reference_initialization_programs(
         selected_semantics,
@@ -2594,6 +2605,9 @@ def _reference_rir(
         ),
         "selected_semantics": selected_semantics,
     }
+    payload["selected_semantics"] = _reference_execution_closure(
+        checked, payload, consume
+    )
     semantic_domain, semantic_projection = _reference_rir_semantic_projection(
         checked.language_bundle,
         payload,
@@ -3515,24 +3529,232 @@ def _reference_call_sites(
     )
 
 
+def _reference_execution_closure(
+    checked: ModelSourceContext,
+    rir: dict[str, Any],
+    consume: Callable[[], None],
+) -> dict[str, Any]:
+    """Interpret the declared selectors with an independent reachability walk."""
+    meta = checked.kernel["meta_format"]
+    contract = meta["runtime_projection"]["execution_closure"]
+    result = deepcopy(rir["selected_semantics"])
+    assert not set(contract["output_members"]) & result.keys()
+
+    def at(value: Any, path: list[str]) -> Any:
+        for member in path:
+            value = value[member]
+        return value
+
+    def put(value: dict[str, Any], path: list[str], item: Any) -> None:
+        for member in path[:-1]:
+            value = value.setdefault(member, {})
+        assert path[-1] not in value
+        value[path[-1]] = deepcopy(item)
+
+    def instructions(body: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rows = []
+        for instruction in body:
+            rows.append(instruction)
+            if isinstance(instruction.get("body"), list):
+                rows.extend(instructions(instruction["body"]))
+        return rows
+
+    operations = {
+        (row["package"], row["definition"]["id"]): row["definition"]
+        for row in result["operations"]
+    }
+    reachable = {
+        (row["operation"]["package"], row["operation"]["id"])
+        for row in rir["entrypoints"]
+    }
+    # Fixed point over owner coordinates includes every nested reference node,
+    # including scheduled calls, without assuming a particular node spelling.
+    while True:
+        expanded = set(reachable)
+        for coordinate in reachable:
+            for row in instructions(operations[coordinate]["body"]):
+                if isinstance(row.get("operation"), dict):
+                    ref = row["operation"]
+                    expanded.add((ref["package"], ref["id"]))
+        if expanded == reachable:
+            break
+        reachable = expanded
+    node_contract = contract["nodes"]
+    used_nodes = {
+        row[node_contract["instruction_member"]]
+        for coordinate in reachable
+        for row in instructions(operations[coordinate]["body"])
+    }
+    # Formula reachability is separate for each lifecycle phase. A target in
+    # another phase must not make an otherwise unused Formula executable.
+    for phase in ("initialization", "event", "observation"):
+        programs = [
+            program
+            for program in rir["initialization_programs"]
+            if program["site"]["context"]["phase"] == phase
+        ]
+        targets = {
+            _reference_encoded(binding["operand"]["symbol"])
+            for entrypoint in rir["entrypoints"]
+            for binding in entrypoint["arguments"]
+            if binding["operand"]["kind"] == "symbol"
+        }
+        while True:
+            dependencies = {
+                _reference_encoded(row["operand"]["resolved_symbol"])
+                for program in programs
+                if _reference_encoded(program["target"]) in targets
+                for row in program["inputs"]
+                if row["operand"]["kind"] != "literal"
+            }
+            if dependencies <= targets:
+                break
+            targets.update(dependencies)
+        used_nodes.update(
+            row["instruction"][node_contract["instruction_member"]]
+            for program in programs
+            if _reference_encoded(program["target"]) in targets
+            for row in program["body"]
+        )
+
+    applicable = {
+        "executable": bool(rir["entrypoints"] or used_nodes),
+        "typed-values": any(
+            row["definition"]["source_kind"] == "typed-envelope"
+            for row in result["literal_typing_profiles"]
+        ),
+    }
+    laws: dict[str, Any] = {}
+    for selector in contract["law_selectors"]:
+        consume()
+        if applicable[selector["when"]]:
+            put(laws, selector["output_path"], at(meta, selector["source_path"]))
+    nodes = {
+        node[node_contract["id_member"]]: node
+        for node in at(meta, node_contract["source_path"])
+    }
+    selected_nodes = []
+    for name in sorted(used_nodes):
+        consume()
+        selected_nodes.append(nodes[name])
+    put(laws, node_contract["output_path"], selected_nodes)
+    result["execution_laws"] = laws
+    resources = {}
+    for selector in contract["resources"]:
+        consume()
+        resources[selector["output_member"]] = checked.language_bundle["resources"][
+            selector["source_member"]
+        ]
+    result["execution_resources"] = resources
+
+    reasons = contract["reasons"]
+    reason_path = reasons["authority_path"]
+    diagnostic_path = reasons["diagnostic_authority_path"]
+    catalogs: dict[str, dict[str, dict[str, Any]]] = {
+        reason_path: {},
+        diagnostic_path: {},
+    }
+    for package in checked.language_bundle["language"]["packages"]:
+        for closure in package["semantic_closure"]:
+            path = closure["authority_path"]
+            if path not in catalogs:
+                continue
+            key = reasons["id_member" if path == reason_path else "diagnostic_member"]
+            for definition in closure["definitions"]:
+                consume()
+                assert definition[key] not in catalogs[path]
+                catalogs[path][definition[key]] = {
+                    "package": package["id"],
+                    "definition": deepcopy(definition),
+                }
+    requested_reasons = {
+        row["id"] for row in reasons["roots"] if applicable[row["when"]] and "id" in row
+    }
+    signals = {
+        (row["stage"], row["signal"])
+        for row in reasons["roots"]
+        if applicable[row["when"]] and "signal" in row
+    }
+    for node in selected_nodes:
+        signals.update(
+            (reasons["node_signal_stage"], signal)
+            for signal in node[reasons["node_signal_member"]]
+        )
+    for coordinate in sorted(reachable):
+        operation = operations[coordinate]
+        requested_reasons.update(operation[reasons["operation_reason_member"]])
+        for instruction in instructions(operation["body"]):
+            consume()
+            semantics = nodes[instruction[node_contract["instruction_member"]]][
+                "semantics"
+            ]
+            if reasons["instruction_reference"] in semantics:
+                ref = semantics[reasons["instruction_reference"]]
+                requested_reasons.add(instruction[ref["instruction_member"]])
+    for stage, signal in signals:
+        matches = [
+            name
+            for name, row in catalogs[reason_path].items()
+            if row["definition"].get("stage") == stage
+            and row["definition"].get("signal") == signal
+        ]
+        assert len(matches) == 1
+        requested_reasons.add(matches[0])
+    result["diagnostic_reasons"] = []
+    diagnostic_codes = set()
+    for name in sorted(requested_reasons):
+        consume()
+        row = catalogs[reason_path][name]
+        definition = row["definition"]
+        code = definition["diagnostic"]
+        assert (
+            catalogs[diagnostic_path][code]["definition"]["stage"]
+            == definition["stage"]
+        )
+        result["diagnostic_reasons"].append(row)
+        diagnostic_codes.add(code)
+    result["diagnostics"] = []
+    for code in sorted(diagnostic_codes):
+        consume()
+        result["diagnostics"].append(catalogs[diagnostic_path][code])
+
+    # These definitions retain the actual containing owner, including implicit
+    # execution dependencies outside the Source's authored root namespaces.
+    closures = {
+        row["package"]: row["definitions"]
+        for row in result["package_semantic_closures"]
+    }
+    packages = {row["id"] for row in result["packages"]}
+    for member, path in (
+        ("diagnostic_reasons", reason_path),
+        ("diagnostics", diagnostic_path),
+    ):
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in result[member]:
+            grouped.setdefault(row["package"], []).append(row["definition"])
+        for owner, definitions in grouped.items():
+            packages.add(owner)
+            entries = closures.setdefault(owner, [])
+            assert all(entry["authority_path"] != path for entry in entries)
+            entries.append(
+                {"authority_path": path, "definitions": deepcopy(definitions)}
+            )
+            entries.sort(key=lambda entry: entry["authority_path"])
+    result["packages"] = [{"id": owner} for owner in sorted(packages)]
+    result["package_semantic_closures"] = [
+        {"package": owner, "definitions": closures[owner]} for owner in sorted(closures)
+    ]
+    return result
+
+
 def _reference_runtime_projection(
     checked: ModelSourceContext,
     lock: dict[str, Any],
     declarations: list[dict[str, Any]],
     lowering: dict[str, Any],
+    consume: Callable[[], None],
 ) -> dict[str, Any]:
     profile = lowering["runtime_projection"]
-    accounting = checked.kernel["meta_format"]["runtime_projection"][
-        "resource_accounting"
-    ]
-    limit = checked.language_bundle["resources"][accounting["limit_member"]]
-    steps = 0
-
-    def consume() -> None:
-        nonlocal steps
-        if steps >= limit:
-            raise _ReferenceRuntimeProjectionExhausted
-        steps += 1
 
     def descend(value: Any, path: list[str]) -> Any:
         if not path:

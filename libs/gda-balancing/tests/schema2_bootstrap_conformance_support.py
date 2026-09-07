@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9c1c88e55c239fb6c3b3d022ea7099c2f952c15c8339e292bb29c74f75387202"
+    "sha256:b4f13b014acce1656282a07a1ba5e0d0f197f75598fb2c72993b8e9011192dfa"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -3466,12 +3466,170 @@ def _consumer_b_contract_fits_schema(contract: dict[str, Any], schema: Any) -> b
     )
 
 
+def _consumer_b_execution_projection_is_closed(
+    value: Any,
+    meta: dict[str, Any],
+    ldb: dict[str, Any],
+    outputs: dict[str, Any],
+) -> bool:
+    """Check execution selector ownership independently of the host compiler."""
+    if not isinstance(value, dict) or set(value) != {
+        "closed",
+        "output_members",
+        "law_selectors",
+        "nodes",
+        "resources",
+        "reasons",
+    }:
+        return False
+    if (
+        value["closed"] is not True
+        or value["output_members"]
+        != [
+            "execution_laws",
+            "execution_resources",
+            "diagnostic_reasons",
+            "diagnostics",
+        ]
+        or not set(value["output_members"]) <= outputs.keys()
+    ):
+        return False
+    if value["nodes"] != {
+        "source_path": ["runtime_program", "nodes"],
+        "output_path": ["runtime_program", "nodes"],
+        "id_member": "id",
+        "instruction_member": "node",
+        "roots": "reachable-operations-and-lifecycle-formulas",
+    }:
+        return False
+    laws = outputs["execution_laws"]
+    runtime = _consumer_b_schema_path(laws, ["runtime_program"])
+    if runtime is None or not isinstance(runtime.get("properties"), dict):
+        return False
+    expected = {("runtime_program", name) for name in runtime["properties"]} | {
+        (name,) for name in laws.get("properties", {}) if name != "runtime_program"
+    }
+    selected = {("runtime_program", "nodes")}
+    if not isinstance(value["law_selectors"], list) or not value["law_selectors"]:
+        return False
+    for row in value["law_selectors"]:
+        if not isinstance(row, dict) or set(row) != {
+            "source_path",
+            "output_path",
+            "when",
+        }:
+            return False
+        source, target = row["source_path"], row["output_path"]
+        if any(
+            not isinstance(path, list)
+            or not 1 <= len(path) <= 2
+            or not all(isinstance(member, str) and member for member in path)
+            for path in (source, target)
+        ):
+            return False
+        if tuple(target) in selected or source[-1] != target[-1]:
+            return False
+        if row["when"] == "executable":
+            if source != target:
+                return False
+        elif row["when"] == "typed-values":
+            if source != ["literal_typing", target[-1]]:
+                return False
+        else:
+            return False
+        selected.add(tuple(target))
+        definition: Any = meta
+        for member in source:
+            if not isinstance(definition, dict) or member not in definition:
+                return False
+            definition = definition[member]
+        schema = _consumer_b_schema_path(laws, target)
+        if schema is None or not jsonschema.Draft202012Validator(schema).is_valid(
+            definition
+        ):
+            return False
+    if selected != expected:
+        return False
+    resources = value["resources"]
+    if not isinstance(resources, list) or not resources:
+        return False
+    resource_members = []
+    for row in resources:
+        if not isinstance(row, dict) or set(row) != {"source_member", "output_member"}:
+            return False
+        source, target = row["source_member"], row["output_member"]
+        if not isinstance(source, str) or source != target:
+            return False
+        schema = _consumer_b_schema_path(outputs["execution_resources"], [target])
+        if schema is None or not jsonschema.Draft202012Validator(schema).is_valid(
+            ldb.get("resources", {}).get(source)
+        ):
+            return False
+        resource_members.append(target)
+    if len(set(resource_members)) != len(resource_members) or set(
+        resource_members
+    ) != set(outputs["execution_resources"].get("required", [])):
+        return False
+    reasons = value["reasons"]
+    if not isinstance(reasons, dict) or {
+        name: item for name, item in reasons.items() if name != "roots"
+    } != {
+        "authority_path": "language.reasons",
+        "diagnostic_authority_path": "diagnostics",
+        "id_member": "id",
+        "diagnostic_member": "code",
+        "node_signal_member": "refusals",
+        "node_signal_stage": "runtime",
+        "operation_reason_member": "refusals",
+        "instruction_reference": "refusal_reference",
+        "owner": "attached-package-definition",
+        "missing": "refuse",
+    }:
+        return False
+    roots = reasons.get("roots")
+    if not isinstance(roots, list) or not roots:
+        return False
+    seen = set()
+    # Read the containing package, never reconstruct an owner from a bare id.
+    definitions = [
+        definition
+        for package in ldb["language"]["packages"]
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == reasons["authority_path"]
+        for definition in entry["definitions"]
+    ]
+    for root in roots:
+        if not isinstance(root, dict) or root.get("when") not in {
+            "executable",
+            "typed-values",
+        }:
+            return False
+        keys = set(root) - {"when"}
+        if keys not in ({"id"}, {"stage", "signal"}) or not all(
+            isinstance(root[key], str) for key in keys
+        ):
+            return False
+        fingerprint = tuple(sorted(root.items()))
+        if (
+            fingerprint in seen
+            or sum(
+                all(definition.get(key) == root[key] for key in keys)
+                for definition in definitions
+            )
+            != 1
+        ):
+            return False
+        seen.add(fingerprint)
+    return True
+
+
 def _consumer_b_runtime_projection_is_closed(
     profile: Any,
     contract: Any,
     ldb: dict[str, Any],
     declaration_fields: dict[str, Any],
     language_definitions: dict[str, Any],
+    meta: dict[str, Any],
 ) -> bool:
     if (
         not isinstance(profile, dict)
@@ -3493,6 +3651,7 @@ def _consumer_b_runtime_projection_is_closed(
             "path_typing",
             "output_typing",
             "resource_accounting",
+            "execution_closure",
         }
         or contract.get("closed") is not True
     ):
@@ -3600,6 +3759,12 @@ def _consumer_b_runtime_projection_is_closed(
                 "constructor-kind-target",
                 "collection-output-row",
                 "explicit-output-row",
+                "law-selector",
+                "selected-node",
+                "resource-selector",
+                "runtime-instruction",
+                "owned-reason",
+                "owned-diagnostic",
             ],
             "exhaustion_reason": {
                 "stage": "static",
@@ -3804,6 +3969,12 @@ def _consumer_b_runtime_projection_is_closed(
     selected_properties = (
         selected.get("properties") if isinstance(selected, dict) else None
     )
+    if not isinstance(
+        selected_properties, dict
+    ) or not _consumer_b_execution_projection_is_closed(
+        contract.get("execution_closure"), meta, ldb, selected_properties
+    ):
+        return False
     packages = language.get("packages") if isinstance(language, dict) else None
     locks = [
         item["schema"]
@@ -3813,7 +3984,11 @@ def _consumer_b_runtime_projection_is_closed(
     if not (
         len(projected_members) == len(set(projected_members))
         and isinstance(required, list)
-        and set(projected_members) == set(required)
+        and (
+            set(projected_members)
+            | set(contract["execution_closure"]["output_members"])
+        )
+        == set(required)
         and isinstance(selected_properties, dict)
         and isinstance(packages, list)
         and all(
@@ -4921,6 +5096,7 @@ def _consumer_b_language_definitions_are_closed(
                 ldb,
                 fields,
                 meta["language_definitions"],
+                meta,
             ):
                 return False
             for equality in equalities:
