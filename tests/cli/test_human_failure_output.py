@@ -213,6 +213,8 @@ _EVIDENCE_SAMPLES = {
     "target_location": "/tmp/outer/inner/main.gd",
     "project_root": "/tmp/outer",
     "owning_project": "/tmp/outer/inner",
+    "templates_root_checked": "/iso/data/Godot/export_templates",
+    "templates_root_host": "/home/dev/data/Godot/export_templates",
 }
 
 

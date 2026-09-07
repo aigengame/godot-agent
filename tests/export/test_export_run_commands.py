@@ -50,6 +50,10 @@ GET_RESULT = {
     "export_path": "build/game.x86_64",
     "templates_installed": True,
     "templates_version": "4.6.3.stable",
+    # #840: where the engine looked, and (null here — no redirect) the host
+    # directory holding templates it could not see.
+    "templates_root": "/host/data/Godot/export_templates",
+    "templates_root_host": None,
 }
 
 
