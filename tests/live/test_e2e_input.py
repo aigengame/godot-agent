@@ -217,6 +217,57 @@ TAP_ACTION_PLAYER_GD = (
     "\t\treleased_edges += 1\n"
 )
 
+# The #854 conformance subject: ONE Control that observes all three cells of the
+# matrix at once — `_process` polls `Input.is_action_pressed`, `_gui_input` sees
+# what the focused Control is given, and `_unhandled_input` sees what nothing
+# consumed. It grabs focus at startup (a bare Control's focus_mode is NONE, and
+# the `_gui_input` row is about the FOCUSED Control) and accepts nothing, so an
+# event it counts still travels on to `_unhandled_input`.
+MATRIX_UI_GD = (
+    "extends Control\n"
+    "@export var polled_frames: int = 0\n"
+    "@export var gui_input_hits: int = 0\n"
+    "@export var unhandled_hits: int = 0\n"
+    "func _ready() -> void:\n"
+    "\tfocus_mode = Control.FOCUS_ALL\n"
+    "\tgrab_focus()\n"
+    "func _process(_delta: float) -> void:\n"
+    '\tif Input.is_action_pressed("move_right"):\n'
+    "\t\tpolled_frames += 1\n"
+    "func _gui_input(event: InputEvent) -> void:\n"
+    '\tif event.is_action_pressed("move_right"):\n'
+    "\t\tgui_input_hits += 1\n"
+    "func _unhandled_input(event: InputEvent) -> void:\n"
+    '\tif event.is_action_pressed("move_right"):\n'
+    "\t\tunhandled_hits += 1\n"
+)
+MATRIX_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://ui.gd" id="1"]\n\n'
+    '[node name="Main" type="Control"]\n'
+    "anchor_right = 1.0\n"
+    "anchor_bottom = 1.0\n"
+    'script = ExtResource("1")\n'
+)
+
+# `move_right` bound to a REAL key, so the matrix's third row (the mapped key)
+# can be injected. The key is X, not an arrow: Godot's built-in `ui_*` actions
+# bind the arrows, and the viewport moves focus on a focused Control's `ui_right`
+# — marking the event handled before `_unhandled_input`, which would measure the
+# focus machinery instead of the route. X is bound to nothing by default.
+MATRIX_KEY = "X"
+MATRIX_PROJECT_GODOT = project_godot(
+    extra=(
+        'run/main_scene="res://main.tscn"\n\n'
+        "[input]\n\n"
+        "move_right={\n"
+        '"deadzone": 0.5,\n'
+        '"events": [Object(InputEventKey,"device":-1,"keycode":88,"pressed":false)]\n'
+        "}\n"
+    )
+)
+
+
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
@@ -921,3 +972,118 @@ def test_input_key_without_a_daemon_reports_daemon_not_running(tmp_path):
     error = json.loads(proc.stdout)["error"]
     assert error["code"] == "daemon_not_running"
     assert "gda daemon start" in error["message"]
+
+
+@pytest.mark.e2e
+def test_action_event_mode_conformance_matrix_against_a_live_session(
+    tmp_path, daemon_runtime_dir
+):
+    # The #854 acceptance, every cell of the documented matrix measured against a
+    # REAL engine session for ONE action and the key it is mapped to:
+    #
+    #   injection                 | Input.is_action_pressed | _input/_unhandled | _gui_input
+    #   input action              | yes                     | no                | no
+    #   input action --as-event   | no                      | yes               | yes
+    #   input key <mapped key>    | no                      | yes               | yes
+    #
+    # It is the guard that matters most here: the state/event split is a property
+    # of the ENGINE's two doors, so only a live session can show that the opt-in
+    # reaches the handlers AND leaves the polled state alone (PR CI runs no Godot
+    # e2e). Reading a successful action injection as event-path evidence cost two
+    # dogfooding rounds a false diagnosis (GDA-DF-048, GDA-DF-075).
+    (tmp_path / "project.godot").write_text(MATRIX_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MATRIX_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "ui.gd").write_text(MATRIX_UI_GD, encoding="utf-8")
+    gda = Gda(tmp_path, json_output=True)
+    node = "/root/Main"
+
+    def observed() -> dict:
+        return {
+            name: _property_value(gda, node, name)
+            for name in ("polled_frames", "gui_input_hits", "unhandled_hits")
+        }
+
+    try:
+        assert gda("daemon", "start").returncode == 0
+
+        # Row 1 — the state route (the unchanged default): the polled state moves,
+        # no handler is called.
+        pressed = gda("input", "action", "move_right")
+        assert pressed.returncode == 0, pressed.stdout + pressed.stderr
+        assert json.loads(pressed.stdout)["injection_route"] == "action_state"
+        released = gda("input", "action", "move_right", "--release")
+        assert released.returncode == 0, released.stdout + released.stderr
+        after_state = observed()
+        assert after_state["polled_frames"] > 0
+        assert after_state["gui_input_hits"] == 0
+        assert after_state["unhandled_hits"] == 0
+
+        # Row 2 — the opt-in: an InputEventAction through the root viewport reaches
+        # the focused Control's `_gui_input` and `_unhandled_input`, and the polled
+        # state stays exactly where the release left it.
+        as_event = gda("input", "action", "move_right", "--as-event")
+        assert as_event.returncode == 0, as_event.stdout + as_event.stderr
+        assert json.loads(as_event.stdout)["injection_route"] == "viewport_event"
+        after_event = observed()
+        assert after_event["gui_input_hits"] == 1
+        assert after_event["unhandled_hits"] == 1
+        assert after_event["polled_frames"] == after_state["polled_frames"]
+
+        # Row 3 — the mapped key, the route the opt-in joins: same handlers, same
+        # untouched polled state.
+        key = gda("input", "key", MATRIX_KEY)
+        assert key.returncode == 0, key.stdout + key.stderr
+        assert json.loads(key.stdout)["injection_route"] == "viewport_event"
+        after_key = observed()
+        assert after_key["gui_input_hits"] == 2
+        assert after_key["unhandled_hits"] == 2
+        assert after_key["polled_frames"] == after_state["polled_frames"]
+
+        # A tap in the event mode takes the same door on both phases.
+        tap = gda("input", "tap", "--action", "move_right", "--as-event")
+        assert tap.returncode == 0, tap.stdout + tap.stderr
+        assert [p["injection_route"] for p in json.loads(tap.stdout)["phases"]] == [
+            "viewport_event",
+            "viewport_event",
+        ]
+        after_tap = observed()
+        assert after_tap["gui_input_hits"] == 3  # the press; a release is not "pressed"
+        assert after_tap["unhandled_hits"] == 3
+        assert after_tap["polled_frames"] == after_state["polled_frames"]
+
+        # And one sequence mixes the two routes, reporting one per phase — the
+        # state event drives the polled state, the opt-in one reaches the handlers.
+        sequence = gda(
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(
+                [
+                    {"type": "action", "action": "move_right", "frame": 0},
+                    {
+                        "type": "action",
+                        "action": "move_right",
+                        "as_event": True,
+                        "frame": 1,
+                    },
+                    {
+                        "type": "action",
+                        "action": "move_right",
+                        "release": True,
+                        "frame": 2,
+                    },
+                ]
+            ),
+        )
+        assert sequence.returncode == 0, sequence.stdout + sequence.stderr
+        assert json.loads(sequence.stdout)["phases"] == [
+            {"frame": 0, "phase": "press", "injection_route": "action_state"},
+            {"frame": 1, "phase": "press", "injection_route": "viewport_event"},
+            {"frame": 2, "phase": "release", "injection_route": "action_state"},
+        ]
+        after_sequence = observed()
+        assert after_sequence["gui_input_hits"] == 4
+        assert after_sequence["unhandled_hits"] == 4
+        assert after_sequence["polled_frames"] > after_tap["polled_frames"]
+    finally:
+        gda("daemon", "stop")
