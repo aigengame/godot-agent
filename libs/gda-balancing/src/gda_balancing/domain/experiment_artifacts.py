@@ -2038,6 +2038,11 @@ def _terminal_audit_is_valid(
         expected_entrypoint = {"id": f"scheduled:{identity}", "identity": identity}
         root_operation = refusing_event_spec["operation"]["id"]
         root_path = _execution_path_segment(f"scheduled:{identity}")
+    elif refusing_event_spec["kind"] == "external-input" and boundary_formula_refusal:
+        entrypoint_id = f"input:{refusing_event_spec['root_event_ref']}"
+        expected_entrypoint = {"id": entrypoint_id, "identity": refusing_event_id}
+        root_operation = "external-input"
+        root_path = _execution_path_segment(entrypoint_id)
     event_values = dict(prefix.actual_values)
     formula_fault = prefix.observation_fault
     node_steps = prefix.node_steps
