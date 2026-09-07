@@ -64,10 +64,16 @@ def test_minimal_sidecar_is_stale_not_cached(tmp_path):
 
 def test_sidecar_without_an_importer_line_is_stale(tmp_path):
     # The engine's importer-existence check re-imports a sidecar whose
-    # importer cannot be resolved; a missing declaration proves nothing.
+    # importer cannot be resolved; a missing declaration proves nothing. The
+    # tree is otherwise CACHEABLE — destination present, receipt matching — so
+    # the missing declaration alone decides (PR #882 review round 3: the old
+    # fixture fell through to a missing receipt and pinned nothing).
     project = icon_project(tmp_path)
+    cached_asset(project, "icon.png", DEST)
     (project / "icon.png.import").write_text(
-        'uid="uid://test"\nsource_file="res://icon.png"\n', encoding="utf-8"
+        f'[remap]\n\nuid="uid://test"\n\n[deps]\n\nsource_file="res://icon.png"\n'
+        f'dest_files=["res://{DEST}"]\n',
+        encoding="utf-8",
     )
 
     assert asset_state(project, "res://icon.png").status == "stale"
@@ -77,14 +83,37 @@ def test_copied_sidecar_naming_another_source_is_stale(tmp_path):
     # #738 review [P1], the alias reproduction: copying icon.png + its sidecar
     # to alias2.png leaves source_file="res://icon.png" inside the copy — the
     # engine re-imports that; a destination-exists heuristic called it cached.
+    # The alias has its OWN matching receipt, so the tree is cacheable except
+    # for the source name — only that check can produce the verdict (PR #882
+    # review round 3: without the receipt the fixture fell through to stale).
     project = icon_project(tmp_path)
     cached_asset(project, "icon.png", DEST)
     (project / "alias2.png").write_bytes((project / "icon.png").read_bytes())
     (project / "alias2.png.import").write_text(
         (project / "icon.png.import").read_text(encoding="utf-8"), encoding="utf-8"
     )
+    md5_companion(project, DEST, "alias2.png")
 
     assert asset_state(project, "res://alias2.png").status == "stale"
+
+
+def test_wrong_source_beside_a_malformed_receipt_is_invalid_not_stale(tmp_path):
+    # Engine order (PR #882 review round 3): _test_for_reimport reads the .md5
+    # receipt BEFORE it compares source_file, and a receipt parse error is the
+    # deliberate skip — so a copied sidecar whose receipt is malformed is left
+    # alone by the engine. Checking the source name first reported stale and
+    # spent a pass the engine would not.
+    project = icon_project(tmp_path)
+    cached_asset(project, "icon.png", DEST)
+    (project / "alias2.png").write_bytes((project / "icon.png").read_bytes())
+    (project / "alias2.png.import").write_text(
+        (project / "icon.png.import").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    receipt = receipt_path(project, "alias2.png")
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text('source_md5="unterminated\n', encoding="utf-8")
+
+    assert asset_state(project, "res://alias2.png").status == "invalid"
 
 
 def test_no_destination_sidecar_with_matching_receipt_is_cached(tmp_path):

@@ -266,9 +266,6 @@ def asset_state(project: Path, res_path: str) -> AssetEvidence:
     for ref in to_check:
         if ref.startswith("res://") and not (project / ref[len("res://") :]).is_file():
             return state("stale", dests)
-    source_file = _SOURCE_FILE_LINE.search(text)
-    if source_file is not None and source_file.group(1) != res_path:
-        return state("stale", dests)  # a copied sidecar names another source
     # The engine's one .md5 receipt per asset, at the path-derived import
     # base — read whether or not destinations are declared, exactly as
     # _test_for_reimport reads it. A missing receipt is what the engine
@@ -300,6 +297,14 @@ def asset_state(project: Path, res_path: str) -> AssetEvidence:
     assignments = _parse_receipt_assignments(receipt_text)
     if assignments is None:
         return state("invalid", dests)
+    # The engine compares the sidecar's source_file only AFTER the receipt has
+    # parsed — the .md5 read sits above the "file was moved" check in
+    # _test_for_reimport — so a copied sidecar naming another source is stale,
+    # while a malformed receipt beside it is the skip above, never a pass
+    # (PR #882 review round 3).
+    source_file = _SOURCE_FILE_LINE.search(text)
+    if source_file is not None and source_file.group(1) != res_path:
+        return state("stale", dests)
     recorded_source = assignments.get("source_md5")
     if recorded_source is None:
         # Parseable but lacking source_md5: the engine's "Lacks md5, so
