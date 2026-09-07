@@ -777,6 +777,9 @@ _MALFORMED_TAP_REPLIES = [
     {**INPUT_TAP_KEY_RESULT, "key": ""},
     {**INPUT_TAP_KEY_RESULT, "keycode": 0},
     {**INPUT_TAP_KEY_RESULT, "modifiers": ["control"]},
+    # The event mode echoed on a KEY tap: the mode rides an action tap alone
+    # (#854), so a key-family reply carrying it is a drifted harness.
+    {**INPUT_TAP_KEY_RESULT, "as_event": True},
 ]
 
 _MALFORMED_CLICK_REPLIES = [
@@ -2919,10 +2922,11 @@ def _input_text(monkeypatch, tmp_path, payload, *argv) -> str:
 
 
 def test_the_human_render_names_the_event_mode(monkeypatch, tmp_path):
-    # `input action` is the ONE input command whose route varies per call, so its
-    # human line says which door was used — without it an opted-in action and a
-    # state one read identically, which is the confusion #838 exists to end. The
-    # other renderers stay unchanged: their route is a constant.
+    # The opt-in makes two existing human lines AMBIGUOUS: `action jump pressed`
+    # and `tap action jump: …` both meant the state route before #854, and nothing
+    # else on that channel says otherwise. So both name the mode. The lines that
+    # were never ambiguous stay as they are — a key tap prints its target, and a
+    # sequence's line names no kinds at all.
     default = _input_text(monkeypatch, tmp_path, INPUT_ACTION_RESULT, "action", "jump")
     opted_in = _input_text(
         monkeypatch,
@@ -2946,6 +2950,31 @@ def test_the_human_render_names_the_event_mode(monkeypatch, tmp_path):
     assert "as event" not in default
     assert "action jump pressed as event (strength 1.0)" in opted_in
     assert "action jump released as event" in released
+
+
+def test_the_human_render_names_the_event_mode_on_an_action_tap(monkeypatch, tmp_path):
+    # The tap's line is ambiguous for the same reason and gets the same word. A KEY
+    # tap is untouched: its printed target already names the only route it can take.
+    default = _input_text(
+        monkeypatch, tmp_path, INPUT_TAP_ACTION_RESULT, "tap", "--action", "jump"
+    )
+    opted_in = _input_text(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_TAP_ACTION_RESULT, "as_event": True},
+        "tap",
+        "--action",
+        "jump",
+        "--as-event",
+    )
+    key_tap = _input_text(
+        monkeypatch, tmp_path, INPUT_TAP_KEY_RESULT, "tap", "--key", "Right"
+    )
+
+    assert "tap action jump:" in default
+    assert "as event" not in default
+    assert "tap action jump as event:" in opted_in
+    assert "as event" not in key_tap
 
 
 def test_input_action_help_carries_the_conformance_matrix():
@@ -3074,8 +3103,13 @@ def test_the_conformance_matrix_is_carried_by_help_schema_and_the_skill():
             assert observer in text, (name, observer)
 
     # Longest spelling first, so the opt-in takes its own row before the plain
-    # injection (whose spelling both rows contain) can claim it. Consuming the
-    # rows also pins the table's size: a fourth row fails on the leftover.
+    # injection (whose spelling both rows contain) can claim it. What is pinned is
+    # each row's three yes/no VERDICTS: `_skill_matrix_rows` reads only rows whose
+    # verdict cells START with yes/no, so the header and any row written in other
+    # words are skipped rather than checked, and a trailing qualifier
+    # ("(focused Control)") is not asserted. Consuming the rows still pins the
+    # table's size within that vocabulary — a fourth yes/no row fails on the
+    # leftover.
     rows = _skill_matrix_rows()
     for injection, verdicts in sorted(
         _matrix_claims(), key=lambda claim: -len(claim[0])

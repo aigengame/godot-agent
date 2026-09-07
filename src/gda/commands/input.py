@@ -14,11 +14,15 @@ Live input injection into the RUNNING game's engine session via the gda harness
 (ADR-0017, ADR-0019). Key/mouse events ride the game's real input flow via the
 root viewport's push_input; actions go through Input.action_press/release. Those
 are two DISJOINT routes and every result names the one it used
-(``injection_route``, #838): an action changes the polled state and reaches no
-``_input`` / ``_gui_input`` / ``_unhandled_input`` handler, so a successful action
-injection is not evidence that the event path works. gda derives the route
-CLI-side from the event kind — the harness reports what it injected, not which
-door it went through — in ONE place (:func:`injection_route`). Mouse
+(``injection_route``, #838): an action changes the polled state and, ON THAT
+ROUTE, reaches no ``_input`` / ``_gui_input`` / ``_unhandled_input`` handler, so a
+successful action injection is not evidence that the event path works. That route
+is the default, not the only one an action can take: ``--as-event`` (``as_event``
+on a sequence ``action`` event) delivers the action as an ``InputEventAction``
+through the same ``push_input``, so it reaches those handlers and leaves the polled
+state untouched (#854). gda derives the route
+CLI-side from the event kind and that one opt-in — the harness reports what it
+injected, not which door it went through — in ONE place (:func:`injection_route`). Mouse
 event.position is the reliable injected coordinate; Godot does not expose a
 reliable daemon-session seam for updating Viewport.get_mouse_position() /
 Node2D.get_global_mouse_position(), so those tracked positions may stay stale. Every
@@ -761,15 +765,18 @@ class InputTapResult(BaseModel):
         # actually injected. A payload carrying neither family (or both) is refused
         # by `_check_tap_evidence` below; stamping it first only decides which
         # route a phase of a reply that will not survive validation would claim.
-        # The event mode (#854) is read the same way, and for the action family
-        # ALONE. A key-family reply that echoed the mode anyway is IGNORED here
-        # rather than refused: the mode is not a result field (`injection_route` is
-        # its whole disclosure), so `_check_tap_evidence` cannot see it, and the
-        # route such a reply gets is `viewport_event` either way — which is a key
-        # tap's real route, so nothing wrong is published.
+        # The event mode (#854) is read the same way, and rides the action family
+        # ALONE — so a key-family reply that echoes it is REFUSED here, the way
+        # `_check_tap_evidence` refuses the other drifted shapes. The check lives
+        # in this validator rather than beside those because the mode is not a
+        # result field (`injection_route` is its whole disclosure), so only the
+        # raw payload has it; a ValueError raised here is the same
+        # contract_violation.
         if not isinstance(data, dict):
             return data
         action = data.get("action")
+        if action is None and data.get("as_event"):
+            raise ValueError("a key tap result cannot echo the event mode.")
         return _phases_routed(
             data,
             "action" if action is not None else "key",
@@ -1421,11 +1428,23 @@ def render_input_mouse_click(injected: "InputMouseClickResult") -> str:
 
 
 def render_input_tap(injected: "InputTapResult") -> str:
-    """Render a tap as its target, phases, and settle window, plus focus evidence (#652)."""
+    """Render a tap as its target, phases, and settle window, plus focus evidence (#652).
+
+    An ACTION tap's target names the mode when the caller opted in (#854), for the
+    reason ``render_input_action`` gives: before the opt-in, ``tap action X`` meant
+    the state route, and nothing else on this line shows which door it took now. A
+    KEY tap needs nothing — its printed target already names its only route.
+    """
+    mode = (
+        " as event"
+        if injected.action is not None
+        and injected.phases[0].injection_route == VIEWPORT_EVENT
+        else ""
+    )
     target = (
         f"key {injected.key}"
         if injected.key is not None
-        else f"action {injected.action}"
+        else f"action {injected.action}{mode}"
     )
     gesture = " -> ".join(f"{p.phase}@{p.frame}" for p in injected.phases)
     focus = _render_focus(injected.focus_before, injected.focus_after)
@@ -1438,11 +1457,14 @@ def render_input_tap(injected: "InputTapResult") -> str:
 def render_input_action(injected: "InputActionResult") -> str:
     """Render an injected action event as ``action <name> <pressed|released>`` (#221).
 
-    The one input renderer that names its route, because it is the one command whose
-    route VARIES per call (#854): #838 left the human renderers alone precisely
-    because a route was a constant per command, and adding a constant to every line
-    says nothing. Here ``--as-event`` changes what the injection did, so the render
-    says which of the two it was.
+    Names the mode when the caller opted in (#854). The trigger is AMBIGUITY, not a
+    route that varies: #838 left the human renderers alone because every line
+    already implied its route — this one meant the state route, a ``key`` line the
+    event route — and printing what the line already implies says nothing. The
+    opt-in breaks that implication here, and nothing else on the human channel
+    disambiguates it, so the line says which door it was. Same reason on an action
+    tap; a sequence's line names no kinds at all, so it was never route-bearing and
+    stays as it is.
     """
     mode = " as event" if injected.injection_route == VIEWPORT_EVENT else ""
     if injected.pressed:
@@ -1712,17 +1734,16 @@ def input_action(
 ) -> None:
     """Press or release a named input action in the running game (live).
 
-    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017)
-    and drives Input.action_press / action_release against the running
-    InputMap. That is the `action_state` route: it changes the polled action
-    state, which Input.is_action_pressed / is_action_just_pressed observe,
-    and it builds no InputEvent — so on that route _input, _gui_input and
-    _unhandled_input never see it, however the action is bound. Drive
-    event-driven UI with `gda input key` or a mouse command (the
-    `viewport_event` route) and use an action where the game polls
-    Input.is_action_*; the result names the route it took. An action absent
-    from the InputMap is `live_unknown_action`. With no daemon it reports
-    `daemon_not_running`.
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
+    drives Input.action_press / action_release against the running InputMap.
+    That is the `action_state` route: it changes the polled action state, which
+    Input.is_action_pressed / is_action_just_pressed observe, and it builds no
+    InputEvent — so on that route _input, _gui_input and _unhandled_input never
+    see it, however the action is bound. Drive event-driven UI with
+    `gda input key` or a mouse command (the `viewport_event` route) and use an
+    action where the game polls Input.is_action_*; the result names the route it
+    took. An action absent from the InputMap is `live_unknown_action`. With no
+    daemon it reports `daemon_not_running`.
 
     --as-event opts INTO the other door (#854): gda builds an InputEventAction
     (action, pressed, strength) and pushes it through the root viewport, so the
