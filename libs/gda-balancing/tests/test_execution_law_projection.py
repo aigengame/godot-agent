@@ -244,6 +244,8 @@ _NODE_WITNESSES = (
     ("rpg-combat-cast", "schedule"),
     ("rpg-combat-cast", "subtract"),
     ("rpg-combat-cast", "subtract-state"),
+    ("rpg-stat-composition", "floor-divide"),
+    ("rpg-stat-composition", "less-than"),
 )
 
 _REASON_WITNESSES = (
@@ -268,6 +270,10 @@ _REASON_WITNESSES = (
     ("rpg-combat-cast", "runtime.reason.schedule-hidden-input"),
     ("rpg-combat-cast", "runtime.reason.schedule-illegal-same-time-priority"),
     ("rpg-combat-cast", "runtime.reason.zero-time-depth-limit"),
+    ("roguelike-reward-build", "game.build.reason.invalid-plan"),
+    ("roguelike-reward-build", "game.generation.reason.invalid-fallback"),
+    ("roguelike-reward-build", "game.generation.reason.invalid-option"),
+    ("roguelike-reward-build", "game.generation.reason.selection-exhausted"),
 )
 
 _DIAGNOSTIC_WITNESSES = (
@@ -292,27 +298,48 @@ _DIAGNOSTIC_WITNESSES = (
     ("rpg-combat-cast", "runtime.schedule_hidden_input"),
     ("rpg-combat-cast", "runtime.schedule_illegal_same_time_priority"),
     ("rpg-combat-cast", "runtime.zero_time_depth_exceeded"),
+    ("roguelike-reward-build", "game.build.invalid_plan"),
+    ("roguelike-reward-build", "game.generation.invalid_fallback"),
+    ("roguelike-reward-build", "game.generation.invalid_option"),
+    ("roguelike-reward-build", "game.generation.selection_exhausted"),
 )
 
 
 @pytest.fixture(scope="module")
 def closure_examples():
     artifacts = {}
-    for example in ("structured-selection", "rpg-combat-cast"):
-        source = json.loads(
-            (
-                Path(__file__).parents[1]
-                / "examples/schema2"
-                / example
-                / "model-source.json"
-            ).read_bytes()
-        )
+    for path in sorted(
+        (Path(__file__).parents[1] / "examples/schema2").glob("*/model-source.json")
+    ):
+        source = json.loads(path.read_bytes())
         checked = check_model_source_value(source)
         assert isinstance(checked, CheckedModel), checked
         built = compile_checked_model(checked)
         assert admit_resolved_model(_trio(built)).admitted
-        artifacts[example] = built
+        artifacts[path.parent.name] = built
     return artifacts
+
+
+def test_dependency_matrix_covers_all_maintained_programs(closure_examples):
+    selected = [
+        artifacts["rir-semantic-payload"]["selected_semantics"]
+        for artifacts in closure_examples.values()
+    ]
+    assert {row[1] for row in _NODE_WITNESSES} == {
+        node["id"]
+        for program in selected
+        for node in program["execution_laws"]["runtime_program"]["nodes"]
+    }
+    assert {row[1] for row in _REASON_WITNESSES} == {
+        row["definition"]["id"]
+        for program in selected
+        for row in program["diagnostic_reasons"]
+    }
+    assert {row[1] for row in _DIAGNOSTIC_WITNESSES} == {
+        row["definition"]["code"]
+        for program in selected
+        for row in program["diagnostics"]
+    }
 
 
 def _assert_reidentified_meaning_is_refused(original, mutated, path):

@@ -1,0 +1,218 @@
+{
+  "issue": 874,
+  "status": "intermediate implementation evidence; full review and CI remain open",
+  "baseline": "3b661f85cf8a3d1acec84c4e0482a5c59e0a0cf4",
+  "artifact_refresh_commit": "464578a4cc7619e26e016a1c512f21e6efdb5316",
+  "authority": {
+    "kernel_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
+    "ldb_before_vector_refresh": "sha256:e94ddd0a9cb6a491168988b7b6fe7c289fb7f615e9120eb2aefbede6a69a349b",
+    "ldb_after_vector_refresh": "sha256:a9498f658792dd2d8cde6387c505f11bb249977bc698f1607520116fbdd71f84",
+    "package_semantic_identities_unchanged": true,
+    "package_semantic_identity_count": 13
+  },
+  "source_vector_refresh": {
+    "total_cases": 34,
+    "unchanged_complete_refusals": 21,
+    "positive_cases": 13,
+    "production_artifact_classes_per_positive": 8,
+    "independently_byte_equal_artifacts": [
+      "package-lock",
+      "rir-semantic-payload",
+      "resolved-model",
+      "debug-map"
+    ],
+    "mutual_admission": [
+      "package-lock",
+      "rir-semantic-payload",
+      "resolved-model"
+    ],
+    "only_changed_expectation_fields": [
+      "rir_identity",
+      "debug_map_identity"
+    ],
+    "fresh_process_fixed_point": true
+  },
+  "maintained_cli_builds": [
+    {
+      "source": "examples/schema2/progression-periodic-effect/model-source.json",
+      "source_sha256": "668183f48b74c0ab83de50be5e2e7b047826f9c398cf8a29146bb546419c32f3",
+      "eight_members_published": true
+    },
+    {
+      "source": "examples/schema2/roguelike-reward-build/model-source.json",
+      "source_sha256": "1ee6d1368cb548d70a9c731f75ec2c2d1d42e48b583ed28a38830adfaf82a912",
+      "eight_members_published": true
+    },
+    {
+      "source": "examples/schema2/rpg-combat-cast/model-source.json",
+      "source_sha256": "4edc3c53e125517e46ddc69c14ccac927b5291df1d3b383f93ae50af1ada2c2c",
+      "eight_members_published": true
+    },
+    {
+      "source": "examples/schema2/rpg-periodic-effect/model-source.json",
+      "source_sha256": "e35decf348043d8f3e97606b29e57162cd43c669552c341419ee11c1186f3d67",
+      "eight_members_published": true
+    },
+    {
+      "source": "examples/schema2/rpg-stat-composition/model-source.json",
+      "source_sha256": "c7d231a22265bedbe39e38f1a5c1d5c3e61977b126e143cbbd4ddbe590077d0d",
+      "eight_members_published": true
+    },
+    {
+      "source": "examples/schema2/structured-selection/model-source.json",
+      "source_sha256": "a2586415e7064cf2d4c7ddd4dc8680e6ccd307007cc5dc8ee5496c96d833356b",
+      "eight_members_published": true
+    }
+  ],
+  "maintained_experiments": [
+    {
+      "path": "examples/schema2/progression-periodic-effect/experiment.json",
+      "before_sha256": "16a89ecb6595c56d4a4778226f40a530259d564f2b8856a413d3cf743fb837dc",
+      "after_sha256": "8211eb3e98a8416cee9132b933567839ecf2f3ea7784eb788f0147d255a0ccdf",
+      "admitted": true,
+      "other_authored_values_and_format_preserved": true
+    },
+    {
+      "path": "examples/schema2/roguelike-reward-build/experiment.json",
+      "before_sha256": "44bab6f0ae7392a1b9fcad663cc7cb1ff7657283a1526d5fb3cbd17de20a9c35",
+      "after_sha256": "0c6d8a0b6b98274e384443977765026f2458f74a86f648a5d3c5f8c6eee72025",
+      "admitted": true,
+      "other_authored_values_and_format_preserved": true
+    },
+    {
+      "path": "examples/schema2/rpg-combat-cast/experiment.json",
+      "before_sha256": "297aef6421a041f32b50c6cf97cd69da01b198febf9807c98f77ee55d6af74ac",
+      "after_sha256": "23eb2573da7b3c6403450c7c6cf6336e808a62a44a1a416aa654a450a9fa673b",
+      "admitted": true,
+      "other_authored_values_and_format_preserved": true
+    },
+    {
+      "path": "examples/schema2/rpg-combat-cast/multi-time-experiment.json",
+      "before_sha256": "2161f48c12e8da9a79ba03536ce480580602bbfc12d352d321961205add05584",
+      "after_sha256": "de63cbe019a286d840e3dbc3688570b659a3a75fbedab800bf5f2f1c2400afe7",
+      "admitted": true,
+      "other_authored_values_and_format_preserved": true
+    },
+    {
+      "path": "examples/schema2/rpg-periodic-effect/experiment.json",
+      "before_sha256": "2d90aa1a526358a7057f33bd88b620de5212b690bf8e06bc41477c99d5f4ae85",
+      "after_sha256": "1eb74db52ccb803dc23c6e1cfa1f5b34c4910812833e7dee8fc10e6a10dfe780",
+      "admitted": true,
+      "other_authored_values_and_format_preserved": true
+    },
+    {
+      "path": "examples/schema2/rpg-periodic-effect/same-time-experiment.json",
+      "before_sha256": "4168bfd9b44978e44f08c0ef9231141393f2d8afb5d651d74eaef48838583eba",
+      "after_sha256": "acbc3d29744974b96f925512feefe6f92c18cf7da9a65941834b1d4e44b8e749",
+      "admitted": true,
+      "other_authored_values_and_format_preserved": true
+    },
+    {
+      "path": "examples/schema2/rpg-stat-composition/experiment.json",
+      "before_sha256": "6b827c0d5a108f9f034b5e3dafbaa7615194de1fb2aa772b68015cad409848db",
+      "after_sha256": "969e3a2fc4c5c5c035d96f61131bd589a6aabbcb3afcc2c471ff72d281efb327",
+      "admitted": true,
+      "other_authored_values_and_format_preserved": true
+    },
+    {
+      "path": "examples/schema2/structured-selection/experiment.json",
+      "before_sha256": "30d5390ffe380ebfd8c4a6dc79e511c8646dd3fa1a015f753851902545777e9b",
+      "after_sha256": "0c8c0d14cc69828e25bd89d32b46fa9fca46efa631781e4df25d9cee4a9b1f94",
+      "admitted": true,
+      "other_authored_values_and_format_preserved": true
+    }
+  ],
+  "validation": {
+    "selected_contracts_structured_budget_and_nonexecuting_refusal": {
+      "cases": 21,
+      "passed": 21,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "source_vector_cli_http_replay_and_built_wheel": {
+      "cases": 11,
+      "passed": 11,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "all_maintained_dependency_matrix_and_legal_terminal_reason_mapping": {
+      "cases": 100,
+      "passed": 100,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "terminal_reason_mapping_and_coordinated_tamper": {
+      "cases": 9,
+      "passed": 9,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "counterexamples": {
+    "original_structured_budget": {
+      "limits": [
+        837,
+        838,
+        839
+      ],
+      "original_rir_same": true,
+      "first_limit": "typed static resource refusal",
+      "other_limits": "selection rank 3 and independent result validation",
+      "current_rir_semantic_identities_distinct": true
+    },
+    "unused_numeric_budget": {
+      "limits": [
+        65535,
+        65536
+      ],
+      "current_rir_semantic_identity_equal": true,
+      "complete_numeric_observations_equal": true
+    },
+    "nonexecuting_experiment": {
+      "mutation": "remove only the no-entrypoint binding guard",
+      "permanent_test_cases_failed": 2,
+      "failure": "KeyError: 'scheduler'"
+    },
+    "ingress_authority_read": {
+      "mutation": "restore only the full Kernel read in runtime_contract",
+      "permanent_test_cases_failed": 1,
+      "failure": "execution returned to an ingress authority: kernel"
+    },
+    "shared_runtime_diagnostic": {
+      "candidate": "numeric-overflow and step-limit share runtime.step_limit_exceeded; reason vectors, diagnostic catalog and package exports are coherent",
+      "unchanged_kernel_admits_candidate": true,
+      "before_fix": "numeric overflow retains exact 13 event steps and 17 node steps; independent terminal validation falsely refuses",
+      "permanent_red": {
+        "failed": 1,
+        "passed": 1
+      },
+      "current": "independent charge replay determines budget breach before matching selected diagnostic reason signals",
+      "scope_limit": "preserves existing non-budget fault validation scope; not an independent proof of every intrinsic non-budget cause"
+    },
+    "selected_structured_reason_mapping": {
+      "integrated_commit": "645910d446e26791b662b2eaf089cb0f7bbb0f3f",
+      "isolated_baseline_failed_cases": 4,
+      "isolated_fixed_cases_passed": 18,
+      "new_permanent_cases": 5,
+      "mapping": [
+        "type-mismatch",
+        "unknown-enum",
+        "record-member-mismatch",
+        "resource-exhausted"
+      ],
+      "lookup_reason_rename": "complete package references updated; original Kernel admits the changed reason identity",
+      "reference_limit": "unchanged-law independent vectors passed; independent legal remap check remains open"
+    }
+  },
+  "remaining": [
+    "independent reference legal structured reason remapping",
+    "complete final acceptance matrix and CI",
+    "independent Standards, Spec and DDMA review",
+    "issue PR integration into development branch",
+    "mandatory broad binding deletion in #875"
+  ]
+}

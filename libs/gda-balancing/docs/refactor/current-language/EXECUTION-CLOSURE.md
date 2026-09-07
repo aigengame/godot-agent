@@ -74,11 +74,62 @@ admission path. Restoring the old full-Kernel read in an isolated source copy ma
 this test fail at that read. The legal 837/838/839 resource witness separately
 verifies the changed semantic identity and actual refusal/success boundary.
 
-Publication framing, authenticated original-artifact admission and Replay policy
-selection are still being migrated to their own selected contracts. Independent
-bootstrap/reference compilation, maintained Experiment bindings and the complete
-CLI/HTTP/session mutation matrix also remain open. These foundation results do
-not close #874 or any deletion criterion in #875.
+Publication now selects its three framing contracts before commit/recovery. Replay
+selects its complete owned comparison policy, refusal definitions and comparison
+artifact contract at admission; member validation reuses the request's output
+contracts. Original-artifact authentication still precedes Experiment admission.
+Neither owner consults an ambient catalog to fill a missing selected contract.
+
+Independent bootstrap/reference compilation also derives the new closure. All 34
+existing Source vectors were inspected: 21 complete refusal expectations are
+unchanged. Each of the 13 successful cases compiles all eight production artifact
+classes; four independently derived artifacts (Lock, RIR, Resolved Model and Debug
+Map) are byte-identical, with mutual admission of the semantic trio. Only the
+existing RIR/Debug identity expectations were rebuilt. A fresh independent pass
+after sealing confirms the same computed identities and unchanged Kernel and
+package semantic identities: vector-receipt changes introduce no identity cycle.
+Six maintained Models publish eight-member Build sets through the CLI. Their eight
+Experiment inputs change only exact binding identities and all admit; authored
+scenarios, targets, limits and formatting remain unchanged. The intermediate
+[validation receipt](evidence/execution-closure/intermediate-validation.json)
+records this refresh and the observed public-path checks. Final reviews and CI
+remain open.
+
+This broader witness also found a preexisting reference-frontend defect in the
+progression/periodic example. The independent consumer omitted Operation roots
+called by Formulas, and incorrectly required initialization instruction count to
+equal its declared upper bound. It now traverses those roots and nested declared
+Operation references, preserves the bound, and checks for overrun. A permanent
+case verifies two initialization instructions under the declared bound of three,
+four-artifact byte equality and mutual semantic admission. The same unmodified
+Source failed independent checking before #874; this is not a production Runtime
+regression caused by the closure cut.
+
+A further legal mutation exposes over-selection: changing the structured-value
+budget between 65535 and 65536 changes the initial closed RIR for four maintained
+pure numeric Models, despite zero structured-value charges and identical complete
+observations. The machine resource selector now requires `when: typed-values` and
+only emits the limit for programs with a selected typed-envelope profile. The
+selector itself still consumes one projection step. Numeric equality executes
+without a structured budget in both Runtime and independent replay; absence does
+not authorize a fallback or an unlimited budget. Typed programs retain their
+explicit resource dependency and the 837/838/839 refusal boundaries.
+
+A nonexecuting Quantity Model has no Event entrypoints and deliberately selects no
+scheduler or fixed-value execution laws. An Experiment cannot supply external
+facts without a selected entrypoint's external-fact contract. Experiment admission
+now returns a resolution refusal at `/model/rir_identity` before constructing
+Runtime helpers for this Model. This fixes an eager `scheduler` lookup introduced
+by the closure cut, without adding unused laws. The permanent case admits both the
+original compile profile and a legal replacement with active Runtime semantics;
+neither profile makes the Model executable. Removing only this guard in an
+isolated source copy makes both cases fail with `KeyError: scheduler`.
+
+The required test inventory replaces the obsolete 232/233/234 projection-boundary
+IDs with 372/373/374, preserving all three refusal/admission obligations and their
+complete diagnostic assertions. New closure, applicability, selected-contract and
+Publication/Replay cases join the existing CI shards. No inventory obligation is
+removed merely to bypass a missing-test failure.
 
 ## Ownership and identity boundaries
 
@@ -136,15 +187,48 @@ Replay and sessions. A new selected digest beside those old mechanisms is not th
 endpoint. Coherent rollback restores code, machine authority, authored sources and
 current evidence together to the preceding reviewed development revision.
 
-The first boundary implementation selects exact output contracts from the existing
-success/verdict/runtime-refusal member sets, uses those snapshots for construction
-and verification, and freezes the admitted request's nested data. Its 54 selected
-checks cover Model preparation, initialization refusal, Event rollback, independent
-artifact replay, HTTP sessions and an actual built-wheel service. The wheel check
-first failed because the default uv cache was not writable; it passed with a
-task-local cache. Ruff and focused Pyright also pass. These results validate the
-boundary foundation only; the RIR closure, full mutation matrix, final independent
-reviews and required CI remain incomplete.
+The concrete transition inventory for #875 is:
+
+| Retained dependency | Current consumer and propagation | Required deletion boundary |
+| --- | --- | --- |
+| Authored whole-Kernel/LDB identities and exact Build wrapper | `domain/experiment.py` requires `kernel_identity`, `language_bundle_identity`, and `model.{source_identity,build_receipt_identity,resolved_model_identity,package_lock_identity,rir_identity}`; `domain/model/_binding.py` re-admits the exact published Build set. | Remove provenance-only Experiment prerequisites and their wire-schema, store-resolution and equality branches. Keep independent admission of the selected program and exact bytes actually consumed. |
+| Broad evaluator source fingerprint | `domain/runtime/projections.py::evaluator_build_identity` hashes every installed Domain Python file. Its value enters `implementation_identity`, the evaluator manifest and downstream Runtime/reproduction identities. | Remove unrelated compiler/analysis/source inventory from eligibility and semantic execution identity. Truthful implementation provenance may remain in receipts; no source filename allowlist replaces the cut. |
+| Whole-authority and Build-derived runtime identity chain | `resolved_runtime_profile` and `reproduction_receipt` propagate whole-LDB, exact Lock/Resolved/RIR envelopes and evaluator-manifest identities; observations bind their resulting receipts. | Split selected execution meaning from exact producing provenance, then remove obsolete propagation and validations from semantic eligibility. Do not erase seed, input order, nominal meaning or actual execution-policy dependencies. |
+| Full reproduction equality | `domain/comparison.py::_REPRODUCTION_BINDINGS`, preparation and comparison require whole reproduction equality. `ExactReplayContract.language_bundle_identity` and the comparison payload retain the broad LDB scalar. | Delete irrelevant whole-LDB/build/reproduction gates and obsolete comparison fields. Keep authenticated original artifacts, explicit comparison policy and equality of actual execution inputs. |
+| Exact producer-command descriptor checks | `application/experiment_replay.py` passes the current experiment-run descriptor into original publication validation. | Remove unrelated producer-interface changes as semantic Replay prerequisites; retain the exact framing and integrity checks needed to authenticate the original publication. |
+| Session ownership of the exact Build wrapper | `application/execution_sessions.py::_ExecutionSession` retains `ExactResolvedModelBinding`; create and revision admission inherit its broad Experiment gates. | Replace that prerequisite with the admitted selected execution input. Retain request snapshots, explicit revision selection, process-local handle invalidation and in-flight ordering. |
+
+This inventory identifies deletion owners and paths; it is not evidence that those
+deletions already occurred. #875 must reconcile all affected packaged contracts,
+examples and tests, and verify provenance-only mutations through CLI, Replay and
+HTTP sessions after removal.
+
+The executable dependency matrix covers the union of all six maintained Models:
+11 runtime law groups, 22 nodes, 25 reasons and 25 diagnostic definitions. A
+coverage assertion prevents a newly selected definition in those Models from
+escaping the explicit mutation witnesses. This verifies selected dependency
+admission; it does not by itself prove that each consumer reads the selected value.
+
+Legal diagnostic remapping supplies a separate consumer witness. Swapping numeric
+overflow and step-limit diagnostics preserves actual terminal state and exact
+charges. Mapping both reasons to the same diagnostic is also admitted by the
+unchanged Kernel when the vectors, catalog and package exports agree. The original
+decoder incorrectly inferred a unique internal reason from that public code.
+Independent charge replay now reports whether the failing instruction actually
+exceeds its budget; validation matches this fact against the selected reason
+signals for the diagnostic. No new public field or diagnostic uniqueness rule is
+needed. This preserves the existing non-budget fault validation scope; it does not
+claim independent proof of every non-budget fault's intrinsic cause.
+
+Static structured-value faults also used fixed diagnostic spellings even when an
+admitted LDB changed their selected reason mapping. A fault now carries one
+intrinsic reason identifier and its pointer; each outward boundary projects the
+selected definition. The old `code` alias is removed. The four static reason roots
+remain the ones declared by the Kernel; Runtime lookup resolves its reason through
+the selected node refusal signal, so a legal reason rename does not add a host
+constraint. Permanent cases cover enum, type, record-member and resource refusals,
+plus the legal lookup reason rename. The numeric ingress domain check keeps its
+own diagnostic path and does not introduce an irrelevant execution dependency.
 
 ## Alternatives and external checks
 
