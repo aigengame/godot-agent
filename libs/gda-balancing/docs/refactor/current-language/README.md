@@ -25,5 +25,6 @@ Start with the [accepted decision](../../badr/0028-current-language-refactor-and
 | [Execution identity](EXECUTION-IDENTITY.md) | S5b deletion, explicit RIR input, semantic execution identity and truthful producer provenance |
 | [Formula Runtime seam](FORMULA-RUNTIME.md) | Shared production evaluation, independent vectors, public behavior preservation and rollback for #612 |
 | [Primitive composition](PRIMITIVE-COMPOSITION.md) | Extrema deletion, the Formula interval counterexample, compiler inference refinement and #876 validation |
+| [Bounded fold](BOUNDED-FOLD.md) | Pure Operation traversal, typed construction, dynamic refusal and #877 public/independent validation |
 
 GitHub owns live acceptance and task status; bADR-0028 owns the adopted policy; the plan owns delivery sequencing. Matrices preserve exact captured requirement text as provenance. Current issue amendments supersede the identified historical clauses. Evidence is confirmed only within its stated bounds, and no disposable probe establishes full production conformance, genre completion or automatic formal-release/claim activation.
