@@ -4,10 +4,13 @@ from copy import deepcopy
 from dataclasses import FrozenInstanceError
 import hashlib
 import json
+import os
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
+
+import gda_balancing.domain.publication as publication_module
 
 from gda_balancing.domain.artifacts import select_artifact_contract
 from gda_balancing.domain.authority.context import (
@@ -25,12 +28,14 @@ from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.domain.model import (
     AdmittedRir,
     CheckedModel,
+    CompiledArtifactAdmissionError,
     RirAdmissionError,
     admit_resolved_model,
     admit_rir,
     check_model_source_value,
     compile_checked_model,
     read_rir,
+    validate_compiled_artifacts,
 )
 from gda_balancing.domain.model import _admission, _lowering
 
@@ -321,3 +326,256 @@ def test_explicit_rir_file_ingress_retains_format_and_file_checks(
         read_rir(str(tmp_path / "absent.json"), authority_context=context)
     with pytest.raises(UnreadableInputError):
         read_rir(str(tmp_path), authority_context=context)
+
+
+@pytest.mark.parametrize("mutation", ["missing-member", "kind", "digest"])
+def test_standalone_rir_rejects_member_kind_and_digest_drift(
+    mutation, compiled, context
+):
+    candidate = deepcopy(compiled["roguelike-reward-build"]["rir-semantic-payload"])
+    if mutation == "missing-member":
+        del candidate["selected_semantics"]
+    elif mutation == "kind":
+        candidate["artifact_kind"] = "resolved-model"
+    else:
+        candidate["content_identity"] = "sha256:" + "0" * 64
+    with pytest.raises(RirAdmissionError):
+        admit_rir(candidate, authority_context=context)
+
+
+@pytest.mark.parametrize("reseal", [False, True])
+def test_exact_build_retains_receipt_relationship_checks(reseal, compiled, context):
+    artifacts = deepcopy(compiled["roguelike-reward-build"])
+    receipt = artifacts["build-receipt"]
+    receipt["rir_identity"] = "sha256:" + "0" * 64
+    contract = select_artifact_contract(context.language_bundle, "build-receipt")
+    if reseal:
+        artifacts["build-receipt"] = contract.identify(
+            {
+                key: value
+                for key, value in receipt.items()
+                if key
+                not in {
+                    "artifact_kind",
+                    "artifact_version",
+                    "wire_schema_identity",
+                    "content_identity",
+                }
+            }
+        )
+        assert contract.verify(artifacts["build-receipt"])
+    else:
+        assert not contract.verify(receipt)
+    with pytest.raises(
+        CompiledArtifactAdmissionError, match="build receipt has invalid bindings"
+    ):
+        validate_compiled_artifacts(artifacts, receipt["source_identity"], context)
+    assert admit_rir(artifacts["rir-semantic-payload"], authority_context=context)
+
+
+@pytest.mark.parametrize("mutation", ["missing-member", "kind"])
+def test_exact_trio_retains_member_set_and_kind_checks(mutation, compiled, context):
+    artifacts = deepcopy(compiled["roguelike-reward-build"])
+    trio = {
+        name: artifacts[name]
+        for name in ("package-lock", "rir-semantic-payload", "resolved-model")
+    }
+    if mutation == "missing-member":
+        del trio["package-lock"]
+    else:
+        trio["package-lock"]["artifact_kind"] = "resolved-model"
+    assert not admit_resolved_model(trio, authority_context=context).admitted
+    assert admit_rir(artifacts["rir-semantic-payload"], authority_context=context)
+
+
+def _publish_example_model(tmp_path, run_cli, invocation_key):
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(_EXAMPLES / "roguelike-reward-build" / "model-source.json"),
+            "--out",
+            str(tmp_path / f"resolved-model-{invocation_key[0]}.json"),
+            "--invocation-key",
+            invocation_key,
+        ]
+    )
+    assert (exit_code, stderr) == (0, "")
+    receipt = json.loads(stdout)
+    return Path(receipt["manifest_locator"]).parent
+
+
+def _assert_publication_refused(publication_dir, run_cli, context, code, pointer):
+    exit_code, stdout, stderr = run_cli(
+        ["model", "inspect", str(publication_dir / "artifact-set-receipt.json")]
+    )
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "ingress"
+    assert len(error["diagnostics"]) == 1
+    diagnostic = error["diagnostics"][0]
+    assert diagnostic["code"] == code
+    assert diagnostic["primary"]["pointer"] == pointer
+    # RIR input has its own exact file/semantic admission. An unrelated damaged
+    # member in the producing publication does not replace that contract.
+    assert isinstance(
+        read_rir(
+            str(publication_dir / "rir-semantic-payload.json"),
+            authority_context=context,
+        ),
+        AdmittedRir,
+    )
+
+
+def test_published_and_in_memory_rir_admission_preserve_identical_bytes(
+    tmp_path, run_cli, compiled, context
+):
+    publication_dir = _publish_example_model(tmp_path, run_cli, "a" * 64)
+    actual = read_rir(
+        str(publication_dir / "rir-semantic-payload.json"), authority_context=context
+    )
+    assert isinstance(actual, AdmittedRir)
+    expected = admit_rir(
+        compiled["roguelike-reward-build"]["rir-semantic-payload"],
+        authority_context=context,
+    )
+    assert canonical_bytes(actual.artifact()) == canonical_bytes(expected.artifact())
+    assert actual.semantic_identity == expected.semantic_identity
+
+
+def _reidentify(artifact: dict[str, Any], domain: str) -> None:
+    excluded = (
+        {"manifest_locator", "member_locators"}
+        if domain == "artifact-set-receipt-v2"
+        else set()
+    )
+    artifact["content_identity"] = content_identity(
+        domain,
+        cast(
+            JsonValue,
+            {
+                key: value
+                for key, value in artifact.items()
+                if key != "content_identity" and key not in excluded
+            },
+        ),
+    )
+
+
+def test_model_publication_rejects_damage_to_an_unrequested_member(
+    tmp_path: Path,
+    run_cli,
+    context,
+) -> None:
+    publication_dir = _publish_example_model(
+        tmp_path,
+        run_cli,
+        "b" * 64,
+    )
+    member_path = publication_dir / "capability-manifest.json"
+    original_bytes = member_path.read_bytes()
+    original = json.loads(original_bytes)
+
+    def assert_refused() -> None:
+        _assert_publication_refused(
+            publication_dir,
+            run_cli,
+            context,
+            "kernel.binding_mismatch",
+            "/capability-manifest",
+        )
+
+    member_path.unlink()
+    assert_refused()
+    member_path.write_bytes(original_bytes)
+
+    member_path.write_bytes(b"not-json")
+    assert_refused()
+    member_path.write_bytes(original_bytes)
+
+    payload = {
+        key: value
+        for key, value in original.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "content_identity",
+            "wire_schema_identity",
+        }
+    }
+    payload["package_lock_identity"] = "sha256:" + ("0" * 64)
+    replacement = select_artifact_contract(
+        context.language_bundle, "capability-manifest"
+    ).identify(cast(dict[str, JsonValue], payload))
+    assert replacement["content_identity"] != original["content_identity"]
+    member_path.write_bytes(canonical_bytes(cast(JsonValue, replacement)))
+    assert_refused()
+
+
+def test_model_publication_rejects_an_ambiguous_descriptor(
+    tmp_path: Path,
+    run_cli,
+    context,
+) -> None:
+    invocation_key = "c" * 64
+    publication_dir = _publish_example_model(
+        tmp_path,
+        run_cli,
+        invocation_key,
+    )
+    _publish_example_model(tmp_path, run_cli, "d" * 64)
+
+    manifest_path = publication_dir / "artifact-set-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    descriptor = deepcopy(
+        next(
+            row for row in manifest["members"] if row["logical_name"] == "build-receipt"
+        )
+    )
+    descriptor["wire_schema_identity"] = "sha256:" + ("0" * 64)
+    manifest["members"].append(descriptor)
+    _reidentify(manifest, "artifact-set-manifest-v2")
+    manifest_path.write_bytes(canonical_bytes(cast(JsonValue, manifest)))
+
+    receipt_path = publication_dir / "artifact-set-receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["manifest_identity"] = manifest["content_identity"]
+    receipt["member_locators"].append(
+        {
+            "logical_name": "build-receipt",
+            "locator": str((publication_dir / "build-receipt.json").absolute()),
+        }
+    )
+    _reidentify(receipt, "artifact-set-receipt-v2")
+    receipt_path.write_bytes(canonical_bytes(cast(JsonValue, receipt)))
+
+    index_path = publication_dir / "publication-index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index["receipt_identity"] = receipt["content_identity"]
+    _reidentify(index, "publication-index-v2")
+    index_path.write_bytes(canonical_bytes(cast(JsonValue, index)))
+
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    anchor_path = next((store / "anchors").glob(f"*/{invocation_key}.json"))
+    anchor_path.unlink()
+    anchor_path.write_bytes(
+        canonical_bytes(
+            cast(
+                JsonValue,
+                publication_module._authenticated_anchor(
+                    index,
+                    publication_module.publication_authentication_key(),
+                ),
+            )
+        )
+    )
+    anchor_path.chmod(0o444)
+
+    _assert_publication_refused(
+        publication_dir,
+        run_cli,
+        context,
+        "kernel.member_set_mismatch",
+        "/manifest/members",
+    )

@@ -22,7 +22,7 @@ from gda_balancing.domain.model import (
     CheckedModel,
     check_model_source_value,
     compile_checked_model,
-    project_compiled_model_binding,
+    admit_rir,
 )
 from test_schema2_model_cli import _reidentify_language_bundle
 
@@ -49,24 +49,18 @@ def _remap_context(reason_id: str, other_id: str) -> AdmittedAuthorityContext:
     return context
 
 
-def _bound_example(context: AdmittedAuthorityContext):
+def _admitted_example(context: AdmittedAuthorityContext):
     source = json.loads((_EXAMPLE / "model-source.json").read_bytes())
     model = check_model_source_value(source, authority_context=context)
     assert isinstance(model, CheckedModel), model
     artifacts = compile_checked_model(model)
     assert len(artifacts) == 8
-    binding = project_compiled_model_binding(artifacts, context)
+    program = admit_rir(artifacts["rir-semantic-payload"], authority_context=context)
     value = json.loads((_EXAMPLE / "experiment.json").read_bytes())
-    build = artifacts["build-receipt"]
-    value["kernel_identity"] = build["kernel_identity"]
-    value["language_bundle_identity"] = build["language_bundle_identity"]
     value["model"] = {
-        key: build["content_identity"]
-        if key == "build_receipt_identity"
-        else build[key]
-        for key in value["model"]
+        "rir_semantic_identity": artifacts["rir-semantic-payload"]["semantic_identity"]
     }
-    return binding, value, artifacts
+    return program, value, artifacts
 
 
 def _envelope(reason: dict[str, Any], identity: str, pointer: str, message: str):
@@ -126,7 +120,7 @@ def test_legal_ingress_reason_mapping_preserves_the_complete_refusal(
     observations = []
     rir_identities = []
     for context in (packaged_authority_context(), _remap_context(reason_id, other_id)):
-        binding, value, artifacts = _bound_example(context)
+        program, value, artifacts = _admitted_example(context)
         rir_identities.append(artifacts["rir-semantic-payload"]["semantic_identity"])
         reason = reason_by_id(context.language_bundle, reason_id)
         if case == "numeric":
@@ -158,9 +152,7 @@ def test_legal_ingress_reason_mapping_preserves_the_complete_refusal(
             path = tmp_path / "malformed.json"
             path.write_bytes(raw)
             identity = "sha256:" + hashlib.sha256(raw).hexdigest()
-            refusal = check_experiment(
-                str(path), authority_context=context, model_binding=binding
-            )
+            refusal = check_experiment(str(path), program, authority_context=context)
         else:
             if case == "parse-value":
                 value = {"invalid": float("nan")}
@@ -169,7 +161,7 @@ def test_legal_ingress_reason_mapping_preserves_the_complete_refusal(
                 identity = content_identity(
                     "experiment-specification-v2", cast(JsonValue, value)
                 )
-            refusal = check_experiment_value(value, binding, authority_context=context)
+            refusal = check_experiment_value(value, program, authority_context=context)
         assert isinstance(refusal, Schema2RefusalReport), refusal
         observations.append(
             (
@@ -197,13 +189,13 @@ def test_legal_ingress_reason_mapping_preserves_the_complete_refusal(
 
 def test_unresolved_root_event_reference_uses_its_declared_resolution_stage():
     context = packaged_authority_context()
-    binding, value, _artifacts = _bound_example(context)
+    program, value, _artifacts = _admitted_example(context)
     first_root = value["scenarios"][0]["event_plan"][0]
     first_root["entrypoint"] = "combat.player-attacks-enemy-and-cancels-counterattack"
     first_root["event_references"] = [
         {"name": "counterattack", "root_event_ref": "absent-root"}
     ]
-    refusal = check_experiment_value(value, binding, authority_context=context)
+    refusal = check_experiment_value(value, program, authority_context=context)
     assert isinstance(refusal, Schema2RefusalReport), refusal
     assert refusal.model_dump(mode="json") == _envelope(
         reason_by_id(
@@ -220,18 +212,16 @@ def test_experiment_ingress_size_refusal_preserves_observed_identity(
     from_file: bool, tmp_path: Path
 ):
     context = packaged_authority_context()
-    binding, _value, _artifacts = _bound_example(context)
+    program, _value, _artifacts = _admitted_example(context)
     value = {"padding": "x" * context.language_bundle["resources"]["max_source_bytes"]}
     raw = canonical_bytes(cast(JsonValue, value))
     if from_file:
         path = tmp_path / "oversized.json"
         path.write_bytes(raw)
-        refusal = check_experiment(
-            str(path), authority_context=context, model_binding=binding
-        )
+        refusal = check_experiment(str(path), program, authority_context=context)
     else:
         refusal = check_experiment_value(
-            deepcopy(value), binding, authority_context=context
+            deepcopy(value), program, authority_context=context
         )
     assert isinstance(refusal, Schema2RefusalReport), refusal
     assert refusal.model_dump(mode="json") == _envelope(
@@ -249,7 +239,7 @@ def test_http_session_creation_emits_the_admitted_numeric_reason(monkeypatch):
     context = _remap_context(
         "quantity.reason.invalid-domain", "structured.reason.type-mismatch"
     )
-    _binding, value, artifacts = _bound_example(context)
+    _program, value, artifacts = _admitted_example(context)
     assignment = value["scenarios"][0]["assignments"][0]
     declaration = next(
         row
@@ -260,7 +250,7 @@ def test_http_session_creation_emits_the_admitted_numeric_reason(monkeypatch):
     )
     assignment["value"] = declaration["domain"]["maximum"] + 1
     # Supply the legal installed authority at Model ingress; session creation
-    # still runs actual Model compilation, binding admission and Experiment check.
+    # still runs actual Model compilation, program admission and Experiment check.
     monkeypatch.setattr(model_checking, "packaged_authority_context", lambda: context)
     app = create_api_v1()
     raw = json.dumps(

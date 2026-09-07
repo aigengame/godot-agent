@@ -23,7 +23,7 @@ from gda_balancing.domain.model import (
     admit_resolved_model,
     check_model_source_value,
     compile_checked_model,
-    project_compiled_model_binding,
+    admit_rir,
 )
 from gda_balancing.domain.runtime.execution import (
     EvaluationArtifacts,
@@ -69,24 +69,18 @@ def _compile(source, context) -> dict[str, dict[str, Any]]:
 
 def _numeric_observations(name, artifacts, context):
     value = json.loads((_EXAMPLES / name / "experiment.json").read_bytes())
-    build = artifacts["build-receipt"]
-    value["kernel_identity"] = build["kernel_identity"]
-    value["language_bundle_identity"] = build["language_bundle_identity"]
     value["model"] = {
-        key: build["content_identity"]
-        if key == "build_receipt_identity"
-        else build[key]
-        for key in value["model"]
+        "rir_semantic_identity": artifacts["rir-semantic-payload"]["semantic_identity"]
     }
-    binding = project_compiled_model_binding(artifacts, context)
-    checked = check_experiment_value(value, binding, authority_context=context)
+    program = admit_rir(artifacts["rir-semantic-payload"], authority_context=context)
+    checked = check_experiment_value(value, program, authority_context=context)
     assert isinstance(checked, CheckedExperiment), checked
     outcome = evaluate_experiment(checked)
     assert isinstance(outcome, EvaluationArtifacts), outcome
     members = {name: member.value for name, member in outcome.members.items()}
     assert validate_experiment_artifact_set(checked, members)
-    # Complete observed values are compared; producer/binding identifiers are
-    # separately expected to change with the independently resealed LDB.
+    # Complete execution observations remain equal despite the independently
+    # resealed language bundle's different provenance.
     return {
         "accepted": outcome.accepted,
         "failed_metrics": list(outcome.failed_metrics),
@@ -169,14 +163,8 @@ def test_nonexecuting_model_refuses_before_constructing_runtime_consumers(
     value = json.loads(
         (_EXAMPLES / "progression-periodic-effect" / "experiment.json").read_bytes()
     )
-    build = artifacts["build-receipt"]
-    value["kernel_identity"] = build["kernel_identity"]
-    value["language_bundle_identity"] = build["language_bundle_identity"]
     value["model"] = {
-        key: build["content_identity"]
-        if key == "build_receipt_identity"
-        else build[key]
-        for key in value["model"]
+        "rir_semantic_identity": artifacts["rir-semantic-payload"]["semantic_identity"]
     }
     value["runtime"]["profile"] = "compile.exact-int64"
     value["runtime"]["required_evaluator"]["runtime_profiles"] = ["compile.exact-int64"]
@@ -203,8 +191,8 @@ def test_nonexecuting_model_refuses_before_constructing_runtime_consumers(
             ],
         }
     ]
-    binding = project_compiled_model_binding(artifacts, context)
-    refused = check_experiment_value(value, binding, authority_context=context)
+    program = admit_rir(artifacts["rir-semantic-payload"], authority_context=context)
+    refused = check_experiment_value(value, program, authority_context=context)
     assert isinstance(refused, Schema2RefusalReport), refused
     assert refused.stage == "resolution"
     assert refused.variant is None
@@ -213,7 +201,7 @@ def test_nonexecuting_model_refuses_before_constructing_runtime_consumers(
     diagnostic = refused.diagnostics[0]
     assert diagnostic.code == "language.resolution_binding_mismatch"
     assert isinstance(diagnostic.primary, ArtifactLocation)
-    assert diagnostic.primary.pointer == "/model/rir_identity"
+    assert diagnostic.primary.pointer == "/model/rir_semantic_identity"
     assert diagnostic.message == "Experiment Model has no executable Event entrypoints"
 
 

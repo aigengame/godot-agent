@@ -16,7 +16,7 @@ from gda_balancing.domain.model import (
     CheckedModel,
     check_model_source_value,
     compile_checked_model,
-    project_compiled_model_binding,
+    admit_rir,
 )
 from gda_balancing.domain.runtime.execution import (
     EvaluationArtifacts,
@@ -34,13 +34,17 @@ def admitted_model():
     model = check_model_source_value(source, authority_context=context)
     assert isinstance(model, CheckedModel), model
     artifacts = compile_checked_model(model)
-    return context, artifacts, project_compiled_model_binding(artifacts, context)
+    return (
+        context,
+        artifacts,
+        admit_rir(artifacts["rir-semantic-payload"], authority_context=context),
+    )
 
 
 def test_selected_artifact_contract_preserves_bytes_and_detaches_authority(
     admitted_model,
 ):
-    context, artifacts, _binding = admitted_model
+    context, artifacts, _program = admitted_model
     _kernel, mutable_language = context.mutable_pair()
     assert len(artifacts) == 8
     for kind, value in artifacts.items():
@@ -82,26 +86,20 @@ def test_selected_artifact_contract_preserves_bytes_and_detaches_authority(
 
 @pytest.fixture
 def admitted_experiment(admitted_model):
-    context, artifacts, binding = admitted_model
+    context, artifacts, program = admitted_model
     value = json.loads((_EXAMPLE / "experiment.json").read_bytes())
-    build = artifacts["build-receipt"]
-    value["kernel_identity"] = build["kernel_identity"]
-    value["language_bundle_identity"] = build["language_bundle_identity"]
     value["model"] = {
-        key: build["content_identity"]
-        if key == "build_receipt_identity"
-        else build[key]
-        for key in value["model"]
+        "rir_semantic_identity": artifacts["rir-semantic-payload"]["semantic_identity"]
     }
-    checked = check_experiment_value(value, binding, authority_context=context)
+    checked = check_experiment_value(value, program, authority_context=context)
     assert isinstance(checked, CheckedExperiment), checked
-    return context, binding, value, checked
+    return context, program, value, checked
 
 
 def test_checked_experiment_pins_nested_inputs_and_output_contracts(
     admitted_experiment,
 ):
-    context, binding, value, checked = admitted_experiment
+    context, program, value, checked = admitted_experiment
     original_seed = value["seed"]["value"]
     expected = evaluate_experiment(checked)
     assert isinstance(expected, EvaluationArtifacts), expected
@@ -138,7 +136,7 @@ def test_checked_experiment_pins_nested_inputs_and_output_contracts(
             for name, member in repeated.members.items()
         },
     )
-    next_checked = check_experiment_value(value, binding, authority_context=context)
+    next_checked = check_experiment_value(value, program, authority_context=context)
     assert isinstance(next_checked, CheckedExperiment), next_checked
     assert next_checked.value["seed"]["value"] == original_seed + 1
     assert next_checked.content_identity != checked.content_identity
@@ -147,7 +145,7 @@ def test_checked_experiment_pins_nested_inputs_and_output_contracts(
 def test_execution_and_independent_validation_need_no_ingress_authorities(
     admitted_experiment,
 ):
-    _context, _binding, _value, checked = admitted_experiment
+    _context, _program, _value, checked = admitted_experiment
 
     class ExecutionBoundary:
         """Expose admitted data while trapping a return to an ingress catalog.

@@ -18,7 +18,7 @@ from gda_balancing.domain.model import (
     CheckedModel,
     check_model_source_value,
     compile_checked_model,
-    project_compiled_model_binding,
+    admit_rir,
 )
 from gda_balancing.domain.structured_values import evaluate_structured_value_vector
 from test_execution_dependency_closure import _structured_budget_context
@@ -82,7 +82,9 @@ def test_legal_structured_reason_mapping_reaches_experiment_and_vector_boundarie
         assert isinstance(model, CheckedModel), model
         artifacts = compile_checked_model(model)
         assert len(artifacts) == 8
-        binding = project_compiled_model_binding(artifacts, context)
+        program = admit_rir(
+            artifacts["rir-semantic-payload"], authority_context=context
+        )
         rir = artifacts["rir-semantic-payload"]
         identities.append(rir["semantic_identity"])
         selected_reason = next(
@@ -92,17 +94,9 @@ def test_legal_structured_reason_mapping_reaches_experiment_and_vector_boundarie
             ]
             if row["definition"]["id"] == f"structured.reason.{reason}"
         )
-        build = artifacts["build-receipt"]
         value = deepcopy(specification)
-        value["kernel_identity"] = build["kernel_identity"]
-        value["language_bundle_identity"] = build["language_bundle_identity"]
-        value["model"] = {
-            key: build["content_identity"]
-            if key == "build_receipt_identity"
-            else build[key]
-            for key in value["model"]
-        }
-        refusal = check_experiment_value(value, binding, authority_context=context)
+        value["model"] = {"rir_semantic_identity": program.semantic_identity}
+        refusal = check_experiment_value(value, program, authority_context=context)
         assert isinstance(refusal, Schema2RefusalReport), refusal
         assert refusal.stage == "static"
         assert len(refusal.diagnostics) == 1
@@ -175,7 +169,7 @@ def test_lookup_fault_identity_follows_the_selected_kernel_signal():
     model = check_model_source_value(source, authority_context=context)
     assert isinstance(model, CheckedModel), model
     artifacts = compile_checked_model(model)
-    project_compiled_model_binding(artifacts, context)
+    admit_rir(artifacts["rir-semantic-payload"], authority_context=context)
     authority = selected_structured_value_index(
         cast(dict[str, Any], artifacts["rir-semantic-payload"]["selected_semantics"])
     )
