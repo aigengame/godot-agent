@@ -38,7 +38,7 @@ class ExecutionKind(str, enum.Enum):
       published ``kind`` must not claim the ``operations.gd`` sentinel pipeline
       it never uses.
     - ``COMPOSITE`` — a bounded host-side workflow assembled from supported
-      operations and a supporting-context service. It is self-description only:
+      operations, optionally with a supporting-context service. It is self-description only:
       the descriptor's ``recipe`` selects execution, with no composite runner.
     """
 

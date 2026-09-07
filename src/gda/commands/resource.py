@@ -17,13 +17,16 @@ lives with its single consumer in the ``project`` group (ADR-0040 §5).
 
 import hashlib
 import json
+import math
 import os
 import re
+from contextlib import contextmanager
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 import typer
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
@@ -129,6 +132,117 @@ class ResourceLoadParams(BaseModel):
     path: NormalizedPath = Field(
         description="An imported project resource to load through Godot."
     )
+
+
+ROOT_SCALE_MIN = 0.001
+ROOT_SCALE_MAX = 1000.0
+
+
+class ResourceImportOptionsParams(BaseModel):
+    path: NormalizedPath = Field(
+        description="An existing GLB source with a Godot .import sidecar."
+    )
+
+
+class ConfiguredImportOption(BaseModel):
+    name: str
+    value: Any
+    value_type: str = Field(
+        description="Observed Godot Variant type, not importer-declared metadata."
+    )
+    value_unavailable_reason: str | None
+
+
+class SupportedImportUpdate(BaseModel):
+    name: Literal["nodes/root_scale"] = "nodes/root_scale"
+    value_type: Literal["float"] = "float"
+    minimum: float = ROOT_SCALE_MIN
+    maximum: float = ROOT_SCALE_MAX
+
+
+class ResourceImportOptionsResult(BaseModel):
+    path: str
+    sidecar: str
+    engine_version: EngineVersion
+    importer: str
+    resource_type: str
+    configured_options: list[ConfiguredImportOption]
+    configured_options_truncated: bool
+    default_metadata_available: Literal[False] = False
+    metadata_limitations: list[str] = Field(
+        default_factory=lambda: [
+            "The importer name is recorded in the sidecar, not proof of an active registered importer.",
+            "Configured values are not an importer capability list or proof of explicit authorship.",
+            "Importer defaults, declared types, hints and plugin capabilities are not exposed by this operation.",
+            "Effective engine values require reimport/load verification; sidecar values alone do not prove adoption.",
+            "At most 128 options are reported; complex values and strings above 4096 characters are omitted.",
+        ]
+    )
+    supported_updates: list[SupportedImportUpdate] = Field(
+        default_factory=lambda: [SupportedImportUpdate()],
+        description="The gda built-in scene-importer update contract, not dynamically discovered plugin metadata.",
+    )
+
+
+def render_resource_import_options(result: ResourceImportOptionsResult) -> str:
+    return (
+        f"{result.path}: {result.importer} importer, "
+        f"{len(result.configured_options)} configured options; "
+        "importer defaults unavailable (use --json for values and limitations)"
+    )
+
+
+@contextmanager
+def _import_config_project():
+    """Use Godot's Variant parser without executing the target project."""
+    with TemporaryDirectory(prefix="gda-import-options-") as directory:
+        scratch = Path(directory)
+        (scratch / "project.godot").write_text(
+            'config_version=5\n[application]\nconfig/name="gda import options"\n'
+        )
+        yield scratch
+
+
+def run_resource_import_options_operation(
+    project: Path, params: ResourceImportOptionsParams, *, godot: str | None = None
+) -> ResourceImportOptionsResult | Failure:
+    """Read native ConfigFile values without starting the target project's code."""
+    addressed = _asset_res_path(project, params.path)
+    if isinstance(addressed, Failure):
+        return addressed
+    if Path(addressed).suffix.lower() != ".glb":
+        return make_failure(
+            "invalid_params", "import-options currently supports GLB sources only", ""
+        )
+    source = project_absolute(project) / addressed[len(RES_PREFIX) :]
+    if not source.is_file():
+        return make_failure("path_not_found", f"asset not found: {addressed}", "")
+    # ConfigFile owns Variant parsing. An empty project prevents metadata reads
+    # from running target autoloads or performing a target-project import scan.
+    with _import_config_project() as scratch:
+        result = RESOURCE_IMPORT_OPTIONS_COMMAND.execute(
+            ResourceImportOptionsParams(path=str(source)), project=scratch, godot=godot
+        )
+    if isinstance(result, Failure):
+        return result
+    return result.model_copy(
+        update={"path": addressed, "sidecar": addressed + ".import"}
+    )
+
+
+def _resource_import_options_recipe(params, *, project, godot):
+    return run_resource_import_options_operation(project, params, godot=godot)
+
+
+RESOURCE_IMPORT_OPTIONS_COMMAND: HeadlessCommand[ResourceImportOptionsResult] = (
+    HeadlessCommand(
+        operation="resource-import-options",
+        input_model=ResourceImportOptionsParams,
+        output_model=ResourceImportOptionsResult,
+        render=render_resource_import_options,
+        recipe=_resource_import_options_recipe,
+    )
+)
 
 
 ModelVector3 = tuple[float, float, float]
@@ -603,6 +717,33 @@ def get_resource(
     dispatch_domain(
         RESOURCE_GET_COMMAND,
         ResourceGetParams(path=path),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(
+    name="import-options", cls=RESOURCE_IMPORT_OPTIONS_COMMAND.command_class()
+)
+def import_options(
+    path: str = typer.Argument(
+        ..., help="An existing GLB source with an import sidecar."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_IMPORT_OPTIONS_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read configured import values and the supported update scope without reimporting.
+
+    A sidecar does not disclose explicit authorship, importer defaults or whether
+    cached engine results adopted its values. Metadata limitations are explicit.
+    """
+    dispatch_recipe(
+        RESOURCE_IMPORT_OPTIONS_COMMAND,
+        ResourceImportOptionsParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1456,6 +1597,7 @@ def run_resource_import_operation(
     params: ResourceImportParams,
     *,
     godot: Optional[str] = None,
+    options_changed: bool = False,
 ) -> "ResourceImportResult | Failure":
     """Decide per asset, run the engine pass only when needed, account for it all.
 
@@ -1463,7 +1605,10 @@ def run_resource_import_operation(
     verdicts, and — unless everything is cached or this is a dry run — run the
     engine's project-wide ``--import`` pass through the shared launch primitive,
     then re-verdict the assets and classify every created file against the
-    cache root.
+    cache root. ``options_changed`` is the reimport caller's known configuration
+    change: cached artifact evidence then also requests a pass, since it does
+    not check importer options. This does not bypass invalid evidence or add
+    a per-file engine primitive; ordinary resource import leaves it false.
     """
     assert project is not None  # a project-using recipe; dispatch resolved it
     res_paths: list[str] = []
@@ -1489,7 +1634,11 @@ def run_resource_import_operation(
     # failed import and an unparseable artifact (delete the sidecar to
     # retry) — so it settles to failed
     # without spending a pass.
-    needs_pass = any(asset.status in ("missing", "stale") for asset in assets)
+    needs_pass = any(
+        asset.status in ("missing", "stale")
+        or (options_changed and asset.status == "cached")
+        for asset in assets
+    )
 
     if params.dry_run:
         predicted = [
@@ -1550,7 +1699,7 @@ def run_resource_import_operation(
     # is failed.
     settled: list[ResourceImportAsset] = []
     for asset in assets:
-        if asset.status == "cached":
+        if asset.status == "cached" and not options_changed:
             settled.append(asset)
             continue
         now = _asset_state(project, asset.path)
@@ -1577,6 +1726,358 @@ def run_resource_import_operation(
         assets=assets,
         created=created,
         summary=_summarize(assets, created),
+    )
+
+
+class RootScaleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    root_scale: float = Field(
+        alias="nodes/root_scale",
+        strict=True,
+        allow_inf_nan=False,
+        ge=ROOT_SCALE_MIN,
+        le=ROOT_SCALE_MAX,
+        description="Positive uniform scale for the built-in scene importer.",
+    )
+
+
+class ResourceReimportParams(BaseModel):
+    path: NormalizedPath = Field(
+        description="An already imported GLB source in the project."
+    )
+    updates: RootScaleUpdate = Field(
+        description="Supported importer edits; currently nodes/root_scale only."
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Check the patch without target writes, loading, or an import pass.",
+    )
+    timeout: float = Field(
+        default=300.0,
+        gt=0,
+        allow_inf_nan=False,
+        description="Seconds to allow the project-wide import pass; sentinel queries retain their normal timeout.",
+    )
+
+
+class ImportOptionChange(BaseModel):
+    name: str
+    before: float
+    requested: float
+
+
+_SCALE_REL_TOLERANCE = 0.00001
+_SCALE_ABS_TOLERANCE = 0.0001
+
+
+class RootScaleVerification(BaseModel):
+    before: ModelBounds
+    after: ModelBounds
+    scale_ratio: float
+    effective_root_scale: float | None = Field(
+        description="Configured scale supported by this size comparison; null when verification fails."
+    )
+    matched: bool
+    compared_axes: list[int] = Field(
+        description="Size axes above 0.0001 before scaling; 0=x, 1=y, 2=z."
+    )
+    measurement: Literal["static_mesh_aabb_size"] = "static_mesh_aabb_size"
+    relative_tolerance: float = _SCALE_REL_TOLERANCE
+    absolute_tolerance: float = _SCALE_ABS_TOLERANCE
+
+
+class ResourceReimportResult(BaseModel):
+    path: str
+    dry_run: bool
+    status: Literal["checked", "unchanged", "applied", "failed"]
+    changes: list[ImportOptionChange]
+    sidecar_changed: bool = False
+    import_result: ResourceImportResult | None = None
+    engine_pass_attempted: bool = False
+    verification: RootScaleVerification | None = None
+    mutation_scope: str = "Selected source-adjacent .import options; actual import work is project-wide. Verification loads trusted project code."
+
+
+class _ImportConfigEditParams(BaseModel):
+    sidecar: str
+    original: str
+    root_scale: float
+
+
+class _ImportConfigEditResult(BaseModel):
+    root_scale: float
+    changed_unselected_options: list[str] = Field(default_factory=list)
+
+
+_IMPORT_CONFIG_PATCH = HeadlessCommand(
+    operation="resource-import-config-patch",
+    input_model=_ImportConfigEditParams,
+    output_model=_ImportConfigEditResult,
+    render=lambda result: str(result.root_scale),
+)
+_IMPORT_CONFIG_CHECK = HeadlessCommand(
+    operation="resource-import-config-check",
+    input_model=_ImportConfigEditParams,
+    output_model=_ImportConfigEditResult,
+    render=lambda result: str(result.root_scale),
+)
+
+
+def _reimport_bounds(
+    project: Path, path: str, godot: str | None
+) -> ModelBounds | Failure:
+    inspected = run_resource_inspect_model_operation(
+        project,
+        ResourceInspectModelParams(path=path, max_nodes=4096, max_items=1),
+        godot=godot,
+    )
+    if isinstance(inspected, Failure):
+        return inspected
+    if inspected.bounds is None or any(
+        item.reason == "node_limit" for item in inspected.omissions
+    ):
+        return make_failure(
+            "invalid_params",
+            "root-scale verification needs complete static mesh bounds within 4096 nodes",
+            "",
+        )
+    return inspected.bounds
+
+
+def _reimport_failure(failure: Failure, result: ResourceReimportResult) -> Failure:
+    result.status = "failed"
+    failure.error = failure.error.model_copy(
+        update={"partial_result": result.model_dump(mode="json")}
+    )
+    return failure
+
+
+def _sizes_match(
+    before: ModelBounds, after: ModelBounds, ratio: float, axes: list[int]
+) -> bool:
+    return all(
+        math.isclose(
+            after.size[i],
+            before.size[i] * ratio,
+            rel_tol=_SCALE_REL_TOLERANCE,
+            abs_tol=_SCALE_ABS_TOLERANCE,
+        )
+        for i in axes
+    )
+
+
+def run_resource_reimport_operation(
+    project: Path, params: ResourceReimportParams, *, godot: str | None = None
+) -> ResourceReimportResult | Failure:
+    options = run_resource_import_options_operation(
+        project, ResourceImportOptionsParams(path=params.path), godot=godot
+    )
+    if isinstance(options, Failure):
+        return options
+    current = {option.name: option for option in options.configured_options}
+    scale = current.get("nodes/root_scale")
+    apply_scale = current.get("nodes/apply_root_scale")
+    if (
+        scale is None
+        or scale.value_type != "float"
+        or not isinstance(scale.value, (int, float))
+        or not ROOT_SCALE_MIN <= scale.value <= ROOT_SCALE_MAX
+        or apply_scale is None
+        or apply_scale.value_type != "bool"
+    ):
+        return make_failure(
+            "invalid_params",
+            "supported scene root-scale configuration is unavailable",
+            "",
+        )
+    evidence = _asset_state(project_absolute(project), options.path)
+    if evidence.status == "invalid":
+        return make_failure(
+            "invalid_params",
+            "import evidence is invalid; inspect resource import --dry-run and repair it explicitly before changing options",
+            "",
+        )
+    requested = params.updates.root_scale
+    changes = (
+        []
+        if scale.value == requested
+        else [
+            ImportOptionChange(
+                name="nodes/root_scale", before=scale.value, requested=requested
+            )
+        ]
+    )
+    result = ResourceReimportResult(
+        path=options.path,
+        dry_run=params.dry_run,
+        status="checked" if params.dry_run else "unchanged",
+        changes=changes,
+    )
+    if params.dry_run or not changes:
+        return result
+    if evidence.status != "cached":
+        return make_failure(
+            "invalid_params",
+            "import the source explicitly before comparing its configured scale with a new value",
+            "",
+        )
+    source = project_absolute(project) / options.path[len(RES_PREFIX) :]
+    sidecar = source.with_name(source.name + ".import")
+    original = sidecar.read_bytes()
+    with source.open("rb") as stream:
+        source_digest = hashlib.file_digest(stream, "sha256").digest()
+    before = _reimport_bounds(project, options.path, godot)
+    if isinstance(before, Failure):
+        return before
+    axes = [i for i, extent in enumerate(before.size) if extent > _SCALE_ABS_TOLERANCE]
+    if not axes:
+        return make_failure(
+            "invalid_params", "model has no measurable size axis above 0.0001", ""
+        )
+    ratio = requested / scale.value
+    if _sizes_match(before, before, ratio, axes):
+        return make_failure(
+            "invalid_params",
+            "requested size change is below verification tolerance; unchanged geometry could pass",
+            "",
+        )
+    with _import_config_project() as scratch:
+        reference = scratch / "original.import"
+        reference.write_bytes(original)
+        edit = _ImportConfigEditParams(
+            sidecar=str(sidecar), original=str(reference), root_scale=requested
+        )
+        patched = _IMPORT_CONFIG_PATCH.execute(edit, project=scratch, godot=godot)
+        # A timeout or save failure may still have changed the file.
+        result.sidecar_changed = (
+            not sidecar.is_file() or sidecar.read_bytes() != original
+        )
+        if isinstance(patched, Failure):
+            return _reimport_failure(patched, result)
+        result.engine_pass_attempted = True
+        imported = run_resource_import_operation(
+            project,
+            ResourceImportParams(assets=[options.path], timeout=params.timeout),
+            godot=godot,
+            options_changed=True,
+        )
+        if isinstance(imported, Failure):
+            return _reimport_failure(imported, result)
+        result.import_result = imported
+        if imported.summary.failed or not imported.engine_pass:
+            return _reimport_failure(
+                make_failure(
+                    "operation_failed",
+                    "updated options remain on disk, but import did not succeed",
+                    "",
+                ),
+                result,
+            )
+        checked = _IMPORT_CONFIG_CHECK.execute(edit, project=scratch, godot=godot)
+        if isinstance(checked, Failure):
+            return _reimport_failure(checked, result)
+        if checked.root_scale != requested or checked.changed_unselected_options:
+            return _reimport_failure(
+                make_failure(
+                    "operation_failed",
+                    "engine changed unselected import options or did not retain root_scale: "
+                    + ", ".join(checked.changed_unselected_options),
+                    "",
+                ),
+                result,
+            )
+    after = _reimport_bounds(project, options.path, godot)
+    if isinstance(after, Failure):
+        return _reimport_failure(after, result)
+    result.verification = RootScaleVerification(
+        before=before,
+        after=after,
+        scale_ratio=ratio,
+        effective_root_scale=None,
+        compared_axes=axes,
+        matched=_sizes_match(before, after, ratio, axes)
+        and not _sizes_match(before, after, 1.0, axes),
+    )
+    with source.open("rb") as stream:
+        source_unchanged = (
+            hashlib.file_digest(stream, "sha256").digest() == source_digest
+        )
+    if not source_unchanged or not result.verification.matched:
+        return _reimport_failure(
+            make_failure(
+                "operation_failed",
+                "loaded dimensions do not verify the requested scale on unchanged source bytes; no rollback was attempted",
+                "",
+            ),
+            result,
+        )
+    result.verification.effective_root_scale = requested
+    result.status = "applied"
+    return result
+
+
+def _resource_reimport_recipe(params, *, project, godot):
+    return run_resource_reimport_operation(project, params, godot=godot)
+
+
+def render_resource_reimport(result: ResourceReimportResult) -> str:
+    text = f"{result.path}: {result.status}, {len(result.changes)} option change(s)"
+    if result.import_result is not None:
+        text += "\n" + render_resource_import(result.import_result)
+    if result.verification is not None:
+        text += f"\n  loaded size scale verified: {result.verification.scale_ratio:g}x"
+    return text
+
+
+RESOURCE_REIMPORT_COMMAND: HeadlessCommand[ResourceReimportResult] = HeadlessCommand(
+    operation="resource-reimport",
+    input_model=ResourceReimportParams,
+    output_model=ResourceReimportResult,
+    render=render_resource_reimport,
+    kind=ExecutionKind.COMPOSITE,
+    recipe=_resource_reimport_recipe,
+)
+
+
+@_app.command(name="reimport", cls=RESOURCE_REIMPORT_COMMAND.command_class())
+def resource_reimport(
+    path: str = typer.Argument(..., help="The imported GLB to update."),
+    updates: str = typer.Option(
+        ..., "--updates-json", help="JSON object of supported import-option edits."
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Validate without changing target files or running an import pass.",
+    ),
+    timeout: float = typer.Option(
+        300.0, min=0.001, help="Seconds to allow the project-wide import pass."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_REIMPORT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Validate a supported option edit, reimport and verify the loaded model."""
+    try:
+        parsed_updates = json.loads(updates)
+    except ValueError as exc:
+        raise typer.BadParameter("updates-json must be a JSON object") from exc
+    params = params_or_bad_parameter(
+        ResourceReimportParams,
+        path=path,
+        updates=parsed_updates,
+        dry_run=dry_run,
+        timeout=timeout,
+    )
+    dispatch_recipe(
+        RESOURCE_REIMPORT_COMMAND,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
 
 

@@ -210,6 +210,10 @@ _RECIPE_OPERATIONS = {
     # calls the shared launch primitive with the engine's project-wide
     # `--import` argv — not a sentinel op, like `export run`'s native channel.
     "resource-import",
+    # ConfigFile queries isolate target execution; reimport composes the query,
+    # native project-wide pass and model-inspection sentinel operations (#888).
+    "resource-import-options",
+    "resource-reimport",
     # `input sequence` (#838) names the injection route of each phase it applied,
     # and the harness reply counts the events without enumerating them: only the
     # request holds the per-event kinds, so the recipe completes the sentinel op's
