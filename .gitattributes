@@ -1,0 +1,2 @@
+# All .gd files in this repository are GDScript.
+*.gd linguist-language=GDScript
