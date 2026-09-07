@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
+<!-- gda-readme-i18n: source=README.md sha256=e5614c7b752202049d1bb461ce45b578f40f75e156938f6d92b6050a1746778d -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
