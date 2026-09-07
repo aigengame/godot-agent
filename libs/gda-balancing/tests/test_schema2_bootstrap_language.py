@@ -1618,3 +1618,130 @@ def test_two_consumers_admit_cross_owner_calls_with_the_same_local_operation_id(
     assert first == second
     assert first["admitted"] is True
     assert first["diagnostics"] == []
+
+
+def _recursive_nominal_owner_candidate():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    for namespace, member in (
+        ("test.nominal.alpha", "alpha"),
+        ("test.nominal.beta", "beta"),
+    ):
+        package = _append_empty_namespace(ldb, namespace)
+        package["dependencies"]["required"] = ["standard.schema"]
+        package["exports"]["nominal_types"] = ["Token", "Node"]
+        package["exports"]["types"] = [
+            {"id": "Token", "constructor": "standard.schema.enum"},
+            {"id": "Node", "constructor": "standard.schema.record"},
+        ]
+        nominal = next(
+            entry
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "language.nominal_types"
+        )
+        nominal["definitions"] = [
+            {
+                "id": "Token",
+                "constructor": "standard.schema.enum",
+                "definition": {"kind": "enum", "members": [member]},
+            },
+            {
+                "id": "Node",
+                "constructor": "standard.schema.record",
+                "definition": {
+                    "kind": "record",
+                    "fields": [
+                        {"name": name, "type": {"package": namespace, "id": "Token"}}
+                        for name in ("id", "package", "version")
+                    ]
+                    + [
+                        {
+                            "name": "children",
+                            "type": {
+                                "kind": "list",
+                                "maximum_length": 2,
+                                "element": {"package": namespace, "id": "Node"},
+                            },
+                        }
+                    ],
+                },
+            },
+        ]
+    _reidentify_graph_root(ldb)
+    return authority
+
+
+def test_independent_recursive_nominal_values_resolve_attached_owners():
+    authority = _recursive_nominal_owner_candidate()
+    kernel, ldb = authority["kernel"], authority["language_bundle"]
+    first = _consumer_a(kernel, ldb)
+    assert first == _consumer_b(kernel, ldb)
+    assert first["admitted"] is True
+    for namespace, member, foreign in (
+        ("test.nominal.alpha", "alpha", "beta"),
+        ("test.nominal.beta", "beta", "alpha"),
+    ):
+        leaf = {"id": member, "package": member, "version": member, "children": []}
+        payload = {**leaf, "children": [leaf]}
+        value = {"type": {"package": namespace, "id": "Node"}, "value": payload}
+        vector = {
+            "input": {
+                "action": "admit",
+                "key": None,
+                "left": value,
+                "limit": None,
+                "right": None,
+            }
+        }
+        expected = {
+            "code": None,
+            "outcome": "admitted",
+            "pointer": "",
+            "type": value["type"],
+            "value": payload,
+        }
+        assert (
+            _consumer_b_evaluate_structured_value_vector(
+                vector,
+                nominal_types=ldb["language"]["packages"],
+                kernel=kernel,
+                resource_limit=10000,
+            )
+            == expected
+        )
+        vector["input"]["left"] = deepcopy(value)
+        vector["input"]["left"]["value"]["children"][0]["package"] = foreign
+        refused = _consumer_b_evaluate_structured_value_vector(
+            vector,
+            nominal_types=ldb["language"]["packages"],
+            kernel=kernel,
+            resource_limit=10000,
+        )
+        assert refused["outcome"] == "refused"
+        assert refused["code"] == "language.structured_value_unknown_enum"
+        assert refused["pointer"] == "/value/children/0/package"
+
+
+@pytest.mark.parametrize("claimed_owner", ("test.nominal.alpha", "test.nominal.beta"))
+def test_both_consumers_refuse_authored_nominal_owner_even_when_matching(
+    claimed_owner,
+):
+    authority = _recursive_nominal_owner_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "test.nominal.alpha"
+    )
+    entry = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.nominal_types"
+    )
+    entry["definitions"][0]["package"] = claimed_owner
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
+    first = _consumer_a(authority["kernel"], ldb)
+    assert first == _consumer_b(authority["kernel"], ldb)
+    assert first["admitted"] is False
+    assert any(
+        code == "kernel.member_set_mismatch" for _, code, _ in first["diagnostics"]
+    )

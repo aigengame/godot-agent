@@ -298,12 +298,13 @@ def reference_execute_event(
         language_bundle.get("language") if isinstance(language_bundle, dict) else None
     )
     nominal_types = {
-        (row["package"], row["id"]): row
-        for row in (
-            language.get("nominal_types", []) if isinstance(language, dict) else []
+        (package["id"], definition["id"]): definition
+        for package in (
+            language.get("packages", []) if isinstance(language, dict) else []
         )
-        if isinstance(row, dict)
-        and all(isinstance(row.get(member), str) for member in ("package", "id"))
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.nominal_types"
+        for definition in entry["definitions"]
     }
     constructors = {
         row["id"]: row

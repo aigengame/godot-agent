@@ -7240,13 +7240,11 @@ def _consumer_b_operation_composition_subjects(
         if isinstance(signal, str) and isinstance(reason_id, str):
             reasons_by_signal.setdefault(signal, []).append(reason_id)
     nominal_type_definitions = {
-        (
-            cast(str, definition["package"]),
-            cast(str, definition["id"]),
-        ): definition
-        for definition in cast(list[dict[str, Any]], language.get("nominal_types", []))
-        if isinstance(definition, dict)
-        and all(isinstance(definition.get(member), str) for member in ("package", "id"))
+        (package["id"], definition["id"]): definition
+        for package in packages
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.nominal_types"
+        for definition in entry["definitions"]
     }
     by_coordinate: dict[tuple[str, str], dict[str, Any]] = {}
     for package in packages:
@@ -9693,10 +9691,7 @@ def _consumer_b_evaluate_structured_value_vector(
         for constructor in entry.get("definitions", [])
     }
     definitions = {
-        (package["id"], exported["id"]): {
-            **exported,
-            "package": package["id"],
-        }
+        (package["id"], exported["id"]): exported
         for package in nominal_types
         for exported in package.get("exports", {}).get("types", [])
     }
@@ -9705,10 +9700,7 @@ def _consumer_b_evaluate_structured_value_vector(
             if entry.get("authority_path") != "language.nominal_types":
                 continue
             for definition in entry.get("definitions", []):
-                key = (
-                    definition["package"],
-                    definition["id"],
-                )
+                key = (package["id"], definition["id"])
                 if key not in definitions:
                     raise AssertionError("nominal definition has no exported type")
                 definitions[key] = definition

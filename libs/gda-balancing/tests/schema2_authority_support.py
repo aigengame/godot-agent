@@ -17,7 +17,7 @@ def refresh_package_semantic_closures(
 ) -> None:
     """Apply unambiguous flat fixture edits without inventing definition ownership.
 
-    A flat index has no owner for an Operation or Component. When several
+    A flat index has no owner for a package-scoped definition. When several
     namespaces export the same local key, only unchanged attached definitions
     can be matched safely. Edit their attached closures and reidentify the graph
     directly when a test needs to change a colliding definition.
@@ -74,10 +74,7 @@ def refresh_package_semantic_closures(
                     if local_key in path_values(candidate, projection["owners_path"])
                 ]
                 if path in scoped and len(owners) > 1:
-                    if isinstance(definition, dict) and "package" in definition:
-                        if definition["package"] != package["id"]:
-                            continue
-                    elif definition not in entry["definitions"]:
+                    if definition not in entry["definitions"]:
                         if not any(
                             definition in candidate_entry["definitions"]
                             for owner in owners

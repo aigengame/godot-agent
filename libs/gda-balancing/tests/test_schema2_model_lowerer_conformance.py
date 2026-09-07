@@ -3593,11 +3593,29 @@ def _reference_runtime_projection(
                     matched = True
             assert matched
 
+    type_closure = profile["type_reference_closure"]
+
+    def nested_type_terms(value: Any):
+        consume()
+        if isinstance(value, list):
+            for child in value:
+                yield from nested_type_terms(child)
+        elif isinstance(value, dict):
+            coordinate_members = type_closure["coordinate_members"]
+            if set(coordinate_members) <= set(value):
+                yield "reference", tuple(value[member] for member in coordinate_members)
+            else:
+                structural_kind = value.get(type_closure["structural_kind_member"])
+                if isinstance(structural_kind, str):
+                    yield "constructor", structural_kind
+                for child in value.values():
+                    yield from nested_type_terms(child)
+
     previous = None
     while previous != selected:
         previous = {name: set(indexes) for name, indexes in selected.items()}
         for edge in profile["edges"]:
-            for source_index in selected[edge["source_collection"]]:
+            for source_index in sorted(selected[edge["source_collection"]]):
                 consume()
                 source = catalogs[edge["source_collection"]][source_index]
                 expected = descend(source[2], edge["source_path"])
@@ -3607,8 +3625,34 @@ def _reference_runtime_projection(
                     consume()
                     if edge["same_package"] and source[0] != target[0]:
                         continue
-                    if descend(target[2], edge["target_path"]) == expected:
+                    try:
+                        actual = descend(target[2], edge["target_path"])
+                    except (KeyError, TypeError):
+                        assert edge["missing_target"] == "not-applicable"
+                        continue
+                    if actual == expected:
                         selected[edge["target_collection"]].add(target_index)
+        for source_index in sorted(selected[type_closure["source_collection"]]):
+            source = catalogs[type_closure["source_collection"]][source_index]
+            definition = descend(source[2], type_closure["source_definition_path"])
+            for kind, expected in nested_type_terms(definition):
+                collection = type_closure[
+                    "target_type_collection"
+                    if kind == "reference"
+                    else "target_constructor_collection"
+                ]
+                matches = []
+                for index, row in enumerate(catalogs[collection]):
+                    consume()
+                    actual = (
+                        (row[0], row[2]["id"])
+                        if kind == "reference"
+                        else descend(row[2], type_closure["constructor_kind_path"])
+                    )
+                    if actual == expected:
+                        matches.append(index)
+                assert len(matches) == 1
+                selected[collection].update(matches)
 
     selected_packages = {
         catalogs[name][index][0]
