@@ -75,7 +75,7 @@ def admit_declared_value(
     declaration: dict[str, Any],
     *,
     structured_authority: StructuredValueIndex,
-    structured_resource_limit: int,
+    structured_resource_limit: int | None,
 ) -> JsonValue:
     """Independently admit one replayed value under its declaration."""
     type_identity = cast(dict[str, str], declaration["type_identity"])
@@ -324,7 +324,7 @@ def execute_value_instruction(
         )
         return
     elif operator == "canonical-equal":
-        if structured_authority is None or structured_resource_limit is None:
+        if structured_authority is None:
             raise ValueError("structured authority is required for canonical equality")
         left = variables[cast(str, instruction["left"])]
         right = variables[cast(str, instruction["right"])]
@@ -660,10 +660,10 @@ def replay_event_evidence(
         cast(dict[str, Any], checked.rir["selected_semantics"]),
     )
     structured_resource_limit = cast(
-        int,
-        checked.rir["selected_semantics"]["execution_resources"][
+        int | None,
+        checked.rir["selected_semantics"]["execution_resources"].get(
             "max_rule_match_steps"
-        ],
+        ),
     )
     schedule_identity = scheduler_contract(checked)["call_site_identity"]["schedule"]
 

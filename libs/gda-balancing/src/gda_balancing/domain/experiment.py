@@ -184,7 +184,7 @@ def _declared_value_fault(
     declaration: dict[str, Any],
     *,
     structured_authority: StructuredValueIndex,
-    resource_limit: int,
+    resource_limit: int | None,
 ) -> StructuredValueFault | None:
     type_identity = cast(dict[str, str], declaration["type_identity"])
     declared_type: JsonValue = {
@@ -665,6 +665,14 @@ def _check_experiment_value(
             pointer="/runtime/profile",
             message="Experiment Runtime profile is absent from the selected RIR",
         )
+    if not entrypoints:
+        return _refusal(
+            stage="resolution",
+            code="language.resolution_binding_mismatch",
+            identity=experiment_identity,
+            pointer="/model/rir_identity",
+            message="Experiment Model has no executable Event entrypoints",
+        )
     runtime_laws = selected["execution_laws"]["runtime_program"]
     scheduler = RuntimeScheduler(runtime_laws["scheduler"]).contract
     for scenario_index, scenario in enumerate(value["scenarios"]):
@@ -678,7 +686,7 @@ def _check_experiment_value(
             )
     structured_authority = selected_structured_value_index(selected)
     structured_resource_limit = cast(
-        int, selected["execution_resources"]["max_rule_match_steps"]
+        int | None, selected["execution_resources"].get("max_rule_match_steps")
     )
     required_operation_kinds: set[str] = set()
     required_instruction_nodes: set[str] = set()

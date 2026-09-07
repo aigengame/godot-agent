@@ -732,7 +732,7 @@ def admit_typed_value(
     envelope: Any,
     *,
     authority: StructuredValueIndex,
-    resource_limit: int,
+    resource_limit: int | None,
 ) -> dict[str, JsonValue]:
     """Admit and normalize one authority-declared typed envelope."""
     type_member, value_member = typed_envelope_members(authority)
@@ -783,7 +783,7 @@ def lookup_typed_value(
     key: Any,
     *,
     authority: StructuredValueIndex,
-    resource_limit: int,
+    resource_limit: int | None,
 ) -> dict[str, JsonValue]:
     """Apply the Kernel bounded lookup law to a typed Record or List."""
     admitted = admit_typed_value(
@@ -832,7 +832,7 @@ def equal_typed_values(
     right: Any,
     *,
     authority: StructuredValueIndex,
-    resource_limit: int,
+    resource_limit: int | None,
 ) -> dict[str, JsonValue]:
     """Apply exact-type canonical equality to two admitted typed values."""
     admitted_left = admit_typed_value(
@@ -879,7 +879,7 @@ def is_empty_typed_value(
     envelope: Any,
     *,
     authority: StructuredValueIndex,
-    resource_limit: int,
+    resource_limit: int | None,
 ) -> dict[str, JsonValue]:
     """Apply the selected LDB List-emptiness law to one admitted typed value."""
     admitted = admit_typed_value(

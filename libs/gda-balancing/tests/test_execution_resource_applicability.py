@@ -1,5 +1,6 @@
 """An unused structured-value budget does not identify numeric execution (#874)."""
 
+from copy import deepcopy
 import json
 from pathlib import Path
 from typing import Any, cast
@@ -13,7 +14,9 @@ from gda_balancing.domain.authority.context import (
     packaged_authority_context,
 )
 from gda_balancing.domain.canonical import canonical_bytes
+from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
 from gda_balancing.domain.experiment import CheckedExperiment, check_experiment_value
+from gda_balancing.domain.experiment_artifact_replay import execute_value_instruction
 from gda_balancing.domain.experiment_artifacts import validate_experiment_artifact_set
 from gda_balancing.domain.model import (
     CheckedModel,
@@ -136,17 +139,108 @@ def test_nonexecuting_quantity_omits_unused_budget_and_fixed_execution_laws():
     assert meanings[0] == meanings[1]
 
 
+@pytest.mark.parametrize("active_profile", [False, True])
+def test_nonexecuting_model_refuses_before_constructing_runtime_consumers(
+    active_profile,
+):
+    kernel, language_bundle = mutable_authorities()
+    if active_profile:
+        profiles = language_bundle["language"]["runtime_profiles"]
+        compile_profile = next(
+            row for row in profiles if row["id"] == "compile.exact-int64"
+        )
+        active = deepcopy(
+            next(
+                row for row in profiles if row["id"] == "standard.exact-int64-event-v1"
+            )
+        )
+        active["id"] = compile_profile["id"]
+        active.pop("extensions", None)
+        compile_profile.clear()
+        compile_profile.update(active)
+        _reidentify_language_bundle(language_bundle)
+    context = admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, AdmittedAuthorityContext), context
+    artifacts = _compile(_model_source(), context)
+    assert artifacts["rir-semantic-payload"]["entrypoints"] == []
+    assert artifacts["rir-semantic-payload"]["selected_semantics"]["execution_laws"][
+        "runtime_program"
+    ] == {"nodes": []}
+    value = json.loads(
+        (_EXAMPLES / "progression-periodic-effect" / "experiment.json").read_bytes()
+    )
+    build = artifacts["build-receipt"]
+    value["kernel_identity"] = build["kernel_identity"]
+    value["language_bundle_identity"] = build["language_bundle_identity"]
+    value["model"] = {
+        key: build["content_identity"]
+        if key == "build_receipt_identity"
+        else build[key]
+        for key in value["model"]
+    }
+    value["runtime"]["profile"] = "compile.exact-int64"
+    value["runtime"]["required_evaluator"]["runtime_profiles"] = ["compile.exact-int64"]
+    scenario = value["scenarios"][0]
+    scenario["assignments"] = []
+    scenario["named_streams"] = []
+    scenario["event_plan"] = [
+        {
+            "kind": "external-input",
+            "root_event_ref": "input",
+            "logical_time": 0,
+            "priority": 0,
+            "source_identity": "sha256:" + "e" * 64,
+            "source_sequence": 0,
+            "facts": [
+                {
+                    "target": {
+                        "model": "example.quantity-model",
+                        "module": "main",
+                        "name": "input_value",
+                    },
+                    "value": 1,
+                }
+            ],
+        }
+    ]
+    binding = project_compiled_model_binding(artifacts, context)
+    refused = check_experiment_value(value, binding, authority_context=context)
+    assert isinstance(refused, Schema2RefusalReport), refused
+    assert refused.stage == "resolution"
+    assert refused.variant is None
+    assert refused.terminal_audit is None
+    assert len(refused.diagnostics) == 1
+    diagnostic = refused.diagnostics[0]
+    assert diagnostic.code == "language.resolution_binding_mismatch"
+    assert isinstance(diagnostic.primary, ArtifactLocation)
+    assert diagnostic.primary.pointer == "/model/rir_identity"
+    assert diagnostic.message == "Experiment Model has no executable Event entrypoints"
+
+
+@pytest.fixture(scope="module")
+def numeric_execution():
+    context = packaged_authority_context()
+    source = json.loads(
+        (_EXAMPLES / "rpg-combat-cast" / "model-source.json").read_bytes()
+    )
+    artifacts = _compile(source, context)
+    return context, artifacts["rir-semantic-payload"]["selected_semantics"]
+
+
 @pytest.mark.parametrize(
     "operands", [(4, 4, True), (4, 5, False), (True, False, False)]
 )
+@pytest.mark.parametrize(
+    "execute",
+    [_execute_value_instruction, execute_value_instruction],
+    ids=["runtime", "independent-replay"],
+)
 def test_scalar_canonical_equality_never_consumes_the_structured_budget(
-    operands, monkeypatch
+    operands, execute, monkeypatch, numeric_execution
 ):
-    context = packaged_authority_context()
-    artifacts = _compile(_model_source(), context)
-    selected = artifacts["rir-semantic-payload"]["selected_semantics"]
+    context, selected = numeric_execution
     assert selected["execution_resources"] == {}
-    authority = selected_structured_value_index(selected, kernel=context.kernel)
+    authority = selected_structured_value_index(selected)
     assert authority.typed_envelope_profile is None
     runtime = context.kernel["meta_format"]["runtime_program"]
     equality = next(
@@ -159,9 +253,9 @@ def test_scalar_canonical_equality_never_consumes_the_structured_budget(
         pytest.fail("scalar equality consumed a structured-value budget")
 
     monkeypatch.setattr(_Budget, "consume", unexpected_charge)
-    for limit in (65535, 65536):
+    for limit in (None, 65535, 65536):
         values = {"left": operands[0], "right": operands[1]}
-        _execute_value_instruction(
+        execute(
             {
                 "node": equality["id"],
                 "left": "left",
@@ -177,12 +271,11 @@ def test_scalar_canonical_equality_never_consumes_the_structured_budget(
         assert values["equal"] is operands[2]
 
 
-def test_missing_selected_typed_profile_refuses_before_any_budget_charge(monkeypatch):
-    context = packaged_authority_context()
-    artifacts = _compile(_model_source(), context)
-    authority = selected_structured_value_index(
-        artifacts["rir-semantic-payload"]["selected_semantics"], kernel=context.kernel
-    )
+def test_missing_selected_typed_profile_refuses_before_any_budget_charge(
+    monkeypatch, numeric_execution
+):
+    _context, selected = numeric_execution
+    authority = selected_structured_value_index(selected)
 
     def unexpected_charge(_budget, _pointer):
         pytest.fail("missing typed profile reached resource charging")
