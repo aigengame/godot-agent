@@ -14,6 +14,7 @@ import jsonschema
 
 import gda_balancing.application.experiment_execution as experiment_execution_application_module
 import gda_balancing.application.experiment_run as experiment_run_application_module
+from gda_balancing.interfaces.cli.experiment_fixtures import prepare_valid_experiment
 import gda_balancing.domain.experiment as experiment_admission_module
 import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.experiment_artifacts as experiment_artifacts_module
@@ -31,11 +32,9 @@ import gda_balancing.domain.model._lowering as model_lowering_module
 import gda_balancing.domain.publication as publication_module
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
-from gda_balancing.domain.artifact_errors import PublishedArtifactUnavailable
 from gda_balancing.domain.model import (
-    EXACT_RESOLVED_MODEL_BINDING_MEMBERS,
-    ExactResolvedModelBinding,
-    resolve_published_model_binding,
+    AdmittedRir,
+    read_rir,
 )
 from gda_balancing.infrastructure.input_bytes import (
     BoundedInputObservation,
@@ -100,13 +99,19 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
 }
 
 
-def test_experiment_execution_prepares_reproduction_before_dispatch(tmp_path):
+def test_experiment_execution_prepares_semantic_profile_and_producer_before_dispatch(
+    tmp_path,
+):
+    fixture = prepare_valid_experiment(tmp_path, 545)
+    rir_path = Path(fixture.rir)
     specification = tmp_path / "experiment.json"
     specification.write_text(
-        experiment_command_module.prepare_valid_experiment(tmp_path, 545),
+        fixture.specification,
         encoding="utf-8",
     )
-    checked = experiment_admission_module.check_experiment(str(specification))
+    checked = experiment_admission_module.check_experiment(
+        str(specification), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     prepared = experiment_execution_application_module.prepare_checked_experiment(
@@ -118,7 +123,6 @@ def test_experiment_execution_prepares_reproduction_before_dispatch(tmp_path):
     )
     assert set(prepared.members) == {
         "evaluator-capability-manifest",
-        "reproduction-receipt",
         "resolved-runtime-profile",
     }
     execution = experiment_execution_application_module.execute_prepared_experiment(
@@ -373,14 +377,14 @@ def test_list_lookup_requires_the_statically_resolved_index_local():
         )
 
 
-def test_experiment_conformance_uses_only_prepared_public_documents():
+def test_experiment_conformance_prepares_explicit_specification_and_rir_inputs():
     for descriptor in (
         experiment_check_command_module.EXPERIMENT_CHECK,
         experiment_command_module.EXPERIMENT_RUN,
     ):
         assert descriptor.fixtures.valid_document is None
-        assert descriptor.fixtures.prepare_valid_document is not None
-        assert descriptor.fixtures.has_valid_document is True
+        assert descriptor.fixtures.prepare_args is not None
+        assert descriptor.fixtures.has_valid_document is False
 
 
 def test_tutorial_tuning_values_are_not_package_conformance_configuration():
@@ -941,28 +945,14 @@ def _assert_observation_evidence_matches_package_vector(
 
 def _experiment(
     *,
-    kernel_identity: str,
-    language_bundle_identity: str,
-    source_identity: str,
     build_receipt: dict[str, Any],
     base_damage: int,
 ) -> dict[str, Any]:
-    resolved = _member(build_receipt, "resolved-model")
-    package_lock = _member(build_receipt, "package-lock")
     rir = _member(build_receipt, "rir-semantic-payload")
-    build_record = _member(build_receipt, "build-receipt")
     return {
         "schema_version": "2.0.0",
         "id": "example.rpg-combat-cast.one-action",
-        "kernel_identity": kernel_identity,
-        "language_bundle_identity": language_bundle_identity,
-        "model": {
-            "source_identity": source_identity,
-            "build_receipt_identity": build_record["content_identity"],
-            "resolved_model_identity": resolved["content_identity"],
-            "package_lock_identity": package_lock["content_identity"],
-            "rir_identity": rir["content_identity"],
-        },
+        "model": {"rir_semantic_identity": rir["semantic_identity"]},
         "runtime": {
             "profile": "standard.exact-int64-event-v1",
             "required_evaluator": {
@@ -1078,17 +1068,12 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
     )
     assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=base_damage,
-    )
+    _member(build_receipt, "build-receipt")
+    _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=base_damage)
     spec_path = tmp_path / "experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
-    return spec_path
+    return spec_path, _rir_path(build_receipt)
 
 
 def _write_built_periodic_experiment(tmp_path, run_cli):
@@ -1105,22 +1090,18 @@ def _write_built_periodic_experiment(tmp_path, run_cli):
     )
     assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
+    _member(build_receipt, "build-receipt")
     specification = json.loads(
         (_PERIODIC_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
     )
-    specification["kernel_identity"] = build_record["kernel_identity"]
-    specification["language_bundle_identity"] = build_record["language_bundle_identity"]
     specification["model"] = {
-        "source_identity": build_record["source_identity"],
-        "build_receipt_identity": build_record["content_identity"],
-        "resolved_model_identity": build_record["resolved_model_identity"],
-        "package_lock_identity": build_record["package_lock_identity"],
-        "rir_identity": build_record["rir_identity"],
+        "rir_semantic_identity": _member(build_receipt, "rir-semantic-payload")[
+            "semantic_identity"
+        ],
     }
     specification_path = tmp_path / "periodic-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    return specification_path, build_receipt
+    return specification_path, build_receipt, _rir_path(build_receipt)
 
 
 def _write_built_structured_experiment(tmp_path, run_cli):
@@ -1137,22 +1118,18 @@ def _write_built_structured_experiment(tmp_path, run_cli):
     )
     assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
+    _member(build_receipt, "build-receipt")
     specification = json.loads(
         (_STRUCTURED_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
     )
-    specification["kernel_identity"] = build_record["kernel_identity"]
-    specification["language_bundle_identity"] = build_record["language_bundle_identity"]
     specification["model"] = {
-        "source_identity": build_record["source_identity"],
-        "build_receipt_identity": build_record["content_identity"],
-        "resolved_model_identity": build_record["resolved_model_identity"],
-        "package_lock_identity": build_record["package_lock_identity"],
-        "rir_identity": build_record["rir_identity"],
+        "rir_semantic_identity": _member(build_receipt, "rir-semantic-payload")[
+            "semantic_identity"
+        ],
     }
     specification_path = tmp_path / "structured-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    return specification_path, specification
+    return specification_path, specification, _rir_path(build_receipt)
 
 
 def _write_built_roguelike_experiment(tmp_path, run_cli):
@@ -1169,48 +1146,43 @@ def _write_built_roguelike_experiment(tmp_path, run_cli):
     )
     assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
+    _member(build_receipt, "build-receipt")
     specification = json.loads(
         (_ROGUELIKE_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
     )
-    assert specification["kernel_identity"] == build_record["kernel_identity"]
-    assert (
-        specification["language_bundle_identity"]
-        == build_record["language_bundle_identity"]
-    )
     assert specification["model"] == {
-        "source_identity": build_record["source_identity"],
-        "build_receipt_identity": build_record["content_identity"],
-        "resolved_model_identity": build_record["resolved_model_identity"],
-        "package_lock_identity": build_record["package_lock_identity"],
-        "rir_identity": build_record["rir_identity"],
+        "rir_semantic_identity": _member(build_receipt, "rir-semantic-payload")[
+            "semantic_identity"
+        ],
     }
     specification_path = tmp_path / "roguelike-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    return specification_path, specification
+    return specification_path, specification, _rir_path(build_receipt)
 
 
-def _resolved_model_binding_for_experiment(
-    specification: dict[str, Any],
-) -> tuple[authority_module.AdmittedAuthorityContext, ExactResolvedModelBinding]:
-    context = authority_module.packaged_authority_context()
-    model = cast(dict[str, str], specification["model"])
-    binding = resolve_published_model_binding(
-        {
-            "build-receipt": model["build_receipt_identity"],
-            "package-lock": model["package_lock_identity"],
-            "resolved-model": model["resolved_model_identity"],
-            "rir-semantic-payload": model["rir_identity"],
-        },
-        context,
+def _rir_path(build_receipt: dict[str, Any]) -> Path:
+    return Path(
+        next(
+            row["locator"]
+            for row in build_receipt["member_locators"]
+            if row["logical_name"] == "rir-semantic-payload"
+        )
     )
-    return context, binding
+
+
+def _admitted_program(
+    rir_path: Path,
+) -> tuple[authority_module.AdmittedAuthorityContext, AdmittedRir]:
+    context = authority_module.packaged_authority_context()
+    program = read_rir(str(rir_path), authority_context=context)
+    assert isinstance(program, AdmittedRir), program
+    return context, program
 
 
 def _execute_runtime_refusal_value(
     specification: dict[str, Any],
     context: authority_module.AdmittedAuthorityContext,
-    binding: ExactResolvedModelBinding,
+    binding: AdmittedRir,
 ) -> tuple[Schema2RefusalReport, dict[str, Any]]:
     checked = experiment_admission_module.check_experiment_value(
         specification,
@@ -1231,7 +1203,7 @@ def _execute_runtime_refusal_value(
 def _evaluate_experiment_value(
     specification: dict[str, Any],
     context: authority_module.AdmittedAuthorityContext,
-    binding: ExactResolvedModelBinding,
+    binding: AdmittedRir,
 ) -> experiment_runtime_module.EvaluationArtifacts:
     checked = experiment_admission_module.check_experiment_value(
         specification,
@@ -1247,12 +1219,12 @@ def _evaluate_experiment_value(
 def test_public_seeded_reward_selection_exposes_policy_and_disposition(
     tmp_path, run_cli
 ):
-    specification_path, specification = _write_built_roguelike_experiment(
+    specification_path, specification, rir_path = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
 
     check_exit, check_stdout, check_stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
     assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
 
@@ -1261,6 +1233,8 @@ def test_public_seeded_reward_selection_exposes_policy_and_disposition(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "roguelike-evaluation.json"),
             "--invocation-key",
@@ -1272,15 +1246,14 @@ def test_public_seeded_reward_selection_exposes_policy_and_disposition(
     receipt = json.loads(stdout)
     event = _member(receipt, "event-trace")["events"][0]
     metrics = _member(receipt, "metric-dataset")
-    reproduction = _member(receipt, "reproduction-receipt")
     pool = next(row for row in event["facts"] if row["name"] == "reward_pool")["value"][
         "value"
     ]
     result = next(row for row in event["facts"] if row["name"] == "reward_result")
 
     assert event["outcome"] == {"id": "selected", "kind": "success"}
-    assert reproduction["seed_algorithm"] == specification["seed"]["algorithm"]
-    assert reproduction["seed_value"] == specification["seed"]["value"] == 20260812
+    assert specification["seed"]["algorithm"] == "splitmix64-v1"
+    assert specification["seed"]["value"] == 20260812
     assert event["rng_draws"] == [
         {
             "stream": "reward",
@@ -1304,7 +1277,7 @@ def test_public_seeded_reward_selection_exposes_policy_and_disposition(
 
 
 def test_public_reward_build_loop_exposes_the_atomic_replacement(tmp_path, run_cli):
-    specification_path, _specification = _write_built_roguelike_experiment(
+    specification_path, _specification, rir_path = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
 
@@ -1313,6 +1286,8 @@ def test_public_reward_build_loop_exposes_the_atomic_replacement(tmp_path, run_c
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "reward-build-evaluation.json"),
             "--invocation-key",
@@ -1362,13 +1337,15 @@ def test_public_reward_build_loop_exposes_the_atomic_replacement(tmp_path, run_c
 def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
     tmp_path, run_cli
 ):
-    specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
-    context, binding = _resolved_model_binding_for_experiment(baseline)
+    specification_path, baseline, rir_path = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    context, binding = _admitted_program(rir_path)
 
     def run_public(specification, path, output, invocation_key):
         path.write_text(json.dumps(specification), encoding="utf-8")
         check_exit, check_stdout, check_stderr = run_cli(
-            ["experiment", "check", str(path)]
+            ["experiment", "check", str(path), "--rir", str(rir_path)]
         )
         assert (check_exit, check_stderr) == (0, ""), (
             check_stdout,
@@ -1379,6 +1356,8 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
                 "experiment",
                 "run",
                 str(path),
+                "--rir",
+                str(rir_path),
                 "--out",
                 str(output),
                 "--invocation-key",
@@ -1427,8 +1406,6 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
         row for row in tuned_transitions[1]["facts"] if row["name"] == "build_result"
     )
 
-    assert tuned["kernel_identity"] == baseline["kernel_identity"]
-    assert tuned["language_bundle_identity"] == baseline["language_bundle_identity"]
     assert tuned["model"] == baseline["model"]
     assert tuned["runtime"] == baseline["runtime"]
     assert tuned_trace["experiment_identity"] != baseline_trace["experiment_identity"]
@@ -1478,7 +1455,7 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
 def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
     tmp_path, run_cli
 ):
-    specification_path, specification = _write_built_roguelike_experiment(
+    specification_path, specification, rir_path = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
     pool = next(
@@ -1491,7 +1468,7 @@ def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
     assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
 
@@ -1500,6 +1477,8 @@ def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "unsatisfied-reward-pool.json"),
             "--invocation-key",
@@ -1523,7 +1502,7 @@ def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
 def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
     tmp_path, run_cli
 ):
-    specification_path, specification = _write_built_roguelike_experiment(
+    specification_path, specification, rir_path = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
     pool = next(
@@ -1553,7 +1532,7 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
     assert (check_exit, check_stderr) == (0, ""), (
         check_stdout,
@@ -1565,6 +1544,8 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "declared-no-reward.json"),
             "--invocation-key",
@@ -1604,8 +1585,10 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
 def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
     tmp_path, run_cli
 ):
-    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
-    context, binding = _resolved_model_binding_for_experiment(baseline)
+    _specification_path, baseline, rir_path = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    context, binding = _admitted_program(rir_path)
     for invocation_digit, contradiction in (
         ("a", "policy-start"),
         ("b", "policy-after"),
@@ -1644,6 +1627,8 @@ def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
                     "experiment",
                     "run",
                     str(specification_path),
+                    "--rir",
+                    str(rir_path),
                     "--out",
                     str(tmp_path / f"invalid-fallback-{contradiction}-artifacts"),
                     "--invocation-key",
@@ -1670,7 +1655,7 @@ def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
 
 
 def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, run_cli):
-    specification_path, specification = _write_built_roguelike_experiment(
+    specification_path, specification, rir_path = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
     pool = next(
@@ -1682,7 +1667,7 @@ def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, ru
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
 
     assert (exit_code, stderr) == (2, ""), (stdout, stderr)
@@ -1695,7 +1680,7 @@ def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, ru
 
 
 def test_public_reward_configuration_rejects_a_non_integer_quantity(tmp_path, run_cli):
-    specification_path, specification = _write_built_roguelike_experiment(
+    specification_path, specification, rir_path = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
     pool = next(
@@ -1707,7 +1692,7 @@ def test_public_reward_configuration_rejects_a_non_integer_quantity(tmp_path, ru
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
 
     assert (exit_code, stderr) == (2, ""), (stdout, stderr)
@@ -1724,8 +1709,10 @@ def test_public_reward_configuration_rejects_a_non_integer_quantity(tmp_path, ru
 def test_public_reward_selection_rejects_contradictory_authored_results(
     tmp_path, run_cli
 ):
-    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
-    context, binding = _resolved_model_binding_for_experiment(baseline)
+    _specification_path, baseline, rir_path = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    context, binding = _admitted_program(rir_path)
     contradictions = (
         "rarity",
         "disposition",
@@ -1770,6 +1757,8 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
                     "experiment",
                     "run",
                     str(specification_path),
+                    "--rir",
+                    str(rir_path),
                     "--out",
                     str(tmp_path / f"contradictory-reward-{contradiction}-artifacts"),
                     "--invocation-key",
@@ -1801,7 +1790,7 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
 def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
     tmp_path, run_cli
 ):
-    specification_path, specification = _write_built_roguelike_experiment(
+    specification_path, specification, rir_path = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
     plans = next(
@@ -1817,6 +1806,8 @@ def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "build-conflict.json"),
             "--invocation-key",
@@ -1845,7 +1836,7 @@ def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
 
 
 def test_public_build_conflict_does_not_hide_a_contradictory_plan(tmp_path, run_cli):
-    specification_path, specification = _write_built_roguelike_experiment(
+    specification_path, specification, rir_path = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
     plans = next(
@@ -1862,6 +1853,8 @@ def test_public_build_conflict_does_not_hide_a_contradictory_plan(tmp_path, run_
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "contradictory-build-conflict.json"),
             "--invocation-key",
@@ -1879,7 +1872,7 @@ def test_public_build_conflict_does_not_hide_a_contradictory_plan(tmp_path, run_
 
 
 def test_public_build_configuration_reports_an_unknown_constraint(tmp_path, run_cli):
-    specification_path, specification = _write_built_roguelike_experiment(
+    specification_path, specification, rir_path = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
     plans = next(
@@ -1891,7 +1884,7 @@ def test_public_build_configuration_reports_an_unknown_constraint(tmp_path, run_
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
 
     assert (exit_code, stderr) == (2, ""), (stdout, stderr)
@@ -1906,8 +1899,10 @@ def test_public_build_configuration_reports_an_unknown_constraint(tmp_path, run_
 def test_public_build_replacement_rejects_contradictory_authored_plans(
     tmp_path, run_cli
 ):
-    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
-    context, binding = _resolved_model_binding_for_experiment(baseline)
+    _specification_path, baseline, rir_path = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    context, binding = _admitted_program(rir_path)
     contradictions = (
         "next-slot",
         "decision-kind",
@@ -1951,6 +1946,8 @@ def test_public_build_replacement_rejects_contradictory_authored_plans(
                     "experiment",
                     "run",
                     str(specification_path),
+                    "--rir",
+                    str(rir_path),
                     "--out",
                     str(tmp_path / f"contradictory-build-{contradiction}-artifacts"),
                     "--invocation-key",
@@ -1977,10 +1974,12 @@ def test_public_build_replacement_rejects_contradictory_authored_plans(
         assert not any(row["name"] == "build_result" for row in audit["last_snapshot"])
 
 
-def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
+def test_public_formula_edit_requires_the_selected_program_and_intent_to_match(
     tmp_path, run_cli
 ):
-    _baseline_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    _baseline_path, baseline, rir_path = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
     edited_source = json.loads(
         (_ROGUELIKE_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
     )
@@ -2004,18 +2003,11 @@ def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
     )
     assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
     edited_receipt = json.loads(build_stdout)
-    edited_build = _member(edited_receipt, "build-receipt")
+    _member(edited_receipt, "build-receipt")
     edited_rir = _member(edited_receipt, "rir-semantic-payload")
 
-    assert edited_build["kernel_identity"] == baseline["kernel_identity"]
-    assert (
-        edited_build["language_bundle_identity"] == baseline["language_bundle_identity"]
-    )
-    assert (
-        edited_build["package_lock_identity"]
-        == baseline["model"]["package_lock_identity"]
-    )
-    assert edited_build["rir_identity"] != baseline["model"]["rir_identity"]
+    assert edited_rir["semantic_identity"] != baseline["model"]["rir_semantic_identity"]
+    rir_path = _rir_path(edited_receipt)
     edited_formula = next(
         row for row in edited_rir["formulas"] if row["id"] == formula["id"]
     )
@@ -2028,28 +2020,24 @@ def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
     assert edited_binding["formula"]["id"] == formula["id"]
 
     stale = deepcopy(baseline)
-    stale["model"]["source_identity"] = edited_build["source_identity"]
     stale_path = tmp_path / "stale-formula-binding.json"
     stale_path.write_text(json.dumps(stale), encoding="utf-8")
     stale_exit, stale_stdout, stale_stderr = run_cli(
-        ["experiment", "check", str(stale_path)]
+        ["experiment", "check", str(stale_path), "--rir", str(rir_path)]
     )
     assert (stale_exit, stale_stderr) == (2, ""), (stale_stdout, stale_stderr)
     stale_error = json.loads(stale_stdout)["error"]
     assert stale_error["diagnostics"][0]["code"] == (
         "language.resolved_authority_mismatch"
     )
-    assert stale_error["diagnostics"][0]["primary"]["pointer"] == "/model"
+    assert (
+        stale_error["diagnostics"][0]["primary"]["pointer"]
+        == "/model/rir_semantic_identity"
+    )
 
     rebound = deepcopy(baseline)
     rebound["id"] = "roguelike.reward-build-feedback.identity-formula"
-    rebound["model"] = {
-        "source_identity": edited_build["source_identity"],
-        "build_receipt_identity": edited_build["content_identity"],
-        "resolved_model_identity": edited_build["resolved_model_identity"],
-        "package_lock_identity": edited_build["package_lock_identity"],
-        "rir_identity": edited_build["rir_identity"],
-    }
+    rebound["model"] = {"rir_semantic_identity": edited_rir["semantic_identity"]}
     rebound_path = tmp_path / "rebound-formula.json"
     rebound_path.write_text(json.dumps(rebound), encoding="utf-8")
     run_exit, run_stdout, run_stderr = run_cli(
@@ -2057,6 +2045,8 @@ def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
             "experiment",
             "run",
             str(rebound_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "rebound-formula-evaluation.json"),
             "--invocation-key",
@@ -2076,12 +2066,12 @@ def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
 def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write(
     tmp_path, run_cli
 ):
-    specification_path, specification = _write_built_structured_experiment(
+    specification_path, specification, rir_path = _write_built_structured_experiment(
         tmp_path, run_cli
     )
 
     check_exit, check_stdout, check_stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
     assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
 
@@ -2109,6 +2099,8 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
                 "experiment",
                 "run",
                 str(specification_path),
+                "--rir",
+                str(rir_path),
                 "--out",
                 str(tmp_path / f"evaluation-{invocation}.json"),
                 "--invocation-key",
@@ -2171,6 +2163,8 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "evaluation-8.json"),
             "--invocation-key",
@@ -2213,7 +2207,7 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
 def test_public_structured_assignment_reports_the_exact_nominal_value_failure(
     tmp_path, run_cli
 ):
-    specification_path, specification = _write_built_structured_experiment(
+    specification_path, specification, rir_path = _write_built_structured_experiment(
         tmp_path, run_cli
     )
     specification["scenarios"][0]["assignments"][0]["value"]["value"]["candidates"][0][
@@ -2222,7 +2216,7 @@ def test_public_structured_assignment_reports_the_exact_nominal_value_failure(
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
 
     assert (exit_code, stderr) == (2, ""), (stdout, stderr)
@@ -2234,7 +2228,7 @@ def test_public_structured_assignment_reports_the_exact_nominal_value_failure(
 
 
 def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, run_cli):
-    specification_path, specification = _write_built_structured_experiment(
+    specification_path, specification, rir_path = _write_built_structured_experiment(
         tmp_path, run_cli
     )
     initial_state = specification["scenarios"][0]["assignments"][0]["value"]["value"]
@@ -2243,7 +2237,7 @@ def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, ru
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
     assert (check_exit, check_stderr) == (0, ""), (
         check_stdout,
@@ -2255,6 +2249,8 @@ def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, ru
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "empty-selection.json"),
             "--invocation-key",
@@ -2287,19 +2283,26 @@ def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, ru
 def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
     tmp_path, run_cli
 ):
-    specification_path, specification = _write_built_structured_experiment(
+    specification_path, specification, rir_path = _write_built_structured_experiment(
         tmp_path, run_cli
     )
     initial_state = specification["scenarios"][0]["assignments"][0]["value"]["value"]
     initial_state["candidates"] = []
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
-    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    prepared = experiment_runtime_module.prepare_experiment(checked)
+    assert isinstance(prepared, experiment_runtime_module.PreparedExperiment)
+    outcome = experiment_runtime_module.evaluate_prepared_experiment(prepared)
 
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     members = experiment_artifacts_module.runtime_terminal_audit_members(
-        checked, outcome
+        checked,
+        outcome,
+        evaluator=prepared.evaluator,
+        resolved_runtime=prepared.resolved_runtime,
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
@@ -2314,7 +2317,7 @@ def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
 def test_structured_terminal_audit_preserves_a_committed_event_prefix(
     tmp_path, run_cli
 ):
-    specification_path, specification = _write_built_structured_experiment(
+    specification_path, specification, rir_path = _write_built_structured_experiment(
         tmp_path, run_cli
     )
     scenario = specification["scenarios"][0]
@@ -2339,6 +2342,8 @@ def test_structured_terminal_audit_preserves_a_committed_event_prefix(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "structured-terminal-audit"),
             "--invocation-key",
@@ -2361,7 +2366,7 @@ def test_structured_terminal_audit_preserves_a_committed_event_prefix(
 def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
     scenario["event_plan"] = [
@@ -2405,6 +2410,8 @@ def test_public_experiment_orders_same_time_root_events_and_commits_between_them
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "same-time-root-events"),
             "--invocation-key",
@@ -2437,7 +2444,7 @@ def test_public_experiment_orders_same_time_root_events_and_commits_between_them
 def test_event_count_terminates_only_after_same_time_transitions_drain(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
     scenario["event_plan"] = [
@@ -2477,6 +2484,8 @@ def test_event_count_terminates_only_after_same_time_transitions_drain(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "same-time-terminal-boundary"),
             "--invocation-key",
@@ -2500,7 +2509,7 @@ def test_event_count_terminates_only_after_same_time_transitions_drain(
     assert snapshots[-2]["continuation"]["pending_event_count"] == 0
 
 
-def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
+def _write_scheduled_experiment(tmp_path, run_cli) -> tuple[Path, Path]:
     source_value = _rpg_model_source()
     source_path = tmp_path / "scheduled-combat-model.json"
     source_path.write_text(json.dumps(source_value), encoding="utf-8")
@@ -2517,14 +2526,9 @@ def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
     )
     assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=12,
-    )
+    _member(build_receipt, "build-receipt")
+    _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=12)
     specification["scenarios"][0]["event_plan"] = [
         {
             "kind": "transition-invocation",
@@ -2565,13 +2569,13 @@ def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
     specification["runtime"]["required_evaluator"] = requirements
     specification_path = tmp_path / "scheduled-combat-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    return specification_path
+    return specification_path, _rir_path(build_receipt)
 
 
 def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     tmp_path, run_cli, monkeypatch
 ):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
     event_frames: list[str] = []
 
@@ -2595,6 +2599,8 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "scheduled-combat-run"),
             "--invocation-key",
@@ -2671,7 +2677,7 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
 def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
     tmp_path, run_cli
 ):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
     next(
@@ -2695,7 +2701,9 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
     )
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 4}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan = next(
@@ -2745,8 +2753,10 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
 def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     entrypoint = next(
         row for row in checked.rir["entrypoints"] if row["id"] == "combat.cast"
@@ -2778,6 +2788,8 @@ def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "payload-formula-run"),
             "--invocation-key",
@@ -2799,8 +2811,10 @@ def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
 
 
 def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
@@ -3117,8 +3131,10 @@ def test_runtime_profile_bounds_are_ldb_owned_under_the_kernel_shape():
 def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
     tmp_path, run_cli
 ):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
@@ -3171,8 +3187,10 @@ def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
 def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
@@ -3182,10 +3200,15 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
     )
     runtime_profile["resource_bounds"]["max_total_events"] = 2
     checked = replace(checked, rir=rir)
-    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    prepared = experiment_runtime_module.prepare_experiment(checked)
+    assert isinstance(prepared, experiment_runtime_module.PreparedExperiment)
+    outcome = experiment_runtime_module.evaluate_prepared_experiment(prepared)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     members = experiment_artifacts_module.runtime_terminal_audit_members(
-        checked, outcome
+        checked,
+        outcome,
+        evaluator=prepared.evaluator,
+        resolved_runtime=prepared.resolved_runtime,
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
@@ -3245,8 +3268,10 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
 def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     tmp_path, run_cli
 ):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
@@ -3260,11 +3285,16 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
         if instruction["node"] == "schedule"
     )["logical_time"] = -1
     checked = replace(checked, rir=rir)
-    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    prepared = experiment_runtime_module.prepare_experiment(checked)
+    assert isinstance(prepared, experiment_runtime_module.PreparedExperiment)
+    outcome = experiment_runtime_module.evaluate_prepared_experiment(prepared)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     assert outcome.committed_trace_prefix == ()
     members = experiment_artifacts_module.runtime_terminal_audit_members(
-        checked, outcome
+        checked,
+        outcome,
+        evaluator=prepared.evaluator,
+        resolved_runtime=prepared.resolved_runtime,
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
@@ -3361,8 +3391,10 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
 def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drift(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
@@ -3372,10 +3404,15 @@ def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drif
     )
     runtime_profile["resource_bounds"]["max_total_events"] = 2
     checked = replace(checked, rir=rir)
-    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    prepared = experiment_runtime_module.prepare_experiment(checked)
+    assert isinstance(prepared, experiment_runtime_module.PreparedExperiment)
+    outcome = experiment_runtime_module.evaluate_prepared_experiment(prepared)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     members = experiment_artifacts_module.runtime_terminal_audit_members(
-        checked, outcome
+        checked,
+        outcome,
+        evaluator=prepared.evaluator,
+        resolved_runtime=prepared.resolved_runtime,
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
@@ -3429,8 +3466,10 @@ def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drif
 def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
@@ -3440,10 +3479,15 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     )
     runtime_profile["resource_bounds"]["max_event_steps"] = 0
     checked = replace(checked, rir=rir)
-    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    prepared = experiment_runtime_module.prepare_experiment(checked)
+    assert isinstance(prepared, experiment_runtime_module.PreparedExperiment)
+    outcome = experiment_runtime_module.evaluate_prepared_experiment(prepared)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     members = experiment_artifacts_module.runtime_terminal_audit_members(
-        checked, outcome
+        checked,
+        outcome,
+        evaluator=prepared.evaluator,
+        resolved_runtime=prepared.resolved_runtime,
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
@@ -3523,8 +3567,10 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
 def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     cast_operation = next(
@@ -3534,10 +3580,15 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     )
     cast_operation["resource_bounds"]["max_steps"] = 2
     checked = replace(checked, rir=rir)
-    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    prepared = experiment_runtime_module.prepare_experiment(checked)
+    assert isinstance(prepared, experiment_runtime_module.PreparedExperiment)
+    outcome = experiment_runtime_module.evaluate_prepared_experiment(prepared)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     members = experiment_artifacts_module.runtime_terminal_audit_members(
-        checked, outcome
+        checked,
+        outcome,
+        evaluator=prepared.evaluator,
+        resolved_runtime=prepared.resolved_runtime,
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
@@ -3617,8 +3668,10 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
 
 
 def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(tmp_path, run_cli):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
@@ -3662,8 +3715,10 @@ def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(tmp_path, ru
 def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     tmp_path, run_cli, schedule_shape
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = operation_program_module.selected_operation_index(
@@ -3770,8 +3825,10 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
 def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = operation_program_module.selected_operation_index(
@@ -3857,7 +3914,7 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
 
 
 def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     second = deepcopy(specification["scenarios"][0])
     second["id"] = "second-cast"
@@ -3878,7 +3935,9 @@ def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
         )
     ]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
@@ -3901,7 +3960,7 @@ def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
 
 
 def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
     second = deepcopy(scenario["event_plan"][0])
@@ -3925,7 +3984,9 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
         )
     ]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = operation_program_module.selected_operation_index(
@@ -3965,8 +4026,10 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
 
 
 def test_runtime_selects_same_named_operation_by_exact_coordinate(tmp_path, run_cli):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
@@ -4001,7 +4064,7 @@ def test_runtime_selects_same_named_operation_by_exact_coordinate(tmp_path, run_
 def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
     tmp_path, run_cli, monkeypatch
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
     transition = scenario["event_plan"][0]
@@ -4029,7 +4092,9 @@ def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
     ]
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
     observation_frames: list[str] = []
@@ -4055,7 +4120,7 @@ def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
 
 
 def test_event_metric_searches_the_complete_committed_scenario_trace(tmp_path, run_cli):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
     next(row for row in scenario["assignments"] if row["target"]["name"] == "accuracy")[
@@ -4091,7 +4156,9 @@ def test_event_metric_searches_the_complete_committed_scenario_trace(tmp_path, r
         )
     ]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
@@ -4105,8 +4172,10 @@ def test_event_metric_searches_the_complete_committed_scenario_trace(tmp_path, r
 def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
     tmp_path, run_cli
 ):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
@@ -4145,8 +4214,10 @@ def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
 def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
     tmp_path, run_cli, mutation, expected_code
 ):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
@@ -4211,8 +4282,12 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
 def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
     tmp_path, run_cli, monkeypatch, mutation, expected_code
 ):
-    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification))
+    specification, _build_receipt, rir_path = _write_built_periodic_experiment(
+        tmp_path, run_cli
+    )
+    checked = experiment_admission_module.check_experiment(
+        str(specification), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     apply_operation = next(
@@ -4251,8 +4326,8 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
     # rollback audit, and publication path end to end.
     monkeypatch.setattr(
         experiment_run_application_module,
-        "check_experiment",
-        lambda _path: replace(checked, rir=rir),
+        "check_experiment_inputs",
+        lambda _path, _rir: replace(checked, rir=rir),
     )
     out = tmp_path / f"periodic-{mutation}-refusal"
 
@@ -4261,6 +4336,8 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(out),
             "--invocation-key",
@@ -4284,8 +4361,10 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
 def test_fault_after_provisional_schedules_rolls_back_scheduler_state(
     tmp_path, run_cli
 ):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
@@ -4310,8 +4389,10 @@ def test_fault_after_provisional_schedules_rolls_back_scheduler_state(
 
 
 def test_total_event_budget_counts_derived_observation_events(tmp_path, run_cli):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
@@ -4346,7 +4427,7 @@ def test_total_event_budget_counts_derived_observation_events(tmp_path, run_cli)
 def test_authored_roots_are_admitted_against_runtime_bounds_before_dispatch(
     tmp_path, run_cli, bound, expected_code
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
     second = deepcopy(scenario["event_plan"][0])
@@ -4355,7 +4436,9 @@ def test_authored_roots_are_admitted_against_runtime_bounds_before_dispatch(
     scenario["event_plan"].append(second)
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
@@ -4375,8 +4458,10 @@ def test_authored_roots_are_admitted_against_runtime_bounds_before_dispatch(
 def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
     tmp_path, run_cli
 ):
-    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     value = deepcopy(checked.value)
     second = deepcopy(value["scenarios"][0])
@@ -4432,7 +4517,7 @@ def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
 def test_external_input_sources_require_canonical_contiguous_sequences(
     tmp_path, run_cli, external_roots
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
     transition = deepcopy(scenario["event_plan"][0])
@@ -4458,7 +4543,9 @@ def test_external_input_sources_require_canonical_contiguous_sequences(
     scenario["terminal_condition"] = {"kind": "queue-drained"}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    result = experiment_admission_module.check_experiment(str(specification_path))
+    result = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
 
     assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
     assert result.stage == "static"
@@ -4490,20 +4577,15 @@ def test_external_facts_must_target_the_compiler_projected_reachable_contract(
     )
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     receipt = json.loads(build_stdout)
-    build = _member(receipt, "build-receipt")
+    _member(receipt, "build-receipt")
     rir = _member(receipt, "rir-semantic-payload")
     entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
     assert {
         row["target"]["name"] for row in entrypoint["external_fact_contract"]["targets"]
     } == {"target_defense"}
 
-    specification = _experiment(
-        kernel_identity=build["kernel_identity"],
-        language_bundle_identity=build["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=receipt,
-        base_damage=24,
-    )
+    rir_path = _rir_path(receipt)
+    specification = _experiment(build_receipt=receipt, base_damage=24)
     scenario = specification["scenarios"][0]
     scenario["event_plan"] = [
         {
@@ -4530,7 +4612,9 @@ def test_external_facts_must_target_the_compiler_projected_reachable_contract(
     specification_path = tmp_path / "external-fact-contract-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    result = experiment_admission_module.check_experiment(str(specification_path))
+    result = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
 
     assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
     assert result.stage == "static"
@@ -4543,7 +4627,7 @@ def test_external_facts_must_target_the_compiler_projected_reachable_contract(
 def test_public_experiment_admits_external_input_before_transition_until_queue_drains(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
     scenario["event_plan"] = [
@@ -4597,6 +4681,8 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "external-input-run"),
             "--invocation-key",
@@ -4617,7 +4703,6 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
     ]
     assert events[0]["operation"] is None
     assert events[0]["outcome"] == {"id": "input-admitted", "kind": "success"}
-    reproduction = _member(receipt, "reproduction-receipt")
     kernel, _language_bundle = mutable_authorities()
     input_contract = kernel["meta_format"]["runtime_program"]["scheduler"][
         "external_input_identity"
@@ -4625,7 +4710,9 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
     input_identity = content_identity(
         input_contract["domain"],
         {
-            "experiment_identity": reproduction["experiment_identity"],
+            "experiment_identity": _member(receipt, "resolved-runtime-profile")[
+                "experiment_identity"
+            ],
             "scenario_id": "one-cast",
             "root_event_ref": "raise-defense",
             "source_identity": "sha256:" + ("8" * 64),
@@ -4634,15 +4721,13 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
         },
     )
     assert events[0]["external_input_identity"] == input_identity
-    assert reproduction["external_input_identities"] == [
-        {
-            "scenario": "one-cast",
-            "root_event_ref": "raise-defense",
-            "source_identity": "sha256:" + ("8" * 64),
-            "source_sequence": 0,
-            "input_identity": input_identity,
-        }
-    ]
+    input_catalog = next(
+        row
+        for row in _member(receipt, "event-trace")["event_catalog"]
+        if row["event_id"] == events[0]["event_id"]
+    )
+    assert input_catalog["event_spec"]["source_identity"] == "sha256:" + ("8" * 64)
+    assert input_catalog["event_spec"]["source_sequence"] == 0
     assert (
         next(
             fact["integer"]
@@ -4788,18 +4873,15 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
     )
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     specification_path = tmp_path / "formula-runtime-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     selected_entrypoints = [checked.rir["entrypoints"][0]]
     actual_values = {
@@ -4962,7 +5044,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
 def test_example_effective_accuracy_formula_exercises_its_minimum_clamp(
     tmp_path, run_cli
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     accuracy = next(
         row
@@ -5001,6 +5083,8 @@ def test_example_effective_accuracy_formula_exercises_its_minimum_clamp(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "minimum-clamp-run"),
             "--invocation-key",
@@ -5105,14 +5189,9 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
         "conditional",
     ]
 
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     requirements, _ = experiment_admission_module.derive_scenario_program_requirements(
         rir,
         entrypoint_id="combat.cast",
@@ -5128,6 +5207,8 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "conditional-formula-evaluation"),
             "--invocation-key",
@@ -5204,7 +5285,7 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
     )
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
+    _member(build_receipt, "build-receipt")
     rir = _member(build_receipt, "rir-semantic-payload")
     expected_evaluation_site = next(
         row["evaluation_site_identity"]
@@ -5214,13 +5295,8 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
         for row in program["body"]
         if row["instruction"]["node"] == "subtract"
     )
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     accuracy = next(
         row
         for row in specification["scenarios"][0]["assignments"]
@@ -5236,6 +5312,8 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
             "experiment",
             "run",
             str(specification_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(out),
             "--invocation-key",
@@ -5283,7 +5361,9 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
     assert "terminal_audit" not in error
     assert not out.exists()
 
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.Schema2RefusalReport)
@@ -5316,14 +5396,9 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     )
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     specification["scenarios"][0]["assignments"] = [
         row
         for row in specification["scenarios"][0]["assignments"]
@@ -5349,7 +5424,9 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     ]
     spec_path = tmp_path / "snapshot-derived-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(spec_path))
+    checked = experiment_admission_module.check_experiment(
+        str(spec_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     observation_frames: list[str | None] = []
     observation_cache_growth: list[int] = []
@@ -5433,13 +5510,15 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
 def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
     tmp_path, run_cli, monkeypatch
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     second = deepcopy(specification["scenarios"][0])
     second["id"] = "second-cast"
     specification["scenarios"].append(second)
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
     observation_frames: list[str] = []
@@ -5562,14 +5641,9 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
     )
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     specification["scenarios"][0]["assignments"].append(
         {
             "target": {
@@ -5591,7 +5665,9 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
     specification["runtime"]["required_evaluator"] = requirements
     spec_path = tmp_path / "event-symbol-formula-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_admission_module.check_experiment(str(spec_path))
+    checked = experiment_admission_module.check_experiment(
+        str(spec_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
@@ -5673,14 +5749,9 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
 
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
 
     def resolved_target(name):
         return {
@@ -5728,6 +5799,8 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
             "experiment",
             "run",
             str(spec_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "evaluation.json"),
             "--invocation-key",
@@ -5800,7 +5873,7 @@ def test_model_entrypoint_refuses_conflicting_writable_actual_aliases(
 def test_scenario_assignments_exactly_close_the_entrypoint_contract(
     tmp_path, run_cli, mutation
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     assignments = value["scenarios"][0]["assignments"]
     if mutation == "under":
@@ -5820,7 +5893,9 @@ def test_scenario_assignments_exactly_close_the_entrypoint_contract(
         assignments.append(deepcopy(assignments[0]))
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir_path)]
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -5831,12 +5906,14 @@ def test_scenario_assignments_exactly_close_the_entrypoint_contract(
 def test_experiment_refuses_retired_own_version_at_the_source_boundary(
     tmp_path, run_cli
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     value["version"] = "1.0.0"
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir_path)]
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -5848,14 +5925,16 @@ def test_experiment_refuses_retired_own_version_at_the_source_boundary(
 
 
 def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     root_event = value["scenarios"][0]["event_plan"][0]
     root_event.pop("entrypoint")
     root_event["operation"] = "game.combat.cast-v1"
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir_path)]
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -5874,7 +5953,7 @@ def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
 def test_transition_payload_must_exactly_match_its_event_local_contract(
     tmp_path, run_cli, target_name, accepted
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     transition = next(
         event
@@ -5893,7 +5972,9 @@ def test_transition_payload_must_exactly_match_its_event_local_contract(
     ]
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir_path)]
+    )
 
     assert stderr == ""
     assert exit_code == (0 if accepted else 2)
@@ -5906,7 +5987,7 @@ def test_transition_payload_must_exactly_match_its_event_local_contract(
 
 
 def test_transition_payload_rejects_duplicate_targets(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     transition = next(
         event
@@ -5924,7 +6005,9 @@ def test_transition_payload_rejects_duplicate_targets(tmp_path, run_cli):
     transition["payload"] = [payload, deepcopy(payload)]
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir_path)]
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -5935,7 +6018,7 @@ def test_transition_payload_rejects_duplicate_targets(tmp_path, run_cli):
 
 
 def test_experiment_cannot_rebind_a_resolved_entrypoint(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     value["scenarios"][0]["bindings"] = [
         {
@@ -5949,7 +6032,9 @@ def test_experiment_cannot_rebind_a_resolved_entrypoint(tmp_path, run_cli):
     ]
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir_path)]
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -5983,15 +6068,10 @@ def test_optional_experiment_override_uses_the_model_default_or_exact_override(
     )
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    baseline = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=30,
-    )
-    context, binding = _resolved_model_binding_for_experiment(baseline)
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    baseline = _experiment(build_receipt=build_receipt, base_damage=30)
+    context, binding = _admitted_program(rir_path)
 
     observed: dict[str, tuple[int, list[dict[str, int]]]] = {}
     for case, override in (("default", None), ("override", 30)):
@@ -6053,29 +6133,24 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     )
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
+    _member(build_receipt, "build-receipt")
 
     baseline = json.loads(
         (_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
     )
-    assert baseline["kernel_identity"] == build_record["kernel_identity"]
-    assert (
-        baseline["language_bundle_identity"] == build_record["language_bundle_identity"]
-    )
+    rir_path = _rir_path(build_receipt)
     assert baseline["model"] == {
-        "source_identity": content_identity("model-source-package-v2", source_value),
-        "build_receipt_identity": build_record["content_identity"],
-        "resolved_model_identity": build_record["resolved_model_identity"],
-        "package_lock_identity": build_record["package_lock_identity"],
-        "rir_identity": build_record["rir_identity"],
+        "rir_semantic_identity": _member(build_receipt, "rir-semantic-payload")[
+            "semantic_identity"
+        ],
     }
-    context, binding = _resolved_model_binding_for_experiment(baseline)
+    context, binding = _admitted_program(rir_path)
 
     def run_public(specification: dict[str, Any], name: str, key: str):
         path = tmp_path / f"{name}.json"
         path.write_text(json.dumps(specification), encoding="utf-8")
         check_exit, check_stdout, check_stderr = run_cli(
-            ["experiment", "check", str(path)]
+            ["experiment", "check", str(path), "--rir", str(rir_path)]
         )
         assert (check_exit, check_stderr) == (0, ""), check_stdout
         exit_code, stdout, stderr = run_cli(
@@ -6083,6 +6158,8 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
                 "experiment",
                 "run",
                 str(path),
+                "--rir",
+                str(rir_path),
                 "--out",
                 str(tmp_path / name),
                 "--invocation-key",
@@ -6108,8 +6185,6 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     tuned_trace = tuned_evaluation.members["event-trace"].value
     tuned_metrics = tuned_evaluation.members["metric-dataset"].value
 
-    assert tuned["kernel_identity"] == baseline["kernel_identity"]
-    assert tuned["language_bundle_identity"] == baseline["language_bundle_identity"]
     assert tuned["model"] == baseline["model"]
     assert tuned["runtime"] == baseline["runtime"]
     assert tuned_trace["content_identity"] != baseline_trace["content_identity"]
@@ -6182,14 +6257,9 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         )
         assert (build_exit, build_stderr) == (0, "")
         build_receipt = json.loads(build_stdout)
-        build_record = _member(build_receipt, "build-receipt")
-        specification = _experiment(
-            kernel_identity=build_record["kernel_identity"],
-            language_bundle_identity=build_record["language_bundle_identity"],
-            source_identity=content_identity("model-source-package-v2", source_value),
-            build_receipt=build_receipt,
-            base_damage=24,
-        )
+        _member(build_receipt, "build-receipt")
+        rir_path = _rir_path(build_receipt)
+        specification = _experiment(build_receipt=build_receipt, base_damage=24)
         if label == "renamed":
             assignment = next(
                 row
@@ -6204,6 +6274,8 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
                 "experiment",
                 "run",
                 str(specification_path),
+                "--rir",
+                str(rir_path),
                 "--out",
                 str(tmp_path / f"{label}-evaluation.json"),
                 "--invocation-key",
@@ -6218,7 +6290,6 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
                 "evaluation-run",
                 "event-trace",
                 "metric-dataset",
-                "reproduction-receipt",
                 "snapshot-series",
             )
         }
@@ -6294,48 +6365,19 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
     )
 
 
-def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corruption(
+def test_experiment_ignores_build_store_damage_but_refuses_explicit_rir_corruption(
     tmp_path,
     run_cli,
     monkeypatch,
 ):
-    source_value = _rpg_model_source()
-    source = tmp_path / "lookup-model.json"
-    source.write_text(json.dumps(source_value), encoding="utf-8")
-    build_exit, build_stdout, build_stderr = run_cli(
-        [
-            "model",
-            "build",
-            str(source),
-            "--out",
-            str(tmp_path / "lookup-resolved-model.json"),
-            "--invocation-key",
-            "6" * 64,
-        ]
-    )
-    assert (build_exit, build_stderr) == (0, "")
-    build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
-    specification_path = tmp_path / "lookup-experiment.json"
-    specification_path.write_text(json.dumps(specification), encoding="utf-8")
-
-    unrelated_anchor = (
-        Path(os.environ["GDA_BALANCING_STORE_DIR"])
-        / "anchors"
-        / "unrelated"
-        / "damaged.json"
-    )
-    unrelated_anchor.parent.mkdir(parents=True)
-    unrelated_anchor.write_text("not-json", encoding="utf-8")
-    original_regular_files = publication_module.regular_files
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    detached_rir = tmp_path / "detached-rir.json"
+    detached_rir.write_bytes(rir_path.read_bytes())
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    for artifact in store.rglob("*.json"):
+        artifact.write_text("damaged original Build publication", encoding="utf-8")
     traversals = 0
+    original_regular_files = publication_module.regular_files
 
     def counted_regular_files(*args, **kwargs):
         nonlocal traversals
@@ -6344,102 +6386,41 @@ def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corrupt
 
     monkeypatch.setattr(publication_module, "regular_files", counted_regular_files)
     check_exit, check_stdout, check_stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(detached_rir)]
     )
-    assert (check_exit, check_stderr) == (0, "")
+    assert (check_exit, check_stderr) == (0, ""), check_stdout
     assert json.loads(check_stdout)["checked"] is True
-    assert traversals == 1
+    assert traversals == 0
 
-    build_locator = next(
-        Path(row["locator"])
-        for row in build_receipt["member_locators"]
-        if row["logical_name"] == "build-receipt"
-    )
-    manifest_path = build_locator.parent / "artifact-set-manifest.json"
-    manifest_bytes = manifest_path.read_bytes()
-    replacement_manifest = json.loads(manifest_bytes)
-    unrelated_member = next(
-        row
-        for row in replacement_manifest["members"]
-        if row["logical_name"] != "build-receipt"
-    )
-    unrelated_member["content_identity"] = "sha256:" + "0" * 64
-    replacement_body = {
-        key: value
-        for key, value in replacement_manifest.items()
-        if key != "content_identity"
-    }
-    replacement_manifest["content_identity"] = content_identity(
-        "artifact-set-manifest-v2",
-        replacement_body,
-    )
-    manifest_path.write_bytes(canonical_bytes(replacement_manifest))
-    context = authority_module.packaged_authority_context()
-    with pytest.raises(PublishedArtifactUnavailable):
-        publication_module.find_published_artifacts(
-            tuple(
-                (
-                    logical_name,
-                    artifact_kind,
-                    specification["model"][
-                        {
-                            "build-receipt": "build_receipt_identity",
-                            "package-lock": "package_lock_identity",
-                            "resolved-model": "resolved_model_identity",
-                            "rir-semantic-payload": "rir_identity",
-                        }[logical_name]
-                    ],
-                )
-                for logical_name, artifact_kind in (
-                    EXACT_RESOLVED_MODEL_BINDING_MEMBERS
-                )
-            ),
-            context.language_bundle,
-        )
-    manifest_path.write_bytes(manifest_bytes)
-
-    corrupted = json.loads(build_locator.read_text(encoding="utf-8"))
-    corrupted["source_identity"] = "sha256:" + "0" * 64
-    build_locator.write_bytes(canonical_bytes(corrupted))
-
+    corrupted = json.loads(detached_rir.read_text(encoding="utf-8"))
+    corrupted["content_identity"] = "sha256:" + "0" * 64
+    detached_rir.write_bytes(canonical_bytes(corrupted))
     refused_exit, refused_stdout, refused_stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(detached_rir)]
     )
-    assert (refused_exit, refused_stderr) == (2, "")
+    assert (refused_exit, refused_stderr) == (2, ""), refused_stdout
     error = json.loads(refused_stdout)["error"]
-    assert error["stage"] == "resolution"
     assert [row["code"] for row in error["diagnostics"]] == [
         "language.resolved_authority_mismatch"
     ]
-    assert "failed integrity verification" in error["diagnostics"][0]["message"]
+    assert traversals == 0
 
 
-def test_artifact_lookup_preserves_model_member_diagnostic_order(
+def test_experiment_refuses_retired_build_prerequisite_in_closed_intent(
     tmp_path,
     run_cli,
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     specification["model"]["build_receipt_identity"] = "sha256:" + ("0" * 64)
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-
-    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
-    package_lock_path = next(store.glob("invocations/*/*/package-lock.json"))
-    corrupted = json.loads(package_lock_path.read_text(encoding="utf-8"))
-    corrupted["content_identity"] = "sha256:" + ("1" * 64)
-    package_lock_path.write_bytes(canonical_bytes(corrupted))
-
     exit_code, stdout, stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
+        ["experiment", "check", str(specification_path), "--rir", str(rir_path)]
     )
-
-    assert (exit_code, stderr) == (2, "")
+    assert (exit_code, stderr) == (2, ""), stdout
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
-    assert diagnostic["code"] == "language.resolved_authority_mismatch"
+    assert diagnostic["code"] == "language.source_contract_mismatch"
     assert diagnostic["primary"]["pointer"] == "/model/build_receipt_identity"
-    assert diagnostic["message"] == (
-        "Exact build-receipt is unavailable in the committed artifact store"
-    )
 
 
 def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator():
@@ -7507,14 +7488,9 @@ def test_completed_negative_judgment_publishes_only_typed_verdict_set(
     )
     assert (build_exit, build_stderr) == (0, "")
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     specification["metrics"][0]["target"] = {"minimum": 100, "maximum": 1000}
     spec_path = tmp_path / "negative-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
@@ -7524,6 +7500,8 @@ def test_completed_negative_judgment_publishes_only_typed_verdict_set(
             "experiment",
             "run",
             str(spec_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "negative-evaluation.json"),
             "--invocation-key",
@@ -7542,7 +7520,6 @@ def test_completed_negative_judgment_publishes_only_typed_verdict_set(
         "event-trace",
         "experiment-verdict",
         "metric-dataset",
-        "reproduction-receipt",
         "resolved-runtime-profile",
         "snapshot-series",
     }
@@ -7569,14 +7546,9 @@ def test_evaluation_refusal_publishes_no_completed_outcome_artifacts(tmp_path, r
     )
     assert (build_exit, build_stderr) == (0, "")
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     specification["metrics"][0]["observation"]["member"] = "missing_damage"
     spec_path = tmp_path / "unevaluable-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
@@ -7587,6 +7559,8 @@ def test_evaluation_refusal_publishes_no_completed_outcome_artifacts(tmp_path, r
             "experiment",
             "run",
             str(spec_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(out),
             "--invocation-key",
@@ -7623,14 +7597,9 @@ def test_predispatch_capability_refusal_publishes_no_terminal_audit(
     )
     assert (build_exit, build_stderr) == (0, "")
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     monkeypatch.setattr(
         runtime_projection_module,
         "SUPPORTED_RUNTIME_OPERATORS",
@@ -7645,6 +7614,8 @@ def test_predispatch_capability_refusal_publishes_no_terminal_audit(
             "experiment",
             "run",
             str(spec_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(out),
             "--invocation-key",
@@ -7665,7 +7636,7 @@ def test_predispatch_capability_refusal_publishes_no_terminal_audit(
 def test_runtime_classifies_value_nodes_by_the_kernel_family(
     tmp_path, run_cli, monkeypatch
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     assert not hasattr(experiment_runtime_module, "_VALUE_RUNTIME_OPERATORS")
     monkeypatch.setattr(
         experiment_runtime_module,
@@ -7679,6 +7650,8 @@ def test_runtime_classifies_value_nodes_by_the_kernel_family(
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "kernel-family-run"),
             "--invocation-key",
@@ -7690,7 +7663,7 @@ def test_runtime_classifies_value_nodes_by_the_kernel_family(
 
 
 def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     text = specification.read_text(encoding="utf-8")
     specification.write_text(
         text.replace(
@@ -7701,7 +7674,9 @@ def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):
         encoding="utf-8",
     )
 
-    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir_path)]
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -7711,7 +7686,10 @@ def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):
     ]
 
 
-def test_experiment_check_bounds_the_file_read_before_admission(monkeypatch):
+def test_experiment_check_bounds_the_file_read_before_admission(
+    tmp_path, run_cli, monkeypatch
+):
+    _specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     context = authority_module.packaged_authority_context()
     max_bytes = cast(int, context.language_bundle["resources"]["max_source_bytes"])
     calls: list[tuple[str, int]] = []
@@ -7730,6 +7708,7 @@ def test_experiment_check_bounds_the_file_read_before_admission(monkeypatch):
 
     result = experiment_admission_module.check_experiment(
         "oversized-experiment.json",
+        _admitted_program(rir_path)[1],
         authority_context=context,
     )
 
@@ -7755,12 +7734,14 @@ def test_hashed_bounded_input_preserves_oversized_content_identity(tmp_path):
 
 
 def test_experiment_refuses_removed_top_level_external_inputs_member(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     value["external_inputs"] = [{"channel": "player", "index": 0, "value": 1}]
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir_path)]
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -7769,12 +7750,14 @@ def test_experiment_refuses_removed_top_level_external_inputs_member(tmp_path, r
 
 
 def test_required_evaluator_must_exactly_close_the_selected_program(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     value["runtime"]["required_evaluator"]["instruction_nodes"].remove("multiply")
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir_path)]
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -7785,13 +7768,15 @@ def test_required_evaluator_must_exactly_close_the_selected_program(tmp_path, ru
 
 
 def test_evaluator_manifest_binds_the_selected_runtime_profile(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
 
     exit_code, stdout, stderr = run_cli(
         [
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "evaluation.json"),
             "--invocation-key",
@@ -7811,8 +7796,10 @@ def test_evaluator_manifest_binds_the_selected_runtime_profile(tmp_path, run_cli
 def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance(
     tmp_path, run_cli, monkeypatch
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification))
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     first = runtime_projection_module.evaluator_manifest(checked)
@@ -7836,8 +7823,8 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     )
     changed_build = runtime_projection_module.evaluator_manifest(checked)
     assert (
-        changed_build.value["implementation_identity"]
-        != (first.value["implementation_identity"])
+        changed_build.value["evaluator_build_identity"]
+        != (first.value["evaluator_build_identity"])
     )
     assert changed_build.content_identity != first.content_identity
 
@@ -7845,8 +7832,10 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
 def test_experiment_keeps_required_and_supported_evaluator_policies_separate(
     tmp_path, run_cli, monkeypatch
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification))
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     scenario = checked.value["scenarios"][0]
@@ -8131,7 +8120,7 @@ def test_operation_program_owns_formula_instruction_provenance():
 
 
 def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     for index, metric in enumerate(value["metrics"]):
         metric.update(
@@ -8156,6 +8145,8 @@ def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, r
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "metric-contract.json"),
             "--invocation-key",
@@ -8168,9 +8159,11 @@ def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, r
     dataset = _member(receipt, "metric-dataset")
     assert dataset["experiment_identity"]
     assert dataset["metric_definition_identities"]
-    assert dataset["source_provenance"]["kind"] == "simulated"
-    assert dataset["source_provenance"]["resolved_model_identity"]
-    assert dataset["source_provenance"]["resolved_runtime_profile_identity"]
+    assert "source_provenance" not in dataset
+    assert (
+        dataset["resolved_runtime_profile_identity"]
+        == _member(receipt, "resolved-runtime-profile")["content_identity"]
+    )
     assert dataset["data_version"] == "1"
     assert dataset["partition"] == "evaluation"
     assert dataset["ordering"] == "metric-definition-identity,replication-identity"
@@ -8191,7 +8184,7 @@ def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, r
 
 
 def test_metric_dataset_emits_one_replication_for_each_scenario(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     second = deepcopy(value["scenarios"][0])
     second["id"] = "second-cast"
@@ -8218,6 +8211,8 @@ def test_metric_dataset_emits_one_replication_for_each_scenario(tmp_path, run_cl
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "scenario-replications.json"),
             "--invocation-key",
@@ -8238,7 +8233,7 @@ def test_metric_dataset_emits_one_replication_for_each_scenario(tmp_path, run_cl
 
 
 def test_metric_dataset_canonicalizes_reversed_authored_metrics(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     value["metrics"].sort(
         key=experiment_runtime_module._metric_definition_identity,
@@ -8256,6 +8251,8 @@ def test_metric_dataset_canonicalizes_reversed_authored_metrics(tmp_path, run_cl
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "reversed-metrics.json"),
             "--invocation-key",
@@ -8343,13 +8340,10 @@ def _assert_high_damage_event_behavior(
     )
     assert (build_exit, build_stderr) == (0, "")
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
     specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=base_damage_value,
+        build_receipt=build_receipt, base_damage=base_damage_value
     )
     threshold = next(
         row
@@ -8365,6 +8359,8 @@ def _assert_high_damage_event_behavior(
             "experiment",
             "run",
             str(spec_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "overflow-terminal-audit.json"),
             "--invocation-key",
@@ -8489,20 +8485,15 @@ def test_formula_overflow_terminal_audit_names_the_exact_evaluation_site(
     )
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
+    _member(build_receipt, "build-receipt")
     rir = _member(build_receipt, "rir-semantic-payload")
     formula_site = next(
         row["site"]["identity"]
         for row in rir["formula_bindings"]
         if row["site"]["kind"] == "operation-slot"
     )
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     mitigation = next(
         row
         for row in specification["scenarios"][0]["assignments"]
@@ -8517,6 +8508,8 @@ def test_formula_overflow_terminal_audit_names_the_exact_evaluation_site(
             "experiment",
             "run",
             str(spec_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "formula-overflow-terminal-audit.json"),
             "--invocation-key",
@@ -8534,12 +8527,14 @@ def test_formula_overflow_terminal_audit_names_the_exact_evaluation_site(
 
 
 def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
-    specification_path = _write_built_experiment(
+    specification_path, rir_path = _write_built_experiment(
         tmp_path,
         run_cli,
         base_damage=90,
     )
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = operation_program_module.selected_operation_index(
@@ -8646,8 +8641,10 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
 
 
 def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cli):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = operation_program_module.selected_operation_index(
@@ -8712,8 +8709,10 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
 
 
 def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_cli):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = operation_program_module.selected_operation_index(
@@ -8776,8 +8775,10 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
     tmp_path,
     run_cli,
 ):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification_path))
+    specification_path, rir_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = operation_program_module.selected_operation_index(
@@ -8891,14 +8892,9 @@ def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(
     )
     assert (build_exit, build_stderr) == (0, "")
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    specification = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    specification = _experiment(build_receipt=build_receipt, base_damage=24)
     actor_mana = next(
         row
         for row in specification["scenarios"][0]["assignments"]
@@ -8941,6 +8937,8 @@ def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(
             "experiment",
             "run",
             str(spec_path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "insufficient-resource-evaluation.json"),
             "--invocation-key",
@@ -8959,9 +8957,9 @@ def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(
 
 
 def test_gameplay_outcomes_are_closed_and_exhaustively_typed(tmp_path, run_cli):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
-    context, binding = _resolved_model_binding_for_experiment(value)
+    context, binding = _admitted_program(rir_path)
     scenarios = {
         "cast-resolved": value,
         "miss": json.loads(json.dumps(value)),
@@ -8999,6 +8997,8 @@ def test_gameplay_outcomes_are_closed_and_exhaustively_typed(tmp_path, run_cli):
                     "experiment",
                     "run",
                     str(path),
+                    "--rir",
+                    str(rir_path),
                     "--out",
                     str(tmp_path / f"{outcome}-out.json"),
                     "--invocation-key",
@@ -9021,7 +9021,7 @@ def test_gameplay_outcomes_are_closed_and_exhaustively_typed(tmp_path, run_cli):
 def test_operation_step_budget_is_scoped_per_event_not_across_scenarios(
     tmp_path, run_cli
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     base_scenario = value["scenarios"][0]
     value["scenarios"] = []
@@ -9051,6 +9051,8 @@ def test_operation_step_budget_is_scoped_per_event_not_across_scenarios(
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "multi-scenario.json"),
             "--invocation-key",
@@ -9096,14 +9098,9 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
     )
     assert (build_exit, build_stderr) == (0, "")
     build_receipt = json.loads(build_stdout)
-    build_record = _member(build_receipt, "build-receipt")
-    value = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=content_identity("model-source-package-v2", source_value),
-        build_receipt=build_receipt,
-        base_damage=24,
-    )
+    _member(build_receipt, "build-receipt")
+    rir_path = _rir_path(build_receipt)
+    value = _experiment(build_receipt=build_receipt, base_damage=24)
     second = json.loads(json.dumps(value["scenarios"][0]))
     second["id"] = "overflowing-cast"
     for row in second["assignments"]:
@@ -9120,6 +9117,8 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
             "experiment",
             "run",
             str(path),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "second-scenario-audit.json"),
             "--invocation-key",
@@ -9196,7 +9195,7 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
 def test_experiment_precommit_faults_leave_no_visible_or_partial_set(
     tmp_path, run_cli, fault
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     out = tmp_path / f"{fault}.json"
     key = "2" * 64
     faulting = replace(
@@ -9211,6 +9210,8 @@ def test_experiment_precommit_faults_leave_no_visible_or_partial_set(
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(out),
             "--invocation-key",
@@ -9242,13 +9243,17 @@ def test_experiment_precommit_faults_leave_no_visible_or_partial_set(
 def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
     tmp_path, run_cli, monkeypatch, fault
 ):
-    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    specification, _build_receipt, rir_path = _write_built_periodic_experiment(
+        tmp_path, run_cli
+    )
     out = tmp_path / f"periodic-{fault}.json"
     key = "8" * 64
     argv = [
         "experiment",
         "run",
         str(specification),
+        "--rir",
+        str(rir_path),
         "--out",
         str(out),
         "--invocation-key",
@@ -9319,12 +9324,16 @@ def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
 def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
     tmp_path, run_cli
 ):
-    specification, build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    specification, build_receipt, rir_path = _write_built_periodic_experiment(
+        tmp_path, run_cli
+    )
     exit_code, stdout, stderr = run_cli(
         [
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "independent-periodic-evaluation.json"),
             "--invocation-key",
@@ -9449,8 +9458,12 @@ def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
 def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
     tmp_path, run_cli, mutation
 ):
-    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification))
+    specification, _build_receipt, rir_path = _write_built_periodic_experiment(
+        tmp_path, run_cli
+    )
+    checked = experiment_admission_module.check_experiment(
+        str(specification), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
@@ -9572,8 +9585,12 @@ def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
 def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
     tmp_path, run_cli, mutation
 ):
-    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
-    checked = experiment_admission_module.check_experiment(str(specification))
+    specification, _build_receipt, rir_path = _write_built_periodic_experiment(
+        tmp_path, run_cli
+    )
+    checked = experiment_admission_module.check_experiment(
+        str(specification), _admitted_program(rir_path)[1]
+    )
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
@@ -9583,11 +9600,16 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
     )
     runtime_profile["resource_bounds"]["max_total_events"] = 4
     checked = replace(checked, rir=rir)
-    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    prepared = experiment_runtime_module.prepare_experiment(checked)
+    assert isinstance(prepared, experiment_runtime_module.PreparedExperiment)
+    outcome = experiment_runtime_module.evaluate_prepared_experiment(prepared)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     assert outcome.report.diagnostics[0].code == "runtime.event_limit_exceeded"
     members = experiment_artifacts_module.runtime_terminal_audit_members(
-        checked, outcome
+        checked,
+        outcome,
+        evaluator=prepared.evaluator,
+        resolved_runtime=prepared.resolved_runtime,
     )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
@@ -9685,7 +9707,7 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
 def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
     tmp_path, run_cli, monkeypatch, outcome
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     specification_value = json.loads(specification.read_text(encoding="utf-8"))
     if outcome == "verdict":
         specification_value["metrics"][0]["target"] = {
@@ -9715,6 +9737,8 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         "experiment",
         "run",
         str(specification),
+        "--rir",
+        str(rir_path),
         "--out",
         str(out),
         "--invocation-key",
@@ -9777,13 +9801,15 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
 def test_committed_recovery_requires_semantic_artifact_set_revalidation(
     tmp_path, run_cli, monkeypatch
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     out = tmp_path / "semantic-recovery.json"
     key = "8" * 64
     argv = [
         "experiment",
         "run",
         str(specification),
+        "--rir",
+        str(rir_path),
         "--out",
         str(out),
         "--invocation-key",
@@ -9831,13 +9857,15 @@ def test_committed_recovery_requires_semantic_artifact_set_revalidation(
 def test_committed_recovery_revalidates_the_presentation_trust_boundary(
     tmp_path, run_cli, monkeypatch, presentation
 ):
-    specification = _write_built_experiment(tmp_path, run_cli)
+    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     key = "4" * 64
     first = run_cli(
         [
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(tmp_path / "first-evaluation.json"),
             "--invocation-key",
@@ -9877,6 +9905,8 @@ def test_committed_recovery_revalidates_the_presentation_trust_boundary(
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(rir_path),
             "--out",
             str(recovered_out),
             "--invocation-key",

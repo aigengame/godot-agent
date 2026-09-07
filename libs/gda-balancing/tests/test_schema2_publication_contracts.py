@@ -11,11 +11,8 @@ from gda_balancing.application.experiment_execution import (
     execute_checked_experiment,
 )
 from gda_balancing.domain.artifact_set import EXPERIMENT_SUCCESS_ARTIFACT_SET
-from gda_balancing.domain.experiment import (
-    CheckedExperiment,
-    check_experiment,
-    experiment_input_identity,
-)
+from gda_balancing.domain.experiment import CheckedExperiment, experiment_input_identity
+from gda_balancing.application.experiment_inputs import check_experiment_inputs
 from gda_balancing.domain.experiment_artifacts import (
     validate_experiment_artifact_set,
     validate_experiment_member,
@@ -32,8 +29,9 @@ def test_committed_recovery_consumes_only_selected_framing_and_member_contracts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     specification = tmp_path / "experiment.json"
-    specification.write_text(prepare_valid_experiment(tmp_path, 874), encoding="utf-8")
-    checked = check_experiment(str(specification))
+    fixture = prepare_valid_experiment(tmp_path, 874)
+    specification.write_text(fixture.specification, encoding="utf-8")
+    checked = check_experiment_inputs(str(specification), fixture.rir)
     assert isinstance(checked, CheckedExperiment)
     execution = execute_checked_experiment(checked)
     assert isinstance(execution, ExperimentExecutionSuccess)
