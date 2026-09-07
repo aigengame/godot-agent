@@ -4,6 +4,12 @@ status: accepted
 
 # CLI command taxonomy: grouped by Godot domain object
 
+> **Extension (2026-09-07):**
+> [ADR-0042](0042-asset-pipeline-supporting-context-integration.md) accepts
+> `gda asset-pipeline` as the entry to an internal supporting context. This is a
+> workflow group, distinct from Godot object operations. It adds no synonymous
+> `asset` or `assets` CRUD group. The extension is designed, not yet implemented.
+
 `gda` will grow to many commands. We need a command structure that stays navigable
 at that scale, is intuitive to anyone who knows Godot, and maps cleanly onto
 `gda-mcp`'s tool surface.
