@@ -27,7 +27,8 @@ from gda_balancing.domain.experiment import (
 )
 from gda_balancing.domain.experiment_artifact_replay import (
     ReplayInitializationProgramFault as _InitializationProgramFault,
-    attempted_operation_charge as _attempted_operation_charge,
+    replay_refusing_operation as _replay_refusing_operation,
+    execution_path_segment as _execution_path_segment,
     evaluate_initialization_programs as _evaluate_initialization_programs,
     execute_value_instruction as _execute_value_instruction,
     replay_event_evidence as _replay_event_evidence,
@@ -198,7 +199,7 @@ def _event_operation_executions(
             return None
         entrypoint = event.get("entrypoint")
         root_path = (
-            cast(str, entrypoint["id"])
+            _execution_path_segment(cast(str, entrypoint["id"]))
             if isinstance(entrypoint, dict)
             else f"scheduled:{event.get('schedule_call_site_identity')}"
         )
@@ -383,9 +384,11 @@ def _expected_root_event_catalog(
 
 def _authoritative_event_actual_values(
     checked: CheckedExperiment,
-    event: dict[str, JsonValue],
     event_spec: dict[str, JsonValue],
     *,
+    event_index: int,
+    state_before: list[dict[str, JsonValue]],
+    snapshot_identity: str,
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
@@ -428,7 +431,7 @@ def _authoritative_event_actual_values(
             frame_token={"scenario": scenario_id, "recovery": "initialization"},
             phase="initialization",
         )
-        parent_index = cast(int, event["index"])
+        parent_index = event_index
         for prior_event in sorted(
             events_by_id.values(), key=lambda row: cast(int, row["index"])
         ):
@@ -444,16 +447,13 @@ def _authoritative_event_actual_values(
                 actual_values[canonical_bytes(cast(JsonValue, fact["target"]))] = fact[
                     "value"
                 ]
-        state_before = {
-            cast(str, row["name"]): row["value"]
-            for row in cast(list[dict[str, JsonValue]], event["state_before"])
-        }
+        state_by_name = {cast(str, row["name"]): row["value"] for row in state_before}
         for identity, display_name in display_names.items():
             if (
                 declarations[identity]["role"] == "state"
-                and display_name in state_before
+                and display_name in state_by_name
             ):
-                actual_values[identity] = state_before[display_name]
+                actual_values[identity] = state_by_name[display_name]
         if event_spec["kind"] == "transition-invocation":
             for payload in cast(list[dict[str, JsonValue]], event_spec["payload"]):
                 actual_values[canonical_bytes(cast(JsonValue, payload["target"]))] = (
@@ -466,7 +466,7 @@ def _authoritative_event_actual_values(
             runtime_limit=(1 << 63) - 1,
             cache=None,
             selected_entrypoints=scenario_entrypoints,
-            frame_identity=cast(str, event["snapshot_before_identity"]),
+            frame_identity=snapshot_identity,
             phase="event",
         )
     except (
@@ -480,11 +480,13 @@ def _authoritative_event_actual_values(
     return actual_values
 
 
-def _committed_event_arguments(
+def _event_arguments(
     checked: CheckedExperiment,
-    event: dict[str, JsonValue],
     event_spec: dict[str, JsonValue],
     *,
+    event_index: int,
+    state_before: list[dict[str, JsonValue]],
+    snapshot_identity: str,
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
@@ -498,8 +500,10 @@ def _committed_event_arguments(
 ):
     actual_values = _authoritative_event_actual_values(
         checked,
-        event,
         event_spec,
+        event_index=event_index,
+        state_before=state_before,
+        snapshot_identity=snapshot_identity,
         scenario_id=scenario_id,
         catalog_by_id=catalog_by_id,
         events_by_id=events_by_id,
@@ -599,10 +603,12 @@ def _replayed_event_evidence(
     ]
     | None
 ):
-    root_arguments = _committed_event_arguments(
+    root_arguments = _event_arguments(
         checked,
-        parent_event,
         parent_spec,
+        event_index=cast(int, parent_event["index"]),
+        state_before=cast(list[dict[str, JsonValue]], parent_event["state_before"]),
+        snapshot_identity=cast(str, parent_event["snapshot_before_identity"]),
         scenario_id=scenario_id,
         catalog_by_id=catalog_by_id,
         events_by_id=events_by_id,
@@ -823,10 +829,12 @@ def _scheduled_catalog_record_is_authoritative(
     ):
         return False
     parent_arguments = (
-        _committed_event_arguments(
+        _event_arguments(
             checked,
-            parent_event,
             parent_spec,
+            event_index=cast(int, parent_event["index"]),
+            state_before=cast(list[dict[str, JsonValue]], parent_event["state_before"]),
+            snapshot_identity=cast(str, parent_event["snapshot_before_identity"]),
             scenario_id=cast(str, record["scenario"]),
             catalog_by_id=catalog_by_id,
             events_by_id=events_by_id,
@@ -1830,32 +1838,57 @@ def _terminal_audit_is_valid(
         exact_event_steps = 0
         exact_node_steps = cast(int, ledger["node_steps"]) + event_formula_fault_charge
     else:
-        attempted_operation_charge = _attempted_operation_charge(
+        root_arguments = _event_arguments(
             checked,
-            refusing_event,
             refusing_event_spec,
-            node_steps_before_operation=(
-                cast(int, ledger["node_steps"]) + event_formula_charge
-            ),
+            event_index=cast(int, refusing_event["index"]),
+            state_before=cast(list[dict[str, JsonValue]], state_before),
+            snapshot_identity=cast(str, refusing_event["snapshot_before_identity"]),
+            scenario_id=cast(str, scenario_id),
+            catalog_by_id=catalog_by_id,
+            events_by_id=cast(dict[str, dict[str, JsonValue]], events_by_id),
+        )
+        if root_arguments is None:
+            return False
+        replayed = _replay_refusing_operation(
+            checked,
+            refusing_event_spec,
+            root_arguments,
+            index=cast(int, refusing_event["index"]),
+            state_before=cast(list[dict[str, JsonValue]], state_before),
+            snapshot_identity=cast(str, refusing_event["snapshot_before_identity"]),
+            attempted_calls=refusing_event["attempted_calls"],
+            scenario_id=cast(str, scenario_id),
+            catalog_by_id=catalog_by_id,
+            events_by_id=cast(dict[str, dict[str, JsonValue]], events_by_id),
+            node_steps_before_operation=cast(int, ledger["node_steps"])
+            + event_formula_charge,
             bounds=bounds,
         )
-        if attempted_operation_charge is None:
+        if replayed is None or any(
+            refusing_event.get(member) != getattr(replayed, member)
+            for member in (
+                "operation",
+                "call_path",
+                "call_site_identity",
+                "instruction_index",
+                "evaluation_site_identity",
+            )
+        ):
             return False
-        exact_event_steps, budget_breached = attempted_operation_charge
-        # Diagnostic mappings need not be injective. Match the independently
-        # replayed charge condition against all selected reasons for this code.
+        # A diagnostic may represent several reasons. Require the exact first
+        # executed signal to be one of those selected reasons, not just a match
+        # of the broad step-limit/non-step category.
         if not any(
             reason.get("stage") == "runtime"
             and reason["diagnostic"] == diagnostic["code"]
-            and isinstance(reason.get("signal"), str)
-            and (reason.get("signal") == "step-limit") == budget_breached
+            and reason.get("signal") == replayed.signal
             for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
             for reason in [row["definition"]]
         ):
             return False
-        exact_node_steps = (
-            cast(int, ledger["node_steps"]) + event_formula_charge + exact_event_steps
-        )
+        exact_event_steps = replayed.event_steps
+        exact_node_steps = replayed.node_steps
     if (
         budget["total_events"] != len(scenario_catalog)
         or budget["queue_events"] != expected_queue_events
