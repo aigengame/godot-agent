@@ -349,7 +349,8 @@ def render_export_get(got: "ExportGetResult") -> str:
     ]
     if got.templates_root_host:
         lines.append(
-            f"  hidden by --user-data-root; host templates: {got.templates_root_host}"
+            "  hidden by the user-data redirect (--user-data-root / "
+            f"$GDA_USER_DATA_ROOT); host templates: {got.templates_root_host}"
         )
     return "\n".join(lines)
 

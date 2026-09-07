@@ -300,8 +300,12 @@ def test_no_producer_can_emit_an_empty_evidence_object():
     # The fourth state the amendment's argument does not cover: `FailureEvidence()`
     # with every field unset serializes to `"evidence": {}` — a key that says nothing,
     # on a failure that byte-identity says should carry no key at all. Unreachable
-    # through the five producers today, but only incidentally, so it is pinned rather
-    # than assumed. Each producer is called with the LEAST it can be given.
+    # through the first five producers today, but only incidentally, so it is pinned
+    # rather than assumed. Producers six to eight (the two `target_*` refusals and
+    # `export_templates_missing_failure`) are not in this list because their builders
+    # cannot be called with nothing; each pins the same rule in a dedicated test
+    # (e.g. `test_no_evidence_at_all_when_no_directory_was_reported`). Each producer
+    # is called with the LEAST it can be given.
     raw = RunResult(
         stdout="", stderr="", exit_code=124, launch_failure=LaunchFailure.TIMEOUT
     )

@@ -279,9 +279,10 @@ status: accepted
 > remedies: drop the redirect, or install the templates. Both paths pass the
 > criterion — each is already computed on the failure path (the engine-side check
 > composes them), neither is recoverable from the envelope without reading the
-> message, and which shape it is decides what the caller does next. Like the two
-> `target_outside_project` refusals it reports on no run: it is the pre-export
-> preflight's verdict. The omitted-never-null rule holds at the producer too — a
+> message, and which shape it is decides what the caller does next. Its evidence is
+> not a run's residue — the two directories come from the `export get` op's reply —
+> and it is the pre-export preflight's verdict, as the two `target_outside_project`
+> refusals are pre-launch ones. The omitted-never-null rule holds at the producer too — a
 > reply naming no directory yields no `evidence` key rather than an empty object.
 > The asserted set in `tests/cli/test_error_registry.py` is now eight.
 >

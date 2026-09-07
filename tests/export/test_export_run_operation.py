@@ -427,6 +427,11 @@ def test_templates_hidden_by_a_redirect_name_both_directories_and_the_remedies()
     assert ISO_TEMPLATES_ROOT in error.message
     assert HOST_TEMPLATES_ROOT in error.message
     assert "--user-data-root" in error.message
+    # Both spellings of the redirect are named, and the remedy names the redirect
+    # rather than one spelling — the exported-variable case is the common trigger
+    # (PITFALLS.md), where the caller never typed the flag.
+    assert "$GDA_USER_DATA_ROOT" in error.message
+    assert "without the user-data redirect" in error.message
     assert "--mode pack" in error.message
     # Not a near miss: `hint` is contractually one corrected invocation from the
     # curated table (CONTEXT.md `Near-miss hint`), and this is not one.

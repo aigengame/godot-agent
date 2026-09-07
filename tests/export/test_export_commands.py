@@ -9,6 +9,7 @@ real Godot. This slice never runs an actual export (that is issue #121).
 """
 
 import json
+import sys
 
 from typer.testing import CliRunner
 
@@ -26,8 +27,31 @@ from tests.support import (
 
 
 # The host data directory gda hands the export-get op (#840): the production
-# resolver, so the assertion follows the host it runs on.
+# resolver, so the dispatch assertions below follow the host they run on. Those
+# assertions prove the PLUMBING (what gda computed reaches the op unchanged); the
+# VALUE is pinned separately, against an oracle that is not the resolver itself —
+# see test_the_host_data_path_resolver_reads_the_host_environment.
 _host_data_path = resolve_host_data_path
+
+
+def test_the_host_data_path_resolver_reads_the_host_environment(monkeypatch):
+    # The resolver is the whole #840 mechanism: with it returning None the engine
+    # would never learn the host directory and the disclosure would silently
+    # vanish, while every dispatch test above stayed green (they compare gda's
+    # request against this same function). So the value is pinned here against
+    # the engine's own rule (OS::get_data_path per platform) over a monkeypatched
+    # environment, which is gda's OWN environment — never the redirect.
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.setenv("HOME", "/tmp/gda-host-home")
+    monkeypatch.setenv("APPDATA", "C:\\Users\\host\\AppData\\Roaming")
+    if sys.platform == "darwin":
+        expected = "/tmp/gda-host-home/Library/Application Support"
+    elif sys.platform.startswith("win"):
+        expected = "C:\\Users\\host\\AppData\\Roaming"
+    else:
+        expected = "/tmp/gda-host-home/.local/share"
+
+    assert resolve_host_data_path() == expected
 
 
 def test_export_list_json_enumerates_presets_and_exit_zero(monkeypatch, tmp_path):

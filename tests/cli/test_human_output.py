@@ -484,7 +484,8 @@ HUMAN_CASES = [
         "Linux/X11 (Linux/X11) [runnable]\n"
         "  export_path: \n"
         "  templates missing (4.6.3.stable) in /iso/data/Godot/export_templates\n"
-        "  hidden by --user-data-root; host templates: "
+        "  hidden by the user-data redirect (--user-data-root / $GDA_USER_DATA_ROOT); "
+        "host templates: "
         "/host/data/Godot/export_templates",
     ),
     # --- meta ---------------------------------------------------------------

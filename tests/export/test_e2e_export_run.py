@@ -217,6 +217,8 @@ def test_export_run_under_a_redirect_names_both_template_directories(
     assert err["code"] == "export_templates_missing", run.stdout + run.stderr
     assert str(isolated) in err["message"], err["message"]
     assert "--user-data-root" in err["message"], err["message"]
+    assert "$GDA_USER_DATA_ROOT" in err["message"], err["message"]
+    assert "without the user-data redirect" in err["message"], err["message"]
     assert "--mode pack" in err["message"], err["message"]
     # Not a near miss, so no corrected invocation rides along.
     assert "hint" not in err, err
@@ -226,6 +228,37 @@ def test_export_run_under_a_redirect_names_both_template_directories(
     assert str(isolated) not in evidence["templates_root_host"], evidence
     # The preflight fired first, so nothing was exported.
     assert not artifact.exists(), "no artifact when the preflight fails fast"
+
+
+@pytest.mark.e2e
+def test_export_get_under_a_redirect_with_a_template_less_host_names_no_host_root(
+    godot_project, tmp_path
+):
+    # Clause 3 of the engine-side check (#840): the redirect is in play and the two
+    # roots differ, but the host has no templates for this version EITHER — so
+    # nothing is hidden and the plain shape must come back (no host root), not a
+    # false "they are installed in the host's …" remedy. The host root is resolved
+    # over gda's OWN environment, so that environment is pointed at an empty home
+    # for this one invocation; the child engine's data goes under the isolated
+    # root as before. The redirect is never exported for the run (PITFALLS.md).
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    empty_home = tmp_path / "home"
+    empty_home.mkdir()
+    isolated = tmp_path / "iso"
+    gda = Gda(
+        godot_project,
+        extra_env={"HOME": str(empty_home), "XDG_DATA_HOME": str(empty_home / "share")},
+    )
+
+    got = gda.json(
+        "--user-data-root", str(isolated), "export", "get", "--preset", "Linux/X11"
+    )
+
+    assert got["templates_installed"] is False, got
+    assert str(isolated) in got["templates_root"], got
+    assert got["templates_root_host"] is None, got
 
 
 @pytest.mark.e2e
