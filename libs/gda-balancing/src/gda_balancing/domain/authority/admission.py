@@ -2344,7 +2344,7 @@ def _runtime_projection_is_closed(
         return False
     if not (
         isinstance(required_outputs, list)
-        and set(output_members + contract["execution_closure"]["output_members"])
+        and set(output_members) | set(contract["execution_closure"]["output_members"])
         == set(required_outputs)
         and isinstance(selected_properties, dict)
         and isinstance(packages, list)
