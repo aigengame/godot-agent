@@ -228,6 +228,8 @@ MATRIX_UI_GD = (
     "@export var polled_frames: int = 0\n"
     "@export var gui_input_hits: int = 0\n"
     "@export var unhandled_hits: int = 0\n"
+    "@export var gui_release_hits: int = 0\n"
+    "@export var unhandled_release_hits: int = 0\n"
     "func _ready() -> void:\n"
     "\tfocus_mode = Control.FOCUS_ALL\n"
     "\tgrab_focus()\n"
@@ -237,9 +239,13 @@ MATRIX_UI_GD = (
     "func _gui_input(event: InputEvent) -> void:\n"
     '\tif event.is_action_pressed("move_right"):\n'
     "\t\tgui_input_hits += 1\n"
+    '\telif event.is_action_released("move_right"):\n'
+    "\t\tgui_release_hits += 1\n"
     "func _unhandled_input(event: InputEvent) -> void:\n"
     '\tif event.is_action_pressed("move_right"):\n'
     "\t\tunhandled_hits += 1\n"
+    '\telif event.is_action_released("move_right"):\n'
+    "\t\tunhandled_release_hits += 1\n"
 )
 MATRIX_MAIN_TSCN = (
     "[gd_scene load_steps=2 format=3]\n\n"
@@ -251,10 +257,14 @@ MATRIX_MAIN_TSCN = (
 )
 
 # `move_right` bound to a REAL key, so the matrix's third row (the mapped key)
-# can be injected. The key is X, not an arrow: Godot's built-in `ui_*` actions
-# bind the arrows, and the viewport moves focus on a focused Control's `ui_right`
-# — marking the event handled before `_unhandled_input`, which would measure the
-# focus machinery instead of the route. X is bound to nothing by default.
+# can be injected. The key is X, not an arrow, to keep the row measuring the ROUTE
+# and nothing else: the arrows are also bound to Godot's built-in `ui_*` actions,
+# so an arrow event additionally runs the viewport's focus-neighbor machinery for
+# a focused Control — harmless with the lone Control this scene has (with no
+# neighbor to move to, nothing is marked handled and `_unhandled_input` still
+# fires, verified on the engine), but it would silently couple the assertion to
+# that scene detail. X is bound to nothing by default, so the row stays about the
+# door the event went through.
 MATRIX_KEY = "X"
 MATRIX_PROJECT_GODOT = project_godot(
     extra=(
@@ -1000,7 +1010,13 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
     def observed() -> dict:
         return {
             name: _property_value(gda, node, name)
-            for name in ("polled_frames", "gui_input_hits", "unhandled_hits")
+            for name in (
+                "polled_frames",
+                "gui_input_hits",
+                "unhandled_hits",
+                "gui_release_hits",
+                "unhandled_release_hits",
+            )
         }
 
     try:
@@ -1017,6 +1033,8 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
         assert after_state["polled_frames"] > 0
         assert after_state["gui_input_hits"] == 0
         assert after_state["unhandled_hits"] == 0
+        assert after_state["gui_release_hits"] == 0
+        assert after_state["unhandled_release_hits"] == 0
 
         # Row 2 — the opt-in: an InputEventAction through the root viewport reaches
         # the focused Control's `_gui_input` and `_unhandled_input`, and the polled
@@ -1029,6 +1047,23 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
         assert after_event["unhandled_hits"] == 1
         assert after_event["polled_frames"] == after_state["polled_frames"]
 
+        # The RELEASE half of the opt-in on the single-frame op, observed as its
+        # own edge. The press counters alone cannot see it: they would stay right
+        # for an injection that sent a press, or nothing at all.
+        event_release = gda("input", "action", "move_right", "--as-event", "--release")
+        assert event_release.returncode == 0, (
+            event_release.stdout + event_release.stderr
+        )
+        release_doc = json.loads(event_release.stdout)
+        assert release_doc["injection_route"] == "viewport_event"
+        assert release_doc["pressed"] is False
+        after_event_release = observed()
+        assert after_event_release["gui_release_hits"] == 1
+        assert after_event_release["unhandled_release_hits"] == 1
+        assert after_event_release["gui_input_hits"] == 1
+        assert after_event_release["unhandled_hits"] == 1
+        assert after_event_release["polled_frames"] == after_state["polled_frames"]
+
         # Row 3 — the mapped key, the route the opt-in joins: same handlers, same
         # untouched polled state.
         key = gda("input", "key", MATRIX_KEY)
@@ -1037,6 +1072,8 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
         after_key = observed()
         assert after_key["gui_input_hits"] == 2
         assert after_key["unhandled_hits"] == 2
+        assert after_key["gui_release_hits"] == 1
+        assert after_key["unhandled_release_hits"] == 1
         assert after_key["polled_frames"] == after_state["polled_frames"]
 
         # A tap in the event mode takes the same door on both phases.
@@ -1047,8 +1084,10 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
             "viewport_event",
         ]
         after_tap = observed()
-        assert after_tap["gui_input_hits"] == 3  # the press; a release is not "pressed"
+        assert after_tap["gui_input_hits"] == 3
         assert after_tap["unhandled_hits"] == 3
+        assert after_tap["gui_release_hits"] == 2  # the tap's own release edge
+        assert after_tap["unhandled_release_hits"] == 2
         assert after_tap["polled_frames"] == after_state["polled_frames"]
 
         # And one sequence mixes the two routes, reporting one per phase — the
@@ -1084,6 +1123,9 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
         after_sequence = observed()
         assert after_sequence["gui_input_hits"] == 4
         assert after_sequence["unhandled_hits"] == 4
+        # The sequence's release is a STATE event: no handler sees it.
+        assert after_sequence["gui_release_hits"] == 2
+        assert after_sequence["unhandled_release_hits"] == 2
         assert after_sequence["polled_frames"] > after_tap["polled_frames"]
     finally:
         gda("daemon", "stop")

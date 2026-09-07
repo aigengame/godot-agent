@@ -1498,21 +1498,20 @@ re-derives every verdict from a running engine.
   (`input tap`, `input mouse-click`, `input sequence`) report it per phase, since
   one sequence can mix the two — a tap targets exactly one of `--key` / `--action`,
   and that target (with its mode, below) selects the route both its phases take.
-  Drive event-driven UI
-  with a key or mouse event and use an action where the game polls
-  `Input.is_action_*`: a successful action injection is not evidence that the event
-  path works (GDA-DF-048, GDA-DF-075). The state route is an action's DEFAULT, not
-  its only door: `input action --as-event`, `input tap --action --as-event` and a
-  sequence `action` event with `"as_event": true` deliver the action as an
+  Drive event-driven UI with a key or mouse event and use an action where the game
+  polls `Input.is_action_*`: a successful action injection is not evidence that the
+  event path works (GDA-DF-048, GDA-DF-075). The state route is an action's DEFAULT,
+  not its only door: `input action --as-event`, `input tap --action --as-event` and
+  a sequence `action` event with `"as_event": true` deliver the action as an
   `InputEventAction` pushed through the same root viewport (#854), so handlers
-  matching it DO receive the event while `Input.is_action_pressed` stays untouched
-  — those results report `viewport_event`, per phase on the phased ops. The opt-in
-  is explicit because changing the default would silently alter what every existing
+  matching it DO receive the event while `Input.is_action_pressed` stays untouched —
+  those results report `viewport_event`, per phase on the phased ops. The opt-in is
+  explicit because changing the default would silently alter what every existing
   call means, and the delivery is `Viewport.push_input` rather than
   `Input.parse_input_event`, which would drive both routes at once and leave the
   reported route with nothing to distinguish. `--as-event` rides an action: a key
-  tap already pushes an event and refuses it model-side. For mouse
-  ops and sequence mouse events, the reliable injected coordinate is
+  tap already pushes an event and refuses it model-side.
+  For mouse ops and sequence mouse events, the reliable injected coordinate is
   `InputEventMouseButton.position` / `InputEventMouseMotion.position`; Godot may
   leave `Viewport.get_mouse_position()` and `Node2D.get_global_mouse_position()`
   stale in daemon sessions, so game code should read the injected coordinate from

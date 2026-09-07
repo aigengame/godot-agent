@@ -762,8 +762,11 @@ class InputTapResult(BaseModel):
         # by `_check_tap_evidence` below; stamping it first only decides which
         # route a phase of a reply that will not survive validation would claim.
         # The event mode (#854) is read the same way, and for the action family
-        # ALONE — a key tap that somehow echoed the mode is a malformed reply to
-        # refuse below, not a route to raise on here.
+        # ALONE. A key-family reply that echoed the mode anyway is IGNORED here
+        # rather than refused: the mode is not a result field (`injection_route` is
+        # its whole disclosure), so `_check_tap_evidence` cannot see it, and the
+        # route such a reply gets is `viewport_event` either way — which is a key
+        # tap's real route, so nothing wrong is published.
         if not isinstance(data, dict):
             return data
         action = data.get("action")
@@ -1433,10 +1436,18 @@ def render_input_tap(injected: "InputTapResult") -> str:
 
 
 def render_input_action(injected: "InputActionResult") -> str:
-    """Render an injected action event as ``action <name> <pressed|released>`` (#221)."""
+    """Render an injected action event as ``action <name> <pressed|released>`` (#221).
+
+    The one input renderer that names its route, because it is the one command whose
+    route VARIES per call (#854): #838 left the human renderers alone precisely
+    because a route was a constant per command, and adding a constant to every line
+    says nothing. Here ``--as-event`` changes what the injection did, so the render
+    says which of the two it was.
+    """
+    mode = " as event" if injected.injection_route == VIEWPORT_EVENT else ""
     if injected.pressed:
-        return f"action {injected.action} pressed (strength {injected.strength})"
-    return f"action {injected.action} released"
+        return f"action {injected.action} pressed{mode} (strength {injected.strength})"
+    return f"action {injected.action} released{mode}"
 
 
 def render_input_sequence(injected: "InputSequenceResult") -> str:
@@ -1701,13 +1712,14 @@ def input_action(
 ) -> None:
     """Press or release a named input action in the running game (live).
 
-    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
-    drives Input.action_press / action_release against the running InputMap. That is
-    the `action_state` route: it changes the polled action state, which
-    Input.is_action_pressed / is_action_just_pressed observe, and it builds no
-    InputEvent — so _input, _gui_input and _unhandled_input never see it, however
-    the action is bound. Drive event-driven UI with `gda input key` or a mouse
-    command (the `viewport_event` route) and use an action where the game polls
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017)
+    and drives Input.action_press / action_release against the running
+    InputMap. That is the `action_state` route: it changes the polled action
+    state, which Input.is_action_pressed / is_action_just_pressed observe,
+    and it builds no InputEvent — so on that route _input, _gui_input and
+    _unhandled_input never see it, however the action is bound. Drive
+    event-driven UI with `gda input key` or a mouse command (the
+    `viewport_event` route) and use an action where the game polls
     Input.is_action_*; the result names the route it took. An action absent
     from the InputMap is `live_unknown_action`. With no daemon it reports
     `daemon_not_running`.

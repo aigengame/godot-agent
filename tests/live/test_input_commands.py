@@ -2906,6 +2906,48 @@ def test_the_event_mode_is_not_valid_on_a_key_sequence_event(monkeypatch, tmp_pa
     assert "'as_event' is accepted on: action" in message
 
 
+def _input_text(monkeypatch, tmp_path, payload, *argv) -> str:
+    """Run one `gda input` command over a faked live seam WITHOUT --json."""
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+    result = CliRunner().invoke(
+        app, ["input", *argv, "--project", str(minimal_project(tmp_path))]
+    )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    return result.stdout
+
+
+def test_the_human_render_names_the_event_mode(monkeypatch, tmp_path):
+    # `input action` is the ONE input command whose route varies per call, so its
+    # human line says which door was used — without it an opted-in action and a
+    # state one read identically, which is the confusion #838 exists to end. The
+    # other renderers stay unchanged: their route is a constant.
+    default = _input_text(monkeypatch, tmp_path, INPUT_ACTION_RESULT, "action", "jump")
+    opted_in = _input_text(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_ACTION_RESULT, "as_event": True},
+        "action",
+        "jump",
+        "--as-event",
+    )
+    released = _input_text(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_ACTION_RESULT, "pressed": False, "strength": 0.0, "as_event": True},
+        "action",
+        "jump",
+        "--release",
+        "--as-event",
+    )
+
+    assert "action jump pressed (strength 1.0)" in default
+    assert "as event" not in default
+    assert "action jump pressed as event (strength 1.0)" in opted_in
+    assert "action jump released as event" in released
+
+
 def test_input_action_help_carries_the_conformance_matrix():
     result = CliRunner().invoke(app, ["input", "action", "--help"])
 
@@ -2974,11 +3016,43 @@ def test_input_sequence_schema_publishes_the_event_mode_on_the_action_variant_on
     )
 
 
+def _matrix_claims() -> list[tuple[str, list[str]]]:
+    """``_MATRIX_ROWS`` parsed back into (injection spelling, [verdicts]).
+
+    Parsed from the rendered rows rather than declared a second time: the row IS
+    the claim, and a parallel literal list would itself be a copy to drift.
+    """
+    claims = []
+    for row in _MATRIX_ROWS:
+        label, _, verdicts = row.partition(" : ")
+        claims.append((label.split(" <")[0], [v.strip() for v in verdicts.split("|")]))
+    return claims
+
+
+def _skill_matrix_rows() -> dict[str, list[str]]:
+    """The skill's matrix TABLE as {injection cell: [verdict cells]}, pipes stripped."""
+    from gda.commands.meta import read_skill_text
+
+    rows: dict[str, list[str]] = {}
+    for line in read_skill_text().splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 4 or "input " not in cells[0]:
+            continue
+        if not all(cell.startswith(("yes", "no")) for cell in cells[1:]):
+            continue
+        rows[_flat(cells[0])] = cells[1:]
+    return rows
+
+
 def test_the_conformance_matrix_is_carried_by_help_schema_and_the_skill():
     # The matrix is stated on three surfaces because each answers a different
     # reader (a human at the terminal, a schema client, an agent reading the
-    # bundled skill). It is the same claim, so nothing may carry a stale copy:
-    # every surface must name all three injections and all three observers.
+    # bundled skill). It is the same claim, so nothing may carry a stale copy —
+    # and carrying it means the VERDICTS, not the vocabulary. help and --schema
+    # render the rows as one line each, pinned verbatim against `_MATRIX_ROWS` by
+    # the two tests above; the skill renders them as a markdown table, so its
+    # cells are READ here: flipping a cell there is invisible to a substring
+    # search, while the same flip in help or --schema already fails.
     from gda.commands.meta import read_skill_text
 
     help_result = CliRunner().invoke(app, ["input", "action", "--help"])
@@ -2992,7 +3066,22 @@ def test_the_conformance_matrix_is_carried_by_help_schema_and_the_skill():
         "skill": _flat(read_skill_text()),
     }
     for name, text in surfaces.items():
+        # The two spellings that DISTINGUISH the rows: plain `input action` is a
+        # substring of the opt-in, so asserting it would assert nothing.
         for injection in ("input action --as-event", "input key"):
             assert injection in text, (name, injection)
         for observer in ("Input.is_action_pressed", "_unhandled_input", "_gui_input"):
             assert observer in text, (name, observer)
+
+    # Longest spelling first, so the opt-in takes its own row before the plain
+    # injection (whose spelling both rows contain) can claim it. Consuming the
+    # rows also pins the table's size: a fourth row fails on the leftover.
+    rows = _skill_matrix_rows()
+    for injection, verdicts in sorted(
+        _matrix_claims(), key=lambda claim: -len(claim[0])
+    ):
+        hits = [cell for cell in rows if injection in cell]
+        assert len(hits) == 1, (injection, sorted(rows))
+        cells = rows.pop(hits[0])
+        assert [cell.split()[0] for cell in cells] == verdicts, (injection, cells)
+    assert rows == {}, rows
