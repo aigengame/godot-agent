@@ -104,14 +104,21 @@ _INJECTION_ROUTE_DESC = (
 )
 
 
-def injection_route(kind: str) -> InjectionRoute:
-    """The route an injected event of ``kind`` takes into the running game (#838).
+def injection_route(kind: str, *, as_event: bool = False) -> InjectionRoute:
+    """The route an injected event of ``kind`` takes into the running game (#838, #854).
 
-    The ONE place gda decides a route. It is decided CLI-side, from the event kind
-    alone, because that is where the knowledge is: the harness reply reports what
-    was injected, not which of the engine's two doors it went through. An action is
-    a state change; every other kind (key, mouse click/button/move) is an event
-    pushed through the root viewport.
+    The ONE place gda decides a route, and it takes exactly two inputs. It is
+    decided CLI-side because that is where the knowledge is: the harness reply
+    reports what was injected, not which of the engine's two doors it went through.
+    The KIND decides the default — an action is a state change; every other kind
+    (key, mouse click/button/move) is an event pushed through the root viewport.
+
+    ``as_event`` is the caller's explicit OPT-IN to the other door (#854): the state
+    route becomes the event route, because gda then builds an ``InputEventAction``
+    and pushes it through the same viewport. It is offered by the state-route kind
+    ALONE, read off the table above rather than from a second membership list, and
+    asking for it on a kind that already pushes an event raises — an inert flag is
+    the failure the group's per-kind rules exist to prevent (GDA-DF-037).
 
     An undeclared kind RAISES rather than defaulting. Every caller passes either a
     literal from this module or the validated ``type`` of a union variant, so an
@@ -119,12 +126,20 @@ def injection_route(kind: str) -> InjectionRoute:
     published as a fact is worse than a crash the test suite catches first.
     """
     try:
-        return INJECTION_ROUTES[kind]
+        route = INJECTION_ROUTES[kind]
     except KeyError:
         raise ValueError(
             f"no injection route is declared for the input kind {kind!r}; "
             "add it to INJECTION_ROUTES"
         ) from None
+    if not as_event:
+        return route
+    if route != ACTION_STATE:
+        raise ValueError(
+            f"the event mode is not declared for the input kind {kind!r}: it "
+            f"already takes the {route} route"
+        )
+    return VIEWPORT_EVENT
 
 
 class MouseButton(str, Enum):
@@ -325,7 +340,7 @@ class InputEventPhase(BaseModel):
     injection_route: InjectionRoute = Field(description=_INJECTION_ROUTE_DESC)
 
 
-def _phases_routed(data: object, kind: str) -> object:
+def _phases_routed(data: object, kind: str, *, as_event: bool = False) -> object:
     """Fold the route of ``kind`` into each phase of a raw result payload (#838).
 
     The harness reply names the phases and the frames they landed on; the ROUTE is
@@ -341,7 +356,7 @@ def _phases_routed(data: object, kind: str) -> object:
     phases = data.get("phases")
     if not isinstance(phases, list):
         return data
-    route = injection_route(kind)
+    route = injection_route(kind, as_event=as_event)
     return {
         **data,
         "phases": [
