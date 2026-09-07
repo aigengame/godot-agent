@@ -6,9 +6,10 @@ params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 through :func:`register`. It imports the shared machinery downward — the
 dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
 the cross-command contract core (``gda.models``, for the shared
-:class:`~gda.models.NodeProperty` shape) and the shared render helpers
-(``gda.render``) — and is imported by nothing but the composition root
-(``gda.cli``).
+:class:`~gda.models.NodeProperty` shape), the shared render helpers
+(``gda.render``) and the import-evidence adapter (``gda.import_evidence``, whose
+engine-parity contract this group used to carry inline, #741) — and is imported
+by nothing but the composition root (``gda.cli``).
 
 :class:`~gda.commands.project.ResourceReference` is NOT this group's model
 despite its name: it is the ``project find-references`` result shape, so it
