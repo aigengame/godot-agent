@@ -50,13 +50,13 @@ from gda_balancing.domain.runtime.projections import (
     resolved_display_names as _resolved_display_names,
     resolved_runtime_profile as _resolved_runtime_profile,
     root_event_id as _root_event_id,
-    reproduction_receipt as _reproduction_receipt,
     runtime_contract as _runtime_contract,
     runtime_journal_contract as _runtime_journal_contract,
     runtime_nodes as _runtime_nodes,
     scenario_transition_events as _scenario_transition_events,
     scheduled_event_id as _scheduled_event_id,
     scheduler_contract as _scheduler_contract,
+    unsupported_evaluator_requirement as _unsupported_evaluator_requirement,
 )
 from gda_balancing.domain.program_reachability import reachable_formula_programs
 
@@ -972,8 +972,7 @@ def runtime_terminal_audit_members(
     if report.stage != "runtime":
         raise ValueError("terminal audit requires one runtime refusal")
     evaluator = _evaluator_manifest(checked)
-    resolved_runtime = _resolved_runtime_profile(checked, evaluator)
-    reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
+    resolved_runtime = _resolved_runtime_profile(checked)
     diagnostic = report.diagnostics[0]
     audit = _artifact(
         checked,
@@ -983,7 +982,6 @@ def runtime_terminal_audit_members(
             {
                 "experiment_identity": checked.content_identity,
                 "resolved_runtime_profile_identity": resolved_runtime.content_identity,
-                "evaluator_manifest_identity": evaluator.content_identity,
                 "scenario": outcome.scenario_id,
                 "committed_trace_prefix": list(outcome.committed_trace_prefix),
                 "event_catalog_prefix": list(outcome.event_catalog_prefix),
@@ -1024,13 +1022,11 @@ def runtime_terminal_audit_members(
                     **diagnostic.model_dump(mode="json"),
                     "stage": "runtime",
                 },
-                "reproduction_receipt_identity": reproduction.content_identity,
             },
         ),
     )
     return {
         "runtime-terminal-audit": audit,
-        "reproduction-receipt": reproduction,
         "resolved-runtime-profile": resolved_runtime,
         "evaluator-capability-manifest": evaluator,
     }
@@ -1419,7 +1415,6 @@ def _terminal_audit_is_valid(
     audit: dict[str, Any],
     *,
     expected_root_map: list[dict[str, JsonValue]],
-    reproduction_identity: str,
 ) -> bool:
     scheduler = _scheduler_contract(checked)
     runtime_scheduler = RuntimeScheduler(scheduler)
@@ -1447,7 +1442,6 @@ def _terminal_audit_is_valid(
     }
     if (
         audit.get("terminal_condition") != scenario["terminal_condition"]
-        or audit.get("reproduction_receipt_identity") != reproduction_identity
         or audit.get("last_snapshot_identity")
         != refusing_event.get("snapshot_before_identity")
         or refusing_event.get("reason") != diagnostic.get("code")
@@ -1885,14 +1879,14 @@ def validate_experiment_artifact_set(
             for name, value in artifacts.items()
         ):
             return False
-        evaluator = _evaluator_manifest(checked)
-        resolved_runtime = _resolved_runtime_profile(checked, evaluator)
-        reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
+        resolved_runtime = _resolved_runtime_profile(checked)
         artifact_names = set(artifacts)
         if (
-            artifacts.get("evaluator-capability-manifest") != evaluator.value
-            or artifacts.get("resolved-runtime-profile") != resolved_runtime.value
-            or artifacts.get("reproduction-receipt") != reproduction.value
+            artifacts.get("resolved-runtime-profile") != resolved_runtime.value
+            or _unsupported_evaluator_requirement(
+                checked, artifacts["evaluator-capability-manifest"]
+            )
+            is not None
         ):
             return False
         if artifact_names == _EXPERIMENT_RUNTIME_REFUSAL_NAMES:
@@ -1901,14 +1895,11 @@ def validate_experiment_artifact_set(
                 audit.get("experiment_identity") == checked.content_identity
                 and audit.get("resolved_runtime_profile_identity")
                 == resolved_runtime.content_identity
-                and audit.get("evaluator_manifest_identity")
-                == evaluator.content_identity
                 and audit.get("root_event_map") == _expected_root_event_map(checked)
                 and _terminal_audit_is_valid(
                     checked,
                     audit,
                     expected_root_map=_expected_root_event_map(checked),
-                    reproduction_identity=reproduction.content_identity,
                 )
             )
         if artifact_names not in (
@@ -1930,7 +1921,6 @@ def validate_experiment_artifact_set(
             "event_trace_identity": trace["content_identity"],
             "snapshot_series_identity": snapshot_series["content_identity"],
             "metric_dataset_identity": dataset["content_identity"],
-            "reproduction_receipt_identity": reproduction.content_identity,
         }
         if (
             any(primary.get(name) != value for name, value in expected_bindings.items())
@@ -1945,14 +1935,6 @@ def validate_experiment_artifact_set(
             or dataset.get("experiment_identity") != checked.content_identity
             or dataset.get("resolved_runtime_profile_identity")
             != resolved_runtime.content_identity
-            or cast(dict[str, Any], dataset.get("source_provenance", {})).get(
-                "resolved_runtime_profile_identity"
-            )
-            != resolved_runtime.content_identity
-            or cast(dict[str, Any], dataset.get("source_provenance", {})).get(
-                "evaluator_manifest_identity"
-            )
-            != evaluator.content_identity
             or not _artifact_set_runtime_journals_are_valid(
                 checked,
                 trace,

@@ -23,7 +23,6 @@ EXPERIMENT_SUCCESS_ARTIFACT_SET = (
     ArtifactSetMemberSpec("event-trace", "event-trace"),
     ArtifactSetMemberSpec("snapshot-series", "snapshot-series"),
     ArtifactSetMemberSpec("metric-dataset", "metric-dataset"),
-    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
     ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
     ArtifactSetMemberSpec(
         "evaluator-capability-manifest",
@@ -36,7 +35,6 @@ EXPERIMENT_VERDICT_ARTIFACT_SET = (
     ArtifactSetMemberSpec("event-trace", "event-trace"),
     ArtifactSetMemberSpec("snapshot-series", "snapshot-series"),
     ArtifactSetMemberSpec("metric-dataset", "metric-dataset"),
-    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
     ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
     ArtifactSetMemberSpec(
         "evaluator-capability-manifest",
@@ -50,7 +48,6 @@ EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET = (
         "runtime-terminal-audit",
         role="primary",
     ),
-    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
     ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
     ArtifactSetMemberSpec(
         "evaluator-capability-manifest",
