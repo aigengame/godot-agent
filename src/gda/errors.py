@@ -717,8 +717,8 @@ def export_path_unset_failure(preset: str) -> Failure:
 def export_templates_missing_failure(
     preset: str,
     templates_version: str,
-    templates_root: str = "",
-    templates_root_host: str | None = None,
+    templates_root: str,
+    templates_root_host: str | None,
 ) -> Failure:
     """The ``export_templates_missing`` failure from the structured preflight (issue #121, #170, #840).
 
@@ -757,9 +757,10 @@ def export_templates_missing_failure(
         message += f" in {templates_root}"
     if templates_root_host:
         message += (
-            f", where --user-data-root moved the lookup; they are installed in the "
-            f"host's {templates_root_host}. Run the export without "
-            f"--user-data-root, or use --mode pack, which needs no export templates"
+            f", where --user-data-root (or $GDA_USER_DATA_ROOT) moved the lookup; "
+            f"they are installed in the host's {templates_root_host}. Run the export "
+            f"without the user-data redirect, or use --mode pack, which needs no "
+            f"export templates"
         )
     evidence = (
         FailureEvidence(

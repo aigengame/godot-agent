@@ -219,7 +219,7 @@ _EVIDENCE_SAMPLES = {
 
 
 def test_the_sample_table_covers_every_field_the_model_publishes():
-    # The half that reds when `FailureEvidence` grows a sixth field.
+    # The half that reds when `FailureEvidence` grows a field.
     assert set(_EVIDENCE_SAMPLES) == set(FailureEvidence.model_fields)
 
 

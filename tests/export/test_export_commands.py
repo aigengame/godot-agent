@@ -13,7 +13,8 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.runner import RunResult, engine_data_path, set_user_data_root
+from gda.commands.export import resolve_host_data_path
+from gda.runner import RunResult, set_user_data_root
 from tests.support import (
     EXPORT_GET_RESULT as GET_RESULT,
     EXPORT_LIST_RESULT as LIST_RESULT,
@@ -24,10 +25,9 @@ from tests.support import (
 )
 
 
-def _host_data_path() -> str | None:
-    """The host data directory gda hands the export-get op (#840), as JSON."""
-    resolved = engine_data_path()
-    return str(resolved) if resolved is not None else None
+# The host data directory gda hands the export-get op (#840): the production
+# resolver, so the assertion follows the host it runs on.
+_host_data_path = resolve_host_data_path
 
 
 def test_export_list_json_enumerates_presets_and_exit_zero(monkeypatch, tmp_path):
@@ -230,11 +230,31 @@ def test_export_get_hands_the_operation_the_host_data_path(monkeypatch, tmp_path
 
 def test_the_host_data_path_reaches_the_operation_through_params_json(monkeypatch):
     # ADR-0015: argv and `--params-json` build the SAME params model, so the host
-    # data path cannot be something an argv command body pastes in — it is a
-    # DEFAULT of the model, and a JSON caller that names only `preset` gets it too.
+    # data path cannot be something an argv command body pastes in — the model's
+    # validator STAMPS it, and a JSON caller that names only `preset` gets it too.
     result, fake = invoke_cli(
         monkeypatch,
         ["export", "get", "--params-json", '{"preset": "Web"}', "--json"],
+        stdout=sentinel(GET_RESULT),
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls == [
+        ("export-get", {"preset": "Web", "host_data_path": _host_data_path()})
+    ]
+
+    # And a value pasted in is IGNORED, as the schema description promises: the
+    # property is computed, so a caller (or an MCP client reading the same
+    # schema) cannot point the engine-side check at a directory of its choosing.
+    result, fake = invoke_cli(
+        monkeypatch,
+        [
+            "export",
+            "get",
+            "--params-json",
+            '{"preset": "Web", "host_data_path": "/pasted/by/the/caller"}',
+            "--json",
+        ],
         stdout=sentinel(GET_RESULT),
     )
 

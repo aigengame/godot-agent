@@ -44,7 +44,8 @@ from tests.support import (
 
 
 # The host data directory gda hands the export-get op (#840), computed by the
-# production default so the assertion follows the host it runs on.
+# production resolver (the model's validator stamps it) so the assertion follows
+# the host it runs on.
 _HOST_DATA_PATH = resolve_host_data_path()
 
 # The two export-templates directories of #840: the one an isolated
