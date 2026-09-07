@@ -969,9 +969,8 @@ def attempted_operation_charge(
     *,
     node_steps_before_operation: int,
     bounds: dict[str, int],
-    require_budget_breach: bool,
-) -> int | None:
-    """Replay the exact Operation charge up to one refused instruction."""
+) -> tuple[int, bool] | None:
+    """Replay the exact charge and whether the refused instruction exceeds it."""
     evaluation_site_identity = refusing_event.get("evaluation_site_identity")
     target_instruction_index = refusing_event.get("instruction_index")
     target_path = refusing_event.get("call_path")
@@ -1014,6 +1013,7 @@ def attempted_operation_charge(
     node_contracts = runtime_nodes(checked)
     event_charge = 0
     node_steps = node_steps_before_operation
+    target_breached = False
 
     def is_target(
         operation: dict[str, Any],
@@ -1141,6 +1141,7 @@ def attempted_operation_charge(
         operation: dict[str, Any],
         call_path: str,
     ) -> bool:
+        nonlocal target_breached
         operation_charge = 0
         sites = instruction_evaluation_sites(operation)
         body = cast(list[dict[str, Any]], operation["body"])
@@ -1154,7 +1155,8 @@ def attempted_operation_charge(
             )
             target = is_target(operation, call_path, instruction_index, sites)
             if breached or target:
-                return target and (breached or not require_budget_breach)
+                target_breached = breached
+                return target
             operator = node_contracts[instruction["node"]]["semantics"]["operator"]
             if operator == "guarded-outcome-block":
                 guard_body = cast(list[dict[str, Any]], instruction["body"])
@@ -1190,7 +1192,8 @@ def attempted_operation_charge(
                     )
                     target = is_target(operation, call_path, guard_index, sites)
                     if breached or target:
-                        return target and (breached or not require_budget_breach)
+                        target_breached = breached
+                        return target
                     guard_operator = node_contracts[guard_instruction["node"]][
                         "semantics"
                     ]["operator"]
@@ -1226,4 +1229,4 @@ def attempted_operation_charge(
     reached_target = charge_to_target(root_operation, root_path)
     if not reached_target or used_calls != set(range(len(calls))):
         return None
-    return event_charge
+    return event_charge, target_breached

@@ -3478,17 +3478,13 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
         for row in selected_semantics["runtime_profiles"]
         if row["id"] == checked.value["runtime"]["profile"]
     )
-    assert (
-        experiment_artifact_replay_module.attempted_operation_charge(
-            replace(checked, rir=replay_rir),
-            audit["refusing_event"],
-            audit["refusing_event"]["event_spec"],
-            node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
-            bounds=replay_profile["resource_bounds"],
-            require_budget_breach=True,
-        )
-        == budget["event_steps"]
-    )
+    assert experiment_artifact_replay_module.attempted_operation_charge(
+        replace(checked, rir=replay_rir),
+        audit["refusing_event"],
+        audit["refusing_event"]["event_spec"],
+        node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
+        bounds=replay_profile["resource_bounds"],
+    ) == (budget["event_steps"], True)
 
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] = 0
