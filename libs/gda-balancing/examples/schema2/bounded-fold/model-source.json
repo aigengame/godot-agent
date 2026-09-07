@@ -1,0 +1,152 @@
+{
+  "schema_version": "2.0.0",
+  "manifest": {
+    "id": "example.bounded-fold",
+    "entry_module": "fold"
+  },
+  "package_requirements": [
+    "core.quantity",
+    "standard.conformance.structured"
+  ],
+  "modules": [
+    {
+      "id": "fold",
+      "imports": [
+        {
+          "alias": "quantity",
+          "package": "core.quantity",
+          "symbol": "Quantity"
+        },
+        {
+          "alias": "items",
+          "package": "standard.conformance.structured",
+          "symbol": "IntList4"
+        }
+      ],
+      "symbols": [
+        {
+          "symbol": "items",
+          "type": "items",
+          "role": "parameter",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "selected_items",
+          "type": "items",
+          "role": "state",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "selected_count",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": -9223372036854775808,
+            "maximum": 9223372036854775807
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "ordered_value",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": -9223372036854775808,
+            "maximum": 9223372036854775807
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "fold_result",
+          "type": "quantity",
+          "role": "output",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": -9223372036854775808,
+            "maximum": 9223372036854775807
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "none"
+          }
+        }
+      ]
+    }
+  ],
+  "entrypoints": [
+    {
+      "id": "fold",
+      "operation": {
+        "package": "standard.conformance.structured",
+        "id": "bounded-fold-v1"
+      },
+      "arguments": [
+        {
+          "port": "items",
+          "operand": {
+            "kind": "symbol",
+            "module": "fold",
+            "symbol": "items"
+          }
+        },
+        {
+          "port": "selected_items",
+          "operand": {
+            "kind": "symbol",
+            "module": "fold",
+            "symbol": "selected_items"
+          }
+        },
+        {
+          "port": "selected_count",
+          "operand": {
+            "kind": "symbol",
+            "module": "fold",
+            "symbol": "selected_count"
+          }
+        },
+        {
+          "port": "ordered_value",
+          "operand": {
+            "kind": "symbol",
+            "module": "fold",
+            "symbol": "ordered_value"
+          }
+        },
+        {
+          "port": "threshold",
+          "operand": {
+            "kind": "literal",
+            "value": 3
+          }
+        }
+      ],
+      "result": {
+        "kind": "symbol",
+        "module": "fold",
+        "symbol": "fold_result"
+      }
+    }
+  ]
+}
