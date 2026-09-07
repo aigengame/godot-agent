@@ -203,6 +203,16 @@ remain unchanged; 13 positive expectations are refreshed only after independent
 artifact comparison. Runtime consumers are rebuilt against the new sealed graph;
 the PR records their final execution and CI results.
 
+CI run `34075792997` passed every job except the composition shard and its required
+aggregator. Composition reached the unchanged 480-second process bound before
+writing its JUnit report. The preceding successful run used 463 seconds of test
+time across the same module group, leaving little margin for the added public
+regressions. Split that group at existing module boundaries: keep package and
+composition witnesses together, and run CLI/HTTP/Template/Evidence consumer
+modules in a separate required shard. Preserve every test definition, parameter,
+fixture, allowed skip, timeout and outcome check. The PR must provide passing
+results for both groups before integration.
+
 ## Rollback
 
 Restore code, machine contracts, authored inputs and derived evidence together to
