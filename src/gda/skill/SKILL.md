@@ -476,6 +476,8 @@ forms — several of which are not obvious from `--help`:
   (`"Vector2(48,72)"`) is **rejected** (`uncoercible_value`).
 - `Color` — `#rrggbb` / `#rrggbbaa`, or 3–4 **comma-separated** floats in 0..1:
   `--value "0.2,0.6,1,1"`.
+- `Vector3` — three **comma-separated** numbers: `--value "1,2,3"`; reads return
+  `[x, y, z]`. This also reaches nested Vector3 values through the shared projection.
 - `Dictionary` — a JSON object string: `--value '{"wine":2}'`. In Dictionary/Array
   JSON values, JSON integer literals stay int and JSON float literals stay float;
   typed containers assign entries through their declared container type. A JSON number
@@ -486,13 +488,21 @@ forms — several of which are not obvious from `--help`:
 - An **Object-typed** (Resource) property — a `res://….tres` path, as above.
 
 Whitespace is trimmed for the numeric forms — `bool`, `int` / `float`, the
-`Vector2` / `Vector2i` components, and `Color` (hex or list) — but **not** for
+`Vector2` / `Vector2i` / `Vector3` components, and `Color` (hex or list) — but **not** for
 `String` / `StringName` (taken verbatim) or the `res://` path (matched literally, so a
 leading space fails as `expected_resource_path`). The value-typed forms are shared by
 `node set`, `resource set`, `project set`, and live `game set`; the `res://` Resource
 assignment is headless-only (`node set` / `resource set`). For live `game get` /
 `game set`, an explicitly named attached-script variable is addressable after storage
 properties are checked; unfiltered `game get` still lists only storage properties.
+
+For Node3D, `node get` includes local `position`, `rotation` and `scale`. Both
+`node set` and `game set` can edit them; live reads name the component explicitly
+(`game get /root/Main/Model --property position`). These are local to the parent,
+with Euler rotation in radians under the node's `rotation_order`. Headless changes
+are saved, while live changes stay in the session and return observed `value` and
+`verified`. Vector components use native engine precision; the scene reload can
+normalize transform representations. See the command catalog's Node3D contract.
 Inspect live `game set --json` results' `verified` field: `true` means the observed
 read-back value equals the coerced requested value, while `false` means the set
 completed but the value read back differently. Treat `verified:false` as a diagnostic

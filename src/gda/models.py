@@ -763,7 +763,7 @@ class RelayedLiveParams(BaseModel):
 VALUE_PROJECTION_DESC = (
     "Rendered through the one recursive read-side value projection "
     "(ADR-0035): a scalar for a scalar type; a flat number list for a "
-    "fixed-shape type (Vector2 → [x, y], Color → [r, g, b, a]); a JSON "
+    "fixed-shape type (Vector2 → [x, y], Vector3 → [x, y, z], Color → [r, g, b, a]); a JSON "
     "object for a Dictionary (keys stringified); a JSON array for an Array "
     "or packed array (elements re-projected). An Object value renders as a "
     "ReferenceProjection ({type, resource_path}) for a Resource with a "
@@ -772,7 +772,15 @@ VALUE_PROJECTION_DESC = (
     "({type, …storage properties}) for a whitelisted path-less value Object "
     "(InputEvent subclasses), or its str() form for any other Object — "
     "branch on the presence of resource_path (reference) or object_string "
-    "(texture)."
+    "(texture). Vector components retain the engine build's native precision."
+)
+
+# Both authored and runtime node commands expose the same local components.
+NODE3D_LOCAL_TRANSFORM_DESC = (
+    "Node3D position, rotation and scale address local transform components "
+    "in parent space. Rotation uses Euler angles in radians and the node's "
+    "rotation_order. Vector3 input is three comma-separated numbers: x,y,z; "
+    "output is [x, y, z] at engine precision."
 )
 
 # The set-echo variant: the set commands echo the value they set through the
