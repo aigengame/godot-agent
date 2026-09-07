@@ -79,11 +79,13 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "model": (
         "test_bounded_fold_compiler.py",
-        "test_admitted_rir.py",
-        "test_model_preparation.py",
         "test_operation_call_domains.py",
         "test_schema2_model_cli.py",
         "test_schema2_model_lowerer_conformance.py",
+    ),
+    "model-admission": (
+        "test_admitted_rir.py",
+        "test_model_preparation.py",
     ),
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
