@@ -1,14 +1,8 @@
 {
   "schema_version": "2.0.0",
   "id": "example.rpg-periodic-effect.snapshot",
-  "kernel_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
-  "language_bundle_identity": "sha256:a9498f658792dd2d8cde6387c505f11bb249977bc698f1607520116fbdd71f84",
   "model": {
-    "source_identity": "sha256:466368dba07f145bccb1b0d7e9d2d2f21316259be7a7136514d813f6fadc0440",
-    "build_receipt_identity": "sha256:7b961158122b3ece78062aeb0f9a8623c5f8e4ead3fda494443d230d28d17758",
-    "resolved_model_identity": "sha256:4487a6dc788a91415948918183c04d5cff5220faf1d197de4f8da5780cdac8cf",
-    "package_lock_identity": "sha256:213257ccfd16aea7b017f38afe13a003da6a330bbc856148de4a442023644f28",
-    "rir_identity": "sha256:7cc64663b2722019bcf4592802ea125660d3b51d4d1be2ed33456b4c92fd7740"
+    "rir_semantic_identity": "sha256:465d198c934cdd3cff47a1c3cfc9d30904a25941d90d53382de44cc4ae0b21cc"
   },
   "seed": {
     "algorithm": "splitmix64-v1",
