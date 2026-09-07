@@ -19,11 +19,12 @@ from gda_balancing.domain.comparison import (
     EXACT_REPLAY_COMPARISON_IMPLEMENTATION,
     compare_exact_replay,
     select_exact_replay_contract,
-    exact_replay_reproduction_refusal,
+    exact_replay_runtime_profile_refusal,
     validate_exact_replay_comparison,
     validate_published_exact_replay_comparison,
 )
-from gda_balancing.domain.experiment import CheckedExperiment, check_experiment
+from gda_balancing.domain.experiment import CheckedExperiment
+from gda_balancing.application.experiment_inputs import check_experiment_inputs
 from gda_balancing.domain.publication_types import PublicationMember
 from gda_balancing.interfaces.cli.experiment_fixtures import (
     prepare_valid_experiment,
@@ -42,11 +43,9 @@ def _accepted_execution(
 ) -> tuple[CheckedExperiment, ExperimentExecutionSuccess]:
     root.mkdir(parents=True, exist_ok=True)
     specification = root / "experiment.json"
-    specification.write_text(
-        prepare_valid_experiment(root, 545),
-        encoding="utf-8",
-    )
-    checked = check_experiment(str(specification))
+    fixture = prepare_valid_experiment(root, 545)
+    specification.write_text(fixture.specification, encoding="utf-8")
+    checked = check_experiment_inputs(str(specification), fixture.rir)
     assert isinstance(checked, CheckedExperiment)
     execution = execute_checked_experiment(checked)
     assert isinstance(execution, ExperimentExecutionSuccess)
@@ -56,11 +55,9 @@ def _accepted_execution(
 def _verdict_execution(root: Path):
     root.mkdir(parents=True, exist_ok=True)
     specification = root / "experiment.json"
-    specification.write_text(
-        prepare_verdict_experiment(root, 546),
-        encoding="utf-8",
-    )
-    checked = check_experiment(str(specification))
+    fixture = prepare_verdict_experiment(root, 546)
+    specification.write_text(fixture.specification, encoding="utf-8")
+    checked = check_experiment_inputs(str(specification), fixture.rir)
     assert isinstance(checked, CheckedExperiment)
     execution = execute_checked_experiment(checked)
     return checked, execution
@@ -111,7 +108,7 @@ def _member(checked: CheckedExperiment, kind: str, payload: dict) -> Publication
     )
 
 
-def _same_reproduction_drift(
+def _same_execution_observation_drift(
     checked: CheckedExperiment,
     execution: ExperimentExecutionSuccess,
 ) -> ExperimentExecutionVerdict:
@@ -128,7 +125,6 @@ def _same_reproduction_drift(
     metrics = _member(checked, "metric-dataset", metric_payload)
     failed_metrics = (metric_payload["samples"][0]["metric"],)
 
-    reproduction = execution.members["reproduction-receipt"]
     resolved_runtime = execution.members["resolved-runtime-profile"]
     verdict = _member(
         checked,
@@ -139,7 +135,6 @@ def _same_reproduction_drift(
             "event_trace_identity": trace.content_identity,
             "snapshot_series_identity": snapshots.content_identity,
             "metric_dataset_identity": metrics.content_identity,
-            "reproduction_receipt_identity": reproduction.content_identity,
             "root_event_map": trace.value["root_event_map"],
             "terminal_statuses": trace.value["terminal_statuses"],
             "outcome": "rejected",
@@ -215,7 +210,7 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execut
 
 def test_exact_replay_comparison_reports_complete_ordered_mismatch(accepted_execution):
     original_checked, original = accepted_execution
-    replay = _same_reproduction_drift(original_checked, original)
+    replay = _same_execution_observation_drift(original_checked, original)
 
     comparison = compare_exact_replay(
         replay_contract=select_exact_replay_contract(
@@ -241,13 +236,13 @@ def test_exact_replay_comparison_reports_complete_ordered_mismatch(accepted_exec
     assert all(row["match"] is False for row in comparison.value["checks"])
 
 
-def test_exact_replay_comparison_rejects_a_foreign_reproduction(
+def test_exact_replay_comparison_rejects_a_foreign_semantic_execution(
     tmp_path, accepted_execution
 ):
     original_checked, original = accepted_execution
     _replay_checked, replay = _verdict_execution(tmp_path / "verdict-execution")
 
-    with pytest.raises(ValueError, match="complete reproduction"):
+    with pytest.raises(ValueError, match="semantic execution identity"):
         compare_exact_replay(
             replay_contract=select_exact_replay_contract(
                 _authority_context(original_checked)
@@ -263,7 +258,7 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
     accepted_execution,
 ):
     checked, original = accepted_execution
-    replay = _same_reproduction_drift(checked, original)
+    replay = _same_execution_observation_drift(checked, original)
     comparison = compare_exact_replay(
         replay_contract=select_exact_replay_contract(_authority_context(checked)),
         output_contracts=checked.output_contracts,
@@ -311,12 +306,15 @@ def _published_original_run(
     tmp_path.mkdir(parents=True, exist_ok=True)
     specification = tmp_path / "experiment.json"
     prepare = prepare_verdict_experiment if verdict else prepare_valid_experiment
-    specification.write_text(prepare(tmp_path, 547), encoding="utf-8")
+    fixture = prepare(tmp_path, 547)
+    specification.write_text(fixture.specification, encoding="utf-8")
     run_exit, run_stdout, run_stderr = run_cli(
         [
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            fixture.rir,
             "--out",
             str(tmp_path / "original.json"),
             "--invocation-key",
@@ -329,12 +327,12 @@ def _published_original_run(
     run_result = json.loads(run_stdout)
     receipt = run_result["artifact_set"] if verdict else run_result
     original_receipt.write_text(json.dumps(receipt), encoding="utf-8")
-    return specification, original_receipt
+    return specification, original_receipt, fixture.rir
 
 
 # The source publication is immutable. Each Replay row below still uses its own
 # invocation key, so sharing the authenticated original cannot recover another row.
-_CACHED_PUBLISHED_ORIGINAL: tuple[Path, Path, Path] | None = None
+_CACHED_PUBLISHED_ORIGINAL: tuple[Path, Path, str, Path] | None = None
 
 
 @pytest.fixture
@@ -343,24 +341,26 @@ def published_original(
     run_cli,
     monkeypatch,
     isolated_schema2_store: None,
-) -> tuple[Path, Path]:
+) -> tuple[Path, Path, str]:
     del isolated_schema2_store
     global _CACHED_PUBLISHED_ORIGINAL
     if _CACHED_PUBLISHED_ORIGINAL is None:
-        specification, receipt = _published_original_run(tmp_path, run_cli)
+        specification, receipt, rir = _published_original_run(tmp_path, run_cli)
         _CACHED_PUBLISHED_ORIGINAL = (
             specification,
             receipt,
+            rir,
             tmp_path / ".gda-balancing-store-v2",
         )
-    specification, receipt, store = _CACHED_PUBLISHED_ORIGINAL
+    specification, receipt, rir, store = _CACHED_PUBLISHED_ORIGINAL
     monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
-    return specification, receipt
+    return specification, receipt, rir
 
 
 def _replay_argv(
     specification: Path,
     original_receipt: Path,
+    rir: str,
     out: Path,
     *,
     invocation_key: str = "b" * 64,
@@ -369,6 +369,8 @@ def _replay_argv(
         "experiment",
         "replay",
         str(specification),
+        "--rir",
+        rir,
         "--original-experiment-run-artifact-set-receipt",
         str(original_receipt),
         "--out",
@@ -381,12 +383,13 @@ def _replay_argv(
 def test_public_experiment_replay_runs_from_authenticated_receipt(
     tmp_path, run_cli, published_original
 ):
-    specification, original_receipt = published_original
+    specification, original_receipt, rir = published_original
 
     replay_exit, replay_stdout, replay_stderr = run_cli(
         _replay_argv(
             specification,
             original_receipt,
+            rir,
             tmp_path / "comparison.json",
         )
     )
@@ -399,37 +402,39 @@ def test_public_experiment_replay_runs_from_authenticated_receipt(
     assert comparison["result"] == "matched"
 
 
-def test_public_replay_schema_exposes_only_the_four_owned_inputs(run_cli):
+def test_public_replay_schema_exposes_only_the_five_owned_inputs(run_cli):
     exit_code, stdout, stderr = run_cli(["experiment", "replay", "--schema"])
 
     assert (exit_code, stderr) == (0, "")
     schema = json.loads(stdout)
     assert set(schema["input"]["properties"]) == {
         "specification",
+        "rir",
         "original_experiment_run_artifact_set_receipt",
         "out",
         "invocation_key",
     }
+    assert set(schema["input"]["required"]) == set(schema["input"]["properties"])
 
 
 def test_public_replay_refuses_a_prepared_runtime_drift_before_dispatch(
     tmp_path, run_cli, monkeypatch, published_original
 ):
-    specification, original_receipt = published_original
+    specification, original_receipt, rir = published_original
     prepare = replay_application.prepare_checked_experiment
 
     def prepare_with_runtime_drift(checked):
         prepared = prepare(checked)
         assert not isinstance(prepared, replay_application.ExperimentExecutionRefusal)
-        payload = _artifact_payload(prepared.reproduction.value)
-        payload["resolved_runtime_profile_identity"] = "sha256:" + "7" * 64
+        payload = _artifact_payload(prepared.resolved_runtime.value)
+        payload["rir_semantic_identity"] = "sha256:" + "7" * 64
         return replace(
             prepared,
-            reproduction=_member(checked, "reproduction-receipt", payload),
+            resolved_runtime=_member(checked, "resolved-runtime-profile", payload),
         )
 
     def dispatch_must_not_run(_prepared):
-        raise AssertionError("reproduction mismatch reached Event dispatch")
+        raise AssertionError("semantic execution mismatch reached Event dispatch")
 
     monkeypatch.setattr(
         replay_application, "prepare_checked_experiment", prepare_with_runtime_drift
@@ -444,6 +449,7 @@ def test_public_replay_refuses_a_prepared_runtime_drift_before_dispatch(
         _replay_argv(
             specification,
             original_receipt,
+            rir,
             out,
             invocation_key="c" * 64,
         )
@@ -458,40 +464,30 @@ def test_public_replay_refuses_a_prepared_runtime_drift_before_dispatch(
     assert not out.exists()
 
 
-def test_complete_reproduction_check_covers_every_identity_class(accepted_execution):
+def test_runtime_profile_check_covers_each_semantic_identity(accepted_execution):
     checked, execution = accepted_execution
-    original = execution.members["reproduction-receipt"].value
+    original = execution.members["resolved-runtime-profile"].value
     replay_contract = select_exact_replay_contract(_authority_context(checked))
     assert (
-        exact_replay_reproduction_refusal(checked, original, original, replay_contract)
+        exact_replay_runtime_profile_refusal(
+            checked, original, original, replay_contract
+        )
         is None
     )
+    # Authored seeds, streams, assignments and ordering are committed by the
+    # Experiment identity; program semantics and the selected policy have their
+    # existing identities. Producer and Build identities are no longer inputs.
     changes = (
-        ("kernel_identity", "sha256:" + "1" * 64),
-        ("resolved_model_identity", "sha256:" + "2" * 64),
-        ("experiment_identity", "sha256:" + "3" * 64),
-        (
-            "external_input_identities",
-            [
-                {
-                    "scenario": "drift",
-                    "root_event_ref": "drift",
-                    "source_identity": "sha256:" + "4" * 64,
-                    "source_sequence": 0,
-                    "input_identity": "sha256:" + "5" * 64,
-                }
-            ],
-        ),
-        ("seed_value", 20260727),
-        ("evaluator_manifest_identity", "sha256:" + "6" * 64),
-        ("resolved_runtime_profile_identity", "sha256:" + "7" * 64),
+        ("experiment_identity", "sha256:" + "1" * 64),
+        ("rir_semantic_identity", "sha256:" + "2" * 64),
+        ("runtime_profile_definition_identity", "sha256:" + "3" * 64),
+        ("runtime_profile", {**original["runtime_profile"], "id": "changed-profile"}),
     )
-
     for field, replacement in changes:
         payload = _artifact_payload(original)
         payload[field] = replacement
-        changed = _member(checked, "reproduction-receipt", payload)
-        refusal = exact_replay_reproduction_refusal(
+        changed = _member(checked, "resolved-runtime-profile", payload)
+        refusal = exact_replay_runtime_profile_refusal(
             checked, original, changed.value, replay_contract
         )
         assert refusal is not None, field
@@ -502,7 +498,7 @@ def test_complete_reproduction_check_covers_every_identity_class(accepted_execut
 
 
 def test_public_replay_refuses_a_non_successful_original_run(tmp_path, run_cli):
-    specification, original_receipt = _published_original_run(
+    specification, original_receipt, rir = _published_original_run(
         tmp_path,
         run_cli,
         verdict=True,
@@ -514,6 +510,7 @@ def test_public_replay_refuses_a_non_successful_original_run(tmp_path, run_cli):
         _replay_argv(
             specification,
             original_receipt,
+            rir,
             out,
             invocation_key="f" * 64,
         )
@@ -530,7 +527,7 @@ def test_public_replay_refuses_a_non_successful_original_run(tmp_path, run_cli):
 def test_public_replay_mismatch_publishes_only_comparison_evidence(
     tmp_path, run_cli, monkeypatch, published_original
 ):
-    specification, original_receipt = published_original
+    specification, original_receipt, rir = published_original
     execute = replay_application.execute_prepared_experiment
 
     def execute_with_observation_drift(prepared):
@@ -549,6 +546,7 @@ def test_public_replay_mismatch_publishes_only_comparison_evidence(
         _replay_argv(
             specification,
             original_receipt,
+            rir,
             comparison_path,
             invocation_key="d" * 64,
         )
@@ -566,7 +564,6 @@ def test_public_replay_mismatch_publishes_only_comparison_evidence(
         "event-trace",
         "snapshot-series",
         "metric-dataset",
-        "reproduction-receipt",
         "resolved-runtime-profile",
         "evaluator-capability-manifest",
     }
@@ -576,11 +573,12 @@ def test_public_replay_mismatch_publishes_only_comparison_evidence(
 def test_public_replay_recovers_a_committed_result_without_dispatch(
     tmp_path, run_cli, monkeypatch, published_original
 ):
-    specification, original_receipt = published_original
+    specification, original_receipt, rir = published_original
     out = tmp_path / "recovered-comparison.json"
     argv = _replay_argv(
         specification,
         original_receipt,
+        rir,
         out,
         invocation_key="e" * 64,
     )
@@ -618,7 +616,7 @@ def test_public_replay_recovers_a_committed_result_without_dispatch(
 def test_public_replay_rejects_a_changed_seed_for_a_committed_invocation_key(
     tmp_path, run_cli, monkeypatch, published_original
 ):
-    specification, original_receipt = published_original
+    specification, original_receipt, rir = published_original
     invocation_key = "9" * 64
     first_out = tmp_path / "original-replay-comparison.json"
 
@@ -626,6 +624,7 @@ def test_public_replay_rejects_a_changed_seed_for_a_committed_invocation_key(
         _replay_argv(
             specification,
             original_receipt,
+            rir,
             first_out,
             invocation_key=invocation_key,
         )
@@ -650,6 +649,7 @@ def test_public_replay_rejects_a_changed_seed_for_a_committed_invocation_key(
         _replay_argv(
             changed_specification,
             original_receipt,
+            rir,
             conflict_out,
             invocation_key=invocation_key,
         )
@@ -703,9 +703,11 @@ def test_replay_consumes_detached_policy_reasons_and_output_contracts(
         original_members=execution.members,
         replay_members=execution.members,
     )
-    original = execution.members["reproduction-receipt"].value
-    changed = {**original, "seed_value": original["seed_value"] + 1}
-    refusal = exact_replay_reproduction_refusal(checked, original, changed, selected)
+    original = execution.members["resolved-runtime-profile"].value
+    payload = _artifact_payload(original)
+    payload["experiment_identity"] = "sha256:" + "4" * 64
+    changed = checked.output_contracts["resolved-runtime-profile"].identify(payload)
+    refusal = exact_replay_runtime_profile_refusal(checked, original, changed, selected)
     assert refusal is not None
     assert refusal.diagnostics[0].code == "evaluation.replay_reproduction_mismatch"
     with pytest.raises(TypeError, match="immutable"):
