@@ -33,6 +33,7 @@ import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.publication as publication_module
 import jsonschema
 import pytest
+from gda_balancing.domain.model import admit_rir
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
 from gda_balancing.domain.authority.admission import admit_authorities
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
@@ -7753,20 +7754,12 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     assert any(
         row["definition"]["id"] == "genre.economy.purchase-v1" for row in operations
     )
-    build_receipt = cast(dict[str, Any], artifacts["build-receipt"])
-    resolved_model = cast(dict[str, Any], artifacts["resolved-model"])
+    context = model_compilation_module.authority_context_for_checked(checked)
+    program = admit_rir(rir, authority_context=context)
     experiment_value = {
         "schema_version": "2.0.0",
         "id": "example.economy.purchase",
-        "kernel_identity": kernel["content_identity"],
-        "language_bundle_identity": candidate_ldb["content_identity"],
-        "model": {
-            "source_identity": checked.source_identity,
-            "build_receipt_identity": build_receipt["content_identity"],
-            "resolved_model_identity": resolved_model["content_identity"],
-            "package_lock_identity": package_lock["content_identity"],
-            "rir_identity": artifacts["rir-semantic-payload"]["content_identity"],
-        },
+        "model": {"rir_semantic_identity": program.semantic_identity},
         "runtime": {
             "profile": "standard.exact-int64-event-v1",
             "required_evaluator": {
@@ -7839,16 +7832,10 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
         ],
         "acceptance": {"policy": "all-metrics-within-target"},
     }
-    experiment = experiment_module.CheckedExperiment(
-        value=experiment_value,
-        content_identity=experiment_module.experiment_input_identity(experiment_value),
-        kernel=kernel,
-        language_bundle=candidate_ldb,
-        build_receipt=build_receipt,
-        package_lock=package_lock,
-        resolved_model=resolved_model,
-        rir=cast(dict[str, Any], artifacts["rir-semantic-payload"]),
+    experiment = experiment_module.check_experiment_value(
+        experiment_value, program, authority_context=context
     )
+    assert isinstance(experiment, experiment_module.CheckedExperiment), experiment
     evaluation = runtime_execution_module.evaluate_experiment(experiment)
     assert isinstance(evaluation, runtime_execution_module.EvaluationArtifacts)
     event_trace = evaluation.members["event-trace"].value

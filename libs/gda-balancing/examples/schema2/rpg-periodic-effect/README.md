@@ -180,10 +180,11 @@ export SNAPSHOT_EXPERIMENT=examples/schema2/rpg-periodic-effect/experiment.json
 Check, run and retain the result receipt:
 
 ```bash
-uv run gda-balancing experiment check "$SNAPSHOT_EXPERIMENT" | jq .
+uv run gda-balancing experiment check --rir "$RIR_PATH" "$SNAPSHOT_EXPERIMENT" | jq .
 
 export EXPERIMENT_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-set-receipt.json"
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$SNAPSHOT_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/evaluation-run.json" \
   --invocation-key "$EXPERIMENT_RUN_INVOCATION_KEY" \
@@ -203,10 +204,6 @@ export SNAPSHOT_PATH="$(
 )"
 export METRIC_PATH="$(
   jq -r '.member_locators[] | select(.logical_name == "metric-dataset") | .locator' \
-    "$EXPERIMENT_SET_RECEIPT"
-)"
-export REPRODUCTION_PATH="$(
-  jq -r '.member_locators[] | select(.logical_name == "reproduction-receipt") | .locator' \
     "$EXPERIMENT_SET_RECEIPT"
 )"
 ```
@@ -238,7 +235,7 @@ jq '.snapshots[] | {index, logical_time, event_id, snapshot_identity, values}' \
 jq '.samples[] | {metric, value, logical_time, snapshot_identity, within_target}' \
   "$METRIC_PATH"
 
-jq . "$REPRODUCTION_PATH"
+jq .seed "$SNAPSHOT_EXPERIMENT"
 ```
 
 The transition sequence is `apply -> tick -> tick -> expire`. The logical times are `0`, `1`, `2`,
@@ -257,6 +254,7 @@ export SAME_TIME_EXPERIMENT=examples/schema2/rpg-periodic-effect/same-time-exper
 
 export SAME_TIME_INVOCATION_KEY="$(openssl rand -hex 32)"
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$SAME_TIME_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/same-time-live-run.json" \
   --invocation-key "$SAME_TIME_INVOCATION_KEY" \
@@ -280,6 +278,7 @@ jq '
 
 export TICK_FIRST_INVOCATION_KEY="$(openssl rand -hex 32)"
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$TICK_FIRST_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/same-time-tick-first-run.json" \
   --invocation-key "$TICK_FIRST_INVOCATION_KEY" \
@@ -302,6 +301,7 @@ jq '
 
 export SNAPSHOT_SAME_TIME_KEY="$(openssl rand -hex 32)"
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$SNAPSHOT_SAME_TIME_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/same-time-snapshot-run.json" \
   --invocation-key "$SNAPSHOT_SAME_TIME_KEY"
@@ -334,36 +334,29 @@ uv run gda-balancing model build \
   | tee "$TUNED_MODEL_RECEIPT"
 ```
 
-Resolve the new Build receipt and bind a new Experiment. Widen only the tutorial target so that it
+Resolve the changed RIR from the Model-build Artifact-set receipt and bind its semantic identity
+in a new Experiment. Widen only the tutorial target so that it
 accepts both values:
 
 ```bash
 bind_experiment() {
-  build_record="$1"
+  rir_record="$1"
   source_experiment="$2"
   destination="$3"
-  jq --slurpfile build "$build_record" '
-    .kernel_identity = $build[0].kernel_identity
-    | .language_bundle_identity = $build[0].language_bundle_identity
-    | .model = {
-        source_identity: $build[0].source_identity,
-        build_receipt_identity: $build[0].content_identity,
-        resolved_model_identity: $build[0].resolved_model_identity,
-        package_lock_identity: $build[0].package_lock_identity,
-        rir_identity: $build[0].rir_identity
-      }
+  jq --slurpfile rir "$rir_record" '
+    .model = {rir_semantic_identity: $rir[0].semantic_identity}
   ' "$source_experiment" > "$destination"
 }
 
-export TUNED_BUILD_RECORD="$(
-  jq -r '.member_locators[] | select(.logical_name == "build-receipt") | .locator' \
+export TUNED_RIR_PATH="$(
+  jq -r '.member_locators[] | select(.logical_name == "rir-semantic-payload") | .locator' \
     "$TUNED_MODEL_RECEIPT"
 )"
 export TUNED_EXPERIMENT_BASE="$GDA_BALANCING_TUTORIAL_ROOT/tuned-experiment-base.json"
 export TUNED_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/tuned-experiment.json"
 
 bind_experiment \
-  "$TUNED_BUILD_RECORD" \
+  "$TUNED_RIR_PATH" \
   examples/schema2/rpg-periodic-effect/experiment.json \
   "$TUNED_EXPERIMENT_BASE"
 
@@ -374,6 +367,7 @@ jq '
 
 export TUNED_RUN_KEY="$(openssl rand -hex 32)"
 uv run gda-balancing experiment run \
+  --rir "$TUNED_RIR_PATH" \
   "$TUNED_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/tuned-run.json" \
   --invocation-key "$TUNED_RUN_KEY"
@@ -386,9 +380,9 @@ identities. It also changes the exact Experiment, Event trace, and Metric datase
 does not change the Kernel, LDB, Package Lock, package Operations, compiler dispatch, or evaluator
 dispatch.
 
-The old Experiment still binds the old Resolved Model. It remains valid only for that exact build.
-Create a new Experiment from the new Build receipt before you run the tuned Model. Experiment
-admission refuses an incoherent mix of old and new identities.
+The old Experiment still binds the old RIR semantics. A new compiler or build receipt alone does
+not invalidate it. This Formula edit changes program meaning, so author the new RIR semantic
+binding before running the tuned Model; admission refuses a mismatched semantic identity.
 
 ## 7. Why logical time is not an Effect loop or repeated scenarios
 
@@ -416,11 +410,11 @@ This README explains how to run and inspect those behaviors. It does not define 
 ## Troubleshooting
 
 - Keys must contain exactly 64 lowercase hexadecimal digits.
-- Use the same store and anchor key for build and run. Runtime can then resolve the exact build
-  artifacts.
+- Pass the explicit RIR locator with `--rir`; Runtime does not discover a build in the store.
+  Retain the store and anchor key when authenticating or recovering published artifact sets.
 - `invocation_key_conflict` means that the key already identifies different canonical input.
-- Checked-in Experiments bind the checked-in Model Source Package. After you edit that source,
-  create a new Experiment from the new Build receipt.
+- Checked-in Experiments bind the selected program semantics. After a semantic Model edit,
+  rebuild and author the changed `model.rir_semantic_identity`.
 - `language.formula_notation_mismatch` means that the Formula body and expression are not one
   canonical pair.
 - Inspect the receipt's `member_locators`. The `--out` file is a convenience copy, not the complete

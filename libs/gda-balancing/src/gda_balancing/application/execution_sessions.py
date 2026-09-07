@@ -15,11 +15,11 @@ from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.experiment import CheckedExperiment, check_experiment_value
 from gda_balancing.domain.model import (
-    ExactResolvedModelBinding,
+    AdmittedRir,
+    admit_rir,
     authority_context_for_checked,
     check_model_source_value,
     compile_checked_model,
-    project_compiled_model_binding,
 )
 
 
@@ -28,7 +28,7 @@ class ExecutionSessionCreated:
     """Public identities established by one admitted session creation."""
 
     session_id: str
-    resolved_model_identity: str
+    rir_semantic_identity: str
     revision_id: str
 
 
@@ -74,7 +74,7 @@ class _OrderedGate:
 @dataclass
 class _ExecutionSession:
     authority_context: AdmittedAuthorityContext
-    model_binding: ExactResolvedModelBinding
+    program: AdmittedRir
     revisions: dict[str, CheckedExperiment]
     gate: _OrderedGate = field(default_factory=_OrderedGate)
 
@@ -115,13 +115,13 @@ class ExecutionSessions:
                 return checked_model
             authority_context = authority_context_for_checked(checked_model)
             model_artifacts = compile_checked_model(checked_model)
-            model_binding = project_compiled_model_binding(
-                model_artifacts,
-                authority_context,
+            program = admit_rir(
+                model_artifacts["rir-semantic-payload"],
+                authority_context=authority_context,
             )
             checked_experiment = check_experiment_value(
                 experiment_specification,
-                model_binding,
+                program,
                 authority_context=authority_context,
             )
             if isinstance(checked_experiment, Schema2RefusalReport):
@@ -129,14 +129,14 @@ class ExecutionSessions:
             session_id = secrets.token_urlsafe(24)
             session = _ExecutionSession(
                 authority_context=authority_context,
-                model_binding=model_binding,
+                program=program,
                 revisions={checked_experiment.content_identity: checked_experiment},
             )
             with self._registry_lock:
                 self._sessions[session_id] = session
         return ExecutionSessionCreated(
             session_id=session_id,
-            resolved_model_identity=str(model_binding.resolved_model_identity),
+            rir_semantic_identity=program.semantic_identity,
             revision_id=checked_experiment.content_identity,
         )
 
@@ -152,7 +152,7 @@ class ExecutionSessions:
             with self._execution_gate.hold():
                 checked = check_experiment_value(
                     experiment_specification,
-                    session.model_binding,
+                    session.program,
                     authority_context=session.authority_context,
                 )
                 if isinstance(checked, Schema2RefusalReport):

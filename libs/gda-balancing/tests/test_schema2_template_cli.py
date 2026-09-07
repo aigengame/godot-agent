@@ -2471,6 +2471,11 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     assert (final_exit, final_stderr) == (0, ""), final_stdout
     final_receipt = json.loads(final_stdout)
     final_rir = member(final_receipt, "rir-semantic-payload")
+    final_rir_path = next(
+        row["locator"]
+        for row in final_receipt["member_locators"]
+        if row["logical_name"] == "rir-semantic-payload"
+    )
     final_build = member(final_receipt, "build-receipt")
     formula_identities = {row["id"]: row["identity"] for row in final_rir["formulas"]}
     assert formula_identities["derive-value"] != baseline_formula_identity
@@ -2490,19 +2495,7 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         (game_example_dir / "experiment.json").read_text(encoding="utf-8")
     )
     experiment["id"] = "example.template-game.experiment"
-    experiment["kernel_identity"] = final_build["kernel_identity"]
-    experiment["language_bundle_identity"] = final_build["language_bundle_identity"]
-    experiment["model"] = {
-        "source_identity": final_build["source_identity"],
-        "build_receipt_identity": final_build["content_identity"],
-        "resolved_model_identity": member(final_receipt, "resolved-model")[
-            "content_identity"
-        ],
-        "package_lock_identity": member(final_receipt, "package-lock")[
-            "content_identity"
-        ],
-        "rir_identity": final_rir["content_identity"],
-    }
+    experiment["model"] = {"rir_semantic_identity": final_rir["semantic_identity"]}
     scenario = experiment["scenarios"][0]
     scenario["event_plan"] = scenario["event_plan"][:1]
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 1}
@@ -2555,6 +2548,8 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
             "experiment",
             "run",
             str(experiment_path),
+            "--rir",
+            final_rir_path,
             "--out",
             str(tmp_path / "evaluation-run.json"),
             "--invocation-key",

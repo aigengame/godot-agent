@@ -42,7 +42,6 @@ from gda_balancing.domain.evidence_verification import (
     evaluate_evidence_candidate,
     project_evidence_graph,
 )
-from gda_balancing.domain.model import ExactResolvedModelBindingError
 from gda_balancing.domain.publication import (
     select_publication_contracts,
     publish_artifact_set,
@@ -93,36 +92,35 @@ def _complete_graph() -> EvidenceGraph:
 
 def _verify(inp: EvidenceVerifyInput) -> EvidenceCandidate | Schema2RefusalReport:
     inputs = {item.receipt_field: item for item in EVIDENCE_VERIFY.input_artifact_sets}
-    model_build_input = inputs["model_build_artifact_set_receipt"]
     experiment_run_input = inputs["experiment_run_artifact_set_receipt"]
     return verify_evidence(
         inp,
-        model_build_descriptor_identity=descriptor_identity(model_build_input.producer),
-        experiment_run_descriptor_identity=descriptor_identity(
-            experiment_run_input.producer
-        ),
-        model_build_artifact_set=artifact_sets_for_input(model_build_input)[0],
         experiment_run_artifact_sets=artifact_sets_for_input(experiment_run_input),
     )
 
 
 def _prepare_outcome_input(
-    tmp_path: Path, token: int, *, verdict: bool = False
+    tmp_path: Path,
+    token: int,
+    *,
+    verdict: bool = False,
+    original_descriptor: str | None = None,
 ) -> EvidenceVerifyInput:
     prepare = prepare_verdict_experiment if verdict else prepare_valid_experiment
-    specification_value = prepare(tmp_path, token)
+    fixture = prepare(tmp_path, token)
     specification_path = tmp_path / "experiment.json"
-    specification_path.write_text(specification_value, encoding="utf-8")
+    specification_path.write_text(fixture.specification, encoding="utf-8")
     outcome_path = tmp_path / "experiment-outcome.json"
     run_receipt_path = tmp_path / "experiment-run-artifact-set-receipt.json"
     publication = run_experiment(
         str(specification_path),
         str(outcome_path),
         "e" * 64,
-        descriptor_identity(EXPERIMENT_RUN),
+        original_descriptor or descriptor_identity(EXPERIMENT_RUN),
         EXPERIMENT_RUN.artifact_set,
         cast(tuple[Any, ...], EXPERIMENT_RUN.verdict_artifact_set),
         EXPERIMENT_RUN.refusal_artifact_sets[0].members,
+        rir=fixture.rir,
     )
     expected_type = (
         ExperimentVerdictPublication if verdict else ExperimentRunPublication
@@ -131,11 +129,8 @@ def _prepare_outcome_input(
     run_receipt_path.write_bytes(canonical_bytes(cast(JsonValue, publication.receipt)))
     return EvidenceVerifyInput(
         claim_kind="evaluable",
-        source=str(tmp_path / f"experiment-model-{token}.json"),
+        rir=fixture.rir,
         specification=str(specification_path),
-        model_build_artifact_set_receipt=str(
-            tmp_path / f"experiment-model-{token}-receipt.json"
-        ),
         experiment_run_artifact_set_receipt=str(run_receipt_path),
     )
 
@@ -147,66 +142,18 @@ def test_packaged_ldb_owns_the_complete_evaluable_claim_kind() -> None:
         {
             "id": "evaluable",
             "subject_roles": [
-                "kernel",
-                "language-bundle",
-                "model-source",
-                "resolved-model",
-                "model-build-artifact-set-receipt",
+                "rir-semantic-identity",
                 "experiment",
                 "evaluator-capability-manifest",
                 "resolved-runtime-profile",
                 "experiment-run-artifact-set-receipt",
             ],
             "prerequisite_edges": [
-                {"subject": "language-bundle", "prerequisite": "kernel"},
-                {"subject": "resolved-model", "prerequisite": "kernel"},
-                {
-                    "subject": "resolved-model",
-                    "prerequisite": "language-bundle",
-                },
-                {"subject": "resolved-model", "prerequisite": "model-source"},
-                {
-                    "subject": "model-build-artifact-set-receipt",
-                    "prerequisite": "model-source",
-                },
-                {
-                    "subject": "model-build-artifact-set-receipt",
-                    "prerequisite": "resolved-model",
-                },
-                {"subject": "experiment", "prerequisite": "kernel"},
-                {"subject": "experiment", "prerequisite": "language-bundle"},
-                {"subject": "experiment", "prerequisite": "resolved-model"},
-                {
-                    "subject": "evaluator-capability-manifest",
-                    "prerequisite": "kernel",
-                },
-                {
-                    "subject": "evaluator-capability-manifest",
-                    "prerequisite": "language-bundle",
-                },
+                {"subject": "experiment", "prerequisite": "rir-semantic-identity"},
+                {"subject": "resolved-runtime-profile", "prerequisite": "experiment"},
                 {
                     "subject": "resolved-runtime-profile",
-                    "prerequisite": "kernel",
-                },
-                {
-                    "subject": "resolved-runtime-profile",
-                    "prerequisite": "language-bundle",
-                },
-                {
-                    "subject": "resolved-runtime-profile",
-                    "prerequisite": "resolved-model",
-                },
-                {
-                    "subject": "resolved-runtime-profile",
-                    "prerequisite": "experiment",
-                },
-                {
-                    "subject": "resolved-runtime-profile",
-                    "prerequisite": "evaluator-capability-manifest",
-                },
-                {
-                    "subject": "experiment-run-artifact-set-receipt",
-                    "prerequisite": "model-build-artifact-set-receipt",
+                    "prerequisite": "rir-semantic-identity",
                 },
                 {
                     "subject": "experiment-run-artifact-set-receipt",
@@ -317,12 +264,12 @@ def test_domain_projects_evidence_issues_to_a_bounded_refusal() -> None:
         (
             EvidenceVerificationIssue(
                 reason="evaluation.reason.evaluable-mismatched-prerequisite",
-                subject="model-build-artifact-set-receipt",
-                message="Model build publication does not bind the admitted Model Source",
+                subject="experiment-run-artifact-set-receipt",
+                message="Run publication does not bind the admitted Experiment",
             ),
         ),
         context.language_bundle,
-        {"model-build-artifact-set-receipt": receipt_identity},
+        {"experiment-run-artifact-set-receipt": receipt_identity},
     )
 
     assert result.stage == "evaluation"
@@ -333,7 +280,7 @@ def test_domain_projects_evidence_issues_to_a_bounded_refusal() -> None:
     assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
     assert result.diagnostics[0].primary.content_identity == receipt_identity
     assert result.diagnostics[0].primary.pointer == (
-        "/prerequisites/model-build-artifact-set-receipt"
+        "/prerequisites/experiment-run-artifact-set-receipt"
     )
 
 
@@ -349,64 +296,28 @@ def test_domain_projects_exact_artifacts_into_the_evaluable_graph() -> None:
     graph = project_evidence_graph(
         claim_kind,
         EvidenceGraphProjectionInput(
-            kernel={"content_identity": identities["kernel"]},
-            language_bundle={
-                "content_identity": identities["language-bundle"],
-                "kernel_identity": identities["kernel"],
-            },
-            model_source_identity=identities["model-source"],
-            model_build_artifact_set_receipt_identity=identities[
-                "model-build-artifact-set-receipt"
-            ],
-            model_artifacts={
-                "resolved-model": {
-                    "content_identity": identities["resolved-model"],
-                    "kernel_identity": identities["kernel"],
-                    "language_bundle_identity": identities["language-bundle"],
-                },
-                "build-receipt": {
-                    "content_identity": "sha256:" + "a" * 64,
-                    "source_identity": identities["model-source"],
-                    "resolved_model_identity": identities["resolved-model"],
-                },
-            },
+            rir_semantic_identity=identities["rir-semantic-identity"],
             experiment_identity=identities["experiment"],
             experiment={
-                "kernel_identity": identities["kernel"],
-                "language_bundle_identity": identities["language-bundle"],
-                "model": {
-                    "resolved_model_identity": identities["resolved-model"],
-                    "build_receipt_identity": "sha256:" + "a" * 64,
-                },
+                "model": {"rir_semantic_identity": identities["rir-semantic-identity"]},
             },
             experiment_run_artifact_set_receipt_identity=identities[
                 "experiment-run-artifact-set-receipt"
             ],
             outcome_artifacts={
-                "evaluation-run": {},
-                "evaluator-capability-manifest": {
-                    "content_identity": identities["evaluator-capability-manifest"],
-                    "kernel_identity": identities["kernel"],
-                    "language_bundle_identity": identities["language-bundle"],
-                },
-                "resolved-runtime-profile": {
-                    "content_identity": identities["resolved-runtime-profile"],
-                    "kernel_identity": identities["kernel"],
-                    "language_bundle_identity": identities["language-bundle"],
-                    "resolved_model_identity": identities["resolved-model"],
-                    "experiment_identity": identities["experiment"],
-                    "evaluator_manifest_identity": identities[
-                        "evaluator-capability-manifest"
-                    ],
-                },
-                "reproduction-receipt": {
+                "evaluation-run": {
                     "experiment_identity": identities["experiment"],
                     "resolved_runtime_profile_identity": identities[
                         "resolved-runtime-profile"
                     ],
-                    "evaluator_manifest_identity": identities[
-                        "evaluator-capability-manifest"
-                    ],
+                },
+                "evaluator-capability-manifest": {
+                    "content_identity": identities["evaluator-capability-manifest"],
+                },
+                "resolved-runtime-profile": {
+                    "content_identity": identities["resolved-runtime-profile"],
+                    "rir_semantic_identity": identities["rir-semantic-identity"],
+                    "experiment_identity": identities["experiment"],
                 },
             },
         ),
@@ -418,14 +329,17 @@ def test_domain_projects_exact_artifacts_into_the_evaluable_graph() -> None:
 def test_graph_judgment_reports_all_structural_fault_classes_in_order() -> None:
     complete = _complete_graph()
     subjects = tuple(
-        subject for subject in complete.subjects if subject.role != "model-source"
+        subject
+        for subject in complete.subjects
+        if subject.role != "evaluator-capability-manifest"
     ) + (EvidenceSubject("unexpected", "sha256:" + "f" * 64),)
     prerequisites = list(complete.prerequisites)
     prerequisites.remove(
         next(
             edge
             for edge in prerequisites
-            if edge.subject == "resolved-model" and edge.prerequisite == "model-source"
+            if edge.subject == "experiment-run-artifact-set-receipt"
+            and edge.prerequisite == "evaluator-capability-manifest"
         )
     )
     first = prerequisites[0]
@@ -439,16 +353,16 @@ def test_graph_judgment_reports_all_structural_fault_classes_in_order() -> None:
     prerequisites.extend(
         (
             EvidencePrerequisite(
-                subject="kernel",
-                subject_identity=identities["kernel"],
-                prerequisite="language-bundle",
-                prerequisite_identity=identities["language-bundle"],
+                subject="rir-semantic-identity",
+                subject_identity=identities["rir-semantic-identity"],
+                prerequisite="experiment",
+                prerequisite_identity=identities["experiment"],
             ),
             EvidencePrerequisite(
                 subject="unknown",
                 subject_identity="sha256:" + "d" * 64,
-                prerequisite="kernel",
-                prerequisite_identity=identities["kernel"],
+                prerequisite="rir-semantic-identity",
+                prerequisite_identity=identities["rir-semantic-identity"],
             ),
         )
     )
@@ -544,8 +458,22 @@ def test_application_verifies_one_real_success_publication(
     assert result.producing_outcome == "success"
 
 
+def test_application_authenticates_the_original_run_descriptor(tmp_path: Path) -> None:
+    original_descriptor = "sha256:" + "9" * 64
+    assert original_descriptor != descriptor_identity(EXPERIMENT_RUN)
+    inp = _prepare_outcome_input(tmp_path, 557, original_descriptor=original_descriptor)
+    receipt = json.loads(Path(inp.experiment_run_artifact_set_receipt).read_text())
+    assert receipt["descriptor_identity"] == original_descriptor
+
+    result = _verify(inp)
+
+    assert isinstance(result, EvidenceCandidate)
+    assert result.producing_outcome == "success"
+    assert result.claim_state == "candidate"
+
+
 @pytest.mark.parametrize("error_type", (RuntimeError, ValueError))
-def test_application_does_not_relabel_an_unexpected_model_validation_error(
+def test_application_does_not_relabel_an_unexpected_experiment_validation_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     error_type: type[Exception],
@@ -553,47 +481,34 @@ def test_application_does_not_relabel_an_unexpected_model_validation_error(
     inp = _prepare_outcome_input(tmp_path, 551)
 
     def fail_unexpectedly(*_args, **_kwargs) -> None:
-        raise error_type("unexpected compiled-artifact validator defect")
+        raise error_type("unexpected Experiment validator defect")
 
     monkeypatch.setattr(
         evidence_verify_module,
-        "validate_compiled_artifacts",
+        "check_experiment_inputs",
         fail_unexpectedly,
     )
 
     with pytest.raises(
         error_type,
-        match="unexpected compiled-artifact validator defect",
+        match="unexpected Experiment validator defect",
     ):
         _verify(inp)
 
 
-def test_application_maps_an_expected_exact_model_binding_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_application_refuses_a_different_admitted_rir(tmp_path: Path) -> None:
     inp = _prepare_outcome_input(tmp_path, 552)
+    different = prepare_runtime_refusal_experiment(tmp_path, 553)
 
-    def reject_binding(*_args, **_kwargs) -> None:
-        raise ExactResolvedModelBindingError(
-            "member-set-mismatch",
-            "package-lock",
-            "exact Model binding member set is not closed",
-        )
-
-    monkeypatch.setattr(
-        evidence_verify_module,
-        "project_compiled_model_binding",
-        reject_binding,
-    )
-
-    result = _verify(inp)
+    result = _verify(replace(inp, rir=different.rir))
 
     assert isinstance(result, Schema2RefusalReport)
-    assert result.stage == "evaluation"
+    assert result.stage == "resolution"
     assert [diagnostic.code for diagnostic in result.diagnostics] == [
-        "evaluation.evaluable_mismatched_prerequisite"
+        "language.resolved_authority_mismatch"
     ]
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.pointer == "/model/rir_semantic_identity"
 
 
 def test_application_uses_outcome_neutral_publication_diagnostics(
@@ -646,26 +561,22 @@ def test_application_refuses_an_unknown_evidence_claim_kind(tmp_path: Path) -> N
     assert result.diagnostics[0].primary.pointer == "/claim_kind"
 
 
-def test_application_refuses_a_source_changed_after_model_build(
-    tmp_path: Path,
-) -> None:
+def test_application_does_not_require_source_or_build_receipt(tmp_path: Path) -> None:
     inp = _prepare_outcome_input(tmp_path, 546)
-    source_path = Path(inp.source)
-    source = json.loads(source_path.read_text(encoding="utf-8"))
-    source["manifest"]["id"] = "example.changed-after-build"
-    source_path.write_text(json.dumps(source), encoding="utf-8")
+    (tmp_path / "experiment-model-546.json").unlink()
+    (tmp_path / "experiment-model-546-receipt.json").unlink()
 
     result = _verify(inp)
 
-    assert isinstance(result, Schema2RefusalReport)
-    assert result.stage == "evaluation"
-    assert result.diagnostics[0].code == (
-        "evaluation.evaluable_mismatched_prerequisite"
-    )
-    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
-    assert result.diagnostics[0].primary.pointer == (
-        "/prerequisites/model-build-artifact-set-receipt"
-    )
+    assert isinstance(result, EvidenceCandidate)
+    assert result.claim_state == "candidate"
+    assert {subject.role for subject in result.subjects} == {
+        "rir-semantic-identity",
+        "experiment",
+        "resolved-runtime-profile",
+        "evaluator-capability-manifest",
+        "experiment-run-artifact-set-receipt",
+    }
 
 
 def test_application_refuses_an_unauthenticated_experiment_run_artifact_set_receipt(
@@ -765,9 +676,9 @@ def test_application_preserves_the_verdict_member_admission_diagnostic(
 
 
 def _prepare_runtime_refusal_input(tmp_path: Path, token: int) -> EvidenceVerifyInput:
-    specification_value = prepare_runtime_refusal_experiment(tmp_path, token)
+    fixture = prepare_runtime_refusal_experiment(tmp_path, token)
     specification_path = tmp_path / "experiment.json"
-    specification_path.write_text(specification_value, encoding="utf-8")
+    specification_path.write_text(fixture.specification, encoding="utf-8")
     run_receipt_path = tmp_path / "experiment-run-artifact-set-receipt.json"
     refusal = run_experiment(
         str(specification_path),
@@ -777,6 +688,7 @@ def _prepare_runtime_refusal_input(tmp_path: Path, token: int) -> EvidenceVerify
         EXPERIMENT_RUN.artifact_set,
         cast(tuple[Any, ...], EXPERIMENT_RUN.verdict_artifact_set),
         EXPERIMENT_RUN.refusal_artifact_sets[0].members,
+        rir=fixture.rir,
     )
     assert isinstance(refusal, Schema2RefusalReport)
     assert refusal.variant == "post-dispatch"
@@ -786,11 +698,8 @@ def _prepare_runtime_refusal_input(tmp_path: Path, token: int) -> EvidenceVerify
     )
     return EvidenceVerifyInput(
         claim_kind="evaluable",
-        source=str(tmp_path / f"experiment-model-{token}.json"),
+        rir=fixture.rir,
         specification=str(specification_path),
-        model_build_artifact_set_receipt=str(
-            tmp_path / f"experiment-model-{token}-receipt.json"
-        ),
         experiment_run_artifact_set_receipt=str(run_receipt_path),
     )
 
@@ -815,8 +724,9 @@ def test_application_preserves_the_runtime_refusal_member_admission_diagnostic(
     )
 
 
-def test_application_refuses_an_authenticated_incomplete_terminal_audit(
+def test_public_cli_refuses_an_authenticated_incomplete_terminal_audit(
     tmp_path: Path,
+    run_cli,
 ) -> None:
     inp = _prepare_runtime_refusal_input(tmp_path, 550)
     artifact_set = EXPERIMENT_RUN.refusal_artifact_sets[0].members
@@ -839,7 +749,7 @@ def test_application_refuses_an_authenticated_incomplete_terminal_audit(
             "content_identity",
         }
     }
-    audit_payload["reproduction_receipt_identity"] = "sha256:" + "0" * 64
+    audit_payload["last_snapshot_identity"] = "sha256:" + "0" * 64
     values["runtime-terminal-audit"] = cast(
         dict[str, Any],
         identified_artifact(
@@ -877,15 +787,27 @@ def test_application_refuses_an_authenticated_incomplete_terminal_audit(
         canonical_bytes(cast(JsonValue, malformed_receipt))
     )
 
-    result = _verify(
-        replace(
-            inp,
-            experiment_run_artifact_set_receipt=str(malformed_receipt_path),
-        )
+    exit_code, stdout, stderr = run_cli(
+        [
+            "evidence",
+            "verify",
+            "--claim-kind",
+            "evaluable",
+            "--rir",
+            inp.rir,
+            "--specification",
+            inp.specification,
+            "--experiment-run-artifact-set-receipt",
+            str(malformed_receipt_path),
+        ]
     )
 
-    assert isinstance(result, Schema2RefusalReport)
-    assert result.stage == "evaluation"
-    assert result.diagnostics[0].code == (
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "evaluation"
+    assert [row["code"] for row in error["diagnostics"]] == [
         "evaluation.evaluable_mismatched_prerequisite"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/prerequisites/experiment-run-artifact-set-receipt"
     )

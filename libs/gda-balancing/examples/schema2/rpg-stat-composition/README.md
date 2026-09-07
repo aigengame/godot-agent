@@ -36,12 +36,17 @@ uv run gda-balancing model check \
 uv run gda-balancing model build \
   examples/schema2/rpg-stat-composition/model-source.json \
   --out "$RUN_DIR/model" \
-  --invocation-key 1111111111111111111111111111111111111111111111111111111111111111
+  --invocation-key 1111111111111111111111111111111111111111111111111111111111111111 \
+  | tee "$RUN_DIR/model-receipt.json"
+
+RIR_PATH="$(jq -r '.member_locators[] | select(.logical_name == "rir-semantic-payload") | .locator' "$RUN_DIR/model-receipt.json")"
 
 uv run gda-balancing experiment check \
+  --rir "$RIR_PATH" \
   examples/schema2/rpg-stat-composition/experiment.json
 
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   examples/schema2/rpg-stat-composition/experiment.json \
   --out "$RUN_DIR/run" \
   --invocation-key 2222222222222222222222222222222222222222222222222222222222222222

@@ -128,10 +128,11 @@ stored result is B with rank `9`. The fixed seed and named stream select list in
 ```bash
 export STRUCTURED_EXPERIMENT=examples/schema2/structured-selection/experiment.json
 
-uv run gda-balancing experiment check "$STRUCTURED_EXPERIMENT" | jq .
+uv run gda-balancing experiment check --rir "$RIR_PATH" "$STRUCTURED_EXPERIMENT" | jq .
 
 export EXPERIMENT_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-set-receipt.json"
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$STRUCTURED_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/evaluation-run.json" \
   --invocation-key "$EXPERIMENT_RUN_INVOCATION_KEY" \
@@ -194,9 +195,10 @@ jq '
   | .scenarios[0].event_plan[0].entrypoint = "structured.select-candidate-b"
 ' "$STRUCTURED_EXPERIMENT" > "$REORDERED_EXPERIMENT"
 
-uv run gda-balancing experiment check "$REORDERED_EXPERIMENT" | jq .
+uv run gda-balancing experiment check --rir "$RIR_PATH" "$REORDERED_EXPERIMENT" | jq .
 
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$REORDERED_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/reordered-evaluation.json" \
   --invocation-key "$(openssl rand -hex 32)" \
@@ -224,6 +226,7 @@ jq '
 ' "$STRUCTURED_EXPERIMENT" > "$EMPTY_EXPERIMENT"
 
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$EMPTY_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/empty-evaluation.json" \
   --invocation-key "$(openssl rand -hex 32)" \
@@ -248,6 +251,7 @@ jq '.scenarios[0].event_plan[0].entrypoint = "structured.select-candidate-b"' \
   "$STRUCTURED_EXPERIMENT" > "$FAILURE_EXPERIMENT"
 
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$FAILURE_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/failure-evaluation.json" \
   --invocation-key "$(openssl rand -hex 32)" \
@@ -282,7 +286,7 @@ inspect the delivered behavior. It does not define the authority.
 ## Troubleshooting
 
 - Keys must contain exactly 64 lowercase hexadecimal digits.
-- Use the same store and anchor key for Model build and Experiment run.
-- Checked-in Experiments bind the checked-in Model Source and final authority identities.
-- After a Model or authority change, rebuild and update the Experiment's exact Model identities.
+- The RIR supplied with `--rir` must match the Experiment's `model.rir_semantic_identity`.
+- After a semantic Model change, rebuild and update `model.rir_semantic_identity`; a build or
+  unselected-authority provenance change alone does not require an Experiment rebind.
 - Inspect `member_locators` in a receipt. The `--out` file is only a convenience copy.

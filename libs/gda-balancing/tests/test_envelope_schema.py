@@ -37,9 +37,7 @@ def test_builders_reject_unregistered_codes():
         usage_envelope("not_a_code", "nope")
 
 
-def test_usage_carries_no_reproduction():
-    # Usage errors resolve at binding, before execution — a seed can never
-    # have been drawn, so the usage branch has no `reproduction` member.
+def test_usage_and_internal_carry_no_reproduction():
     _invalid(
         {
             "error": {
@@ -50,7 +48,7 @@ def test_usage_carries_no_reproduction():
             }
         }
     )
-    _valid(
+    _invalid(
         {
             "error": {
                 "category": "internal",
@@ -60,6 +58,17 @@ def test_usage_carries_no_reproduction():
             }
         }
     )
+
+    from gda_balancing.interfaces.cli.registry import REGISTRY
+    from gda_balancing.interfaces.cli.surface import schema2_error_envelope_schema
+
+    for descriptor in REGISTRY:
+        schema = schema2_error_envelope_schema(descriptor)
+        payload = internal_envelope("it broke")
+        jsonschema.validate(payload, schema)
+        payload["error"]["reproduction"] = {"seed": 1, "toolkit_version": "0.0.0"}
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(payload, schema)
 
 
 def test_usage_and_internal_field_law():

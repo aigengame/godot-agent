@@ -81,7 +81,10 @@ class TestPerDescriptorRows:
 
     def test_verdict_row(self, descriptor, run_cli, invocation, request):
         has_verdict_model = descriptor.verdict_model is not None
-        has_verdict_fixture = descriptor.fixtures.prepare_verdict_document is not None
+        has_verdict_fixture = (
+            descriptor.fixtures.prepare_verdict_document is not None
+            or descriptor.fixtures.prepare_verdict_args is not None
+        )
         projector = descriptor.fixtures.project_verdict_for_conformance
         assert has_verdict_model == (has_verdict_fixture or projector is not None)
         assert not (has_verdict_fixture and projector is not None)

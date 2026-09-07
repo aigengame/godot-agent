@@ -2,6 +2,7 @@
 
 import json
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,13 +21,21 @@ from gda_balancing.domain.operation_program import (
 )
 
 
+@dataclass(frozen=True)
+class ExperimentFixture:
+    """One authored Experiment and its explicit published RIR input."""
+
+    specification: str
+    rir: str
+
+
 def _prepare_experiment(
     root: Path,
     token: int,
     *,
     model_build_descriptor_identity: str,
     runtime_refusal: bool,
-) -> str:
+) -> ExperimentFixture:
     """Materialize conformance from package-owned source and runtime vectors."""
     context = packaged_authority_context()
     language_bundle = cast(LanguageBundleIndex, context.language_bundle)
@@ -90,9 +99,6 @@ def _prepare_experiment(
         )
         return json.loads(Path(locator).read_text(encoding="utf-8"))
 
-    build = member("build-receipt")
-    lock = member("package-lock")
-    resolved = member("resolved-model")
     rir = member("rir-semantic-payload")
     entrypoint = next(
         row
@@ -141,15 +147,7 @@ def _prepare_experiment(
     specification = {
         "schema_version": "2.0.0",
         "id": f"{source_value['manifest']['id']}.conformance",
-        "kernel_identity": build["kernel_identity"],
-        "language_bundle_identity": build["language_bundle_identity"],
-        "model": {
-            "source_identity": build["source_identity"],
-            "build_receipt_identity": build["content_identity"],
-            "resolved_model_identity": resolved["content_identity"],
-            "package_lock_identity": lock["content_identity"],
-            "rir_identity": rir["content_identity"],
-        },
+        "model": {"rir_semantic_identity": rir["semantic_identity"]},
         "runtime": {
             "profile": operation["runtime_profile"],
             "required_evaluator": requirements,
@@ -197,7 +195,14 @@ def _prepare_experiment(
         ],
         "acceptance": {"policy": "all-metrics-within-target"},
     }
-    return json.dumps(specification)
+    return ExperimentFixture(
+        specification=json.dumps(specification),
+        rir=next(
+            row["locator"]
+            for row in receipt["member_locators"]
+            if row["logical_name"] == "rir-semantic-payload"
+        ),
+    )
 
 
 def prepare_valid_experiment(
@@ -205,7 +210,7 @@ def prepare_valid_experiment(
     token: int,
     *,
     model_build_descriptor_identity: str,
-) -> str:
+) -> ExperimentFixture:
     """Materialize one Experiment that completes successfully."""
     return _prepare_experiment(
         root,
@@ -220,7 +225,7 @@ def prepare_runtime_refusal_experiment(
     token: int,
     *,
     model_build_descriptor_identity: str,
-) -> str:
+) -> ExperimentFixture:
     """Materialize one Experiment that refuses after runtime dispatch."""
     return _prepare_experiment(
         root,
@@ -235,17 +240,13 @@ def prepare_verdict_experiment(
     token: int,
     *,
     model_build_descriptor_identity: str,
-) -> str:
+) -> ExperimentFixture:
     """Materialize a valid Experiment whose metric target is rejected."""
-    specification = json.loads(
-        prepare_valid_experiment(
-            root,
-            token,
-            model_build_descriptor_identity=model_build_descriptor_identity,
-        )
+    fixture = prepare_valid_experiment(
+        root,
+        token,
+        model_build_descriptor_identity=model_build_descriptor_identity,
     )
-    specification["metrics"][0]["target"] = {
-        "minimum": 1000,
-        "maximum": 1000,
-    }
-    return json.dumps(specification)
+    specification = json.loads(fixture.specification)
+    specification["metrics"][0]["target"] = {"minimum": 1000, "maximum": 1000}
+    return ExperimentFixture(specification=json.dumps(specification), rir=fixture.rir)

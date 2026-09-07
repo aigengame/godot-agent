@@ -316,7 +316,8 @@ def _check_model_source_bytes(
     try:
         projection_budget = _runtime_projection_budget(kernel, ldb)
         selected_semantics = _runtime_projection(
-            lock,
+            context.namespace_selection,
+            ldb,
             declarations,
             admitted_lowering,
             projection_budget,

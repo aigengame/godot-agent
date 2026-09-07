@@ -3,8 +3,6 @@
     "policy": "all-metrics-within-target"
   },
   "id": "standard.structured-selection",
-  "kernel_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
-  "language_bundle_identity": "sha256:a9498f658792dd2d8cde6387c505f11bb249977bc698f1607520116fbdd71f84",
   "metrics": [
     {
       "aggregation": "single",
@@ -33,11 +31,7 @@
     }
   ],
   "model": {
-    "source_identity": "sha256:8d0bc57581b004c9d027b7e84af51e3b2b9bcb1e2de7cfcea8326b5bb2e80270",
-    "build_receipt_identity": "sha256:d886ffe94e242118edac24664f23dd4b14560c5706e6b278b5a917b38d7acd71",
-    "resolved_model_identity": "sha256:00c5a4480548de0bd9ecb1a22175066cb428e918dd4b1ba0ccc37f75d645fa21",
-    "package_lock_identity": "sha256:7ae5081825e2f792b9ff8414fe675460b4016d421a83989a6d451b89eac02ebc",
-    "rir_identity": "sha256:33e582b189f204761a7fe3510d4e2b5b57a6ab74d5c2770d6ffe188379173a35"
+    "rir_semantic_identity": "sha256:03fbf5b58459f5847e50368931590415f9e6117edb2a104fd96bb11c918b06db"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",

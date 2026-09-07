@@ -13,9 +13,11 @@ Model, Template, Experiment and LDB policy definitions have no own-version label
 selection uses its id. Schema/artifact formats and actual Runtime/grammar contracts retain their
 markers. Selected execution closure (#874) selects final-program dependencies and detaches admitted
 consumer contracts; the [execution-closure record](docs/refactor/current-language/EXECUTION-CLOSURE.md)
-tracks the detailed boundary and open validation. Whole-LDB/Build-receipt execution bindings remain
-transitional and must be deleted in #875. Content integrity, nominal ownership, actual execution
-policies, and consistent in-flight inputs remain. The [S3 contract record](docs/refactor/current-language/NAMESPACE-CONTRACT.md)
+tracks that boundary. #875 removes the obsolete whole-LDB/Build-receipt execution fields and
+gates, with explicit RIR input and existing RIR semantic identity. The
+[execution-identity record](docs/refactor/current-language/EXECUTION-IDENTITY.md) records this
+implemented contract while full integration and CI acceptance remain pending. Content integrity,
+nominal ownership, actual execution policies, and consistent in-flight inputs remain. The [S3 contract record](docs/refactor/current-language/NAMESPACE-CONTRACT.md)
 maps #872's final deletion witnesses and whole-stage rollback; #879 and the full refactor
 retain their own acceptance.
 
@@ -214,18 +216,17 @@ observation and discrepancy models, calibration policy, train/holdout partition,
 and drift policy. Each scenario authors one bounded `Executable Event plan` and assigns the
 canonical union of every selected entrypoint's generated `Scenario Input Contract` exactly once.
 Each transition-invocation member selects one exact `Model entrypoint` and carries a separately
-derived Event-local payload; external-input members carry typed source-sequenced facts and select no
-entrypoint; observation members are derived from exact Observation/Metric contracts. It cannot
+derived Event-local payload; external-input members carry typed source-sequenced facts and select
+no entrypoint; observation members are derived from exact Observation/Metric contracts. It cannot
 select a raw LDB Operation, invent an input name, author another Runtime phase, or redefine a formal
-port or model symbol. It references an exact `Resolved Model` identity or a declared compatibility
-contract. Exact Resolved-Model binding is immutable; compatibility binding may compare RIR semantic
-payloads but must resolve to one exact Resolved Model before execution and produce an identified
-final-binding receipt. Changing RIR semantics therefore creates a new Experiment Specification
-identity or an explicit, reviewable compatibility-resolution result, never a silent rebind. The
-specification is hashed independently, without an own-version label, so evidence identifies both
-model and experiment (bADR-0012/0018/0028). Admission detaches immutable intent, the selected program
-and the required input/output contracts for execution; that private request is not another
-authored authority.
+port or model Symbol.
+
+`model.rir_semantic_identity` binds the independently admitted program's existing semantic identity.
+CLI check, run and Replay receive that program as an explicit required `--rir` file. There is no
+Source/Build/Lock/Resolved-Model tuple, store discovery, compatibility binding or final-binding
+receipt on the execution path. A semantic program change requires newly authored matching intent;
+a producing provenance change alone does not. Admission detaches immutable intent, selected RIR
+and required contracts. This private request is not another authored authority (bADR-0012/0028).
 _Avoid_: experiment config, model overrides, scenario package
 
 **Experiment revision**:
@@ -270,18 +271,13 @@ both identities remain unchanged (bADR-0013/0016/0024).
 _Avoid_: Resolved Model (the authority wrapper), compiled source tree, evaluator plan
 
 **Resolved Model**:
-_Current wire definition; bADR-0028 replaces irrelevant whole-LDB execution binding after actual
-execution-input closure. The replacement must delete the obsolete fields, gates and fallback
-reads, not merely add a narrower projection beside them._
-
-The immutable, content-addressed public execution-authority artifact for one exact build. Its
-identity binds the exact Schema-major Kernel Specification, exact whole `Language Definition
-Bundle`, canonical selected-closure `Package Lock`, RIR `semantic_identity`, and exact RIR
-`content_identity`. The wrapper therefore changes when the exact bundle changes even when an
-unused-package edit leaves the Lock and both RIR identities unchanged. It is the normative
-cross-evaluator boundary for that exact build, not an authored authority or editable interchange
-format (bADR-0012/0013/0024).
-_Avoid_: RIR semantic payload (unqualified), authored model, normalized source
+The immutable, content-addressed wrapper for one exact Model build. It binds the exact
+Schema-major Kernel Specification, whole Language Definition Bundle, selected Package Lock,
+RIR semantic identity and exact RIR content identity. An unused-bundle change may change this
+wrapper while preserving program meaning. Exact Build/trio admission and
+publication still validate it. Runtime and Experiment admission consume independently admitted RIR
+instead; the wrapper is not their prerequisite or semantic identity (bADR-0013/0028).
+_Avoid_: RIR semantic payload (unqualified), authored model, execution prerequisite
 
 **Debug Map**:
 A mandatory, separately content-addressed, non-semantic artifact published with every successful
@@ -305,15 +301,14 @@ compiler produces it before publication. A separate Artifact-set receipt owns pu
 Compiler and resolver implementation identities belong in provenance receipts and never
 participate in RIR or Resolved Model content identity, so independent conforming tools can produce
 the same semantic artifacts (bADR-0013).
-Under bADR-0028, producing provenance must also cease to be an unnecessary prerequisite or
-identity input for Experiment admission and execution. The receipt may remain truthful provenance;
-its obsolete execution fields, equality gates and propagation must be deleted after closure.
+Under bADR-0028/#875 the receipt remains truthful Build provenance. It is not an Experiment,
+Runtime, Replay or `evaluable` prerequisite, and its identity does not enter semantic execution.
 _Avoid_: compiler identity in RIR, semantic build id, Resolved Model provenance field
 
 **Artifact-set receipt**:
 A separately identified publication artifact that binds one producing Command invocation to the
 manifest and locators for its exact committed artifact set. It owns publication facts. It is not a
-domain member such as a Build receipt, Resolution receipt, or Reproduction receipt
+domain member such as a Build receipt or Resolution receipt
 (bADR-0012/0013/0021).
 _Avoid_: Build receipt, outcome receipt, member receipt
 
@@ -1051,8 +1046,7 @@ _Avoid_: artifact identity, random run id, generated-only recovery token
 The single closed top-level-`error` JSON object a failed invocation emits. Categories remain
 `refusal` (stdout, exit 2), `usage` (stderr, exit 3), and `internal` (stderr, exit 4). A 2.x refusal
 variant carries one `Refusal stage`, non-empty bounded `Diagnostic` entries, a truncation marker,
-an optional reproduction receipt, and a required terminal-audit receipt when runtime dispatch has
-begun; usage/internal variants carry their own single codes and never masquerade as domain
+a required terminal-audit receipt when runtime dispatch has begun; usage/internal variants carry their own single codes and never masquerade as domain
 diagnostics (bADR-0008/0015/0021).
 _Avoid_: error blob, failure JSON, exception dump
 
@@ -1073,13 +1067,13 @@ the command's ingress stage, every expected domain failure is a typed refusal, n
 _Avoid_: refusal (the domain word), invalid input (ambiguous)
 
 **Effective seed**:
-The seed that actually drove a stochastic run. In Standard Schema 1.x it is supplied through the
-legacy `--seed` surface or drawn fresh (bADR-0008/0010). In Standard Schema 2.x it is owned by the
-exact Experiment Specification; no free CLI flag or evaluator default may override it. It is the
-root of named streams and is reproducible only together with the exact Resolved Model, Experiment
-Specification, Resolved Runtime profile, and external-input identities (bADR-0014/0021). The
-reproduction receipt records that complete binding; the Resolved Runtime profile closes evaluator,
-platform, Numeric, RNG, scheduler, effect, and budget choices.
+The seed that actually drove a stochastic run. Standard Schema 1.x's retired CLI surface exposed
+`--seed` (bADR-0008/0010). In 2.x, the complete Experiment Specification owns the seed and stream
+intent; no free CLI flag or evaluator default may override it. Determinism depends on that intent,
+the selected RIR meaning and complete Runtime policy, bound by the pure Resolved Runtime profile.
+The Reproduction receipt is deleted; seed and external inputs are already authored Experiment
+facts. Producer platform and build facts belong only to the Evaluator Capability Manifest
+(bADR-0014/0028).
 _Avoid_: random seed (ambiguous), default seed
 
 ### Integration boundary
@@ -1104,9 +1098,12 @@ _Avoid_: transport-owned schema, second Standard Schema
 ### Runtime
 
 **Execution session**:
-A host-scoped coordination handle that binds one exact Resolved Model and admitted immutable
-Experiment revisions for later execution. It is not a Standard Schema authority, Runtime instance,
-gameplay `Run scope`, or HTTP transport session (bADR-0026).
+A host-scoped coordination handle that retains one independently admitted RIR program and immutable
+Experiment revisions for later complete-run execution. The HTTP service still receives complete
+Model Source and Experiment documents by value, compiles the Source and admits the resulting RIR
+through the same Model owner. Session handles, revision selection and stale-handle refusal remain;
+the handle is not an authority artifact, Runtime instance or gameplay `Run scope`
+(bADR-0026/0027/0028).
 _Avoid_: Runtime session, playtest session, HTTP session, Experiment session
 
 **Runtime lifecycle**:
@@ -1153,32 +1150,31 @@ into RIR; Runtime does not obtain missing meaning from the full Kernel (bADR-001
 _Avoid_: node-name registry, evaluator dispatch table, host runtime semantics
 
 **Resolved Runtime profile**:
-_Current broad authority/build bindings remain transitional under bADR-0028; #875 must delete their
-obsolete eligibility and semantic-identity roles after #874 closure._
-
-The generated, content-addressed admission artifact that resolves one Runtime profile definition
-against an exact Schema-major Kernel Specification, Language Definition Bundle, Package Lock,
-Resolved Model/RIR semantic payload,
-evaluator build, platform/runtime scope, and concrete deterministic budgets. It is validated before
-initialization; execution refuses an undeclared or incompatible stream, effect, primitive, profile,
-or budget. An exact replay identity claim requires this profile and every other reproduction input
-identity to match. Comparing two different evaluator-bound profiles is a `Cross-evaluator
-comparison`, not a replay (bADR-0014/0018).
-_Avoid_: Runtime profile definition, ambient environment, runtime config
+The generated, content-addressed semantic execution artifact binding the clean Experiment identity,
+existing RIR semantic identity, complete selected Runtime profile definition and its identity.
+The complete definition includes applicable extensions, Numeric/RNG/effect policy and resource
+bounds. The artifact contains no Kernel/LDB/Build/Lock/Resolved-Model wrapper, evaluator identity,
+platform or duplicate seed field. Admission still refuses incompatible actual capabilities and
+policies. Exact Replay compares this pure profile before dispatch, so different conforming
+producers may share execution meaning (bADR-0014/0028).
+_Avoid_: Runtime profile definition, ambient environment, producer fingerprint
 
 **Runtime profile definition identity**:
 The Kernel-domain-separated content identity of one complete LDB-owned Runtime profile definition.
-The Resolved Runtime profile binds it together with the Evaluator Capability Manifest identity;
-the definition and evaluator manifest never refer back to that generated artifact, keeping runtime
-admission identities acyclic (bADR-0014).
+The Resolved Runtime profile binds this identity and the complete definition. Neither that
+definition nor the Evaluator Capability Manifest points back to the generated profile; producer
+facts do not enter this semantic identity (bADR-0014/0028).
 _Avoid_: Resolved Runtime profile identity, profile id alone, host runtime preset
 
 **Evaluator Capability Manifest**:
-An immutable implementation-provenance artifact published by one evaluator build. It declares the
-exact Kernel law versions, constructors, Numeric/RNG policies, scheduler/effect features, artifact
-schemas, and resource-accounting contracts that build implements. Runtime admission validates and
-binds it into the Resolved Runtime profile; it cannot admit LDB-absent behavior or weaken semantic
-law. It is distinct from the generated model/package Capability manifest (bADR-0014).
+An immutable producing-provenance artifact containing the explicit implementation label, complete
+installed Domain-source fingerprint, platform and actual Operation/node/effect/Numeric/RNG/profile
+capabilities. Its own content identity identifies the record; there is no extra
+`implementation_identity`. New execution checks actual support and retains this prepared record
+through success, Verdict and terminal refusal. Old-result validation checks the supplied original
+manifest's integrity and capability coverage, never equality with the currently installed
+producer. Publication associates it with the semantic profile and outcome; it is not semantic
+authority or a new authenticated-verifier claim (bADR-0014/0028).
 _Avoid_: evaluator plugin registry, semantic authority manifest, Package Capability manifest
 
 **Portable Observation Policy**:
@@ -1202,14 +1198,12 @@ _Avoid_: authored comparison plan, Experiment copy, caller field selection
 
 **Cross-evaluator comparison**:
 An immutable conformance artifact comparing observations from independent evaluator realizations
-whose Resolved Runtime profiles intentionally differ. It binds both profiles plus the exact common
-Kernel Specification, Language Definition Bundle, Package Lock, Resolved Model/RIR semantic
-payload, Runtime profile definition,
-Experiment Specification, external inputs, seed, exact Portable Observation Policy, generated
-Resolved Portable Observation Plan, and every match/mismatch. It is not an Evidence assertion and
-carries no embedded
-`cross_evaluator_conformant` claim. A separately validated positive result may support that Evidence
-assertion; it is never a `Replay comparison` and cannot satisfy `reproducible`
+under a declared common portability contract. It records both independent producer realizations
+and the selected program, Runtime policy, Experiment and actual inputs, plus the exact Portable
+Observation Policy and generated Resolved Portable Observation Plan, and every match/mismatch.
+It is not an Evidence assertion and carries no embedded `cross_evaluator_conformant` claim. A
+separately validated positive result may support that Evidence assertion. This planned portability judgment remains distinct from current exact `Replay comparison`;
+a producer change alone no longer implies a different Resolved Runtime profile or forbids Replay
 (bADR-0014/0018/0022).
 _Avoid_: replay comparison, same semantic profile (insufficient), evaluator agreement flag
 
@@ -1368,8 +1362,8 @@ outcome, while failure after commit leaves the set recoverable by its durable in
 (bADR-0015/0021). Recovery admits the terminal audit only when its admitted-Event catalog and
 committed-trace prefixes, complete last Snapshot, rollback equality, complete refusing Event
 specification, terminal condition, exact catalog/trace/resource coordinates, Diagnostic, and
-reproduction receipt close against checked authority. A not-yet-admitted observation must be the
-next Metric at the last Snapshot's logical boundary and enqueue cursor, while attempted Event/node
+pure semantic profile close against the admitted program and intent. A not-yet-admitted observation
+must be the next Metric at the last Snapshot's logical boundary and enqueue cursor, while attempted Event/node
 steps must close against that Snapshot's resource ledger and applicable Formula charges plus the
 current Event charge derived, without rerunning the evaluator, by walking admitted RIR resource
 transitions to the first budget-breaching instruction and completed nested-call prefix.
@@ -1400,15 +1394,18 @@ _Avoid_: result number, measurement row (without schema identity), aggregate rep
 
 **Metric dataset**:
 An immutable, content-addressed collection of Metric samples with exact Metric-definition,
-experiment, source/build, partition, and data-version provenance. `simulated` and `observed` are
-source kinds in this one schema, not separate result formats (bADR-0018).
+Experiment and pure Runtime-profile identities, partition and data-version fields. Actual
+observation provenance and source kind remain on each sample. The redundant dataset-level
+`source_provenance` object and producer/build identity links are deleted. `simulated` and
+`observed` remain source kinds in one Metric model (bADR-0018/0028).
 _Avoid_: simulation report, telemetry dump, CSV result
 
 **Evaluation run**:
-The immutable evidence artifact binding exact Resolved Model, Experiment Specification, Resolved
-Runtime profile, evaluator, external inputs, effective seed/streams, ordered trace, and produced
-Metric dataset. It records what ran and what was observed; it does not itself decide acceptance
-(bADR-0018).
+The immutable evidence artifact binding the Experiment, pure Resolved Runtime profile, ordered
+trace, Snapshot series, Metric dataset, root map, terminal statuses and accepted outcome. The
+Experiment/profile already binds effective seed, streams, external inputs and selected program
+meaning. The Artifact set contains producer provenance separately; no Reproduction receipt or
+evaluator identity is embedded in the semantic run (bADR-0018/0028).
 _Avoid_: simulation result, run log, benchmark
 
 **Replay comparison policy**:
@@ -1417,9 +1414,9 @@ for an exact Replay comparison. `standard.experiment` owns `exact-replay-v1` at
 `language.replay_comparison_policies`. The admitted policy index is a read-only projection of that
 Package Release, not a host registry or peer authority. Replay detaches the complete owned policy,
 refusal definitions and comparison artifact contract at admission, and reuses the admitted request's
-output contracts for member validation. The current exact Replay contract requires complete
-reproduction-identity equality before Runtime dispatch; #875 must remove obsolete broad bindings
-under bADR-0028. This is not a caller-selectable policy mode.
+output contracts for member validation. Exact Replay requires identical pure Resolved Runtime
+profiles before dispatch; it does not compare producing Build, whole-LDB, evaluator or current
+command-descriptor identities. This is not a caller-selectable policy mode.
 The initial policy applies `canonical-equal` to Evaluation outcome status, Event-trace identity,
 Snapshot-series identity, and Metric-dataset identity. Event-trace identity already closes the root
 Event map, terminal statuses, and Named RNG observations. A caller cannot select fields, omit
@@ -1429,14 +1426,15 @@ _Avoid_: replay options, tolerance flag, ignore list, generic JSON diff
 
 **Replay comparison**:
 An immutable artifact comparing one authenticated original Evaluation run with one Replay execution
-under the same complete reproduction identity, including one identical Resolved Runtime profile. It
+under one identical pure Resolved Runtime profile. It
 binds the original run, Replay policy, identities of the new observation artifacts, identity checks,
 observation checks, and any closed mismatch diagnostics. A match also binds the new Evaluation run.
 A mismatch binds the complete Replay observations without relabeling a rejected outcome as an
 Evaluation run. A successful comparison, not Replay intent or a single successful run, is a
 prerequisite for a separately issued `reproducible` Evidence assertion; the comparison is not that
-assertion and carries no embedded `reproducible` claim. Runs under different evaluator-bound
-profiles require a `Cross-evaluator comparison` instead (bADR-0014/0018).
+assertion and carries no embedded `reproducible` claim. Different producer records can accompany
+the same semantic profile; original publication integrity and actual capability checks remain
+mandatory (bADR-0014/0018/0028).
 _Avoid_: replay succeeded, deterministic flag, matching logs
 
 **Observation model**:

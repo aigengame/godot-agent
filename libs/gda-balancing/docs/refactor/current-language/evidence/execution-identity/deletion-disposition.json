@@ -1,0 +1,185 @@
+{
+  "absent_production_tokens": {
+    "ExactResolvedModelBinding": [],
+    "lock-member": [],
+    "lock_source_members": [],
+    "project_compiled_model_binding": [],
+    "reproduction-receipt": [],
+    "reproduction_receipt_identity": [],
+    "resolve_published_model_binding": [],
+    "source_provenance": []
+  },
+  "current_wire_properties": {
+    "evaluation-run": [
+      "artifact_kind",
+      "artifact_version",
+      "content_identity",
+      "event_trace_identity",
+      "experiment_identity",
+      "metric_dataset_identity",
+      "outcome",
+      "resolved_runtime_profile_identity",
+      "root_event_map",
+      "snapshot_series_identity",
+      "terminal_statuses",
+      "wire_schema_identity"
+    ],
+    "evaluator-capability-manifest": [
+      "artifact_kind",
+      "artifact_version",
+      "content_identity",
+      "effects",
+      "evaluator_build_identity",
+      "implementation",
+      "instruction_nodes",
+      "numeric_policies",
+      "operation_kinds",
+      "platform",
+      "rng_algorithms",
+      "runtime_profiles",
+      "wire_schema_identity"
+    ],
+    "experiment-specification": [
+      "acceptance",
+      "id",
+      "metrics",
+      "model",
+      "runtime",
+      "scenarios",
+      "schema_version",
+      "seed"
+    ],
+    "experiment-verdict": [
+      "artifact_kind",
+      "artifact_version",
+      "content_identity",
+      "event_trace_identity",
+      "experiment_identity",
+      "failed_metrics",
+      "metric_dataset_identity",
+      "outcome",
+      "resolved_runtime_profile_identity",
+      "root_event_map",
+      "snapshot_series_identity",
+      "terminal_statuses",
+      "wire_schema_identity"
+    ],
+    "metric-dataset": [
+      "artifact_kind",
+      "artifact_version",
+      "content_identity",
+      "data_version",
+      "experiment_identity",
+      "ingestion_transformation_identity",
+      "metric_definition_identities",
+      "ordering",
+      "partition",
+      "resolved_runtime_profile_identity",
+      "samples",
+      "wire_schema_identity"
+    ],
+    "resolved-runtime-profile": [
+      "artifact_kind",
+      "artifact_version",
+      "content_identity",
+      "experiment_identity",
+      "rir_semantic_identity",
+      "runtime_profile",
+      "runtime_profile_definition_identity",
+      "wire_schema_identity"
+    ],
+    "runtime-terminal-audit": [
+      "artifact_kind",
+      "artifact_version",
+      "budget_counters",
+      "committed_trace_prefix",
+      "content_identity",
+      "diagnostic",
+      "event_catalog_prefix",
+      "experiment_identity",
+      "last_snapshot",
+      "last_snapshot_identity",
+      "last_snapshot_record",
+      "refusing_event",
+      "resolved_runtime_profile_identity",
+      "rollback",
+      "root_event_map",
+      "scenario",
+      "terminal_condition",
+      "wire_schema_identity"
+    ]
+  },
+  "development_baseline": "2a6c89cde0f4ec2c7ee1a377d5df15c171afd5a9",
+  "inspected_implementation_head": "68203531f7125dff8780e42aeb49a99ca92474fc",
+  "intent_model_members": [
+    "rir_semantic_identity"
+  ],
+  "inventory": {
+    "baseline_test_count": 849,
+    "current_package_vector_count": 313,
+    "current_test_count": 1718,
+    "current_test_digest": "76ebe560783f6e124fd7f90f60d1ba3e1a8091ced3384576f023ef2606447c9b",
+    "missing_package_vectors": [],
+    "missing_tests": [],
+    "overlapping_tests": [],
+    "uncovered_tests": [],
+    "unexpected_shard_tests": []
+  },
+  "issue": 875,
+  "necessary_retained_owners": {
+    "Model Build": "Exact content identity, Build receipt relationships, Package Lock and Resolved Model trio validation remain compilation/publication concerns.",
+    "Model RIR": "Independent current-owner semantic rederivation, nominal/recursive closure, Formula pairing, initialization and selected execution dependencies.",
+    "Publication": "Original descriptor/index/transaction-anchor authentication; exact Build wrappers retain their requested-descriptor check.",
+    "Replay": "Actual execution identity and typed observations under the selected comparison policy. The existing replay-reproduction-mismatch reason still denotes failure to reproduce execution.",
+    "Runtime": "Explicit capabilities and once-captured producer provenance; semantic execution profile is independent of those producer bytes.",
+    "Sessions": "Admitted program, explicit revision, detached requests, stale-handle and in-flight ordering constraints."
+  },
+  "not_claimed": [
+    "final full CI or PR approval",
+    "formal product release",
+    "authenticated Verifier trust activation",
+    "full genre or simulation completion"
+  ],
+  "public_discriminating_tests": [
+    "tests/test_public_execution_identity.py",
+    "tests/test_replay_publication_identity.py",
+    "tests/test_execution_provenance.py"
+  ],
+  "removed_artifact_kind": "reproduction-receipt",
+  "retained_test_scopes": {
+    "HTTP and subprocess E2E": "All 65 test definitions and their decorators are retained; 66 actual cases. Godot consumer assertions remain live.",
+    "selected dependency tests": "Six retained modules preserve all 39 test IDs and parameterization.",
+    "tests/test_envelope_schema.py": "The existing shared usage/internal test now rejects the unused reproduction object in both generic and every current descriptor error schema.",
+    "tests/test_schema2_comparison.py": "13 test definitions retained; three names replace complete provenance/four-input obligations with semantic profile/five-input obligations.",
+    "tests/test_schema2_experiment_cli.py": "151 test definitions and 192 cases retained; five names now describe selected semantics or explicit inputs. Old store-dependent expectations become detached-RIR acceptance and explicit-RIR corruption refusal."
+  },
+  "retired_test_file": {
+    "disposition": {
+      "ambiguous original descriptor": "test_model_publication_rejects_an_ambiguous_descriptor",
+      "bad Build RIR relation, unsealed and self-valid resealed": "test_exact_build_retains_receipt_relationship_checks (2 cases)",
+      "factory and detached ownership": "test_admitted_rir_detaches_input_and_materializations",
+      "missing Lock and wrong member kind": "test_exact_trio_retains_member_set_and_kind_checks (2 cases)",
+      "published and in-memory adapter parity": "test_published_and_in_memory_rir_admission_preserve_identical_bytes",
+      "unrequested publication member corruption": "test_model_publication_rejects_damage_to_an_unrequested_member"
+    },
+    "new_checks": "Six maintained Models, no Package Lock construction during standalone admission, legal provenance changes, body-specific Formula notation, coherent semantic tampering, raw-file ingress and standalone member/kind/digest drift.",
+    "old_cases": 9,
+    "path": "tests/test_exact_resolved_model_binding.py",
+    "replacement_cases": 27,
+    "replacement_path": "tests/test_admitted_rir.py"
+  },
+  "rollback": "Restore code, packaged authorities, maintained authored sources, consumer contracts and current evidence together to the development baseline; no legacy execution fallback is retained.",
+  "rollback_execution": {
+    "actual_baseline_public_run_passed": true,
+    "all_package_bytes_match_baseline": true,
+    "base": "2a6c89cde0f4ec2c7ee1a377d5df15c171afd5a9",
+    "original_artifact_members": 7,
+    "original_publication_authenticated": true,
+    "restored_descriptor_gate_refused_changed_descriptor": true,
+    "restored_regular_files": 430,
+    "reversed_head": "f15a0f4ae79c5bbc0ade22f43e184c1680433822",
+    "scope": "Full package reverse patch and byte comparison, followed by actual restored public Model/Experiment/publication execution. Final PR review and CI are separate."
+  },
+  "scope": "Current production Python and packaged JSON; historical evidence and superseded decision text are not shipped execution paths.",
+  "status": "Implementation deletion checkpoint; final PR review and CI remain open. The issue and PR own live acceptance."
+}

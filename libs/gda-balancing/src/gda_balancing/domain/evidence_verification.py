@@ -47,11 +47,7 @@ class EvidenceGraph:
 class EvidenceGraphProjectionInput:
     """Exact admitted artifacts from which the Domain projects one Evidence graph."""
 
-    kernel: Mapping[str, Any]
-    language_bundle: Mapping[str, Any]
-    model_source_identity: str
-    model_build_artifact_set_receipt_identity: str
-    model_artifacts: Mapping[str, Mapping[str, Any]]
+    rir_semantic_identity: str
     experiment_identity: str
     experiment: Mapping[str, Any]
     experiment_run_artifact_set_receipt_identity: str
@@ -164,27 +160,23 @@ def project_evidence_graph(
     inp: EvidenceGraphProjectionInput,
 ) -> EvidenceGraph:
     """Project exact admitted artifact bindings into one Evidence graph."""
-    build_receipt_member = inp.model_artifacts["build-receipt"]
-    resolved_model = inp.model_artifacts["resolved-model"]
     evaluator_manifest = inp.outcome_artifacts["evaluator-capability-manifest"]
     runtime_profile = inp.outcome_artifacts["resolved-runtime-profile"]
-    reproduction_receipt = inp.outcome_artifacts["reproduction-receipt"]
     if "evaluation-run" in inp.outcome_artifacts:
+        primary = inp.outcome_artifacts["evaluation-run"]
         producing_outcome = "success"
         runtime_refusal_variant = "not-applicable"
     elif "experiment-verdict" in inp.outcome_artifacts:
+        primary = inp.outcome_artifacts["experiment-verdict"]
         producing_outcome = "verdict"
         runtime_refusal_variant = "not-applicable"
     else:
+        primary = inp.outcome_artifacts["runtime-terminal-audit"]
         producing_outcome = "runtime-refusal"
         runtime_refusal_variant = "post-dispatch"
 
     identities = {
-        "kernel": cast(str, inp.kernel["content_identity"]),
-        "language-bundle": cast(str, inp.language_bundle["content_identity"]),
-        "model-source": inp.model_source_identity,
-        "resolved-model": cast(str, resolved_model["content_identity"]),
-        "model-build-artifact-set-receipt": inp.model_build_artifact_set_receipt_identity,
+        "rir-semantic-identity": inp.rir_semantic_identity,
         "experiment": inp.experiment_identity,
         "evaluator-capability-manifest": cast(
             str, evaluator_manifest["content_identity"]
@@ -193,57 +185,18 @@ def project_evidence_graph(
         "experiment-run-artifact-set-receipt": inp.experiment_run_artifact_set_receipt_identity,
     }
     experiment_model = cast(Mapping[str, Any], inp.experiment["model"])
-    experiment_build_receipt_member_identity = cast(
-        str, experiment_model["build_receipt_identity"]
-    )
-    observed_model_build_artifact_set_receipt_identity = (
-        inp.model_build_artifact_set_receipt_identity
-        if experiment_build_receipt_member_identity
-        == build_receipt_member["content_identity"]
-        else experiment_build_receipt_member_identity
-    )
     observed_bindings = {
-        "language-bundle": {
-            "kernel": inp.language_bundle["kernel_identity"],
-        },
-        "resolved-model": {
-            "kernel": resolved_model["kernel_identity"],
-            "language-bundle": resolved_model["language_bundle_identity"],
-            "model-source": build_receipt_member["source_identity"],
-        },
-        "model-build-artifact-set-receipt": {
-            "model-source": build_receipt_member["source_identity"],
-            "resolved-model": build_receipt_member["resolved_model_identity"],
-        },
         "experiment": {
-            "kernel": inp.experiment["kernel_identity"],
-            "language-bundle": inp.experiment["language_bundle_identity"],
-            "resolved-model": experiment_model["resolved_model_identity"],
-        },
-        "evaluator-capability-manifest": {
-            "kernel": evaluator_manifest["kernel_identity"],
-            "language-bundle": evaluator_manifest["language_bundle_identity"],
+            "rir-semantic-identity": experiment_model["rir_semantic_identity"],
         },
         "resolved-runtime-profile": {
-            "kernel": runtime_profile["kernel_identity"],
-            "language-bundle": runtime_profile["language_bundle_identity"],
-            "resolved-model": runtime_profile["resolved_model_identity"],
+            "rir-semantic-identity": runtime_profile["rir_semantic_identity"],
             "experiment": runtime_profile["experiment_identity"],
-            "evaluator-capability-manifest": runtime_profile[
-                "evaluator_manifest_identity"
-            ],
         },
         "experiment-run-artifact-set-receipt": {
-            "model-build-artifact-set-receipt": (
-                observed_model_build_artifact_set_receipt_identity
-            ),
-            "experiment": reproduction_receipt["experiment_identity"],
-            "resolved-runtime-profile": reproduction_receipt[
-                "resolved_runtime_profile_identity"
-            ],
-            "evaluator-capability-manifest": reproduction_receipt[
-                "evaluator_manifest_identity"
-            ],
+            "experiment": primary["experiment_identity"],
+            "resolved-runtime-profile": primary["resolved_runtime_profile_identity"],
+            "evaluator-capability-manifest": evaluator_manifest["content_identity"],
         },
     }
     return EvidenceGraph(

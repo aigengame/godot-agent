@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
+  "content_identity": "sha256:26575c99fefafbb39395ea866ed76f85b303d9e10c3f0764017790270d02112d",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -5243,7 +5243,7 @@
     "runtime_projection": {
       "closed": true,
       "collection_source_kinds": [
-        "lock-member",
+        "namespace-member",
         "semantic-closure"
       ],
       "output_shapes": [
@@ -5269,7 +5269,7 @@
           "output_member",
           "output_shape"
         ],
-        "lock_source_members": [
+        "namespace_source_members": [
           "kind",
           "member",
           "package_path"
@@ -5337,7 +5337,7 @@
       },
       "path_typing": {
         "declaration": "terminal-fact-contract",
-        "lock": "package-lock-wire-schema",
+        "namespace": "rir-selected-semantics-member-schema",
         "semantic_closure": "kernel-language-definition-contract",
         "empty_path": "identity"
       },

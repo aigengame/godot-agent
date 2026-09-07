@@ -1782,7 +1782,6 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "publication-index",
         "negative-vector",
         "replay-comparison",
-        "reproduction-receipt",
         "resolution-receipt",
         "resolved-model",
         "resolved-runtime-profile",

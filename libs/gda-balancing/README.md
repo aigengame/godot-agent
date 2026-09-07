@@ -25,8 +25,10 @@ compatibility will be considered no earlier than toolkit v1.0. The commands belo
 current implementation: package requirements are namespace strings, nominal Type and Operation
 references use `{package, id}`, and Template retrieval selects only `--id`. Model, Template and
 Experiment definitions have no own-version field. Schema/artifact format markers and actual
-Runtime/grammar contracts remain. Whole-LDB and Build-receipt execution bindings still require
-closure and mandatory deletion in #874–#875. The Schema 1 converter, `model migrate` command and `tooling.migration`
+Runtime/grammar contracts remain. #875 now removes whole-LDB and Build-receipt execution
+bindings after #874 closure: Experiment check/run/Replay require an explicit `--rir` file and
+bind its existing semantic identity. The [execution-identity record](docs/refactor/current-language/EXECUTION-IDENTITY.md)
+tracks the implemented boundary; full integration and CI acceptance remain pending. The Schema 1 converter, `model migrate` command and `tooling.migration`
 package are retired; use current Model Source directly. The [retirement record](docs/refactor/current-language/RETIREMENT.md)
 documents source disposition and validation boundaries. See [bADR-0028](docs/badr/0028-current-language-refactor-and-pre-1.0-retirement.md)
 for the accepted direction and its distinction from completed implementation.
@@ -42,8 +44,10 @@ gda-balancing formula render <source>      # render a structured body as canonic
 gda-balancing model check <source>         # admit a Schema 2.0 Model Source
 gda-balancing model build <source> [...]   # build and atomically publish a Model
 gda-balancing model inspect <receipt> [...] # render a stored Model explanation
-gda-balancing experiment check <source>    # admit an exact Experiment without running it
-gda-balancing experiment run <source> [...] # run and atomically publish evaluation artifacts
+gda-balancing experiment check <specification> --rir <rir> # admit intent against its program
+gda-balancing experiment run <specification> --rir <rir> [...] # run and publish evaluation artifacts
+gda-balancing experiment replay <specification> --rir <rir> [...] # authenticate and compare a prior run
+gda-balancing evidence verify --claim-kind evaluable --rir <rir> --specification <specification> [...]
 gda-balancing template list                # list admitted Template releases
 gda-balancing template get --id <id>        # retrieve the current Template definition
 gda-balancing template instantiate [...]   # publish a new editable Model Source
@@ -58,6 +62,11 @@ envelope — `refusal` (exit 2, on stdout), `usage` (exit 3) or `internal` (exit
 artifact-emitting command to write the artifact to a file and get a receipt on stdout. Every
 Schema 2.0 command also accepts `--params-json <json | ->`; `-` reads the same descriptor-owned
 input object from stdin, and structured input is mutually exclusive with individual argv fields.
+To supply `--rir`, read the `locator` for `logical_name: "rir-semantic-payload"` from the
+Model-build Artifact-set receipt's `member_locators`. The program is independently admitted;
+Runtime does not discover a build in the store. Experiment intent binds only
+`model.rir_semantic_identity`. Build records retain exact provenance and Publication checks.
+
 There is no Schema 1 input entrypoint or compatibility adapter. Author or deliberately rewrite
 source as a current Model Source Package, then use normal `model check` and `model build`.
 

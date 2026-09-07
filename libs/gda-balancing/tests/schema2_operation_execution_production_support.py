@@ -14,8 +14,13 @@ from gda_balancing.domain.experiment import (
     derive_scenario_program_requirements,
 )
 from gda_balancing.domain.formula.notation import render_formula_body
-from gda_balancing.domain.model import CheckedModel, check_model_source_value
-from gda_balancing.domain.model import compile_checked_model
+from gda_balancing.domain.model import (
+    AdmittedRir,
+    CheckedModel,
+    admit_rir,
+    check_model_source_value,
+    compile_checked_model,
+)
 from gda_balancing.domain.runtime.execution import (
     EvaluationArtifacts,
     RuntimeRefusalOutcome,
@@ -32,8 +37,7 @@ class OperationExecutionHarness:
 
     operation_coordinate: OperationCoordinate
     source: dict[str, Any]
-    checked_model: CheckedModel
-    artifacts: dict[str, dict[str, Any]]
+    program: AdmittedRir
     result_name: str
     requirements: dict[str, list[str]]
     named_streams: list[str]
@@ -559,7 +563,8 @@ def compile_operation_execution_harness(
             f"operation vector model failed candidate admission: {diagnostics}"
         )
     artifacts = compile_checked_model(checked_model)
-    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    program = admit_rir(artifacts["rir-semantic-payload"], authority_context=context)
+    rir = program.artifact()
     profile = cast(str, operation["runtime_profile"])
     rng_algorithm = cast(
         str,
@@ -574,8 +579,7 @@ def compile_operation_execution_harness(
     return OperationExecutionHarness(
         operation_coordinate=operation_coordinate,
         source=source,
-        checked_model=checked_model,
-        artifacts=artifacts,
+        program=program,
         result_name=result_name,
         requirements=requirements,
         named_streams=named_streams,
@@ -597,9 +601,7 @@ def _checked_vector_experiment(
     if resolved_harness.operation_coordinate != operation_coordinate:
         raise ValueError("operation execution harness coordinate does not match")
     source = resolved_harness.source
-    checked_model = resolved_harness.checked_model
-    artifacts = resolved_harness.artifacts
-    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    program = resolved_harness.program
     result_name = resolved_harness.result_name
     requirements = resolved_harness.requirements
     named_streams = resolved_harness.named_streams
@@ -631,19 +633,10 @@ def _checked_vector_experiment(
             "value": 0,
         }
     )
-    build = cast(dict[str, Any], artifacts["build-receipt"])
     specification = {
         "schema_version": "2.0.0",
         "id": f"operation-execution.{vector['id']}",
-        "kernel_identity": context.kernel["content_identity"],
-        "language_bundle_identity": context.language_bundle["content_identity"],
-        "model": {
-            "source_identity": checked_model.source_identity,
-            "build_receipt_identity": build["content_identity"],
-            "resolved_model_identity": build["resolved_model_identity"],
-            "package_lock_identity": build["package_lock_identity"],
-            "rir_identity": build["rir_identity"],
-        },
+        "model": {"rir_semantic_identity": program.semantic_identity},
         "runtime": {"profile": profile, "required_evaluator": requirements},
         "seed": {
             "algorithm": rng_algorithm,
@@ -688,6 +681,9 @@ def _checked_vector_experiment(
         ],
         "acceptance": {"policy": "all-metrics-within-target"},
     }
+    # This existing Operation-vector adapter supplies a synthetic terminal metric
+    # outside structured entrypoints' Scenario Input Contract. It tests Runtime
+    # dispatch, not Experiment ingress; the compiled program is admitted above.
     return (
         CheckedExperiment(
             value=specification,
@@ -696,10 +692,7 @@ def _checked_vector_experiment(
             ),
             kernel=cast(dict[str, Any], context.kernel),
             language_bundle=cast(dict[str, Any], context.language_bundle),
-            build_receipt=build,
-            package_lock=cast(dict[str, Any], artifacts["package-lock"]),
-            resolved_model=cast(dict[str, Any], artifacts["resolved-model"]),
-            rir=rir,
+            rir=program.artifact(),
             authority_context=context,
         ),
         result_name,

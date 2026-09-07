@@ -20,11 +20,13 @@ from gda_balancing.domain.model import (
     CheckedModel,
     check_model_source_value,
     compile_checked_model,
-    project_compiled_model_binding,
+    admit_rir,
 )
 from gda_balancing.domain.runtime.execution import (
+    PreparedExperiment,
     RuntimeRefusalOutcome,
-    evaluate_experiment,
+    evaluate_prepared_experiment,
+    prepare_experiment,
 )
 from schema2_authority_support import mutable_authorities
 from test_schema2_experiment_cli import (
@@ -115,7 +117,9 @@ def _assert_terminal_reason_mapping(
         assert isinstance(model, CheckedModel), model
         artifacts = compile_checked_model(model)
         assert len(artifacts) == 8
-        binding = project_compiled_model_binding(artifacts, context)
+        program = admit_rir(
+            artifacts["rir-semantic-payload"], authority_context=context
+        )
         identities.append(artifacts["rir-semantic-payload"]["semantic_identity"])
         receipt: dict[str, Any] = {"member_locators": []}
         for name, artifact in artifacts.items():
@@ -124,11 +128,7 @@ def _assert_terminal_reason_mapping(
             receipt["member_locators"].append(
                 {"logical_name": name, "locator": str(path)}
             )
-        build = artifacts["build-receipt"]
         specification = _experiment(
-            kernel_identity=cast(str, build["kernel_identity"]),
-            language_bundle_identity=cast(str, build["language_bundle_identity"]),
-            source_identity=cast(str, build["source_identity"]),
             build_receipt=receipt,
             base_damage=1 << 62,
         )
@@ -138,14 +138,21 @@ def _assert_terminal_reason_mapping(
             if row["target"]["name"] == "critical_threshold"
         )["value"] = 100
         checked = check_experiment_value(
-            specification, binding, authority_context=context
+            specification, program, authority_context=context
         )
         assert isinstance(checked, CheckedExperiment), checked
-        outcome = evaluate_experiment(checked)
+        prepared = prepare_experiment(checked)
+        assert isinstance(prepared, PreparedExperiment), prepared
+        outcome = evaluate_prepared_experiment(prepared)
         assert isinstance(outcome, RuntimeRefusalOutcome), outcome
         members = {
             name: cast(dict[str, Any], member.value)
-            for name, member in runtime_terminal_audit_members(checked, outcome).items()
+            for name, member in runtime_terminal_audit_members(
+                checked,
+                outcome,
+                evaluator=prepared.evaluator,
+                resolved_runtime=prepared.resolved_runtime,
+            ).items()
         }
         audit = members["runtime-terminal-audit"]
         expected_code = (

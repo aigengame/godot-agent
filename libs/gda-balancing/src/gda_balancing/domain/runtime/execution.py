@@ -49,7 +49,6 @@ from gda_balancing.domain.runtime.projections import (
     resolved_state_rows as _resolved_state_rows,
     resolved_value_rows as _resolved_value_rows,
     root_event_id as _root_event_id,
-    reproduction_receipt as _reproduction_receipt,
     runtime_boundary_roles as _runtime_boundary_roles,
     runtime_contract as _runtime_contract,
     runtime_execution_contract as _runtime_execution_contract,
@@ -58,6 +57,7 @@ from gda_balancing.domain.runtime.projections import (
     runtime_nodes as _runtime_nodes,
     scheduled_event_id as _scheduled_event_id,
     scheduler_contract as _scheduler_contract,
+    unsupported_evaluator_requirement as _unsupported_evaluator_requirement,
 )
 from gda_balancing.domain.program_reachability import reachable_formula_programs
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
@@ -93,13 +93,11 @@ class PreparedExperiment:
     checked: CheckedExperiment
     evaluator: PublicationMember
     resolved_runtime: PublicationMember
-    reproduction: PublicationMember
 
     @property
     def members(self) -> dict[str, PublicationMember]:
         return {
             "evaluator-capability-manifest": self.evaluator,
-            "reproduction-receipt": self.reproduction,
             "resolved-runtime-profile": self.resolved_runtime,
         }
 
@@ -473,25 +471,14 @@ def _formula_snapshot_identity_domain(checked: CheckedExperiment) -> str:
 def _check_evaluator_requirements(
     checked: CheckedExperiment, evaluator: PublicationMember
 ) -> Schema2RefusalReport | None:
-    required = checked.value["runtime"]["required_evaluator"]
-    available = evaluator.value
-    for member in (
-        "operation_kinds",
-        "instruction_nodes",
-        "effects",
-        "numeric_policies",
-        "rng_algorithms",
-        "runtime_profiles",
-    ):
-        if not set(required[member]) <= set(available[member]):
-            return _refusal(
-                reason=_reason_for_signal(
-                    checked, "capability-unsupported", "resolution"
-                ),
-                identity=checked.content_identity,
-                pointer=f"/runtime/required_evaluator/{member}",
-                message=f"Evaluator does not provide every required {member}",
-            )
+    member = _unsupported_evaluator_requirement(checked, evaluator.value)
+    if member is not None:
+        return _refusal(
+            reason=_reason_for_signal(checked, "capability-unsupported", "resolution"),
+            identity=checked.content_identity,
+            pointer=f"/runtime/required_evaluator/{member}",
+            message=f"Evaluator does not provide every required {member}",
+        )
     return None
 
 
@@ -950,18 +937,16 @@ def _runtime_refusal_outcome(
 def prepare_experiment(
     checked: CheckedExperiment,
 ) -> PreparedExperiment | Schema2RefusalReport:
-    """Bind complete reproduction identity without dispatching an Event."""
+    """Prepare execution inputs and producer provenance before Event dispatch."""
     evaluator = _evaluator_manifest(checked)
     capability_refusal = _check_evaluator_requirements(checked, evaluator)
     if capability_refusal is not None:
         return capability_refusal
-    resolved_runtime = _resolved_runtime_profile(checked, evaluator)
-    reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
+    resolved_runtime = _resolved_runtime_profile(checked)
     return PreparedExperiment(
         checked=checked,
         evaluator=evaluator,
         resolved_runtime=resolved_runtime,
-        reproduction=reproduction,
     )
 
 
@@ -972,7 +957,6 @@ def evaluate_prepared_experiment(
     checked = prepared.checked
     evaluator = prepared.evaluator
     resolved_runtime = prepared.resolved_runtime
-    reproduction = prepared.reproduction
     runtime_profile = next(
         row
         for row in checked.rir["selected_semantics"]["runtime_profiles"]
@@ -2614,16 +2598,6 @@ def evaluate_prepared_experiment(
                 "experiment_identity": checked.content_identity,
                 "resolved_runtime_profile_identity": resolved_runtime.content_identity,
                 "metric_definition_identities": metric_definition_identities,
-                "source_provenance": {
-                    "kind": "simulated",
-                    "resolved_model_identity": checked.resolved_model[
-                        "content_identity"
-                    ],
-                    "resolved_runtime_profile_identity": (
-                        resolved_runtime.content_identity
-                    ),
-                    "evaluator_manifest_identity": evaluator.content_identity,
-                },
                 "data_version": "1",
                 "partition": "evaluation",
                 "ordering": ("metric-definition-identity,replication-identity"),
@@ -2651,7 +2625,6 @@ def evaluate_prepared_experiment(
                     "event_trace_identity": trace.content_identity,
                     "snapshot_series_identity": snapshot_series.content_identity,
                     "metric_dataset_identity": metric_dataset.content_identity,
-                    "reproduction_receipt_identity": reproduction.content_identity,
                     "root_event_map": root_event_map,
                     "terminal_statuses": terminal_statuses,
                     "outcome": "rejected",
@@ -2671,11 +2644,9 @@ def evaluate_prepared_experiment(
                     "resolved_runtime_profile_identity": (
                         resolved_runtime.content_identity
                     ),
-                    "evaluator_manifest_identity": evaluator.content_identity,
                     "event_trace_identity": trace.content_identity,
                     "snapshot_series_identity": snapshot_series.content_identity,
                     "metric_dataset_identity": metric_dataset.content_identity,
-                    "reproduction_receipt_identity": reproduction.content_identity,
                     "root_event_map": root_event_map,
                     "terminal_statuses": terminal_statuses,
                     "outcome": "accepted",
@@ -2689,7 +2660,6 @@ def evaluate_prepared_experiment(
             "event-trace": trace,
             "snapshot-series": snapshot_series,
             "metric-dataset": metric_dataset,
-            "reproduction-receipt": reproduction,
             "resolved-runtime-profile": resolved_runtime,
             "evaluator-capability-manifest": evaluator,
         },

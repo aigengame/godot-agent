@@ -10,7 +10,6 @@ from gda_balancing.domain.runtime.execution import (
     EvaluationArtifacts,
     PreparedExperiment,
     RuntimeRefusalOutcome,
-    evaluate_experiment,
     evaluate_prepared_experiment,
     prepare_experiment,
 )
@@ -48,7 +47,7 @@ PreparedExperimentExecution = PreparedExperiment
 def prepare_checked_experiment(
     checked: CheckedExperiment,
 ) -> PreparedExperimentExecution | ExperimentExecutionRefusal:
-    """Prepare complete reproduction identity without Event dispatch."""
+    """Prepare semantic inputs and actual producer provenance before dispatch."""
     prepared = prepare_experiment(checked)
     if isinstance(prepared, Schema2RefusalReport):
         return ExperimentExecutionRefusal(report=prepared, members={})
@@ -60,20 +59,25 @@ def execute_prepared_experiment(
 ) -> ExperimentExecutionOutcome:
     """Execute one prepared Experiment without filesystem publication."""
     return _project_execution_outcome(
-        prepared.checked,
+        prepared,
         evaluate_prepared_experiment(prepared),
     )
 
 
 def _project_execution_outcome(
-    checked: CheckedExperiment,
+    prepared: PreparedExperimentExecution,
     evaluation: EvaluationArtifacts | RuntimeRefusalOutcome | Schema2RefusalReport,
 ) -> ExperimentExecutionOutcome:
     """Project one Domain evaluation onto the shared Application outcome algebra."""
     if isinstance(evaluation, RuntimeRefusalOutcome):
         return ExperimentExecutionRefusal(
             report=evaluation.report,
-            members=runtime_terminal_audit_members(checked, evaluation),
+            members=runtime_terminal_audit_members(
+                prepared.checked,
+                evaluation,
+                evaluator=prepared.evaluator,
+                resolved_runtime=prepared.resolved_runtime,
+            ),
         )
     if isinstance(evaluation, Schema2RefusalReport):
         return ExperimentExecutionRefusal(report=evaluation, members={})
@@ -89,4 +93,7 @@ def execute_checked_experiment(
     checked: CheckedExperiment,
 ) -> ExperimentExecutionOutcome:
     """Execute through the shared prepare-then-dispatch runtime path."""
-    return _project_execution_outcome(checked, evaluate_experiment(checked))
+    prepared = prepare_checked_experiment(checked)
+    if isinstance(prepared, ExperimentExecutionRefusal):
+        return prepared
+    return execute_prepared_experiment(prepared)

@@ -17,7 +17,7 @@ from gda_balancing.domain.model import (
     CheckedModel,
     check_model_source_value,
     compile_checked_model,
-    project_compiled_model_binding,
+    admit_rir,
 )
 from gda_balancing.domain.runtime.execution import (
     EvaluationArtifacts,
@@ -82,18 +82,12 @@ def test_structured_value_budget_changes_rir_meaning_and_preserves_exact_boundar
         semantic_identities[limit] = cast(
             str, artifacts["rir-semantic-payload"]["semantic_identity"]
         )
-        binding = project_compiled_model_binding(artifacts, context)
-        build = artifacts["build-receipt"]
+        program = admit_rir(
+            artifacts["rir-semantic-payload"], authority_context=context
+        )
         value = deepcopy(specification)
-        value["kernel_identity"] = build["kernel_identity"]
-        value["language_bundle_identity"] = build["language_bundle_identity"]
-        value["model"] = {
-            key: build["content_identity"]
-            if key == "build_receipt_identity"
-            else build[key]
-            for key in value["model"]
-        }
-        checked = check_experiment_value(value, binding, authority_context=context)
+        value["model"] = {"rir_semantic_identity": program.semantic_identity}
+        checked = check_experiment_value(value, program, authority_context=context)
 
         if limit == 837:
             assert isinstance(checked, Schema2RefusalReport), checked

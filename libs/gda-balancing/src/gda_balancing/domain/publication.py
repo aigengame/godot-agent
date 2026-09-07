@@ -377,18 +377,23 @@ def read_authenticated_artifact_set(
     *,
     authority_context: AdmittedAuthorityContext,
 ) -> AuthenticatedArtifactSet:
-    """Authenticate and load all members of one committed artifact set."""
-    return _read_authenticated_artifact_set(
+    """Authenticate one publication and require its explicitly selected producer."""
+    publication = _read_authenticated_artifact_set(
         receipt_path,
-        expected_descriptor_identity,
         (artifact_set,),
         authority_context=authority_context,
     )
+    if publication.receipt["descriptor_identity"] != expected_descriptor_identity:
+        raise PublicationAdmissionError(
+            "kernel.binding_mismatch",
+            "receipt.descriptor_identity",
+            "Artifact-set receipt belongs to another command",
+        )
+    return publication
 
 
 def read_authenticated_declared_artifact_set(
     receipt_path: str,
-    expected_descriptor_identity: str,
     artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
     *,
     authority_context: AdmittedAuthorityContext,
@@ -400,7 +405,6 @@ def read_authenticated_declared_artifact_set(
         )
     return _read_authenticated_artifact_set(
         receipt_path,
-        expected_descriptor_identity,
         artifact_sets,
         authority_context=authority_context,
     )
@@ -408,7 +412,6 @@ def read_authenticated_declared_artifact_set(
 
 def _read_authenticated_artifact_set(
     receipt_path: str,
-    expected_descriptor_identity: str,
     artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
     *,
     authority_context: AdmittedAuthorityContext,
@@ -433,17 +436,15 @@ def _read_authenticated_artifact_set(
         )
     descriptor_identity_value = receipt.get("descriptor_identity")
     invocation_key = receipt.get("invocation_key")
-    if descriptor_identity_value != expected_descriptor_identity or not isinstance(
+    if not isinstance(descriptor_identity_value, str) or not isinstance(
         invocation_key, str
     ):
         raise PublicationAdmissionError(
             "kernel.binding_mismatch",
             "receipt.descriptor_identity",
-            "Artifact-set receipt belongs to another command or invocation",
+            "Artifact-set receipt has no command or invocation binding",
         )
-    invocation_path = _store_invocation_path(
-        expected_descriptor_identity, invocation_key
-    )
+    invocation_path = _store_invocation_path(descriptor_identity_value, invocation_key)
     manifest_locator = receipt.get("manifest_locator")
     if not isinstance(manifest_locator, str):
         raise PublicationAdmissionError(
@@ -468,7 +469,7 @@ def _read_authenticated_artifact_set(
             "receipt.manifest_locator",
             "Artifact-set receipt does not locate its committed publication",
         )
-    anchor_path = _store_anchor_path(expected_descriptor_identity, invocation_key)
+    anchor_path = _store_anchor_path(descriptor_identity_value, invocation_key)
     authentication_key = publication_authentication_key()
     try:
         _assert_ancestor_chain_without_symlink(invocation_path)
@@ -490,7 +491,7 @@ def _read_authenticated_artifact_set(
     if (
         not contracts.index.verify(index)
         or committed_index != index
-        or index.get("descriptor_identity") != expected_descriptor_identity
+        or index.get("descriptor_identity") != descriptor_identity_value
         or index.get("invocation_key") != invocation_key
         or index.get("receipt_identity") != receipt.get("content_identity")
         or committed_receipt != receipt

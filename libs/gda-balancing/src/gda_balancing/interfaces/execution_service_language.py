@@ -90,7 +90,7 @@ class ExecutionSessionEstablishedResponse(BaseModel):
 
     outcome: Literal["success"] = "success"
     session_id: str
-    resolved_model_identity: str
+    rir_semantic_identity: str
     revision_id: str
 
 
@@ -111,7 +111,7 @@ def establish_session_response(
         return RefusalResponse(refusal=result)
     return ExecutionSessionEstablishedResponse(
         session_id=result.session_id,
-        resolved_model_identity=result.resolved_model_identity,
+        rir_semantic_identity=result.rir_semantic_identity,
         revision_id=result.revision_id,
     )
 

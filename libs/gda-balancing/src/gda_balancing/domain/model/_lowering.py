@@ -11,6 +11,7 @@ from gda_balancing.domain.artifacts import (
     _identified_artifact,
 )
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
+from gda_balancing.domain.authority.graph import NamespaceSelection
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -3867,44 +3868,70 @@ def _resolved_call_sites(
     )
 
 
+def _namespace_packages(
+    selection: NamespaceSelection, language_bundle: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Read the current owners selected by namespace admission."""
+    language = _language(language_bundle)
+    available = {
+        item["id"]: item for item in cast(list[dict[str, Any]], language["packages"])
+    }
+    return [available[item.namespace] for item in selection.packages]
+
+
+def _package_definitions(package: dict[str, Any], authority_path: str) -> list[Any]:
+    matches = [
+        entry["definitions"]
+        for entry in cast(list[dict[str, Any]], package["semantic_closure"])
+        if entry["authority_path"] == authority_path
+    ]
+    if len(matches) != 1 or not isinstance(matches[0], list):
+        raise ValueError(f"package semantic closure is missing {authority_path}")
+    return cast(list[Any], matches[0])
+
+
+def _runtime_semantic_closure(package: dict[str, Any]) -> list[dict[str, JsonValue]]:
+    runtime_paths = set(cast(list[str], package["runtime_semantic_paths"]))
+    return [
+        cast(dict[str, JsonValue], entry)
+        for entry in cast(list[dict[str, Any]], package["semantic_closure"])
+        if entry["authority_path"] in runtime_paths
+    ]
+
+
+def _namespace_type_exports(packages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        [
+            {**exported_type, "package": package["id"]}
+            for package in packages
+            for exported_type in package["exports"]["types"]
+        ],
+        key=lambda item: (item["package"], item["id"]),
+    )
+
+
+def _namespace_capability_bindings(
+    selection: NamespaceSelection,
+) -> list[dict[str, Any]]:
+    providers = dict(selection.capability_bindings)
+    return [
+        {"capability": capability, "provider_package": providers[capability]}
+        for capability in sorted(providers)
+    ]
+
+
 def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
-    language = _language(checked.language_bundle)
     lowering = _model_lowering(checked.language_bundle)
     profile = _resolution_profile(
         checked.language_bundle, cast(str, lowering["resolution_profile"])
     )
     selection = checked.namespace_selection
-    available = {
-        item["id"]: item for item in cast(list[dict[str, Any]], language["packages"])
-    }
     requirements = list(selection.roots)
-    selected_packages = [available[item.namespace] for item in selection.packages]
+    selected_packages = _namespace_packages(selection, checked.language_bundle)
     dependency_edges: list[dict[str, JsonValue]] = [
         {"from_package": owner, "kind": "required", "to_package": dependency}
         for owner, dependency in selection.dependency_edges
     ]
-
-    def package_definitions(package: dict[str, Any], authority_path: str) -> list[Any]:
-        matches = [
-            entry["definitions"]
-            for entry in cast(list[dict[str, Any]], package["semantic_closure"])
-            if entry["authority_path"] == authority_path
-        ]
-        if len(matches) != 1 or not isinstance(matches[0], list):
-            raise ValueError(f"package semantic closure is missing {authority_path}")
-        return cast(list[Any], matches[0])
-
-    def runtime_semantic_closure(
-        package: dict[str, Any],
-    ) -> list[dict[str, JsonValue]]:
-        runtime_paths = set(cast(list[str], package["runtime_semantic_paths"]))
-        return [
-            cast(dict[str, JsonValue], entry)
-            for entry in cast(list[dict[str, Any]], package["semantic_closure"])
-            if entry["authority_path"] in runtime_paths
-        ]
-
-    providers = dict(selection.capability_bindings)
 
     def exported(collection: str) -> list[dict[str, JsonValue]]:
         rows: list[dict[str, JsonValue]] = []
@@ -3913,7 +3940,7 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
                 item["id"]: item
                 for item in cast(
                     list[dict[str, Any]],
-                    package_definitions(package, f"language.{collection}"),
+                    _package_definitions(package, f"language.{collection}"),
                 )
             }
             for identity in package["exports"][collection]:
@@ -3936,7 +3963,7 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
         for package in selected_packages
         for item in cast(
             list[dict[str, Any]],
-            package_definitions(package, "language.quantity.numeric_policies"),
+            _package_definitions(package, "language.quantity.numeric_policies"),
         )
     }
     runtime_definitions = {
@@ -3944,7 +3971,7 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
         for package in selected_packages
         for item in cast(
             list[dict[str, Any]],
-            package_definitions(package, "language.runtime_profiles"),
+            _package_definitions(package, "language.runtime_profiles"),
         )
     }
     numeric_profiles = sorted(
@@ -3974,7 +4001,7 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
             for package in selected_packages
             for reason in cast(
                 list[dict[str, JsonValue]],
-                package_definitions(package, "language.reasons"),
+                _package_definitions(package, "language.reasons"),
             )
             if reason["diagnostic"] in selected_diagnostics
         ],
@@ -3986,14 +4013,7 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
             cast(str, edge["to_package"]),
         )
     )
-    selected_types: list[dict[str, JsonValue]] = [
-        {**cast(dict[str, JsonValue], exported_type), "package": package["id"]}
-        for package in selected_packages
-        for exported_type in package["exports"]["types"]
-    ]
-    selected_types.sort(
-        key=lambda item: (cast(str, item["package"]), cast(str, item["id"]))
-    )
+    selected_types = _namespace_type_exports(selected_packages)
     body = cast(
         dict[str, JsonValue],
         {
@@ -4011,15 +4031,12 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
                 {
                     "package": package["id"],
                     "semantic_identity": package["semantic_identity"],
-                    "definitions": runtime_semantic_closure(package),
+                    "definitions": _runtime_semantic_closure(package),
                 }
                 for package in selected_packages
             ],
             "dependency_edges": cast(JsonValue, dependency_edges),
-            "capability_bindings": [
-                {"capability": capability, "provider_package": providers[capability]}
-                for capability in sorted(providers)
-            ],
+            "capability_bindings": _namespace_capability_bindings(selection),
             "types": cast(JsonValue, selected_types),
             "components": cast(JsonValue, exported("components")),
             "conversions": cast(JsonValue, exported("conversions")),
@@ -4067,13 +4084,23 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
 
 
 def _runtime_projection(
-    lock: dict[str, Any],
+    selection: NamespaceSelection,
+    language_bundle: dict[str, Any],
     declarations: list[dict[str, Any]],
     lowering: dict[str, Any],
     budget: _RuntimeProjectionBudget,
 ) -> dict[str, Any]:
-    """Project only declaration-reachable runtime semantics from a Package Lock."""
+    """Project declaration-reachable semantics directly from current owners."""
     profile = cast(dict[str, Any], lowering["runtime_projection"])
+    packages = _namespace_packages(selection, language_bundle)
+    namespace_members = {
+        "types": _namespace_type_exports(packages),
+        "capability_bindings": _namespace_capability_bindings(selection),
+    }
+    runtime_closures = [
+        {"package": package["id"], "definitions": _runtime_semantic_closure(package)}
+        for package in packages
+    ]
 
     def path_value(root: Any, path: list[str]) -> Any:
         value = root
@@ -4089,10 +4116,8 @@ def _runtime_projection(
     for collection in cast(list[dict[str, Any]], profile["collections"]):
         source = cast(dict[str, Any], collection["source"])
         rows: list[dict[str, Any]] = []
-        if source["kind"] == "lock-member":
-            values = lock[source["member"]]
-            if not isinstance(values, list):
-                raise ValueError("runtime projection lock member is not a list")
+        if source["kind"] == "namespace-member":
+            values = namespace_members[source["member"]]
             for value in values:
                 budget.consume()
                 rows.append(
@@ -4103,9 +4128,7 @@ def _runtime_projection(
                     }
                 )
         elif source["kind"] == "semantic-closure":
-            for closure in cast(
-                list[dict[str, Any]], lock["package_semantic_closures"]
-            ):
+            for closure in cast(list[dict[str, Any]], runtime_closures):
                 entries = [
                     entry
                     for entry in cast(list[dict[str, Any]], closure["definitions"])
@@ -4374,9 +4397,10 @@ def _runtime_projection(
         projection[cast(str, output_member)] = projected_values
 
     for output in cast(list[dict[str, Any]], profile["outputs"]):
-        source_rows = lock[output["source_member"]]
-        if not isinstance(source_rows, list):
-            raise ValueError("runtime projection output source is not a list")
+        source_rows = {
+            "packages": packages,
+            "package_semantic_closures": runtime_closures,
+        }[output["source_member"]]
         kind = output["kind"]
         if kind == "selected-packages":
             output_values: list[Any] = [

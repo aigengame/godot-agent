@@ -240,15 +240,30 @@ def _validated_operation_notation(
 def _selected_operation_notations(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
+    operation_coordinates: frozenset[tuple[str, str]] | None,
 ) -> tuple[_OperationNotation, ...]:
     grammar, notation_schema = _notation_authority(authority_context)
     requirements = request.get("package_requirements")
-    if not isinstance(requirements, list):
+    if operation_coordinates is None and not isinstance(requirements, list):
         raise ValueError("Formula context has no package requirements")
-    selected = set(requirements)
+    catalog = _operation_catalog(authority_context)
+    if operation_coordinates is not None:
+        if not operation_coordinates <= catalog.keys():
+            raise ValueError("Formula body names an unavailable Operation owner")
+        candidates = [
+            (coordinate, catalog[coordinate])
+            for coordinate in sorted(operation_coordinates)
+        ]
+    else:
+        selected = set(cast(list[str], requirements))
+        candidates = [
+            (coordinate, operation)
+            for coordinate, operation in catalog.items()
+            if coordinate[0] in selected
+        ]
     declarations: list[_OperationNotation] = []
-    for coordinate, operation in _operation_catalog(authority_context).items():
-        if coordinate[0] not in selected or operation.get("purity") != "pure":
+    for coordinate, operation in candidates:
+        if operation.get("purity") != "pure":
             continue
         notation = _validated_operation_notation(operation, grammar, notation_schema)
         if notation is not None:
@@ -542,6 +557,7 @@ class _FormulaParser:
         expression: str,
         request: dict[str, Any],
         authority_context: AdmittedAuthorityContext,
+        operation_coordinates: frozenset[tuple[str, str]] | None,
     ) -> None:
         self.request = request
         formula = request.get("formula")
@@ -714,7 +730,9 @@ class _FormulaParser:
         if len(group_delimiters) != 2:
             raise ValueError("Formula notation group delimiters are malformed")
         self.open_group, self.close_group = group_delimiters
-        self.notations = _selected_operation_notations(request, authority_context)
+        self.notations = _selected_operation_notations(
+            request, authority_context, operation_coordinates
+        )
         operators = tuple(
             cast(str, item.notation["token"])
             for item in self.notations
@@ -1298,6 +1316,8 @@ class _FormulaParser:
 def parse_formula_expression(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
+    *,
+    operation_coordinates: frozenset[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Parse one contextual expression into a canonical structured Formula body."""
     formula = request.get("formula")
@@ -1308,7 +1328,9 @@ def parse_formula_expression(
             "Formula parse request has no expression",
         )
     try:
-        return _FormulaParser(expression, request, authority_context).parse()
+        return _FormulaParser(
+            expression, request, authority_context, operation_coordinates
+        ).parse()
     except _FormulaNotationResourceError as err:
         raise FormulaNotationRefusal(
             "formula.reason.notation-resource-exhausted", str(err)
@@ -1328,6 +1350,7 @@ def admit_formula_pair(
     authority_context: AdmittedAuthorityContext,
     *,
     canonical_body: dict[str, Any] | None = None,
+    operation_coordinates: frozenset[tuple[str, str]] | None = None,
 ) -> None:
     """Require one Formula body/expression pair to be exact and reversible."""
     formula = request.get("formula")
@@ -1348,7 +1371,9 @@ def admit_formula_pair(
             "Formula expression is not the canonical projection of its body",
         )
     try:
-        parsed = parse_formula_expression(request, authority_context)
+        parsed = parse_formula_expression(
+            request, authority_context, operation_coordinates=operation_coordinates
+        )
     except FormulaNotationRefusal as err:
         raise FormulaPairRefusal(err.reason_id, "expression", err.message) from err
     if canonical_bytes(cast(JsonValue, parsed)) != canonical_bytes(

@@ -84,6 +84,36 @@ dependency matrix, evidence limits and transitional binding inventory. Current b
 reproduction checks remain for mandatory deletion in #875. This boundary update does not close
 #874, #875, the parent, or any public acceptance gate.
 
+## Execution identity implementation (#875, 2026-09-07)
+
+Following selected execution closure, current branch code removes obsolete execution bindings
+rather than retaining another narrower path beside them. Experiment check/run/Replay take explicit
+RIR; `model.rir_semantic_identity` is the authored program binding. Model independently admits
+canonical RIR against current owners. Its Kernel-declared `namespace-member` projection derives
+one private selected catalog; exact Build/trio validation remains a separate use of that owner.
+
+The Resolved Runtime profile binds only Experiment, existing RIR semantic identity and complete
+selected Runtime profile definition/identity. The Evaluator Capability Manifest retains actual
+implementation label, complete source fingerprint, platform and capabilities, with no redundant
+implementation digest. Preparation preserves that record through terminal refusal. Result
+validation checks original supplied provenance and capabilities without reconstructing the current
+producer. The Reproduction artifact, fields, helper and set members are deleted; atomic Publication
+already associates actual semantic outputs and producer provenance.
+
+Replay authenticates the original descriptor/transaction and artifact bytes while comparing pure
+execution meaning. `evaluable` uses RIR meaning, Experiment, profile, producer and run publication;
+Source/Build prerequisites and substitution fallbacks are removed. Session handles and explicit
+revisions remain. The [execution-identity record](../refactor/current-language/EXECUTION-IDENTITY.md)
+tracks implemented boundaries and validation limits. Full integration and CI acceptance remain
+pending; this does not close #875/#879, release the product or activate #542–#544.
+
+This implements the scoped supersession of bADR-0012/0013's execution wrapper;
+bADR-0014/0015's producer/reproduction coupling; bADR-0018's current `evaluable` graph;
+bADR-0021's input/member surface; bADR-0023/0024's whole-LDB execution coupling; and
+bADR-0026/0027's stored program/result binding. Their remaining atomicity, integrity, semantic,
+Publication, authored-domain and service boundaries stay accepted. Earlier dated checkpoints in
+this record retain their historical meaning; they do not restore the deleted mechanisms.
+
 ## Context and evidence
 
 The project owner states that gda-balancing has not had a formal product release: existing

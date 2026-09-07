@@ -1,14 +1,8 @@
 {
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.multi-time-companion",
-  "kernel_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
-  "language_bundle_identity": "sha256:a9498f658792dd2d8cde6387c505f11bb249977bc698f1607520116fbdd71f84",
   "model": {
-    "source_identity": "sha256:c2af26128b81f868cca826cead2babb8cc632ad8c3b947eea042e1210274b68d",
-    "build_receipt_identity": "sha256:54f833249ecb317ff82d4bc5b291b0dcdadd9934cd4364d5ff7f7ba6033b2915",
-    "resolved_model_identity": "sha256:66c38391d9f0287208c1f65dd3a47574ae85301bad2c2689261ba800e0f09d8d",
-    "package_lock_identity": "sha256:b45ad8402506f462d831ee9be65ac7ab62bae0e8b60d0c2cec946479836d4801",
-    "rir_identity": "sha256:e72c16c8e629c49318941bda7f9dd52de6c99f951eae6ed8119093968f4e72cf"
+    "rir_semantic_identity": "sha256:1ce4713b9061aca6f0cc860f9c44604b3b38f956deb1432f5a76312d9b9ada16"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",

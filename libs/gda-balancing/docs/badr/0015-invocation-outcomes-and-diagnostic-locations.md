@@ -4,6 +4,14 @@ status: accepted
 
 # Preserve the exit algebra while generalizing refusals by stage and diagnostic location
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> The optional Reproduction object/artifact and its terminal-audit equality below are removed.
+> Internal errors retain their applicable debug information; stochastic command metadata and
+> Experiment seed/stream intent remain. Terminal refusal still requires the complete committed
+> prefix, Snapshot, refusing Event, resource, rollback and Diagnostic evidence, bound to the pure
+> Runtime profile. The original prepared producer is published separately in the same Artifact set.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Refusal contraction (2026-09-06, #868):** retiring the sole Schema 1 converter
 > removes the `migration` stage and `migration_report` detail. The current seven-stage
 > contract below retains all unrelated outcome, diagnostic and publication guarantees.

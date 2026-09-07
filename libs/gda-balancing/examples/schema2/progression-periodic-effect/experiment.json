@@ -1,14 +1,8 @@
 {
   "schema_version": "2.0.0",
   "id": "example.progression-periodic-effect.snapshot",
-  "kernel_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
-  "language_bundle_identity": "sha256:a9498f658792dd2d8cde6387c505f11bb249977bc698f1607520116fbdd71f84",
   "model": {
-    "source_identity": "sha256:e600d71b0600862f9a9f82e260f297b06274d1eab47577af291b36108a26faa2",
-    "build_receipt_identity": "sha256:aa1a40518d3d8a1da73aaf0d6261d29c081aa969de0afcc5bd035cee83ee32bd",
-    "resolved_model_identity": "sha256:cd43093ba107fcb279769ea2b1adce15e7c0c05da0c869ddceaeeb0e09a9a4c0",
-    "package_lock_identity": "sha256:6a670ef8c123341eeab6cd369b2b65866461072dfad8758d2cf76f46dcf430bf",
-    "rir_identity": "sha256:b3754119cc653481fe948ba4547606df3c409e679c5cbad6797928c0700835cd"
+    "rir_semantic_identity": "sha256:7d44191a5f1fb5e23290b2d75ea95e922e1ea27eae73b8a7db97d89deae749cd"
   },
   "seed": {
     "algorithm": "splitmix64-v1",

@@ -683,129 +683,70 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
         )
     )
     build_identity = evaluator_build_identity()
-    implementation_identity = content_identity(
-        "evaluator-implementation-v1",
-        {
-            "implementation": EVALUATOR_IMPLEMENTATION,
-            "evaluator_build_identity": build_identity,
-            "runtime_program_version": runtime["version"],
-            "operation_kinds": ["event-fragment", "event-program"],
-            "instruction_nodes": nodes,
-            "effects": [
-                "event.cancel",
-                "event.commit",
-                "event.schedule",
-                "metric.observe",
-                "rng.named-stream",
-                "snapshot.commit",
-            ],
-            "numeric_policies": ["exact-int64"],
-            "rng_algorithms": [runtime["named_rng"]["algorithm"]],
-            "runtime_profiles": supported_profiles,
-        },
-    )
     return artifact(
         checked,
         "evaluator-capability-manifest",
         {
             "evaluator_build_identity": build_identity,
-            "implementation_identity": implementation_identity,
-            "kernel_identity": checked.value["kernel_identity"],
-            "language_bundle_identity": checked.value["language_bundle_identity"],
-            "operation_kinds": ["event-fragment", "event-program"],
-            "instruction_nodes": nodes,
-            "effects": [
-                "event.cancel",
-                "event.commit",
-                "event.schedule",
-                "metric.observe",
-                "rng.named-stream",
-                "snapshot.commit",
-            ],
-            "numeric_policies": ["exact-int64"],
-            "rng_algorithms": [runtime["named_rng"]["algorithm"]],
-            "runtime_profiles": supported_profiles,
-        },
-    )
-
-
-def resolved_runtime_profile(
-    checked: CheckedExperiment, evaluator: PublicationMember
-) -> PublicationMember:
-    """Project the exact selected Runtime profile artifact."""
-    profile_id = checked.value["runtime"]["profile"]
-    definition = next(
-        row
-        for row in checked.rir["selected_semantics"]["runtime_profiles"]
-        if row["id"] == profile_id
-    )
-    definition_identity = runtime_profile_definition_identity(checked, definition)
-    return artifact(
-        checked,
-        "resolved-runtime-profile",
-        {
-            "experiment_identity": checked.content_identity,
-            "kernel_identity": checked.value["kernel_identity"],
-            "language_bundle_identity": checked.value["language_bundle_identity"],
-            "package_lock_identity": checked.package_lock["content_identity"],
-            "resolved_model_identity": checked.resolved_model["content_identity"],
-            "rir_identity": checked.rir["content_identity"],
-            "evaluator_manifest_identity": evaluator.content_identity,
-            "runtime_profile_definition_identity": definition_identity,
-            "runtime_profile": {
-                "id": definition["id"],
-                "evaluation": definition["evaluation"],
-                "numeric_policy": definition["numeric_policy"],
-                "runtime_program_version": definition["runtime_program_version"],
-                "numeric_law": definition["numeric_law"],
-                "rng": definition["rng"],
-                "budget_scopes": definition["budget_scopes"],
-                "effects": definition["effects"],
-                "resource_bounds": definition["resource_bounds"],
-            },
-            "rng_algorithm": checked.value["seed"]["algorithm"],
+            "implementation": EVALUATOR_IMPLEMENTATION,
             "platform": {
                 "implementation": platform.python_implementation(),
                 "python": platform.python_version(),
                 "system": platform.system(),
                 "machine": platform.machine() or "unknown",
             },
+            "operation_kinds": ["event-fragment", "event-program"],
+            "instruction_nodes": nodes,
+            "effects": [
+                "event.cancel",
+                "event.commit",
+                "event.schedule",
+                "metric.observe",
+                "rng.named-stream",
+                "snapshot.commit",
+            ],
+            "numeric_policies": ["exact-int64"],
+            "rng_algorithms": [runtime["named_rng"]["algorithm"]],
+            "runtime_profiles": supported_profiles,
         },
     )
 
 
-def reproduction_receipt(
-    checked: CheckedExperiment,
-    evaluator: PublicationMember,
-    resolved_runtime: PublicationMember,
-) -> PublicationMember:
-    """Project the public reproduction provenance receipt."""
-    external_input_identities = [
-        {
-            "scenario": scenario["id"],
-            "root_event_ref": event["root_event_ref"],
-            "source_identity": event["source_identity"],
-            "source_sequence": event["source_sequence"],
-            "input_identity": external_input_identity(checked, scenario["id"], event),
-        }
-        for scenario in checked.value["scenarios"]
-        for event in _scenario_root_events(scenario)
-        if event["kind"] == "external-input"
-    ]
+def unsupported_evaluator_requirement(
+    checked: CheckedExperiment, available: Mapping[str, Any]
+) -> str | None:
+    """Return the first required capability absent from a producer declaration."""
+    required = checked.value["runtime"]["required_evaluator"]
+    for member in (
+        "operation_kinds",
+        "instruction_nodes",
+        "effects",
+        "numeric_policies",
+        "rng_algorithms",
+        "runtime_profiles",
+    ):
+        if not set(required[member]) <= set(available[member]):
+            return member
+    return None
+
+
+def resolved_runtime_profile(checked: CheckedExperiment) -> PublicationMember:
+    """Identify the complete selected execution inputs without producer provenance."""
+    profile_id = checked.value["runtime"]["profile"]
+    definition = next(
+        row
+        for row in checked.rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == profile_id
+    )
     return artifact(
         checked,
-        "reproduction-receipt",
+        "resolved-runtime-profile",
         {
             "experiment_identity": checked.content_identity,
-            "kernel_identity": checked.value["kernel_identity"],
-            "language_bundle_identity": checked.value["language_bundle_identity"],
-            "package_lock_identity": checked.package_lock["content_identity"],
-            "resolved_model_identity": checked.resolved_model["content_identity"],
-            "rir_identity": checked.rir["content_identity"],
-            "resolved_runtime_profile_identity": resolved_runtime.content_identity,
-            "evaluator_manifest_identity": evaluator.content_identity,
-            "seed_algorithm": checked.value["seed"]["algorithm"],
-            "seed_value": checked.value["seed"]["value"],
-            "external_input_identities": cast(JsonValue, external_input_identities),
+            "rir_semantic_identity": checked.rir["semantic_identity"],
+            "runtime_profile_definition_identity": runtime_profile_definition_identity(
+                checked, definition
+            ),
+            "runtime_profile": deepcopy(definition),
         },
     )

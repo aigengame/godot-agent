@@ -3793,7 +3793,7 @@ def _reference_runtime_projection(
     for specification in profile["collections"]:
         source = specification["source"]
         rows: list[tuple[str, str | None, Any]]
-        if source["kind"] == "lock-member":
+        if source["kind"] == "namespace-member":
             rows = []
             for value in lock[source["member"]]:
                 consume()

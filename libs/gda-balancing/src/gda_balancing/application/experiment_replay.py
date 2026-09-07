@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
+from gda_balancing.application.experiment_inputs import check_experiment_inputs
 from gda_balancing.application.experiment_execution import (
     ExperimentExecutionRefusal,
     PreparedExperimentExecution,
@@ -16,7 +17,7 @@ from gda_balancing.domain.comparison import (
     select_exact_replay_contract,
     exact_replay_input_identity,
     exact_replay_original_refusal,
-    exact_replay_reproduction_refusal,
+    exact_replay_runtime_profile_refusal,
     validate_published_exact_replay_comparison,
 )
 from gda_balancing.domain.diagnostics import (
@@ -28,7 +29,7 @@ from gda_balancing.domain.experiment_artifacts import (
     validate_experiment_artifact_set,
     validate_experiment_member,
 )
-from gda_balancing.domain.experiment import CheckedExperiment, check_experiment
+from gda_balancing.domain.experiment import CheckedExperiment
 from gda_balancing.domain.publication import (
     publication_authentication_key,
     select_publication_contracts,
@@ -73,12 +74,12 @@ def replay_experiment(
     out: str,
     invocation_key: str,
     descriptor_identity: str,
-    experiment_run_descriptor_identity: str,
     original_artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
     success_artifact_set: tuple[ArtifactSetMemberSpec, ...],
     verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...],
     runtime_refusal_artifact_set: tuple[ArtifactSetMemberSpec, ...],
     *,
+    rir: str,
     publication_fault: str | None = None,
 ) -> (
     ExperimentReplayPublication
@@ -90,14 +91,14 @@ def replay_experiment(
     try:
         original = read_authenticated_declared_artifact_set(
             original_receipt,
-            experiment_run_descriptor_identity,
             original_artifact_sets,
             authority_context=authority_context,
         )
     except PublicationAdmissionError as error:
         return ingress_refusal(error.code, error.subject, error.message)
-    checked = check_experiment(
+    checked = check_experiment_inputs(
         specification,
+        rir,
         authority_context=original.authority_context,
     )
     if isinstance(checked, Schema2RefusalReport):
@@ -188,15 +189,14 @@ def replay_experiment(
     if isinstance(prepared, ExperimentExecutionRefusal):
         return prepared.report
     assert isinstance(prepared, PreparedExperimentExecution)
-    original_reproduction = original.artifacts["reproduction-receipt"]
-    reproduction_refusal = exact_replay_reproduction_refusal(
+    runtime_refusal = exact_replay_runtime_profile_refusal(
         checked,
-        original_reproduction,
-        prepared.reproduction.value,
+        original.artifacts["resolved-runtime-profile"],
+        prepared.resolved_runtime.value,
         replay_contract,
     )
-    if reproduction_refusal is not None:
-        return reproduction_refusal
+    if runtime_refusal is not None:
+        return runtime_refusal
     execution = execute_prepared_experiment(prepared)
     if isinstance(execution, ExperimentExecutionRefusal):
         if not execution.members:

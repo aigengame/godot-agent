@@ -14,8 +14,9 @@ requirement routing, bounded evidence, and rollback. #871 implements namespace-s
 Experiment and LDB policy own-version labels are removed. Schema/artifact formats and actual
 Runtime/grammar contract markers remain. Selected execution closure (#874) closes execution inputs
 and detaches admitted consumer contracts; the [execution-closure record](refactor/current-language/EXECUTION-CLOSURE.md)
-tracks its dependency matrix and validation limits. Whole-LDB/Build-receipt wrappers remain
-transitional execution prerequisites for mandatory deletion in #875; #874 and its PR own live acceptance.
+tracks its dependency matrix. #875 implements the subsequent whole-LDB/Build-receipt execution
+binding deletion; the [execution-identity record](refactor/current-language/EXECUTION-IDENTITY.md)
+records the native contract while full integration and CI acceptance remain pending.
 The [S3 contract record](refactor/current-language/NAMESPACE-CONTRACT.md)
 accounts for #872's final deletion witnesses and rollback; #879 and full conformance retain
 their separate acceptance.
@@ -136,8 +137,8 @@ Standard Schema 2.0 does not:
    content-addressed packages and declared compatibility, never ambient host behavior.
 3. **Semantic identity before optimization.** RIR is the public semantic boundary; evaluator-private
    lowering may vary without redefining the model.
-4. **Determinism has a scope.** Reproduction binds an exact Resolved Runtime profile and every other
-   declared identity, not merely a seed.
+4. **Determinism has a scope.** The pure Resolved Runtime profile binds actual program, Experiment
+   and complete execution policy; producing provenance does not redefine that meaning.
 5. **Atomic facts, honest failures.** Runtime transitions and artifact publication have explicit,
    separately testable atomicity boundaries.
 6. **Evidence is earned.** Evaluation runs record facts. Validated comparisons and prerequisite
@@ -207,7 +208,7 @@ flowchart TB
             B -->|"provides admitted authority"| P
             B -->|"provides admitted comparison policy"| M
             P -->|"provides Package Lock"| C
-            C -->|"provides Resolved Model"| R
+            C -->|"provides independently admitted RIR"| R
             X -->|"provides evaluation intent"| R
             C -->|uses| Q
             R -->|uses| Q
@@ -321,7 +322,7 @@ E          = one Experiment Specification
 Profile(E) = the Runtime profile reference authored by E
 J_E        = the successful Experiment admission judgment
 ECM        = one Evaluator Capability Manifest
-Plat       = one platform identity
+Plat       = platform provenance recorded in ECM
 X          = the external inputs bound by E
 s          = the effective seed owned by E
 ```
@@ -404,7 +405,8 @@ A = IndexAndFreeze(K, L, J_L)                  # host context, not authority
 Publish_A(AP_build, S_build, FS) ⇓ Success(Pub_build)
 
 # Experiment admission, Runtime admission, and execution
-(RR, D, Run) = Evaluate_A(E, RM)
+Program = AdmitRIR_A(RIR)
+(RR, D, Run, ECM) = Evaluate_A(E, Program)
 
 # Comparison publication
 OriginalObs = ValidateOriginalReplayInput_A(
@@ -532,9 +534,10 @@ Publish_A(AP_build, S_build, FS) ⇓ Success(Pub_build)
 ```
 
 The resolver selects Package Releases only from `L`. The compiler parses and checks `M` under the
-same `A`, then lowers selected, reachable semantics into `RIR`. `RM` is the exact-build execution
-authority wrapper. Its identity binds `RIR_s` and `RIR_c` separately. The Debug Map, Model
-explanation, Capability manifest, Resolution receipt, and Build receipt are separate companions;
+same `A`, then lowers selected, reachable semantics into `RIR`. `RM` is the exact-build
+wrapper, independently checked with its Lock/RIR companions for Build validity. Its identity binds
+`RIR_s` and `RIR_c` separately. The Debug Map, Model explanation, Capability manifest, Resolution
+receipt, and Build receipt are separate companions;
 none enters the Resolved Model identity. Resolver and compiler implementation identities belong in
 provenance receipts; they do not participate in `Lock`, `RIR`, or `RM` content identity. The build
 publishes no member unless the complete build set is generated, validated, and committed.
@@ -542,36 +545,27 @@ publishes no member unless the complete build set is generated, validated, and c
 **Runtime admission and Experiment execution are**:
 
 ```text
-ECM = DescribeCapabilities(EvaluatorBuild)
+AdmitRIR_A(RIR) ⇓ Success(Program) | Refusal(stage, diagnostics)
+CheckExperiment_A(E, Program) ⇓ Success(J_E) | Refusal(stage, diagnostics)
+    # Program is detached admitted RIR; E.model binds SemId(RIR)
+    # no Build receipt, Lock or RM is an execution prerequisite
 
-CheckExperiment_A(E, RM, Lock, RIR) ⇓ Success(J_E)
-    # therefore A, RM, Lock, RIR ⊢ E
-
-CheckExperiment_A(E, RM, Lock, RIR) ⇓ Refusal(stage, diagnostics)
-    # execution does not start
-
-RPD = ResolveRuntimeProfile_A(Profile(E), Lock, RIR)
-RR  = AdmitRuntime_A(RPD, Lock, RM, RIR, E, ECM, Plat)
+RPD = SelectedRuntimeProfile(Profile(E), Program)
+RR  = IdentifyExecution(Id(E), SemId(RIR), RPD, Id(RPD))
+ECM = DescribeCapabilities(EvaluatorBuild, Plat)
+CheckCapabilities(E, ECM) ⇓ Success | Refusal(stage, diagnostics)
 X   = ExternalInputs(E)
 s   = EffectiveSeed(E)
 
 EIR = PrepareEvaluator(RIR, RR)          # optional and evaluator-private
 EvaluatorInput = EIR if present else RIR
-(Trace, Snapshots, D, Run) =
-    Execute_A(
-        Runtime,
-        Evaluator,
-        EvaluatorInput,
-        RM,
-        RR,
-        E,
-        X,
-        s,
-    )
+(Trace, Snapshots, D, Run) = Execute(Runtime, Evaluator, EvaluatorInput, RR, E, X, s)
+S_run = CompleteExecutionSet(Run, Trace, Snapshots, D, RR, ECM)
+    # producer and semantic artifacts are associated by their publication
 ```
 
-The Experiment judgment checks the exact model/runtime binding, scenarios, input contracts, Event
-plans, Metric definitions, and evaluation policy before dispatch. Runtime owns the lifecycle,
+The Experiment judgment checks the RIR semantic binding and actual Runtime requirements, scenarios,
+input contracts, Event plans, Metric definitions, and evaluation policy before dispatch. Runtime owns the lifecycle,
 scheduler, atomic Event transactions, Snapshots, and refusal boundary. The evaluator implements the
 admitted Kernel/LDB contracts and may use an EIR, but neither evaluator code nor EIR is semantic
 authority. `Run` records execution facts and binds `D`; neither artifact issues Evidence by itself.
@@ -1032,7 +1026,8 @@ The public compilation pipeline is:
   trusting the producer's dependency payload (bADR-0013/0024/0028).
 - The **Resolved Model wrapper** binds the RIR payload to the exact Kernel Specification, whole LDB,
   selected Package Lock, RIR semantic identity, exact RIR content identity, and all other required
-  build identities.
+  build identities. Exact Build/trio checks retain this wrapper; independent RIR admission is
+  the execution boundary and does not require the wrapper.
 - **Execution IR (EIR)** is evaluator-private. It may contain schedules, bytecode,
   layouts, or optimized kernels, but it is neither portable Standard Schema bytecode nor an
   interchange authority.
@@ -1094,14 +1089,12 @@ restores the operation's entry snapshot.
 
 ### 6.2 Identity layers
 
-**Implementation transition:** The exact wrapper inventory below is the existing implementation,
-partly superseded as a target by bADR-0028. S5a selects execution rules, reasons and applicable
-limits into the final program, with input/output contracts selected at their existing boundaries.
-Its full acceptance remains open. S5b then requires deletion of the irrelevant
-whole-LDB/Build-receipt execution coupling. Provenance-only changes must preserve execution
-eligibility and semantic observations; changed actual execution inputs and forged content must
-still be distinguished. Do not retain obsolete schema fields, equality gates, or fallback reads
-after the dependency closure is complete. Producing receipts remain truthful provenance.
+**Current implementation (#875):** S5a closes selected execution laws, reasons and applicable
+resources. S5b now removes obsolete whole-LDB/Build-receipt fields and equality gates from intent,
+Runtime, Replay, sessions and `evaluable` prerequisites. Independent RIR admission derives the
+selected closure from admitted owners; content integrity and exact Build validation remain.
+Producing receipts retain truthful provenance. The execution-identity record owns outstanding
+integrated acceptance and CI, so this boundary is not a claim of full refactor completion.
 
 Identity follows semantic responsibility rather than file location:
 
@@ -1118,8 +1111,10 @@ Identity follows semantic responsibility rather than file location:
 - Package Lock identity covers the exact selected dependency closure;
 - RIR payload identity covers reachable normalized model semantics;
 - Resolved Model identity covers the exact build wrapper, including Kernel and whole LDB;
-- Resolved Runtime profile identity covers the model plus evaluator, platform, numeric, RNG,
-  scheduler, effect, and resource-budget contracts;
+- Resolved Runtime profile identity covers Experiment identity, existing RIR semantic identity
+  and the complete selected Runtime profile definition/identity;
+- Evaluator Capability Manifest identity covers actual implementation, complete source fingerprint,
+  platform and capabilities, separately from semantic outputs;
 - Experiment identity covers the exact evaluation intent and its declared model/runtime binding;
 - artifact-envelope identity covers the immutable published artifact; and
 - Locator and Receipt record transport and retrieval facts without redefining artifact identity.
@@ -1127,8 +1122,8 @@ Identity follows semantic responsibility rather than file location:
 The detailed identity law and unused-package metamorphic obligation belong to
 [bADR-0013](badr/0013-compiler-stages-and-semantic-equivalence-boundary.md). At macro level, selected
 semantic-payload identity is narrower than exact-build identity. A change to unused LDB inventory
-can leave Lock and RIR bytes unchanged. The change still rebinds the Resolved Model, downstream
-Runtime profile, and exact Experiment eligibility. Such executions are not Replay.
+can leave Lock and RIR bytes unchanged. It can change the exact Resolved Model/Build provenance
+without changing the pure Runtime profile, Experiment eligibility or Replay meaning.
 
 ### 6.3 Package resolution
 
@@ -1152,7 +1147,9 @@ contracts.
 S2 (#869) supplies the current capability union; #870–#871 implement current namespace resolution
 and native wire shapes. The [S3 contract record](refactor/current-language/NAMESPACE-CONTRACT.md)
 accounts for #872's transition deletions and public witnesses; #879 retains final cross-artifact checks.
-The whole-LDB/Build-receipt execution-binding deletion remains separately required by #874–#875.
+The #875 execution path uses the Kernel-declared `namespace-member` projection source to derive
+a private selected namespace catalog. Build serializes its Package Lock from the same catalog;
+independent RIR admission does not construct a fake Lock or introduce another public program form.
 
 ## 7. Extension and genre architecture
 
@@ -1329,18 +1326,15 @@ required contracts. Runtime and independent result replay consume the selected e
 resources; result construction and admission use the selected artifact contracts. Missing selected
 meaning cannot be supplied by a lookup in the complete Kernel or LDB. The
 [execution-closure record](refactor/current-language/EXECUTION-CLOSURE.md) tracks applicability,
-mutation evidence and the broad identity checks still awaiting #875 deletion.
+mutation evidence; #875 removes the broad identity prerequisites described in that historical
+transition inventory.
 
 An LDB-owned **Runtime profile definition** declares an admitted execution policy. Before dispatch,
-Runtime admission produces a **Resolved Runtime profile**. That artifact binds the definition to the
-exact Kernel, whole LDB, selected Package Lock, Resolved Model, RIR semantic payload, evaluator
-build, platform, Numeric profile, RNG algorithm and streams, scheduler/effect policy, and resource
-budgets.
-
-The Kernel declares the identity domain for the Runtime profile definition. Admission hashes the
-complete selected definition, and the Resolved Runtime profile binds that identity. The definition,
-Evaluator Capability Manifest, and Resolved Runtime profile form an acyclic three-node identity
-graph. They do not rely on an embedded value comparison.
+Runtime constructs the pure **Resolved Runtime profile** from Experiment identity, existing RIR
+semantic identity, the complete selected definition and its Kernel-domain-separated identity.
+The complete definition retains its extensions, Numeric/RNG/effect policy and budgets. Whole
+Kernel/LDB identities, Build/Lock/Resolved-Model wrappers, evaluator identity and platform are absent.
+There is no secondary execution digest or Reproduction receipt.
 
 The Kernel's active-definition contract supplies the required member set, Runtime/RNG bindings,
 budget scopes, and positive-bound shape. The LDB supplies the concrete bound values. Hosts interpret
@@ -1357,15 +1351,16 @@ mapping identity that it explicitly implements. A change to a path, member shape
 therefore requires an evaluator capability update. It does not turn concrete authority values into
 host constants.
 
-The evaluator build also publishes an immutable **Evaluator Capability Manifest**. Admission checks
-its implemented Kernel laws, constructors, Numeric/RNG policies, scheduler/effect features,
-artifact schemas, and resource accounting against the exact requested authority. Admission then
-binds the manifest and validation receipt into the Resolved Runtime profile. The manifest advertises
-implementation support; it cannot add or weaken semantics.
+The evaluator publishes one immutable **Evaluator Capability Manifest** with its implementation
+label, complete installed-source fingerprint, platform and actual capabilities. Admission checks
+required support without binding producer identity into semantic execution. Preparation retains
+this actual record through success, Verdict and terminal refusal; projection does not relabel a
+run with a later producer. Original-result validation checks the supplied manifest's integrity and
+capability coverage, never equality with the currently installed producer.
 
-Determinism is promised only inside that exact profile and complete reproduction key. A seed alone
-cannot establish reproducibility. Resource exhaustion is a typed refusal, not permission to publish
-partial success.
+Determinism is promised inside the same pure profile and its actual inputs. A seed alone cannot
+establish reproducibility. The Artifact set associates semantic outputs and producer provenance;
+resource exhaustion remains a typed refusal with the full terminal audit, not partial success.
 
 One execution instance follows a closed lifecycle:
 
@@ -1528,7 +1523,7 @@ An Experiment Specification owns everything that turns a model into a testable q
   Contracts;
 - exact per-Event Model-entrypoint selection and separately derived Event-local payload admission;
 - derived observation Events from exact Observation contracts and Metric definitions;
-- exact model/runtime compatibility binding;
+- admitted RIR semantic binding and actual Runtime capability requirements;
 - Metric definitions and observation points;
 - statistical method, sample plan, and uncertainty policy;
 - calibration objective, observation model, and identifiability/replication policy;
@@ -1551,9 +1546,9 @@ automatically an accepted model.
 flowchart TB
     X["Experiment execution"] -->|"records facts"| R["Evaluation run"]
     X -->|"records observations"| D["Metric dataset"]
-    R -->|"binds"| P["Replay comparison<br/>same complete reproduction identity"]
+    R -->|"binds"| P["Replay comparison<br/>same pure Runtime profile"]
     D -->|"binds"| P
-    R -->|"binds"| C["Cross-evaluator comparison<br/>distinct evaluator-bound profiles"]
+    R -->|"binds"| C["Cross-evaluator comparison<br/>independent producer realizations"]
     D -->|"binds"| C
     P --> E["Evidence assertion<br/>independently validated prerequisites"]
     C --> E
@@ -1565,11 +1560,11 @@ exact inputs, policies, datasets, and identities. Evidence is an immutable asser
 prerequisite graph has been independently validated. An Approval Record is a separate governance
 artifact.
 
-**Replay** requires identical complete reproduction identities, including one identical Resolved
-Runtime profile. Independent evaluator builds necessarily have distinct evaluator-bound profiles;
-their agreement is a **Cross-evaluator comparison**, not Replay. It may support an independently
-validated `cross_evaluator_conformant` claim but can never issue `reproducible` for a different
-profile.
+**Replay** requires one identical pure Resolved Runtime profile and the selected policy's ordered
+observation comparison. Different conforming producer records may share that profile. Original
+publication integrity and actual capability checks remain mandatory. The planned
+**Cross-evaluator comparison** has its own portability and independent-evidence contract; producer
+difference alone no longer forces a different semantic profile or forbids exact Replay.
 
 `standard.experiment` owns `exact-replay-v1` under the Kernel-admitted
 `language.replay_comparison_policies` collection. The native definition has `id`, one policy-wide
@@ -1583,7 +1578,7 @@ policy uses `canonical-equal` for these four keys:
 | `snapshot-series-identity` |
 | `metric-dataset-identity` |
 
-The exact Replay contract requires complete reproduction-identity equality before Runtime dispatch.
+The exact Replay contract requires pure Runtime-profile identity equality before dispatch.
 This is a fixed precondition, not a policy field or caller-selectable mode. Event-trace identity
 already closes the root Event map, terminal statuses, and Named RNG observations, so the policy does
 not repeat those facts as separate checks.
@@ -1593,8 +1588,8 @@ not repeat those facts as separate checks.
 closure. Introducing these Kernel contract shapes reidentifies the Kernel, the whole LDB, and
 downstream exact wrappers. A later policy-only change reidentifies the Package Release semantic and
 content identities, the whole LDB, and downstream exact wrappers without changing the Kernel. The
-Replay comparison binds the package namespace, policy id and whole-LDB identity. The remaining
-broad binding is subject to closure in #874 and mandatory deletion in #875.
+Replay comparison binds the selected package namespace and policy id, with the complete policy
+detached at admission. Whole-LDB identity is not an execution or comparison prerequisite.
 The policy is not a separate published artifact.
 
 Kernel admission validates the closed definition shape, non-empty policy id, non-empty
@@ -1989,19 +1984,22 @@ artifact graph for the LDB-owned `evaluable` claim kind. A successful result is 
 `candidate`/open. It does not issue an Evidence assertion, authenticate an independent Verifier, or
 close a claim.
 
-The initial command takes one explicit Model Source Package, Experiment Specification, Model-build
-Artifact-set receipt, and Experiment-run Artifact-set receipt. The public fields are
-`model_build_artifact_set_receipt` and `experiment_run_artifact_set_receipt`. The Model-build
-receipt is not the build set's `build-receipt` member. The command does not discover artifacts
-through a store scan. It uses the installed package's admitted Kernel/LDB context, applies the
-existing Model and Experiment admission rules, recomputes their content identities, authenticates
-both receipt-backed artifact sets, and validates every required identity and prerequisite edge. A
-post-dispatch Runtime refusal is eligible only when its complete terminal-audit set and
-cross-bindings pass bADR-0015 validation. The command does not rebuild the Model or rerun the
-Experiment.
+The current command takes explicit `rir`, `specification` and
+`experiment_run_artifact_set_receipt` inputs, plus `claim_kind: evaluable`. It independently admits
+the supplied RIR, checks the Experiment's semantic binding, authenticates the complete original
+run publication and validates its semantic outcome. Model Source, compiler invocation and a
+Model-build publication are not prerequisites. Build provenance remains separately verifiable
+when claimed. No store scan, sibling-path guessing or replacement receipt supplies execution input.
 
-The `evaluable` judgment means that the exact Experiment, Resolved Model, Resolved Runtime profile,
-and evaluator combination passed admission and reached Runtime dispatch. A successful producing
+The LDB-owned prerequisite graph relates five subjects: existing RIR semantic identity, Experiment,
+pure Runtime profile, supplied evaluator manifest and authenticated Experiment-run Artifact-set
+receipt. Experiment binds RIR meaning; the profile binds Experiment and RIR; the publication binds
+Experiment, profile and producer. Missing, extra, duplicate, mismatched, unresolved and cyclic
+prerequisites remain refusals. Post-dispatch refusal additionally requires the complete terminal
+audit and all independent journal, rollback and cross-artifact checks.
+
+The `evaluable` judgment means that the Experiment, admitted RIR semantics, pure Runtime profile
+and supported producer passed admission and reached Runtime dispatch. A successful producing
 outcome, a completed `experiment-verdict` artifact set, or a complete post-dispatch Runtime-refusal
 outcome can support the judgment. Invalid Experiment or Metric intent, evaluator-capability failure,
 Runtime-profile admission failure, a pre-dispatch refusal, or an incomplete outcome graph cannot
@@ -2017,7 +2015,8 @@ revocation, or aggregation mechanisms before that need exists.
 #### First exact Replay comparison slice
 
 Issue #545 defines the first public `experiment replay` vertical slice. The command takes one
-Experiment Specification and one authenticated Experiment-run Artifact-set receipt, plus the normal
+Experiment Specification, explicit required RIR file and one authenticated Experiment-run
+Artifact-set receipt, plus the normal
 output locator and Invocation key. The receipt is the single anchor for the original run. The
 command does not accept a parallel list of member identities or find a run through a store scan.
 
@@ -2026,13 +2025,13 @@ member. An Experiment Verdict or Runtime refusal is not an Evaluation run. The c
 typed `evaluation` refusal for these ineligible outcomes. This boundary can change when a real
 application needs an explicit outcome-comparison contract. It is not a permanent prohibition.
 
-Replay first prepares the Evaluator Capability Manifest, Resolved Runtime profile, and Reproduction
-receipt without Event dispatch. It checks these prepared values against the original run. A mismatch
-in authority, model, Experiment, external input, seed, evaluator, or Runtime-profile identity refuses
-before dispatch. The same prepared value then enters the existing execution path, so `experiment
-run` and `experiment replay` do not own separate Runtime preparation rules. The full reproduction
-equality and broad authority/build bindings remain current transitional checks; #875 must remove
-their obsolete roles while preserving actual execution inputs and exact content integrity.
+Replay authenticates the original descriptor/transaction anchors and exact artifact bytes; it does
+not require the old descriptor or producer to equal the current installation. It independently
+admits the explicit RIR, checks Experiment intent and the original complete outcome, then compares
+the original pure Runtime profile with the prepared current profile before dispatch. Actual
+program, seed, external-input, ordering or policy changes therefore remain distinguishable.
+The same prepared value enters ordinary execution. The Reproduction artifact and broad
+Build/whole-LDB/evaluator equality gates are deleted, with no legacy fallback.
 
 Application coordinates receipt input, original-set authentication, Replay execution, comparison,
 and publication. Domain Artifact policy authenticates the original set and returns its complete
@@ -2056,7 +2055,7 @@ comparison plug-in system.
 A completed Replay comparison publishes one atomic Artifact set with the Replay comparison as its
 primary member. A match uses the success set, which also contains the new Evaluation run and its
 supporting artifacts. A mismatch uses one fixed Verdict set. It contains the comparison, Event
-trace, Snapshot series, Metric dataset, Reproduction receipt, Resolved Runtime profile, and
+trace, Snapshot series, Metric dataset, Resolved Runtime profile, and
 Evaluator Capability Manifest from the Replay execution. It does not require an `evaluation-run` or
 `experiment-verdict` member, because those artifacts are mutually exclusive and the comparison
 already records the original and Replay outcome statuses. The original run remains a separate

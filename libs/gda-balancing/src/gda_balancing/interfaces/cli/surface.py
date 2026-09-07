@@ -173,20 +173,6 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
         "message": {"type": "string"},
         "debug": {"type": "string"},
     }
-    if descriptor.stochastic:
-        internal_properties["reproduction"] = {
-            "type": "object",
-            "properties": {
-                "seed": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "exclusiveMaximum": 2**32,
-                },
-                "toolkit_version": {"type": "string"},
-            },
-            "required": ["seed", "toolkit_version"],
-            "unevaluatedProperties": False,
-        }
     variants.append(
         {
             "type": "object",

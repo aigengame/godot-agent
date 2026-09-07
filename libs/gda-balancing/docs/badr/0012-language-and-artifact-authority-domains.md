@@ -4,6 +4,13 @@ status: accepted
 
 # Scope Standard Schema 2.0 authority by language, model, experiment, and approval domains
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> #875 supersedes the clauses requiring an exact Resolved-Model or compatibility/final-binding
+> receipt for Experiment execution. Intent binds existing RIR semantic identity and execution
+> independently admits explicit RIR. Exact Build/trio and Publication integrity remain; Model,
+> Experiment and Approval retain their separate authored ownership.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Native wire update (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07)):**
 > #871 removes package/Operation and authored-definition own-version labels; the corresponding
 > clauses below are historical. Exact content and authored-domain ownership remain. Whole-LDB and

@@ -25,8 +25,8 @@ from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.interfaces.cli.experiment_fixtures import (
-    prepare_valid_experiment,
-    prepare_verdict_experiment,
+    prepare_experiment_args,
+    prepare_experiment_verdict_args,
 )
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.diagnostics import refusal_catalog_for_reasons
@@ -38,6 +38,7 @@ class ExperimentRunInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     specification: str
+    rir: str
     out: str = Field(min_length=1)
     invocation_key: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -124,11 +125,12 @@ def experiment_run_handler(
                 EXPERIMENT_RUN.artifact_set,
                 EXPERIMENT_RUN.verdict_artifact_set,
                 EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+                rir=inp.rir,
                 publication_fault=publication_fault,
             )
         except InputReadError as err:
             raise UnreadableInputError(
-                f"cannot read input document: {inp.specification}"
+                "cannot read an Experiment input document"
             ) from err
         if isinstance(result, Schema2RefusalReport):
             return result
@@ -156,8 +158,8 @@ EXPERIMENT_RUN = CommandDescriptor(
     verdict_model=ExperimentVerdictResult,
     handler=run_experiment_run,
     fixtures=ConformanceFixtures(
-        prepare_valid_document=prepare_valid_experiment,
-        prepare_verdict_document=prepare_verdict_experiment,
+        prepare_args=prepare_experiment_args,
+        prepare_verdict_args=prepare_experiment_verdict_args,
     ),
     positional_field="specification",
     artifact_set=EXPERIMENT_SUCCESS_ARTIFACT_SET,

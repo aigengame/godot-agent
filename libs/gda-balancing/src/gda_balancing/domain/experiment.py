@@ -1,4 +1,4 @@
-"""Exact-authority Experiment admission and resolved program requirements."""
+"""Experiment admission over an independently admitted selected program."""
 
 from __future__ import annotations
 
@@ -34,19 +34,10 @@ from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     reason_by_id,
 )
-from gda_balancing.domain.artifact_errors import (
-    PublishedArtifactIntegrityError,
-    PublishedArtifactUnavailable,
-)
 from gda_balancing.infrastructure.input_bytes import (
     read_bounded_input_with_sha256,
 )
-from gda_balancing.domain.model import (
-    EXACT_RESOLVED_MODEL_BINDING_MEMBERS,
-    ExactResolvedModelBinding,
-    ExactResolvedModelBindingError,
-    resolve_published_model_binding,
-)
+from gda_balancing.domain.model import AdmittedRir
 from gda_balancing.domain.operation_program import (
     operation_coordinate,
     operation_body_instructions,
@@ -87,9 +78,6 @@ class CheckedExperiment:
     content_identity: str
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
-    build_receipt: dict[str, Any]
-    package_lock: dict[str, Any]
-    resolved_model: dict[str, Any]
     rir: dict[str, Any]
     authority_context: AdmittedAuthorityContext | None = None
     output_contracts: Mapping[str, ArtifactContract] = field(init=False, repr=False)
@@ -401,11 +389,11 @@ def derive_scenario_program_requirements(
 
 def check_experiment(
     path: str,
+    program: AdmittedRir,
     *,
     authority_context: AdmittedAuthorityContext | None = None,
-    model_binding: ExactResolvedModelBinding | None = None,
 ) -> CheckedExperiment | Schema2RefusalReport:
-    """Admit one exact Experiment Specification and its model bindings."""
+    """Admit an Experiment Specification against its selected RIR meaning."""
     context = authority_context or packaged_authority_context()
     max_source_bytes = cast(
         int, context.language_bundle["resources"]["max_source_bytes"]
@@ -436,12 +424,12 @@ def check_experiment(
             pointer="",
             message="Experiment Specification is not canonical JSON data",
         )
-    return _check_experiment_value(value, context, model_binding=model_binding)
+    return _check_experiment_value(value, context, program=program)
 
 
 def check_experiment_value(
     value: dict[str, Any],
-    model_binding: ExactResolvedModelBinding,
+    program: AdmittedRir,
     *,
     authority_context: AdmittedAuthorityContext | None = None,
 ) -> CheckedExperiment | Schema2RefusalReport:
@@ -474,7 +462,7 @@ def check_experiment_value(
     return _check_experiment_value(
         admitted_value,
         context,
-        model_binding=model_binding,
+        program=program,
     )
 
 
@@ -482,7 +470,7 @@ def _check_experiment_value(
     value: dict[str, Any],
     context: AdmittedAuthorityContext,
     *,
-    model_binding: ExactResolvedModelBinding | None,
+    program: AdmittedRir,
 ) -> CheckedExperiment | Schema2RefusalReport:
     """Apply Experiment semantics after transport-specific ingestion."""
     kernel = context.kernel
@@ -499,18 +487,6 @@ def _check_experiment_value(
             identity=experiment_identity,
             pointer=_schema_error_pointer(schema_error),
             message=schema_error.message,
-        )
-    if (
-        value["kernel_identity"] != kernel["content_identity"]
-        or value["language_bundle_identity"] != language_bundle["content_identity"]
-    ):
-        return _refusal(
-            reason=reason_by_id(
-                language_bundle, "model.reason.resolved-authority-mismatch"
-            ),
-            identity=experiment_identity,
-            pointer="/kernel_identity",
-            message="Experiment Specification does not bind the active authorities",
         )
     for collection, member in (
         (value["scenarios"], "id"),
@@ -568,101 +544,16 @@ def _check_experiment_value(
                 message="Metric target minimum exceeds maximum",
             )
 
-    model = value["model"]
-    artifact_kinds = {
-        logical_name: artifact_kind
-        for logical_name, artifact_kind in EXACT_RESOLVED_MODEL_BINDING_MEMBERS
-    }
-    identity_members = {
-        "build-receipt": "build_receipt_identity",
-        "package-lock": "package_lock_identity",
-        "resolved-model": "resolved_model_identity",
-        "rir-semantic-payload": "rir_identity",
-    }
-    if model_binding is None:
-        try:
-            model_binding = resolve_published_model_binding(
-                {
-                    logical_name: cast(str, model[identity_member])
-                    for logical_name, identity_member in identity_members.items()
-                },
-                context,
-            )
-        except PublishedArtifactUnavailable as err:
-            identity_member = identity_members[err.logical_name]
-            return _refusal(
-                reason=reason_by_id(
-                    language_bundle, "model.reason.resolved-authority-mismatch"
-                ),
-                identity=experiment_identity,
-                pointer=f"/model/{identity_member}",
-                message=(
-                    f"Exact {err.artifact_kind} is unavailable in the committed "
-                    "artifact store"
-                ),
-            )
-        except PublishedArtifactIntegrityError as err:
-            logical_name = err.logical_name or "build-receipt"
-            kind = artifact_kinds[logical_name]
-            return _refusal(
-                reason=reason_by_id(
-                    language_bundle, "model.reason.resolved-authority-mismatch"
-                ),
-                identity=experiment_identity,
-                pointer=f"/model/{identity_members[logical_name]}",
-                message=(
-                    f"Exact {kind} publication failed integrity verification: {err}"
-                ),
-            )
-        except ExactResolvedModelBindingError as err:
-            if err.reason == "resolved-model-admission-failed":
-                return _refusal(
-                    reason=reason_by_id(
-                        language_bundle, "model.reason.resolved-authority-mismatch"
-                    ),
-                    identity=experiment_identity,
-                    pointer="/model",
-                    message=(
-                        "Experiment model artifacts do not form one admitted "
-                        "Resolved Model"
-                    ),
-                )
-            return _refusal(
-                reason=reason_by_id(
-                    language_bundle, "model.reason.resolved-authority-mismatch"
-                ),
-                identity=experiment_identity,
-                pointer="/model",
-                message="Experiment Model binding disagrees with its exact Build receipt",
-            )
-
-    artifacts = model_binding.artifacts()
-    build = artifacts["build-receipt"]
-    expected_build_bindings = {
-        "source_identity": model["source_identity"],
-        "kernel_identity": value["kernel_identity"],
-        "language_bundle_identity": value["language_bundle_identity"],
-        "package_lock_identity": model["package_lock_identity"],
-        "resolved_model_identity": model["resolved_model_identity"],
-        "rir_identity": model["rir_identity"],
-    }
-    if any(
-        build.get(name) != expected
-        for name, expected in expected_build_bindings.items()
-    ) or any(
-        artifacts[logical_name].get("content_identity") != model[identity_member]
-        for logical_name, identity_member in identity_members.items()
-    ):
+    if value["model"]["rir_semantic_identity"] != program.semantic_identity:
         return _refusal(
             reason=reason_by_id(
                 language_bundle, "model.reason.resolved-authority-mismatch"
             ),
             identity=experiment_identity,
-            pointer="/model",
-            message="Experiment Model binding disagrees with its exact Build receipt",
+            pointer="/model/rir_semantic_identity",
+            message="Experiment Specification does not bind the admitted RIR semantics",
         )
-
-    rir = artifacts["rir-semantic-payload"]
+    rir = program.artifact()
     selected = rir["selected_semantics"]
     operations = selected_operation_index(selected)
     entrypoints = {row["id"]: row for row in rir["entrypoints"]}
@@ -687,7 +578,7 @@ def _check_experiment_value(
                 language_bundle, "model.reason.resolution-binding-mismatch"
             ),
             identity=experiment_identity,
-            pointer="/model/rir_identity",
+            pointer="/model/rir_semantic_identity",
             message="Experiment Model has no executable Event entrypoints",
         )
     runtime_laws = selected["execution_laws"]["runtime_program"]
@@ -1054,9 +945,6 @@ def _check_experiment_value(
         content_identity=experiment_identity,
         kernel=kernel,
         language_bundle=language_bundle,
-        build_receipt=build,
-        package_lock=artifacts["package-lock"],
-        resolved_model=artifacts["resolved-model"],
         rir=rir,
         authority_context=context,
     )

@@ -4,6 +4,14 @@ status: accepted
 
 # Publish the Execution Open Host Service through one Published Language
 
+> **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
+> The establish-session result and stored program binding use `rir_semantic_identity` in
+> place of the former exact Resolved-Model identity below. The service language projects the same
+> native #875 Domain contract, including Reproduction deletion; it preserves current complete-run
+> scope, explicit sessions/revisions and opaque nested authority values. This internal pre-release
+> migration does not introduce another adapter or activate deferred trust work.
+> These are implemented branch contracts; the issue/PR retains full integrated acceptance.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 updates the inherited Standard Schema contract toward one current language and
 > mandatory deletion of redundant execution bindings after closure. The Published Language and

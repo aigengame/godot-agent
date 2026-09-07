@@ -40,7 +40,7 @@ The files are:
 - `model-source.json` — distinct player/enemy Symbols, two pure Formulas, two directional cast
   entrypoints, one explicit cancellation wrapper, and one scheduler-companion entrypoint;
 - `experiment.json` — the focused reciprocal scenario with two same-logical-time roots, an exact
-  Resolved Model binding, seed, six dimensioned Metric definitions, and acceptance policy;
+  RIR semantic binding, seed, six dimensioned Metric definitions, and acceptance policy;
 - `multi-time-experiment.json` — an external-input root, scheduled and canceled child Events, and
   multiple logical times.
 
@@ -342,12 +342,13 @@ Check without publishing:
 
 ```bash
 uv run gda-balancing experiment check \
+  --rir "$RIR_PATH" \
   examples/schema2/rpg-combat-cast/experiment.json \
   | jq .
 ```
 
-Experiment admission validates the exact authority and Resolved Model bindings. It validates root
-references, entrypoints, and Scenario inputs. It also validates Event-local payloads, Event
+Experiment admission checks the explicit RIR against the current authorities and the authored
+`model.rir_semantic_identity`. It validates root references, entrypoints, and Scenario inputs. It also validates Event-local payloads, Event
 references, named streams, Runtime requirements, and Metric definitions.
 
 ## 6. Run and inspect ordering, Snapshots and Metric samples
@@ -358,6 +359,7 @@ Run and save the receipt:
 export EXPERIMENT_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-set-receipt.json"
 
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   examples/schema2/rpg-combat-cast/experiment.json \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/evaluation-run.json" \
   --invocation-key "$EXPERIMENT_RUN_INVOCATION_KEY" \
@@ -457,6 +459,7 @@ jq '
 export TUNED_INVOCATION_KEY="$(openssl rand -hex 32)"
 
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$TUNED_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/tuned-run.json" \
   --invocation-key "$TUNED_INVOCATION_KEY"
@@ -467,8 +470,7 @@ damage changes from `37` to `47`. Enemy health changes from `63` to `53`. Enemy 
 health, and both resource sample values remain unchanged.
 
 The edit changes the Experiment, Event trace, and Metric dataset identities. It does not change the
-Kernel, LDB, Package Lock, RIR semantic payload, evaluator dispatch, or exact Resolved Model
-binding.
+Kernel, LDB, Package Lock, RIR semantic payload, evaluator dispatch, or Model-build artifacts.
 
 The `game.combat.damage-v1` Operation has one `damage-policy` Formula slot. Both directional
 entrypoints intentionally share its current Formula binding. This example uses actor-specific bound
@@ -562,21 +564,15 @@ The Formula edit changes the Model Source identity, both RIR identities, the Res
 identity, and the Build receipt identity. The Package Lock identity stays the same because the
 selected Package Releases did not change. No new Kernel primitive or evaluator branch is needed.
 
-An exact Experiment must not follow a new Model Source while retaining the old Build receipt and
-artifact identities. Verify that a partial rebind refuses:
+An Experiment binds selected program meaning. The old intent must refuse when paired with the
+changed RIR, while a compiler-only receipt change does not require rebinding:
 
 ```bash
-export STALE_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-stale-model-binding.json"
+export STALE_EXPERIMENT=examples/schema2/rpg-combat-cast/experiment.json
 export STALE_REFUSAL="$GDA_BALANCING_TUTORIAL_ROOT/experiment-stale-refusal.json"
 
-jq --slurpfile build "$EDITED_BUILD_RECORD_PATH" '
-  .id = "example.rpg-combat-cast.stale-model-binding"
-  | .model.source_identity = $build[0].source_identity
-' examples/schema2/rpg-combat-cast/experiment.json \
-  > "$STALE_EXPERIMENT"
-
 set +e
-uv run gda-balancing experiment check "$STALE_EXPERIMENT" > "$STALE_REFUSAL"
+uv run gda-balancing experiment check --rir "$EDITED_RIR_PATH" "$STALE_EXPERIMENT" > "$STALE_REFUSAL"
 export STALE_EXIT="$?"
 set -e
 
@@ -586,28 +582,22 @@ test "$(jq -r '.error.diagnostics[0].code' "$STALE_REFUSAL")" = \
 jq '.error.diagnostics[0] | {code, message, primary}' "$STALE_REFUSAL"
 ```
 
-The unchanged old Experiment remains valid for the old Model. It does not silently select the new
-Formula. Create a new Experiment by copying every exact binding from the new Build receipt. The
+The unchanged old Experiment remains valid for the old RIR semantics. It does not silently select
+the new Formula. Create a new Experiment with the changed RIR semantic identity. The
 edited selected-program closure no longer requires `maximum` or `subtract`, so remove both from the
 exact evaluator requirement:
 
 ```bash
 export EDITED_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-unmitigated.json"
 
-jq --slurpfile build "$EDITED_BUILD_RECORD_PATH" '
+jq --slurpfile rir "$EDITED_RIR_PATH" '
   .id = "example.rpg-combat-cast.reciprocal-unmitigated"
-  | .model = {
-      "source_identity": $build[0].source_identity,
-      "build_receipt_identity": $build[0].content_identity,
-      "resolved_model_identity": $build[0].resolved_model_identity,
-      "package_lock_identity": $build[0].package_lock_identity,
-      "rir_identity": $build[0].rir_identity
-    }
+  | .model = {rir_semantic_identity: $rir[0].semantic_identity}
   | .runtime.required_evaluator.instruction_nodes -= ["maximum", "subtract"]
 ' examples/schema2/rpg-combat-cast/experiment.json \
   > "$EDITED_EXPERIMENT"
 
-uv run gda-balancing experiment check "$EDITED_EXPERIMENT" | jq .
+uv run gda-balancing experiment check --rir "$EDITED_RIR_PATH" "$EDITED_EXPERIMENT" | jq .
 ```
 
 Run the rebound Experiment and inspect its Metric samples:
@@ -617,6 +607,7 @@ export EDITED_EXPERIMENT_RUN_KEY="$(openssl rand -hex 32)"
 export EDITED_EXPERIMENT_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/edited-experiment-set-receipt.json"
 
 uv run gda-balancing experiment run \
+  --rir "$EDITED_RIR_PATH" \
   "$EDITED_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/edited-evaluation-run.json" \
   --invocation-key "$EDITED_EXPERIMENT_RUN_KEY" \
@@ -734,6 +725,7 @@ Run both variants with new Invocation keys:
 ```bash
 export MISS_INVOCATION_KEY="$(openssl rand -hex 32)"
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$MISS_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/miss-run.json" \
   --invocation-key "$MISS_INVOCATION_KEY" \
@@ -741,6 +733,7 @@ uv run gda-balancing experiment run \
 
 export RESOURCE_INVOCATION_KEY="$(openssl rand -hex 32)"
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$RESOURCE_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/insufficient-resource-run.json" \
   --invocation-key "$RESOURCE_INVOCATION_KEY" \
@@ -778,6 +771,7 @@ export CANCELLATION_INVOCATION_KEY="$(openssl rand -hex 32)"
 export CANCELLATION_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/cancellation-receipt.json"
 
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$CANCELLATION_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/cancellation-run.json" \
   --invocation-key "$CANCELLATION_INVOCATION_KEY" \
@@ -821,6 +815,7 @@ jq '
 export ELIGIBILITY_INVOCATION_KEY="$(openssl rand -hex 32)"
 
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   "$ELIGIBILITY_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/no-inference-run.json" \
   --invocation-key "$ELIGIBILITY_INVOCATION_KEY"
@@ -871,12 +866,13 @@ external-input root and the `combat.player-plans-attacks` entrypoint. It also co
 child at logical time `1`, a canceled child at logical time `2`, and a retry root at logical time
 `2`.
 
-Run it against the same Resolved Model binding:
+Run it against the same RIR semantics:
 
 ```bash
 export MULTI_TIME_INVOCATION_KEY="$(openssl rand -hex 32)"
 
 uv run gda-balancing experiment run \
+  --rir "$RIR_PATH" \
   examples/schema2/rpg-combat-cast/multi-time-experiment.json \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/multi-time-run.json" \
   --invocation-key "$MULTI_TIME_INVOCATION_KEY"
@@ -888,7 +884,7 @@ to the reciprocal scenario.
 ## 9. Validation scope
 
 Section 7.2 provides runnable commands for the semantic Formula edit, stale Experiment refusal,
-exact rebinding, and edited run. Automated end-to-end tests execute the Formula parse/render
+semantic rebinding, and edited run. Automated end-to-end tests execute the Formula parse/render
 round-trip, inspect the paired Formula surfaces in Model Source, RIR, and Model explanation, and
 verify drift refusal, the baseline run, tuning path, typed alternatives, cancellation, eligibility
 boundary, and multi-time companion.
@@ -906,9 +902,9 @@ Common failures:
 - `invalid_argument` for a key — use exactly 64 lowercase hexadecimal digits;
 - `invocation_key_conflict` — the key already names different canonical input; restore that input
   or generate a new key;
-- Experiment cannot resolve Model artifacts — reuse the build's store and anchor key. Build the
-  Model first. Then bind the exact Build receipt, Resolved Model, Package Lock, and RIR semantic
-  payload identities;
+- Experiment cannot read the program — build the Model, read the RIR locator from the returned
+  Artifact-set receipt and pass it explicitly with `--rir`. After a semantic edit, author the
+  corresponding `model.rir_semantic_identity`;
 - `language.formula_notation_mismatch` — regenerate the adjacent `body`/`expression` pair through
   `formula parse` or `formula render`;
 - `language.source_contract_mismatch` on a one-way variant — remove assignments and Metric

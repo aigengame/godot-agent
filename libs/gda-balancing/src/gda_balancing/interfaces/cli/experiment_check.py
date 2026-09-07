@@ -10,7 +10,7 @@ from gda_balancing.interfaces.cli.descriptors import (
 from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
-from gda_balancing.interfaces.cli.experiment_fixtures import prepare_valid_experiment
+from gda_balancing.interfaces.cli.experiment_fixtures import prepare_experiment_args
 from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     refusal_catalog_for_reasons,
@@ -21,6 +21,7 @@ class ExperimentCheckInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     specification: str
+    rir: str
 
 
 class ExperimentCheckResult(BaseModel):
@@ -28,7 +29,7 @@ class ExperimentCheckResult(BaseModel):
 
     checked: bool
     experiment_identity: str
-    resolved_model_identity: str
+    rir_semantic_identity: str
     runtime_profile: str
 
 
@@ -36,17 +37,15 @@ def run_experiment_check(
     inp: ExperimentCheckInput,
 ) -> ExperimentCheckResult | Schema2RefusalReport:
     try:
-        result = check_experiment_specification(inp.specification)
+        result = check_experiment_specification(inp.specification, inp.rir)
     except InputReadError as err:
-        raise UnreadableInputError(
-            f"cannot read input document: {inp.specification}"
-        ) from err
+        raise UnreadableInputError("cannot read an Experiment input document") from err
     if isinstance(result, Schema2RefusalReport):
         return result
     return ExperimentCheckResult(
         checked=True,
         experiment_identity=result.experiment_identity,
-        resolved_model_identity=result.resolved_model_identity,
+        rir_semantic_identity=result.rir_semantic_identity,
         runtime_profile=result.runtime_profile,
     )
 
@@ -59,7 +58,7 @@ EXPERIMENT_CHECK = CommandDescriptor(
     output_model=ExperimentCheckResult,
     handler=run_experiment_check,
     fixtures=ConformanceFixtures(
-        prepare_valid_document=prepare_valid_experiment,
+        prepare_args=prepare_experiment_args,
     ),
     positional_field="specification",
     schema_major=2,

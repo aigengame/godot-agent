@@ -1,14 +1,8 @@
 {
   "schema_version": "2.0.0",
   "id": "roguelike.reward-build-feedback.baseline",
-  "kernel_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
-  "language_bundle_identity": "sha256:a9498f658792dd2d8cde6387c505f11bb249977bc698f1607520116fbdd71f84",
   "model": {
-    "source_identity": "sha256:f1a200ab6df10fa43d95f5e43d494d9c88a56a67baafb1dad83d41ab0d6737f7",
-    "build_receipt_identity": "sha256:2e57717a728ccbf1caa2f3b50dd8902eb0f8e504b27a8a0aa174d0c77bd1e51b",
-    "resolved_model_identity": "sha256:ac4b386059389ec7899b5807fc4c489250a83deb825c8ffb9b63dc62884c74c6",
-    "package_lock_identity": "sha256:8729c4c72de972e6272bf307daf802c9520797595cf2e083361c0b895db4aee0",
-    "rir_identity": "sha256:6842ee61b562cc78a4cf18510b875c92d380113ee8fbad73c3d85fddc0b5f3c3"
+    "rir_semantic_identity": "sha256:c401087c5069e5069ee5924b0461044d8171f7da15a35302fe6d94384e46cf99"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
