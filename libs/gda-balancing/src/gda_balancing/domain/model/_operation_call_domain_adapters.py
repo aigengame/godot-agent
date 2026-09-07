@@ -241,6 +241,7 @@ def build_operation_call_domain_input(
             ),
         ),
         literal_contract=_literal_contract_resolver(kernel, language_bundle),
+        iteration_contract=_iteration_contract_resolver(kernel),
         snapshot_contracts=operation_snapshot_contracts(
             operations, declarations_by_symbol
         ),
@@ -359,6 +360,33 @@ def _literal_contract_resolver(
                 "domain_kind": "closed-interval",
                 "domain": {"minimum": value, "maximum": value},
             }
+        return contract
+
+    return resolve
+
+
+def _iteration_contract_resolver(
+    kernel: dict[str, Any],
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Bound successful scalar iteration values by their admitted representation."""
+    numeric = kernel["meta_format"]["runtime_program"]["numeric"]
+
+    def resolve(formal: dict[str, Any]) -> dict[str, Any]:
+        if formal.get("value_kind") == "nominal-structured":
+            return {"type_identity": formal["type"], "value_kind": "nominal-structured"}
+        contract = cast(dict[str, Any], formula_contract_from_operation(formal))
+        domain = formal.get("domain")
+        if domain == {"kind": "actual"}:
+            if (
+                formal.get("numeric_policy")
+                not in numeric["compatible_value_numeric_policies"]
+            ):
+                raise ValueError("fold iteration has no admitted numeric domain")
+            domain = {"minimum": numeric["minimum"], "maximum": numeric["maximum"]}
+        elif isinstance(domain, dict) and domain.get("kind") == "closed-interval":
+            domain = {"minimum": domain["minimum"], "maximum": domain["maximum"]}
+        if isinstance(domain, dict) and set(domain) == {"minimum", "maximum"}:
+            contract = {**contract, "domain_kind": "closed-interval", "domain": domain}
         return contract
 
     return resolve

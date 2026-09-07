@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.formula.types import formula_contract_from_operation
 from gda_balancing.domain.model._operation_call_domain_adapters import (
+    _iteration_contract_resolver,
     resolved_rir_entrypoint_call,
     resolved_source_entrypoint_call,
 )
@@ -43,6 +45,94 @@ def test_projects_the_reproduced_nested_formula_domain_mismatch() -> None:
 
     assert actual["domain"] == {"minimum": 24, "maximum": 36}
     assert not (0 <= actual["domain"]["minimum"] and actual["domain"]["maximum"] <= 20)
+
+
+def test_fold_propagates_the_full_iteration_domain_and_its_following_local() -> None:
+    inp = _fold_projection_input()
+    projection = project_concrete_operation_call_domains(inp)
+
+    calls = projection.calls[LEAF]
+    assert len(calls) == 2
+    full = _quantity_formula_contract(-(2**63), 2**63 - 1)
+    assert calls[0]["arguments"] == {"value": full, "factor": full}
+    assert calls[0]["known_arguments"] == {}
+    assert calls[1]["arguments"]["value"] == full
+    assert calls[1]["known_arguments"] == {"factor": 2}
+    assert projection.slot_parameter_contracts[LEAF_SLOT] == [
+        {"scaled": full},
+        {"scaled": full},
+    ]
+
+
+def test_nested_fold_reaches_the_same_formula_slot_without_unrolling() -> None:
+    inp = _fold_projection_input()
+    root = inp.operations[ROOT]
+    inner = deepcopy(root)
+    inner["id"] = MIDDLE[1]
+    inner["inputs"].append(_quantity_operation_contract("value"))
+    inner["body"] = [deepcopy(root["body"][1])]
+    inner["body"][0]["initial"] = "value"
+    inner["result"]["source"]["name"] = "folded"
+    inp.operations[MIDDLE] = inner
+    root["body"][1]["operation"] = _operation_ref(MIDDLE)
+    root["body"][1]["item_port"] = "items"
+
+    projection = project_concrete_operation_call_domains(inp)
+
+    assert len(projection.calls[MIDDLE]) == 1
+    assert len(projection.calls[LEAF]) == 2
+    assert all(
+        row["scaled"]["domain"] == {"minimum": -(2**63), "maximum": 2**63 - 1}
+        for row in projection.slot_parameter_contracts[LEAF_SLOT]
+    )
+
+
+def _fold_projection_input() -> ConcreteOperationCallDomainInput:
+    inp = _projection_input()
+    root = inp.operations[ROOT]
+    root["inputs"] = [
+        {
+            "id": "items",
+            "access": "read",
+            "type": {"package": "test.calls", "id": "Items"},
+            "value_kind": "nominal-structured",
+        }
+    ]
+    root["body"] = [
+        {"node": "constant", "target": "zero", "literal": 0},
+        {
+            "node": "fold",
+            "site": "fold-values",
+            "operation": _operation_ref(LEAF),
+            "value": "items",
+            "initial": "zero",
+            "target": "folded",
+            "accumulator_port": "value",
+            "item_port": "factor",
+            "arguments": [],
+        },
+        {
+            "node": "invoke",
+            "site": "after-fold",
+            "operation": _operation_ref(LEAF),
+            "arguments": [
+                {"port": "value", "operand": {"kind": "local", "local": "folded"}},
+                {"port": "factor", "operand": {"kind": "literal", "literal": 2}},
+            ],
+            "result": {"kind": "local", "name": "final"},
+        },
+    ]
+    root["result"]["source"]["name"] = "final"
+    return replace(
+        inp,
+        operations={ROOT: root, LEAF: inp.operations[LEAF]},
+        roots={
+            ROOT: [
+                {"arguments": {"items": {"type_identity": root["inputs"][0]["type"]}}}
+            ]
+        },
+        operation_node_ids=frozenset({"invoke", "schedule", "fold"}),
+    )
 
 
 @pytest.mark.parametrize(
@@ -171,6 +261,7 @@ def _projection_input() -> ConcreteOperationCallDomainInput:
             ]
         ),
         literal_contract=_literal_contract,
+        iteration_contract=_iteration_contract_resolver(context.kernel),
         snapshot_contracts={MIDDLE: {"bonus": _quantity_formula_contract(3, 3)}},
         snapshot_operand_names={MIDDLE: frozenset({"bonus"})},
     )
