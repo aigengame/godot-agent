@@ -88,6 +88,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
     "composition": (
+        "test_bounded_fold_formula.py",
         "test_bounded_fold_independent.py",
         "test_bounded_fold_public.py",
         "test_bounded_fold_replay.py",

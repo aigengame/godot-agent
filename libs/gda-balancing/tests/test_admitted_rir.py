@@ -328,10 +328,15 @@ def test_rir_rejects_reinserted_operation_vector_references(copy, compiled, cont
     assert original["vectors"]
     target = direct["definition"] if copy == "direct" else mirror
     target["vectors"] = deepcopy(original["vectors"])
-    candidate = _reidentified_rir(candidate, context)
-    assert select_artifact_contract(
+    candidate.pop("content_identity")
+    candidate["semantic_identity"] = _lowering._rir_semantic_identity(
+        context.language_bundle, candidate
+    )
+    contract = select_artifact_contract(
         context.language_bundle, "rir-semantic-payload"
-    ).verify(candidate) is (copy == "closure")
+    )
+    _reidentify(candidate, contract.definition["identity_domain"])
+    assert contract.verify(candidate) is (copy == "closure")
     with pytest.raises(RirAdmissionError):
         admit_rir(candidate, authority_context=context)
 

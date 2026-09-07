@@ -8,6 +8,13 @@ acceptance, so this record does not close #875 or the full refactor. The bounded
 [deletion disposition](evidence/execution-identity/deletion-disposition.json) records retained
 semantic safeguards and removed production, schema and fixture surfaces.
 
+The [#877 follow-up](BOUNDED-FOLD.md#execution-identity-follow-up) found one missed
+evidence-reference case: selected Operations still carried their `vectors` lists into
+RIR. It removes those lists from both executable copies while retaining Package/Lock
+conformance ownership. Adding or reordering those references must not change execution
+identity; reintroducing the deleted fields must fail RIR admission. This supplements the
+original #875 vector-content/order cases, which did not change an Operation's references.
+
 ## Problem and discriminating evidence
 
 At the reviewed #874 head, changing only the compiler label preserves the complete
