@@ -41,7 +41,7 @@
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_verdict_row[template list]",
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_verdict_row[version]"
   ],
-  "description": "Required logical behavior inventory after Schema 1 retirement, current-package union and #871 native namespace migration. Explicit obligation dispositions preserve negative admission and retained behavior; the complete current collection must also belong to exactly one CI shard.",
+  "description": "Required logical behavior inventory after Schema 1 retirement, current-package union, #871 native namespace migration and #873 request preparation. Explicit obligation dispositions preserve negative admission and retained behavior; the complete current collection must also belong to exactly one CI shard.",
   "package_vector_ids": [
     "core.quantity:model.compile.boundary-max-symbols",
     "core.quantity:model.compile.boundary-max-symbols-plus-one",
@@ -340,6 +340,14 @@
     "tests/test_isolation.py::test_vocabulary_gate_catches_each_denylisted_term[unreal]",
     "tests/test_isolation.py::test_vocabulary_gate_catches_each_denylisted_term[warp]",
     "tests/test_isolation.py::test_vocabulary_gate_catches_each_denylisted_term[wine]",
+    "tests/test_model_preparation.py::test_checked_request_and_all_artifact_outputs_are_isolated_from_mutation",
+    "tests/test_model_preparation.py::test_preparation_keeps_exact_projection_charge_and_complete_refusal[232]",
+    "tests/test_model_preparation.py::test_preparation_keeps_exact_projection_charge_and_complete_refusal[233]",
+    "tests/test_model_preparation.py::test_preparation_keeps_exact_projection_charge_and_complete_refusal[234]",
+    "tests/test_model_preparation.py::test_public_model_request_prepares_once_and_keeps_artifact_admission[build]",
+    "tests/test_model_preparation.py::test_public_model_request_prepares_once_and_keeps_artifact_admission[check]",
+    "tests/test_model_preparation.py::test_specialization_is_value_based_in_operations_and_package_closures[progression-periodic-effect]",
+    "tests/test_model_preparation.py::test_specialization_is_value_based_in_operations_and_package_closures[roguelike-reward-build]",
     "tests/test_schema2_authority_cli.py::test_authority_decode_failure_is_a_typed_ingress_refusal",
     "tests/test_schema2_authority_cli.py::test_authority_loader_identity_is_independent_of_physical_member_location",
     "tests/test_schema2_authority_cli.py::test_authority_loader_refuses_an_unreadable_declared_child[packages/core-quantity/core.quantity.conformance-vectors.json-language-bundle.package_descriptors.0.conformance_vectors]",

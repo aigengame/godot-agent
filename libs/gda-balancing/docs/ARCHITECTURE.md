@@ -1013,6 +1013,11 @@ The public compilation pipeline is:
 - The **Authoring AST** preserves source structure after parsing.
 - **Typed HIR** resolves names, types, units, package symbols, and static effects while retaining
   enough structure for useful diagnostics.
+  A checked Model owns one immutable private preparation of those facts. Compilation and Template
+  facts reuse it; specialization explicitly derives each Operation and its package-closure view.
+  Post-specialization checks, independent imported-artifact admission and publication validation
+  retain their own boundaries. This adds no persisted or public IR
+  ([S4 implementation](refactor/current-language/MODEL-PREPARATION.md)).
 - The **RIR semantic payload** is the canonical, public semantic normal form. Its
   `semantic_identity` excludes Formula `expression` text; the complete canonical RIR JSON has a
   separate `content_identity` for wire integrity. Equivalent admitted source must lower to the same
