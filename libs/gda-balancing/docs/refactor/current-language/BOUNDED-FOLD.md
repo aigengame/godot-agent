@@ -3,7 +3,7 @@
 Base: reviewed dev `970f0323e259769fdc45dc363a1baf28081a8ef6` after #876.
 The [accepted decision](../../badr/0029-bounded-pure-fold-and-list-construction.md) owns the
 design rationale. [#877](https://github.com/aigengame/godot-agent/issues/877) owns acceptance;
-the Kernel/LDB will own executable laws. This record tracks implementation and evidence.
+the Kernel/LDB own executable laws. This record tracks implementation and evidence.
 Design is accepted under the owner's implementation delegation; production acceptance is open.
 
 ## Evidence at the starting boundary
@@ -116,6 +116,14 @@ Startup, authority admission and instrumentation dominate these small cases, so 
 support neither a speedup nor a timing-scaling claim. No private builder optimization
 was introduced.
 
+The [later boundary measurement](evidence/bounded-fold/final-runtime-measurement.json)
+repeats both `N=22` paths and the `N=23` refusal against its pinned implementation.
+It confirms `250`, `247` and first refused attempt `257`. The two successful medians
+are 2.006 and 3.577 seconds; instrumented Python peaks are 48,824,861 and 48,823,902
+bytes. The subsequent Model-vector oracle refresh changes neither the selected RIR
+bytes nor its executable laws. The measurement names that comparison precisely;
+it does not claim timings for later review fixes or replace the historical nine cases.
+
 The production-only reverse-traversal experiment keeps Source, authorities and RIR fixed.
 It changes the public result to `[2,1]`, count `2`, reduction `4321`, and publishes a failed
 metric verdict instead of the required success. This independently demonstrates that the
@@ -147,15 +155,41 @@ changes must leave RIR bytes and execution unchanged.
 | Issue AC | Required evidence | Current state |
 | --- | --- | --- |
 | 1: closed laws and bounds | Machine contracts; wrong form/type/effect/capture/cycle refusal; nested multiplication; exact actual attempts | Focused admission and Runtime cases pass; final integrated checks pending |
-| 2: public traversal | Actual Source build/check/run; empty/single/max/over-bound, order and later-item mutations; numeric and eager refusal | Fourteen public boundary cases pass; final authority rebinding pending |
+| 2: public traversal | Actual Source build/check/run; empty/single/max/over-bound, order and later-item mutations; numeric and eager refusal | Fold subprocess build/check/run passes; nine maintained Experiment bindings are refreshed; complete consumer CI remains open |
 | 3: compositional basis | Filter/count/map/reduce witnesses; typed construction; no redundant traversal host nodes | Public map/filter/count/reduction and Formula-slot witnesses pass |
 | 4: independent consumers | Separate admission, execution and metering; mutually consumed artifacts; counterfeit dynamic audit refusal | All 31 Operation vectors agree, including six fold vectors; post-state counterexamples pass; final checks pending |
-| 5: honest resource cost | All-selected and eager rejected construction; copied cells, cumulative slots, elapsed time and peak live memory at declared limits | Nine measured variants; results and quadratic cumulative copy cost recorded |
+| 5: honest resource cost | All-selected and eager rejected construction; copied cells, cumulative slots, elapsed time and peak live memory at declared limits | Nine original variants and three later boundary runs; source-pinned results and quadratic cumulative copy cost recorded |
 | 6: bounded extension handoff | Permanent reusable assets for #878; no sorting/zone/effect-request or full genre claim | Maintained Source/Experiment and reusable cases exist; issue delivery still pending |
 
 Every public or independent result must record its exact source/head, command, observation
 and scope. Failed intermediate integration remains explicit. Test totals do not replace
 clause-level witnesses or prove deletion of existing contracts.
+
+## Integrated review and CI
+
+The first complete CI run at `1ab3e3909` failed. It exposed stale exact expectations
+for the append export, capacity refusal catalog, dependency witnesses and projection
+charges. The new reason and diagnostic each add one existing catalog-row charge:
+the simple Model preparation boundary is now 375, and the progression example uses
+508. The once-only preparation and complete refusal checks remain in place.
+
+The old publication-recovery test injected an arithmetic fault that a correct independent
+replay cannot reproduce. Its Runtime case now supplies an admitted critical-damage
+overflow and still checks recovery after publication commit without rerunning evaluation.
+The existing successful and metric-verdict recovery cases remain unchanged.
+
+The combined composition shard also exceeded its unchanged 480-second process bound.
+The new fold cases now run in a separate required shard. The inventory must still
+partition every collected test exactly once; neither the timeout nor an existing
+test obligation was relaxed.
+
+Independent review found two further gaps: a typed fold result could not feed the
+existing integer state-subtraction operation, and an audit could forge its starting
+work ledger to shift the alleged first refusal. The Runtime numeric projection is
+corrected; independent Replay and cumulative-ledger verification remain under review.
+The separately reproduced roguelike publication failure comes from confusing
+guard-expanded audit positions with authored Formula positions in Replay. The final
+CI and review receipts must close these issues before production acceptance.
 
 ## Implementation order and ownership
 
@@ -171,3 +205,7 @@ clause-level witnesses or prove deletion of existing contracts.
 
 Restore the complete base code/authority/source/evidence tree for a rollback drill and
 execute its public build/run. No legacy fallback is retained in the delivered branch.
+The [completed rollback drill](evidence/bounded-fold/rollback.json) restores the base
+in an isolated checkout. Fresh CLI processes publish all eight Model members, accept
+the original Experiment, and publish all six execution members. This does not claim
+invalidation of an existing service session; no such session existed in the drill.
