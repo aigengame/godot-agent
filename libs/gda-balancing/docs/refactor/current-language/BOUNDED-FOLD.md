@@ -4,7 +4,9 @@ Base: reviewed dev `970f0323e259769fdc45dc363a1baf28081a8ef6` after #876.
 The [accepted decision](../../badr/0029-bounded-pure-fold-and-list-construction.md) owns the
 design rationale. [#877](https://github.com/aigengame/godot-agent/issues/877) owns acceptance;
 the Kernel/LDB own executable laws. This record tracks implementation and evidence.
-Design is accepted under the owner's implementation delegation; production acceptance is open.
+Design is accepted under the owner's implementation delegation. The issue and
+[PR #917](https://github.com/aigengame/godot-agent/pull/917) record the final integration,
+independent review and required CI disposition; this document records scoped evidence.
 
 ## Evidence at the starting boundary
 
@@ -154,12 +156,12 @@ changes must leave RIR bytes and execution unchanged.
 
 | Issue AC | Required evidence | Current state |
 | --- | --- | --- |
-| 1: closed laws and bounds | Machine contracts; wrong form/type/effect/capture/cycle refusal; nested multiplication; exact actual attempts | Focused admission and Runtime cases pass; final integrated checks pending |
-| 2: public traversal | Actual Source build/check/run; empty/single/max/over-bound, order and later-item mutations; numeric and eager refusal | Fold subprocess build/check/run passes; nine maintained Experiment bindings are refreshed; complete consumer CI remains open |
+| 1: closed laws and bounds | Machine contracts; wrong form/type/effect/capture/cycle refusal; nested multiplication; exact actual attempts | Focused admission and Runtime cases pass; complete CI disposition is recorded on the PR |
+| 2: public traversal | Actual Source build/check/run; empty/single/max/over-bound, order and later-item mutations; numeric and eager refusal | Fold subprocess build/check/run passes; nine maintained Experiment bindings are refreshed |
 | 3: compositional basis | Filter/count/map/reduce witnesses; typed construction; no redundant traversal host nodes | Public map/filter/count/reduction and Formula-slot witnesses pass |
-| 4: independent consumers | Separate admission, execution and metering; mutually consumed artifacts; counterfeit dynamic audit refusal | All 31 Operation vectors agree, including six fold vectors; post-state counterexamples pass; final checks pending |
+| 4: independent consumers | Separate admission, execution and metering; mutually consumed artifacts; counterfeit dynamic audit refusal | All 31 Operation vectors agree, including six fold vectors; post-state and exact-refusal counterexamples pass |
 | 5: honest resource cost | All-selected and eager rejected construction; copied cells, cumulative slots, elapsed time and peak live memory at declared limits | Nine original variants and three later boundary runs; source-pinned results and quadratic cumulative copy cost recorded |
-| 6: bounded extension handoff | Permanent reusable assets for #878; no sorting/zone/effect-request or full genre claim | Maintained Source/Experiment and reusable cases exist; issue delivery still pending |
+| 6: bounded extension handoff | Permanent reusable assets for #878; no sorting/zone/effect-request or full genre claim | Maintained Source/Experiment and reusable cases exist; #878 owns the extension validation |
 
 Every public or independent result must record its exact source/head, command, observation
 and scope. Failed intermediate integration remains explicit. Test totals do not replace
@@ -192,8 +194,7 @@ It distinguishes the committed Snapshot ledger from the next execution's total,
 preserves the cumulative charge across scenarios, and checks the next legal dispatch.
 The old hand-counted Formula traversal and duplicate completed-Event replay pass are
 deleted. Formula refusals also bind the actual root or scheduled dispatch context and
-the correct attempted-call prefix. Twenty permanent ledger regressions pass; final
-independent review and complete CI remain open.
+the correct attempted-call prefix. Twenty permanent ledger regressions pass.
 
 The separately reproduced roguelike publication failure comes from confusing
 guard-expanded audit positions with authored Formula positions in Replay. Correcting
@@ -207,6 +208,23 @@ cases pass. Independent paired execution accepts the real artifact set and rejec
 individually resealed context or ledger mutations. The public Runtime refusal returns
 exit 2 with a terminal audit instead of an internal error. The new tests belong to the
 required composition shard.
+
+The independent Spec recheck at `c9d70ccbf` found that a genuine Metric observation
+Event-limit refusal could still claim a selected step-limit reason. The corrected
+branch binds the actual next Metric, its existing observation dispatch metadata,
+empty call evidence and the selected `event-limit` reason. Nine individually resealed
+reason/context mutations change from accepted to refused; the valid artifact remains
+accepted. The twenty ledger cases and two external-input cases pass together.
+
+[CI at `c9d70ccbf`](https://github.com/aigengame/godot-agent/actions/runs/34129533736)
+passed eight of ten test partitions. Composition had one stale assertion that compared
+an execution Operation with its complete Package definition, including the retired
+`vectors` member; its corrected public case passes while retaining exact equality for
+every execution member. The Model partition reached its 480-second bound before JUnit
+completion. Admission and preparation now form a separate required partition; the
+timeout, collected test identities and outcome gates are unchanged. The local complete
+inventory contains 1,967 tests and 347 package vectors. These observations do not claim
+that the failed run passed; the PR records the subsequent complete run.
 
 A [separate successful-termination defect](evidence/bounded-fold/pending-root-followup.json)
 reproduces both before this slice and on its review head: a legal root Event left
