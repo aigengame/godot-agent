@@ -90,6 +90,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "bounded-fold": (
         "test_bounded_fold_formula.py",
         "test_bounded_fold_independent.py",
+        "test_bounded_fold_ledger.py",
         "test_bounded_fold_numeric_effects.py",
         "test_bounded_fold_public.py",
         "test_bounded_fold_replay.py",

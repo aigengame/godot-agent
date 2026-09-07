@@ -185,11 +185,26 @@ test obligation was relaxed.
 
 Independent review found two further gaps: a typed fold result could not feed the
 existing integer state-subtraction operation, and an audit could forge its starting
-work ledger to shift the alleged first refusal. The Runtime numeric projection is
-corrected; independent Replay and cumulative-ledger verification remain under review.
+work ledger to shift the alleged first refusal. Runtime and independent Replay now
+use their existing numeric projections. The audit derives initialization, completed
+Event and observation work from checked inputs and the existing independent walkers.
+It distinguishes the committed Snapshot ledger from the next execution's total,
+preserves the cumulative charge across scenarios, and checks the next legal dispatch.
+The old hand-counted Formula traversal and duplicate completed-Event replay pass are
+deleted. Formula refusals also bind the actual root or scheduled dispatch context and
+the correct attempted-call prefix. Twenty permanent ledger regressions pass; final
+independent review and complete CI remain open.
+
 The separately reproduced roguelike publication failure comes from confusing
-guard-expanded audit positions with authored Formula positions in Replay. The final
-CI and review receipts must close these issues before production acceptance.
+guard-expanded audit positions with authored Formula positions in Replay. Correcting
+that lookup restores the two affected public paths while retaining post-state checks.
+
+A [separate successful-termination defect](evidence/bounded-fold/pending-root-followup.json)
+reproduces both before this slice and on its review head: a legal root Event left
+pending after early scenario termination causes full-set admission to fail. The
+successful journal's completeness check omits authenticated but unexecuted roots.
+[#879](https://github.com/aigengame/godot-agent/issues/879) owns its correction and
+the corresponding valid/forged-root consumer regressions.
 
 ## Implementation order and ownership
 
