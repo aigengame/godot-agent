@@ -6,8 +6,7 @@ from typing import Any, cast
 
 from gda_balancing.interfaces.cli.evidence_verify import EVIDENCE_VERIFY
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
-from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
-from gda_balancing.interfaces.cli.surface import descriptor_identity, surface_manifest
+from gda_balancing.interfaces.cli.surface import surface_manifest
 
 
 def test_descriptor_owns_the_exact_artifact_set_inputs() -> None:
@@ -17,7 +16,6 @@ def test_descriptor_owns_the_exact_artifact_set_inputs() -> None:
     }
 
     assert inputs == {
-        "model_build_artifact_set_receipt": MODEL_BUILD,
         "experiment_run_artifact_set_receipt": EXPERIMENT_RUN,
     }
     rows = cast(
@@ -29,13 +27,6 @@ def test_descriptor_owns_the_exact_artifact_set_inputs() -> None:
         item["receipt_field"]: item
         for item in cast(list[dict[str, Any]], row["input_artifact_sets"])
     }
-    assert projected["model_build_artifact_set_receipt"][
-        "producer_descriptor_identity"
-    ] == (descriptor_identity(MODEL_BUILD))
-    assert [
-        member["logical_name"]
-        for member in projected["model_build_artifact_set_receipt"]["artifact_sets"][0]
-    ] == [member.logical_name for member in MODEL_BUILD.artifact_set]
     assert [
         [member["logical_name"] for member in artifact_set]
         for artifact_set in projected["experiment_run_artifact_set_receipt"][
@@ -63,14 +54,10 @@ def test_public_cli_returns_one_open_evaluable_candidate(run_cli, invocation) ->
         "claim_kind",
         "claim_state",
         "producing_outcome",
-        "kernel_identity",
-        "language_bundle_identity",
-        "model_source_identity",
-        "resolved_model_identity",
+        "rir_semantic_identity",
         "experiment_identity",
         "resolved_runtime_profile_identity",
         "evaluator_capability_manifest_identity",
-        "model_build_artifact_set_receipt_identity",
         "experiment_run_artifact_set_receipt_identity",
     }
     assert all(
@@ -80,7 +67,7 @@ def test_public_cli_returns_one_open_evaluable_candidate(run_cli, invocation) ->
     )
 
 
-def test_public_cli_supports_params_json_with_the_same_five_inputs(
+def test_public_cli_supports_params_json_with_the_same_four_inputs(
     run_cli, invocation
 ) -> None:
     argv = invocation(EVIDENCE_VERIFY)
@@ -112,7 +99,7 @@ def test_public_cli_reports_an_unreadable_input_before_an_unknown_claim_kind(
     argv = list(invocation(EVIDENCE_VERIFY, refusing=True))
     for option in (
         "--specification",
-        "--model-build-artifact-set-receipt",
+        "--rir",
         "--experiment-run-artifact-set-receipt",
     ):
         argv[argv.index(option) + 1] = str(
@@ -135,9 +122,8 @@ def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> N
     schema = json.loads(schema_stdout)
     assert schema["input"]["required"] == [
         "claim_kind",
-        "source",
+        "rir",
         "specification",
-        "model_build_artifact_set_receipt",
         "experiment_run_artifact_set_receipt",
     ]
     success_properties = schema["success"]["properties"]
@@ -152,13 +138,14 @@ def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> N
     assert (help_exit, help_stderr) == (0, "")
     for option in (
         "--claim-kind",
-        "--source",
+        "--rir",
         "--specification",
-        "--model-build-artifact-set-receipt",
         "--experiment-run-artifact-set-receipt",
     ):
         assert option in help_stdout
     assert "<document>" not in help_stdout
+    assert "--source" not in help_stdout
+    assert "--model-build-artifact-set-receipt" not in help_stdout
 
 
 def test_public_cli_maps_missing_inputs_to_usage_exit_three(run_cli) -> None:
