@@ -10,9 +10,11 @@ import json
 
 import jsonschema
 import pytest
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.commands.game import GameFindParams
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from tests.support import (
@@ -458,6 +460,46 @@ def test_game_find_schema_publishes_the_selectors_and_the_match_shape():
     )
     match = doc["output"]["$defs"]["GameMatch"]
     assert {"path", "name", "type", "script_path"} <= set(match["properties"])
+
+
+def test_game_find_schema_and_model_agree_on_the_selector_rule():
+    # A standard Draft 2020-12 validator and the pydantic model must give the
+    # SAME verdict on the published input contract (ADR-0015): the "at least one
+    # selector" rule spans five fields, so it is published as an anyOf beside the
+    # model validator that enforces it. Without it a schema-only client — gda-mcp
+    # builds its tool from exactly this schema — would offer {}, valid by the
+    # contract and refused at dispatch.
+    schema = GameFindParams.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    corpus = [
+        ({"type": "Button"}, True),
+        ({"script": "res://ui/card_view.gd"}, True),
+        ({"group": "hud"}, True),
+        ({"name": "Ok"}, True),
+        ({"unique_name": "Value"}, True),
+        ({"type": "Button", "group": "hud", "max_depth": 2}, True),
+        ({"type": "Button", "root": "/root/Main", "max_depth": 0}, True),
+        # No selector, spelled three ways: absent, explicitly null, and empty —
+        # a null selector selects nothing, which is why each anyOf branch names
+        # the property's type as well as requiring the key.
+        ({}, False),
+        ({"root": "/root/Main", "max_depth": 1}, False),
+        ({"type": None}, False),
+        ({"type": None, "script": None, "group": None}, False),
+        ({"type": ""}, False),
+        # The bound rides the same contract.
+        ({"type": "Button", "max_depth": -1}, False),
+    ]
+
+    for payload, expected in corpus:
+        schema_ok = validator.is_valid(payload)
+        try:
+            GameFindParams(**payload)
+            model_ok = True
+        except ValidationError:
+            model_ok = False
+        assert schema_ok == expected, f"schema verdict for {payload}"
+        assert model_ok == expected, f"model verdict for {payload}"
 
 
 def test_game_find_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):

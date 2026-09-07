@@ -566,9 +566,11 @@ func _script_chain_carries(node: Node, wanted: String) -> bool:
 
 # One match: game tree's per-node identity (name/type/path) plus the res:// path
 # of the script this node itself carries — null when it has none, and null too
-# for an EMBEDDED script, which has no path to report. Never the base script the
-# chain matched: the caller asked which nodes match, and this answers what each
-# one is.
+# when the script has NO resource_path, which is one created and assigned at run
+# time (GDScript.new()). A script stored inside a scene file is not that case: it
+# has a sub-resource path (res://main.tscn::GDScript_abc12) and reports it. Never
+# the base script the chain matched: the caller asked which nodes match, and this
+# answers what each one is.
 func _match_payload(node: Node) -> Dictionary:
 	var script: Variant = node.get_script()
 	var script_path: Variant = null

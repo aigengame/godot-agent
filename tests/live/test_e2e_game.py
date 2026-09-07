@@ -1047,6 +1047,58 @@ def test_game_find_locates_nodes_by_selector_and_counts_what_it_left_unsearched(
 
 
 @pytest.mark.e2e
+def test_game_find_walks_a_chain_deeper_than_the_call_stack(
+    tmp_path, daemon_runtime_dir
+):
+    # The search walk carries #849's lesson, and needs its own guard: a
+    # RECURSIVE find over the same 2200-node chain overflowed GDScript's call
+    # stack and reported `count: 0, truncated: false` for a node that is right
+    # there — proven absence, wrong — while `--type Node` returned 2044 of 2201.
+    # Both are successful-looking results, so only an exact-count case at this
+    # depth catches it.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(DEEP_CHAIN_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(DEEP_CHAIN_MAIN_GD, encoding="utf-8")
+
+    run = Gda(tmp_path, json_output=True)
+    deepest_name = str(DEEP_CHAIN_DEPTH - 1)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        # The last node of the chain is REACHED, so its absence is never claimed.
+        found = run("game", "find", "--name", deepest_name)
+        assert found.returncode == 0, found.stdout + found.stderr
+        deepest = json.loads(found.stdout)
+        assert deepest["count"] == 1
+        assert _paths(deepest)[0].endswith("/" + deepest_name)
+        assert deepest["truncated"] is False and deepest["omitted_nodes"] == 0
+
+        # And the whole chain is counted exactly: the Node2D scene root plus
+        # every chain node, all of which answer --type Node.
+        every = run("game", "find", "--type", "Node")
+        assert every.returncode == 0, every.stdout + every.stderr
+        assert json.loads(every.stdout)["count"] == DEEP_CHAIN_DEPTH + 1
+
+        # Bounded, the same walk tests the root alone and counts the whole chain
+        # as unsearched — the count-only pass at a depth recursion cannot reach.
+        alone = run("game", "find", "--type", "Node", "--max-depth", "0")
+        assert alone.returncode == 0, alone.stdout + alone.stderr
+        bounded = json.loads(alone.stdout)
+        assert bounded["count"] == 1
+        assert bounded["truncated"] is True
+        assert bounded["omitted_nodes"] == DEEP_CHAIN_DEPTH
+
+        # And no engine error was left behind: the overflow surfaced there while
+        # the op still reported success.
+        errors = run("diag", "errors")
+        assert errors.returncode == 0, errors.stdout + errors.stderr
+        assert json.loads(errors.stdout)["errors"] == []
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
 def test_game_find_scopes_a_unique_name_to_the_owners_inside_the_search(
     tmp_path, daemon_runtime_dir
 ):

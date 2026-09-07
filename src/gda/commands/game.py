@@ -172,6 +172,26 @@ FIND_SELECTOR_FLAGS = ", ".join(
     "--" + selector.replace("_", "-") for selector in FIND_SELECTORS
 )
 
+# The "at least one selector" rule, published as JSON Schema so a standard
+# Draft 2020-12 validator reaches the SAME verdict as the model. ADR-0015 makes
+# the params model the one authority for both, which means the published input
+# contract must not be WIDER than the ABI `--params-json` accepts — and
+# `gda-mcp` builds its tool from exactly this schema, so a schema-only client
+# would otherwise offer `{}`: valid by the contract, `invalid_params` at
+# dispatch. Follows the `project add-input-action` precedent
+# (`gda.commands.project._AT_LEAST_ONE_BINDING_SCHEMA`, #743). The per-branch
+# `properties` clause is load-bearing, not decoration: `required` alone accepts
+# an explicit `{"type": null}`, which the model refuses because a null selector
+# selects nothing. `_require_one_selector` below stays the ENFORCING authority;
+# a parity corpus (tests/live/test_game_commands.py) runs the same payloads
+# through both and requires one verdict, so the two cannot drift.
+_AT_LEAST_ONE_SELECTOR_SCHEMA: dict[str, Any] = {
+    "anyOf": [
+        {"required": [selector], "properties": {selector: {"type": "string"}}}
+        for selector in FIND_SELECTORS
+    ]
+}
+
 
 class GameMatch(BaseModel):
     """One node ``gda game find`` matched (#855).
@@ -189,14 +209,21 @@ class GameMatch(BaseModel):
             "`game rect` / `game set` / `game call` address it by."
         )
     )
-    name: str
+    name: str = Field(
+        description=(
+            "The node's runtime name — unique among its siblings only, so "
+            "several matches can share it."
+        )
+    )
     type: str = Field(description="The node's engine class (e.g. CheckBox).")
     script_path: str | None = Field(
         description=(
-            "The `res://` path of the script attached to this node, or null "
-            "when it carries none (or an embedded one, which has no path). It "
-            "is the node's OWN script even when `--script` matched further up "
-            "its base chain."
+            "The `res://` path of the script attached to this node; null when "
+            "it carries none, or when the script has no resource_path (one "
+            "created and assigned at run time). A script stored INSIDE a scene "
+            "file reports its sub-resource path "
+            "(res://main.tscn::GDScript_abc12). It is the node's OWN script "
+            "even when `--script` matched further up its base chain."
         )
     )
 
@@ -216,6 +243,8 @@ class GameFindParams(RelayedLiveParams):
     autoloads are, so finding one takes ``root="/root"``.
     """
 
+    model_config = ConfigDict(json_schema_extra=_AT_LEAST_ONE_SELECTOR_SCHEMA)
+
     type: str | None = Field(
         default=None,
         min_length=1,
@@ -223,7 +252,9 @@ class GameFindParams(RelayedLiveParams):
             "Match nodes of this ENGINE class, subclass-inclusive "
             "(Node.is_class): `Button` also matches a `CheckBox`, and `Control` "
             "matches every Control. A project `class_name` is NOT an engine "
-            "class and is never matched here — use `script` for that."
+            "class and is never matched here — use `script` for that. A name "
+            "`is_class` does not know (a typo, or exactly that `class_name`) "
+            "matches nothing: an empty successful search, never a refusal."
         ),
     )
     script: str | None = Field(
@@ -862,7 +893,9 @@ def game_find(
         help=(
             "Match this ENGINE class, subclass-inclusive: --type Button also "
             "matches a CheckBox. A project `class_name` is not an engine class "
-            "and is never matched here — use --script for that."
+            "and is never matched here — use --script for that. A class name "
+            "the engine does not know matches nothing: an empty successful "
+            "search, not a refusal."
         ),
     ),
     script: Optional[str] = typer.Option(
@@ -930,13 +963,18 @@ def game_find(
     (`--type Control` matches every Control); it never sees a project
     `class_name`, which is what `--script` reaches — matching the node's
     attached script or any script in its base chain. `--unique-name` decides
-    against the node's OWN owner: the owner declaring the `%` name must be the
-    search root or lie inside the searched subtree, because a running tree holds
-    many owners (every autoload, every instanced sub-scene).
+    is decided by the node's OWN owner (not `current_scene`): the owner
+    declaring the `%` name must be the search root or lie inside the searched
+    subtree, because a running tree holds many owners (every autoload, every
+    instanced sub-scene).
+
+    A class name `is_class` does not know — a typo, or exactly the project
+    `class_name` `--script` is for — matches nothing. That is an empty
+    successful search, not a refusal.
 
     Ambiguity is data, not an error: every candidate comes back and zero matches
     is a success with an empty list. `--root` and `--max-depth` bound the search
-    as they bound `game tree`, defaulting to the running current scene, and what
+    as they bound `game tree`; unset, `--root` is the running current scene. What
     a bound left unsearched is counted in `omitted_nodes` — while that is above
     zero, an empty result does not prove a node is absent. With no daemon it
     reports `daemon_not_running`; a `--root` that resolves to nothing is
