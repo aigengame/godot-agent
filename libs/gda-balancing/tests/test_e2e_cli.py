@@ -1209,14 +1209,23 @@ class TestKeyUserPath:
             )
         )
         assert (
-            baseline_profile["evaluator_manifest_identity"],
             baseline_profile["runtime_profile_definition_identity"],
             baseline_profile["runtime_profile"],
         ) == (
-            tuned_profile["evaluator_manifest_identity"],
             tuned_profile["runtime_profile_definition_identity"],
             tuned_profile["runtime_profile"],
         )
+        baseline_evaluator = json.loads(
+            _receipt_members(baseline_receipt)[
+                "evaluator-capability-manifest"
+            ].read_text(encoding="utf-8")
+        )
+        tuned_evaluator = json.loads(
+            _receipt_members(tuned_receipt)["evaluator-capability-manifest"].read_text(
+                encoding="utf-8"
+            )
+        )
+        assert baseline_evaluator == tuned_evaluator
         assert baseline_trace["content_identity"] != tuned_trace["content_identity"]
         assert (
             json.loads(

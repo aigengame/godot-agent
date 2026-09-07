@@ -238,7 +238,7 @@ def test_revision_refusal_leaves_existing_revisions_runnable(
     assert refused["refusal"]["diagnostics"][0]["code"] == (
         "language.resolved_authority_mismatch"
     )
-    assert refused["refusal"]["diagnostics"][0]["pointer"] == (
+    assert refused["refusal"]["diagnostics"][0]["primary"]["pointer"] == (
         "/model/rir_semantic_identity"
     )
     assert rerun["outcome"] == "success"
@@ -745,10 +745,17 @@ def test_cli_publication_and_http_inline_execution_are_semantically_identical(
         "a" * 64,
     )
     assert (built.returncode, built.stderr) == (0, ""), built.stdout
+    rir = next(
+        row["locator"]
+        for row in json.loads(built.stdout)["member_locators"]
+        if row["logical_name"] == "rir-semantic-payload"
+    )
     cli_run = _run_console(
         "experiment",
         "run",
         str(_ROGUELIKE_EXAMPLE / "experiment.json"),
+        "--rir",
+        rir,
         "--out",
         str(run_out),
         "--invocation-key",
