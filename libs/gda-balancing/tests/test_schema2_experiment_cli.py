@@ -72,6 +72,10 @@ from schema2_bootstrap_production_support import (
     _refresh_package_closure_and_reidentify,
 )
 from schema2_authority_support import mutable_authorities
+from schema2_value_program_production_support import evaluate_value_program_vector
+from schema2_value_program_reference_support import (
+    reference_evaluate_value_program_vector as _reference_evaluate_value_program_vector,
+)
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
 _PERIODIC_EXAMPLE_DIR = (
@@ -586,98 +590,6 @@ def _member(receipt: dict[str, Any], logical_name: str) -> dict[str, Any]:
     return json.loads(Path(locator).read_text(encoding="utf-8"))
 
 
-def _reference_evaluate_value_program_vector(
-    vector: dict[str, Any],
-) -> dict[str, Any]:
-    inp = vector["input"]
-    instructions = inp["instructions"]
-    numeric = inp["numeric"]
-    operands = {row["name"]: row["value"] for row in inp["operands"]}
-    cache: dict[bytes, int] = {}
-    charge = 0
-    result = None
-    signal = None
-    site = inp["site"]
-    for _ in range(inp["evaluations"]):
-        charge += len(instructions)
-        if charge > inp["resource_limit"]:
-            signal = "step-limit"
-            result = None
-            break
-        key = canonical_bytes(
-            {
-                "instructions": instructions,
-                "numeric": numeric,
-                "operands": [
-                    {"name": name, "value": value}
-                    for name, value in sorted(operands.items())
-                ],
-                "result": inp["result"],
-                "site": inp["site"],
-            }
-        )
-        if inp["cache"] and key in cache:
-            result = cache[key]
-            continue
-        values = dict(operands)
-        for row in instructions:
-            instruction = row["instruction"]
-            node = instruction["node"]
-            if node == "constant":
-                value = instruction["literal"]
-            elif node == "copy":
-                value = values[instruction["value"]]
-            elif node == "add":
-                value = values[instruction["left"]] + values[instruction["right"]]
-            elif node == "subtract":
-                value = values[instruction["left"]] - values[instruction["right"]]
-            elif node == "multiply":
-                value = values[instruction["left"]] * values[instruction["right"]]
-            elif node == "floor-divide":
-                divisor = values[instruction["right"]]
-                if divisor <= 0:
-                    signal = "invalid-domain"
-                    site = row["evaluation_site_identity"]
-                    result = None
-                    break
-                value = values[instruction["left"]] // divisor
-            elif node == "maximum":
-                value = max(
-                    values[instruction["left"]],
-                    values[instruction["right"]],
-                )
-            else:
-                assert node == "if"
-                value = values[
-                    instruction[
-                        "when_true"
-                        if values[instruction["condition"]]
-                        else "when_false"
-                    ]
-                ]
-            if not numeric["minimum"] <= value <= numeric["maximum"]:
-                signal = "numeric-overflow"
-                site = row["evaluation_site_identity"]
-                result = None
-                break
-            values[instruction["target"]] = value
-        if signal is not None:
-            break
-        result = values[inp["result"]]
-        if inp["cache"]:
-            cache[key] = result
-    admitted = signal is None
-    return {
-        "cache_entries": len(cache),
-        "charge": charge,
-        "outcome": "admitted" if admitted else "refused",
-        "result": result,
-        "result_artifact": admitted,
-        "signal": signal,
-        "site": inp["site"] if admitted else site,
-    }
-
-
 def _reference_evaluate_formula_document(
     formula: dict[str, Any], arguments: list[dict[str, Any]]
 ) -> int:
@@ -938,9 +850,14 @@ def _assert_observation_evidence_matches_package_vector(
         },
     ]
     assert projected_operands == vector["input"]["operands"]
-    production = experiment_runtime_module._evaluate_value_program_vector(vector)
+    production = evaluate_value_program_vector(
+        authority_module.packaged_authority_context().kernel,
+        vector,
+        phase="observation",
+    )
     reference = _reference_evaluate_value_program_vector(vector)
-    assert production == reference == vector["expect"]
+    assert production == vector["expect"]
+    assert reference == vector["expect"]
 
 
 def _experiment(
@@ -5535,6 +5452,7 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
                     program="formula.observation",
                     evaluation_site_identity="sha256:" + "f" * 64,
                     frame_identity=frame_identity,
+                    consumed_steps=kwargs["consumed_steps"],
                 )
             cache = kwargs.get("cache")
             assert isinstance(cache, dict)
@@ -7409,7 +7327,7 @@ def test_scheduler_consumers_refuse_unknown_requested_mutations(consumer):
 
 
 def test_package_value_program_vectors_execute_in_two_consumers():
-    _kernel, ldb = mutable_authorities()
+    kernel, ldb = mutable_authorities()
     vectors = [
         vector
         for vector in next(
@@ -7432,13 +7350,15 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         "formula.runtime.floor-divide.refuse.negative-divisor",
     }
     for vector in vectors:
-        production = experiment_runtime_module._evaluate_value_program_vector(vector)
         reference = _reference_evaluate_value_program_vector(vector)
-        assert production == reference == vector["expect"]
+        assert reference == vector["expect"]
+        for phase in ("initialization", "event", "observation"):
+            production = evaluate_value_program_vector(kernel, vector, phase=phase)
+            assert production == vector["expect"]
 
 
 def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
-    _kernel, ldb = mutable_authorities()
+    kernel, ldb = mutable_authorities()
     vectors = [
         vector
         for vector in next(
@@ -7465,9 +7385,10 @@ def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
     for vector in vectors:
         assert vector["kind"] == "value-program"
         assert vector["input"]["site"] in expected_sites
-        production = experiment_runtime_module._evaluate_value_program_vector(vector)
+        production = evaluate_value_program_vector(kernel, vector, phase="observation")
         reference = _reference_evaluate_value_program_vector(vector)
-        assert production == reference == vector["expect"]
+        assert production == vector["expect"]
+        assert reference == vector["expect"]
 
 
 def test_completed_negative_judgment_publishes_only_typed_verdict_set(
