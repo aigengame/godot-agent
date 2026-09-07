@@ -566,8 +566,7 @@ class InputTapParams(RelayedLiveParams):
     ``InputEventAction`` presses/releases through the viewport instead, which
     reaches the handlers and leaves the polled state untouched (``gda input action
     --help`` carries the full conformance matrix). It rides an action tap only: a
-    key tap already pushes an event.
-    ``modifiers`` ride a key tap only,
+    key tap already pushes an event. ``modifiers`` ride a key tap only,
     ``strength`` an action tap only. The whole window —
     ``hold_frames + settle_frames + 1`` frames — is bounded model-side to the
     shared per-window ceiling (ADR-0015, #223). The two failures that need the
@@ -1145,10 +1144,9 @@ class ActionSequenceEvent(_SequenceEvent):
     event in the same sequence to drive event-driven UI (#838), or set ``as_event``
     on this event to deliver the action itself as an ``InputEventAction`` through
     the viewport (#854). One sequence may mix all three, and the result names the
-    route per phase. It presses by
-    default and releases
-    with ``release`` — the mouse-button kind's ``pressed`` is NOT accepted here,
-    so a hold is a press event and a later ``release: true`` event.
+    route per phase. It presses by default and releases with ``release`` — the
+    mouse-button kind's ``pressed`` is NOT accepted here, so a hold is a press
+    event and a later ``release: true`` event.
     """
 
     type: Literal[InputEventType.ACTION] = Field(description="The event kind.")
