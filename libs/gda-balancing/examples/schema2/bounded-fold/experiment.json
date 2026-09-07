@@ -1,0 +1,170 @@
+{
+  "schema_version": "2.0.0",
+  "id": "example.bounded-fold",
+  "model": {
+    "rir_semantic_identity": "sha256:96fffb5b5287164662a93fd2e3310d852b126a44036f4604a7758bb47e1030e0"
+  },
+  "runtime": {
+    "profile": "standard.exact-int64-event-v1",
+    "required_evaluator": {
+      "operation_kinds": [
+        "event-program",
+        "pure-expression"
+      ],
+      "instruction_nodes": [
+        "add",
+        "constant",
+        "fold",
+        "if",
+        "less-than",
+        "list-append",
+        "multiply",
+        "write-state"
+      ],
+      "effects": [
+        "event.commit",
+        "metric.observe",
+        "snapshot.commit"
+      ],
+      "numeric_policies": [
+        "exact-int64"
+      ],
+      "rng_algorithms": [
+        "splitmix64-v1"
+      ],
+      "runtime_profiles": [
+        "standard.exact-int64-event-v1"
+      ]
+    }
+  },
+  "seed": {
+    "algorithm": "splitmix64-v1",
+    "value": 20260907
+  },
+  "scenarios": [
+    {
+      "id": "fold-once",
+      "event_plan": [
+        {
+          "kind": "transition-invocation",
+          "root_event_ref": "fold-once",
+          "logical_time": 0,
+          "priority": 0,
+          "entrypoint": "fold",
+          "payload": []
+        }
+      ],
+      "assignments": [
+        {
+          "target": {
+            "model": "example.bounded-fold",
+            "module": "fold",
+            "name": "items"
+          },
+          "value": {
+            "type": {
+              "package": "standard.conformance.structured",
+              "id": "IntList4"
+            },
+            "value": [
+              1,
+              2,
+              3,
+              4
+            ]
+          }
+        },
+        {
+          "target": {
+            "model": "example.bounded-fold",
+            "module": "fold",
+            "name": "selected_items"
+          },
+          "value": {
+            "type": {
+              "package": "standard.conformance.structured",
+              "id": "IntList4"
+            },
+            "value": []
+          }
+        },
+        {
+          "target": {
+            "model": "example.bounded-fold",
+            "module": "fold",
+            "name": "selected_count"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "model": "example.bounded-fold",
+            "module": "fold",
+            "name": "ordered_value"
+          },
+          "value": 0
+        }
+      ],
+      "named_streams": [],
+      "terminal_condition": {
+        "kind": "event-count",
+        "maximum": 1
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "id": "selected_count",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "selected_count"
+      },
+      "target": {
+        "minimum": 2,
+        "maximum": 2
+      }
+    },
+    {
+      "id": "ordered_value",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "ordered_value"
+      },
+      "target": {
+        "minimum": 1234,
+        "maximum": 1234
+      }
+    }
+  ],
+  "acceptance": {
+    "policy": "all-metrics-within-target"
+  }
+}

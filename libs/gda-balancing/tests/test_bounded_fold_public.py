@@ -203,6 +203,10 @@ def test_public_fold_executes_ordered_input_and_admits_artifacts(
     candidate = _PublicCandidate(tmp_path, authorities=mutable_authorities())
     rir_path, rir = _build(candidate)
     specification = _specification(rir, items, count=count, order=order)
+    if items == [1, 2, 3, 4]:
+        maintained = json.loads((_EXAMPLE / "experiment.json").read_bytes())
+        assert maintained == specification
+        specification = maintained
     path, _ = _check(candidate, rir_path, specification)
     receipt = _run(candidate, rir_path, path)
     members = _members(receipt)
@@ -213,6 +217,7 @@ def test_public_fold_executes_ordered_input_and_admits_artifacts(
     assert len(events) == 1
     event = events[0]
     assert event["outcome"]["id"] == "folded"
+    assert event["calls"] == []  # Pure steps do not fabricate Event outcomes.
     assert {row["name"]: row["value"] for row in event["state_after"]} == {
         "selected_items": {"type": _LIST, "value": selected},
         "selected_count": count,
@@ -237,14 +242,22 @@ def test_public_fold_refuses_invalid_authored_input_before_execution(
         supplied["value"].append(5)
     elif change == "wrong-nominal":
         supplied["type"] = {"package": _OWNER, "id": "SelectionState"}
+        supplied["value"] = {
+            "candidates": [],
+            "results": [],
+            "selected": {"key": "candidate_a"},
+        }
     else:
         supplied["value"][2] = True
     _path, result = _check(candidate, rir_path, specification, success=False)
     error = result["error"]
-    assert error["stage"] != "runtime"
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["code"] == "language.structured_value_type_mismatch"
     assert "terminal_audit" not in error
-    assert error["diagnostics"][0]["primary"]["pointer"].startswith(
-        "/scenarios/0/assignments"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/assignments/0/value/value/2"
+        if change == "wrong-item"
+        else "/scenarios/0/assignments/0/value/value"
     )
     assert not (tmp_path / "run").exists()
 
@@ -316,3 +329,78 @@ def test_public_fold_first_refusal_preserves_atomic_state_and_admits_audit(
     )
     assert refusing["instruction_index"] == 1
     assert refusing["call_site_identity"] is None
+    assert refusing["attempted_calls"] == []
+
+
+def _capacity_authorities(capacity: int):
+    kernel, ldb = mutable_authorities()
+    resources = deepcopy(ldb["resources"])
+    profiles = deepcopy(ldb["language"]["runtime_profiles"])
+    package = next(row for row in ldb["language"]["packages"] if row["id"] == _OWNER)
+    nominal = next(
+        row
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.nominal_types"
+        for row in closure["definitions"]
+        if row["id"] == "IntList4"
+    )
+    nominal["definition"]["maximum_length"] = capacity
+    operation = next(
+        row
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+        for row in closure["definitions"]
+        if row["id"] == "bounded-fold-v1"
+    )
+    operation["resource_bounds"]["max_steps"] = 8 + 11 * capacity
+    vectors = next(
+        row
+        for row in ldb.package_conformance_vector_sets
+        if row["package_id"] == _OWNER
+    )
+    next(
+        row
+        for row in vectors["vector_definitions"]
+        if row["id"] == "bounded-fold.bounded-fold-v1.resource-bound"
+    )["expect"] = 8 + 11 * capacity
+    _bind_package_vector_set(package, vectors)
+    _reidentify_graph_root(ldb)
+    assert ldb["resources"] == resources
+    assert ldb["language"]["runtime_profiles"] == profiles
+    return kernel, ldb
+
+
+@pytest.mark.parametrize("capacity", [22, 23])
+def test_public_fold_respects_event_budget_without_raising_system_limits(
+    tmp_path: Path, capacity: int
+):
+    candidate = _PublicCandidate(tmp_path, authorities=_capacity_authorities(capacity))
+    rir_path, rir = _build(candidate)
+    specification = _specification(rir, [0] * capacity, count=capacity, order=0)
+    path, _ = _check(candidate, rir_path, specification)
+    result = _run(candidate, rir_path, path, success=capacity == 22)
+    if capacity == 22:
+        members = _members(result)
+        _admit_artifacts(candidate, rir, specification, members)
+        snapshot = members["snapshot-series"]["snapshots"][-1]
+        assert snapshot["continuation"]["resource_ledger"]["node_steps"] == 250
+        assert {row["name"]: row["value"] for row in snapshot["values"]} == {
+            "selected_items": {"type": _LIST, "value": [0] * capacity},
+            "selected_count": capacity,
+            "ordered_value": 0,
+        }
+        return
+    error = result["error"]
+    assert error["stage"] == "runtime"
+    assert error["diagnostics"][0]["code"] == "runtime.step_limit_exceeded"
+    members = _members(error["terminal_audit"])
+    _admit_artifacts(candidate, rir, specification, members)
+    audit = members["runtime-terminal-audit"]
+    assert audit["committed_trace_prefix"] == []
+    assert audit["budget_counters"]["event_steps"] == 257
+    assert audit["budget_counters"]["node_steps"] == 257
+    assert audit["refusing_event"]["call_path"] == "fold/ordered-items/@22"
+    assert audit["refusing_event"]["instruction_index"] == 1
+    assert audit["refusing_event"]["call_site_identity"] is None
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_before"] == audit["rollback"]["state_after"]
