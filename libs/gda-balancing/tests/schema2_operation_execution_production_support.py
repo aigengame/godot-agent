@@ -13,7 +13,9 @@ from gda_balancing.domain.experiment import (
     CheckedExperiment,
     derive_scenario_program_requirements,
 )
+from gda_balancing.domain.formula.inference import infer_formula_operation_result
 from gda_balancing.domain.formula.notation import render_formula_body
+from gda_balancing.domain.formula.types import formula_contract_from_operation
 from gda_balancing.domain.model import (
     AdmittedRir,
     CheckedModel,
@@ -201,6 +203,12 @@ def _formula_sources(
     selected_packages = _reachable_package_coordinates(language, root[0])
     runtime = cast(dict[str, Any], context.kernel["meta_format"]["runtime_program"])
     numeric = cast(dict[str, int], runtime["numeric"])
+    policy = next(
+        row for row in language["resolution_profiles"] if row.get("default") is True
+    )["extensions"]["standard.formula"]["notation_conversion"]
+    boolean_contract = formula_contract_from_operation(
+        runtime["fixed_value_contracts"]["kernel-boolean"]
+    )
     expression_operations: list[tuple[OperationCoordinate, dict[str, Any]]] = []
     for coordinate, operation in operations.items():
         if coordinate[0] not in selected_packages:
@@ -233,6 +241,15 @@ def _formula_sources(
         for slot in slots:
             parameters = {
                 row["id"]: row for row in cast(list[dict[str, Any]], slot["parameters"])
+            }
+            local_contracts = {
+                name: _formula_contract(
+                    parameter,
+                    aliases,
+                    minimum=numeric["minimum"],
+                    maximum=numeric["maximum"],
+                )
+                for name, parameter in parameters.items()
             }
             constants: dict[str, int] = {}
             nodes: list[dict[str, Any]] = []
@@ -313,28 +330,26 @@ def _formula_sources(
                             "id": expression_operation["id"],
                         },
                         "arguments": arguments,
-                        "result": _formula_contract(
-                            expression_operation["result"],
-                            aliases,
-                            minimum=(
-                                0
-                                if any(
-                                    row.get("node") == "maximum"
-                                    and any(
-                                        constant.get("node") == "constant"
-                                        and constant.get("literal") == 0
-                                        and constant.get("target")
-                                        in {row.get("left"), row.get("right")}
-                                        for constant in expression_operation["body"]
-                                    )
-                                    for row in expression_operation["body"]
-                                )
-                                else numeric["minimum"]
+                        "result": infer_formula_operation_result(
+                            expression_operation,
+                            [formal["id"] for formal in expression_operation["inputs"]],
+                            [
+                                local_contracts[references[formal["id"]]]
+                                for formal in expression_operation["inputs"]
+                            ],
+                            _formula_contract(
+                                expression_operation["result"],
+                                aliases,
+                                minimum=numeric["minimum"],
+                                maximum=numeric["maximum"],
                             ),
-                            maximum=numeric["maximum"],
+                            policy,
+                            aliases,
+                            boolean_contract=boolean_contract,
                         ),
                     }
                 )
+                local_contracts[nodes[-1]["id"]] = nodes[-1]["result"]
                 position += len(expression_operation["body"])
             body = (
                 {"node": "parameter", "parameter": placeholder[0]["value"]}

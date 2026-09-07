@@ -228,10 +228,9 @@ def reference_execute_event(
                         result = (
                             values[instruction["left"]] * values[instruction["right"]]
                         )
-                    elif node == "maximum":
-                        result = max(
-                            values[instruction["left"]],
-                            values[instruction["right"]],
+                    elif node == "less-than":
+                        result = (
+                            values[instruction["left"]] < values[instruction["right"]]
                         )
                     else:
                         assert node == "if"
@@ -242,7 +241,8 @@ def reference_execute_event(
                                 else "when_false"
                             ]
                         ]
-                    assert numeric["minimum"] <= result <= numeric["maximum"]
+                    if type(result) is int:
+                        assert numeric["minimum"] <= result <= numeric["maximum"]
                     values[instruction["target"]] = result
                 target = program["target"]
                 result_source = program["result"]
@@ -627,7 +627,6 @@ def reference_execute_event(
                     "integer-floor-divide",
                     "integer-subtract",
                     "integer-multiply",
-                    "integer-maximum",
                 }:
                     left = integer(cell(instruction["left"])["value"])
                     right = integer(cell(instruction["right"])["value"])
@@ -638,7 +637,6 @@ def reference_execute_event(
                         "integer-floor-divide": lambda: left // right,
                         "integer-subtract": lambda: left - right,
                         "integer-multiply": lambda: left * right,
-                        "integer-maximum": lambda: max(left, right),
                     }[operator]()
                     write_local(instruction["target"], exact(result))
                 elif operator == "integer-compare":

@@ -1,0 +1,125 @@
+{
+  "scope": "Single fresh-store observation per command, not a benchmark or speedup claim. Shared development host with other work; no controlled warmup or repetitions. Direct CLI child RSS from wait4, not a descendant-tree profiler.",
+  "environment": {
+    "system": "macOS-26.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "python": "3.13.13 (main, Jun  2 2026, 22:33:40) [Clang 22.1.3 ]",
+    "interpreter": "/Users/lelej/projects/godot-agent-worktree/codex-dev/libs/gda-balancing/.venv/bin/python"
+  },
+  "records": [
+    {
+      "phase": "baseline",
+      "command": [
+        "model",
+        "build"
+      ],
+      "elapsed_seconds": 3.699816207983531,
+      "direct_child_peak_rss": 98140160,
+      "peak_rss_unit": "bytes",
+      "argv": [
+        "model",
+        "build",
+        "/private/tmp/gda-876-public-2ifrpexb/package/libs/gda-balancing/examples/schema2/rpg-stat-composition/model-source.json",
+        "--out",
+        "/private/tmp/gda-876-public-worker-evidence/latency/baseline/build",
+        "--invocation-key",
+        "0101010101010101010101010101010101010101010101010101010101010101"
+      ]
+    },
+    {
+      "phase": "baseline",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "elapsed_seconds": 1.5127190420171246,
+      "direct_child_peak_rss": 79560704,
+      "peak_rss_unit": "bytes",
+      "argv": [
+        "experiment",
+        "check",
+        "/private/tmp/gda-876-public-2ifrpexb/package/libs/gda-balancing/examples/schema2/rpg-stat-composition/experiment.json",
+        "--rir",
+        "/private/tmp/gda-876-public-worker-evidence/latency/baseline/store/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+      ]
+    },
+    {
+      "phase": "baseline",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "elapsed_seconds": 1.6484536250354722,
+      "direct_child_peak_rss": 79806464,
+      "peak_rss_unit": "bytes",
+      "argv": [
+        "experiment",
+        "run",
+        "/private/tmp/gda-876-public-2ifrpexb/package/libs/gda-balancing/examples/schema2/rpg-stat-composition/experiment.json",
+        "--rir",
+        "/private/tmp/gda-876-public-worker-evidence/latency/baseline/store/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json",
+        "--out",
+        "/private/tmp/gda-876-public-worker-evidence/latency/baseline/run",
+        "--invocation-key",
+        "0202020202020202020202020202020202020202020202020202020202020202"
+      ]
+    },
+    {
+      "phase": "candidate",
+      "command": [
+        "model",
+        "build"
+      ],
+      "elapsed_seconds": 3.8019270829390734,
+      "direct_child_peak_rss": 98369536,
+      "peak_rss_unit": "bytes",
+      "argv": [
+        "model",
+        "build",
+        "/private/tmp/gda-876-public-worker/libs/gda-balancing/examples/schema2/rpg-stat-composition/model-source.json",
+        "--out",
+        "/private/tmp/gda-876-public-worker-evidence/latency/candidate/build",
+        "--invocation-key",
+        "0101010101010101010101010101010101010101010101010101010101010101"
+      ]
+    },
+    {
+      "phase": "candidate",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "elapsed_seconds": 1.5421404170338064,
+      "direct_child_peak_rss": 79855616,
+      "peak_rss_unit": "bytes",
+      "argv": [
+        "experiment",
+        "check",
+        "/private/tmp/gda-876-public-worker/libs/gda-balancing/examples/schema2/rpg-stat-composition/experiment.json",
+        "--rir",
+        "/private/tmp/gda-876-public-worker-evidence/latency/candidate/store/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+      ]
+    },
+    {
+      "phase": "candidate",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "elapsed_seconds": 1.6138240000000224,
+      "direct_child_peak_rss": 79986688,
+      "peak_rss_unit": "bytes",
+      "argv": [
+        "experiment",
+        "run",
+        "/private/tmp/gda-876-public-worker/libs/gda-balancing/examples/schema2/rpg-stat-composition/experiment.json",
+        "--rir",
+        "/private/tmp/gda-876-public-worker-evidence/latency/candidate/store/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json",
+        "--out",
+        "/private/tmp/gda-876-public-worker-evidence/latency/candidate/run",
+        "--invocation-key",
+        "0202020202020202020202020202020202020202020202020202020202020202"
+      ]
+    }
+  ]
+}

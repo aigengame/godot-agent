@@ -116,6 +116,16 @@ this record retain their historical meaning; they do not restore the deleted mec
 
 ## Context and evidence
 
+The [S6a record](../refactor/current-language/PRIMITIVE-COMPOSITION.md) refines
+the accepted primitive-deletion decision after a real Model-admission
+counterexample. Replacing maximum with comparison/selection alone loses Formula
+interval precision and rejects four maintained Models. Compiler-owned inference
+must retain the relevant comparison relationship and join possible branch values;
+it must not reintroduce an extrema-specific host rule or weaken authored contracts.
+Kernel instruction charges remain explicit, and current source pairs and identities
+must be refreshed consistently. The record preserves the negative evidence and
+required validation; this amendment does not claim that #876 is complete.
+
 The project owner states that gda-balancing has not had a formal product release: existing
 release records, including the `gda-balancing-v0.1.0` tag, changelog and distribution version,
 are internal revisions. Their existence does not establish formal release or language compatibility.

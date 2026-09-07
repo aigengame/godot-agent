@@ -1,0 +1,195 @@
+{
+  "capture_head": "20114803382d229de9acf8d941ae3a19d5db4b8e",
+  "integrated_head": "f06ff746f8bf0d0d0d640787d9ab55e24e5da2c6",
+  "changed_source_files": [
+    "libs/gda-balancing/src/gda_balancing/schema2/authorities/language-bundle.json",
+    "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/core-quantity/core.quantity.conformance-vectors.json",
+    "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/core-quantity/core.quantity.json",
+    "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/game-combat/game.combat.conformance-vectors.json",
+    "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/game-combat/game.combat.json",
+    "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-compiler/standard.compiler.conformance-vectors.json",
+    "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-compiler/standard.compiler.json",
+    "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.conformance-vectors.json",
+    "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json"
+  ],
+  "unchanged_python_source": true,
+  "unchanged_all_maintained_examples": true,
+  "unchanged_kernel": true,
+  "unchanged_package_semantics": [
+    {
+      "path": "src/gda_balancing/schema2/authorities/packages/core-quantity/core.quantity.json",
+      "semantic_identity": "sha256:39779cc4cb0143fdbe03483042e452d9c978d16dd813de07632b257f1b2d8b73"
+    },
+    {
+      "path": "src/gda_balancing/schema2/authorities/packages/game-combat/game.combat.json",
+      "semantic_identity": "sha256:b22ffaa3104de28b82972f6799aa9d53246a78b467f2b92c2c78a6f55e523b64"
+    },
+    {
+      "path": "src/gda_balancing/schema2/authorities/packages/standard-compiler/standard.compiler.json",
+      "semantic_identity": "sha256:f5b3d4f8b5ca13691b191a53de20de34f97b98cc8aa168b93687bef0f58eaac1"
+    },
+    {
+      "path": "src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+      "semantic_identity": "sha256:d5fb886b8fc743dea78b2ab2ba184b4a41d1da49e1891903f01a2e8012533a3e"
+    }
+  ],
+  "source_vector_oracle_changes": [
+    {
+      "vector": "model.compile.boundary-max-symbols",
+      "member": "rir_identity",
+      "before": "sha256:cfe7c5969490e39e567deb47c8bd0d603899ec61dd356725ec167380ae7a5bc0",
+      "after": "sha256:afd73247baefb26c37ff5d7f526db68fddd032c2b8ac6ccadb926fa657f614a9"
+    },
+    {
+      "vector": "model.compile.boundary-max-symbols",
+      "member": "debug_map_identity",
+      "before": "sha256:ce6c2d411cd48b37d89907f293d8e4d3309ab47f3106cea97b89138218ec60f0",
+      "after": "sha256:a43a55cd8052f2483e63b9bbfb4ee8d3020956b0e728bb8916111ad1447647c2"
+    },
+    {
+      "vector": "model.compile.mutation-role-change",
+      "member": "rir_identity",
+      "before": "sha256:70c77f00b273adea813148711cd678520f358806efb62607e40ed3d41e531c3b",
+      "after": "sha256:73ec4856d9041a08d5fac821794d9f3435dec1b6a1d6e343c6c2ac5dd4a25e98"
+    },
+    {
+      "vector": "model.compile.mutation-role-change",
+      "member": "debug_map_identity",
+      "before": "sha256:e7749b98810f86ea09fe9ade662701e28cc7bd20c21ef5c5ce6c534566563849",
+      "after": "sha256:8e12e66b774126ee10fb6a7e7c43d3ed9f38497488888ec99eb4afd1fee37137"
+    },
+    {
+      "vector": "model.compile.positive",
+      "member": "rir_identity",
+      "before": "sha256:a187f465169723837a6ebb10e4d57f4cadf2eb97c0b86d0131638cccbd96434b",
+      "after": "sha256:84a02a83e9acfd7137bf7c204a954aadf66d628e20abafddc0e42270317d508e"
+    },
+    {
+      "vector": "model.compile.positive",
+      "member": "debug_map_identity",
+      "before": "sha256:cb55e5559f86b1e0bb46012f10d01466e6d5c54c33d6a5d8d10e93d98c9fbc6c",
+      "after": "sha256:dc842c1f85dcd2fc51326161e00269ebc3f66a5b3a8acb9b1a20bcf9a8cac74d"
+    },
+    {
+      "vector": "model.compile.semantic-equivalent-order",
+      "member": "rir_identity",
+      "before": "sha256:a187f465169723837a6ebb10e4d57f4cadf2eb97c0b86d0131638cccbd96434b",
+      "after": "sha256:84a02a83e9acfd7137bf7c204a954aadf66d628e20abafddc0e42270317d508e"
+    },
+    {
+      "vector": "model.compile.semantic-equivalent-order",
+      "member": "debug_map_identity",
+      "before": "sha256:86d984835a8a6c6028de50f9bc03d6218c8b5ab48c13fed8fd6361cd317c945b",
+      "after": "sha256:c20272583d1fffff75fb2f552803df391747371204208955acec003804a33875"
+    },
+    {
+      "vector": "quantity.assignment-policy.optional-override",
+      "member": "rir_identity",
+      "before": "sha256:de7f988cd2de0a81005e6dc08b1c5c2225c1e48db9bb790f05eb2d50d56bb6d0",
+      "after": "sha256:e4a7789977dbc87a6baad4f134f9de77f693c301721ab6019d2a60ee05b38055"
+    },
+    {
+      "vector": "quantity.assignment-policy.optional-override",
+      "member": "debug_map_identity",
+      "before": "sha256:b17426a9026480659522a9ce9244020879c298d48bf0325ff824fb4979782fe5",
+      "after": "sha256:ddbb3d36e2a2d18c3616b75de050405842ee0bc8fdc8d7e9b01c79e229d20b91"
+    },
+    {
+      "vector": "quantity.literal.integer-admitted",
+      "member": "rir_identity",
+      "before": "sha256:1a9be5d1dae8529684a50123b969703bd2c24261d5a6e77986a14acf3314ebe8",
+      "after": "sha256:425a26f2db7085e755a12754945f6840e90d35a778c730e731c0fec5c0378891"
+    },
+    {
+      "vector": "quantity.literal.integer-admitted",
+      "member": "debug_map_identity",
+      "before": "sha256:651c39574012166b424367b7b64a8b6a33b566c252991846192f49c99d80a8ae",
+      "after": "sha256:fe9f7df53003b2c77fc147342fa9df4a8c5e9571a0eb50ad491059a901ce4eed"
+    },
+    {
+      "vector": "formula.quantity.accept.pure-operation-closure",
+      "member": "rir_identity",
+      "before": "sha256:865e19c71c9bc31ccf577195a9267df7cd02068b418d5e221750fe09dae5f8c7",
+      "after": "sha256:c7ac579ff7efdce2171c8714f0e7fba0efbd02abc95643e4073ebca53d9e0e9f"
+    },
+    {
+      "vector": "formula.quantity.accept.pure-operation-closure",
+      "member": "debug_map_identity",
+      "before": "sha256:f1926b001de35eea0f16dc60a55f2702568272fba1d8490db4c02735d0fd55ed",
+      "after": "sha256:dc067a760cd88212ca62bc791d16b74a0f8eb6ac4d132ac9f606b953ac0d65d3"
+    },
+    {
+      "vector": "game.combat.model-binding.distinct-defenses",
+      "member": "rir_identity",
+      "before": "sha256:4fef5af657185f71e956e5145ace31becf5048238630907505da9d6efaf8445a",
+      "after": "sha256:428509d00ead2ae6e0053fb29685a5ce9ebfad2833f1e1b8428fa3b610c8632b"
+    },
+    {
+      "vector": "game.combat.model-binding.distinct-defenses",
+      "member": "debug_map_identity",
+      "before": "sha256:5794918da63e387199faaa9b11347a1d24f1bbd40059f3ab4820686d8ed9549a",
+      "after": "sha256:19db0917b30bf5b707bdc58421bd112d0018dcb5e3895e22c629993f6b3329f1"
+    },
+    {
+      "vector": "game.combat.model-binding.symbol-rename",
+      "member": "rir_identity",
+      "before": "sha256:6f3ceb20c464749319fc8eb62b86cdbe25def361c4942aaa8790cc703703954f",
+      "after": "sha256:f6a8a48036abd02a1fea6ed25e05eb8e5c9467766ced156fc54e0f84c42233fe"
+    },
+    {
+      "vector": "game.combat.model-binding.symbol-rename",
+      "member": "debug_map_identity",
+      "before": "sha256:b8e049d16d5da4e10269493b36be3ee126ce288fabfddb5dda890b2209e80462",
+      "after": "sha256:2b1681cb5f6460b60da361aef992c6540dbf8098a71429ecd2e6fcfde4563b38"
+    },
+    {
+      "vector": "game.combat.model-binding.multiple-entrypoints",
+      "member": "rir_identity",
+      "before": "sha256:5a30679859ae931094f845dfa8095f9d4ddfb08fba4a47d0e14b8fb065720f01",
+      "after": "sha256:91af923bcba77a0afa7d1effed2599298d8160e537216daad57834623bce6c53"
+    },
+    {
+      "vector": "game.combat.model-binding.multiple-entrypoints",
+      "member": "debug_map_identity",
+      "before": "sha256:2d36087b5acbac8ea2ca03cfae2f96dde39d24bc4975f010f502ee10fd74484c",
+      "after": "sha256:af0f1c8710f62b290851c9755122024ecf4fcfab5f9be002f37d981a74f4031e"
+    },
+    {
+      "vector": "formula.combat.accept.damage-slot-binding",
+      "member": "rir_identity",
+      "before": "sha256:865e19c71c9bc31ccf577195a9267df7cd02068b418d5e221750fe09dae5f8c7",
+      "after": "sha256:c7ac579ff7efdce2171c8714f0e7fba0efbd02abc95643e4073ebca53d9e0e9f"
+    },
+    {
+      "vector": "formula.combat.accept.damage-slot-binding",
+      "member": "debug_map_identity",
+      "before": "sha256:f1926b001de35eea0f16dc60a55f2702568272fba1d8490db4c02735d0fd55ed",
+      "after": "sha256:dc067a760cd88212ca62bc791d16b74a0f8eb6ac4d132ac9f606b953ac0d65d3"
+    },
+    {
+      "vector": "formula.compiler.accept.closed-static-graph",
+      "member": "rir_identity",
+      "before": "sha256:865e19c71c9bc31ccf577195a9267df7cd02068b418d5e221750fe09dae5f8c7",
+      "after": "sha256:c7ac579ff7efdce2171c8714f0e7fba0efbd02abc95643e4073ebca53d9e0e9f"
+    },
+    {
+      "vector": "formula.compiler.accept.closed-static-graph",
+      "member": "debug_map_identity",
+      "before": "sha256:f1926b001de35eea0f16dc60a55f2702568272fba1d8490db4c02735d0fd55ed",
+      "after": "sha256:dc067a760cd88212ca62bc791d16b74a0f8eb6ac4d132ac9f606b953ac0d65d3"
+    },
+    {
+      "vector": "formula.schema.accept.named-typed-pure-graph",
+      "member": "rir_identity",
+      "before": "sha256:865e19c71c9bc31ccf577195a9267df7cd02068b418d5e221750fe09dae5f8c7",
+      "after": "sha256:c7ac579ff7efdce2171c8714f0e7fba0efbd02abc95643e4073ebca53d9e0e9f"
+    },
+    {
+      "vector": "formula.schema.accept.named-typed-pure-graph",
+      "member": "debug_map_identity",
+      "before": "sha256:f1926b001de35eea0f16dc60a55f2702568272fba1d8490db4c02735d0fd55ed",
+      "after": "sha256:dc067a760cd88212ca62bc791d16b74a0f8eb6ac4d132ac9f606b953ac0d65d3"
+    }
+  ],
+  "limit": "This directly verifies tracked source integration. Separate foundation receipts prove complete six maintained RIR byte equality after vector-only resealing; this script does not execute those builds again."
+}

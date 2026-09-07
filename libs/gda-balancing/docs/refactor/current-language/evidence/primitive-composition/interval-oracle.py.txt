@@ -1,0 +1,119 @@
+"""Disposable #876 evidence: interval projections versus concrete enumeration.
+
+No production imports; this is not a proposed compiler implementation.
+Domain: one integer comparison, direct/copy-related operands, one select.
+"""
+from itertools import product
+import json
+
+MIN, MAX = -(1 << 63), (1 << 63) - 1
+INVERSE = {"<": ">=", "<=": ">", ">": "<=", ">=": "<"}
+
+
+def compare(op, x, y):
+    return {"<": x < y, "<=": x <= y, ">": x > y, ">=": x >= y}[op]
+
+
+def hull(values):
+    values = list(values)
+    return (min(values), max(values)) if values else None
+
+
+def meet(a, b):
+    out = max(a[0], b[0]), min(a[1], b[1])
+    return out if out[0] <= out[1] else None
+
+
+def possible_projections(x, y, op, truth, same_origin=False):
+    """Existential projection; do not require every opposite operand to fit."""
+    if not truth:
+        op = INVERSE[op]
+    if same_origin:
+        common = meet(x, y)
+        return (common, common) if common and compare(op, 0, 0) else None
+    if op in (">", ">="):
+        out = possible_projections(y, x, "<" if op == ">" else "<=", True)
+        return (out[1], out[0]) if out else None
+    # Python mathematical integers deliberately avoid saturating +/-1 at Int64.
+    strict = int(op == "<")
+    px = meet(x, (MIN, y[1] - strict))
+    py = meet(y, (x[0] + strict, MAX))
+    return (px, py) if px is not None and py is not None else None
+
+
+def candidate(x, y, op, when_true, when_false, same_origin=False):
+    intervals = []
+    for truth, selected in ((True, when_true), (False, when_false)):
+        restricted = possible_projections(x, y, op, truth, same_origin)
+        if restricted is None:
+            continue
+        projected = {"x": restricted[0], "x-copy": restricted[0],
+                     "y": restricted[1], "z": (-1, 1),
+                     "high": (100, 100), "zero": (0, 0)}[selected]
+        intervals.extend(projected)
+    return hull(intervals)
+
+
+def concrete(x, y, op, when_true, when_false, same_origin=False):
+    results = []
+    for a in range(x[0], x[1] + 1):
+        for b in range(y[0], y[1] + 1):
+            if same_origin and a != b:
+                continue
+            selected = when_true if compare(op, a, b) else when_false
+            results.extend((a,) if selected in ("x", "x-copy") else
+                           (b,) if selected == "y" else (100,) if selected == "high"
+                           else (0,) if selected == "zero" else (-1, 0, 1))
+    return hull(results)
+
+
+intervals = [(lo, hi) for lo in range(-3, 4) for hi in range(lo, 4)]
+count = 0
+for x, y, op, t, f, alias in product(intervals, intervals, INVERSE,
+                                    ("x", "x-copy", "y", "z"),
+                                    ("x", "x-copy", "y", "z"), (False, True)):
+    observed = candidate(x, y, op, t, f, alias)
+    expected = concrete(x, y, op, t, f, alias)
+    assert observed == expected, (x, y, op, t, f, alias, observed, expected)
+    count += 1
+
+cases = []
+def witness(name, x, y, op, t, f, expected, alias=False):
+    actual = candidate(x, y, op, t, f, alias)
+    assert actual == expected, (name, actual, expected)
+    cases.append({"case": name, "x": x, "y": y, "predicate": op,
+                  "true": t, "false": f, "same_origin": alias,
+                  "expected": expected})
+
+witness("floor-zero", (-1000, 4040), (0, 0), "<", "y", "x", (0, 4040))
+witness("overlapping-max", (0, 10), (0, 10), "<", "y", "x", (0, 10))
+witness("overlapping-min", (-10, 5), (0, 10), "<", "x", "y", (-10, 5))
+witness("strict-singleton", (0, 0), (0, 0), "<", "z", "x", (0, 0))
+witness("inverse-singleton", (0, 0), (0, 0), ">=", "x", "z", (0, 0))
+witness("same-copy-impossible-true", (-2, 2), (-2, 2), "<", "z", "x-copy", (-2, 2), True)
+witness("equal-interval-is-not-alias", (-1, 1), (-1, 1), "<", "high", "zero", (0, 100))
+witness("proven-copy-removes-impossible-branch", (-1, 1), (-1, 1), "<", "high", "zero", (0, 0), True)
+witness("int64-max", (MIN, MAX), (MIN, MAX), "<", "y", "x", (MIN, MAX))
+witness("strict-below-MIN-is-empty", (MIN, MIN), (MIN, MIN), "<", "z", "x", (MIN, MIN))
+witness("strict-above-MAX-is-empty", (MAX, MAX), (MAX, MAX), ">", "z", "x", (MAX, MAX))
+witness("adjacent-MAX", (MAX-1, MAX), (MAX, MAX), "<", "y", "x", (MAX, MAX))
+
+# All-values narrowing is false: x=0,y=1 makes true-branch y=1 possible even
+# when x's interval maximum is 10. Restricting y to [max(x)+1, ...] loses it.
+assert compare("<", 0, 1) and 1 < 10 + 1
+
+# Eager select is a value node, not control flow: the unselected arithmetic
+# result still refuses before a later select can choose its safe operand.
+def eager_numeric_refusal():
+    overflow = MAX + 1
+    if not MIN <= overflow <= MAX:
+        return "numeric-overflow-before-select"
+    return 0
+assert eager_numeric_refusal() == "numeric-overflow-before-select"
+
+print(json.dumps({"exhaustive_small_interval_cases": count,
+                  "interval_domain": [-3, 3], "witnesses": cases,
+                  "nonclaims": ["not production integration", "not a relational solver",
+                    "no arithmetic-derived or nested predicate refinement",
+                    "nominal compatibility must be checked by existing owner",
+                    "result reachability does not delete eager instructions or charges"]}, indent=2))

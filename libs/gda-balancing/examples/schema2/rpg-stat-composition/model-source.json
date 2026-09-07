@@ -236,7 +236,7 @@
           "domain_kind": "closed-interval",
           "domain": {
             "minimum": 0,
-            "maximum": 4040
+            "maximum": 1000
           },
           "numeric_policy": "exact-int64",
           "value_policy": {
@@ -603,7 +603,7 @@
               "domain_kind": "closed-interval",
               "domain": {
                 "minimum": 0,
-                "maximum": 4040
+                "maximum": 1000
               },
               "numeric_policy": "exact-int64"
             },
@@ -629,7 +629,7 @@
             "domain_kind": "closed-interval",
             "domain": {
               "minimum": 0,
-              "maximum": 4040
+              "maximum": 1000
             },
             "numeric_policy": "exact-int64"
           },
@@ -666,7 +666,7 @@
                   "domain_kind": "closed-interval",
                   "domain": {
                     "minimum": -1000,
-                    "maximum": 4040
+                    "maximum": 1000
                   },
                   "numeric_policy": "exact-int64"
                 }
@@ -695,7 +695,7 @@
                   "domain_kind": "closed-interval",
                   "domain": {
                     "minimum": 0,
-                    "maximum": 4040
+                    "maximum": 1000
                   },
                   "numeric_policy": "exact-int64"
                 }
@@ -1160,7 +1160,7 @@
             "domain_kind": "closed-interval",
             "domain": {
               "minimum": 0,
-              "maximum": 4040
+              "maximum": 1000
             },
             "numeric_policy": "exact-int64"
           },
@@ -1233,7 +1233,7 @@
                   "domain_kind": "closed-interval",
                   "domain": {
                     "minimum": 0,
-                    "maximum": 4040
+                    "maximum": 1000
                   },
                   "numeric_policy": "exact-int64"
                 }

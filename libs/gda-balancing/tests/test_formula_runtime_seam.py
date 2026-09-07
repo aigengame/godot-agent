@@ -244,3 +244,46 @@ def test_reference_value_program_consumer_has_no_runtime_or_admission_imports():
         for module in modules
         if module is not None
     )
+
+
+@pytest.mark.parametrize(
+    ("numeric", "left", "right", "expected"),
+    (
+        ({"minimum": 2, "maximum": 7}, 3, 4, 4),
+        ({"minimum": -7, "maximum": -2}, -3, -4, -3),
+    ),
+)
+def test_composed_maximum_boolean_intermediate_is_outside_numeric_domain(
+    numeric, left, right, expected
+):
+    context = packaged_authority_context()
+    bundle = cast(LanguageBundleIndex, context.language_bundle)
+    vector = deepcopy(
+        next(
+            vector
+            for vector_set in bundle.package_conformance_vector_sets
+            if vector_set["package_id"] == "standard.runtime"
+            for vector in vector_set["vector_definitions"]
+            if vector["id"] == "formula.runtime.maximum.extrema"
+        )
+    )
+    vector["input"]["numeric"] = numeric
+    vector["input"]["operands"] = [
+        {"name": "left", "value": left},
+        {"name": "right", "value": right},
+    ]
+    expectation = {
+        "cache_entries": 0,
+        "charge": 2,
+        "outcome": "admitted",
+        "result": expected,
+        "result_artifact": True,
+        "signal": None,
+        "site": vector["input"]["site"],
+    }
+    assert reference.reference_evaluate_value_program_vector(vector) == expectation
+    for phase in ("initialization", "event", "observation"):
+        assert (
+            evaluate_value_program_vector(context.kernel, vector, phase=phase)
+            == expectation
+        )

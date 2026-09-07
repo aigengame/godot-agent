@@ -1,0 +1,235 @@
+{
+  "issue": 876,
+  "commit": "f48d56dd081ab37becf717127e83c7256d4bca86",
+  "file": "/private/tmp/gda-876-public-worker/libs/gda-balancing/tests/test_public_formula_runtime_seam.py",
+  "file_sha256": "2c872ca8a547ce1574c5aa13796216f70a20884943e4cdf0b0bc71e721997025",
+  "scope": "Real in-process CLI dispatch through existing run_cli, actual authority/Source/RIR/Experiment admission, real runtime evaluator wrapped for observation. Separate maintained captures use actual subprocess CLI.",
+  "test_disposition": {
+    "original_cases_preserved": 5,
+    "new_cases": 14,
+    "retired_cases": [],
+    "current_node_ids": [
+      "tests/test_public_formula_runtime_seam.py::test_public_nonempty_formula_phases_preserve_frames_charge_and_cached_results",
+      "tests/test_public_formula_runtime_seam.py::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[initialization-2-0-0-3]",
+      "tests/test_public_formula_runtime_seam.py::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[event-5-0-3-6]",
+      "tests/test_public_formula_runtime_seam.py::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[observation-20-1-19-22]",
+      "tests/test_public_formula_runtime_seam.py::test_public_numeric_formula_refusal_uses_the_real_instruction_site_before_snapshot_zero",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_extrema_in_all_formula_phases_and_cache[less]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_extrema_in_all_formula_phases_and_cache[greater]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_extrema_in_all_formula_phases_and_cache[equal-min]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_extrema_in_all_formula_phases_and_cache[equal-max]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_charges_at_each_phase_budget_boundary[below-initialization-0-3]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_charges_at_each_phase_budget_boundary[below-event-3-6]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_charges_at_each_phase_budget_boundary[below-observation-29-32]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_charges_at_each_phase_budget_boundary[at-initialization-0-3]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_charges_at_each_phase_budget_boundary[at-event-3-6]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_charges_at_each_phase_budget_boundary[at-observation-29-32]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_charges_at_each_phase_budget_boundary[above-initialization-0-3]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_charges_at_each_phase_budget_boundary[above-event-3-6]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_charges_at_each_phase_budget_boundary[above-observation-29-32]",
+      "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_eager_operand_overflow_precedes_snapshot_zero"
+    ],
+    "renamed_original_parameter_ids": {
+      "initialization-2-0": "initialization-2-0-0-3",
+      "event-5-0": "event-5-0-3-6",
+      "observation-20-1": "observation-20-1-19-22"
+    }
+  },
+  "green": {
+    "unique_cases": 19,
+    "evidence": {
+      "tests.test_public_formula_runtime_seam::test_public_nonempty_formula_phases_preserve_frames_charge_and_cached_results": {
+        "receipt": "public-final.xml",
+        "seconds": 2.502
+      },
+      "tests.test_public_formula_runtime_seam::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[initialization-2-0-0-3]": {
+        "receipt": "public-final.xml",
+        "seconds": 3.13
+      },
+      "tests.test_public_formula_runtime_seam::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[event-5-0-3-6]": {
+        "receipt": "public-final.xml",
+        "seconds": 3.44
+      },
+      "tests.test_public_formula_runtime_seam::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[observation-20-1-19-22]": {
+        "receipt": "public-final.xml",
+        "seconds": 3.108
+      },
+      "tests.test_public_formula_runtime_seam::test_public_numeric_formula_refusal_uses_the_real_instruction_site_before_snapshot_zero": {
+        "receipt": "public-final.xml",
+        "seconds": 2.095
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_extrema_in_all_formula_phases_and_cache[less]": {
+        "receipt": "public-final.xml",
+        "seconds": 2.458
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_extrema_in_all_formula_phases_and_cache[greater]": {
+        "receipt": "public-final.xml",
+        "seconds": 2.762
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_extrema_in_all_formula_phases_and_cache[equal-min]": {
+        "receipt": "public-final.xml",
+        "seconds": 2.368
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_extrema_in_all_formula_phases_and_cache[equal-max]": {
+        "receipt": "public-final.xml",
+        "seconds": 2.403
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_charges_at_each_phase_budget_boundary[below-initialization-0-3]": {
+        "receipt": "public-final.xml",
+        "seconds": 3.418
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_charges_at_each_phase_budget_boundary[below-event-3-6]": {
+        "receipt": "public-final.xml",
+        "seconds": 3.424
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_charges_at_each_phase_budget_boundary[below-observation-29-32]": {
+        "receipt": "public-final.xml",
+        "seconds": 4.422
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_charges_at_each_phase_budget_boundary[at-initialization-0-3]": {
+        "receipt": "public-final.xml",
+        "seconds": 3.993
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_charges_at_each_phase_budget_boundary[at-event-3-6]": {
+        "receipt": "public-final.xml",
+        "seconds": 4.385
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_charges_at_each_phase_budget_boundary[above-initialization-0-3]": {
+        "receipt": "public-final.xml",
+        "seconds": 3.534
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_charges_at_each_phase_budget_boundary[above-event-3-6]": {
+        "receipt": "public-final.xml",
+        "seconds": 3.441
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_eager_operand_overflow_precedes_snapshot_zero": {
+        "receipt": "public-final.xml",
+        "seconds": 2.581
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_charges_at_each_phase_budget_boundary[at-observation-29-32]": {
+        "receipt": "public-observation-final.xml",
+        "seconds": 4.696
+      },
+      "tests.test_public_formula_runtime_seam::test_public_composed_maximum_charges_at_each_phase_budget_boundary[above-observation-29-32]": {
+        "receipt": "public-observation-final.xml",
+        "seconds": 4.681
+      }
+    },
+    "method": "17 passed in full-file run, followed by focused passes for the two corrected observation snapshot assertions. The final edit affects only those two cases. No skips."
+  },
+  "red": {
+    "baseline_head": "6a32d8ced05e4dcd6c02e59d7053144500528b83",
+    "root": "/private/tmp/gda-876-public-baseline-red",
+    "node_id": "tests/test_public_formula_runtime_seam.py::test_public_composed_maximum_extrema_in_all_formula_phases_and_cache[less]",
+    "evidence": "baseline-public-red.xml",
+    "failure": "Actual build/check/run succeeded; ['maximum', 'copy'] differs from required ['less-than', 'if', 'copy'].",
+    "overlay_adaptation": "Only the test overlay declares less-than in addition to old maximum because the new safe-combat minimum requires it. Baseline production, authority and compiler are unchanged. The initial unadapted overlay refused capability closure and is separately retained, not counted as the discriminating RED."
+  },
+  "behavior": {
+    "extrema": {
+      "inputs": [
+        [
+          "-9223372036854775808",
+          "9223372036854775807"
+        ],
+        [
+          "9223372036854775807",
+          "-9223372036854775808"
+        ],
+        [
+          "-9223372036854775808",
+          "-9223372036854775808"
+        ],
+        [
+          "9223372036854775807",
+          "9223372036854775807"
+        ]
+      ],
+      "expected_maximum_values": [
+        "9223372036854775807",
+        "9223372036854775807",
+        "-9223372036854775808",
+        "9223372036854775807"
+      ],
+      "phases": [
+        "initialization",
+        "event",
+        "observation"
+      ],
+      "compiled_nodes": [
+        "less-than",
+        "if",
+        "copy"
+      ],
+      "bound_and_charge": 3,
+      "safe_downstream_minimum": "A second real min(maximum,85) prevents unrelated hit-score addition overflow. MIN/MIN commits miss with mana30/health100; other cases commit cast-resolved with mana22/health82. The raw maximum result is independently observed in all three phases."
+    },
+    "cache": "For each extrema pair and the retained progression case, an instrumented prewarm executes the real evaluator with exactly the normal request, then the normal call charges the declared budget on a cache hit. All six actual result/provenance members equal the ordinary run. This does not claim naturally occurring public cache hits.",
+    "budget": [
+      {
+        "phase": "initialization",
+        "before": 0,
+        "charge": 3,
+        "limits": [
+          2,
+          3,
+          4
+        ],
+        "later_refusal_when_at_or_above": "Event Formula attempts cumulative6; no committed Event."
+      },
+      {
+        "phase": "event",
+        "before": 3,
+        "charge": 3,
+        "limits": [
+          5,
+          6,
+          7
+        ],
+        "later_refusal_when_at_or_above": "Next ordinary Operation instruction attempts limit+1; no committed Event."
+      },
+      {
+        "phase": "observation",
+        "before": 29,
+        "charge": 3,
+        "limits": [
+          31,
+          32,
+          33
+        ],
+        "below": "Typed Formula refusal with committed Event prefix1, snapshot mana22/health82, unchanged rollback, attempted node32.",
+        "at_or_above": "Success; input Event snapshot node29 and final observation snapshot node32 remain distinct, metrics18/82."
+      }
+    ],
+    "retained_progression_observation_refusal": {
+      "limit": 20,
+      "before": 19,
+      "charge": 3,
+      "attempted": 22
+    },
+    "eager": {
+      "expression": "max(INT64_MAX, INT64_MIN - 1)",
+      "compiled_nodes": [
+        "subtract",
+        "copy",
+        "less-than",
+        "if",
+        "copy"
+      ],
+      "bound_and_charge": 5,
+      "result": "runtime.numeric_overflow at actual subtract instruction site and initialization frame, before snapshot0, no publication."
+    }
+  },
+  "static": {
+    "ruff_check": "pass",
+    "ruff_format_check": "pass",
+    "pyright": "0 errors, 0 warnings",
+    "evidence": "public-static.log"
+  },
+  "limits": [
+    "This file does not implement an evaluator or replace runtime policy after admission. Budget fixtures use actually admitted candidate authority graphs.",
+    "The separate 59 cumulative maintained ledger deltas are enumerated and checked positive only; these exact public budget cases do not independently derive all 59 cumulative recurrences.",
+    "The permanent tests use existing in-process CLI dispatch to observe the real evaluator. The 26-command capture establishes separate subprocess public-path outcomes.",
+    "Root owns full CI, final integration-head validation and independent review."
+  ]
+}

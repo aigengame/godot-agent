@@ -515,7 +515,6 @@ def _execute_value_instruction(
         "integer-floor-divide",
         "integer-subtract",
         "integer-multiply",
-        "integer-maximum",
     }:
         left = _require_runtime_integer(
             variables[cast(str, instruction["left"])], structured_authority
@@ -533,8 +532,6 @@ def _execute_value_instruction(
             else left - right
             if operator == "integer-subtract"
             else left * right
-            if operator == "integer-multiply"
-            else max(left, right)
         )
     elif operator == "integer-compare":
         variables[cast(str, instruction["target"])] = _integer_compare(

@@ -1,0 +1,46 @@
+import json
+from copy import deepcopy
+from pathlib import Path
+from gda_balancing.domain.authority.context import packaged_authority_context, admit_authority_context, AdmittedAuthorityContext
+from gda_balancing.domain.model import check_model_source_value, compile_checked_model, CheckedModel
+import gda_balancing.domain.formula.notation as notation
+from test_schema2_model_cli import _reidentify_language_bundle
+
+context=packaged_authority_context()
+original_infer=notation.infer_formula_operation_result
+
+def traced(operation,ports,operands,fallback,policy,aliases):
+ result=original_infer(operation,ports,operands,fallback,policy,aliases)
+ if operation['id'] in ['quantity.floor-zero','quantity.maximum']:
+  print('INFERENCE',operation['id'],'INPUTS',[x['domain'] for x in operands],'RESULT',result,flush=True)
+ return result
+notation.infer_formula_operation_result=traced
+
+def candidate_for(ids):
+ k,l=context.mutable_pair()
+ for operation in l['language']['operations']:
+  if operation['id'] not in ids: continue
+  body=[]
+  for node in operation['body']:
+   if node['node']!='maximum':
+    body.append(node);continue
+   predicate=node['target']+'_left_is_less'
+   body.extend([
+    {'node':'less-than','left':node['left'],'right':node['right'],'target':predicate},
+    {'node':'if','condition':predicate,'when_true':node['right'],'when_false':node['left'],'target':node['target']},
+   ])
+  operation['body']=body
+  operation['resource_bounds']['max_steps']+=1
+ _reidentify_language_bundle(l)
+ candidate=admit_authority_context(k,l)
+ assert isinstance(candidate,AdmittedAuthorityContext),candidate
+ return candidate
+
+for name,ids in [('rpg-stat-composition',['quantity.floor-zero']),('rpg-combat-cast',['quantity.maximum'])]:
+ source=json.loads((Path('examples/schema2')/name/'model-source.json').read_text())
+ for variant,authority in [('baseline',context),('compare-select',candidate_for(ids))]:
+  print('CASE',name,variant,flush=True)
+  checked=check_model_source_value(deepcopy(source),authority_context=authority)
+  if isinstance(checked,CheckedModel):
+   print('COMPILED',len(compile_checked_model(checked)),flush=True)
+  else: print('REFUSED',checked.model_dump(mode='json'),flush=True)

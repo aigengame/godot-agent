@@ -60,11 +60,8 @@ def reference_evaluate_value_program_vector(
                     result = None
                     break
                 value = values[instruction["left"]] // divisor
-            elif node == "maximum":
-                value = max(
-                    values[instruction["left"]],
-                    values[instruction["right"]],
-                )
+            elif node == "less-than":
+                value = values[instruction["left"]] < values[instruction["right"]]
             else:
                 assert node == "if"
                 value = values[
@@ -74,7 +71,9 @@ def reference_evaluate_value_program_vector(
                         else "when_false"
                     ]
                 ]
-            if not numeric["minimum"] <= value <= numeric["maximum"]:
+            if type(value) is int and not (
+                numeric["minimum"] <= value <= numeric["maximum"]
+            ):
                 signal = "numeric-overflow"
                 site = row["evaluation_site_identity"]
                 result = None

@@ -1,0 +1,37 @@
+{
+  "issue": 876,
+  "scope": "Verbatim bounded public before/after captures, completed targeted public tests, and later source integration. Original local paths and capture states are preserved; this does not claim complete CI, final independent review, or whole-issue rollback.",
+  "entries": [
+    {
+      "path": "public-comparison.json",
+      "sha256": "dec6b1ef4250a17e8d9c3e47ef4ce3bdb8b14451adec1c08d7fe3b41cc063908",
+      "bytes": 34259,
+      "source_capture_path": "/private/tmp/gda-876-public-worker-evidence/compact/receipt.json"
+    },
+    {
+      "path": "public-raw-hashes.json",
+      "sha256": "db97d7dd9331de7c6c12bb1cac838eb38157784017320878aaf78226234828e9",
+      "bytes": 112115,
+      "source_capture_path": "/private/tmp/gda-876-public-worker-evidence/compact/raw-hashes.json"
+    },
+    {
+      "path": "public-latency.json",
+      "sha256": "945958cd3cab4535e89632e3206fd233c957c1e18f93d45f4bd3e68194c9ed0e",
+      "bytes": 4825,
+      "source_capture_path": "/private/tmp/gda-876-public-worker-evidence/latency/receipt.json"
+    },
+    {
+      "path": "public-tests.json",
+      "sha256": "6f0742cd33baa52c03c8478b338f8a6bbcadc27c753eacc2bcd91a575f566d0e",
+      "bytes": 12162,
+      "source_capture_path": "/private/tmp/gda-876-public-worker-evidence/public-test-receipt.json"
+    },
+    {
+      "path": "capture-integration.json",
+      "sha256": "8ffbf354df978ca68be497cb9bc2ff1d3c61c6cc446a0b28215e8bbbe6eecdd3",
+      "bytes": 9914,
+      "source_capture_path": "/private/tmp/gda-876-root/capture-integration.json"
+    }
+  ],
+  "verified_raw_entries": 390
+}

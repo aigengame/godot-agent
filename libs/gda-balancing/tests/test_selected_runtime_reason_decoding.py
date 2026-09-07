@@ -176,7 +176,9 @@ def _assert_terminal_reason_mapping(
         }
         assert audit["budget_counters"] == {
             "event_steps": 13 if event_limit is None else 2,
-            "node_steps": 17 if event_limit is None else 6,
+            # Initialization and Event Formula each execute compare/select/copy
+            # for three node steps, before the attempted Operation's 13 or 2.
+            "node_steps": 19 if event_limit is None else 8,
             "logical_time": 0,
             "queue_events": 0,
             "total_events": 1,

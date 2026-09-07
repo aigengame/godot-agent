@@ -238,7 +238,7 @@ _NODE_WITNESSES = (
     ("rpg-combat-cast", "copy"),
     ("rpg-combat-cast", "invoke"),
     ("rpg-combat-cast", "less-than-or-equal"),
-    ("rpg-combat-cast", "maximum"),
+    ("rpg-combat-cast", "less-than"),
     ("rpg-combat-cast", "multiply"),
     ("rpg-combat-cast", "precondition-greater-than-or-equal"),
     ("rpg-combat-cast", "schedule"),

@@ -232,6 +232,14 @@ def build_operation_call_domain_input(
         formula_slot_bindings=_formula_slot_bindings(bindings, operations),
         operation_node_ids=frozenset(_operation_reference_node_ids(kernel)),
         conversion_policy=conversion_policy,
+        boolean_contract=cast(
+            dict[str, Any],
+            formula_contract_from_operation(
+                kernel["meta_format"]["runtime_program"]["fixed_value_contracts"][
+                    "kernel-boolean"
+                ]
+            ),
+        ),
         literal_contract=_literal_contract_resolver(kernel, language_bundle),
         snapshot_contracts=_snapshot_contracts(operations, declarations_by_symbol),
         snapshot_operand_names=_snapshot_operand_names(operations),

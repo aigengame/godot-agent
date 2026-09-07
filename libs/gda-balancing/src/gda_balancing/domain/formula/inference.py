@@ -5,8 +5,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, cast
 
-from gda_balancing.domain.formula.types import formula_contract_from_operation
-
 
 def infer_formula_operation_local_contract(
     operation: dict[str, Any],
@@ -19,6 +17,8 @@ def infer_formula_operation_local_contract(
     known_operand_values: dict[str, Any] | None = None,
     known_local_contracts: dict[str, dict[str, Any]] | None = None,
     ignore_unmatched_instructions: bool = False,
+    *,
+    boolean_contract: dict[str, Any],
 ) -> dict[str, Any]:
     """Infer one Operation local by interpreting compiler-owned transfer rules."""
     rules = conversion_policy.get("local_result_inference")
@@ -41,6 +41,7 @@ def infer_formula_operation_local_contract(
     known_values = deepcopy(known_operand_values or {})
     if not set(known_values) <= set(ports):
         raise ValueError("Formula known operand is not an Operation port")
+    predicates: dict[str, tuple[str, str]] = {}
 
     def interval(contract: dict[str, Any]) -> tuple[int, int] | None:
         domain = contract.get("domain")
@@ -66,6 +67,41 @@ def infer_formula_operation_local_contract(
         }
         return inferred
 
+    def selected_interval(
+        condition: str, selected: str, when_true: bool
+    ) -> tuple[int, int] | None:
+        """Restrict possible selected values under one admitted comparison."""
+        bounds = interval(values[selected])
+        if bounds is None:
+            raise ValueError("Formula selected interval is unresolved")
+        predicate = predicates.get(condition)
+        if predicate is None:
+            return bounds
+        left_name, right_name = predicate
+        left_bounds = interval(values[left_name])
+        right_bounds = interval(values[right_name])
+        if left_bounds is None or right_bounds is None:
+            return bounds
+        if left_name == right_name:
+            return None if when_true else bounds
+        left_min, left_max = left_bounds
+        right_min, right_max = right_bounds
+        if when_true:
+            if left_min >= right_max:
+                return None
+            if selected == left_name:
+                return bounds[0], min(bounds[1], right_max - 1)
+            if selected == right_name:
+                return max(bounds[0], left_min + 1), bounds[1]
+        else:
+            if left_max < right_min:
+                return None
+            if selected == left_name:
+                return max(bounds[0], right_min), bounds[1]
+            if selected == right_name:
+                return bounds[0], min(bounds[1], left_max)
+        return bounds
+
     body = operation.get("body")
     if not isinstance(body, list):
         raise ValueError("Formula operation has no inferable body")
@@ -83,6 +119,13 @@ def infer_formula_operation_local_contract(
         )
         if not isinstance(target, str):
             raise ValueError("Formula operation body has no inference target")
+        # Rebinding a local invalidates facts about its previous value.
+        predicates = {
+            name: operands
+            for name, operands in predicates.items()
+            if name != target and target not in operands
+        }
+        known_values.pop(target, None)
         rule_id = rule.get("rule")
         if rule_id == "literal-closed-interval":
             literal_member = rule.get("literal_member")
@@ -107,10 +150,43 @@ def infer_formula_operation_local_contract(
             values[target] = deepcopy(values[source])
             if source in known_values:
                 known_values[target] = known_values[source]
+            if source in predicates:
+                predicates[target] = predicates[source]
+        elif rule_id == "closed-interval-less-than":
+            operand_members = rule.get("operand_members")
+            if (
+                not isinstance(operand_members, list)
+                or len(operand_members) != 2
+                or not all(isinstance(member, str) for member in operand_members)
+                or conversion_policy.get("condition_contract") != "kernel-boolean"
+            ):
+                raise ValueError("Formula comparison inference policy is malformed")
+            operands = [instruction.get(member) for member in operand_members]
+            if not all(isinstance(name, str) and name in values for name in operands):
+                raise ValueError("Formula comparison inference source is unresolved")
+            left_name, right_name = cast(list[str], operands)
+            values[target] = deepcopy(boolean_contract)
+            identity = values[target].get("type_identity")
+            if "type_identity" not in contextual and isinstance(identity, dict):
+                alias = source_type_aliases.get((identity["package"], identity["id"]))
+                if alias is not None:
+                    values[target].pop("type_identity")
+                    values[target]["type"] = alias
+            predicates[target] = (left_name, right_name)
+            left_bounds, right_bounds = (
+                interval(values[left_name]),
+                interval(values[right_name]),
+            )
+            if left_name == right_name:
+                known_values[target] = False
+            elif left_bounds is not None and right_bounds is not None:
+                if left_bounds[1] < right_bounds[0]:
+                    known_values[target] = True
+                elif left_bounds[0] >= right_bounds[1]:
+                    known_values[target] = False
         elif rule_id in {
             "closed-interval-add",
             "closed-interval-floor-divide",
-            "closed-interval-maximum",
             "closed-interval-multiply",
             "closed-interval-select",
             "closed-interval-subtract",
@@ -181,38 +257,25 @@ def infer_formula_operation_local_contract(
                 )
                 values[target] = with_interval(left, (min(quotients), max(quotients)))
             elif rule_id == "closed-interval-select":
-                values[target] = with_interval(
-                    left,
-                    (
-                        min(left_interval[0], right_interval[0]),
-                        max(left_interval[1], right_interval[1]),
-                    ),
-                )
-            else:
-                values[target] = with_interval(
-                    left,
-                    (
-                        max(left_interval[0], right_interval[0]),
-                        max(left_interval[1], right_interval[1]),
-                    ),
-                )
-        elif rule_id == "declared-result-contract":
-            result = operation.get("result")
-            if not isinstance(result, dict):
-                raise ValueError("Formula declared result contract is malformed")
-            declared = cast(dict[str, Any], formula_contract_from_operation(result))
-            if "type_identity" not in contextual:
-                identity = cast(dict[str, str], declared.pop("type_identity"))
-                alias = source_type_aliases.get(
-                    (
-                        identity["package"],
-                        identity["id"],
+                if not isinstance(condition, str):
+                    raise ValueError("Formula selection condition is unresolved")
+                possible = [
+                    bounds
+                    for selected, when_true in zip(
+                        cast(list[str], operands), (True, False), strict=True
                     )
+                    if (bounds := selected_interval(condition, selected, when_true))
+                    is not None
+                ]
+                if not possible:
+                    raise ValueError("Formula selection has no reachable branch")
+                values[target] = with_interval(
+                    left,
+                    (
+                        min(bounds[0] for bounds in possible),
+                        max(bounds[1] for bounds in possible),
+                    ),
                 )
-                if alias is None:
-                    raise ValueError("Formula declared result type alias is unresolved")
-                declared["type"] = alias
-            values[target] = declared
         else:
             raise ValueError("Formula notation inference rule is unknown")
         if target == local:
@@ -226,6 +289,8 @@ def infer_formula_slot_parameter_contract(
     slot_parameter: dict[str, Any],
     concrete_call: dict[str, Any],
     conversion_policy: dict[str, Any],
+    *,
+    boolean_contract: dict[str, Any],
 ) -> dict[str, Any]:
     """Project one Formula-slot parameter at a concrete Operation call site."""
     source = slot_parameter.get("source")
@@ -264,6 +329,7 @@ def infer_formula_slot_parameter_contract(
         conversion_policy,
         {},
         cast(dict[str, Any], concrete_call.get("known_arguments", {})),
+        boolean_contract=boolean_contract,
     )
 
 
@@ -274,6 +340,8 @@ def infer_formula_operation_result(
     fallback: dict[str, Any],
     conversion_policy: dict[str, Any],
     source_type_aliases: dict[tuple[str, str], str],
+    *,
+    boolean_contract: dict[str, Any],
 ) -> dict[str, Any]:
     """Infer one Operation-call result by interpreting compiler-owned transfer rules."""
     result_source_policy = conversion_policy.get("operation_result_source")
@@ -308,4 +376,5 @@ def infer_formula_operation_result(
         fallback,
         conversion_policy,
         source_type_aliases,
+        boolean_contract=boolean_contract,
     )

@@ -1,0 +1,1952 @@
+{
+  "baseline/00-progression-periodic-effect/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "ab311a682a7cb31200f1d8775994fbefa1d24b74865dfac0f7911e49229b9a2b"
+  },
+  "baseline/00-progression-periodic-effect/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/capability-manifest.json",
+    "bytes": 42163,
+    "sha256": "c3ce831f19273431072f8611cae344a00d54f677e2fedb86bd35c0339ebdb752"
+  },
+  "baseline/00-progression-periodic-effect/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/debug-map.json",
+    "bytes": 1097,
+    "sha256": "e5fcdb197a508876ef8107d5481450848abfa78d1d0e774e37f1a257f25afee5"
+  },
+  "baseline/00-progression-periodic-effect/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/model-explanation.json",
+    "bytes": 20274,
+    "sha256": "4fc0d5b6ff47376eb04f26b98a985a4ab46b05c6395818857b3cab8a8962ba73"
+  },
+  "baseline/00-progression-periodic-effect/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/package-lock.json",
+    "bytes": 202023,
+    "sha256": "8d8762fa5c3c7ba1f8e9ddf96c06fc6ee1ca0b122c87805ab3864e28545e619e"
+  },
+  "baseline/00-progression-periodic-effect/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "d69b931401b6b7824949f49ea9b337396f83c0104a90202e024c2c7b649eefdb"
+  },
+  "baseline/00-progression-periodic-effect/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "aceae66ff455b17782341ef37866e011893fb57aa0b34762b2a3f8b2a826ca22"
+  },
+  "baseline/00-progression-periodic-effect/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/resolved-model.json",
+    "bytes": 738,
+    "sha256": "11a39b779e6ee553c42cb3757c7c77fdd04aadfe9e9000199a267e7ba4b800fe"
+  },
+  "baseline/00-progression-periodic-effect/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/rir-semantic-payload.json",
+    "bytes": 126831,
+    "sha256": "f7c3f478c53e96ca8c9195bccf5df14854e16d762eda2d78a7b6f4f09b7bb61f"
+  },
+  "baseline/00-progression-periodic-effect/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/00-progression-periodic-effect/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/00-progression-periodic-effect/stdout",
+    "bytes": 3158,
+    "sha256": "25275ba2251904fbe8a5aa689b257fa86b3d5cd75721c71793420bf85c9ff14d"
+  },
+  "baseline/01-progression-periodic-effect-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/01-progression-periodic-effect-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/01-progression-periodic-effect-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/01-progression-periodic-effect-experiment/stdout",
+    "bytes": 268,
+    "sha256": "4ecb7c11ca0cc1c652699ad7560751ec22d0f44b1638b39a1358b60275ae3a88"
+  },
+  "baseline/02-progression-periodic-effect-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/02-progression-periodic-effect-experiment/evaluation-run.json",
+    "bytes": 1650,
+    "sha256": "72d3c33f6fe7e87e3a1763be5dfc50071b3b8b84c678461ecd3aa27d6f87bfe0"
+  },
+  "baseline/02-progression-periodic-effect-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/02-progression-periodic-effect-experiment/evaluator-capability-manifest.json",
+    "bytes": 939,
+    "sha256": "24b74c96dc79b814a72ded1e8fa24219af4148957280180eb1f4757b77a65d9a"
+  },
+  "baseline/02-progression-periodic-effect-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/02-progression-periodic-effect-experiment/event-trace.json",
+    "bytes": 14624,
+    "sha256": "8fc8074f16b8c85a4bfad3482fb2d4aaaf96935071939ed0d0ed6e40016f5baf"
+  },
+  "baseline/02-progression-periodic-effect-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/02-progression-periodic-effect-experiment/metric-dataset.json",
+    "bytes": 3183,
+    "sha256": "5461d515f81227eab7a9eb36110387264e93526261eb75540c523cb45dff3900"
+  },
+  "baseline/02-progression-periodic-effect-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/02-progression-periodic-effect-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "bdc180c77e8d905d16b3ac068cec7c1ba055c55522e0956eca452af14bd84d1c"
+  },
+  "baseline/02-progression-periodic-effect-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/02-progression-periodic-effect-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "a409d0a23395698efb761ed4fd91aceae89ab15326ffd211a9294141c98eb2e6"
+  },
+  "baseline/02-progression-periodic-effect-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/02-progression-periodic-effect-experiment/snapshot-series.json",
+    "bytes": 17329,
+    "sha256": "767cd0fb6f40fc8780d464174732788d5eeae7476574a038d8a2230a4f1ccb9f"
+  },
+  "baseline/02-progression-periodic-effect-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/02-progression-periodic-effect-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/02-progression-periodic-effect-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/02-progression-periodic-effect-experiment/stdout",
+    "bytes": 2608,
+    "sha256": "17a4dc3077d95f58be5ea838a1669dfa966e16903b017b1ffd46ad3d42e3f0f9"
+  },
+  "baseline/03-roguelike-reward-build/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "6b7b4a6b8ade2eda1efbefd973c7be94fe1c5146a7d2b2ab5559ebe7e07b0061"
+  },
+  "baseline/03-roguelike-reward-build/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/capability-manifest.json",
+    "bytes": 39109,
+    "sha256": "e4eefe14858b166ce00fd774d6c2eae7aca7f5378eee231bba1a3b059dc19905"
+  },
+  "baseline/03-roguelike-reward-build/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/debug-map.json",
+    "bytes": 1251,
+    "sha256": "086c9e7e4fea2505691448e781551aeb63531f6953cfa3d78b489e811af952d1"
+  },
+  "baseline/03-roguelike-reward-build/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/model-explanation.json",
+    "bytes": 9184,
+    "sha256": "954eeecffa55e09ef3696213446ec4bdf9cd057b8f1598c2f49f46e2246cf450"
+  },
+  "baseline/03-roguelike-reward-build/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/package-lock.json",
+    "bytes": 780678,
+    "sha256": "c85011eca227b847017491b3301c97e18a7101fe2dd83e079c4b458391392dd1"
+  },
+  "baseline/03-roguelike-reward-build/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "4f819ae10a38fa8ee22d0c51fb975b38b7bdbc14ca4cc38a56d15f0d782e50d1"
+  },
+  "baseline/03-roguelike-reward-build/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "508ebb83346878445f45045a741d886797b55c03b6ef07e13dcf4d5a4023f02a"
+  },
+  "baseline/03-roguelike-reward-build/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/resolved-model.json",
+    "bytes": 738,
+    "sha256": "c0a15786480d9ff9ca076af23e46672670cf11239654014060663bc31a07fff5"
+  },
+  "baseline/03-roguelike-reward-build/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/rir-semantic-payload.json",
+    "bytes": 125429,
+    "sha256": "7e86e3992c13e074942d976d8dd80c993434808a305ce4406ab494ef84368b94"
+  },
+  "baseline/03-roguelike-reward-build/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/03-roguelike-reward-build/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/03-roguelike-reward-build/stdout",
+    "bytes": 3113,
+    "sha256": "e5466df464173a19adf7bdd93446682886bab02b7a8fe3d08cd0d868fd7e1761"
+  },
+  "baseline/04-roguelike-reward-build-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/04-roguelike-reward-build-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/04-roguelike-reward-build-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/04-roguelike-reward-build-experiment/stdout",
+    "bytes": 268,
+    "sha256": "50995904bbf87f16c08b5336cfeaffddae2ffdd60ecec227e813b5b04ad036e9"
+  },
+  "baseline/05-roguelike-reward-build-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/05-roguelike-reward-build-experiment/evaluation-run.json",
+    "bytes": 1728,
+    "sha256": "e9b77c78d05d65d6a04d2554476122d94d2f0e1dedb281392373ae397eb86996"
+  },
+  "baseline/05-roguelike-reward-build-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/05-roguelike-reward-build-experiment/evaluator-capability-manifest.json",
+    "bytes": 1000,
+    "sha256": "9b6edb2d469d8bb1318a47928212214c5f05bcc29e9115d53432113e4d289e30"
+  },
+  "baseline/05-roguelike-reward-build-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/05-roguelike-reward-build-experiment/event-trace.json",
+    "bytes": 34761,
+    "sha256": "c22764ed421be15662bf912824f18632cada0bb3b8e718ef9eb04472ea0ce215"
+  },
+  "baseline/05-roguelike-reward-build-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/05-roguelike-reward-build-experiment/metric-dataset.json",
+    "bytes": 2200,
+    "sha256": "343db83e46c6ae5862bddecd044db6388b9705928af9a00d1db72f01cbea662d"
+  },
+  "baseline/05-roguelike-reward-build-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/05-roguelike-reward-build-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "db1127dc5360cb76f7c14569a72293389428810e6b3653a8933e22862090b88f"
+  },
+  "baseline/05-roguelike-reward-build-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/05-roguelike-reward-build-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "3673f267beb0359802af9b7cd956eddfed9e795c55956e947e4b36145f152885"
+  },
+  "baseline/05-roguelike-reward-build-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/05-roguelike-reward-build-experiment/snapshot-series.json",
+    "bytes": 20865,
+    "sha256": "5b4447324e22211b79afe1ba53fce295c0c48aa1c2965b9f663b2ea01a19557d"
+  },
+  "baseline/05-roguelike-reward-build-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/05-roguelike-reward-build-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/05-roguelike-reward-build-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/05-roguelike-reward-build-experiment/stdout",
+    "bytes": 2573,
+    "sha256": "a15ae7c7bc8d4ffe93648a0e2439de2ef702171139a1930063b2cbe1a993a4a8"
+  },
+  "baseline/06-rpg-combat-cast/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "cea735254f8719fc411909c5bd3e29e36dcd31b9c5db2f8da06d6b5a90f83024"
+  },
+  "baseline/06-rpg-combat-cast/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/capability-manifest.json",
+    "bytes": 44142,
+    "sha256": "7b1701f48196bd4df0d1195efc4cfa610654d54aa1909e244ce86f496554cbb8"
+  },
+  "baseline/06-rpg-combat-cast/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/debug-map.json",
+    "bytes": 2006,
+    "sha256": "9a50410ee7c11c95efdcdf8c934ac9f3d366e0a1a417a39c3a14950b61e1c303"
+  },
+  "baseline/06-rpg-combat-cast/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/model-explanation.json",
+    "bytes": 19615,
+    "sha256": "5e99ae28f49fe0d11250b6a838299b6c4d9db37d340785f02c761d042a2767df"
+  },
+  "baseline/06-rpg-combat-cast/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/package-lock.json",
+    "bytes": 202679,
+    "sha256": "24fa32f1815653c3743c97a17fa6ce4cac4adbd29406734c75381c39b85381e1"
+  },
+  "baseline/06-rpg-combat-cast/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "478f9edca703f2cffddea2216e6d4dcd05c57921c59aed7668d2f2e9adb53ef3"
+  },
+  "baseline/06-rpg-combat-cast/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "4162f023ce6bd5960ec1a684fdda2e73ad937b9389ea5cd780a4150d5888deb6"
+  },
+  "baseline/06-rpg-combat-cast/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/resolved-model.json",
+    "bytes": 738,
+    "sha256": "b55a3f1ded4f1beb7a4ace0dc4301efb6f2708756f8852e9913179a5fa5946d3"
+  },
+  "baseline/06-rpg-combat-cast/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/rir-semantic-payload.json",
+    "bytes": 205681,
+    "sha256": "5f0d3e6c4b3921c482824654d0c73200edc4a443698755adef6316bbb1495b86"
+  },
+  "baseline/06-rpg-combat-cast/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/06-rpg-combat-cast/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/06-rpg-combat-cast/stdout",
+    "bytes": 3050,
+    "sha256": "9a2c4d9e1bf1a29d699d75209bd64ea648137c5de137ecf0e34b8a6dfa801644"
+  },
+  "baseline/07-rpg-combat-cast-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/07-rpg-combat-cast-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/07-rpg-combat-cast-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/07-rpg-combat-cast-experiment/stdout",
+    "bytes": 268,
+    "sha256": "4cd36fbcf440233c03b7955a2a286632e0a7592e8c3b382289779368b74691c4"
+  },
+  "baseline/08-rpg-combat-cast-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/08-rpg-combat-cast-experiment/evaluation-run.json",
+    "bytes": 2023,
+    "sha256": "831d32ba051a99c45739beb81aae93d9817bc1ee389c9b53d8455e56e3cc9e89"
+  },
+  "baseline/08-rpg-combat-cast-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/08-rpg-combat-cast-experiment/evaluator-capability-manifest.json",
+    "bytes": 1016,
+    "sha256": "1a5ffe0e91712cfb23326fd72b2e839fbd26e14316df8dead239d73e062122c8"
+  },
+  "baseline/08-rpg-combat-cast-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/08-rpg-combat-cast-experiment/event-trace.json",
+    "bytes": 32049,
+    "sha256": "433019c5ab1ccda9e4f68ec9bf1ac385b2202955f03feb6df56cdef24a99b961"
+  },
+  "baseline/08-rpg-combat-cast-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/08-rpg-combat-cast-experiment/metric-dataset.json",
+    "bytes": 5847,
+    "sha256": "b79e28ca74d741df8974d5458f3ec435b47f07444810146a8bbaeae853add004"
+  },
+  "baseline/08-rpg-combat-cast-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/08-rpg-combat-cast-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "025301ea529d8ed9061d5c30ba9852c34c9f5d4bf5da8e16ffeb5572d8d1d33c"
+  },
+  "baseline/08-rpg-combat-cast-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/08-rpg-combat-cast-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "f71bb64cd8490af8db723ba181bfe69964e5a2351388298cda710b9eb947b736"
+  },
+  "baseline/08-rpg-combat-cast-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/08-rpg-combat-cast-experiment/snapshot-series.json",
+    "bytes": 18504,
+    "sha256": "a042b9bba1ca093dc9d0e6f687ce0191d8504baf4d3279df9653df27732bb0e9"
+  },
+  "baseline/08-rpg-combat-cast-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/08-rpg-combat-cast-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/08-rpg-combat-cast-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/08-rpg-combat-cast-experiment/stdout",
+    "bytes": 2524,
+    "sha256": "e19547d943c5daf2504246a0da92c105c4c0e257f2cfc59fe5290005c6e4e070"
+  },
+  "baseline/09-rpg-combat-cast-multi-time-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/09-rpg-combat-cast-multi-time-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/09-rpg-combat-cast-multi-time-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/09-rpg-combat-cast-multi-time-experiment/stdout",
+    "bytes": 268,
+    "sha256": "3fab3093accd471e6f3e1befaf2c311eaddce0ff20ce92625663a6c6f0205d40"
+  },
+  "baseline/10-rpg-combat-cast-multi-time-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/10-rpg-combat-cast-multi-time-experiment/evaluation-run.json",
+    "bytes": 1908,
+    "sha256": "71a0c3c2b9c6d53b0d4dab2567a0955f1e4c9b0b443e026c6774544501d26ba0"
+  },
+  "baseline/10-rpg-combat-cast-multi-time-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/10-rpg-combat-cast-multi-time-experiment/evaluator-capability-manifest.json",
+    "bytes": 1036,
+    "sha256": "f50a4c0767b8035acfc50d35bd9e26a96ddf712224578197d1c74d7b183c0fcb"
+  },
+  "baseline/10-rpg-combat-cast-multi-time-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/10-rpg-combat-cast-multi-time-experiment/event-trace.json",
+    "bytes": 25079,
+    "sha256": "e812ed79b48e5ba34f6eb9ae0538738b8f9ce33cef9f662360d65d31c46bcc9a"
+  },
+  "baseline/10-rpg-combat-cast-multi-time-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/10-rpg-combat-cast-multi-time-experiment/metric-dataset.json",
+    "bytes": 2421,
+    "sha256": "e28170997beb10ee855d631a3a5dcae76490b18f40440f5a5e585bdbdc4593e6"
+  },
+  "baseline/10-rpg-combat-cast-multi-time-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/10-rpg-combat-cast-multi-time-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "75cd870b84c362f0330c58790549c9cd3265971b76bf9dff1a3cdfc801b2322b"
+  },
+  "baseline/10-rpg-combat-cast-multi-time-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/10-rpg-combat-cast-multi-time-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "1983de1098d2de753493782dc83599de8e9cfbb839a89aa68f5b257959f9977d"
+  },
+  "baseline/10-rpg-combat-cast-multi-time-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/10-rpg-combat-cast-multi-time-experiment/snapshot-series.json",
+    "bytes": 16964,
+    "sha256": "7e1c314a600ced3549702088b2ba5dfd96028d5b4ad4afcdd2089cfd82fffd20"
+  },
+  "baseline/10-rpg-combat-cast-multi-time-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/10-rpg-combat-cast-multi-time-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/10-rpg-combat-cast-multi-time-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/10-rpg-combat-cast-multi-time-experiment/stdout",
+    "bytes": 2524,
+    "sha256": "c7eccd48397626943bf8da24c0bf44f51aa3be50993065e784ababdd1aa49044"
+  },
+  "baseline/11-rpg-periodic-effect/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "2a55b54eb419d8528577a21cdbe58eaf37fa91dd9c0881ecf3b9e39fd54c6e50"
+  },
+  "baseline/11-rpg-periodic-effect/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/capability-manifest.json",
+    "bytes": 67337,
+    "sha256": "b7fff2b79723faabb1e960b72316f2c8190c5cc4349e7d98f2b26618231f4350"
+  },
+  "baseline/11-rpg-periodic-effect/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/debug-map.json",
+    "bytes": 1474,
+    "sha256": "b6b1a401e0cb21077e86b3bbbd15bb0f001d2b39b0b152f65ff559ca910d60a4"
+  },
+  "baseline/11-rpg-periodic-effect/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/model-explanation.json",
+    "bytes": 22251,
+    "sha256": "6dbbe498319c807e8551fbef9f04df859ffb8fe9bba0c108108ed6077d9287b9"
+  },
+  "baseline/11-rpg-periodic-effect/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/package-lock.json",
+    "bytes": 304319,
+    "sha256": "496674f355fae700d53d8bac6ca3d96e358200aea575dc29a3ef027ae9683b59"
+  },
+  "baseline/11-rpg-periodic-effect/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "0a69c2f90eb310a05576e77bf1831eeb23575035e6bebbe4a0d4074559e66eb7"
+  },
+  "baseline/11-rpg-periodic-effect/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "7fff6adcbc474af4d0d0fcf23649536c765035bee367d62d036626de64c61940"
+  },
+  "baseline/11-rpg-periodic-effect/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/resolved-model.json",
+    "bytes": 738,
+    "sha256": "a7e8039056e4bbe7dc255f1bd39206cf2d03bd3fa21e87798c9d197467148c53"
+  },
+  "baseline/11-rpg-periodic-effect/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/rir-semantic-payload.json",
+    "bytes": 198039,
+    "sha256": "a138c21bb1033be7ffaa17b0eb647c95956d483b0ac1ef87d053415566529034"
+  },
+  "baseline/11-rpg-periodic-effect/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/11-rpg-periodic-effect/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/11-rpg-periodic-effect/stdout",
+    "bytes": 3086,
+    "sha256": "5a1260e4d4a34d6a2a4476dff18d557b60b53b89c8b82230f39d2fbd33e322ed"
+  },
+  "baseline/12-rpg-periodic-effect-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/12-rpg-periodic-effect-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/12-rpg-periodic-effect-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/12-rpg-periodic-effect-experiment/stdout",
+    "bytes": 268,
+    "sha256": "bde457c2e6992a7a1301f5aa737463325ed1cf24e7c386f9490130111e730655"
+  },
+  "baseline/13-rpg-periodic-effect-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/13-rpg-periodic-effect-experiment/evaluation-run.json",
+    "bytes": 1650,
+    "sha256": "20fdd3e0115d53a92eeeea889f70a89ef79c49471c467ec2cdce1f06dfeac790"
+  },
+  "baseline/13-rpg-periodic-effect-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/13-rpg-periodic-effect-experiment/evaluator-capability-manifest.json",
+    "bytes": 928,
+    "sha256": "1c1227d943f4a990302046b379abd9d0408e457f40e420093526817cc36dbf44"
+  },
+  "baseline/13-rpg-periodic-effect-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/13-rpg-periodic-effect-experiment/event-trace.json",
+    "bytes": 13872,
+    "sha256": "81913ee9e081a20642de70b75803dc2917cf8830e4a0ea6e71fc30f5e2236092"
+  },
+  "baseline/13-rpg-periodic-effect-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/13-rpg-periodic-effect-experiment/metric-dataset.json",
+    "bytes": 3183,
+    "sha256": "f6272c28ae5c799daf2e96052b7e35c32a234f3d3c4da0adca0cb417e14ebd33"
+  },
+  "baseline/13-rpg-periodic-effect-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/13-rpg-periodic-effect-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "1caad6b097cb7361d984796b3360a803ad3dc6707794bef8cc04a258f1aa25ca"
+  },
+  "baseline/13-rpg-periodic-effect-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/13-rpg-periodic-effect-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "192d6e89eb1e57e07aa179231cb6053c6821a41b273a6147ff6542e0053df3c0"
+  },
+  "baseline/13-rpg-periodic-effect-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/13-rpg-periodic-effect-experiment/snapshot-series.json",
+    "bytes": 17305,
+    "sha256": "b76daf86a8571c5c14537afd616de34bc6c24f884637ad5f18121742f1ec476e"
+  },
+  "baseline/13-rpg-periodic-effect-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/13-rpg-periodic-effect-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/13-rpg-periodic-effect-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/13-rpg-periodic-effect-experiment/stdout",
+    "bytes": 2552,
+    "sha256": "6e279f4eb62804e7df351cf39df23a4ba3e7e4f2f88a09f6d5a39f0581bfd1ca"
+  },
+  "baseline/14-rpg-periodic-effect-same-time-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/14-rpg-periodic-effect-same-time-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/14-rpg-periodic-effect-same-time-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/14-rpg-periodic-effect-same-time-experiment/stdout",
+    "bytes": 268,
+    "sha256": "7d06b144c0ebd5e4afcc62468220339ade515b56a7226ea3e4bbbbf9b092918b"
+  },
+  "baseline/15-rpg-periodic-effect-same-time-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/15-rpg-periodic-effect-same-time-experiment/evaluation-run.json",
+    "bytes": 1887,
+    "sha256": "9eb39335bd1817913e4cd6273e8d4f15692df6b016f3b6a7feb1391cd2a6cee3"
+  },
+  "baseline/15-rpg-periodic-effect-same-time-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/15-rpg-periodic-effect-same-time-experiment/evaluator-capability-manifest.json",
+    "bytes": 1017,
+    "sha256": "aa9b66e0fd0343ba426430832e11cb0e806e074775f0caaae96ccabd0a2f0632"
+  },
+  "baseline/15-rpg-periodic-effect-same-time-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/15-rpg-periodic-effect-same-time-experiment/event-trace.json",
+    "bytes": 26648,
+    "sha256": "f95fbfef5c2be520d155fd491cc5d558fba34370bd17011c4684a2bf5acbd84a"
+  },
+  "baseline/15-rpg-periodic-effect-same-time-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/15-rpg-periodic-effect-same-time-experiment/metric-dataset.json",
+    "bytes": 4054,
+    "sha256": "1ac5dd192d6eeb3dfa4a47b084b94c2ded8a6967f779bb6ee29f8dbda8815489"
+  },
+  "baseline/15-rpg-periodic-effect-same-time-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/15-rpg-periodic-effect-same-time-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "d28e2adcf2880b5c1460672a0b10b971a42c42887b931edb602d7e4a79c44707"
+  },
+  "baseline/15-rpg-periodic-effect-same-time-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/15-rpg-periodic-effect-same-time-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "48c25364bacd1440aeb24cece17b7de8101a123c04e5d0d1751dbe3787343271"
+  },
+  "baseline/15-rpg-periodic-effect-same-time-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/15-rpg-periodic-effect-same-time-experiment/snapshot-series.json",
+    "bytes": 22932,
+    "sha256": "b23fd06fad078ee4db3a4b22d35f25713b2bc847667b5c7286cc5a83850433ef"
+  },
+  "baseline/15-rpg-periodic-effect-same-time-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/15-rpg-periodic-effect-same-time-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/15-rpg-periodic-effect-same-time-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/15-rpg-periodic-effect-same-time-experiment/stdout",
+    "bytes": 2552,
+    "sha256": "4c3ae2f99287ce8331f31a680c3bb31a6df9d7876d3260d685b745d83325b661"
+  },
+  "baseline/16-rpg-stat-composition/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "de6119138d5890cadb14cba8d02d2a2c02a1ae675f0b8b93f95ba5c8608122f8"
+  },
+  "baseline/16-rpg-stat-composition/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/capability-manifest.json",
+    "bytes": 92848,
+    "sha256": "a0cdd0263276441787ec5fb1912fc3dbf437358b6cf543c1b18abf7b793a41d0"
+  },
+  "baseline/16-rpg-stat-composition/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/debug-map.json",
+    "bytes": 2194,
+    "sha256": "0bc29118e126a6074af73fc07783defdc6617fe9a6bd3fd9d5d47a983aa7b98d"
+  },
+  "baseline/16-rpg-stat-composition/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/model-explanation.json",
+    "bytes": 58739,
+    "sha256": "a6c3a55c6484f8bc40b104039159825ddb8e6482b24aa70965a51ef9a3dd80fb"
+  },
+  "baseline/16-rpg-stat-composition/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/package-lock.json",
+    "bytes": 1006610,
+    "sha256": "12f082bbed4acc1ef288007e7c6059ecdfaf5b178ca7b8a8f92d1e9b03dc7d6f"
+  },
+  "baseline/16-rpg-stat-composition/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "169fae2931d2aca55872afb5044ece689cdb01a26c307c35dbf090aec2fb1915"
+  },
+  "baseline/16-rpg-stat-composition/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "27d0436f843e83e60055fdb39de91374cf8d67bea7b6114ab008dfd644156587"
+  },
+  "baseline/16-rpg-stat-composition/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/resolved-model.json",
+    "bytes": 738,
+    "sha256": "fa5d58c12860c1209f6697ee931ae06d205c5f9d633d61fc7824e5da3aa87299"
+  },
+  "baseline/16-rpg-stat-composition/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/rir-semantic-payload.json",
+    "bytes": 270373,
+    "sha256": "8d8fef3d3035ad7d92257991db8041d8cf392d4736cdea02a472e7794c552d06"
+  },
+  "baseline/16-rpg-stat-composition/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/16-rpg-stat-composition/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/16-rpg-stat-composition/stdout",
+    "bytes": 3095,
+    "sha256": "10a7977af6b34e71cd45f78a3e317b85722f22473e645c6bf512be715f21e1f6"
+  },
+  "baseline/17-rpg-stat-composition-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/17-rpg-stat-composition-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/17-rpg-stat-composition-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/17-rpg-stat-composition-experiment/stdout",
+    "bytes": 268,
+    "sha256": "3fac1d3bcdc4515f3bcf62e54c4335b27a0e34a314291003860791d7afd89429"
+  },
+  "baseline/18-rpg-stat-composition-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/18-rpg-stat-composition-experiment/evaluation-run.json",
+    "bytes": 2012,
+    "sha256": "d019a0f38848b56a60c8115d1615b1e32da266bd1f0ceaa0815ecda954bf90fb"
+  },
+  "baseline/18-rpg-stat-composition-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/18-rpg-stat-composition-experiment/evaluator-capability-manifest.json",
+    "bytes": 966,
+    "sha256": "8100cb08bc01ef59c0007eb2b52112a2f3b271c12be8b8ad76885560695c7691"
+  },
+  "baseline/18-rpg-stat-composition-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/18-rpg-stat-composition-experiment/event-trace.json",
+    "bytes": 17175,
+    "sha256": "d2709e6647feb26804f2b1313169678de9553262b1de0e7e8c34f27ed364811e"
+  },
+  "baseline/18-rpg-stat-composition-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/18-rpg-stat-composition-experiment/metric-dataset.json",
+    "bytes": 7192,
+    "sha256": "7047edc9cc4d881bd74cca787369dff99b42ebe96032516f21178b2d2d353ecf"
+  },
+  "baseline/18-rpg-stat-composition-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/18-rpg-stat-composition-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "01ea414a8f50b3161d0eeafb9dc54a62e70d98b6527d9aac7ea8adcbbd8147d1"
+  },
+  "baseline/18-rpg-stat-composition-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/18-rpg-stat-composition-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "304f19088bc58ced7fb75b3cee64f3e61b526926545d4c99d3a1607e937fc15b"
+  },
+  "baseline/18-rpg-stat-composition-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/18-rpg-stat-composition-experiment/snapshot-series.json",
+    "bytes": 18022,
+    "sha256": "523713ad25bbac24199195acbfa6af7af375b41a52876124ed0c78e5c042b6a0"
+  },
+  "baseline/18-rpg-stat-composition-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/18-rpg-stat-composition-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/18-rpg-stat-composition-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/18-rpg-stat-composition-experiment/stdout",
+    "bytes": 2559,
+    "sha256": "9d0f0f74d7a9aef969cf71fcdd7ff34ab736c522d7e7a00dc3c2e8756b68fa67"
+  },
+  "baseline/19-structured-selection/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "e24de83a0292527c642203b0a8620f79f1dbb7f2ffdfa5ccd408642bdced2d1b"
+  },
+  "baseline/19-structured-selection/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/capability-manifest.json",
+    "bytes": 21658,
+    "sha256": "0fe00e11ad0961065bd08c9bdad339794ce9c785bb50007cd73f4a0b664636e4"
+  },
+  "baseline/19-structured-selection/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/debug-map.json",
+    "bytes": 736,
+    "sha256": "555e8fa96fedc683cfeb0b74e0bf2fc7672d950029a425c42b0c418fcdab19a7"
+  },
+  "baseline/19-structured-selection/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/model-explanation.json",
+    "bytes": 5457,
+    "sha256": "d6db01427dc554172fda78047949b124d7ca774e2fc86f07011345734961b3be"
+  },
+  "baseline/19-structured-selection/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/package-lock.json",
+    "bytes": 703165,
+    "sha256": "a0295b4219cfd29c6bca9d473bbf4ee0115965b5470c7f219154a8881a360170"
+  },
+  "baseline/19-structured-selection/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "2284e49863430ae65e17528aa6ae57cfbb8cd22025938db9fe40dc6d471af346"
+  },
+  "baseline/19-structured-selection/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "f8d5ad790aef38166b7639733882dd275f3ca226736563b21728824549df4395"
+  },
+  "baseline/19-structured-selection/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/resolved-model.json",
+    "bytes": 738,
+    "sha256": "657b31bfc6b71caf4cffbc6a4a4ad4ec59f6a057d044ade44a5c226f3d4fdd97"
+  },
+  "baseline/19-structured-selection/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/rir-semantic-payload.json",
+    "bytes": 78008,
+    "sha256": "bf5aad02b3c99364d48faba5574e191052208041f4c7de5c359c54785ee4e45c"
+  },
+  "baseline/19-structured-selection/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/19-structured-selection/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/19-structured-selection/stdout",
+    "bytes": 3095,
+    "sha256": "2873f849359ef372b9e551a33e6bf162efc7bf1e0ce67a14a14559be4c268a82"
+  },
+  "baseline/20-structured-selection-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/20-structured-selection-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/20-structured-selection-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/20-structured-selection-experiment/stdout",
+    "bytes": 268,
+    "sha256": "4defb8955b0520f4645e8a8130eed6719f16561640c253b0600c935b282fa2d4"
+  },
+  "baseline/21-structured-selection-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/21-structured-selection-experiment/evaluation-run.json",
+    "bytes": 1489,
+    "sha256": "7ac31e93eb96eb9c4ae2c9cdae0a7ffc7112f7748627ec31fe7f7eb8f2191b50"
+  },
+  "baseline/21-structured-selection-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/21-structured-selection-experiment/evaluator-capability-manifest.json",
+    "bytes": 929,
+    "sha256": "98a382b7fe0e2f7e93077301773c8ff5250143412352363e2fe6f57238b54ae6"
+  },
+  "baseline/21-structured-selection-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/21-structured-selection-experiment/event-trace.json",
+    "bytes": 7038,
+    "sha256": "b47bb966f90afb5e9812b90d6292160d4f24c930b42da76de0963677345bd68f"
+  },
+  "baseline/21-structured-selection-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/21-structured-selection-experiment/metric-dataset.json",
+    "bytes": 1425,
+    "sha256": "6ac48cadf8cfb61f4f8b58b02de0cb90eb18b101a683ce8dcef5630d20413b5a"
+  },
+  "baseline/21-structured-selection-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/21-structured-selection-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "78dd45f94bf93070b526c146dde7c0e0f9a9b83129421d5a19384962b804af10"
+  },
+  "baseline/21-structured-selection-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/21-structured-selection-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "5ee0db376f5e01a36d0c8825ed1832b587347b05da7592a304e4210b50766889"
+  },
+  "baseline/21-structured-selection-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/21-structured-selection-experiment/snapshot-series.json",
+    "bytes": 7269,
+    "sha256": "043f07f3c8e2e7825ac6ac3274f73f5a3747ad8a2cea2df06114ac640a89743d"
+  },
+  "baseline/21-structured-selection-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/21-structured-selection-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/21-structured-selection-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/21-structured-selection-experiment/stdout",
+    "bytes": 2559,
+    "sha256": "37630bad606cddcd136bf88eafb9b6bd0b57f491f33e5b5e40b8b33a50cb333b"
+  },
+  "baseline/22-initialization-numeric-refusal/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "d0438c0db08deb344cafdbb87d00ef58e61f46629a97b1a934255eceed29be0f"
+  },
+  "baseline/22-initialization-numeric-refusal/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/capability-manifest.json",
+    "bytes": 44142,
+    "sha256": "a0fe4f40cccf798d5a48d423d10a79ffcf0ac13e3bb4f73bde1603d63ae65d6a"
+  },
+  "baseline/22-initialization-numeric-refusal/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/debug-map.json",
+    "bytes": 1248,
+    "sha256": "22866a05f71fbd5367fc9ff416bc9a2e19056d07bd7556c953c9d94331f53437"
+  },
+  "baseline/22-initialization-numeric-refusal/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/model-explanation.json",
+    "bytes": 17675,
+    "sha256": "17fbc58934e6db5b54dde4b256a2c91d2c3ce292a7d5947d01d1d37c89a928ff"
+  },
+  "baseline/22-initialization-numeric-refusal/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/package-lock.json",
+    "bytes": 202679,
+    "sha256": "24fa32f1815653c3743c97a17fa6ce4cac4adbd29406734c75381c39b85381e1"
+  },
+  "baseline/22-initialization-numeric-refusal/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "81a73719d68a446015ec8a7e453a2339f2bdfeb146c9d0d648b715f1b66f4bb1"
+  },
+  "baseline/22-initialization-numeric-refusal/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "c3bfa1134bed00317c8b80aa845ea6dc86516b1412cf0a111cc8f3c0c018aea3"
+  },
+  "baseline/22-initialization-numeric-refusal/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/resolved-model.json",
+    "bytes": 738,
+    "sha256": "1fd40b08bf5f4d90b365c919219573e5a01940ae6c00f5ccd44e65822795e643"
+  },
+  "baseline/22-initialization-numeric-refusal/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/rir-semantic-payload.json",
+    "bytes": 155396,
+    "sha256": "56ee7cb0664533bf9930115c7c5ef97d3d24821c2521a697f8e3d7aa08c6d476"
+  },
+  "baseline/22-initialization-numeric-refusal/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/22-initialization-numeric-refusal/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/22-initialization-numeric-refusal/stdout",
+    "bytes": 3185,
+    "sha256": "c6264a1588bb3c713fd66d253ba1c290abb1ff9a9f4584363ef3397ba5515cc0"
+  },
+  "baseline/23-initialization-numeric-refusal/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/23-initialization-numeric-refusal/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/23-initialization-numeric-refusal/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/23-initialization-numeric-refusal/stdout",
+    "bytes": 916,
+    "sha256": "c57bf5980a500f0cd2a46cb403fcfb5b3f08402b354f882de80c871ddfdc6c84"
+  },
+  "baseline/24-inline-formula-numeric-refusal/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "59b19c16c4c5287fc9f7754ff6b2c455ab6e4fce5b4d68afaa7bba991be04e9f"
+  },
+  "baseline/24-inline-formula-numeric-refusal/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/capability-manifest.json",
+    "bytes": 44142,
+    "sha256": "f2a5ac60ade3e380be63c2e928c740cc57937ada0e7d22c5563935144ed81674"
+  },
+  "baseline/24-inline-formula-numeric-refusal/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/debug-map.json",
+    "bytes": 1248,
+    "sha256": "87bbc22138b313a8632e87f47e13208a9f6982745d0bdc199fa17af400d0213b"
+  },
+  "baseline/24-inline-formula-numeric-refusal/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/model-explanation.json",
+    "bytes": 17552,
+    "sha256": "35a0e7c8b2a4e5cd3b319f92ce110debb2078ef45d9499fcccc0978eb7a6b133"
+  },
+  "baseline/24-inline-formula-numeric-refusal/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/package-lock.json",
+    "bytes": 202679,
+    "sha256": "24fa32f1815653c3743c97a17fa6ce4cac4adbd29406734c75381c39b85381e1"
+  },
+  "baseline/24-inline-formula-numeric-refusal/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "20f88833208ebcea1965bb6cb5c1912fb0608e1346fb00698b9968000bdbccf8"
+  },
+  "baseline/24-inline-formula-numeric-refusal/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "bdbf11eeb80660879c1ccc98b7db4b90425af17f93c1b4522804f03dba06c98a"
+  },
+  "baseline/24-inline-formula-numeric-refusal/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/resolved-model.json",
+    "bytes": 738,
+    "sha256": "a87bb96e876291907adf773a63db0ea6bd5ad882c9754895d4187a32eb308c9b"
+  },
+  "baseline/24-inline-formula-numeric-refusal/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/rir-semantic-payload.json",
+    "bytes": 155331,
+    "sha256": "1d4e2ad9736696ffd36a57f40c0c7af0bc83c21dbc896930e7b1b453eefd1925"
+  },
+  "baseline/24-inline-formula-numeric-refusal/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/24-inline-formula-numeric-refusal/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/24-inline-formula-numeric-refusal/stdout",
+    "bytes": 3185,
+    "sha256": "1c2388d2f82d2d33e2dac7d9a4c373ca99e8d91ada83f7ec6726bcb50bfcb56f"
+  },
+  "baseline/25-inline-formula-numeric-refusal/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/25-inline-formula-numeric-refusal/evaluator-capability-manifest.json",
+    "bytes": 992,
+    "sha256": "f8f2a97904d7e761665450a1133e6efbf1f004b6e33eb5d5b906357bde57937f"
+  },
+  "baseline/25-inline-formula-numeric-refusal/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/25-inline-formula-numeric-refusal/publication-manifest.json",
+    "bytes": 1146,
+    "sha256": "7317713bb4ede3229756223f5789ec52744f0bfdb2f87546f89d4cd44ca0f6b4"
+  },
+  "baseline/25-inline-formula-numeric-refusal/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/25-inline-formula-numeric-refusal/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "cd5338a7506ceff9feb09448c8193b5d781ae2d482882429de3b5356ddb0a176"
+  },
+  "baseline/25-inline-formula-numeric-refusal/runtime-terminal-audit.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/25-inline-formula-numeric-refusal/runtime-terminal-audit.json",
+    "bytes": 6553,
+    "sha256": "a0e487a173df06afed245152dd57ef1c160a07d486958fac656a5efb4660774d"
+  },
+  "baseline/25-inline-formula-numeric-refusal/stderr": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/25-inline-formula-numeric-refusal/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "baseline/25-inline-formula-numeric-refusal/stdout": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/25-inline-formula-numeric-refusal/stdout",
+    "bytes": 2172,
+    "sha256": "89726cb228af6f93af134d0b3f832c3f873a187aab7b52d419cbea98d76862e4"
+  },
+  "baseline/capture.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/capture.json",
+    "bytes": 12252,
+    "sha256": "24da924acb90f43303f7159f1bea80a859d48a0d03b1df5fbae2437176fa6e1c"
+  },
+  "baseline/commands.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline/commands.json",
+    "bytes": 34003,
+    "sha256": "a371fa3b612eb7beb23198c89154cda9cac45a26f3d294802111d118a3fe27b7"
+  },
+  "candidate/00-progression-periodic-effect/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "8a8cef8167df8dba1c4e04a86b80c7352cf770826b097bfaab73db03def881ac"
+  },
+  "candidate/00-progression-periodic-effect/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/capability-manifest.json",
+    "bytes": 42693,
+    "sha256": "4c98119e06696c564f1d9530aa7b7ce021cdf3e2678bef2ca2edec8c3d8f0406"
+  },
+  "candidate/00-progression-periodic-effect/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/debug-map.json",
+    "bytes": 1097,
+    "sha256": "1e02a92547d6fda9a78470f8414356f508cf4d0966bf42f1075d661aa8bebb4d"
+  },
+  "candidate/00-progression-periodic-effect/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/model-explanation.json",
+    "bytes": 20302,
+    "sha256": "863f1c114f76124487b038013432ef084645af5384deeddb65b828420d9aa95d"
+  },
+  "candidate/00-progression-periodic-effect/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/package-lock.json",
+    "bytes": 204067,
+    "sha256": "8b48fae99f73917cb5b4e1483036c0389ec2a0835e078ff27a564426a2842d08"
+  },
+  "candidate/00-progression-periodic-effect/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "484507650450227ac7a07a9ace70c3afbc6a68a02ad9ce99148e4bf99f7334f7"
+  },
+  "candidate/00-progression-periodic-effect/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "e67b775e6fdbee4760ea7499f97543684cfdfdc43b491f1eaf45f76ea2f9d586"
+  },
+  "candidate/00-progression-periodic-effect/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/resolved-model.json",
+    "bytes": 738,
+    "sha256": "9f5c549dab7ccecf8905c4c385784bd8befb7e35397f4e6d7fe4a18a77ca1da0"
+  },
+  "candidate/00-progression-periodic-effect/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/rir-semantic-payload.json",
+    "bytes": 128767,
+    "sha256": "dcd3c6d7450965f020e72d330dc64b303e01692c8e0acfe242e04623546312e5"
+  },
+  "candidate/00-progression-periodic-effect/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/00-progression-periodic-effect/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/00-progression-periodic-effect/stdout",
+    "bytes": 3293,
+    "sha256": "5cb2a0a36cb8afede4b95432749dca2a1c5868ad9ea766fd9180043ca84b59b1"
+  },
+  "candidate/01-progression-periodic-effect-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/01-progression-periodic-effect-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/01-progression-periodic-effect-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/01-progression-periodic-effect-experiment/stdout",
+    "bytes": 268,
+    "sha256": "b46fb9df76fed49443bf480a494d00723fd995d3ddf09b648b5fc733260d95af"
+  },
+  "candidate/02-progression-periodic-effect-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/02-progression-periodic-effect-experiment/evaluation-run.json",
+    "bytes": 1650,
+    "sha256": "9b59acc0ca8328d74e732433b64538bfad4e82bef06f16b082cd325858368dd3"
+  },
+  "candidate/02-progression-periodic-effect-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/02-progression-periodic-effect-experiment/evaluator-capability-manifest.json",
+    "bytes": 946,
+    "sha256": "d05f64f6ca1e85182766f18fffc9c65a650b542c7770d0ff38cb2a949298a1f5"
+  },
+  "candidate/02-progression-periodic-effect-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/02-progression-periodic-effect-experiment/event-trace.json",
+    "bytes": 14624,
+    "sha256": "6ae43ef6ef75ff8d4898da744fb578cb52354b29c182db59273b4b5f4c65bb9a"
+  },
+  "candidate/02-progression-periodic-effect-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/02-progression-periodic-effect-experiment/metric-dataset.json",
+    "bytes": 3183,
+    "sha256": "90cfce12c939028c85e95571f1d992b8cb5fc09fa07d9a662278ba0a5e5c641c"
+  },
+  "candidate/02-progression-periodic-effect-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/02-progression-periodic-effect-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "bdd09cd135ce0d6c76cf3b3c9634e4dd1aa9ea14d78e376ead47e54b5b870782"
+  },
+  "candidate/02-progression-periodic-effect-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/02-progression-periodic-effect-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "e9ca8c094a3a61364766af6d77db3325d9fed18a4025a080faaa3175f7be31ef"
+  },
+  "candidate/02-progression-periodic-effect-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/02-progression-periodic-effect-experiment/snapshot-series.json",
+    "bytes": 17329,
+    "sha256": "5c75c1bd86077ad3ebacc8d90f003ec7c78592e8ada7422a1b0a8ac0eed85190"
+  },
+  "candidate/02-progression-periodic-effect-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/02-progression-periodic-effect-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/02-progression-periodic-effect-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/02-progression-periodic-effect-experiment/stdout",
+    "bytes": 2713,
+    "sha256": "ed94cb139bf4c6b07aa814f6a8e232c2df79677bf4c8fc28770e12ab333661a0"
+  },
+  "candidate/03-roguelike-reward-build/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "d95596e13b36443b25334e854139742b1fdc5571fc5fb2a02bb74fa32842778b"
+  },
+  "candidate/03-roguelike-reward-build/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/capability-manifest.json",
+    "bytes": 39351,
+    "sha256": "7e4a1fbdb063e8a123b0de9f2a82b5c168db6f690c60082b911a6a12d6809f4e"
+  },
+  "candidate/03-roguelike-reward-build/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/debug-map.json",
+    "bytes": 1251,
+    "sha256": "f8d739923ac97644b5317a08e4c414b2613890654fc53c16af54459e8c2677f5"
+  },
+  "candidate/03-roguelike-reward-build/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/model-explanation.json",
+    "bytes": 9198,
+    "sha256": "7f16abdccbfb91a5f613469e317407199fcad8d890b40e86e8cd73a3cd110eb4"
+  },
+  "candidate/03-roguelike-reward-build/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/package-lock.json",
+    "bytes": 781570,
+    "sha256": "0c66f2ac9ce2f37f39269fd7904e286d7cb9f1bae39748ec6079557ad811df67"
+  },
+  "candidate/03-roguelike-reward-build/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "eb3d4b32860a8a3c1cda34fad43db2770d898defb305e8943599e4fe00c8a7e0"
+  },
+  "candidate/03-roguelike-reward-build/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "373ec3a9639b5c4df6328d74a79222a98fd633db39b8e535455c41cc6ca95d61"
+  },
+  "candidate/03-roguelike-reward-build/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/resolved-model.json",
+    "bytes": 738,
+    "sha256": "6d1a81a12f9f06e910f0a7acc7d88782356ab6f4f1c393dd4536be0501457cc6"
+  },
+  "candidate/03-roguelike-reward-build/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/rir-semantic-payload.json",
+    "bytes": 125913,
+    "sha256": "e71dfac9789c57fef0a45c0cddb277583a0ae52c52e7bb3985365f0b40f03c48"
+  },
+  "candidate/03-roguelike-reward-build/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/03-roguelike-reward-build/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/03-roguelike-reward-build/stdout",
+    "bytes": 3248,
+    "sha256": "5bed5112a91f7e3cbcb8070d86c32d478e144319a34becee78044c6dc97a0310"
+  },
+  "candidate/04-roguelike-reward-build-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/04-roguelike-reward-build-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/04-roguelike-reward-build-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/04-roguelike-reward-build-experiment/stdout",
+    "bytes": 268,
+    "sha256": "8a464955243485663c42dd6b24c52d0b9c749c77e1bc4a64b2f3c47430bffd9c"
+  },
+  "candidate/05-roguelike-reward-build-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/05-roguelike-reward-build-experiment/evaluation-run.json",
+    "bytes": 1728,
+    "sha256": "7e17c0a106f932117c85c4cee9ac5f97e1e2668558eee8287378f110d7adbb1c"
+  },
+  "candidate/05-roguelike-reward-build-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/05-roguelike-reward-build-experiment/evaluator-capability-manifest.json",
+    "bytes": 1000,
+    "sha256": "b200f27174909345b7e8ce9ae2948fe67e793533521fa2520ed025ffdd5274e1"
+  },
+  "candidate/05-roguelike-reward-build-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/05-roguelike-reward-build-experiment/event-trace.json",
+    "bytes": 34761,
+    "sha256": "52d60ec5cc1a8ef19dc3c51e507c5d4c8041c753e3011fe13bb476d6ce507b9a"
+  },
+  "candidate/05-roguelike-reward-build-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/05-roguelike-reward-build-experiment/metric-dataset.json",
+    "bytes": 2200,
+    "sha256": "b613057552477f0845db2f028ca0a23ef5f93dac81058254b61337e8928936c6"
+  },
+  "candidate/05-roguelike-reward-build-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/05-roguelike-reward-build-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "fe454e160150ed8a743b0b9259ece5781e790819f55cd356da3bca2f2c8ec287"
+  },
+  "candidate/05-roguelike-reward-build-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/05-roguelike-reward-build-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "ffba19c1393938aeb33f419ded182b099999b89240c67e1f45f5cd19cf5d8df3"
+  },
+  "candidate/05-roguelike-reward-build-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/05-roguelike-reward-build-experiment/snapshot-series.json",
+    "bytes": 20865,
+    "sha256": "102a9b11d43a52b648d6426c617414012c0384031a64b57f760c588be0a3b999"
+  },
+  "candidate/05-roguelike-reward-build-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/05-roguelike-reward-build-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/05-roguelike-reward-build-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/05-roguelike-reward-build-experiment/stdout",
+    "bytes": 2678,
+    "sha256": "807cf16ec3c6cf361d2d42bbab7dfc00b6a23ba7c245fc1031fa343f7ae871f3"
+  },
+  "candidate/06-rpg-combat-cast/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "bc228ec59f6c99b6b1427f7ff9a17e1432a62ad8eacca1cc2301f4dfedfbbb04"
+  },
+  "candidate/06-rpg-combat-cast/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/capability-manifest.json",
+    "bytes": 44510,
+    "sha256": "558702e5fb2882fc26ef61d5c938ada46c5477a98d119619a50a6e35e58afccf"
+  },
+  "candidate/06-rpg-combat-cast/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/debug-map.json",
+    "bytes": 2006,
+    "sha256": "136f86ab856ad0e7acc615101494d619050b1e1d7b36b4ba54b8ef6b4f1ed9af"
+  },
+  "candidate/06-rpg-combat-cast/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/model-explanation.json",
+    "bytes": 19631,
+    "sha256": "e5f2c92e19d6f5f2f7eed6389829c6c4860b59cd02fd0488b4aa4898ddc0f1dd"
+  },
+  "candidate/06-rpg-combat-cast/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/package-lock.json",
+    "bytes": 204075,
+    "sha256": "205798c1bdba6636b3b9f84f1a4a273d0a01762a63f5024e72aac3179409d4da"
+  },
+  "candidate/06-rpg-combat-cast/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "6ea0dc249043eafd21042c99d639a6f05861b957c259d4391c74b578120b3b23"
+  },
+  "candidate/06-rpg-combat-cast/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "9c88eaec373d38adaaf7b82ad6d443d67f101ebf8100f0d09151daca8be75e33"
+  },
+  "candidate/06-rpg-combat-cast/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/resolved-model.json",
+    "bytes": 738,
+    "sha256": "4bc2d8598a447037898cb1be5cac0a9ae4a6c8080f486d34a59051bd8208ed32"
+  },
+  "candidate/06-rpg-combat-cast/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/rir-semantic-payload.json",
+    "bytes": 209630,
+    "sha256": "7f957d9e4c00202dc369100da7cb1b14a1b21219adbf5133708df2a0d9883a40"
+  },
+  "candidate/06-rpg-combat-cast/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/06-rpg-combat-cast/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/06-rpg-combat-cast/stdout",
+    "bytes": 3185,
+    "sha256": "7ba76c699765aff74b99eb482dc12920e1606e13aa0c6800e2b8e0c64aec56f9"
+  },
+  "candidate/07-rpg-combat-cast-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/07-rpg-combat-cast-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/07-rpg-combat-cast-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/07-rpg-combat-cast-experiment/stdout",
+    "bytes": 268,
+    "sha256": "8ad079a320ddbf59dc7c80fdf8a44cf6d5185bc4ba1303ce7061c5d9c8474a1c"
+  },
+  "candidate/08-rpg-combat-cast-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/08-rpg-combat-cast-experiment/evaluation-run.json",
+    "bytes": 2023,
+    "sha256": "aec3a283ee1b3f94ffe62724dcec958ea8ecd66185c771c4f952946f44f25109"
+  },
+  "candidate/08-rpg-combat-cast-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/08-rpg-combat-cast-experiment/evaluator-capability-manifest.json",
+    "bytes": 1018,
+    "sha256": "39aeb69dde3455903993d3db84cb712da0aedbf3a87bad24428e40df390d8ac4"
+  },
+  "candidate/08-rpg-combat-cast-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/08-rpg-combat-cast-experiment/event-trace.json",
+    "bytes": 32049,
+    "sha256": "9927ab2d46b0af525ceb64a5bb6edb60a59b28bef693c4b11c221efdd9894c8a"
+  },
+  "candidate/08-rpg-combat-cast-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/08-rpg-combat-cast-experiment/metric-dataset.json",
+    "bytes": 5847,
+    "sha256": "da5d27d5f9ae92a5b17c035d7f10d47cd863654304e0b813d50c596570aafb5e"
+  },
+  "candidate/08-rpg-combat-cast-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/08-rpg-combat-cast-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "ee6892bd95fbdb4cc4fa99fd47cd852630277939ff11153be7e71aaebe5558cb"
+  },
+  "candidate/08-rpg-combat-cast-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/08-rpg-combat-cast-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "ff45ea9cc2f602aeb42366f4da6b16df8e37098e98522743523f3db8945abb66"
+  },
+  "candidate/08-rpg-combat-cast-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/08-rpg-combat-cast-experiment/snapshot-series.json",
+    "bytes": 18504,
+    "sha256": "b0af557e17494de9c3bf74c51b91ae65a7f1ce45bbc48b892e99b75f972e6a98"
+  },
+  "candidate/08-rpg-combat-cast-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/08-rpg-combat-cast-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/08-rpg-combat-cast-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/08-rpg-combat-cast-experiment/stdout",
+    "bytes": 2629,
+    "sha256": "426683e8c2c03b01eddec12343be9851222af7490bf0060c2618d518dc06e2e9"
+  },
+  "candidate/09-rpg-combat-cast-multi-time-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/09-rpg-combat-cast-multi-time-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/09-rpg-combat-cast-multi-time-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/09-rpg-combat-cast-multi-time-experiment/stdout",
+    "bytes": 268,
+    "sha256": "10cb10d300afff67708693a09f97adea1ec639f852389e9831d94f104cf54e98"
+  },
+  "candidate/10-rpg-combat-cast-multi-time-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/10-rpg-combat-cast-multi-time-experiment/evaluation-run.json",
+    "bytes": 1908,
+    "sha256": "0d89081921e89465cb6cb83b8a02b51a4fb23ac8864c7fe5af6ffc71e19a28b7"
+  },
+  "candidate/10-rpg-combat-cast-multi-time-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/10-rpg-combat-cast-multi-time-experiment/evaluator-capability-manifest.json",
+    "bytes": 1038,
+    "sha256": "c96127ddc7c4833a6a4015e6cd1c1e42b36a427b0cef6483ab3099e454ee2add"
+  },
+  "candidate/10-rpg-combat-cast-multi-time-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/10-rpg-combat-cast-multi-time-experiment/event-trace.json",
+    "bytes": 25079,
+    "sha256": "7a5f251b2921ed78ac5d2aba31156f2d499885b5592696a7123238f55e5901dd"
+  },
+  "candidate/10-rpg-combat-cast-multi-time-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/10-rpg-combat-cast-multi-time-experiment/metric-dataset.json",
+    "bytes": 2421,
+    "sha256": "28fc18b12a39b3e9ca6a9250cba3f0132027cfd1424500611a064659a93ccaac"
+  },
+  "candidate/10-rpg-combat-cast-multi-time-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/10-rpg-combat-cast-multi-time-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "d4792c3f463d6d82cb56ae8e14c674868f59c410909ef4dd4ab0762aad751586"
+  },
+  "candidate/10-rpg-combat-cast-multi-time-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/10-rpg-combat-cast-multi-time-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "32868015ff1d3824576e8c5d95184670470d551218980f151ffe6de87f08289d"
+  },
+  "candidate/10-rpg-combat-cast-multi-time-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/10-rpg-combat-cast-multi-time-experiment/snapshot-series.json",
+    "bytes": 16964,
+    "sha256": "e2e13c9ddc20a28b8c6a548405fbb4efda3e7f0182ddf18f4b1f79618aeb1743"
+  },
+  "candidate/10-rpg-combat-cast-multi-time-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/10-rpg-combat-cast-multi-time-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/10-rpg-combat-cast-multi-time-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/10-rpg-combat-cast-multi-time-experiment/stdout",
+    "bytes": 2629,
+    "sha256": "1b42be5ca81bbe41c10d67caf391f7dc0bfa435fd26b733dc887896519835dd1"
+  },
+  "candidate/11-rpg-periodic-effect/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "2d2fbb1eb20ed4dd999416de8dfd23dc5ef12b32dcb9ab4ababb676a2944a524"
+  },
+  "candidate/11-rpg-periodic-effect/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/capability-manifest.json",
+    "bytes": 67993,
+    "sha256": "7c2c42a6096962516be741b7d59d9e8cbd2328f5ad6fb83a426784b4f9028625"
+  },
+  "candidate/11-rpg-periodic-effect/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/debug-map.json",
+    "bytes": 1474,
+    "sha256": "a04731c429989dc340ece91a233c0147730b830a336d0cd625f41dbafe1fddb0"
+  },
+  "candidate/11-rpg-periodic-effect/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/model-explanation.json",
+    "bytes": 22281,
+    "sha256": "103b30d339312ad18f5feef26d3e2965a282832a1b5e20c29625411951661094"
+  },
+  "candidate/11-rpg-periodic-effect/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/package-lock.json",
+    "bytes": 306867,
+    "sha256": "eef96ceb986b8eafaaa0ea9229c70b38d6a9318f80588d65b3bfc3c7355d0aeb"
+  },
+  "candidate/11-rpg-periodic-effect/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "5192176fcdde47c604019864d089fa35f22996aa537d8a6eca30a68f23387e58"
+  },
+  "candidate/11-rpg-periodic-effect/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "b2b15861a177cb214659ad4a62ace6fd1c48de7cc2e4120be0df1ccd5998a956"
+  },
+  "candidate/11-rpg-periodic-effect/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/resolved-model.json",
+    "bytes": 738,
+    "sha256": "11290a6c83dc483ef7740a07b989e6adeb3292640660e70d0a6789d223e85a9b"
+  },
+  "candidate/11-rpg-periodic-effect/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/rir-semantic-payload.json",
+    "bytes": 200542,
+    "sha256": "3d25516df08e4a422ec45d04193a6ecf90cf4d3edfc2d6d58a08a3862504dbe6"
+  },
+  "candidate/11-rpg-periodic-effect/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/11-rpg-periodic-effect/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/11-rpg-periodic-effect/stdout",
+    "bytes": 3221,
+    "sha256": "b9ab1ef33e96f3fa519fddfedb8c1d9f134bb9a2facfe497901edb72202f31f4"
+  },
+  "candidate/12-rpg-periodic-effect-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/12-rpg-periodic-effect-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/12-rpg-periodic-effect-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/12-rpg-periodic-effect-experiment/stdout",
+    "bytes": 268,
+    "sha256": "619b93c38caf6b7d3a01d9808ec8ef7b0064847596ed27692c394f01e2928607"
+  },
+  "candidate/13-rpg-periodic-effect-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/13-rpg-periodic-effect-experiment/evaluation-run.json",
+    "bytes": 1650,
+    "sha256": "9e6e310ac91693876e53dd94310c3a32bad5a8e8879da17b0b9723697ce773fa"
+  },
+  "candidate/13-rpg-periodic-effect-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/13-rpg-periodic-effect-experiment/evaluator-capability-manifest.json",
+    "bytes": 935,
+    "sha256": "dae711d34dcd4014bb0f693e9caf0222b68f476223c8b9874fd73eab3b341968"
+  },
+  "candidate/13-rpg-periodic-effect-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/13-rpg-periodic-effect-experiment/event-trace.json",
+    "bytes": 13872,
+    "sha256": "a338df009c79a330c60cbd6946fda0ae3947fb9081045c5ed961791b631c47c9"
+  },
+  "candidate/13-rpg-periodic-effect-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/13-rpg-periodic-effect-experiment/metric-dataset.json",
+    "bytes": 3183,
+    "sha256": "061a6c3ae7c1b49db7ab99b5c34b423b26d9b87ed4bfb6c45b2f47bb3d1b4919"
+  },
+  "candidate/13-rpg-periodic-effect-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/13-rpg-periodic-effect-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "d8e2736d8a279216dd7a3385c4f21d9ee3adf094ed07cdb44b5c714e9a211da9"
+  },
+  "candidate/13-rpg-periodic-effect-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/13-rpg-periodic-effect-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "2f2425efbd9c341f705d640f5ba7874a4966f57f6345463e2e0f6fbc8df1d57a"
+  },
+  "candidate/13-rpg-periodic-effect-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/13-rpg-periodic-effect-experiment/snapshot-series.json",
+    "bytes": 17305,
+    "sha256": "fb7684f041f2f518f884fba9093ecc4f6bf443ad03b24ac8f6dcc2cebb4d547c"
+  },
+  "candidate/13-rpg-periodic-effect-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/13-rpg-periodic-effect-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/13-rpg-periodic-effect-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/13-rpg-periodic-effect-experiment/stdout",
+    "bytes": 2657,
+    "sha256": "4f0548899f6d94f2c8c88f4d78c2d74c3d7de10d8a15683e99a310ba8565fb6d"
+  },
+  "candidate/14-rpg-periodic-effect-same-time-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/14-rpg-periodic-effect-same-time-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/14-rpg-periodic-effect-same-time-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/14-rpg-periodic-effect-same-time-experiment/stdout",
+    "bytes": 268,
+    "sha256": "c6e2048a335b709c5892cb7e6291d9a3e242ed44e44b39931d394a8e931bbcc1"
+  },
+  "candidate/15-rpg-periodic-effect-same-time-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/15-rpg-periodic-effect-same-time-experiment/evaluation-run.json",
+    "bytes": 1887,
+    "sha256": "55f6fd6282a54f20a0cd9dbbe51bb2a70a96becb5b46871e4b219d9f4e811bd2"
+  },
+  "candidate/15-rpg-periodic-effect-same-time-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/15-rpg-periodic-effect-same-time-experiment/evaluator-capability-manifest.json",
+    "bytes": 1019,
+    "sha256": "96b6c975898756d90d38a22078e130cac1b7c0c48183221045f02c4d2a913f8d"
+  },
+  "candidate/15-rpg-periodic-effect-same-time-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/15-rpg-periodic-effect-same-time-experiment/event-trace.json",
+    "bytes": 26648,
+    "sha256": "f7c5701943eb3bb45f461cb38f5e85d235a1429275d895d7970b1a71e0dee441"
+  },
+  "candidate/15-rpg-periodic-effect-same-time-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/15-rpg-periodic-effect-same-time-experiment/metric-dataset.json",
+    "bytes": 4054,
+    "sha256": "c94aef37b634bffc19736853907454c381743431985632b3047f19fa2a5c4751"
+  },
+  "candidate/15-rpg-periodic-effect-same-time-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/15-rpg-periodic-effect-same-time-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "985c938f371cb6f03252d174845279a67bdc0b216026b85b747475527eb38e6a"
+  },
+  "candidate/15-rpg-periodic-effect-same-time-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/15-rpg-periodic-effect-same-time-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "9299a59c1fb5c9b419774a54a6759a8f8a53edd3ee8d8e9f202a376a30053612"
+  },
+  "candidate/15-rpg-periodic-effect-same-time-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/15-rpg-periodic-effect-same-time-experiment/snapshot-series.json",
+    "bytes": 22932,
+    "sha256": "c902f77b7918d409fc18a79a33a86d08c1fc5d0a722b3d32eaca86d27d6d85ed"
+  },
+  "candidate/15-rpg-periodic-effect-same-time-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/15-rpg-periodic-effect-same-time-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/15-rpg-periodic-effect-same-time-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/15-rpg-periodic-effect-same-time-experiment/stdout",
+    "bytes": 2657,
+    "sha256": "b85fc8430f778d772c6446f08dbc1bd6e2c88d03a107a587a91e79655fd5420f"
+  },
+  "candidate/16-rpg-stat-composition/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "f4bcea583d2557212874d7730e9e9900cad399ed3b16ebcd5f1ca5faee70deea"
+  },
+  "candidate/16-rpg-stat-composition/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/capability-manifest.json",
+    "bytes": 93504,
+    "sha256": "66f8425bc2fa144701a9c7d9b35c0bf58ec3b4549a9f7a49b81b0c1120dc3a17"
+  },
+  "candidate/16-rpg-stat-composition/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/debug-map.json",
+    "bytes": 2194,
+    "sha256": "4c8c789417e7c050d9677a38ffd932608640c66141c89058175f3dbef7a7693a"
+  },
+  "candidate/16-rpg-stat-composition/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/model-explanation.json",
+    "bytes": 58769,
+    "sha256": "8e172640c573da3776ffcabacc5f3c070a9052dd3dcfc6f1c8a6b5d5f78f793c"
+  },
+  "candidate/16-rpg-stat-composition/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/package-lock.json",
+    "bytes": 1009158,
+    "sha256": "bb7d1b46b31442dafdd58edc59ec47761753f9bbbde2399ebd906bdc474d156c"
+  },
+  "candidate/16-rpg-stat-composition/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "28159ca05125f38439c304a99218347ae4b188fdae658c524704a58326242440"
+  },
+  "candidate/16-rpg-stat-composition/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "a045f1b3e521dc60d53f146391f0af7e37a93b0388fb8a844ee15d1a132a2fe9"
+  },
+  "candidate/16-rpg-stat-composition/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/resolved-model.json",
+    "bytes": 738,
+    "sha256": "4cc16ca6c1b962b392bb481766916afb5e728cefbc170544b007d44bd8ef9f5d"
+  },
+  "candidate/16-rpg-stat-composition/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/rir-semantic-payload.json",
+    "bytes": 271626,
+    "sha256": "f9479e5fa4379f1dde860231f47593db6f81a9dc844e6c37fcee3bffc64a8a2a"
+  },
+  "candidate/16-rpg-stat-composition/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/16-rpg-stat-composition/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/16-rpg-stat-composition/stdout",
+    "bytes": 3230,
+    "sha256": "25ebe6c70059786091c368f83448b5e06e09c87f48b1495a2f4968f8e4222e9f"
+  },
+  "candidate/17-rpg-stat-composition-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/17-rpg-stat-composition-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/17-rpg-stat-composition-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/17-rpg-stat-composition-experiment/stdout",
+    "bytes": 268,
+    "sha256": "887683b5f2489da7e7170f0d8d49c28781d72e91a2a3b36bc9b279c9e4ab0766"
+  },
+  "candidate/18-rpg-stat-composition-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/18-rpg-stat-composition-experiment/evaluation-run.json",
+    "bytes": 2012,
+    "sha256": "ebbd3f670da537e004ef1aea03bd8947ce31398bbfe4735f44d75494c67a1ef0"
+  },
+  "candidate/18-rpg-stat-composition-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/18-rpg-stat-composition-experiment/evaluator-capability-manifest.json",
+    "bytes": 956,
+    "sha256": "3d2f8995812f5ed280adcea2d840716929a80333e8cf55c2a98445da0886b448"
+  },
+  "candidate/18-rpg-stat-composition-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/18-rpg-stat-composition-experiment/event-trace.json",
+    "bytes": 17175,
+    "sha256": "6531089a0948e84a319ab4dad305f0652813001594e6b9ddc8b823ce67e2a17d"
+  },
+  "candidate/18-rpg-stat-composition-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/18-rpg-stat-composition-experiment/metric-dataset.json",
+    "bytes": 7192,
+    "sha256": "f2c75de4b6f8ecb0398871cfb40f22a775dbcf2ce4067bd8975d44d1bc9cd2ee"
+  },
+  "candidate/18-rpg-stat-composition-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/18-rpg-stat-composition-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "d60b8ab255b78434155ac2516ce370ecae70fdeb29e57f6fc33efcc99cab5e38"
+  },
+  "candidate/18-rpg-stat-composition-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/18-rpg-stat-composition-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "2626498692046eb695317de4ae3e27e7d967c4e74c7e5b46facf176dddde5eb6"
+  },
+  "candidate/18-rpg-stat-composition-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/18-rpg-stat-composition-experiment/snapshot-series.json",
+    "bytes": 18022,
+    "sha256": "ff2dfa7d83928a12d6106735b39efa99c9108f43dc687d33a62edc1503904ebd"
+  },
+  "candidate/18-rpg-stat-composition-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/18-rpg-stat-composition-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/18-rpg-stat-composition-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/18-rpg-stat-composition-experiment/stdout",
+    "bytes": 2664,
+    "sha256": "12318f39c91778858437e6061f13fab0004dfb3a65402add67eb0974147c7ecb"
+  },
+  "candidate/19-structured-selection/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "dd4ef2e19c9b84291784197029933a12bcaaf2c5b07efa4759cdc60a8b70fe71"
+  },
+  "candidate/19-structured-selection/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/capability-manifest.json",
+    "bytes": 21900,
+    "sha256": "50253f0d946d7a5161ba25f6bec84e4bdeac863e448ee05b8da02aaf2d9e2cd2"
+  },
+  "candidate/19-structured-selection/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/debug-map.json",
+    "bytes": 736,
+    "sha256": "63452c9f15ecd704ec955af144016601d767402056455a090d5f59700177a4a0"
+  },
+  "candidate/19-structured-selection/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/model-explanation.json",
+    "bytes": 5471,
+    "sha256": "11e368a0a509b6e41604cdf3b552033df71cd6ac6fc3f2e0583b4b19f52c2a3c"
+  },
+  "candidate/19-structured-selection/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/package-lock.json",
+    "bytes": 704057,
+    "sha256": "f7d56693a7548150a5fda69f302e76903ef9eaa64f0912b5c0703baa51ca121e"
+  },
+  "candidate/19-structured-selection/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "2a114b5f58462654d50f05dbf4fb664965cd6b78ad782a243c4321ba7ff23000"
+  },
+  "candidate/19-structured-selection/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "9a8177bec7ad5c4d797cac736f230c53d4f7a6bd3663248c8ac9586d9728157a"
+  },
+  "candidate/19-structured-selection/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/resolved-model.json",
+    "bytes": 738,
+    "sha256": "266093c151aa21ae2d8f05bbed429e24d733660fd0555122525370122b86d62a"
+  },
+  "candidate/19-structured-selection/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/rir-semantic-payload.json",
+    "bytes": 78492,
+    "sha256": "44ff63845d8d0180fb06e6242752c0996d21a5452b3ac171e09b19c1a938f671"
+  },
+  "candidate/19-structured-selection/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/19-structured-selection/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/19-structured-selection/stdout",
+    "bytes": 3230,
+    "sha256": "ee23859d4d88c52704d6ff05c54efde638202b1a9f0d466f5d2470f92bed011d"
+  },
+  "candidate/20-structured-selection-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/20-structured-selection-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/20-structured-selection-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/20-structured-selection-experiment/stdout",
+    "bytes": 268,
+    "sha256": "4a281ff9c50a0d9a561b0e9c0b55e39f9b5aad02382d7caedabb7e5fbdffa1fe"
+  },
+  "candidate/21-structured-selection-experiment/evaluation-run.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/21-structured-selection-experiment/evaluation-run.json",
+    "bytes": 1489,
+    "sha256": "bdc23103f5951a25c9a59503dd0c9de79d2f3b5decf6015418f403aae17bfdd3"
+  },
+  "candidate/21-structured-selection-experiment/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/21-structured-selection-experiment/evaluator-capability-manifest.json",
+    "bytes": 929,
+    "sha256": "4ecef0dc78d465b8febe244a522629d9bbfac4a793e61b7d7cc9a5347c80b496"
+  },
+  "candidate/21-structured-selection-experiment/event-trace.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/21-structured-selection-experiment/event-trace.json",
+    "bytes": 7038,
+    "sha256": "3afc580c612250bb6eb4c4a1dd038337675b871d268d9dfeb2baa13428e94263"
+  },
+  "candidate/21-structured-selection-experiment/metric-dataset.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/21-structured-selection-experiment/metric-dataset.json",
+    "bytes": 1425,
+    "sha256": "8de825e9ad9e0e55a88e7883f6bbf016108752b9a3af3be35b13da91d433d45f"
+  },
+  "candidate/21-structured-selection-experiment/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/21-structured-selection-experiment/publication-manifest.json",
+    "bytes": 1897,
+    "sha256": "07f46df1d602a857060d5099982303909ee86edc6882c978e70a13e67870a95d"
+  },
+  "candidate/21-structured-selection-experiment/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/21-structured-selection-experiment/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "486b5a4e248fa20e3b8ea59553317e3ef9326d81d8a99ecb96a801904e887ecd"
+  },
+  "candidate/21-structured-selection-experiment/snapshot-series.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/21-structured-selection-experiment/snapshot-series.json",
+    "bytes": 7269,
+    "sha256": "65d5951d614fbd9dd6bc5b0722dbc8310a6eb79be5d9b3a0c7c3edae113bad8f"
+  },
+  "candidate/21-structured-selection-experiment/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/21-structured-selection-experiment/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/21-structured-selection-experiment/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/21-structured-selection-experiment/stdout",
+    "bytes": 2664,
+    "sha256": "b5c9370f0ef30c57a9ea6aab38aee0d91024a2ad6c3ca0c14f1011e5b16bfaf3"
+  },
+  "candidate/22-initialization-numeric-refusal/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "e07c538a9fa7d58f1f54de293a4a1f393ef8793c7f2be95ed6a9db2df609d952"
+  },
+  "candidate/22-initialization-numeric-refusal/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/capability-manifest.json",
+    "bytes": 44510,
+    "sha256": "17a506dbdae4850b67a64344d0334e1ac5a34a8ea671492beaa6605f73a2de8e"
+  },
+  "candidate/22-initialization-numeric-refusal/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/debug-map.json",
+    "bytes": 1248,
+    "sha256": "9381a5957560620fe0f81383e6da077a47971663b96329fcc7a36b61c44d18d7"
+  },
+  "candidate/22-initialization-numeric-refusal/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/model-explanation.json",
+    "bytes": 17691,
+    "sha256": "46a39bfcb302ac71b4313007e5719dd5315e01651042c99ee9fb0ebfdacd602e"
+  },
+  "candidate/22-initialization-numeric-refusal/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/package-lock.json",
+    "bytes": 204075,
+    "sha256": "205798c1bdba6636b3b9f84f1a4a273d0a01762a63f5024e72aac3179409d4da"
+  },
+  "candidate/22-initialization-numeric-refusal/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "84471c97af439a674c13b8a1df168bcb1cdbbe8f6fd36e4efb640a308e5391ae"
+  },
+  "candidate/22-initialization-numeric-refusal/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "576b700fe273564de677fe8f7a78dbcd777cfa8b0a38e3321af9a8164038bfdd"
+  },
+  "candidate/22-initialization-numeric-refusal/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/resolved-model.json",
+    "bytes": 738,
+    "sha256": "8acf86844bde4c55dfdf2c72ea257af9d824163ea24f0acfe9988675410cf47c"
+  },
+  "candidate/22-initialization-numeric-refusal/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/rir-semantic-payload.json",
+    "bytes": 156519,
+    "sha256": "289cf59c6017f78f348d8ff83c5c31b585046480cabb3fe500fcd477379c37ea"
+  },
+  "candidate/22-initialization-numeric-refusal/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/22-initialization-numeric-refusal/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/22-initialization-numeric-refusal/stdout",
+    "bytes": 3320,
+    "sha256": "133f9609eb309ccd8302c40b2873cd69d4624a53bb7693002a882ec51bd41886"
+  },
+  "candidate/23-initialization-numeric-refusal/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/23-initialization-numeric-refusal/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/23-initialization-numeric-refusal/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/23-initialization-numeric-refusal/stdout",
+    "bytes": 916,
+    "sha256": "a58ba5304766724ac38f89dda31c5779046225ba564e709f435dbd74194c707e"
+  },
+  "candidate/24-inline-formula-numeric-refusal/build-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/build-receipt.json",
+    "bytes": 1275,
+    "sha256": "a28d17f5a801cc49503bbdee9f1f9e213ab2bbe36a2478e7fc3b8ae2dca922a7"
+  },
+  "candidate/24-inline-formula-numeric-refusal/capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/capability-manifest.json",
+    "bytes": 44510,
+    "sha256": "10463ef3c1e4adcd7b5ec0835f33c1ee1d732304b94733bdcf4751e5d2e496c6"
+  },
+  "candidate/24-inline-formula-numeric-refusal/debug-map.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/debug-map.json",
+    "bytes": 1248,
+    "sha256": "d5788a6e5467fae82bc50c413f0f2ca6a5f2689213b1cdbc54f83867942fe3cc"
+  },
+  "candidate/24-inline-formula-numeric-refusal/model-explanation.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/model-explanation.json",
+    "bytes": 17568,
+    "sha256": "c9112819ad5159bdfda252eaff0c44b61a8af1f2957cb940dba6b4b3366d9bad"
+  },
+  "candidate/24-inline-formula-numeric-refusal/package-lock.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/package-lock.json",
+    "bytes": 204075,
+    "sha256": "205798c1bdba6636b3b9f84f1a4a273d0a01762a63f5024e72aac3179409d4da"
+  },
+  "candidate/24-inline-formula-numeric-refusal/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/publication-manifest.json",
+    "bytes": 2385,
+    "sha256": "1b685b37fe0a841a31ccb3efa40d1cda0eeedd670d1013e8c71c8462ec293b5b"
+  },
+  "candidate/24-inline-formula-numeric-refusal/resolution-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/resolution-receipt.json",
+    "bytes": 758,
+    "sha256": "fefaa54796ef6df506e6c67ce8fdf4b7e8460c3bd5395c03a98df2ea5a5633c3"
+  },
+  "candidate/24-inline-formula-numeric-refusal/resolved-model.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/resolved-model.json",
+    "bytes": 738,
+    "sha256": "11dd18d7f6530dbe5e4dd2729aac8274de0bdfe39e99cea3f613e2be613f2272"
+  },
+  "candidate/24-inline-formula-numeric-refusal/rir-semantic-payload.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/rir-semantic-payload.json",
+    "bytes": 157867,
+    "sha256": "a6bbed3fd1728fbd32c405f12ab1c7e2953083ac1063f353299276b77565855d"
+  },
+  "candidate/24-inline-formula-numeric-refusal/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/24-inline-formula-numeric-refusal/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/24-inline-formula-numeric-refusal/stdout",
+    "bytes": 3320,
+    "sha256": "ad71f72bc24f86481f4626bf609d7a2bde197681790b23c88c9f43f3cfba42b4"
+  },
+  "candidate/25-inline-formula-numeric-refusal/evaluator-capability-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/25-inline-formula-numeric-refusal/evaluator-capability-manifest.json",
+    "bytes": 994,
+    "sha256": "1410b4dacf699bc956419fe335ae37af295bcca21fc0686ad9ecf450d0da7d47"
+  },
+  "candidate/25-inline-formula-numeric-refusal/publication-manifest.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/25-inline-formula-numeric-refusal/publication-manifest.json",
+    "bytes": 1146,
+    "sha256": "f1d39cc3c34f0e8624f8994e40390942891a2d269f3a89ed31fb6667418c393d"
+  },
+  "candidate/25-inline-formula-numeric-refusal/resolved-runtime-profile.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/25-inline-formula-numeric-refusal/resolved-runtime-profile.json",
+    "bytes": 2421,
+    "sha256": "da931595db87cccb02efbe150058e3530305e3742cc7cab159be3e5babf68fb9"
+  },
+  "candidate/25-inline-formula-numeric-refusal/runtime-terminal-audit.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/25-inline-formula-numeric-refusal/runtime-terminal-audit.json",
+    "bytes": 6553,
+    "sha256": "64bd93edc1c7b4f5cf62aefc2c51ac23a6ecddfd99096fb17398da18e977bb1f"
+  },
+  "candidate/25-inline-formula-numeric-refusal/stderr": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/25-inline-formula-numeric-refusal/stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "candidate/25-inline-formula-numeric-refusal/stdout": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/25-inline-formula-numeric-refusal/stdout",
+    "bytes": 2232,
+    "sha256": "32ccd5453c1abb7f6856da458436584d08503b5053d61b9164eeeeafcc9081dd"
+  },
+  "candidate/capture.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/capture.json",
+    "bytes": 12208,
+    "sha256": "d0a1339d36c609250f893756b0430ff8e6657a2b67f00d85eef4e93859d403e3"
+  },
+  "candidate/commands.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/capture/green/commands.json",
+    "bytes": 34383,
+    "sha256": "5b6ef093357761e49ff819fdbe8202d5b58bff10bb3a3fdf9c5cb60524799e36"
+  },
+  "/private/tmp/gda-876-public-2ifrpexb/baseline-projection.json": {
+    "path": "/private/tmp/gda-876-public-2ifrpexb/baseline-projection.json",
+    "bytes": 1053440,
+    "sha256": "3d5e1c2fad752439562e546c69c260e26bffa3226ce1c8d6e0ba13c657e58773"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/candidate-projection.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/candidate-projection.json",
+    "bytes": 1060790,
+    "sha256": "4fa6931029aa97b1116ad20c158a6b6a93752b72cd04ead178a643c6617d1fdb"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/causal-differences.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/causal-differences.json",
+    "bytes": 272957,
+    "sha256": "0678dc0bda136b5fe28cf8af67f2e5d0e75cc6613b29719902086e39d836f575"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/compare_candidate.py": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/compare_candidate.py",
+    "bytes": 13574,
+    "sha256": "0c4fc517f0f644c962a78e96a0fc1480e30743c0639e5721cb66057a4ebcd10d"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/project_candidate.py": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/project_candidate.py",
+    "bytes": 8070,
+    "sha256": "96a4f87df509f30474935f4bfb2aba543d271b2aeeea13dca53db868ed2c3295"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/public-test-receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/public-test-receipt.json",
+    "bytes": 12162,
+    "sha256": "6f0742cd33baa52c03c8478b338f8a6bbcadc27c753eacc2bcd91a575f566d0e"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/public-static.log": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/public-static.log",
+    "bytes": 81,
+    "sha256": "7126aa75e6ad15f20cb47cdca2297ab5508514a786aacd4084548d26d704a37b"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/public-collection.log": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/public-collection.log",
+    "bytes": 2483,
+    "sha256": "f35fc9f1e1aa12525208daf906b839179149abdd00645ac8da83b39ec382bda9"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/public-final.xml": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/public-final.xml",
+    "bytes": 4941,
+    "sha256": "2d26bf6a122e2589710a54bfcc57c8fac7c84ba0e2335d82ff102c3a9b3b5b20"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/public-final.log": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/public-final.log",
+    "bytes": 1634,
+    "sha256": "1d31a4d2a3d1d4e5d4fb7cda8b4484ca1c11748630e778a108fea142549c8f11"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/public-observation-final.xml": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/public-observation-final.xml",
+    "bytes": 606,
+    "sha256": "0ccbb2b6733abf1dd31129086a5d7fe1623aeb46a17e30c9f06dcf586eb48386"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/public-observation-final.log": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/public-observation-final.log",
+    "bytes": 98,
+    "sha256": "49b93ff00ea9a866794cf41df39c65921e92a6db72257833773ffa0659bd0157"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/baseline-public-red.xml": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/baseline-public-red.xml",
+    "bytes": 1053,
+    "sha256": "9e05738648e87458a689a7718439af2987e79de2ac7089bf1c62b943e52a79e0"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/baseline-public-red.log": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/baseline-public-red.log",
+    "bytes": 863,
+    "sha256": "dcf97162433a529968377c749f2ed1481eb63df69963e91fcf58ca6f0cdf830e"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/latency.py": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/latency.py",
+    "bytes": 2203,
+    "sha256": "b103a559341c2ec4b0ecbe4bc6f35290170f626d5c09b5e405a3ebacd133bcb0"
+  },
+  "/private/tmp/gda-876-public-worker-evidence/latency/receipt.json": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/latency/receipt.json",
+    "bytes": 4825,
+    "sha256": "945958cd3cab4535e89632e3206fd233c957c1e18f93d45f4bd3e68194c9ed0e"
+  },
+  "/private/tmp/gda-876-public-baseline-red/receipt.json": {
+    "path": "/private/tmp/gda-876-public-baseline-red/receipt.json",
+    "bytes": 923,
+    "sha256": "452684803e95572c140f446d92cce3fb0ce890495de5925b18302f016777beea"
+  },
+  "/private/tmp/gda-876-public-baseline-red/libs/gda-balancing/tests/test_public_formula_runtime_seam.py": {
+    "path": "/private/tmp/gda-876-public-baseline-red/libs/gda-balancing/tests/test_public_formula_runtime_seam.py",
+    "bytes": 29709,
+    "sha256": "a42ec6ae7688e1a1b462e8dfc484d5e1cf05341589aa5731505eaf312c8f912e"
+  }
+}

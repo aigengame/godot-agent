@@ -282,7 +282,7 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "copy",
             "floor-divide",
             "if",
-            "maximum",
+            "less-than",
             "multiply",
             "subtract",
         ]
@@ -360,7 +360,7 @@ def _value_program_instruction_is_closed(
         "copy": {"node", "target", "value"},
         "add": {"node", "target", "left", "right"},
         "floor-divide": {"node", "target", "left", "right"},
-        "maximum": {"node", "target", "left", "right"},
+        "less-than": {"node", "target", "left", "right"},
         "multiply": {"node", "target", "left", "right"},
         "subtract": {"node", "target", "left", "right"},
         "if": {

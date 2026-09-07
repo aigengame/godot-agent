@@ -881,8 +881,8 @@ def _experiment(
                     "draw",
                     "if",
                     "invoke",
+                    "less-than",
                     "less-than-or-equal",
-                    "maximum",
                     "multiply",
                     "precondition-greater-than-or-equal",
                     "subtract",
@@ -3546,11 +3546,11 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
 
     coordinated_proof = deepcopy(audit)
     assert coordinated_proof["budget_counters"]["event_steps"] == 8
-    assert coordinated_proof["budget_counters"]["node_steps"] == 12
+    assert coordinated_proof["budget_counters"]["node_steps"] == 14
     assert coordinated_proof["refusing_event"]["instruction_index"] == 2
     assert len(coordinated_proof["refusing_event"]["attempted_calls"]) == 2
     coordinated_proof["budget_counters"]["event_steps"] = 4
-    coordinated_proof["budget_counters"]["node_steps"] = 8
+    coordinated_proof["budget_counters"]["node_steps"] = 10
     coordinated_proof["refusing_event"]["instruction_index"] = 1
     coordinated_proof["refusing_event"]["attempted_calls"] = coordinated_proof[
         "refusing_event"
@@ -6913,11 +6913,11 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers(monkey
             execution_evidence_expectations={
                 ("game.combat", "game.combat.cast.eligible-action"): {
                     "ordering_key": root_ordering_key,
-                    "resource_charge": 30,
+                    "resource_charge": 31,
                 },
                 ("game.combat", "game.combat.cast.target-defeated"): {
                     "ordering_key": root_ordering_key,
-                    "resource_charge": 30,
+                    "resource_charge": 31,
                 },
                 ("game.combat", "game.combat.cast.actor-ineligible"): {
                     "ordering_key": root_ordering_key,
@@ -7002,7 +7002,7 @@ def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
                     "priority": 0,
                     "enqueue_sequence": 0,
                 },
-                "resource_charge": 30,
+                "resource_charge": 31,
             }
         },
     )
@@ -7348,6 +7348,20 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         "formula.runtime.floor-divide.negative-non-exact",
         "formula.runtime.floor-divide.refuse.zero-divisor",
         "formula.runtime.floor-divide.refuse.negative-divisor",
+        "formula.runtime.maximum.extrema",
+        "formula.runtime.maximum.extrema-reversed",
+        "formula.runtime.maximum.tie-minimum",
+        "formula.runtime.maximum.tie-maximum",
+        "formula.runtime.maximum.limit-below",
+        "formula.runtime.maximum.limit-exact",
+        "formula.runtime.maximum.limit-above",
+        "formula.runtime.maximum.cached-limit",
+        "formula.runtime.subtraction.minimum-self",
+        "formula.runtime.subtraction.negated-minimum-refuses",
+        "formula.runtime.comparison.extrema-direct",
+        "formula.runtime.comparison.tie-is-false",
+        "formula.runtime.comparison.difference-overflow",
+        "formula.runtime.selection.eager-unselected-overflow",
     }
     for vector in vectors:
         reference = _reference_evaluate_value_program_vector(vector)

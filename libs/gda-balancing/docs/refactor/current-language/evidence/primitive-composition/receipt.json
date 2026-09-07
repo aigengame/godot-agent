@@ -1,0 +1,82 @@
+{
+  "issue": 876,
+  "baseline": "075a5aae74d257f8968c408faa4b4b304055f85b",
+  "integrated_baseline": "6a32d8ced05e4dcd6c02e59d7053144500528b83",
+  "baseline_trees_identical": true,
+  "claim_state": "confirmed-narrowly",
+  "observation": "Direct compare/select composition loses existing Formula interval precision before production remediation.",
+  "baseline_models_compiled": 6,
+  "candidate_models_compiled": 2,
+  "candidate_models_refused": 4,
+  "witness": {
+    "model": "rpg-stat-composition",
+    "operation": "quantity.floor-zero",
+    "input_interval": [
+      -1000,
+      4040
+    ],
+    "baseline_result_interval": [
+      0,
+      4040
+    ],
+    "candidate_result_interval": [
+      -1000,
+      4040
+    ],
+    "reason": "language.formula_type_mismatch",
+    "pointer": "/modules/0/formulas/4/expression"
+  },
+  "limits": [
+    "Uses actually admitted in-memory authority and production Model admission/compiler, not a public subprocess or installed-wheel test.",
+    "Only two quantity Operation bodies and their declared charges change; the maximum Kernel node remains in this disposable negative probe.",
+    "This proves a missing composition inference capability, not completed primitive deletion or conformance."
+  ],
+  "entries": [
+    {
+      "path": "admission-probe.py.txt",
+      "sha256": "963caa2c86daa7d90dee508c41df70b9c453a157da2d213685a38aca59532567",
+      "bytes": 1832,
+      "kind": "verbatim-prototype-evidence"
+    },
+    {
+      "path": "admission-probe.log",
+      "sha256": "bee1a39d2a486659cb8f5d82a586ae51df986f57ca553d1407f4a71670dded55",
+      "bytes": 2484,
+      "kind": "verbatim-prototype-evidence"
+    },
+    {
+      "path": "interval-probe.py.txt",
+      "sha256": "63dd8c5b1ee01655763870dca2130c1be7345cec784a34fa564d5a9c74be2f78",
+      "bytes": 2199,
+      "kind": "verbatim-prototype-evidence"
+    },
+    {
+      "path": "interval-probe.log",
+      "sha256": "0f87942fe9b45c7eb45436bb0d126ccd856b194c765cc6b08f9193561e755731",
+      "bytes": 7122,
+      "kind": "verbatim-prototype-evidence"
+    },
+    {
+      "path": "interval-oracle.py.txt",
+      "sha256": "b294f914fc6aeafdaf747f8786ec48f782cec0040d0bc35b7bbfb95a59ae08fe",
+      "bytes": 5268,
+      "kind": "verbatim-independent-design-evidence"
+    },
+    {
+      "path": "interval-oracle.json",
+      "sha256": "68489c691eb69907c44cd1ec52faeda40cb731666dc6266666c404cc3efc238d",
+      "bytes": 4194,
+      "kind": "verbatim-independent-design-evidence"
+    }
+  ],
+  "independent_interval_oracle": {
+    "cases": 100352,
+    "domain": [
+      -3,
+      3
+    ],
+    "claim_state": "confirmed-narrowly",
+    "scope": "One predicate, possible branch values, direct/copied/independent operand origins, with separate concrete enumeration.",
+    "limits": "Not production inference, nested predicates, arithmetic correlation, nominal admission or final conformance."
+  }
+}

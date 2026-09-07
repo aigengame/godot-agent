@@ -544,38 +544,15 @@ def _notation_resource_usage(
     return count, maximum_depth
 
 
-def _declared_result_contract(
-    operation: dict[str, Any],
-    imports: dict[str, tuple[str, str]],
-) -> dict[str, Any]:
-    result = operation.get("result")
-    result_type = result.get("type") if isinstance(result, dict) else None
-    if not isinstance(result, dict) or not isinstance(result_type, dict):
-        raise ValueError("independent result declaration is malformed")
-    coordinate = (
-        result_type.get("package"),
-        result_type.get("id"),
-    )
-    aliases = [alias for alias, identity in imports.items() if identity == coordinate]
-    if coordinate == ("kernel", "Boolean"):
-        type_alias = "Boolean"
-    elif len(aliases) == 1:
-        type_alias = aliases[0]
-    else:
-        raise ValueError("independent result type is unresolved")
+def _boolean_formula_contract(kernel: dict[str, Any]) -> dict[str, Any]:
+    fixed = kernel["meta_format"]["runtime_program"]["fixed_value_contracts"][
+        "kernel-boolean"
+    ]
     return {
-        "type": type_alias,
+        "type": "Boolean",
         **{
-            member: deepcopy(result[member])
-            for member in (
-                "representation",
-                "kind",
-                "unit",
-                "domain_kind",
-                "domain",
-                "numeric_policy",
-            )
-            if member in result
+            member: deepcopy(fixed[member])
+            for member in ("representation", "kind", "unit", "numeric_policy", "domain")
         },
     }
 
@@ -585,8 +562,8 @@ def _infer_result(
     ports: list[str],
     contracts: list[dict[str, Any] | None],
     fallback: dict[str, Any],
-    imports: dict[str, tuple[str, str]],
     policy: dict[str, Any],
+    boolean_contract: dict[str, Any],
 ) -> dict[str, Any]:
     anchor = next((row for row in contracts if isinstance(row, dict)), fallback)
     values = {
@@ -624,6 +601,37 @@ def _infer_result(
         }
         return projected
 
+    comparisons: dict[str, tuple[str, str]] = {}
+
+    def possible_branch(condition: str, selected: str, truth: bool):
+        selected_bounds = interval(values[selected])
+        assert selected_bounds is not None
+        operands = comparisons.get(condition)
+        if operands is None:
+            return selected_bounds
+        x, y = operands
+        a, b = interval(values[x]), interval(values[y])
+        if a is None or b is None:
+            return selected_bounds
+        if x == y:
+            return None if truth else selected_bounds
+        # Enumerate extremal feasible pairs of the rectangle intersected with
+        # x < y (or x >= y), using mathematical integers at strict endpoints.
+        xs = {a[0], a[1], max(a[0], b[0]), min(a[1], b[1] - 1)}
+        ys = {b[0], b[1], min(b[1], a[1]), max(b[0], a[0] + 1)}
+        pairs = [
+            (u, v)
+            for u in xs
+            for v in ys
+            if a[0] <= u <= a[1] and b[0] <= v <= b[1] and (u < v) is truth
+        ]
+        if not pairs:
+            return None
+        if selected not in operands:
+            return selected_bounds
+        selected_values = [pair[0 if selected == x else 1] for pair in pairs]
+        return min(selected_values), max(selected_values)
+
     for instruction in operation.get("body", []):
         rule = (
             by_node.get(instruction.get("node"))
@@ -636,6 +644,11 @@ def _infer_result(
         )
         if not isinstance(rule, dict) or not isinstance(target, str):
             raise ValueError("independent inference instruction is unresolved")
+        comparisons = {
+            name: pair
+            for name, pair in comparisons.items()
+            if name != target and target not in pair
+        }
         rule_id = rule.get("rule")
         if rule_id == "literal-closed-interval":
             literal = instruction.get(rule["literal_member"])
@@ -643,11 +656,17 @@ def _infer_result(
                 raise ValueError("independent literal inference is malformed")
             values[target] = with_interval(anchor, (literal, literal))
         elif rule_id == "copy-contract":
-            values[target] = deepcopy(values[instruction[rule["source_member"]]])
+            copied = instruction[rule["source_member"]]
+            values[target] = deepcopy(values[copied])
+            if copied in comparisons:
+                comparisons[target] = comparisons[copied]
+        elif rule_id == "closed-interval-less-than":
+            assert policy["condition_contract"] == "kernel-boolean"
+            comparisons[target] = tuple(instruction[m] for m in rule["operand_members"])
+            values[target] = deepcopy(boolean_contract)
         elif rule_id in {
             "closed-interval-add",
             "closed-interval-floor-divide",
-            "closed-interval-maximum",
             "closed-interval-multiply",
             "closed-interval-select",
             "closed-interval-subtract",
@@ -694,23 +713,25 @@ def _infer_result(
                 )
                 values[target] = with_interval(left, (min(quotients), max(quotients)))
             elif rule_id == "closed-interval-select":
+                branches = [
+                    bounds
+                    for selected, truth in ((left_name, True), (right_name, False))
+                    if (
+                        bounds := possible_branch(
+                            instruction["condition"], selected, truth
+                        )
+                    )
+                    is not None
+                ]
+                if not branches:
+                    raise ValueError("independent selection has no possible result")
                 values[target] = with_interval(
                     left,
                     (
-                        min(left_bounds[0], right_bounds[0]),
-                        max(left_bounds[1], right_bounds[1]),
+                        min(pair[0] for pair in branches),
+                        max(pair[1] for pair in branches),
                     ),
                 )
-            else:
-                values[target] = with_interval(
-                    left,
-                    (
-                        max(left_bounds[0], right_bounds[0]),
-                        max(left_bounds[1], right_bounds[1]),
-                    ),
-                )
-        elif rule_id == "declared-result-contract":
-            values[target] = _declared_result_contract(operation, imports)
         else:
             raise ValueError("independent inference rule is unknown")
     result = operation["result"]
@@ -725,6 +746,8 @@ def parse_canonical(
     expression: str,
     request: dict[str, Any],
     language_bundle: dict[str, Any],
+    *,
+    kernel: dict[str, Any],
 ) -> dict[str, Any]:
     grammar, _operations = _authority(language_bundle)
     policy = _conversion_policy(language_bundle)
@@ -834,8 +857,8 @@ def parse_canonical(
             ports,
             [contract for _operand, contract in operands],
             _source_contract(request["formula"]["result"]),
-            imports,
             policy,
+            _boolean_formula_contract(kernel),
         )
         return (
             {
@@ -1007,7 +1030,9 @@ def parse_canonical(
     }
 
 
-def admit_pair(request: dict[str, Any], language_bundle: dict[str, Any]) -> bool:
+def admit_pair(
+    request: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> bool:
     formula = request.get("formula")
     if (
         not isinstance(formula, dict)
@@ -1019,7 +1044,7 @@ def admit_pair(request: dict[str, Any], language_bundle: dict[str, Any]) -> bool
     expression = cast(str, formula["expression"])
     try:
         rendered = render_body(body, request, language_bundle)
-        parsed = parse_canonical(expression, request, language_bundle)
+        parsed = parse_canonical(expression, request, language_bundle, kernel=kernel)
     except (KeyError, TypeError, ValueError):
         return False
     return expression == rendered and canonical_bytes(

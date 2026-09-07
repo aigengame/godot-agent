@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:26575c99fefafbb39395ea866ed76f85b303d9e10c3f0764017790270d02112d"
+    "sha256:40b08f5a4e519f11d589781e62cbf0ec4f10f69a608d71649e353609332a02b0"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -701,7 +701,7 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "copy",
             "floor-divide",
             "if",
-            "maximum",
+            "less-than",
             "multiply",
             "subtract",
         ]
@@ -994,7 +994,7 @@ def _consumer_b_value_program_instruction_is_closed(
         "copy": ("value",),
         "add": ("left", "right"),
         "floor-divide": ("left", "right"),
-        "maximum": ("left", "right"),
+        "less-than": ("left", "right"),
         "multiply": ("left", "right"),
         "subtract": ("left", "right"),
         "if": ("condition", "when_true", "when_false"),

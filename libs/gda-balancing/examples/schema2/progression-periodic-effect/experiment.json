@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.progression-periodic-effect.snapshot",
   "model": {
-    "rir_semantic_identity": "sha256:7d44191a5f1fb5e23290b2d75ea95e922e1ea27eae73b8a7db97d89deae749cd"
+    "rir_semantic_identity": "sha256:59c77d6cc0460a61447884199e04d21c33d15186b5fef3569fda31cc2b797492"
   },
   "seed": {
     "algorithm": "splitmix64-v1",
@@ -19,7 +19,8 @@
         "constant",
         "copy",
         "draw",
-        "maximum",
+        "if",
+        "less-than",
         "multiply",
         "schedule",
         "subtract",
