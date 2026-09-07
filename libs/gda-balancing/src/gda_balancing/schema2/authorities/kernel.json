@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:b4f13b014acce1656282a07a1ba5e0d0f197f75598fb2c72993b8e9011192dfa",
+  "content_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -5523,7 +5523,8 @@
         "resources": [
           {
             "source_member": "max_rule_match_steps",
-            "output_member": "max_rule_match_steps"
+            "output_member": "max_rule_match_steps",
+            "when": "typed-values"
           }
         ],
         "reasons": {

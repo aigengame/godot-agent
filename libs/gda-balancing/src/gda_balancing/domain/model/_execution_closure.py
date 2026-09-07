@@ -79,6 +79,8 @@ def close_execution_dependencies(
     resources: dict[str, int] = {}
     for selector in cast(list[dict[str, str]], contract["resources"]):
         consume()
+        if not applicable[selector["when"]]:
+            continue
         limit = language_bundle["resources"][selector["source_member"]]
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
             raise ValueError("execution resource dependency is not a positive limit")

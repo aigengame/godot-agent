@@ -72,7 +72,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:b4f13b014acce1656282a07a1ba5e0d0f197f75598fb2c72993b8e9011192dfa"
+    "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1874,6 +1874,7 @@ def _execution_projection_is_closed(
         if not isinstance(resource, dict) or set(resource) != {
             "source_member",
             "output_member",
+            "when",
         }:
             return False
         source, output = resource["source_member"], resource["output_member"]
@@ -1881,6 +1882,7 @@ def _execution_projection_is_closed(
             not isinstance(source, str)
             or not isinstance(output, str)
             or source != output
+            or resource["when"] != "typed-values"
         ):
             return False
         target = _json_schema_path(resource_schema, [output])
@@ -1890,9 +1892,11 @@ def _execution_projection_is_closed(
         ):
             return False
         resource_outputs.append(output)
-    if len(set(resource_outputs)) != len(resource_outputs) or set(
-        resource_outputs
-    ) != set(resource_schema.get("required", [])):
+    if (
+        len(set(resource_outputs)) != len(resource_outputs)
+        or resource_schema.get("required") != []
+        or set(resource_outputs) != set(resource_schema.get("properties", {}))
+    ):
         return False
     reasons = contract.get("reasons")
     if not isinstance(reasons, dict) or set(reasons) != {
