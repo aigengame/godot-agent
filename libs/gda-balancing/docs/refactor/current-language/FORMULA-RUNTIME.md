@@ -1,0 +1,98 @@
+# Formula Runtime conformance seam
+
+This record defines the implementation and validation scope of [#612](https://github.com/aigengame/godot-agent/issues/612),
+the existing prerequisite of #876. The development baseline is
+`aa94ec79d63b0595e5d6af8bce6180aba9d5b397`, which integrates #875 through PR #906.
+The issue and its pull request own live acceptance status. This plan does not claim
+that the implementation or its verification is complete.
+
+## Problem and boundary
+
+The shipped `_evaluate_value_program_vector` function is called only by tests.
+It implements its own charge, cache key, numeric refusal and result projection.
+Normal initialization, Event and observation Formula execution uses a different
+program loop. Sharing the instruction interpreter alone does not prove that the
+vectors exercise the execution path used by an Experiment.
+
+A baseline probe replaced the normal lifecycle evaluator with an unconditional
+failure. Both vector consumers still matched all ten shipped value-program
+expectations. This establishes a conformance-evidence gap; it does not establish
+that a maintained public Experiment produces an incorrect result.
+
+Extract one identified program evaluation inside the existing Runtime execution
+module. The existing coordinator keeps graph reachability, operand resolution,
+lifecycle frame construction and target writes. The shared function owns:
+
+- selected Kernel instruction dispatch and numeric semantics;
+- the declared `resource_bounds.max_steps` charge before a cache lookup;
+- the program, site, frame, operands and numeric contract in the cache key;
+- the admitted value and updated consumed steps; and
+- precise program, evaluation-site, frame and charge information on a fault.
+
+The input uses the existing compiled program and explicit selected contracts.
+There is no new public IR, wire artifact, registry, implicit authority lookup or
+test-only Runtime branch. A separate Formula module is unnecessary for this cut:
+moving the shared Event helpers would add relocation without changing ownership.
+
+Inline Event Formula instructions retain their existing per-instruction total,
+Event and Operation counters and exact failure index. Extracting the program
+function does not replace this ledger with a bulk charge or change the published
+refusal counters, committed prefix or rollback boundary.
+
+## Consumers and refusal scope
+
+Normal nonempty initialization, Event and observation programs call the shared
+function. A test-side adapter translates each vector into the same request and
+projects the returned value or fault. It may orchestrate the requested repeated
+evaluations, but it does not calculate charges, construct a second cache key or
+interpret generic numeric exceptions. Delete the shipped vector-only entry point.
+
+Keep the reference vector consumer and independent artifact replay independently
+implemented. Each vector consumer compares its observation with the shipped
+expectation; agreement between the consumers alone is insufficient.
+
+The Kernel requires a positive divisor domain, and current public admission
+enforces that precondition. Preserve the negative division vectors through a
+narrow internal domain failure from the shared instruction path. Do not convert
+arbitrary `ValueError` exceptions into `invalid-domain`, add a selected reason or
+expand the public refusal protocol for an input public admission already rejects.
+Malformed, unknown and context-incompatible direct requests must fail without
+cache insertion or a partially published result. This does not require a second
+general-purpose program admission implementation.
+
+## Verification and implementation order
+
+1. Capture the post-#875 public artifact baseline and a discriminating failure
+   showing that the existing vectors do not depend on normal Formula evaluation.
+2. Extract the charged single-program function and connect the three lifecycle
+   callers while preserving the Event ledger and existing public fault projection.
+3. Move vector adaptation under tests and delete the production vector entry point.
+   Retain all ten expectations and the separately implemented reference consumer.
+4. Exercise real public paths with nonempty shared-function calls in each lifecycle.
+   Check charge before cache hits, a declared charge larger than instruction count,
+   different Snapshot frames with equal operands, numeric/resource boundaries,
+   exact fault provenance and atomic refusal. A spy on an empty coordinator is not
+   evidence that a program was evaluated.
+5. Compare public artifacts, verify independent consumer imports and required test
+   inventory, and run the package checks and full CI. Review Standards, Spec and
+   domain architecture independently before integration into dev.
+
+The byte comparison preserves Kernel/LDB identities, RIR meaning, admitted Formula
+semantics and semantic execution artifacts. Under the
+[execution identity contract](EXECUTION-IDENTITY.md), source changes must update
+the evaluator implementation fingerprint. Producer manifests and publication
+records that identify their bytes therefore change truthfully. Enumerate those
+differences in the validation evidence; do not freeze fingerprints or exclude
+unrelated result differences from comparison.
+
+## Rollback and completion
+
+Rollback restores code, test adapters and this issue's documentation together to
+the development baseline. No compatibility entry point or alternate evaluator
+remains for rollback. Verify the reverse patch and execute the restored public
+baseline before closing #612.
+
+Completion requires the shared production path, deletion of the vector-only
+function, independent expectation checks, preserved public behavior and complete
+review/CI evidence. It does not delete the value alias or maximum primitive: #876
+owns those separately adopted language and resource-contract changes.
