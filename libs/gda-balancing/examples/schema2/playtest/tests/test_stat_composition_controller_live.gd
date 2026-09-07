@@ -62,7 +62,6 @@ func _run() -> void:
 			"event_trace_identity",
 			"snapshot_series_identity",
 			"metric_dataset_identity",
-			"reproduction_receipt_identity",
 		]:
 			_expect(
 				not str(provenance.get(member, "")).is_empty(),

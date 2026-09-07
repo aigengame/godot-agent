@@ -103,6 +103,7 @@ def _run_experiment_variant(
     tmp_path: Path,
     experiment: dict,
     *,
+    rir: Path,
     name: str,
     invocation_key: str,
 ) -> tuple[dict, dict]:
@@ -112,6 +113,8 @@ def _run_experiment_variant(
         "experiment",
         "run",
         str(specification_path),
+        "--rir",
+        str(rir),
         "--out",
         str(tmp_path / name),
         "--invocation-key",
@@ -125,19 +128,9 @@ def _run_experiment_variant(
     return receipt, trace
 
 
-def _bind_experiment_to_build(experiment: dict, receipt: dict) -> None:
-    build_record = json.loads(
-        _receipt_members(receipt)["build-receipt"].read_text(encoding="utf-8")
-    )
-    experiment["kernel_identity"] = build_record["kernel_identity"]
-    experiment["language_bundle_identity"] = build_record["language_bundle_identity"]
-    experiment["model"] = {
-        "source_identity": build_record["source_identity"],
-        "build_receipt_identity": build_record["content_identity"],
-        "resolved_model_identity": build_record["resolved_model_identity"],
-        "package_lock_identity": build_record["package_lock_identity"],
-        "rir_identity": build_record["rir_identity"],
-    }
+def _bind_experiment_to_rir(experiment: dict, rir: Path) -> None:
+    program = json.loads(rir.read_text(encoding="utf-8"))
+    experiment["model"] = {"rir_semantic_identity": program["semantic_identity"]}
 
 
 def _build_reciprocal_example(
@@ -297,7 +290,11 @@ class TestKeyUserPath:
 
         checked_in_experiment_path = _ROGUELIKE_REWARD_BUILD_EXAMPLE / "experiment.json"
         checked_experiment = _run(
-            "experiment", "check", str(checked_in_experiment_path)
+            "experiment",
+            "check",
+            str(checked_in_experiment_path),
+            "--rir",
+            str(_receipt_members(json.loads(built.stdout))["rir-semantic-payload"]),
         )
         assert (checked_experiment.returncode, checked_experiment.stderr) == (
             0,
@@ -308,6 +305,7 @@ class TestKeyUserPath:
         baseline_receipt, baseline_trace = _run_experiment_variant(
             tmp_path,
             experiment,
+            rir=_receipt_members(json.loads(built.stdout))["rir-semantic-payload"],
             name="roguelike-baseline",
             invocation_key="6" * 64,
         )
@@ -323,6 +321,8 @@ class TestKeyUserPath:
             "experiment",
             "replay",
             str(checked_in_experiment_path),
+            "--rir",
+            str(_receipt_members(json.loads(built.stdout))["rir-semantic-payload"]),
             "--original-experiment-run-artifact-set-receipt",
             str(baseline_receipt_path),
             "--out",
@@ -346,7 +346,13 @@ class TestKeyUserPath:
         )["value"] = 2
         tuned_path = tmp_path / "roguelike-tuned.json"
         tuned_path.write_text(json.dumps(tuned), encoding="utf-8")
-        checked_tuned = _run("experiment", "check", str(tuned_path))
+        checked_tuned = _run(
+            "experiment",
+            "check",
+            str(tuned_path),
+            "--rir",
+            str(_receipt_members(json.loads(built.stdout))["rir-semantic-payload"]),
+        )
         assert (checked_tuned.returncode, checked_tuned.stderr) == (
             0,
             "",
@@ -354,6 +360,7 @@ class TestKeyUserPath:
         tuned_receipt, tuned_trace = _run_experiment_variant(
             tmp_path,
             tuned,
+            rir=_receipt_members(json.loads(built.stdout))["rir-semantic-payload"],
             name="roguelike-tuned",
             invocation_key="7" * 64,
         )
@@ -573,6 +580,7 @@ class TestKeyUserPath:
         receipt, trace = _run_experiment_variant(
             tmp_path,
             companion,
+            rir=_receipt_members(_receipt)["rir-semantic-payload"],
             name="multi-time-companion",
             invocation_key="7" * 64,
         )
@@ -618,26 +626,19 @@ class TestKeyUserPath:
                 encoding="utf-8"
             )
         )
-        build_record = json.loads(
-            _receipt_members(build_receipt)["build-receipt"].read_text(encoding="utf-8")
+        rir = json.loads(
+            _receipt_members(build_receipt)["rir-semantic-payload"].read_text(
+                encoding="utf-8"
+            )
         )
-        assert {
-            "kernel_identity": experiment["kernel_identity"],
-            "language_bundle_identity": experiment["language_bundle_identity"],
-            **experiment["model"],
-        } == {
-            "kernel_identity": build_record["kernel_identity"],
-            "language_bundle_identity": build_record["language_bundle_identity"],
-            "source_identity": build_record["source_identity"],
-            "build_receipt_identity": build_record["content_identity"],
-            "resolved_model_identity": build_record["resolved_model_identity"],
-            "package_lock_identity": build_record["package_lock_identity"],
-            "rir_identity": build_record["rir_identity"],
+        assert experiment["model"] == {
+            "rir_semantic_identity": rir["semantic_identity"]
         }
 
         receipt, trace = _run_experiment_variant(
             tmp_path,
             experiment,
+            rir=_receipt_members(build_receipt)["rir-semantic-payload"],
             name="periodic-effect",
             invocation_key="9" * 64,
         )
@@ -691,28 +692,18 @@ class TestKeyUserPath:
         )
         assert (built.returncode, built.stderr) == (0, ""), built.stdout
         build_receipt = json.loads(built.stdout)
-        build_receipt_path = tmp_path / "stat-composition-model-set-receipt.json"
-        build_receipt_path.write_text(json.dumps(build_receipt), encoding="utf-8")
         experiment = json.loads(
             (_RPG_STAT_COMPOSITION_EXAMPLE / "experiment.json").read_text(
                 encoding="utf-8"
             )
         )
-        build_record = json.loads(
-            _receipt_members(build_receipt)["build-receipt"].read_text(encoding="utf-8")
+        rir = json.loads(
+            _receipt_members(build_receipt)["rir-semantic-payload"].read_text(
+                encoding="utf-8"
+            )
         )
-        assert {
-            "kernel_identity": experiment["kernel_identity"],
-            "language_bundle_identity": experiment["language_bundle_identity"],
-            **experiment["model"],
-        } == {
-            "kernel_identity": build_record["kernel_identity"],
-            "language_bundle_identity": build_record["language_bundle_identity"],
-            "source_identity": build_record["source_identity"],
-            "build_receipt_identity": build_record["content_identity"],
-            "resolved_model_identity": build_record["resolved_model_identity"],
-            "package_lock_identity": build_record["package_lock_identity"],
-            "rir_identity": build_record["rir_identity"],
+        assert experiment["model"] == {
+            "rir_semantic_identity": rir["semantic_identity"]
         }
         assert experiment["runtime"]["required_evaluator"]["rng_algorithms"] == [
             "splitmix64-v1"
@@ -725,6 +716,7 @@ class TestKeyUserPath:
             receipt, trace = _run_experiment_variant(
                 tmp_path,
                 experiment,
+                rir=_receipt_members(build_receipt)["rir-semantic-payload"],
                 name=name,
                 invocation_key=key,
             )
@@ -768,12 +760,10 @@ class TestKeyUserPath:
             "verify",
             "--claim-kind",
             "evaluable",
-            "--source",
-            str(_RPG_STAT_COMPOSITION_EXAMPLE / "model-source.json"),
+            "--rir",
+            str(_receipt_members(build_receipt)["rir-semantic-payload"]),
             "--specification",
             str(tmp_path / "golden-first.json"),
-            "--model-build-artifact-set-receipt",
-            str(build_receipt_path),
             "--experiment-run-artifact-set-receipt",
             str(run_receipt_path),
         )
@@ -782,12 +772,8 @@ class TestKeyUserPath:
         assert candidate["claim_kind"] == "evaluable"
         assert candidate["claim_state"] == "candidate"
         assert candidate["producing_outcome"] == "success"
-        assert candidate["model_source_identity"] == build_record["source_identity"]
+        assert candidate["rir_semantic_identity"] == rir["semantic_identity"]
         assert candidate["experiment_identity"] == evaluation_run["experiment_identity"]
-        assert (
-            candidate["model_build_artifact_set_receipt_identity"]
-            == (build_receipt["content_identity"])
-        )
         assert (
             candidate["experiment_run_artifact_set_receipt_identity"]
             == (receipts[0]["content_identity"])
@@ -813,7 +799,9 @@ class TestKeyUserPath:
                 encoding="utf-8"
             )
         )
-        _bind_experiment_to_build(baseline, json.loads(built.stdout))
+        _bind_experiment_to_rir(
+            baseline, _receipt_members(json.loads(built.stdout))["rir-semantic-payload"]
+        )
         vectors = (
             (
                 "rpg.stat.round-down-boundary-v1",
@@ -898,6 +886,7 @@ class TestKeyUserPath:
             receipt, _trace = _run_experiment_variant(
                 tmp_path,
                 experiment,
+                rir=_receipt_members(json.loads(built.stdout))["rir-semantic-payload"],
                 name=vector_id,
                 invocation_key=str(index) * 64,
             )
@@ -926,16 +915,12 @@ class TestKeyUserPath:
                 encoding="utf-8"
             )
         )
-        build_record = json.loads(
-            _receipt_members(build_receipt)["build-receipt"].read_text(encoding="utf-8")
+        rir = json.loads(
+            _receipt_members(build_receipt)["rir-semantic-payload"].read_text(
+                encoding="utf-8"
+            )
         )
-        assert baseline["model"] == {
-            "source_identity": build_record["source_identity"],
-            "build_receipt_identity": build_record["content_identity"],
-            "resolved_model_identity": build_record["resolved_model_identity"],
-            "package_lock_identity": build_record["package_lock_identity"],
-            "rir_identity": build_record["rir_identity"],
-        }
+        assert baseline["model"] == {"rir_semantic_identity": rir["semantic_identity"]}
 
         def run_policy(
             *, policy: str, combat_priority: int, name: str, key: str
@@ -949,6 +934,7 @@ class TestKeyUserPath:
             return _run_experiment_variant(
                 tmp_path,
                 experiment,
+                rir=_receipt_members(build_receipt)["rir-semantic-payload"],
                 name=name,
                 invocation_key=key,
             )
@@ -1183,18 +1169,24 @@ class TestKeyUserPath:
             )
         )
         experiment["metrics"][0]["target"] = {"minimum": 0, "maximum": 1000}
-        _bind_experiment_to_build(experiment, baseline_build)
+        _bind_experiment_to_rir(
+            experiment, _receipt_members(baseline_build)["rir-semantic-payload"]
+        )
         baseline_receipt, baseline_trace = _run_experiment_variant(
             tmp_path,
             experiment,
+            rir=_receipt_members(baseline_build)["rir-semantic-payload"],
             name="baseline-formula-run",
             invocation_key="3" * 64,
         )
         tuned_experiment = json.loads(json.dumps(experiment))
-        _bind_experiment_to_build(tuned_experiment, tuned_build)
+        _bind_experiment_to_rir(
+            tuned_experiment, _receipt_members(tuned_build)["rir-semantic-payload"]
+        )
         tuned_receipt, tuned_trace = _run_experiment_variant(
             tmp_path,
             tuned_experiment,
+            rir=_receipt_members(tuned_build)["rir-semantic-payload"],
             name="tuned-formula-run",
             invocation_key="4" * 64,
         )
@@ -1359,7 +1351,9 @@ class TestKeyUserPath:
                 encoding="utf-8"
             )
         )
-        _bind_experiment_to_build(experiment, build_receipt)
+        _bind_experiment_to_rir(
+            experiment, _receipt_members(build_receipt)["rir-semantic-payload"]
+        )
         next(
             assignment
             for assignment in experiment["scenarios"][0]["assignments"]
@@ -1372,6 +1366,8 @@ class TestKeyUserPath:
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(_receipt_members(build_receipt)["rir-semantic-payload"]),
             "--out",
             str(tmp_path / "overflow-periodic-run"),
             "--invocation-key",
@@ -1387,7 +1383,6 @@ class TestKeyUserPath:
         terminal_receipt = error["terminal_audit"]
         assert {row["logical_name"] for row in terminal_receipt["member_locators"]} == {
             "evaluator-capability-manifest",
-            "reproduction-receipt",
             "resolved-runtime-profile",
             "runtime-terminal-audit",
         }
@@ -1423,7 +1418,9 @@ class TestKeyUserPath:
                 encoding="utf-8"
             )
         )
-        _bind_experiment_to_build(experiment, build_receipt)
+        _bind_experiment_to_rir(
+            experiment, _receipt_members(build_receipt)["rir-semantic-payload"]
+        )
         next(
             assignment
             for assignment in experiment["scenarios"][0]["assignments"]
@@ -1436,6 +1433,8 @@ class TestKeyUserPath:
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(_receipt_members(build_receipt)["rir-semantic-payload"]),
             "--out",
             str(tmp_path / "periodic-resource-domain-run"),
             "--invocation-key",
@@ -1487,7 +1486,9 @@ class TestKeyUserPath:
                 encoding="utf-8"
             )
         )
-        _bind_experiment_to_build(experiment, build_receipt)
+        _bind_experiment_to_rir(
+            experiment, _receipt_members(build_receipt)["rir-semantic-payload"]
+        )
         apply = experiment["scenarios"][0]["event_plan"][0]
         apply["entrypoint"] = "effect.apply-snapshot-periodic"
         experiment["scenarios"][0]["event_plan"] = [apply] + [
@@ -1508,6 +1509,8 @@ class TestKeyUserPath:
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(_receipt_members(build_receipt)["rir-semantic-payload"]),
             "--out",
             str(tmp_path / "queue-boundary-run"),
             "--invocation-key",
@@ -1649,12 +1652,20 @@ class TestKeyUserPath:
         assert rir["content_identity"] != rir["semantic_identity"]
 
         experiment_path = example / "experiment.json"
-        experiment_checked = _run("experiment", "check", str(experiment_path))
+        experiment_checked = _run(
+            "experiment",
+            "check",
+            str(experiment_path),
+            "--rir",
+            str(model_members["rir-semantic-payload"]),
+        )
         assert (experiment_checked.returncode, experiment_checked.stderr) == (0, "")
         run = _run(
             "experiment",
             "run",
             str(experiment_path),
+            "--rir",
+            str(model_members["rir-semantic-payload"]),
             "--out",
             str(tmp_path / "evaluation-run.json"),
             "--invocation-key",
@@ -1788,6 +1799,8 @@ class TestKeyUserPath:
             "experiment",
             "run",
             str(experiment_path),
+            "--rir",
+            str(model_members["rir-semantic-payload"]),
             "--out",
             str(tmp_path / "evaluation-run.json"),
             "--invocation-key",
@@ -1817,6 +1830,7 @@ class TestKeyUserPath:
             first_receipt, first_trace = _run_experiment_variant(
                 tmp_path,
                 experiment,
+                rir=_receipt_members(_build_receipt)["rir-semantic-payload"],
                 name=f"{name}-first",
                 invocation_key=first_key,
             )
@@ -1827,6 +1841,7 @@ class TestKeyUserPath:
             second_receipt, second_trace = _run_experiment_variant(
                 tmp_path,
                 experiment,
+                rir=_receipt_members(_build_receipt)["rir-semantic-payload"],
                 name=f"{name}-second",
                 invocation_key=second_key,
             )
@@ -1948,6 +1963,7 @@ class TestKeyUserPath:
         receipt, trace = _run_experiment_variant(
             tmp_path,
             cancellation,
+            rir=_receipt_members(_build_receipt)["rir-semantic-payload"],
             name="explicit-cancellation",
             invocation_key="2" * 64,
         )
@@ -2018,6 +2034,8 @@ class TestKeyUserPath:
             "experiment",
             "run",
             str(specification),
+            "--rir",
+            str(_receipt_members(_build_receipt)["rir-semantic-payload"]),
             "--out",
             str(tmp_path / "cancel-active-root"),
             "--invocation-key",
@@ -2032,7 +2050,6 @@ class TestKeyUserPath:
         )
         assert set(_receipt_members(error["terminal_audit"])) == {
             "evaluator-capability-manifest",
-            "reproduction-receipt",
             "resolved-runtime-profile",
             "runtime-terminal-audit",
         }
@@ -2077,6 +2094,7 @@ class TestKeyUserPath:
         _receipt, trace = _run_experiment_variant(
             tmp_path,
             no_cancellation,
+            rir=_receipt_members(_build_receipt)["rir-semantic-payload"],
             name="no-inferred-defeat",
             invocation_key="4" * 64,
         )
@@ -2112,7 +2130,9 @@ class TestKeyUserPath:
             invocation_key="5" * 64,
         )
         baseline = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
-        _bind_experiment_to_build(baseline, build_receipt)
+        _bind_experiment_to_rir(
+            baseline, _receipt_members(build_receipt)["rir-semantic-payload"]
+        )
         state = {
             row["target"]["name"]: row["value"]
             for row in baseline["scenarios"][0]["assignments"]
@@ -2134,6 +2154,7 @@ class TestKeyUserPath:
             _receipt, trace = _run_experiment_variant(
                 tmp_path,
                 revision,
+                rir=_receipt_members(build_receipt)["rir-semantic-payload"],
                 name=f"combat-action-{index}",
                 invocation_key="6789ab"[index - 1] * 64,
             )
@@ -2198,6 +2219,7 @@ class TestKeyUserPath:
         one_way_receipt, one_way_trace = _run_experiment_variant(
             tmp_path,
             one_way,
+            rir=_receipt_members(_build_receipt)["rir-semantic-payload"],
             name="one-way",
             invocation_key="7" * 64,
         )
@@ -2247,6 +2269,7 @@ class TestKeyUserPath:
         miss_receipt, miss_trace = _run_experiment_variant(
             tmp_path,
             miss,
+            rir=_receipt_members(_build_receipt)["rir-semantic-payload"],
             name="miss",
             invocation_key="8" * 64,
         )
@@ -2265,6 +2288,7 @@ class TestKeyUserPath:
         insufficient_receipt, insufficient_trace = _run_experiment_variant(
             tmp_path,
             insufficient,
+            rir=_receipt_members(_build_receipt)["rir-semantic-payload"],
             name="insufficient-resource",
             invocation_key="9" * 64,
         )
@@ -2300,10 +2324,13 @@ class TestKeyUserPath:
             baseline,
             "example.rpg-combat-cast.selected-site-control",
         )
-        _bind_experiment_to_build(normal, normal_build_receipt)
+        _bind_experiment_to_rir(
+            normal, _receipt_members(normal_build_receipt)["rir-semantic-payload"]
+        )
         normal_receipt, normal_trace = _run_experiment_variant(
             tmp_path,
             normal,
+            rir=_receipt_members(normal_build_receipt)["rir-semantic-payload"],
             name="selected-site-control",
             invocation_key="b" * 64,
         )
@@ -2349,10 +2376,16 @@ class TestKeyUserPath:
             baseline,
             "example.rpg-combat-cast.unselected-literal-site",
         )
-        _bind_experiment_to_build(literal, json.loads(literal_build.stdout))
+        _bind_experiment_to_rir(
+            literal,
+            _receipt_members(json.loads(literal_build.stdout))["rir-semantic-payload"],
+        )
         literal_receipt, literal_trace = _run_experiment_variant(
             tmp_path,
             literal,
+            rir=_receipt_members(json.loads(literal_build.stdout))[
+                "rir-semantic-payload"
+            ],
             name="unselected-literal-site",
             invocation_key="d" * 64,
         )
@@ -2386,6 +2419,7 @@ class TestKeyUserPath:
         baseline_receipt, baseline_trace = _run_experiment_variant(
             tmp_path,
             baseline,
+            rir=_receipt_members(_build_receipt)["rir-semantic-payload"],
             name="baseline-feedback",
             invocation_key="b" * 64,
         )
@@ -2399,12 +2433,11 @@ class TestKeyUserPath:
         tuned_receipt, tuned_trace = _run_experiment_variant(
             tmp_path,
             tuned,
+            rir=_receipt_members(_build_receipt)["rir-semantic-payload"],
             name="tuned-feedback",
             invocation_key="c" * 64,
         )
 
-        assert tuned["kernel_identity"] == baseline["kernel_identity"]
-        assert tuned["language_bundle_identity"] == baseline["language_bundle_identity"]
         assert tuned["model"] == baseline["model"]
         assert tuned["runtime"] == baseline["runtime"]
         assert tuned_trace["content_identity"] != baseline_trace["content_identity"]
@@ -2555,6 +2588,8 @@ class TestKeyUserPath:
                 "experiment",
                 "run",
                 str(specification),
+                "--rir",
+                str(_receipt_members(_build_receipt)["rir-semantic-payload"]),
                 "--out",
                 str(output),
                 "--invocation-key",
@@ -2573,7 +2608,6 @@ class TestKeyUserPath:
             if stage == "runtime":
                 assert set(_receipt_members(error["terminal_audit"])) == {
                     "evaluator-capability-manifest",
-                    "reproduction-receipt",
                     "resolved-runtime-profile",
                     "runtime-terminal-audit",
                 }

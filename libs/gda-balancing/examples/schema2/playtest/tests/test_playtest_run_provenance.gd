@@ -23,11 +23,18 @@ func _run() -> void:
 			"event_trace_identity",
 			"snapshot_series_identity",
 			"metric_dataset_identity",
-			"reproduction_receipt_identity",
 		]:
 			_expect(
 				not str(projected.get(member, "")).is_empty(),
 				"%s provenance includes %s" % [primary_kind, member],
+			)
+	for artifact_name in ["event-trace", "snapshot-series", "metric-dataset"]:
+		for member in ["content_identity", "experiment_identity"]:
+			var mismatched := _provenance_run("evaluation-run")
+			mismatched["artifacts"][artifact_name][member] = "other-identity"
+			_expect(
+				PlaytestRunProvenance.project(mismatched).is_empty(),
+				"%s retains its exact %s binding" % [artifact_name, member],
 			)
 	var incomplete := _provenance_run("evaluation-run")
 	incomplete["artifacts"].erase("metric-dataset")
@@ -55,11 +62,6 @@ func _provenance_run(primary_kind: String) -> Dictionary:
 			"content_identity": "metrics-id",
 			"experiment_identity": "experiment-id",
 		},
-		"reproduction-receipt": {
-			"artifact_kind": "reproduction-receipt",
-			"content_identity": "receipt-id",
-			"experiment_identity": "experiment-id",
-		},
 	}
 	artifacts[primary_kind] = {
 		"artifact_kind": primary_kind,
@@ -68,6 +70,5 @@ func _provenance_run(primary_kind: String) -> Dictionary:
 		"event_trace_identity": "trace-id",
 		"snapshot_series_identity": "snapshots-id",
 		"metric_dataset_identity": "metrics-id",
-		"reproduction_receipt_identity": "receipt-id",
 	}
 	return {"artifacts": artifacts}

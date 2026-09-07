@@ -144,8 +144,8 @@ def test_session_creation_admits_complete_model_and_experiment_values(
     assert created["outcome"] == "success"
     assert created["session_id"]
     assert (
-        created["resolved_model_identity"]
-        == (experiment["model"]["resolved_model_identity"])
+        created["rir_semantic_identity"]
+        == (experiment["model"]["rir_semantic_identity"])
     )
     assert created["revision_id"].startswith("sha256:")
 
@@ -182,7 +182,6 @@ def test_run_returns_the_complete_existing_artifact_set_inline(
         "evaluator-capability-manifest",
         "event-trace",
         "metric-dataset",
-        "reproduction-receipt",
         "resolved-runtime-profile",
         "snapshot-series",
     }
@@ -225,7 +224,7 @@ def test_revision_refusal_leaves_existing_revisions_runnable(
 ) -> None:
     model_source, experiment = _roguelike_documents()
     invalid_revision = deepcopy(experiment)
-    invalid_revision["kernel_identity"] = "sha256:not-the-admitted-kernel"
+    invalid_revision["model"]["rir_semantic_identity"] = "sha256:" + "0" * 64
     service = shared_execution_http_service
     created = service.create_session(model_source, experiment)
 
@@ -238,6 +237,9 @@ def test_revision_refusal_leaves_existing_revisions_runnable(
     assert refused["outcome"] == "refusal"
     assert refused["refusal"]["diagnostics"][0]["code"] == (
         "language.resolved_authority_mismatch"
+    )
+    assert refused["refusal"]["diagnostics"][0]["pointer"] == (
+        "/model/rir_semantic_identity"
     )
     assert rerun["outcome"] == "success"
 
@@ -264,11 +266,11 @@ def test_each_run_explicitly_selects_one_immutable_revision(
     assert later_revision["created"] is True
     assert later_revision["revision_id"] != created["revision_id"]
     assert (
-        first_run["artifacts"]["reproduction-receipt"]["experiment_identity"]
+        first_run["artifacts"]["resolved-runtime-profile"]["experiment_identity"]
         == created["revision_id"]
     )
     assert (
-        later_run["artifacts"]["reproduction-receipt"]["experiment_identity"]
+        later_run["artifacts"]["resolved-runtime-profile"]["experiment_identity"]
         == later_revision["revision_id"]
     )
 
@@ -361,22 +363,31 @@ def test_admitted_revisions_detach_from_caller_owned_values() -> None:
 
     created = sessions.create(model_source, experiment)
     assert isinstance(created, ExecutionSessionCreated)
+    expected_initial_run = sessions.run(created.session_id, created.revision_id)
     model_source.clear()
     experiment["seed"]["value"] = baseline_seed + 100
 
     initial_run = sessions.run(created.session_id, created.revision_id)
-    initial_receipt = initial_run.members["reproduction-receipt"].value
-    assert initial_receipt["seed_value"] == baseline_seed
+    assert initial_run.members == expected_initial_run.members
+    assert (
+        initial_run.members["resolved-runtime-profile"].value["experiment_identity"]
+        == created.revision_id
+    )
 
     later_experiment = deepcopy(experiment)
     later_experiment["seed"]["value"] = baseline_seed + 1
     admitted = sessions.admit_revision(created.session_id, later_experiment)
     assert isinstance(admitted, ExperimentRevisionAdmitted)
+    expected_later_run = sessions.run(created.session_id, admitted.revision_id)
     later_experiment["seed"]["value"] = baseline_seed + 200
 
     later_run = sessions.run(created.session_id, admitted.revision_id)
-    later_receipt = later_run.members["reproduction-receipt"].value
-    assert later_receipt["seed_value"] == baseline_seed + 1
+    assert later_run.members == expected_later_run.members
+    assert (
+        later_run.members["resolved-runtime-profile"].value["experiment_identity"]
+        == admitted.revision_id
+    )
+    assert admitted.revision_id != created.revision_id
 
 
 def test_closed_request_schema_rejects_unknown_members_before_application() -> None:
@@ -826,7 +837,7 @@ def test_sessions_do_not_share_revision_state(
     )
 
     assert first["session_id"] != second["session_id"]
-    assert first["resolved_model_identity"] == second["resolved_model_identity"]
+    assert first["rir_semantic_identity"] == second["rir_semantic_identity"]
     assert status == 404
     assert error["error"]["code"] == "unknown_experiment_revision"
 
@@ -873,7 +884,7 @@ def test_disconnected_run_has_no_durable_result_and_can_be_rerun(
     assert service.process.poll() is None
     assert rerun["outcome"] == "success"
     assert (
-        rerun["artifacts"]["reproduction-receipt"]["experiment_identity"]
+        rerun["artifacts"]["resolved-runtime-profile"]["experiment_identity"]
         == created["revision_id"]
     )
 
@@ -1210,7 +1221,6 @@ def test_metric_rejection_returns_a_complete_verdict_artifact_set(
         "event-trace",
         "experiment-verdict",
         "metric-dataset",
-        "reproduction-receipt",
         "resolved-runtime-profile",
         "snapshot-series",
     }
@@ -1240,7 +1250,6 @@ def test_runtime_refusal_returns_existing_terminal_audit_artifacts(
     )
     assert set(run["artifacts"]) == {
         "evaluator-capability-manifest",
-        "reproduction-receipt",
         "resolved-runtime-profile",
         "runtime-terminal-audit",
     }

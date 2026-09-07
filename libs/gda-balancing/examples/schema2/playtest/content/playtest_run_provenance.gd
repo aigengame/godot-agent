@@ -26,7 +26,6 @@ static func project(run_result: Dictionary) -> Dictionary:
 		"event-trace": "event_trace_identity",
 		"snapshot-series": "snapshot_series_identity",
 		"metric-dataset": "metric_dataset_identity",
-		"reproduction-receipt": "reproduction_receipt_identity",
 	}
 	var projected := {
 		"primary_artifact_kind": primary_name,
