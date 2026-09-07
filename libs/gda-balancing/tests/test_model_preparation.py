@@ -442,7 +442,7 @@ def test_checked_request_and_all_artifact_outputs_are_isolated_from_mutation():
     assert _artifact_bytes(checked) == expected
 
 
-@pytest.mark.parametrize("limit", [374, 375, 376])
+@pytest.mark.parametrize("limit", [372, 373, 374, 375, 376])
 def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
     kernel, language_bundle = mutable_authorities()
     language_bundle["resources"]["max_runtime_projection_steps"] = limit
@@ -464,7 +464,7 @@ def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
             artifacts = _artifact_bytes(checked)
             assert artifacts
 
-    if limit == 374:
+    if limit < 375:
         assert isinstance(checked, Schema2RefusalReport)
         assert checked.model_dump(mode="json") == {
             "stage": "static",
