@@ -995,6 +995,110 @@ def test_a_hand_ordered_file_reports_the_engine_reordering_it(tmp_path):
     assert text.index("[debug]") < text.index("[zsection]")
 
 
+# --- what the file SAYS versus what a second recognizer read (PR #898, round 3) -
+#
+# Three spellings the engine reads one way and gda read another, each proven by a
+# FRESH engine launch after the write — `project get` / `project list` in a new
+# process, never the reply of the `set` that made the change. Each one made a
+# SUCCESSFUL `project set` leave the project saying something the caller did not
+# ask for.
+
+
+def _customized(gda) -> set[str]:
+    """The setting names a fresh engine reads as DECLARED in project.godot.
+
+    `project list` derives them by re-parsing the file with the engine's own
+    ConfigFile (`_customized_settings`), so it answers what the file says after
+    the restore, not what gda thinks it wrote.
+    """
+    return {entry["setting"] for entry in gda.json("project", "list")["settings"]}
+
+
+@pytest.mark.e2e
+def test_a_header_spelling_inside_a_value_does_not_move_a_restored_line(tmp_path):
+    # `String::c_escape_multiline` escapes only `\` and `"`, so the engine writes a
+    # multi-line String back with its newlines LITERAL — a value can hold a line
+    # spelled exactly like a section header. gda's restore rescanned the raw lines
+    # for `[debug]`, found the one inside the description, and wrote the dropped
+    # declaration into `[application]` instead: `restored_settings` named the
+    # setting while the file declared a different one.
+    project = tmp_path / "multiline"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(extra='config/description="line one\n[debug]\nline three"'),
+        encoding="utf-8",
+    )
+    gda = Gda(project, json_output=True)
+
+    data = gda.json("project", "set", "application/config/name", "--value", "renamed")
+
+    assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING]
+    assert data["added_settings"] == ["application/config/features"]
+    # What the fresh engine reads back: the restored line is in the section it came
+    # from, and no stray copy of it landed in [application].
+    customized = _customized(gda)
+    assert _DEFAULT_EQUAL_SETTING in customized
+    assert "application/file_logging/enable_file_logging" not in customized
+    assert gda.json("project", "get", _DEFAULT_EQUAL_SETTING)["value"] is False
+    # The value that only LOOKS like a header is untouched, and the request landed.
+    described = gda.json("project", "get", "application/config/description")
+    assert described["value"] == "line one\n[debug]\nline three"
+    assert gda.json("project", "get", "application/config/name")["value"] == "renamed"
+
+
+@pytest.mark.e2e
+def test_a_bare_key_holding_a_space_is_the_key_the_engine_reads(tmp_path):
+    # `parse_tag_assign_eof` accumulates only characters of code > 32, so the
+    # engine reads `foo bar=false` as the setting `zsection/foobar`. gda kept the
+    # space, saw a second setting the save had "dropped", and restored the old
+    # declaration UNDER the value `project set` had just written — a successful
+    # write whose value read back false on the next launch.
+    project = tmp_path / "barekey"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(extra="[zsection]\n\nfoo bar=false"), encoding="utf-8"
+    )
+    gda = Gda(project, json_output=True)
+
+    data = gda.json("project", "set", "zsection/foobar", "--value", "true")
+
+    assert data["value"] is True
+    assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING]
+    # The fresh engine reads the value the write asked for, once and only once.
+    assert gda.json("project", "get", "zsection/foobar")["value"] is True
+    text = (project / "project.godot").read_text(encoding="utf-8")
+    assert "foo bar=false" not in text
+
+
+@pytest.mark.e2e
+def test_a_six_digit_escaped_key_is_restored_like_any_other(tmp_path):
+    # `VariantParser::get_token` reads SIX hex digits after `\U`, so
+    # `"\U000066ile_logging/enable_file_logging"` IS
+    # `file_logging/enable_file_logging`. gda demanded eight, could not name the
+    # key, and left it out of the comparison — the save dropped the declaration and
+    # the report said nothing was restored.
+    project = tmp_path / "escaped"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot().replace(
+            f"{_DEFAULT_EQUAL_LINE}\n",
+            '"\\U000066ile_logging/enable_file_logging"=false\n',
+        ),
+        encoding="utf-8",
+    )
+    gda = Gda(project, json_output=True)
+
+    data = gda.json("project", "set", "application/config/name", "--value", "renamed")
+
+    assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING]
+    # The fresh engine still reads the declaration — in its original spelling, put
+    # back verbatim rather than re-authored.
+    assert _DEFAULT_EQUAL_SETTING in _customized(gda)
+    assert gda.json("project", "get", _DEFAULT_EQUAL_SETTING)["value"] is False
+    text = (project / "project.godot").read_text(encoding="utf-8")
+    assert '"\\U000066ile_logging/enable_file_logging"=false' in text
+
+
 @pytest.mark.e2e
 def test_a_bounded_write_renders_its_report_for_a_human(godot_project):
     written = Gda(godot_project)(

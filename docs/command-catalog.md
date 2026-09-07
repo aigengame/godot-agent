@@ -1116,8 +1116,12 @@ restores lines into what it wrote. A **byte-order mark**: Godot's reader does no
 the engine reads the marked first key as a setting of its own and leaves a permanent duplicate
 (`"ï»¿config_version"=5`) beside the `config_version=5` its writer always emits — gda reports it
 under `added_settings` and does not remove it, because it is a setting the file now declares. And
-a key whose spelling gda cannot decode (a quoted, escaped name it does not recognize) is excluded
-from every comparison, so it is neither restored nor reported — near-unreachable, since the
+a key whose spelling gda cannot decode is excluded from every comparison, so it is neither
+restored nor reported. That decoder mirrors `VariantParser`'s tokenizer — four hex digits after
+`\u`, SIX after `\U`, every other escape standing for the character it precedes, and a bare key
+dropping every character of code 32 or less (`parse_tag_assign_eof` accumulates only `c > 32`, so
+`foo bar` IS `foobar`) — so what stays refused is what the engine refuses the whole FILE for: a
+truncated or non-hex escape, an unpaired UTF-16 surrogate. Near-unreachable either way, since the
 engine's own `property_name_encode` escapes only `\\` and `\"`. A file gda cannot read on either
 side, or a run with no project resolved, rewrites nothing and reports the four keys as they are
 declared — empty — which on that one path means **unknown**, not "nothing changed": gda has no
@@ -1129,8 +1133,13 @@ then crashed or timed out has already dropped the declarations and gets them bac
 envelope is the operation's own, unchanged — so on that path the repair is not reported, and a
 file the engine left half-written is restored into as it stands, since that is not detectable
 from outside. A restore gda cannot write is itself `save_failed` (exit 4), naming the
-declarations to put back by hand; if the operation had already failed, its envelope stands
-instead.
+declarations to put back by hand; a restore gda REFUSES because `project.godot` changed on disk
+after the engine wrote it is `file_changed_externally` (exit 4), which names them too and leaves
+the other writer's file exactly as it found it. The restore is an optimistic, atomic replace of
+the engine's output (ADR-0018 Decision 4, the guarantee the scene/script writers already give):
+staged in a sibling file, re-checked against the target's mtime and size, and committed with one
+rename — a reader sees the engine's output or the restored file, never a half-written one. If the
+operation had already failed, its envelope stands instead.
 
 | Command | Description |
 | --- | --- |

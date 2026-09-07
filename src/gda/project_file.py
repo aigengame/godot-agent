@@ -17,7 +17,7 @@ human or a tool wrote rather than on the engine's merged view of them:
   writes the sections in its own (alphabetical) order.
 
 Those three grew three partial readers. This module is the one they share (#843):
-the line primitives (:func:`split_config`, :func:`strip_comment`,
+the line primitives (:func:`split_config`, :func:`config_line`,
 :func:`section_name`, …) plus the entry scan (:func:`read_config_text`) that
 turns a text into its ``section``/``key``/``value`` assignments — each carrying
 the RAW lines it spans, so a caller can put an entry back exactly as it was
@@ -28,45 +28,59 @@ is the literal text, never a decoded Variant. Decoding is the engine's job and
 gda has no business re-implementing ``VariantParser``; every consumer here either
 compares value TEXT or hands the line back verbatim.
 
-**Multi-line values.** ``ConfigFile`` values may span lines — an ``input/<action>``
-entry is a ``Dictionary`` the engine writes across several. The scan tracks
-bracket depth outside quotes, so such an entry is ONE entry rather than a key
-followed by fragments that look like nothing at all.
+**One lexical scan owns every boundary.** ``ConfigFile`` values may span lines: an
+``input/<action>`` entry is a ``Dictionary`` the engine writes across several, and
+a quoted string may hold a LITERAL newline (``VariantParser::get_token`` just
+counts the line and reads on). :func:`_scan_line` carries the quote, escape and
+bracket state from one line to the next, so a value continues while a string is
+open or a bracket is unclosed, and a ``[looks_like_a_header]`` line INSIDE a
+quoted value is not a section. :func:`read_config_text` records what that one scan
+found — every section header's line index (:class:`ConfigHeader`) and every
+entry's lines — and the restore below consumes those recordings rather than
+rescanning the raw text. A SECOND recognizer without the same state is the defect
+this replaces: a ``[debug]`` inside a description made the restore write a dropped
+line into the wrong section, and a successful ``project set`` then read back its
+OLD value (PR #898 review, round 3).
 
-**Undecodable keys.** A key may be quoted and escaped
-(``String::property_name_encode``). :func:`config_key` decodes the escapes it
-knows and returns ``None`` for anything else, and an entry gda cannot name is
-excluded from every comparison — a key wrongly believed to be two different keys
-is how a "restore" would write a second, duplicate line for a setting that is
-already there.
+**Key spellings.** :func:`config_key` mirrors the engine on both forms a key can
+take. Quoted (``String::property_name_encode``), it is decoded exactly as
+``VariantParser``'s string tokenizer decodes it — ``\\uXXXX`` four hex digits,
+``\\UXXXXXX`` SIX, every other escape standing for the character it precedes.
+Bare, every character of code 32 or less is DROPPED, because
+``parse_tag_assign_eof`` accumulates only ``c > 32``: the engine reads
+``foo bar=1`` as the key ``foobar``. gda still returns ``None`` for a spelling it
+cannot decode with certainty, and an entry gda cannot name is excluded from every
+comparison — a key wrongly believed to be two different keys is how a "restore"
+writes a second, duplicate line for a setting that is already there.
 """
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 # The engine's comment character, and the file's own bracket pairs. A ``;``
 # outside quotes starts a comment (Godot's ``VariantParser`` tokenizer); the
-# brackets are what makes a value span lines.
+# brackets, and an open quoted string, are what makes a value span lines.
 _COMMENT = ";"
 _OPENING = "([{"
 _CLOSING = ")]}"
 
-# The escapes ``String::c_escape_multiline`` emits, decoded back. ``\\uXXXX`` is
-# handled separately (it carries digits); anything not listed here makes a key
-# undecodable rather than silently mis-decoded.
+# The escapes ``VariantParser::get_token`` gives a meaning of their own inside a
+# quoted string. Everything else — ``\\'``, ``\\"``, ``\\\\``, ``\\/`` and any
+# unknown letter — falls to the engine's ``default: res = next``, which is the
+# character itself; ``\\u`` and ``\\U`` are handled separately (they carry digits).
+# Note what is NOT here: the engine's tokenizer knows no ``\\a`` or ``\\v``, so
+# those two mean a literal ``a`` and ``v`` (``String::c_unescape`` does know them,
+# but ``ConfigFile`` does not go through it).
 _ESCAPES = {
-    "a": "\a",
     "b": "\b",
-    "f": "\f",
-    "n": "\n",
-    "r": "\r",
     "t": "\t",
-    "v": "\v",
-    "'": "'",
-    '"': '"',
-    "\\": "\\",
-    "/": "/",
+    "n": "\n",
+    "f": "\f",
+    "r": "\r",
 }
+
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 
 # The name of the file's leading, SECTION-LESS keys (``config_version``). Godot
 # writes them before the first ``[section]`` header and addresses them by their
@@ -102,10 +116,53 @@ def split_config(text: str) -> tuple[list[str], str, str]:
     return text.splitlines(), eol, eol if text.endswith(("\n", "\r")) else ""
 
 
-def strip_comment(line: str) -> str:
-    """``line`` up to a ``;`` comment outside double quotes (Godot's comment char)."""
-    quoted = False
-    escaped = False
+@dataclass(frozen=True)
+class _Scan:
+    """The lexical state one config line hands to the next.
+
+    ``quoted`` is a double-quoted string still open at the end of the line — the
+    engine reads the newline as part of it — and ``depth`` the brackets still
+    unclosed. Either one means the value is not finished. ``escaped`` never
+    survives a line: a trailing backslash escapes the line's own terminator, so
+    :func:`_scan_line` always returns it cleared.
+    """
+
+    quoted: bool = False
+    escaped: bool = False
+    depth: int = 0
+
+    @property
+    def open(self) -> bool:
+        """Whether a value started on this line continues onto the next."""
+        return self.quoted or self.depth > 0
+
+
+@dataclass(frozen=True)
+class _Lexed:
+    """What one pass over a config line found: its content, its state, its ``=``.
+
+    ``content`` is the line up to a ``;`` comment (the whole line when it has
+    none), ``state`` what a following line inherits, and ``assign`` the index —
+    into the line, not into ``content`` — of the first assignment ``=`` outside
+    quotes, or ``None`` when the line makes no assignment.
+    """
+
+    content: str
+    state: _Scan
+    assign: int | None
+
+
+def _scan_line(line: str, state: _Scan) -> _Lexed:
+    """Read one config line as Godot's tokenizer would, continuing ``state``.
+
+    The ONE character-level recognizer in this module: comments, quoted strings,
+    escapes, brackets and the assignment ``=`` are all decided here, so nothing
+    else has to keep (or forget) the same state. A ``;`` inside an open string is
+    not a comment, a ``"`` inside a comment is never reached, and a bracket inside
+    a string does not count.
+    """
+    quoted, escaped, depth = state.quoted, state.escaped, state.depth
+    assign: int | None = None
     for index, char in enumerate(line):
         if escaped:
             escaped = False
@@ -113,26 +170,54 @@ def strip_comment(line: str) -> str:
             escaped = True
         elif char == '"':
             quoted = not quoted
-        elif char == _COMMENT and not quoted:
-            return line[:index]
-    return line
+        elif quoted:
+            continue
+        elif char == _COMMENT:
+            return _Lexed(line[:index], _Scan(False, False, depth), assign)
+        elif char == "=" and assign is None:
+            assign = index
+        elif char in _OPENING:
+            depth += 1
+        elif char in _CLOSING:
+            depth -= 1
+    return _Lexed(line, _Scan(quoted, False, depth), assign)
 
 
-def is_section_header(stripped: str) -> bool:
-    """Whether a stripped config line is an INI section header (``[name]``)."""
-    return stripped.startswith("[") and stripped.endswith("]")
+def strip_comment(line: str) -> str:
+    """``line`` up to a ``;`` comment outside double quotes (Godot's comment char)."""
+    return _scan_line(line, _Scan()).content
+
+
+def config_line(raw: str) -> str:
+    """A RAW config line reduced to what Godot's parser reads on it.
+
+    The comment gone and the surrounding whitespace trimmed. This is the one
+    reduction every recognizer applies — here and in the harness installer, which
+    consumes it per line — so a header written ``[autoload] ; note`` is the
+    autoload section to all of them. Two reducers, one of which skipped the
+    comment, is how an install appended a SECOND ``[autoload]`` section next to a
+    commented one (PR #898 review, round 3).
+    """
+    return strip_comment(raw).strip()
+
+
+def is_section_header(line: str) -> bool:
+    """Whether a config line is an INI section header (``[name]``)."""
+    reduced = config_line(line)
+    return reduced.startswith("[") and reduced.endswith("]")
 
 
 def section_name(line: str) -> str | None:
     """The section a ``[name]`` line opens, or ``None`` for any other line."""
-    if is_section_header(line):
-        return line[1:-1].strip()
+    reduced = config_line(line)
+    if is_section_header(reduced):
+        return reduced[1:-1].strip()
     return None
 
 
-def section_of(stripped: str, current: str) -> str:
-    """The active section after a stripped line, or ``current`` if unchanged."""
-    opened = section_name(stripped)
+def section_of(line: str, current: str) -> str:
+    """The active section after a config line, or ``current`` if unchanged."""
+    opened = section_name(line)
     return current if opened is None else opened
 
 
@@ -149,25 +234,44 @@ def config_key(token: str) -> str | None:
 
     ``String::property_name_encode`` quotes and escapes a key holding ``=``,
     ``"``, ``;``, brackets or any non-printable/non-ASCII character, and leaves
-    every other key bare. This decodes the quoted form back so the two spellings
-    of one key compare equal, and refuses — ``None`` — a token it cannot decode
-    with certainty rather than guessing at a name.
+    every other key bare. Both spellings are read the way the engine reads them,
+    so the two spellings of one key compare equal:
+
+    * quoted, the body is decoded by :func:`_unescape`, which mirrors
+      ``VariantParser::get_token``;
+    * bare, every character of code 32 or less is dropped, because
+      ``parse_tag_assign_eof`` only appends ``c > 32`` to the key it is
+      accumulating — ``foo bar`` IS ``foobar`` to the engine, and reading it as a
+      different key made a restore re-declare the setting a ``project set`` had
+      just written (PR #898 review, round 3).
+
+    A token gda cannot decode with certainty is refused — ``None`` — rather than
+    guessed at.
     """
-    token = token.strip()
-    if len(token) >= 2 and token.startswith('"') and token.endswith('"'):
-        return _unescape(token[1:-1])
+    trimmed = token.strip()
+    if len(trimmed) >= 2 and trimmed.startswith('"') and trimmed.endswith('"'):
+        return _unescape(trimmed[1:-1])
     if '"' in token or "\\" in token:
         return None
-    return token
+    return "".join(char for char in token if ord(char) > 32)
 
 
 def _unescape(body: str) -> str | None:
-    """``body`` with its C escapes decoded, or ``None`` on one gda does not know."""
+    """``body`` decoded as ``VariantParser::get_token`` decodes a quoted string.
+
+    ``None`` where the engine's tokenizer would REFUSE the file — a truncated or
+    non-hex ``\\u``/``\\U`` sequence, an unpaired UTF-16 surrogate, a code point
+    outside Unicode — because a key gda cannot name with certainty is better left
+    unnamed than guessed at.
+    """
     out: list[str] = []
+    pending = 0  # a lead surrogate waiting for its trail, as the engine's `prev`
     index = 0
     while index < len(body):
         char = body[index]
         if char != "\\":
+            if pending:
+                return None
             out.append(char)
             index += 1
             continue
@@ -176,63 +280,52 @@ def _unescape(body: str) -> str | None:
             return None
         marker = body[index]
         index += 1
-        if marker in _ESCAPES:
-            out.append(_ESCAPES[marker])
-            continue
         if marker in ("u", "U"):
-            width = 4 if marker == "u" else 8
+            # The engine reads FOUR hex digits after \u and SIX after \U
+            # (`hex_len = (next == 'U') ? 6 : 4`); demanding eight made a valid
+            # declaration unnameable, and the save then dropped it in silence
+            # (PR #898 review, round 3).
+            width = 4 if marker == "u" else 6
             digits = body[index : index + width]
-            if len(digits) != width:
-                return None
-            try:
-                out.append(chr(int(digits, 16)))
-            except ValueError:
+            if len(digits) != width or not all(d in _HEX_DIGITS for d in digits):
                 return None
             index += width
+            code = int(digits, 16)
+        else:
+            code = ord(_ESCAPES.get(marker, marker))
+        if 0xD800 <= code <= 0xDBFF:
+            if pending:
+                return None
+            pending = code
             continue
+        if 0xDC00 <= code <= 0xDFFF:
+            if not pending:
+                return None
+            code = ((pending - 0xD800) << 10) + (code - 0xDC00) + 0x10000
+            pending = 0
+        elif pending:
+            return None
+        try:
+            out.append(chr(code))
+        except ValueError:
+            return None
+    if pending:
         return None
     return "".join(out)
 
 
-def _assignment(stripped: str) -> tuple[str, str] | None:
-    """``stripped`` split at its assignment ``=``, or ``None`` when it has none.
+@dataclass(frozen=True)
+class ConfigHeader:
+    """One ``[name]`` section header, and the line it was found on.
 
-    The first ``=`` OUTSIDE quotes separates key from value, so a quoted key that
-    itself holds one (``"a=b"=1``) is not cut in half.
+    Recorded by the single scan in :func:`read_config_text` so the restore can ask
+    where a section starts and ends without looking at the raw lines again — the
+    raw lines cannot answer that question, because a header spelling inside a
+    multi-line quoted value is not a header.
     """
-    quoted = False
-    escaped = False
-    for index, char in enumerate(stripped):
-        if escaped:
-            escaped = False
-        elif char == "\\" and quoted:
-            escaped = True
-        elif char == '"':
-            quoted = not quoted
-        elif char == "=" and not quoted:
-            return stripped[:index], stripped[index + 1 :]
-    return None
 
-
-def _depth(text: str) -> int:
-    """The net bracket depth ``text`` opens (positive) or closes (negative)."""
-    depth = 0
-    quoted = False
-    escaped = False
-    for char in text:
-        if escaped:
-            escaped = False
-        elif char == "\\" and quoted:
-            escaped = True
-        elif char == '"':
-            quoted = not quoted
-        elif quoted:
-            continue
-        elif char in _OPENING:
-            depth += 1
-        elif char in _CLOSING:
-            depth -= 1
-    return depth
+    index: int
+    name: str
 
 
 @dataclass(frozen=True)
@@ -247,10 +340,12 @@ class ConfigEntry:
     (the main-scene reader defers to the engine on any escaped key).
 
     ``lines`` are the raw lines the entry spans, terminator-free and in file
-    order: the entry as it was WRITTEN, which is what a restore puts back.
-    ``value`` is the value text with comments stripped and the lines of a
-    multi-line value joined, for comparing two spellings of the same assignment
-    — never a decoded Variant (this module parses no Godot values).
+    order — the span the scan recorded, which is the entry as it was WRITTEN and
+    what a restore puts back. ``value`` is the value text with comments stripped
+    and the lines of a multi-line value joined, for comparing two spellings of the
+    same assignment — never a decoded Variant (this module parses no Godot
+    values). A line the value crossed while a quoted string was open keeps its
+    newline and its spaces, because both are inside the string.
     """
 
     section: str
@@ -269,15 +364,31 @@ class ConfigText:
     it did not touch — with one exception, a leading byte-order mark, which
     :data:`_BOM` explains and which no writer here can reintroduce (the only text
     this module writes back is the engine's own, which never carries one).
-    ``sections`` names the sections in FILE order (the section-less head is not
-    one of them), and ``entries`` the assignments in file order.
+    ``headers`` are the section headers the scan found, with the line each sits
+    on; ``sections`` names them in FILE order (the section-less head is not one of
+    them), and ``entries`` holds the assignments in file order.
+
+    ``token`` is the change token of the file this was read FROM — ``st_mtime_ns``
+    and ``st_size``, taken from the same open handle — or ``None`` for a text that
+    came from no file. It is what an optimistic write compares against before it
+    replaces that file (ADR-0018 Decision 4).
     """
 
     lines: tuple[str, ...]
     eol: str
     trailing: str
-    sections: tuple[str, ...]
+    headers: tuple[ConfigHeader, ...]
     entries: tuple[ConfigEntry, ...]
+    token: tuple[int, int] | None = None
+
+    @property
+    def sections(self) -> tuple[str, ...]:
+        """The section names in file order, each once.
+
+        Derived from :attr:`headers` rather than recorded beside it: one scan
+        found them, and one list is what says where they are.
+        """
+        return tuple(dict.fromkeys(header.name for header in self.headers))
 
     def settings(self) -> dict[str, ConfigEntry]:
         """The named entries by setting name; a repeated key keeps the LAST one.
@@ -298,34 +409,42 @@ class ConfigText:
 
 
 def read_config_text(text: str) -> ConfigText:
-    """Scan a ``ConfigFile`` text into its sections and assignments."""
+    """Scan a ``ConfigFile`` text into its sections and assignments.
+
+    ONE pass with ONE state (:func:`_scan_line`). A line is a section header, an
+    assignment, or neither only while no value is open; once a line opens a quoted
+    string or a bracket, the following lines belong to that value however they are
+    spelled. An unterminated string therefore swallows the rest of the file into
+    its entry — which is what the engine does too (it refuses to load the file at
+    all), so gda has nothing truthful to say about such a text either.
+    """
     lines, eol, trailing = split_config(text.removeprefix(_BOM))
-    sections: list[str] = []
+    headers: list[ConfigHeader] = []
     entries: list[ConfigEntry] = []
     section = SECTIONLESS
     index = 0
     while index < len(lines):
-        stripped = strip_comment(lines[index]).strip()
-        opened = section_name(stripped)
+        lexed = _scan_line(lines[index], _Scan())
+        opened = section_name(lexed.content)
         if opened is not None:
             section = opened
-            if section not in sections:
-                sections.append(section)
+            headers.append(ConfigHeader(index=index, name=opened))
             index += 1
             continue
-        assignment = _assignment(stripped) if stripped else None
-        if assignment is None:
+        if lexed.assign is None:
             index += 1
             continue
-        key_token, head = assignment
         start = index
-        value = [head.strip()]
-        depth = _depth(head)
-        while depth > 0 and index + 1 < len(lines):
+        key_token = lexed.content[: lexed.assign]
+        head = lexed.content[lexed.assign + 1 :]
+        state = _scan_line(head, _Scan()).state
+        parts = [head.lstrip() if state.quoted else head.strip()]
+        while state.open and index + 1 < len(lines):
             index += 1
-            part = strip_comment(lines[index])
-            value.append(part.strip())
-            depth += _depth(part)
+            inside = state.quoted
+            continued = _scan_line(lines[index], state)
+            state = continued.state
+            parts.append(_continuation(continued.content, inside, state.quoted))
         key = config_key(key_token)
         entries.append(
             ConfigEntry(
@@ -335,7 +454,7 @@ def read_config_text(text: str) -> ConfigText:
                 else (key if section == SECTIONLESS else f"{section}/{key}"),
                 key_token=key_token.strip(),
                 lines=tuple(lines[start : index + 1]),
-                value="".join(value),
+                value="".join(parts),
             )
         )
         index += 1
@@ -343,22 +462,39 @@ def read_config_text(text: str) -> ConfigText:
         lines=tuple(lines),
         eol=eol,
         trailing=trailing,
-        sections=tuple(sections),
+        headers=tuple(headers),
         entries=tuple(entries),
     )
+
+
+def _continuation(content: str, inside: bool, still_inside: bool) -> str:
+    """One continuation line's contribution to a multi-line value's text.
+
+    Whitespace between the tokens of a ``Dictionary`` written across lines is
+    insignificant and goes; whitespace INSIDE an open quoted string is part of the
+    string and stays, newline included.
+    """
+    if inside:
+        return "\n" + (content if still_inside else content.rstrip())
+    return content.lstrip() if still_inside else content.strip()
 
 
 def read_config(path: Path) -> ConfigText | None:
     """Read and scan a config file, or ``None`` when it cannot be read.
 
-    Newline translation is OFF so a CRLF file stays CRLF (#654). A file gda
-    cannot read or decode yields ``None``: that is not a verdict about its
-    contents, and every caller here treats it as "gda has nothing to say".
+    Newline translation is OFF so a CRLF file stays CRLF (#654). The change token
+    is taken from the SAME open handle the text came from, so it describes exactly
+    the bytes that were scanned. A file gda cannot read or decode yields ``None``:
+    that is not a verdict about its contents, and every caller here treats it as
+    "gda has nothing to say".
     """
     try:
-        return read_config_text(path.read_text(encoding="utf-8", newline=""))
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            text = handle.read()
+            info = os.fstat(handle.fileno())
     except (OSError, UnicodeDecodeError):
         return None
+    return replace(read_config_text(text), token=(info.st_mtime_ns, info.st_size))
 
 
 # --- Bounding what a ``ProjectSettings.save()`` did to the file (#843) ---------
@@ -383,6 +519,30 @@ class ProjectFileRestoreError(Exception):
         self.path = path
         self.settings = settings
         self.error = error
+
+
+class ProjectFileChangedError(Exception):
+    """``project.godot`` moved under gda between the engine's save and the restore.
+
+    The restore is a read-modify-write of the engine's own output, so it takes
+    ADR-0018 Decision 4's optimistic check: the file is re-stat'd against the
+    token recorded when that output was read, and a difference refuses the write
+    instead of clobbering whatever landed there. The engine's write STANDS — it is
+    already on disk and cannot be taken back — so the message says so and names
+    the declarations that were not put back. Like its sibling above it carries no
+    error taxonomy; ``gda.commands.project`` maps it to
+    :term:`Gda error code` ``file_changed_externally``.
+    """
+
+    def __init__(self, path: Path, settings: tuple[str, ...]) -> None:
+        super().__init__(
+            f"the engine's write to {path} stands, but gda refused to restore the "
+            f"declarations that save dropped: the file changed on disk after the "
+            f"engine wrote it (a concurrent editor may have edited it). "
+            f"NOT restored: {', '.join(settings)}"
+        )
+        self.path = path
+        self.settings = settings
 
 
 @dataclass(frozen=True)
@@ -424,8 +584,9 @@ def bound_project_write(
     A file gda could not read on either side leaves the mutation empty and the
     file untouched: with nothing to compare against, a "restore" would be a guess.
     Raises :class:`ProjectFileRestoreError` when the restored text cannot be
-    written — the one IO here that can fail after the engine has already changed
-    the file.
+    written and :class:`ProjectFileChangedError` when the file changed under gda
+    since the engine wrote it — the one IO here that can fail after the engine has
+    already changed the file.
     """
     after = read_config(path)
     if before is None or after is None:
@@ -451,10 +612,7 @@ def bound_project_write(
     if dropped:
         text = _restored(after, [entry for _, entry in dropped])
         sections = read_config_text(text).sections
-        try:
-            path.write_text(text, encoding="utf-8", newline="")
-        except OSError as error:
-            raise ProjectFileRestoreError(path, restored, error) from error
+        _replace_file(path, text, after.token, restored)
     return ProjectWriteMutation(
         added=added,
         rewritten=rewritten,
@@ -483,44 +641,110 @@ def _reordered(before: tuple[str, ...], after: tuple[str, ...]) -> bool:
 
 
 def _restored(after: ConfigText, dropped: list[ConfigEntry]) -> str:
-    """``after``'s text with each dropped entry written back into its section."""
-    lines = list(after.lines)
+    """``after``'s text with each dropped entry written back into its section.
+
+    Every position comes from the boundaries the scan RECORDED for ``after``
+    (:attr:`ConfigText.headers`), computed before a single line moves, so the
+    insertions cannot shift each other's targets and no line is read as a header
+    twice. Entries whose section the save emptied away share one re-opened section
+    at the end of the file.
+    """
+    inserted: dict[int, list[str]] = {}
+    reopened: dict[str, list[str]] = {}
     for entry in dropped:
-        lines = _insert(lines, entry)
+        end = _section_end(after, entry.section)
+        if end is None:
+            reopened.setdefault(entry.section, []).extend(entry.lines)
+        else:
+            inserted.setdefault(end, []).extend(entry.lines)
+    lines: list[str] = []
+    for index, raw in enumerate(after.lines):
+        lines.extend(inserted.get(index, ()))
+        lines.append(raw)
+    lines.extend(inserted.get(len(after.lines), ()))
+    for section, body in reopened.items():
+        # The blank separator the engine's own writer puts between two sections.
+        separator = [] if not lines or not lines[-1].strip() else [""]
+        lines.extend([*separator, f"[{section}]", "", *body])
     return after.eol.join(lines) + after.trailing
 
 
-def _insert(lines: list[str], entry: ConfigEntry) -> list[str]:
-    """``lines`` with ``entry`` restored at the end of the section it came from.
+def _section_end(config: ConfigText, section: str) -> int | None:
+    """The line index a restored entry of ``section`` is inserted BEFORE.
 
-    A section the engine no longer writes is re-opened at the end of the file,
-    with the blank separator its own writer puts between two sections. The
-    section-less head always exists (it is the file's beginning), so only a named
-    section can be missing.
+    The end of the section's keys, with its trailing blank lines left below the
+    restored entry. ``None`` says the text has no such section, and the caller
+    re-opens one. The section-less head always exists (it is the file's
+    beginning), so only a named section can be missing.
     """
-    span = _section_span(lines, entry.section)
-    if span is None:
-        separator = [] if not lines or not lines[-1].strip() else [""]
-        return [*lines, *separator, f"[{entry.section}]", "", *entry.lines]
-    start, end = span
-    while end > start and not lines[end - 1].strip():
+    headers = config.headers
+    if section == SECTIONLESS:
+        start = 0
+        end = headers[0].index if headers else len(config.lines)
+    else:
+        found = next(
+            (at for at, header in enumerate(headers) if header.name == section), None
+        )
+        if found is None:
+            return None
+        start = headers[found].index + 1
+        end = (
+            headers[found + 1].index if found + 1 < len(headers) else len(config.lines)
+        )
+    while end > start and not config.lines[end - 1].strip():
         end -= 1
-    return [*lines[:end], *entry.lines, *lines[end:]]
+    return end
 
 
-def _section_span(lines: list[str], section: str) -> tuple[int, int] | None:
-    """The ``[start, end)`` line range of ``section``, or ``None`` when absent.
+def _replace_file(
+    path: Path, text: str, token: tuple[int, int] | None, settings: tuple[str, ...]
+) -> None:
+    """Put ``text`` in place of ``path`` atomically, refusing a file that moved.
 
-    The range covers the section's keys, not its header: for the section-less
-    head it starts at line 0 and ends at the first header, so it is always found.
+    ADR-0018 Decision 4 on the CLI side of a headless write, the same guarantee
+    ``operations.gd`` gives its own read-modify-write ops: the new text is staged
+    in a sibling temporary file, the target is re-stat'd against ``token`` — the
+    ``st_mtime_ns`` and ``st_size`` recorded when the engine's output was read —
+    and only a match is committed, with a single ``os.replace``. A reader
+    therefore sees the old file or the new one, never a truncated
+    ``project.godot``, and a file some other writer touched in the meantime is
+    left exactly as that writer left it. A text gda holds no token for is refused
+    too: the restore goes onto the file it measured or onto none.
     """
-    start: int | None = 0 if section == SECTIONLESS else None
-    for index, raw in enumerate(lines):
-        opened = section_name(strip_comment(raw).strip())
-        if opened is None:
-            continue
-        if start is not None:
-            return start, index
-        if opened == section:
-            start = index + 1
-    return None if start is None else (start, len(lines))
+    temp = path.with_name(f"{path.name}.gda-restore.{os.getpid()}.tmp")
+    try:
+        temp.write_text(text, encoding="utf-8", newline="")
+        os.chmod(temp, os.stat(path).st_mode & 0o777)
+    except OSError as error:
+        _discard(temp)
+        raise ProjectFileRestoreError(path, settings, error) from error
+    if token is None or _change_token(path) != token:
+        _discard(temp)
+        raise ProjectFileChangedError(path, settings)
+    try:
+        os.replace(temp, path)
+    except OSError as error:
+        _discard(temp)
+        raise ProjectFileRestoreError(path, settings, error) from error
+
+
+def _change_token(path: Path) -> tuple[int, int] | None:
+    """``path``'s (mtime, size) change token, or ``None`` when it cannot be read.
+
+    The pair, not the mtime alone: a coarse filesystem clock can hide a same-tick
+    edit that the size still shows — the reasoning ``operations.gd``'s own
+    staleness guard is built on.
+    """
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return info.st_mtime_ns, info.st_size
+
+
+def _discard(temp: Path) -> None:
+    """Remove a staged file, leaving no residue beside ``project.godot``."""
+    try:
+        temp.unlink(missing_ok=True)
+    except OSError:
+        pass

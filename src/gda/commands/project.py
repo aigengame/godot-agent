@@ -39,6 +39,7 @@ from gda.models import (
 )
 from gda.project import PROJECT_MARKER
 from gda.project_file import (
+    ProjectFileChangedError,
     ProjectFileRestoreError,
     bound_project_write,
     read_config,
@@ -503,6 +504,12 @@ def _bounded_write(
     and a repair the result cannot mention is still a repair. A file the engine
     left half-written is not detectable from outside, so the restore writes into
     whatever it finds there.
+
+    The restore itself is an optimistic, atomic replace of the engine's output
+    (ADR-0018 Decision 4): a file that changed between that output being read
+    and the restore being committed is left alone and reported as
+    `file_changed_externally`, so a concurrent editor's edit is never
+    clobbered by the repair.
     """
     marker = None if project is None else project / PROJECT_MARKER
     before = None if marker is None else read_config(marker)
@@ -515,16 +522,26 @@ def _bounded_write(
         return outcome
     try:
         mutation = bound_project_write(marker, before, addressed=addressed)
-    except ProjectFileRestoreError as exc:
-        # The engine reserialized the file and gda could not write the
-        # declarations back. An operation that ALSO failed keeps its own envelope
-        # — that failure is the caller's first problem, and this one would
-        # displace it; otherwise the write is what failed, so the result becomes
-        # one. `save_failed` is reused by semantic match, the reuse the code
-        # registry describes: a project file gda could not save.
+    except (ProjectFileChangedError, ProjectFileRestoreError) as exc:
+        # The engine reserialized the file and gda did not get the declarations
+        # back into it. An operation that ALSO failed keeps its own envelope —
+        # that failure is the caller's first problem, and this one would displace
+        # it; otherwise the write is what failed, so the result becomes one.
+        # WHICH code depends on why the restore did not land, because the two ask
+        # different things of the caller: a refused write is a file to make
+        # writable (`save_failed`, reused by semantic match — the reuse the code
+        # registry describes: a project file gda could not save), while a file
+        # that moved under gda is another writer to reconcile with
+        # (`file_changed_externally`, ADR-0018 Decision 4 — the same verdict
+        # `operations.gd` reports for its own read-modify-write ops).
         if isinstance(outcome, Failure):
             return outcome
-        return make_failure("save_failed", str(exc), "")
+        code = (
+            "file_changed_externally"
+            if isinstance(exc, ProjectFileChangedError)
+            else "save_failed"
+        )
+        return make_failure(code, str(exc), "")
     if isinstance(outcome, Failure):
         return outcome
     return outcome.model_copy(

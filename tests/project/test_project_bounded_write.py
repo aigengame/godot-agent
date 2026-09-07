@@ -24,7 +24,7 @@ from gda.commands.project import (
     PROJECT_REMOVE_INPUT_ACTION_COMMAND,
     PROJECT_SET_COMMAND,
 )
-from gda.project_file import ProjectFileRestoreError
+from gda.project_file import ProjectFileChangedError, ProjectFileRestoreError
 from gda.runner import RunResult
 from tests.support import ENGINE_BANNER, FakeRunner, error_sentinel, sentinel
 
@@ -475,6 +475,30 @@ def test_a_restore_that_cannot_be_written_fails_the_command(monkeypatch, tmp_pat
     assert result.exit_code == 4
     error = json.loads(result.stdout)["error"]
     assert error["code"] == "save_failed"
+    assert "debug/x" in error["message"]
+
+
+def test_a_restore_refused_by_an_external_change_reports_that_instead(
+    monkeypatch, tmp_path
+):
+    # The other half of the same seam: gda did not FAIL to write, it declined to,
+    # because the file moved after the engine wrote it (ADR-0018 Decision 4). The
+    # caller has another writer to reconcile with rather than a file to make
+    # writable, so the code is the one the read-modify-write ops already report.
+    def _raise(path, before, *, addressed):
+        raise ProjectFileChangedError(path, ("debug/x",))
+
+    monkeypatch.setattr("gda.commands.project.bound_project_write", _raise)
+
+    result, _, _ = invoke_write(
+        monkeypatch,
+        tmp_path,
+        ["project", "set", "application/config/name", "--value", "fixture", "--json"],
+    )
+
+    assert result.exit_code == 4
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "file_changed_externally"
     assert "debug/x" in error["message"]
 
 
